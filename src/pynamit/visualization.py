@@ -1,33 +1,52 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import polplot
 import cartopy.crs as ccrs
 
-def globalplot(lon, lat, data, central_longitude = 0, scatter = False, **kwargs):
+def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     fig = plt.figure(figsize=(10, 10))
     
-    projections = [
-        ccrs.Orthographic(central_longitude = central_longitude, central_latitude=-90),  # North Pole
-        ccrs.Orthographic(central_longitude = central_longitude, central_latitude=-90),  # South Pole
-        ccrs.Mollweide(   central_longitude = central_longitude)  # Global
-    ]
+    title = kwargs.pop('title')
+    save = kwargs.pop('save')
+
+    # global plot:
+    global_projection = ccrs.Mollweide(   central_longitude = noon_longitude)
+    ax = fig.add_subplot(2, 1, 2, projection = global_projection)    
+    ax.coastlines(zorder = 2, color = 'grey')
+    if scatter:
+        ax.scatter(lon, lat, c = data, transform = ccrs.PlateCarree(), **kwargs)
+    else:
+        ax.contourf(lon, lat, data, transform = ccrs.PlateCarree(), **kwargs)
     
-    titles = ['North Pole View', 'South Pole View', 'Global View (Mollweide Projection)']
-    
-    for i, (projection, title) in enumerate(zip(projections, titles)):
-        if i < 2:  # For the polar views, set_global() to limit the map to the polar regions
-            ax = fig.add_subplot(2, 2, i+1, projection = projections[i])
-            ax.set_global()
-        else:
-            ax = fig.add_subplot(2, 1, 2, projection = projections[2])
-        ax.coastlines(zorder = 2, color = 'grey')
-        if scatter:
-            ax.scatter(lon, lat, c = data, transform = ccrs.PlateCarree(), **kwargs)
-        else:
-            ax.contourf(lon, lat, data, transform = ccrs.PlateCarree(), **kwargs)
+    if title != None:
         ax.set_title(title)
 
+    pax1 = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat = 50)
+    pax2 = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat = 50)
+
+    lon = lon - noon_longitude + 180
+
+    iii = lat > 50
+    if scatter:
+        pax1.scatter(lat[iii],  lon[iii] / 15, c = data[iii], **kwargs)
+    else:
+        pax1.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+    pax1.ax.set_title('North')
+
+    iii = lat < -50
+    if scatter:
+        pax2.scatter(lat[iii], lon[iii] / 15, c = data[iii], **kwargs)
+    else:
+        pax2.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+    pax2.ax.set_title('South')
+
+
     plt.tight_layout()
-    plt.show()
+
+    if save != None:
+        plt.savefig(save)
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":

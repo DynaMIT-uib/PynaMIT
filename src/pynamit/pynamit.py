@@ -14,13 +14,19 @@ csp = cubedsphere.CSprojection() # cubed sphere projection object
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
 
-def B0_default(r, theta, phi):
+def B0_radial(r, theta, phi):
     r, theta, phi = np.broadcast_arrays(r, theta, phi)
     size = r.size
     zeros, ones = np.zeros(size), np.ones(size)
     return(np.vstack((ones, zeros, zeros)))
 
-
+dd = dipole.Dipole(2020)
+def B0_dipole(r, theta, phi):
+    r, theta, phi = np.broadcast_arrays(r, theta, phi)
+    r, theta, phi = r.flatten(), theta.flatten(), phi.flatten()
+    size = r.size
+    Bn, Br = dd.B(90 - theta, r * 1e-3)
+    return(np.vstack((Br, -Bn, np.zeros(r.size))))
 
 
 class I2D(object):
@@ -42,9 +48,9 @@ class I2D(object):
 
         """
         self.RI = RI
+        self.Nmax, self.Mmax = Nmax, Mmax
 
-        if B0 is None:
-            self.B0 = B0_default
+        self.B0 = B0_default if B0 is None else B0
 
         # Define CS grid used for SH analysis and gradient calculations
         k, i, j = csp.get_gridpoints(Ncs)
@@ -60,6 +66,11 @@ class I2D(object):
         B = np.vstack(self.B0(self.RI, self.theta, self.phi))
         self.br, self.btheta, self.bphi = B / np.linalg.norm(B, axis = 0)
         self.sinI = self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
+        # construct the elements in the matrix in the electric field equation
+        self.b00 = self.bphi**2 + self.br**2
+        self.b01 = -self.btheta * self.bphi
+        self.b10 = -self.btheta * self.bphi
+        self.b11 = self.btheta**2 + self.br**2
 
         # Define grid used for plotting 
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -67,12 +78,12 @@ class I2D(object):
 
         # Define matrices for surface spherical harmonics
         print('TODO: it would be nice to have access to n without this stupid syntax. write a class?')
-        self.Gnum, self.n = get_G(90 - self.theta, self.phi, Nmax, Mmax, a = self.RI, return_n = True)
-        self.Gnum_ph      = get_G(90 - self.theta, self.phi, Nmax, Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gnum_th      = get_G(90 - self.theta, self.phi, Nmax, Mmax, a = self.RI, derivative = 'theta')
-        self.Gplt         = get_G(self.lat, self.lon, Nmax, Mmax, a = self.RI)
-        self.Gplt_ph      = get_G(self.lat, self.lon, Nmax, Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gplt_th      = get_G(self.lat, self.lon, Nmax, Mmax, a = self.RI, derivative = 'theta')
+        self.Gnum, self.n = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_n = True)
+        self.Gnum_ph      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
+        self.Gnum_th      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+        self.Gplt         = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI)
+        self.Gplt_ph      = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
+        self.Gplt_th      = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
 
         # Initialize the spherical harmonic coefficients
         self.shc_VB, self.shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
@@ -95,15 +106,17 @@ class I2D(object):
         print('The condition number for the Br SHA matrix is {:.1f}'.format(self.cond_Br))
 
 
+
     def evolve_Br(self, dt):
         """ evolve Br in time """
 
         Eth, Eph = self.get_E()
         u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
-        curlEr = self.curlr(u1, u2)
+        curlEr = self.curlr(u1, u2) 
 
-        Br = self.GBr.dot(self.shc_VB) - dt * curlEr
-        self.shc_VB = self.GTG_Br_inv.dot(self.GBr.T.dot(Br))
+        Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
+        #print(np.abs(Br).max())
+        self.shc_VB = self.GTG_Br_inv.dot(self.GBr.T.dot(-Br))
         self.shc_B2J() # update current coefficients
 
 
@@ -157,10 +170,9 @@ class I2D(object):
         """ Calculate the spherical harmonic coefficient for TJ and TB 
             based on the spherical harmonic coefficients of TJr.
         """
-        self.shc_TJ = -self.n * (self.n + 1) * self.shc_TJr * self.RI
+        self.shc_TJ = -1 /(self.n * (self.n + 1)) * self.shc_TJr * self.RI**2
         self.shc_J2B()
-        print("!!!: I've multiplied by R just because the values look more reasonable. Check math !!!")
-
+        print("!!!: I've multiplied by R^2 but this is inconsistent with paper. Check math !!!")
 
 
     def shc_VB2Br(self):
@@ -223,7 +235,7 @@ class I2D(object):
         """ calculate Br 
 
         """
-        return((self.Gplt * self.n.reshape((1, -1))).dot(self.shc_VB))
+        return(-(self.Gplt * self.n.reshape((1, -1))).dot(self.shc_VB))
 
 
     @default_2Dcoords
@@ -231,14 +243,14 @@ class I2D(object):
         """ calculate ionospheric sheet current
 
         """
-        Je_V = self.Gnum_ph.dot(self.shc_VJ)
-        Js_V = self.Gnum_th.dot(self.shc_VJ)
-        Je_T = self.Gnum_ph.dot(self.shc_TJ)
-        Js_T = self.Gnum_th.dot(self.shc_TJ)
+        Je_V =  self.Gnum_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
+        Js_V = -self.Gnum_ph.dot(self.shc_VJ) # r cross grad(VJ) southward component
+        Je_T = -self.Gnum_ph.dot(self.shc_TJ) # -grad(VT) eastward component
+        Js_T = -self.Gnum_th.dot(self.shc_TJ) # -grad(VT) southward component
 
         #print('TODO: fix the default stuff...')
 
-        return(Je_V + Je_T, Js_V + Js_T)
+        return(Js_V + Js_T, Je_V + Je_T)
 
 
     @default_2Dcoords
@@ -282,17 +294,21 @@ class I2D(object):
         """ calculate electric field
 
         """
-        Jph, Jth = self.get_JS(theta = theta, phi = phi)
-        Eph = self.etaP * Jph - self.etaH * Jth
-        Eth = self.etaP * Jth + self.etaH * Jph
 
-        return(Eph, Eth)
+
+        Jth, Jph = self.get_JS(theta = theta, phi = phi)
+
+
+        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
+        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
+
+        return(Eth, Eph)
 
 
 
 
 if __name__ == '__main__':
-    i2d = I2D(45, 3, Ncs = 60)
+    i2d = I2D(45, 3, Ncs = 60, B0 = B0_dipole)
 
     import pyamps
     from visualization import globalplot
@@ -300,6 +316,9 @@ if __name__ == '__main__':
     from lompe import conductance
     import dipole
     import datetime
+    import polplot
+
+    compare_AMPS_FAC_and_CF_currents = False # set to True for debugging
 
     # specify a time and Kp (for conductance):
     date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -312,13 +331,53 @@ if __name__ == '__main__':
     hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starlight = 1, dipole = True)
     i2d.set_counductance(hall, pedersen)
 
-    a = pyamps.AMPS(300, 0, -4, 20, 100)
-    fac = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) * 1e-6
-    fac[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
+    a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
+    ju = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) * 1e-6
+    ju[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
 
-    i2d.set_FAC(fac)
+    ju[i2d.theta < 90] = -ju[i2d.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
-    jr = i2d.get_Jr()
+    i2d.set_FAC(ju)
+
+    if compare_AMPS_FAC_and_CF_currents:
+        # compare FACs and curl-free currents:
+        fig, axes = plt.subplots(ncols = 2, nrows = 2)
+        levels = np.linspace(-.9, .9, 22)
+        SCALE = 1e3
+
+        paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
+
+        ju_amps = a.get_upward_current()
+        je_amps, jn_amps = a.get_curl_free_current()
+        mlat  , mlt   = a.scalargrid
+        mlatv , mltv  = a.vectorgrid
+        mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
+        mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
+        paxes[0].contourf(mlatn, mltn, np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
+        paxes[0].quiver(mlatnv, mltnv,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
+        paxes[1].contourf(mlatn, mltn, np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
+        paxes[1].quiver(mlatnv, mltnv, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
+
+
+        lon  = d.mlt2mlon(mlt , date)
+        lonv = d.mlt2mlon(mltv, date)
+        G   = get_G(mlat, lon, i2d.Nmax, i2d.Mmax, a = i2d.RI) * 1e6
+        Gph = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'phi'  ) * 1e3 
+        Gth = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'theta') * 1e3
+        jr = G.dot(i2d.shc_TJr)
+
+        je = -Gph.dot(i2d.shc_TJ)
+        jn =  Gth.dot(i2d.shc_TJ)
+
+        jrn, jrs = np.split(jr, 2) 
+        paxes[2].contourf(mlatn, mltn, jrn, levels = levels, cmap = plt.cm.bwr)
+        paxes[2].quiver(mlatnv, mltnv,  np.split(jn, 2)[0], np.split(je, 2)[0], scale = SCALE, color = 'black')
+        paxes[3].contourf(mlatn, mltn, jrs, levels = levels, cmap = plt.cm.bwr)
+        paxes[3].quiver(mlatnv, mltnv,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
+
+        plt.show()
+
+
 
     print('bug in cartopy makes it impossible to not center levels at zero... replace when cartopy has been improved')
     #globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lat.shape), 
@@ -329,21 +388,28 @@ if __name__ == '__main__':
     dt = 1e-4 # time step in seconds    
     coeffs = []
     count = 0
+    filecount = 1
+    time = 0
     while True:
 
         i2d.evolve_Br(dt)
+        time = time + dt
         coeffs.append(i2d.shc_VB)
         count += 1
-        print(count)
+        print(count, time)
+
+        if count % 100 == 0:
+            fn = str(filecount).zfill(3) + '_tmp.png'
+            filecount +=1
+            title = 't = {:.3} s'.format(time)
+            Br = i2d.get_Br()
+            levels = np.linspace(-200, 200, 22) * 1e-9
+            globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, save = fn, 
+                       levels = levels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
         if count > 20000:
             break
 
-
-    Br = i2d.get_Br()
-    levels = np.linspace(-100, 100, 21)
-    globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , 
-               levels = levels, cmap = 'bwr', central_longitude = lon0)
 
 
     #globalplot(i2d.phi, 90 - i2d.theta, curlr, vmin = -2.4e-7, vmax = 2.4e-7, cmap = 'bwr', scatter = True, central_longitude = lon0)
