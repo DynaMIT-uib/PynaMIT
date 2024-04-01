@@ -830,7 +830,9 @@ class CSprojection(object):
         lat: array
             geocentric latitude(s) [deg] to convert to cube coords.
         block: array-like, optional
-            option to specify cube block. If None, it will be calculated
+            option to specify cube block. If None, it will be calculated.
+            If specified, be careful because the function will map points
+            at opposite side of the sphere to specified block. 
 
         Returns
         -------

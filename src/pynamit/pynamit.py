@@ -86,24 +86,20 @@ class I2D(object):
         self.Gplt_th      = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
 
         # Initialize the spherical harmonic coefficients
-        self.shc_VB, self.shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
-        self.shc_B2J()
-        self.shc_VB2Br()
+        shc_VB, shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
+        self.set_shc(VB = shc_VB)
+        self.set_shc(TB = shc_TB)
         print('TODO: Add checks that the different coefficients are defined')
 
         # Pre-calculate GTG and report condition number
         self.GTG = self.Gnum.T.dot(self.Gnum)
+        self.GTG_inv = np.linalg.pinv(self.GTG)
 
-        # Pre-calculate matrix for retrieval of VB coefficients based on Br
+        # Pre-calculate matrix for calculating Br
         self.GBr = self.Gnum * self.n.reshape((1, -1))
-        self.GTG_Br = self.GBr.T.dot(self.GBr)
-        self.GTG_Br_inv = np.linalg.pinv(self.GTG_Br)
 
         self.cond_FAC = np.linalg.cond(self.GTG)
-        print('The condition number for the FAC SHA matrix is {:.1f}'.format(self.cond_FAC))
-
-        self.cond_Br = np.linalg.cond(self.GTG_Br)
-        print('The condition number for the Br SHA matrix is {:.1f}'.format(self.cond_Br))
+        print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_FAC))
 
 
 
@@ -113,11 +109,9 @@ class I2D(object):
         Eth, Eph = self.get_E()
         u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         curlEr = self.curlr(u1, u2) 
-
         Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
-        #print(np.abs(Br).max())
-        self.shc_VB = self.GTG_Br_inv.dot(self.GBr.T.dot(-Br))
-        self.shc_B2J() # update current coefficients
+
+        self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
 
 
     def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
@@ -152,41 +146,58 @@ class I2D(object):
         return( 1/sqrtg * ( self.Dxi.dot(g12 * u1 + g22 * u2) - self.Deta.dot(g11 * u1 + g12 *u2) ) )
 
 
-    def shc_B2J(self):
-        """ Calculate the spherical harmonic coefficients for the currents
-            based on the spherical harmonic coefficients of the magnetic field
-        """
-        self.shc_VJ =  self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
-        self.shc_TJ = -self.RI / mu0 * self.shc_TB
+    def set_shc(self, **kwargs):
+        """ Set spherical harmonic coefficients 
 
-    def shc_J2B(self):
-        """ Calculate the spherical harmonic coefficients for the magnetic field
-            based on the spherical harmonic coefficients of the current
-        """
-        self.shc_VB =  mu0 / self.RI * (self.n + 1) / (2 * self.n + 1) * self.shc_VJ
-        self.shc_TB = -mu0 / self.RI * self.shc_TJ
+        Specify a set of spherical harmonic coefficients and update the rest so that they are consistent. 
 
-    def shc_Jr2TJTB(self):
-        """ Calculate the spherical harmonic coefficient for TJ and TB 
-            based on the spherical harmonic coefficients of TJr.
-        """
-        self.shc_TJ = -1 /(self.n * (self.n + 1)) * self.shc_TJr * self.RI**2
-        self.shc_J2B()
-        print("!!!: I've multiplied by R^2 but this is inconsistent with paper. Check math !!!")
+        This function accepts one (and only one) set of spherical harmonic coefficients.
+        Valid values for kwargs (only one):
+            VB : Coefficients for magnetic field scalar V
+            TB : Coefficients for surface current scalar T
+            VJ : Coefficients for magnetic field scalar V
+            TJ : Coefficients for surface current scalar T
+            Br : Coefficients for magnetic field Br (at r=RI)
+            TJr: Coefficients for radial current scalar
 
+        """ 
+        valid_kws = ['VB', 'TB', 'VJ', 'TJ', 'Br', 'TJr']
 
-    def shc_VB2Br(self):
-        """ Calculate the spherical harmonic coefficients for Br,
-            based on the spherical harmonic coefficients of the magnetic field
-        """
-        self.shc_Br =  1 / self.n * self.shc_VB
+        if len(kwargs) != 1:
+            raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
+        key = list(kwargs.keys())[0]
+        if key not in valid_kws:
+            raise Exception('Invalid keyword. See documentation')
 
+        if key == 'VB':
+            self.shc_VB = kwargs['VB']
+            self.shc_VJ = self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
+            self.shc_Br = 1 / self.n * self.shc_VB
+        elif key == 'TB':
+            self.shc_TB = kwargs['TB']
+            self.shc_TJ = -self.RI / mu0 * self.shc_TB
+            self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
+            print('warning: You set Jr and TJ using TB. Not normal')
+        elif key == 'VJ':
+            self.shc_VJ = kwargs['VJ']
+            self.shc_VB = mu0 / self.RI * (self.n + 1) / (2 * self.n + 1) * self.shc_VJ
+            self.shc_Br = 1 / self.n * self.shc_VB
+        elif key == 'TJ':
+            self.shc_TJ = kwargs['TJ']
+            self.shc_TB = -mu0 / self.RI * self.shc_TJ
+            self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
+        elif key == 'Br':
+            self.shc_Br = kwargs['Br']
+            self.shc_VB = self.shc_Br / self.n
+            self.shc_VJ = self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
+        elif key == 'TJr':
+            self.shc_TJr = kwargs['TJr']
+            self.shc_TJ = -1 /(self.n * (self.n + 1)) * self.shc_TJr * self.RI**2
+            self.shc_TB = -mu0 / self.RI * self.shc_TJ
+            print('not implemented: calculation of poloidal... -- also, check the factor RI**2!')
+        else:
+            raise Excpetion('This should not happen')
 
-    def shc_Br2VB(self):
-        """ Calculate the spherical harmonic coefficients for Br,
-            based on the spherical harmonic coefficients of the magnetic field
-        """
-        self.shc_VB =  self.n * self.shc_Br
 
 
     def set_initial_condition(self, I2D_object):
@@ -210,8 +221,7 @@ class I2D(object):
         jr = FAC * self.sinI # get the radial component
 
         # SH coefficients for an expansion of T_Jr
-        self.shc_TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0] 
-        self.shc_Jr2TJTB() # update the magnetic field coefficients
+        self.set_shc(TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0])
 
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
 
@@ -399,7 +409,7 @@ if __name__ == '__main__':
         print(count, time)
 
         if count % 100 == 0:
-            fn = str(filecount).zfill(3) + '_tmp.png'
+            fn = './figs/new_' + str(filecount).zfill(3) + '.png'
             filecount +=1
             title = 't = {:.3} s'.format(time)
             Br = i2d.get_Br()
