@@ -348,11 +348,11 @@ if __name__ == '__main__':
     make_colorbars = False
     plot_AMPS_Br = False
 
-    Blevels = np.linspace(-200, 200, 22) * 1e-9 # color levels for Br
+    Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
     levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
-    Wlevels = np.r_[-1012.5:1012.5:25]
-    Philevels = np.r_[-205:205:10]
+    Wlevels = np.r_[-512.5:512.5:5]
+    Philevels = np.r_[-212.5:212.5:5]
 
     # specify a time and Kp (for conductance):
     date = datetime.datetime(2001, 5, 12, 21, 45)
