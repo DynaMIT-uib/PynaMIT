@@ -56,6 +56,13 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     else:
         save = None
 
+    if 'returnplot' in kwargs.keys():
+        returnplot = kwargs.pop('returnplot')
+    else:
+        returnplot = False
+
+
+
     # global plot:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
     ax = fig.add_subplot(2, 1, 2, projection = global_projection)    
@@ -71,7 +78,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     pax1 = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat = 50)
     pax2 = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat = 50)
 
-    lon = lon - noon_longitude + 180
+    lon = lon - noon_longitude + 180 # rotate so that noon is up
 
     iii = lat > 50
     if scatter:
@@ -89,6 +96,10 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
 
 
     plt.tight_layout()
+
+    if returnplot:
+        return(fig, pax1, pax2, ax)
+
 
     if save != None:
         plt.savefig(save)

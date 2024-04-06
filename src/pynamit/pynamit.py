@@ -61,6 +61,10 @@ class I2D(object):
         self.g  = csp.get_metric_tensor(xi, eta, 1, covariant = True) 
         self.Ps = csp.get_Ps(xi, eta, 1, k)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
         self.Qi = csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
+        self.sqrtg = np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
+        self.g12 = self.g[:, 0, 1]
+        self.g22 = self.g[:, 1, 1]
+        self.g11 = self.g[:, 0, 0]
 
         # get magnetic field unit vectors at CS grid:
         B = np.vstack(self.B0(self.RI, self.theta, self.phi))
@@ -78,7 +82,7 @@ class I2D(object):
 
         # Define matrices for surface spherical harmonics
         print('TODO: it would be nice to have access to n without this stupid syntax. write a class?')
-        self.Gnum, self.n = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_n = True)
+        self.Gnum, self.n = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_n   = True)
         self.Gnum_ph      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
         self.Gnum_th      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
         self.Gplt         = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI)
@@ -89,29 +93,42 @@ class I2D(object):
         shc_VB, shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
         self.set_shc(VB = shc_VB)
         self.set_shc(TB = shc_TB)
-        print('TODO: Add checks that the different coefficients are defined')
 
-        # Pre-calculate GTG and report condition number
+        # Pre-calculate GTG and its inverse
         self.GTG = self.Gnum.T.dot(self.Gnum)
         self.GTG_inv = np.linalg.pinv(self.GTG)
+
+        # Pre-calculate matrix to get coefficients for divergence-free fields:
+        self.Gcf = np.vstack((-self.Gnum_ph, self.Gnum_th)) 
+        self.GTGcf_inv = np.linalg.pinv(self.Gcf.T.dot(self.Gcf))
+
+        # Pre-calculate matrix to get coefficients for curl-free fields
+        self.Gdf = np.vstack((-self.Gnum_th, -self.Gnum_ph)) 
+        self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
 
         # Pre-calculate matrix for calculating Br
         self.GBr = self.Gnum * self.n.reshape((1, -1))
 
-        self.cond_FAC = np.linalg.cond(self.GTG)
-        print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_FAC))
+        # Report condition number for GTG
+        self.cond_GTG = np.linalg.cond(self.GTG)
+        print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
 
 
     def evolve_Br(self, dt):
         """ evolve Br in time """
 
-        Eth, Eph = self.get_E()
-        u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
-        curlEr = self.curlr(u1, u2) 
-        Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
+        #Eth, Eph = self.get_E()
+        #u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
+        #curlEr = self.curlr(u1, u2) 
+        #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
 
-        self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
+        #self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
+
+
+        GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
+        self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        self.set_shc(Br = self.shc_Br + self.n * (self.n + 1) * self.shc_EW * dt / self.RI**2)
 
 
     def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
@@ -138,12 +155,10 @@ class I2D(object):
     def curlr(self, u1, u2):
         """ construct a matrix that calculates the radial curl using B6 in Yin et al. """
         
-        sqrtg = np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
-        g12 = self.g[:, 0, 1]
-        g22 = self.g[:, 1, 1]
-        g11 = self.g[:, 0, 0]
 
-        return( 1/sqrtg * ( self.Dxi.dot(g12 * u1 + g22 * u2) - self.Deta.dot(g11 * u1 + g12 *u2) ) )
+
+        return( 1/self.sqrtg * ( self.Dxi.dot(self.g12 * u1 + self.g22 * u2) - 
+                                 self.Deta.dot(self.g11 * u1 + self.g12 *u2) ) )
 
 
     def set_shc(self, **kwargs):
@@ -177,7 +192,6 @@ class I2D(object):
             self.shc_TB = kwargs['TB']
             self.shc_TJ = -self.RI / mu0 * self.shc_TB
             self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
-            print('warning: You set Jr and TJ using TB. Not normal')
         elif key == 'VJ':
             self.shc_VJ = kwargs['VJ']
             self.shc_VB = mu0 / self.RI * (self.n + 1) / (2 * self.n + 1) * self.shc_VJ
@@ -189,7 +203,7 @@ class I2D(object):
         elif key == 'Br':
             self.shc_Br = kwargs['Br']
             self.shc_VB = self.shc_Br / self.n
-            self.shc_VJ = self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
+            self.shc_VJ = -self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
         elif key == 'TJr':
             self.shc_TJr = kwargs['TJr']
             self.shc_TJ = -1 /(self.n * (self.n + 1)) * self.shc_TJr * self.RI**2
@@ -226,7 +240,7 @@ class I2D(object):
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
 
 
-    def set_counductance(self, Hall, Pedersen):
+    def set_conductance(self, Hall, Pedersen):
         """ Specify Hall and Pedersen conductance at self.theta, self.phi
 
 
@@ -236,8 +250,8 @@ class I2D(object):
 
         self.SH = Hall
         self.SP = Pedersen
-        self.etaP = Pedersen ** 2 / np.sqrt(Hall**2 + Pedersen**2)
-        self.etaH = Hall     ** 2 / np.sqrt(Hall**2 + Pedersen**2)
+        self.etaP = Pedersen / (Hall**2 + Pedersen**2)
+        self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
 
     @default_3Dcoords
@@ -245,7 +259,7 @@ class I2D(object):
         """ calculate Br 
 
         """
-        return(-(self.Gplt * self.n.reshape((1, -1))).dot(self.shc_VB))
+        return(self.Gplt.dot(self.shc_Br))
 
 
     @default_2Dcoords
@@ -321,7 +335,7 @@ if __name__ == '__main__':
     i2d = I2D(45, 3, Ncs = 60, B0 = B0_dipole)
 
     import pyamps
-    from visualization import globalplot
+    from visualization import globalplot, cs_interpolate
     import matplotlib.pyplot as plt
     from lompe import conductance
     import dipole
@@ -329,6 +343,16 @@ if __name__ == '__main__':
     import polplot
 
     compare_AMPS_FAC_and_CF_currents = False # set to True for debugging
+    SIMULATE = True
+    show_FAC_and_conductance = False
+    make_colorbars = False
+    plot_AMPS_Br = False
+
+    Blevels = np.linspace(-200, 200, 22) * 1e-9 # color levels for Br
+    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+    c_levels = np.linspace(0, 20, 100) # color levels for conductance
+    Wlevels = np.r_[-1012.5:1012.5:25]
+    Philevels = np.r_[-205:205:10]
 
     # specify a time and Kp (for conductance):
     date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -339,7 +363,7 @@ if __name__ == '__main__':
     lon0 = d.mlt2mlon(12, date)
 
     hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starlight = 1, dipole = True)
-    i2d.set_counductance(hall, pedersen)
+    i2d.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     ju = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) * 1e-6
@@ -352,8 +376,8 @@ if __name__ == '__main__':
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
         fig, axes = plt.subplots(ncols = 2, nrows = 2)
-        levels = np.linspace(-.9, .9, 22)
         SCALE = 1e3
+
 
         paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
 
@@ -363,15 +387,15 @@ if __name__ == '__main__':
         mlatv , mltv  = a.vectorgrid
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
-        paxes[0].contourf(mlatn, mltn, np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
-        paxes[0].quiver(mlatnv, mltnv,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
-        paxes[1].contourf(mlatn, mltn, np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
-        paxes[1].quiver(mlatnv, mltnv, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
+        paxes[0].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
+        paxes[0].quiver(  mlatnv, mltnv,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
+        paxes[1].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
+        paxes[1].quiver(  mlatnv, mltnv, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
 
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
-        G   = get_G(mlat, lon, i2d.Nmax, i2d.Mmax, a = i2d.RI) * 1e6
+        G   = get_G(mlat ,  lon, i2d.Nmax, i2d.Mmax, a = i2d.RI) * 1e6
         Gph = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'phi'  ) * 1e3 
         Gth = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'theta') * 1e3
         jr = G.dot(i2d.shc_TJr)
@@ -385,7 +409,65 @@ if __name__ == '__main__':
         paxes[3].contourf(mlatn, mltn, jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(mlatnv, mltnv,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
+        jr = i2d.Gplt.dot(i2d.shc_TJr)
+
+        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
+
+
+
+
         plt.show()
+
+
+
+    if plot_AMPS_Br:
+        fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+        paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
+        mlat  , mlt   = a.scalargrid
+        mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
+        Bu = a.get_ground_Buqd(height = a.height)
+        paxes[0].contourf(mlatn, mltn, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+        paxes[1].contourf(mlatn, mltn, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+
+        plt.show()
+
+
+    if show_FAC_and_conductance:
+
+        hall_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
+        pede_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
+
+        globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
+        globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
+
+        jr = i2d.Gplt.dot(i2d.shc_TJr)
+        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
+
+    if make_colorbars:
+        # conductance:
+        fig, axc = plt.subplots(figsize = (1, 10))
+        cz, co = np.zeros_like(c_levels), np.ones_like(c_levels)
+        axc.contourf(np.vstack((cz, co)).T, np.vstack((c_levels, c_levels)).T, np.vstack((c_levels, c_levels)).T, levels = c_levels)
+        axc.set_ylabel('mho', size = 16)
+        axc.set_xticks([])
+        plt.subplots_adjust(left = .7)
+        plt.savefig('conductance_colorbar.png')
+
+        # FAC and Br:
+        fig, axf = plt.subplots(figsize = (2, 10))
+        fz, fo = np.zeros_like(levels), np.ones_like(levels)
+        axf.contourf(np.vstack((fz, fo)).T, np.vstack((levels, levels)).T, np.vstack((levels, levels)).T, levels = levels, cmap = plt.cm.bwr)
+        axf.set_ylabel(r'$\mu$A/m$^2$', size = 16)
+        axf.set_xticks([])
+
+        axB = axf.twinx()
+        Bz, Bo = np.zeros_like(Blevels), np.ones_like(Blevels)
+        axB.contourf(np.vstack((Bz, Bo)).T, np.vstack((Blevels, Blevels)).T * 1e9, np.vstack((Blevels, Blevels)).T, levels = Blevels, cmap = plt.cm.bwr)
+        axB.set_ylabel(r'nT', size = 16)
+        axB.set_xticks([])
+
+        plt.subplots_adjust(left = .45, right = .6)
+        plt.savefig('mag_colorbar.png')
 
 
 
@@ -395,36 +477,48 @@ if __name__ == '__main__':
 
     #globalplot(i2d.phi, 90 - i2d.theta, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
-    dt = 1e-4 # time step in seconds    
-    coeffs = []
-    count = 0
-    filecount = 1
-    time = 0
-    while True:
+    if SIMULATE:
 
-        i2d.evolve_Br(dt)
-        time = time + dt
-        coeffs.append(i2d.shc_VB)
-        count += 1
-        print(count, time)
+        dt = 5e-4 # time step in seconds    
+        coeffs = []
+        count = 0
+        filecount = 1
+        time = 0
+        while True:
 
-        if count % 100 == 0:
-            fn = './figs/new_' + str(filecount).zfill(3) + '.png'
-            filecount +=1
-            title = 't = {:.3} s'.format(time)
-            Br = i2d.get_Br()
-            levels = np.linspace(-200, 200, 22) * 1e-9
-            globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, save = fn, 
-                       levels = levels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+            i2d.evolve_Br(dt)
+            time = time + dt
+            coeffs.append(i2d.shc_VB)
+            count += 1
+            #print(count, time, i2d.shc_Br[:3])
 
-        if count > 20000:
-            break
+            if count % 200 == 0:
+                print(count, time, i2d.shc_Br[:3])
+                fn = './figs/new_' + str(filecount).zfill(3) + '.png'
+                filecount +=1
+                title = 't = {:.3} s'.format(time)
+                Br = i2d.get_Br()
+                fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
+                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+                W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+
+                GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
+                shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential
+                Phi = i2d.Gplt.dot(shc_Phi) * 1e-3
+
+
+                nnn = i2d.lat.flatten() >  50
+                sss = i2d.lat.flatten() < -50
+                #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+                #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+                paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+                paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+                plt.savefig(fn)
+
+            if count > 200000:
+                break
 
 
 
-    #globalplot(i2d.phi, 90 - i2d.theta, curlr, vmin = -2.4e-7, vmax = 2.4e-7, cmap = 'bwr', scatter = True, central_longitude = lon0)
-
-    i2d.get_Br()
-    i2d.get_W()
 
 
