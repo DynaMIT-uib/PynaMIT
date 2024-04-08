@@ -1,4 +1,4 @@
-import numpy as np
+import cupy as np
 
 def Geocentric_to_PlateCarree_vector_components(east, north, latitude):
     """ convert east north vector components to Plate Carree projection 

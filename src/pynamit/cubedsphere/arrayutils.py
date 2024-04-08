@@ -1,4 +1,4 @@
-import numpy as np
+import cupy as np
 
 
 def get_3D_determinants(M):

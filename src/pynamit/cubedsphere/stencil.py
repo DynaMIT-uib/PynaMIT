@@ -1,7 +1,7 @@
-import numpy as np
+import cupy as np
 from itertools import combinations_with_replacement
 from functools import reduce
-from scipy.special import factorial
+from cupyx.scipy.special import factorial
 
 
 def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):

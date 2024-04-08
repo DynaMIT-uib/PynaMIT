@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pynamit"
 dynamic = ["version"]
 dependencies = [
-    "numpy",
+    "cupy",
     "pandas",
 ]
 

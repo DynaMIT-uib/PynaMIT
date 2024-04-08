@@ -1,4 +1,4 @@
-import numpy as np
+import cupy as np
 import dipole
 from decorators import default_2Dcoords, default_3Dcoords
 from sh_utils import get_G

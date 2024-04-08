@@ -9,8 +9,8 @@ Testing of the cubedsphere CSprojection class
 """
 
 import matplotlib.pyplot as plt
-from scipy.sparse import coo_matrix
-import numpy as np
+from cupyx.scipy.sparse import coo_matrix
+import cupy as np
 from igrf import igrf_gc, igrf_V
 import datetime
 from cubedsphere import cubedsphere, diffutils, spherical

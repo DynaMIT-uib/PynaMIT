@@ -4,7 +4,7 @@ Module for useful stuff when working in spherical coordinate system
 karl.laundal@uib.no
 """
 
-import numpy as np
+import cupy as np
 d2r = np.pi/180
 r2d = 180/np.pi
 
