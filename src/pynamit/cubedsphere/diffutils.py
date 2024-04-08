@@ -4,7 +4,7 @@ diffutils
 """
 
 import cupy as np
-from cupyx.scipy.special import factorial
+from scipy.special import factorial
 from fractions import Fraction
 from itertools import combinations_with_replacement
 
