@@ -60,7 +60,7 @@ class I2D(object):
         self.theta, self.phi = self.theta.flatten(), self.phi.flatten()
         self.Dxi, self.Deta = csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
         self.g  = csp.get_metric_tensor(xi, eta, np.array(1.), covariant = True)
-        self.Ps = csp.get_Ps(xi, eta, 1, k)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
+        self.Ps = csp.get_Ps(xi, eta, np.array(1.), k)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
         self.Qi = csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
         self.sqrtg = np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         self.g12 = self.g[:, 0, 1]

@@ -403,7 +403,7 @@ class CSprojection(object):
             return(Pc)
 
 
-    def get_Ps(self, xi, eta, r = 1, block = 0, inverse = False):
+    def get_Ps(self, xi, eta, r = np.array(1.), block = 0, inverse = False):
         """ Calculate elements of transformation matrix Ps at all input points
 
         The Ps matrix transforms vector components (u_east, u_north, u_r) to contravariant components in a cubed
@@ -555,14 +555,14 @@ class CSprojection(object):
 
         xi_i, eta_i, block_i, block_j = map(np.ravel, np.broadcast_arrays(xi, eta, block_i, block_j)) # broadcast and flatten
 
-        Psi_inv = self.get_Ps(xi_i, eta_i, r = 1, block = block_i, inverse = True)
+        Psi_inv = self.get_Ps(xi_i, eta_i, r = np.array(1.), block = block_i, inverse = True)
 
         # find the xi, eta coordinates on block j
         r, theta, phi = self.cube2spherical(xi_i, eta_i, r = 1, block = block_i, deg = True)
         xi_j, eta_j, _ = self.geo2cube(phi, 90 - theta, block = block_j)
 
         # calculate Ps relative to block j
-        Psj = self.get_Ps(xi_j, eta_j, r = 1, block = block_j)
+        Psj = self.get_Ps(xi_j, eta_j, r = np.array(1.), block = block_j)
 
         # multiply each of the N matrices to get Qij:
         Qij = np.einsum('nij, njk -> nik', Psj, Psi_inv)

@@ -107,7 +107,7 @@ for i in range(6):
     r, theta, phi = p.cube2spherical(xi, eta, block = i)
     lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
     lon, lat = np.rad2deg(phi).flatten(), 90 - np.rad2deg(theta).flatten()
-    Ps_inv = p.get_Ps(xi, eta, r = 1, block = i, inverse = True)
+    Ps_inv = p.get_Ps(xi, eta, r = np.array(1.), block = i, inverse = True)
     Q      = p.get_Q(lat, r.flatten())
     Ps_normalized = np.einsum('nij, njk -> nik', Q, Ps_inv) # multiply Ps_inv by Q to get normalized vector components 
 
@@ -203,7 +203,7 @@ for block in range(6):
     lo = np.rad2deg(phi_hd)
 
     r, theta, phi = p.cube2spherical(xi, eta, r = 1, block = block)
-    Ps = p.get_Ps(xi, eta, r = 1, block = block)
+    Ps = p.get_Ps(xi, eta, r = np.array(1.), block = block)
     Q  = p.get_Q(90 - np.rad2deg(theta), r, inverse = True)
     Ps_normalized = np.einsum('nij, njk -> nik', Ps, Q)
 
