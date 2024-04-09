@@ -558,7 +558,7 @@ class CSprojection(object):
         Psi_inv = self.get_Ps(xi_i, eta_i, r = np.array(1.), block = block_i, inverse = True)
 
         # find the xi, eta coordinates on block j
-        r, theta, phi = self.cube2spherical(xi_i, eta_i, r = 1, block = block_i, deg = True)
+        r, theta, phi = self.cube2spherical(xi_i, eta_i, r = np.array(1.), block = block_i, deg = True)
         xi_j, eta_j, _ = self.geo2cube(phi, 90 - theta, block = block_j)
 
         # calculate Ps relative to block j

@@ -198,11 +198,11 @@ Aeast  = np.vstack((ones , zeros, zeros))
 Anorth = np.vstack((zeros, ones , zeros))
 
 for block in range(6):
-    r_hd, theta_hd, phi_hd = p.cube2spherical(xihd, etahd, r = 1, block = block)
+    r_hd, theta_hd, phi_hd = p.cube2spherical(xihd, etahd, r = np.array(1.), block = block)
     la = 90 - np.rad2deg(theta_hd)
     lo = np.rad2deg(phi_hd)
 
-    r, theta, phi = p.cube2spherical(xi, eta, r = 1, block = block)
+    r, theta, phi = p.cube2spherical(xi, eta, r = np.array(1.), block = block)
     Ps = p.get_Ps(xi, eta, r = np.array(1.), block = block)
     Q  = p.get_Q(90 - np.rad2deg(theta), r, inverse = True)
     Ps_normalized = np.einsum('nij, njk -> nik', Ps, Q)

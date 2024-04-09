@@ -33,7 +33,7 @@ def B0_dipole(r, theta, phi):
 class I2D(object):
     """ 2D ionosphere """
 
-    def __init__(self, Nmax, Mmax, Ncs = 20, B0 = None, RI = RE + 110.e3):
+    def __init__(self, Nmax, Mmax, Ncs = 20, B0 = None, RI = np.array(RE + 110.e3)):
         """
 
 
