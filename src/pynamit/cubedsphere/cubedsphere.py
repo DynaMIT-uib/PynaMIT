@@ -270,7 +270,7 @@ class CSprojection(object):
         phi: array
             array of longitude [radians] values, shape determined by input according to broadcasting rules
         """ 
-        xi, eta = np.float64(xi), np.float64(eta)
+        xi, eta = xi.astype(np.float64), eta.astype(np.float64)
         xi, eta, r, block = np.broadcast_arrays(xi, eta, r, block)
 
         x, y, z = self.cube2cartesian(xi, eta, r, block)
