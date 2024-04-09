@@ -245,7 +245,7 @@ class CSprojection(object):
         return(x, y, z)
 
 
-    def cube2spherical(self, xi, eta, block, r = 1, deg = False):
+    def cube2spherical(self, xi, eta, block, r = np.array(1.), deg = False):
         """ Calculate spherical (r, theta, phi) coordinates of given points
 
         Parameters
