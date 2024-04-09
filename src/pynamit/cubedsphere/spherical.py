@@ -360,6 +360,7 @@ if __name__ == '__main__':
     from dipole import Dipole
     d = Dipole(2010)
     lat0, lon0 = d.north_pole
+    lat0, lon0 = np.array(lat0), np.array(lon0)
 
     # test points:
     x, y, z = np.random.random((3, 1000)) * 2 - 1
@@ -371,7 +372,7 @@ if __name__ == '__main__':
     Ae, An = np.random.random((2, sum(r <= 1)))
 
     newlat, newlon, neweast, newnorth = geo2local(90 - colat, lon, Ae, An, lon0, lat0)
-    cdlat, cdlon, cdeast, cdnorth = d.geo2mag(90 - colat, lon, Ae = Ae, An = An)
+    cdlat, cdlon, cdeast, cdnorth = d.geo2mag(np.asnumpy(90 - colat), np.asnumpy(lon), Ae = np.asnumpy(Ae), An = np.asnumpy(An))
     assert np.all(np.isclose(cdlat - newlat, 0))
     assert np.all(np.isclose(cdlon - newlon, 0))
     assert np.all(np.isclose(neweast  - cdeast , 0))

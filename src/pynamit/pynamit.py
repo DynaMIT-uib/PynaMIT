@@ -25,7 +25,8 @@ def B0_dipole(r, theta, phi):
     r, theta, phi = np.broadcast_arrays(r, theta, phi)
     r, theta, phi = r.flatten(), theta.flatten(), phi.flatten()
     size = r.size
-    Bn, Br = dd.B(90 - theta, r * 1e-3)
+    Bn, Br = dd.B(np.asnumpy(90 - theta), np.asnumpy(r * 1e-3))
+    Bn, Br = np.array(Bn), np.array(Br)
     return(np.vstack((Br, -Bn, np.zeros(r.size))))
 
 
@@ -361,12 +362,14 @@ if __name__ == '__main__':
 
     # noon longitude
     lon0 = d.mlt2mlon(12, date)
+    lon0 = np.array(lon0)
 
     hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starlight = 1, dipole = True)
     i2d.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) * 1e-6
+    ju = a.get_upward_current(mlat = np.asnumpy(90 - i2d.theta), mlt = d.mlon2mlt(np.asnumpy(i2d.phi), date)) * 1e-6
+    ju = np.array(ju)
     ju[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
 
     ju[i2d.theta < 90] = -ju[i2d.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
@@ -382,9 +385,13 @@ if __name__ == '__main__':
         paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
 
         ju_amps = a.get_upward_current()
+        ju_amps = np.array(ju_amps)
         je_amps, jn_amps = a.get_curl_free_current()
+        je_amps, jn_amps = np.array(je_amps), np.array(jn_amps)
         mlat  , mlt   = a.scalargrid
+        mlat  , mlt   = np.array(mlat), np.array(mlt)
         mlatv , mltv  = a.vectorgrid
+        mlatv , mltv  = np.array(mlatv), np.array(mltv)
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
         paxes[0].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
@@ -393,8 +400,10 @@ if __name__ == '__main__':
         paxes[1].quiver(  mlatnv, mltnv, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
 
-        lon  = d.mlt2mlon(mlt , date)
-        lonv = d.mlt2mlon(mltv, date)
+        lon  = d.mlt2mlon(np.asnumpy(mlt) , date)
+        lon = np.array(lon)
+        lonv = d.mlt2mlon(np.asnumpy(mltv), date)
+        lonv = np.array(lonv)
         G   = get_G(mlat ,  lon, i2d.Nmax, i2d.Mmax, a = i2d.RI) * 1e6
         Gph = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'phi'  ) * 1e3 
         Gth = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'theta') * 1e3
@@ -424,8 +433,10 @@ if __name__ == '__main__':
         fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
         paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
         mlat  , mlt   = a.scalargrid
+        mlat  , mlt = np.array(mlat), np.array(mlt)
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         Bu = a.get_ground_Buqd(height = a.height)
+        Bu = np.array(Bu)
         paxes[0].contourf(mlatn, mltn, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
         paxes[1].contourf(mlatn, mltn, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
 
