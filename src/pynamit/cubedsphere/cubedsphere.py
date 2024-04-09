@@ -753,7 +753,7 @@ class CSprojection(object):
         # calculate barycentric weights wj (Berrut & Trefethen, 2004):
         j_distances = j_floats - j_interpolation_points
         i_distances = i_floats - i_interpolation_points
-        w = (-1)**interpolation_points * binom(Ni - 1, interpolation_points)
+        w = (-1)**interpolation_points * np.array(binom(np.asnumpy(Ni - 1), np.asnumpy(interpolation_points)))
         w_i = w / i_distances / np.sum(w / i_distances, axis = 1).reshape( (-1, 1) )
         w_j = w / j_distances / np.sum(w / j_distances, axis = 1).reshape( (-1, 1) )
 
