@@ -18,7 +18,7 @@ reload(cubedsphere)
 
 
 # set up projection and make a grid (not using the grid class)
-R = 6371.2e3
+R = np.array(6371.2e3)
 p = cubedsphere.CSprojection()
 N = 40 # number of grid points in each direction per block
 dxi = np.pi / 2 / (N - 1)

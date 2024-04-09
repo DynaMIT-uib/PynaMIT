@@ -132,7 +132,7 @@ class CSprojection(object):
         return(1 + np.tan(xi)**2 + np.tan(eta)**2)
 
 
-    def get_metric_tensor(self, xi, eta, r = 1, covariant = True):
+    def get_metric_tensor(self, xi, eta, r = np.array(1.), covariant = True):
         """ Calculate metric tensor g
 
         Calculate the elements of a the metric tensor for each input point, using 
