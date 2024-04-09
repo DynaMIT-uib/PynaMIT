@@ -179,7 +179,7 @@ class CSprojection(object):
 
 
 
-    def cube2cartesian(self, xi, eta, r = 1, block = 0):
+    def cube2cartesian(self, xi, eta, r = np.array(1.), block = 0):
         """ Calculate Cartesian x, y, z coordinates (ECEF) of given points
 
         Output will have same unit as r.
