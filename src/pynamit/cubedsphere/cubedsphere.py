@@ -747,8 +747,8 @@ class CSprojection(object):
 
         # define the (integer) points which will be used to interpolate:
         interpolation_points = np.arange(Ni).reshape((1, -1))
-        j_interpolation_points = arrayutils.constrain_values(interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis = 1)
-        i_interpolation_points = arrayutils.constrain_values(interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis = 1)
+        j_interpolation_points = arrayutils.constrain_values(interpolation_points + np.ceil(j_floats).astype(np.int64) - Ni // 2 - 1, 0, N - 1, axis = 1)
+        i_interpolation_points = arrayutils.constrain_values(interpolation_points + np.ceil(i_floats).astype(np.int64) - Ni // 2 - 1, 0, N - 1, axis = 1)
 
         # calculate barycentric weights wj (Berrut & Trefethen, 2004):
         j_distances = j_floats - j_interpolation_points
