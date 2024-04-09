@@ -724,7 +724,7 @@ class CSprojection(object):
 
         # find new indices that do not exceed block dimensions (but are possibly floats):
         xi, eta = self.xi(i, N), self.eta(j, N)
-        r, theta, phi = self.cube2spherical(xi, eta, k, r = 1., deg = True)
+        r, theta, phi = self.cube2spherical(xi, eta, k, r = np.array(1.), deg = True)
         new_xi, new_eta, new_k = self.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
         
