@@ -29,7 +29,7 @@ import cupy as np
 import spherical, diffutils, arrayutils
 from cupyx.scipy import sparse
 import os
-from cupyx.scipy.special import binom
+from scipy.special import binom
 from cupyx.scipy.sparse import coo_matrix
 d2r = np.pi / 180
 
