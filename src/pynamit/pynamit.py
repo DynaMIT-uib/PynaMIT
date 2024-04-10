@@ -353,8 +353,8 @@ if __name__ == '__main__':
     Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
     levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
-    Wlevels = np.r_[-512.5:512.5:5]
-    Philevels = np.r_[-212.5:212.5:5]
+    Wlevels = np.arange(-512.5, 512.5, 5)
+    Philevels = np.arange(-212.5, 212.5, 5)
 
     # specify a time and Kp (for conductance):
     date = datetime.datetime(2001, 5, 12, 21, 45)
