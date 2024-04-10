@@ -2,7 +2,7 @@ import cupy as np
 import matplotlib.pyplot as plt
 import polplot
 import cartopy.crs as ccrs
-from cupyx.scipy.interpolate import griddata
+from scipy.interpolate import griddata
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     """ interpolate from cubed sphere grid to new points lon, lat 
@@ -38,7 +38,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
         r0 = np.array([np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)])
         iii = np.sum(r0.reshape((-1, 1)) * in_r, axis = 0) > 0
         xi_i, eta_i, _ = projection.geo2cube(inlon[iii], inlat[iii], block = i)
-        result[jjj] = griddata(np.vstack((xi_i, eta_i)).T, values[iii], np.vstack((xi_o[jjj], eta_o[jjj])).T, **kwargs)
+        result[jjj] = np.array(griddata(np.asnumpy(np.vstack((xi_i, eta_i)).T), np.asnumpy(values[iii]), np.asnumpy(np.vstack((xi_o[jjj], eta_o[jjj])).T), **kwargs))
 
     return(result.reshape(shape))
 
