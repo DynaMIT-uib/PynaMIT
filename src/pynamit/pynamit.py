@@ -1,4 +1,5 @@
 import cupy as np
+import numpy as np_nocu
 import dipole
 from decorators import default_2Dcoords, default_3Dcoords
 from sh_utils import get_G
@@ -111,7 +112,7 @@ class I2D(object):
         self.GBr = self.Gnum * self.n.reshape((1, -1))
 
         # Report condition number for GTG
-        self.cond_GTG = np.linalg.cond(self.GTG)
+        self.cond_GTG = np_nocu.linalg.cond(np.asnumpy(self.GTG))
         print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
 
