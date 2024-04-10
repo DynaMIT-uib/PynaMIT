@@ -147,5 +147,5 @@ if __name__ == "__main__":
     hall_plt = cs_interpolate(csp, 90 - theta, phi, hall, lat, lon)
     pede_plt = cs_interpolate(csp, 90 - theta, phi, pedersen, lat, lon)
 
-    globalplot(lon, lat, hall_plt, noon_longitude = lon0, levels = np.linspace(0, 20, 100))
+    globalplot(lon, lat, hall_plt, noon_longitude = lon0, levels = np.asnumpy(np.linspace(0, 20, 100)))
 

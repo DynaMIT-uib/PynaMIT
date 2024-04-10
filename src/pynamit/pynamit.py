@@ -422,7 +422,7 @@ if __name__ == '__main__':
 
         jr = i2d.Gplt.dot(i2d.shc_TJr)
 
-        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
+        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = np.asnumpy(levels))
 
 
 
@@ -450,11 +450,11 @@ if __name__ == '__main__':
         hall_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
         pede_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
 
-        globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
-        globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
+        globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = np.asnumpy(c_levels), save = 'hall.png')
+        globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = np.asnumpy(c_levels), save = 'pede.png')
 
         jr = i2d.Gplt.dot(i2d.shc_TJr)
-        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
+        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape), noon_longitude = lon0, levels = np.asnumpy(levels * 1e-6), save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
         # conductance:
@@ -486,7 +486,7 @@ if __name__ == '__main__':
 
     print('bug in cartopy makes it impossible to not center levels at zero... replace when cartopy has been improved')
     #globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lat.shape), 
-    #           levels = levels, cmap = 'bwr', central_longitude = lon0)
+    #           levels = np.asnumpy(levels), cmap = 'bwr', central_longitude = lon0)
 
     #globalplot(i2d.phi, 90 - i2d.theta, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
@@ -512,7 +512,7 @@ if __name__ == '__main__':
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
                 fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
-                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+                                                   levels = np.asnumpy(Blevels), cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
 
                 GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
