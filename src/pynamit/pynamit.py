@@ -362,7 +362,7 @@ if __name__ == '__main__':
     d = dipole.Dipole(date.year)
 
     # noon longitude
-    lon0 = d.mlt2mlon(12, date)
+    lon0 = d.mlt2mlon(12, date).item()
 
     hall, pedersen = conductance.hardy_EUV(np.asnumpy(i2d.phi), np.asnumpy(90 - i2d.theta), Kp, date, starlight = 1, dipole = True)
     hall, pedersen = np.array(hall), np.array(pedersen)
