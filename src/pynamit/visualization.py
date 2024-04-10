@@ -68,9 +68,9 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     ax = fig.add_subplot(2, 1, 2, projection = global_projection)    
     ax.coastlines(zorder = 2, color = 'grey')
     if scatter:
-        ax.scatter(lon, lat, c = data, transform = ccrs.PlateCarree(), **kwargs)
+        ax.scatter(np.asnumpy(lon), np.asnumpy(lat), c = np.asnumpy(data), transform = ccrs.PlateCarree(), **kwargs)
     else:
-        ax.contourf(lon, lat, data, transform = ccrs.PlateCarree(), **kwargs)
+        ax.contourf(np.asnumpy(lon), np.asnumpy(lat), np.asnumpy(data), transform = ccrs.PlateCarree(), **kwargs)
     
     if title != None:
         ax.set_title(title)
@@ -82,16 +82,16 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
 
     iii = lat > 50
     if scatter:
-        pax1.scatter(lat[iii],  lon[iii] / 15, c = data[iii], **kwargs)
+        pax1.scatter(np.asnumpy(lat[iii]),  np.asnumpy(lon[iii] / 15), c = np.asnumpy(data[iii]), **kwargs)
     else:
-        pax1.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+        pax1.contourf(np.asnumpy(lat[iii]), np.asnumpy(lon[iii] / 15), np.asnumpy(data[iii]), **kwargs)
     pax1.ax.set_title('North')
 
     iii = lat < -50
     if scatter:
-        pax2.scatter(lat[iii], lon[iii] / 15, c = data[iii], **kwargs)
+        pax2.scatter(np.asnumpy(lat[iii]), np.asnumpy(lon[iii] / 15), c = np.asnumpy(data[iii]), **kwargs)
     else:
-        pax2.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+        pax2.contourf(np.asnumpy(lat[iii]), np.asnumpy(lon[iii] / 15), np.asnumpy(data[iii]), **kwargs)
     pax2.ax.set_title('South')
 
 

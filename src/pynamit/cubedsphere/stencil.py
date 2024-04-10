@@ -76,7 +76,7 @@ if __name__ == '__main__':
         if derivative == 'x':
             print(stencil)
         derivatives_num = reduce(lambda x, y: x + y,  [stencil[i] * f(x0 + dx[i], y0 + dy[i]) for i in range(len(stencil))])
-        ax.scatter(derivatives, derivatives_num)
+        ax.scatter(np.asnumpy(derivatives), np.asnumpy(derivatives_num))
         ax.set_aspect('equal')
         ax.set_title(r'$f_{' + derivative + '}$')
 

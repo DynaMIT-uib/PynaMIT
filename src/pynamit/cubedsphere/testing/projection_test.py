@@ -117,37 +117,37 @@ for i in range(6):
     norms = np.sqrt(Aeast**2 + Anorth**2)
 
     Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(Aeast.flatten(), Anorth.flatten(), lat)
-    axg1.quiver(lon, lat, Ae_pc, An_pc, transform = ccrs.PlateCarree(), color = C)
-    axg2.quiver(lon, lat, Ae_pc, An_pc, transform = ccrs.PlateCarree(), color = C)
+    axg1.quiver(np.asnumpy(lon), np.asnumpy(lat), np.asnumpy(Ae_pc), np.asnumpy(An_pc), transform = ccrs.PlateCarree(), color = C)
+    axg2.quiver(np.asnumpy(lon), np.asnumpy(lat), np.asnumpy(Ae_pc), np.asnumpy(An_pc), transform = ccrs.PlateCarree(), color = C)
 
     # eta-direction:
     Aeast, Anorth, Ar = np.einsum('nij, nj -> ni', Ps_normalized, Aetas).T
     assert np.all(np.isclose(Ar, 0))
 
     Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(Aeast.flatten(), Anorth.flatten(), lat)
-    axg3.quiver(lon % 360, lat, Ae_pc, An_pc, transform = ccrs.PlateCarree(), color = C)
-    axg4.quiver(lon % 360, lat, Ae_pc, An_pc, transform = ccrs.PlateCarree(), color = C)
+    axg3.quiver(np.asnumpy(lon % 360), np.asnumpy(lat), np.asnumpy(Ae_pc), np.asnumpy(An_pc), transform = ccrs.PlateCarree(), color = C)
+    axg4.quiver(np.asnumpy(lon % 360), np.asnumpy(lat), np.asnumpy(Ae_pc), np.asnumpy(An_pc), transform = ccrs.PlateCarree(), color = C)
 
     for ax in [axg1, axg2, axg3, axg4]:
         ax.scatter(lon, lat, color = C, transform = ccrs.PlateCarree(), s = 5, zorder = 60)
 
         for k in range(N):
-            ax.plot(lo[k, :].flatten(), la[k, :].flatten(), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
-            ax.plot(lo[:, k].flatten(), la[:, k].flatten(), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
+            ax.plot(np.asnumpy(lo[k, :].flatten()), np.asnumpy(la[k, :].flatten()), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
+            ax.plot(np.asnumpy(lo[:, k].flatten()), np.asnumpy(la[:, k].flatten()), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
 
 
     # Cartesian 3D:
     # -------------
     x, y, z = p.cube2cartesian(xi, eta, block = i)
-    axxyz1.scatter(x, y, z, c = C, s = 5)
-    axxyz2.scatter(x, y, z, c = C, s = 5)
+    axxyz1.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = np.asnumpy(C), s = 5)
+    axxyz2.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = np.asnumpy(C), s = 5)
     Pc = p.get_Pc(xi, eta, r = 1, block = i, inverse = True)
 
     Ax, Ay, Az = np.einsum('nij, nj -> ni', Pc, Axis).T
-    axxyz1.quiver(x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length = 1e-1, color = C)
+    axxyz1.quiver(np.asnumpy(x.flatten()), np.asnumpy(y.flatten()), np.asnumpy(z.flatten()), np.asnumpy(Ax), np.asnumpy(Ay), np.asnumpy(Az), length = 1e-1, color = C)
 
     Ax, Ay, Az = np.einsum('nij, nj -> ni', Pc, Aetas).T
-    axxyz2.quiver(x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length = 1e-1, color = C)
+    axxyz2.quiver(np.asnumpy(x.flatten()), np.asnumpy(y.flatten()), np.asnumpy(z.flatten()), np.asnumpy(Ax), np.asnumpy(Ay), np.asnumpy(Az), length = 1e-1, color = C)
 
 
 # make Cartesian plots prettier:
@@ -166,7 +166,7 @@ for ax in [axxyz1, axxyz2]:
     y = a * np.outer(np.sin(u), np.sin(v))
     z = a * np.outer(np.ones(np.size(u)), np.cos(v))
 
-    ax.plot_surface(x, y, z, color = 'white')
+    ax.plot_surface(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), color = 'white')
 
 axxyz1.set_title(r'$\xi$ direction')
 axxyz2.set_title(r'$\eta$ direction')
@@ -211,11 +211,11 @@ for block in range(6):
     An = np.einsum('nij, nj -> ni', Ps_normalized, Anorth.T).T
     assert np.allclose(np.hstack((Ae[2], An[2])), 0)
 
-    axes[0, block].scatter(xi, eta, c = 'grey', zorder = 1, s = 5)
-    axes[1, block].scatter(xi, eta, c = 'grey', zorder = 1, s = 5)
+    axes[0, block].scatter(np.asnumpy(xi), np.asnumpy(eta), c = 'grey', zorder = 1, s = 5)
+    axes[1, block].scatter(np.asnumpy(xi), np.asnumpy(eta), c = 'grey', zorder = 1, s = 5)
 
-    axes[0, block].quiver(xi.flatten(), eta.flatten(), Ae[0], Ae[1], scale = 15)
-    axes[1, block].quiver(xi.flatten(), eta.flatten(), An[0], An[1], scale = 15)
+    axes[0, block].quiver(np.asnumpy(xi.flatten()), np.asnumpy(eta.flatten()), np.asnumpy(Ae[0]), np.asnumpy(Ae[1]), scale = 15)
+    axes[1, block].quiver(np.asnumpy(xi.flatten()), np.asnumpy(eta.flatten()), np.asnumpy(An[0]), np.asnumpy(An[1]), scale = 15)
 
     axes[0, block].set_title('block ' + str(block) + ', eastward')
     axes[1, block].set_title('block ' + str(block) + ', northward')
@@ -230,7 +230,7 @@ for block in range(6):
 
             la_[np.abs(la_) > 80] = np.nan
             xi_, eta_, _ = p.geo2cube(lo_, la_, block)
-            ax.plot(xi_, eta_, zorder = 0, linewidth = 1, color = 'lightgrey')
+            ax.plot(np.asnumpy(xi_), np.asnumpy(eta_), zorder = 0, linewidth = 1, color = 'lightgrey')
 
 
 for ax in axes.flatten():
@@ -267,14 +267,14 @@ for i in range(6): # plot the main grid on each block:
     lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
 
     for k in range(N):
-        ax.plot(lo[k, :].flatten(), la[k, :].flatten(), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
-        ax.plot(lo[:, k].flatten(), la[:, k].flatten(), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
+        ax.plot(np.asnumpy(lo[k, :].flatten()), np.asnumpy(la[k, :].flatten()), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
+        ax.plot(np.asnumpy(lo[:, k].flatten()), np.asnumpy(la[:, k].flatten()), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
 
 r, theta, phi = p.cube2spherical(xi_, eta_, block = 0)
 lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
 for k in range(0, N + 2*N_extra):
-        ax.plot(lo[k, :].flatten(), la[k, :].flatten(), color = 'C0', linewidth = 1, linestyle = '-', transform = ccrs.Geodetic())
-        ax.plot(lo[:, k].flatten(), la[:, k].flatten(), color = 'C0', linewidth = 1, linestyle = '-', transform = ccrs.Geodetic())
+        ax.plot(np.asnumpy(lo[k, :].flatten()), np.asnumpy(la[k, :].flatten()), color = 'C0', linewidth = 1, linestyle = '-', transform = ccrs.Geodetic())
+        ax.plot(np.asnumpy(lo[:, k].flatten()), np.asnumpy(la[:, k].flatten()), color = 'C0', linewidth = 1, linestyle = '-', transform = ccrs.Geodetic())
 
 
 

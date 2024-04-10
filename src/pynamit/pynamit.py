@@ -396,10 +396,10 @@ if __name__ == '__main__':
         mlatv , mltv  = np.array(mlatv), np.array(mltv)
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
-        paxes[0].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
-        paxes[0].quiver(  mlatnv, mltnv,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
-        paxes[1].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
-        paxes[1].quiver(  mlatnv, mltnv, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
+        paxes[0].contourf(np.asnumpy(mlatn) , np.asnumpy(mltn) ,  np_nocu.split(np.asnumpy(ju_amps), 2)[0], levels = np.asnumpy(levels), cmap = plt.cm.bwr)
+        paxes[0].quiver(  np.asnumpy(mlatnv), np.asnumpy(mltnv),  np_nocu.split(np.asnumpy(jn_amps), 2)[0], np_nocu.split(np.asnumpy(je_amps), 2)[0], scale = SCALE, color = 'black')
+        paxes[1].contourf(np.asnumpy(mlatn) , np.asnumpy(mltn) ,  np_nocu.split(np.asnumpy(ju_amps), 2)[1], levels = np.asnumpy(levels), cmap = plt.cm.bwr)
+        paxes[1].quiver(  np.asnumpy(mlatnv), np.asnumpy(mltnv), -np_nocu.split(np.asnumpy(jn_amps), 2)[1], np_nocu.split(np.asnumpy(je_amps), 2)[1], scale = SCALE, color = 'black')
 
 
         lon  = d.mlt2mlon(np.asnumpy(mlt) , date)
@@ -415,10 +415,10 @@ if __name__ == '__main__':
         jn =  Gth.dot(i2d.shc_TJ)
 
         jrn, jrs = np.split(jr, 2) 
-        paxes[2].contourf(mlatn, mltn, jrn, levels = levels, cmap = plt.cm.bwr)
-        paxes[2].quiver(mlatnv, mltnv,  np.split(jn, 2)[0], np.split(je, 2)[0], scale = SCALE, color = 'black')
-        paxes[3].contourf(mlatn, mltn, jrs, levels = levels, cmap = plt.cm.bwr)
-        paxes[3].quiver(mlatnv, mltnv,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
+        paxes[2].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np.asnumpy(jrn), levels = np.asnumpy(levels), cmap = plt.cm.bwr)
+        paxes[2].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  np_nocu.split(np.asnumpy(jn), 2)[0], np_nocu.split(np.asnumpy(je), 2)[0], scale = SCALE, color = 'black')
+        paxes[3].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np.asnumpy(jrs), levels = np.asnumpy(levels), cmap = plt.cm.bwr)
+        paxes[3].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  -np_nocu.split(np.asnumpy(jn), 2)[1], np_nocu.split(np.asnumpy(je), 2)[1], scale = SCALE, color = 'black')
 
         jr = i2d.Gplt.dot(i2d.shc_TJr)
 
@@ -439,8 +439,8 @@ if __name__ == '__main__':
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         Bu = a.get_ground_Buqd(height = a.height)
         Bu = np.array(Bu)
-        paxes[0].contourf(mlatn, mltn, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
-        paxes[1].contourf(mlatn, mltn, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+        paxes[0].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np_nocu.split(np.asnumpy(Bu), 2)[0], levels = np.asnumpy(Blevels * 1e9), cmap = plt.cm.bwr)
+        paxes[1].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np_nocu.split(np.asnumpy(Bu), 2)[1], levels = np.asnumpy(Blevels * 1e9), cmap = plt.cm.bwr)
 
         plt.show()
 
@@ -460,7 +460,7 @@ if __name__ == '__main__':
         # conductance:
         fig, axc = plt.subplots(figsize = (1, 10))
         cz, co = np.zeros_like(c_levels), np.ones_like(c_levels)
-        axc.contourf(np.vstack((cz, co)).T, np.vstack((c_levels, c_levels)).T, np.vstack((c_levels, c_levels)).T, levels = c_levels)
+        axc.contourf(np.asnumpy(np.vstack((cz, co)).T), np.asnumpy(np.vstack((c_levels, c_levels)).T), np.asnumpy(np.vstack((c_levels, c_levels)).T), levels = np.asnumpy(c_levels))
         axc.set_ylabel('mho', size = 16)
         axc.set_xticks([])
         plt.subplots_adjust(left = .7)
@@ -469,13 +469,13 @@ if __name__ == '__main__':
         # FAC and Br:
         fig, axf = plt.subplots(figsize = (2, 10))
         fz, fo = np.zeros_like(levels), np.ones_like(levels)
-        axf.contourf(np.vstack((fz, fo)).T, np.vstack((levels, levels)).T, np.vstack((levels, levels)).T, levels = levels, cmap = plt.cm.bwr)
+        axf.contourf(np.asnumpy(np.vstack((fz, fo)).T), np.asnumpy(np.vstack((levels, levels)).T), np.asnumpy(np.vstack((levels, levels)).T), levels = np.asnumpy(levels), cmap = plt.cm.bwr)
         axf.set_ylabel(r'$\mu$A/m$^2$', size = 16)
         axf.set_xticks([])
 
         axB = axf.twinx()
         Bz, Bo = np.zeros_like(Blevels), np.ones_like(Blevels)
-        axB.contourf(np.vstack((Bz, Bo)).T, np.vstack((Blevels, Blevels)).T * 1e9, np.vstack((Blevels, Blevels)).T, levels = Blevels, cmap = plt.cm.bwr)
+        axB.contourf(np.asnumpy(np.vstack((Bz, Bo)).T), np.asnumpy(np.vstack((Blevels, Blevels)).T * 1e9), np.asnumpy(np.vstack((Blevels, Blevels)).T), levels = np.asnumpy(Blevels), cmap = plt.cm.bwr)
         axB.set_ylabel(r'nT', size = 16)
         axB.set_xticks([])
 
@@ -524,8 +524,8 @@ if __name__ == '__main__':
                 sss = i2d.lat.flatten() < -50
                 #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
                 #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
-                paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
-                paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+                paxn.contour(np.asnumpy(i2d.lat.flatten()[nnn]), np.asnumpy((i2d.lon.flatten() - lon0)[nnn] / 15), np.asnumpy(Phi[nnn]), colors = 'black', levels = np.asnumpy(Philevels), linewidths = .5)
+                paxs.contour(np.asnumpy(i2d.lat.flatten()[sss]), np.asnumpy((i2d.lon.flatten() - lon0)[sss] / 15), np.asnumpy(Phi[sss]), colors = 'black', levels = np.asnumpy(Philevels), linewidths = .5)
                 plt.savefig(fn)
 
             if count > 200000:
