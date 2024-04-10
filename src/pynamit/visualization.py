@@ -141,7 +141,8 @@ if __name__ == "__main__":
     lon0 = d.mlt2mlon(12, date)
     lon0 = np.array(lon0)
 
-    hall, pedersen = conductance.hardy_EUV(phi, 90 - theta, Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = conductance.hardy_EUV(np.asnumpy(phi), np.asnumpy(90 - theta), Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = np.array(hall), np.array(pedersen)
 
     hall_plt = cs_interpolate(csp, 90 - theta, phi, hall, lat, lon)
     pede_plt = cs_interpolate(csp, 90 - theta, phi, pedersen, lat, lon)

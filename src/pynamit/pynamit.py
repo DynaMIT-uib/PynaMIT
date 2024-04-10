@@ -365,7 +365,8 @@ if __name__ == '__main__':
     lon0 = d.mlt2mlon(12, date)
     lon0 = np.array(lon0)
 
-    hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = conductance.hardy_EUV(np.asnumpy(i2d.phi), np.asnumpy(90 - i2d.theta), Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = np.array(hall), np.array(pedersen)
     i2d.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
