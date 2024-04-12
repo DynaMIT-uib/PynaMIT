@@ -1,8 +1,9 @@
+import os
+import tempfile
 import pytest
+
 from pynamit import run_pynamit
 import numpy as np
-import tempfile
-import os
 
 def test_run_pynamit():
     # Arrange
