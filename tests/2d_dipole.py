@@ -17,7 +17,7 @@ def test_run_pynamit():
         os.mkdir(temp_dir)
 
     # Act
-    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=45, Mmax=3, Ncs=60, fig_directory=temp_dir)
+    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=45, Mmax=3, Ncs=60, B0_type='dipole', fig_directory=temp_dir)
 
     # Assert
     actual_coeff_norm = np.linalg.norm(coeffs)
