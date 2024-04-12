@@ -328,11 +328,16 @@ class I2D(object):
 
         return(Eth, Eph)
 
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs'):
 
+    if B0_type == 'dipole':
+        B0 = B0_dipole
+    elif B0_type == 'radial':
+        B0 = B0_radial
+    else:
+        raise Exception('Invalid B0_type')
 
-
-if __name__ == '__main__':
-    i2d = I2D(45, 3, Ncs = 60, B0 = B0_dipole)
+    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0)
 
     import pyamps
     from visualization import globalplot, cs_interpolate
@@ -479,7 +484,6 @@ if __name__ == '__main__':
 
     if SIMULATE:
 
-        dt = 5e-4 # time step in seconds    
         coeffs = []
         count = 0
         filecount = 1
@@ -492,9 +496,9 @@ if __name__ == '__main__':
             count += 1
             #print(count, time, i2d.shc_Br[:3])
 
-            if count % 200 == 0:
+            if count % plotsteps == 0:
                 print(count, time, i2d.shc_Br[:3])
-                fn = './figs/new_' + str(filecount).zfill(3) + '.png'
+                fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
@@ -515,10 +519,10 @@ if __name__ == '__main__':
                 paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
                 plt.savefig(fn)
 
-            if count > 200000:
+            if count > totalsteps:
                 break
+    return coeffs
 
 
-
-
-
+if __name__ == '__main__':
+    run_pynamit()
