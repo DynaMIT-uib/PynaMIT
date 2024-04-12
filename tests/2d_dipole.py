@@ -23,9 +23,9 @@ def test_run_pynamit():
     actual_coeff_norm = np.linalg.norm(coeffs)
     actual_coeff_max = np.max(coeffs)
     actual_coeff_min = np.min(coeffs)
-    actuall_n_coeffs = len(coeffs)
+    actual_n_coeffs = len(coeffs)
 
     assert actual_coeff_norm == expected_coeff_norm
     assert actual_coeff_max == expected_coeff_max
     assert actual_coeff_min == expected_coeff_min
-    assert actuall_n_coeffs == expected_n_coeffs
+    assert actual_n_coeffs == expected_n_coeffs
