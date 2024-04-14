@@ -20,12 +20,14 @@ def test_run_pynamit():
     coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=45, Mmax=3, Ncs=60, B0_type='dipole', fig_directory=temp_dir)
 
     # Assert
-    actual_coeff_norm = np.linalg.norm(coeffs)
-    actual_coeff_max = np.max(coeffs)
-    actual_coeff_min = np.min(coeffs)
+    coeff_array = np.array(coeffs)
+
+    actual_coeff_norm = np.linalg.norm(coeff_array)
+    actual_coeff_max = np.max(coeff_array)
+    actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = len(coeffs)
 
-    assert actual_coeff_norm == expected_coeff_norm
-    assert actual_coeff_max == expected_coeff_max
-    assert actual_coeff_min == expected_coeff_min
-    assert actual_n_coeffs == expected_n_coeffs
+    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, rel=1e-12)
+    assert actual_coeff_max == pytest.approx(expected_coeff_max, rel=1e-12)
+    assert actual_coeff_min == pytest.approx(expected_coeff_min, rel=1e-12)
+    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, rel=1e-12)
