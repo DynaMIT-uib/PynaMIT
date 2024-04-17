@@ -1,4 +1,4 @@
-name: Testing
+name: testing
 
 on:
   push:
@@ -9,21 +9,15 @@ on:
       - main
 
 jobs:
-  test:
+  testing-macos:
     runs-on: macos-latest
-
     container:
       image: ghcr.io/dynamit-uib/pynamit:v0.1
-
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: '/PynaMIT'
-
       - name: Install PynaMIT
         run: 'pip install /PynaMIT'
-
       # Add your test execution steps here
       - name: Run tests
         run: 'pytest -v /PynaMIT/tests'
