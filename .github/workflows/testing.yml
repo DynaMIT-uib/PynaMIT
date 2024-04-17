@@ -10,7 +10,10 @@ on:
 
 jobs:
   test:
-    runs-on: ghcr.io/dynamit-uib/pynamit:v0.1
+    runs-on: macos-latest
+
+    container:
+      image: ghcr.io/dynamit-uib/pynamit:v0.1
 
     steps:
       - name: Check out code
