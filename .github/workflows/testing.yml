@@ -10,16 +10,13 @@ on:
 
 jobs:
   testing-macos:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     container:
-      image: ghcr.io/dynamit-uib/pynamit:v0.1
+      image: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-17
     steps:
-      - name: Check out code
-        uses: actions/checkout@v3
-        with:
-          path: '/PynaMIT'
+      - name: Check out PynaMIT repository
+        uses: actions/checkout@v4
       - name: Install PynaMIT
-        run: 'pip install /PynaMIT'
-      # Add your test execution steps here
+        run: 'pip install .'
       - name: Run tests
-        run: 'pytest -v /PynaMIT/tests'
+        run: 'pytest -v ./tests'

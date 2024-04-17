@@ -32,8 +32,6 @@ WORKDIR /
 # Install Lompe
 RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaundal/lompe.git@main"
 
-# Install PynaMIT
-ADD ./ /PynaMIT
-RUN pip install -e /PynaMIT
+WORKDIR /PynaMIT
 
 ENTRYPOINT ["mamba", "run", "--no-capture-output", "-n", "pynamit-env"]
