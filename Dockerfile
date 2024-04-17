@@ -36,4 +36,4 @@ RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaunda
 ADD ./ /PynaMIT
 RUN pip install -e /PynaMIT
 
-ENTRYPOINT ["mamba", "run", "--no-capture-output", "-n", "pynamit-env", "pytest", "-v", "/PynaMIT/tests"]
+ENTRYPOINT ["mamba", "run", "--no-capture-output", "-n", "pynamit-env"]

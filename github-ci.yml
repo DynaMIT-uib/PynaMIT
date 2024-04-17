@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Start the container from GitHub Container Registry
+      my-container:
+        image: ghcr.io/dynamit-uib/pynamit:v0.1
+        ports:
+          - 8080:8080
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      # Add your test execution steps here
+      - name: Run tests
+        run: "pytest -v /PynaMIT/tests"
