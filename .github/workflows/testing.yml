@@ -14,8 +14,9 @@ jobs:
     container:
       image: ghcr.io/dynamit-uib/pynamit:v0.1
     steps:
-      - name: Check out code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          path: '/PynaMIT'
       - name: Install PynaMIT
         run: 'pip install /PynaMIT'
       # Add your test execution steps here
