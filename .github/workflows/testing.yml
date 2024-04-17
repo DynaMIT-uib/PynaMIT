@@ -10,19 +10,17 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-
-    services:
-      # Start the container from GitHub Container Registry
-      my-container:
-        image: ghcr.io/dynamit-uib/pynamit:v0.1
-        ports:
-          - 8080:8080
+    runs-on: ghcr.io/dynamit-uib/pynamit:v0.1
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+        with:
+          path: '/PynaMIT'
+
+      - name: Install PynaMIT
+        run: 'pip install /PynaMIT'
 
       # Add your test execution steps here
       - name: Run tests
-        run: "pytest -v /PynaMIT/tests"
+        run: 'pytest -v /PynaMIT/tests'
