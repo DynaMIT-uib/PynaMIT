@@ -16,7 +16,9 @@ jobs:
         uses: actions/checkout@v4
       - name: Install PynaMIT
         uses: ghcr.io/dynamit-uib/pynamit@x86_64-2024-04-17-v2
-        args: 'pip install .'
+        with:
+          args: 'pip install .'
       - name: Run tests
         uses: ghcr.io/dynamit-uib/pynamit@x86_64-2024-04-17-v2
-        args: 'pytest ./tests'
+        with:
+          args: 'pytest ./tests'
