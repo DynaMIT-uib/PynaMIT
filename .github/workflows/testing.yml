@@ -9,9 +9,9 @@ on:
       - main
 
 jobs:
-  testing-macos:
+  testing-ubuntu:
     runs-on: ubuntu-latest
-    container: ghcr.io/dynamit-uib/pynamit@x86_64-2024-04-17-v2
+    container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-17-v2
     defaults:
       run:
         shell: bash -ieo pipefail {0}
