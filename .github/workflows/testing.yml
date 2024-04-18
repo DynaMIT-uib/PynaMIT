@@ -13,11 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-17-v2
-      entrypoint: "mamba run --no-capture-output -n pynamit-env"
     steps:
       - name: Check out PynaMIT repository
         uses: actions/checkout@v4
       - name: Install PynaMIT
-        run: 'pip install .'
+        args: 'pip install .'
       - name: Run tests
-        run: 'pytest ./tests'
+        args: 'pytest ./tests'
