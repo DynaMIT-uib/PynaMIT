@@ -11,12 +11,12 @@ on:
 jobs:
   testing-macos:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-17-v2
     steps:
       - name: Check out PynaMIT repository
         uses: actions/checkout@v4
       - name: Install PynaMIT
+        uses: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-17-v2
         args: 'pip install .'
       - name: Run tests
+        uses: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-17-v2
         args: 'pytest ./tests'
