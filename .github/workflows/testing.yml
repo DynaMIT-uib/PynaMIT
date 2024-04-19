@@ -1,0 +1,24 @@
+name: testing
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  testing-ubuntu:
+    runs-on: ubuntu-latest
+    container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-19
+    defaults:
+      run:
+        shell: 'bash -leo pipefail {0}'
+    steps:
+      - name: Check out PynaMIT repository
+        uses: actions/checkout@v4
+      - name: Install PynaMIT
+        run: 'pip install .'
+      - name: Test PynaMIT
+        run: 'pytest -v'

@@ -1,8 +1,8 @@
 import cupy as np
 import numpy as np_nocu
 import dipole
-from decorators import default_2Dcoords, default_3Dcoords
-from sh_utils import get_G
+from pynamit.decorators import default_2Dcoords, default_3Dcoords
+from sh_utils.sh_utils import get_G
 import sys
 import os
 
@@ -342,7 +342,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     i2d = I2D(Nmax, Mmax, Ncs, B0 = B0)
 
     import pyamps
-    from visualization import globalplot, cs_interpolate
+    from pynamit.visualization import globalplot, cs_interpolate
     import matplotlib.pyplot as plt
     from lompe import conductance
     import dipole

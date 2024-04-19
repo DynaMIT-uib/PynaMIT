@@ -2,7 +2,7 @@ import os
 import tempfile
 import pytest
 
-from pynamit import run_pynamit
+from pynamit.pynamit import run_pynamit
 import cupy as np
 
 def test_run_pynamit():
