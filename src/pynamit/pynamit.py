@@ -478,6 +478,11 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     #globalplot(i2d.phi, 90 - i2d.theta, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
+    fig_directory_writeable = os.access(fig_directory, os.W_OK)
+
+    if not fig_directory_writeable:
+        print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
+
     if SIMULATE:
 
         coeffs = []
@@ -492,7 +497,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
             count += 1
             #print(count, time, i2d.shc_Br[:3])
 
-            if count % plotsteps == 0:
+            if (count % plotsteps == 0) and fig_directory_writeable:
                 print(count, time, i2d.shc_Br[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
@@ -518,7 +523,3 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
             if count > totalsteps:
                 break
     return coeffs
-
-
-if __name__ == '__main__':
-    run_pynamit()
