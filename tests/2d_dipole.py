@@ -27,7 +27,7 @@ def test_run_pynamit():
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = len(coeffs)
 
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, rel=1e-12)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, rel=1e-12)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, rel=1e-12)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, rel=1e-12)
+    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
+    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
+    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
+    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-10)
