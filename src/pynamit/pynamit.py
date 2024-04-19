@@ -9,7 +9,6 @@ import os
 cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
 sys.path.insert(0, cs_path)
 import cubedsphere
-csp = cubedsphere.CSprojection() # cubed sphere projection object
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
@@ -53,15 +52,13 @@ class I2D(object):
         self.B0 = B0_default if B0 is None else B0
 
         # Define CS grid used for SH analysis and gradient calculations
-        k, i, j = csp.get_gridpoints(Ncs)
-        xi, eta = csp.xi(i, Ncs), csp.eta(j, Ncs)
-        _, self.theta, self.phi = csp.cube2spherical(xi, eta, k, deg = True)
-        self.theta, self.phi = self.theta.flatten(), self.phi.flatten()
-        self.Dxi, self.Deta = csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
-        self.g  = csp.get_metric_tensor(xi, eta, 1, covariant = True) 
-        self.Ps = csp.get_Ps(xi, eta, 1, k)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Qi = csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
-        self.sqrtg = np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
+        self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
+        self.theta, self.phi = self.csp.arr_theta, self.csp.arr_phi
+        #self.Dxi, self.Deta = self.csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
+        self.g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True) 
+        self.Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
+        self.Qi = self.csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
+        self.sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         self.g12 = self.g[:, 0, 1]
         self.g22 = self.g[:, 1, 1]
         self.g11 = self.g[:, 0, 0]
@@ -81,7 +78,6 @@ class I2D(object):
         self.lat, self.lon = np.meshgrid(lat, lon)
 
         # Define matrices for surface spherical harmonics
-        print('TODO: it would be nice to have access to n without this stupid syntax. write a class?')
         self.Gnum, self.n = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_n   = True)
         self.Gnum_ph      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
         self.Gnum_th      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
