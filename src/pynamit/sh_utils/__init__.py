@@ -1,1 +1,0 @@
-from .sh_utils import get_G

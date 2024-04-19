@@ -21,4 +21,4 @@ jobs:
       - name: Install PynaMIT
         run: 'pip install .'
       - name: Test PynaMIT
-        run: 'pytest ./tests'
+        run: 'pytest -v'

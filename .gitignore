@@ -161,7 +161,5 @@ cython_debug/
 
 .DS_Store
 
-
 # Data
-*.png
-./src/pynamit/fig
+/src/figs/*
