@@ -163,4 +163,4 @@ cython_debug/
 _mynotes/
 
 # Data
-/src/figs/*
+/src/pynamit/figs/*
