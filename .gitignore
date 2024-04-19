@@ -162,7 +162,5 @@ cython_debug/
 .DS_Store
 _mynotes/
 
-
 # Data
-*.png
-./src/pynamit/fig
+/src/figs/*
