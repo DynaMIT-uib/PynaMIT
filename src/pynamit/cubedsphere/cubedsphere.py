@@ -37,11 +37,34 @@ datapath = os.path.dirname(os.path.abspath(__file__)) + '/data/' # for coastline
 
 
 class CSprojection(object):
-    def __init__(self):
+    def __init__(self, N = None):
         """ Set up cubed sphere projection
 
+        Parameters
+        ----------
+        N: int, optional
+            Set to an integer to calculate a set of grid points that correspond to the centers of the cells
+            in a 6 x N x N grid. The xi [rad], eta [rad], theta [deg] and phi [deg] coordinates will be 
+            calculated along with the cube block number and cell areas for a unit sphere. 
+            All arrays will be flat 6*(N-1)**2 arrays
+
+
         """
-        pass
+
+        if N != None: # Calculate grid arrays
+            k, i, j = self.get_gridpoints(N)
+            k, i, j = k[:, :-1, :-1], i[:, :-1, :-1], j[:, :-1, :-1] # crop, since we only want cell centers
+            self.arr_xi  = self.xi( i, N).flatten()
+            self.arr_eta = self.eta(j, N).flatten()
+            self.arr_block = k.flatten()
+            _, self.arr_theta, self.arr_phi = self.cube2spherical(self.arr_xi, self.arr_eta, self.arr_block, deg = True)
+
+            # calcualte area
+            step = np.diff(self.xi(np.array([0, 1]), N))[0] # lenght of each cell side in xi/eta coords
+            self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
+            self.detg = arrayutils.get_3D_determinants(self.g)
+            self.unit_area = step**2 * np.sqrt(self.detg) # Eq. (20) in Yin
+
 
 
     def get_gridpoints(self, N, flat = False):
