@@ -125,7 +125,7 @@ if __name__ == "__main__":
     lat, lon = np.meshgrid(lat, lon)
 
     import pyamps
-    from pynamit.visualization.visualization import globalplot
+    from pynamit.visualization import globalplot
     import matplotlib.pyplot as plt
     from lompe import conductance
     import dipole
