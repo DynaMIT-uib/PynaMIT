@@ -12,10 +12,12 @@ from lompe import conductance
 
 reload(pynamit)
 
+IGNORE_PNAF = False
+
 # SIMULATION PARAMETERS
 Nmax, Mmax, Ncs = 45, 3, 40
 dt = 5e-4
-totalsteps = 3001
+totalsteps = 20001
 
 ## PLOT PARAMETERS
 plotsteps = 200
@@ -27,7 +29,7 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole')
+i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole', ignore_PNAF = IGNORE_PNAF)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -79,8 +81,7 @@ while True:
                                            levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
         W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
 
-        GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
-        shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential
+        shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack(i2d.get_E())) # find coefficients for electric potential
         Phi = i2d.Gplt.dot(shc_Phi) * 1e-3
 
 

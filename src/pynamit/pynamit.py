@@ -14,11 +14,14 @@ RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
 
 
-
 class I2D(object):
     """ 2D ionosphere """
 
-    def __init__(self, Nmax, Mmax, Ncs = 20, RI = RE + 110.e3, B0 = 'dipole', B0_parameters = {'epoch':2020}):
+    def __init__(self, Nmax, Mmax, Ncs = 20, 
+                       RI = RE + 110.e3, B0 = 'dipole', 
+                       B0_parameters = {'epoch':2020}, 
+                       FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
+                       ignore_PNAF = False):
         """
 
         Parameters
@@ -34,8 +37,12 @@ class I2D(object):
         B0: string, optional
             Set to 'dipole', 'radial', or 'igrf', depending on which main field model you want. For 
             dipole and igrf, you can specify epoch via B0_parameters
+        FAC_integration_parameters: dict
+            use this to specify parameters in the integration required to find the poloidal
+            part of the magnetic field of FACs. Not relevant for radial B0.
 
         """
+        self.ignore_PNAF = ignore_PNAF
         self.RI = RI
         self.Nmax, self.Mmax = Nmax, Mmax
 
@@ -68,38 +75,88 @@ class I2D(object):
         self.lat, self.lon = np.meshgrid(lat, lon)
 
         # Define matrices for surface spherical harmonics
-        self.Gnum, self.n = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_n   = True)
-        self.Gnum_ph      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gnum_th      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
-        self.Gplt         = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI)
-        self.Gplt_ph      = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gplt_th      = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+        self.Gnum, self.n, self.m = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_nm  = True)
+        self.Gnum_ph              = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
+        self.Gnum_th              = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+        self.Gplt                 = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI)
+        self.Gplt_ph              = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
+        self.Gplt_th              = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+
+        self.Nshc = self.Gnum.shape[1] # number of spherical harmonic coefficients
+
+        # Pre-calculate GTG and its inverse
+        self.GTG = self.Gnum.T.dot(self.Gnum)
+        self.GTG_inv = np.linalg.pinv(self.GTG)
+
+        # Pre-calculate matrix to get coefficients for curl-free fields:
+        self.Gcf = np.vstack((-self.Gnum_th, -self.Gnum_ph)) 
+        self.GTGcf_inv = np.linalg.pinv(self.Gcf.T.dot(self.Gcf))
+        
+        self.vector_to_shc_cf = self.GTGcf_inv.dot(self.Gcf.T)
+
+        # Pre-calculate matrix to get coefficients for divergence-free fields
+        self.Gdf = np.vstack((-self.Gnum_ph, self.Gnum_th)) 
+        self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
+
+        self.vector_to_shc_df = self.GTGdf_inv.dot(self.Gdf.T)
+
+        # Report condition number for GTG
+        self.cond_GTG = np.linalg.cond(self.GTG)
+        print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
+
+        # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
+        if self.B0 == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
+            self.shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
+        else: # Use the method by Engels and Olsen 1998, Eq. 13:
+            r_k_steps = FAC_integration_parameters['steps']
+            Delta_k = np.diff(r_k_steps)
+            r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
+
+            # initialize matrix that will map from self.TJr to coefficients for poloidal field:
+            shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
+            for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
+                print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end='\r')
+                # map coordinates from r_k[i] to RI:
+                theta_mapped, phi_mapped = self.B0.map_coords(self.RI, r_k[i], self.theta, self.phi)
+
+                # Calculate magnetic field at grid points at r_k[i]:
+                B_rk  = np.vstack(self.B0.get_B(r_k[i], self.theta, self.phi))
+                B0_rk = np.linalg.norm(B_rk, axis = 0)
+                b_rk = B_rk / B0_rk # unit vectors
+
+                # Calculate magnetic field at the points in the ionosphere to which the grid maps:
+                B_RI  = np.vstack(self.B0.get_B(self.RI, theta_mapped, phi_mapped))
+                B0_RI = np.linalg.norm(B_RI, axis = 0)
+                sinI_RI = B_RI[0] / B0_RI
+
+                # find matrix that gets radial current at these coordinates:
+                Q_k = get_G(90 - theta_mapped, phi_mapped, self.Nmax, self.Mmax, a = self.RI)
+
+                # we need to scale this by 1/sin(inclination) to get the FAC:
+                Q_k = Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+
+                # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
+                ratio = (B0_rk / B0_RI).reshape((1, -1))
+                S_k = np.vstack((np.diag(b_rk[1]), np.diag(b_rk[2]))) * ratio
+
+                # matrix that scales the terms by (R/r_k)**(n-1):
+                A_k = np.diag((self.RI / r_k[i])**(self.n - 1))
+
+                # put it all together (crazy)
+                shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(self.vector_to_shc_df.dot(S_k.dot(Q_k)))
+
+            # finally scale the matrix by the term in front of the integral
+            self.shc_TJr_to_shc_PFAC = -np.diag((self.n + 1) / (2 * self.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
+
+            # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
+            self.shc_PFAC_to_Jph = -  1 / (self.n + 1) * self.Gnum_ph / mu0
+            self.shc_PFAC_to_Jth =    1 / (self.n + 1) * self.Gnum_th / mu0
 
         # Initialize the spherical harmonic coefficients
         shc_VB, shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
         self.set_shc(VB = shc_VB)
         self.set_shc(TB = shc_TB)
 
-        # Pre-calculate GTG and its inverse
-        self.GTG = self.Gnum.T.dot(self.Gnum)
-        self.GTG_inv = np.linalg.pinv(self.GTG)
-
-        # Pre-calculate matrix to get coefficients for divergence-free fields:
-        self.Gcf = np.vstack((-self.Gnum_ph, self.Gnum_th)) 
-        self.GTGcf_inv = np.linalg.pinv(self.Gcf.T.dot(self.Gcf))
-
-        # Pre-calculate matrix to get coefficients for curl-free fields
-        self.Gdf = np.vstack((-self.Gnum_th, -self.Gnum_ph)) 
-        self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
-
-        self.E_to_shc_EW = self.GTGcf_inv.dot(self.Gcf.T)
-
-        # Pre-calculate matrix for calculating Br
-        self.GBr = self.Gnum * self.n.reshape((1, -1))
-
-        # Report condition number for GTG
-        self.cond_GTG = np.linalg.cond(self.GTG)
-        print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
 
 
@@ -115,7 +172,7 @@ class I2D(object):
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-        self.shc_EW = self.E_to_shc_EW.dot(np.hstack( self.get_E()))
+        self.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E()))
         self.set_shc(Br = self.shc_Br + self.n * (self.n + 1) * self.shc_EW * dt / self.RI**2)
 
 
@@ -180,6 +237,7 @@ class I2D(object):
             self.shc_TB = kwargs['TB']
             self.shc_TJ = -self.RI / mu0 * self.shc_TB
             self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
+            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
         elif key == 'VJ':
             self.shc_VJ = kwargs['VJ']
             self.shc_VB = mu0 / self.RI * (self.n + 1) / (2 * self.n + 1) * self.shc_VJ
@@ -188,6 +246,7 @@ class I2D(object):
             self.shc_TJ = kwargs['TJ']
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
             self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
+            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
         elif key == 'Br':
             self.shc_Br = kwargs['Br']
             self.shc_VB = self.shc_Br / self.n
@@ -196,7 +255,8 @@ class I2D(object):
             self.shc_TJr = kwargs['TJr']
             self.shc_TJ = -1 /(self.n * (self.n + 1)) * self.shc_TJr * self.RI**2
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            print('not implemented: calculation of poloidal... -- also, check the factor RI**2!')
+            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
+            print('check the factor RI**2!')
         else:
             raise Exception('This should not happen')
 
@@ -216,15 +276,18 @@ class I2D(object):
             Parameters
             ----------
             FAC: array
-                The field-aligned current, in A/m^2, at self.theta and self.phi. 
+                The field-aligned current, in A/m^2, at self.theta and self.phi, at RI 
                 The values in the array have to match the corresponding coordinates
         """
 
-        jr = FAC * self.sinI # get the radial component
+        # Extract the radial component of the FAC:
+        jr = FAC * self.sinI 
+        # Get the corresponding spherical harmonic coefficients
+        TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0]
+        # Propagate to the other coefficients (TB, TJ, PFAC):
+        self.set_shc(TJr = TJr)
 
-        # SH coefficients for an expansion of T_Jr
-        self.set_shc(TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0])
-
+        print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
 
 
@@ -260,9 +323,13 @@ class I2D(object):
         Je_T = -self.Gnum_ph.dot(self.shc_TJ) # -grad(VT) eastward component
         Js_T = -self.Gnum_th.dot(self.shc_TJ) # -grad(VT) southward component
 
-        #print('TODO: fix the default stuff...')
+        Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
-        return(Js_V + Js_T, Je_V + Je_T)
+        if not self.ignore_PNAF:
+            Jth = Jth + self.shc_PFAC_to_Jth.dot(self.shc_PFAC)
+            Jph = Jph + self.shc_PFAC_to_Jph.dot(self.shc_PFAC)
+
+        return(Jth, Jph)
 
 
     @default_2Dcoords
@@ -318,7 +385,7 @@ class I2D(object):
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs'):
 
-    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0_type)
+    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0, ignore_PNAF = True)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
