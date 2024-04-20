@@ -30,7 +30,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import numpy as np
-from copy import deepcopy
 
 class SHkeys(object):
     """ container for n and m in spherical harmonics

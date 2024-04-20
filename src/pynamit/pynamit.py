@@ -198,7 +198,7 @@ class I2D(object):
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
             print('not implemented: calculation of poloidal... -- also, check the factor RI**2!')
         else:
-            raise Excpetion('This should not happen')
+            raise Exception('This should not happen')
 
 
 
@@ -420,8 +420,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
-        pede_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
+        hall_plt = cs_interpolate(i2d.csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
+        pede_plt = cs_interpolate(i2d.csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
 
         globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')

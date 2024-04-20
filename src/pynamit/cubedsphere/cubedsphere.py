@@ -26,8 +26,7 @@ cube block indices:
 
 
 import numpy as np
-import spherical, diffutils, arrayutils
-from scipy import sparse
+import diffutils, arrayutils
 import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix
