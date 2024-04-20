@@ -48,7 +48,7 @@ class Mainfield(object):
         if self.kind == 'dipole':
             self.dpl = dipole.Dipole(epoch)
             def _Bfunc(r, theta, phi):
-                Bn, Br = self.dpl.B(np.as_numpy(90 - theta), np.as_numpy(r * 1e-3))
+                Bn, Br = self.dpl.B(np.asnumpy(90 - theta), np.asnumpy(r * 1e-3))
                 return (Br, -Bn, Bn*0)
 
         elif self.kind == 'igrf':
