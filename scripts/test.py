@@ -55,19 +55,13 @@ i2d.set_FAC(ju)
 
 
 # make an integration matrix
-#sinmphi = 
 
-cS =  (2 * cnm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(cnm).T
-sS =  (2 * snm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(snm).T
-Ginv = i2d.Gnum.T * np.vstack((cS, sS)) * i2d.csp.unit_area
-
-
-
-gg = Ginv.dot(i2d.Gnum)
-
-
-print(3/0)
-
+#cnm = SHkeys(Nmax, Mmax).setNmin(1).MleN()
+#snm = SHkeys(Nmax, Mmax).setNmin(1).MleN().Mge(1)
+#cS =  (2 * cnm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(cnm).T
+#sS =  (2 * snm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(snm).T
+#Ginv = i2d.Gnum.T * np.vstack((cS, sS)) * i2d.csp.unit_area
+#gg = Ginv.dot(i2d.Gnum)
 
 
 
@@ -91,7 +85,7 @@ while True:
         filecount +=1
         title = 't = {:.3} s'.format(time)
         Br = i2d.get_Br()
-        fig, paxn, paxs, axg =  pynamit.visualization.globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
+        fig, paxn, paxs, axg =  pynamit.globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
                                            levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
         W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
 

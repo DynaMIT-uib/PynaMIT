@@ -102,6 +102,8 @@ class I2D(object):
         self.Gdf = np.vstack((-self.Gnum_th, -self.Gnum_ph)) 
         self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
 
+        self.E_to_shc_EW = self.GTGcf_inv.dot(self.Gcf.T)
+
         # Pre-calculate matrix for calculating Br
         self.GBr = self.Gnum * self.n.reshape((1, -1))
 
@@ -121,9 +123,9 @@ class I2D(object):
 
         #self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
 
-
-        GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
-        self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
+        #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        self.shc_EW = self.E_to_shc_EW.dot(np.hstack( self.get_E()))
         self.set_shc(Br = self.shc_Br + self.n * (self.n + 1) * self.shc_EW * dt / self.RI**2)
 
 
