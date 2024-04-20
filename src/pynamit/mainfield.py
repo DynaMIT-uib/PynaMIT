@@ -48,13 +48,13 @@ class Mainfield(object):
         if self.kind == 'dipole':
             self.dpl = dipole.Dipole(epoch)
             def _Bfunc(r, theta, phi):
-                Bn, Br = self.dpl.B(90 - theta, r * 1e-3)
+                Bn, Br = self.dpl.B(np.as_numpy(90 - theta), np.as_numpy(r * 1e-3))
                 return (Br, -Bn, Bn*0)
 
         elif self.kind == 'igrf':
             self.apx = apexpy.Apex(epoch, refh = 0)
             def _Bfunc(r, theta, phi):
-                return ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
+                return ppigrf.igrf_gc(np.asnumpy(r * 1e-3), np.asnumpy(theta), np.asnumpy(phi), epoch)
 
         elif self.kind == 'radial':
             B0 = dipole.Dipole(epoch).B0 if B0 is None else B0 # use Dipole B0 as default
@@ -184,10 +184,10 @@ class Mainfield(object):
             d3, e3 = u * np.sign(self.B(RE, 0, 0)[0])
 
         if self.kind == 'dipole':
-            d1, d2, d3, e1, e2, e3 = self.dpl.get_apex_base_vectors(90 - theta, r * 1e-3, R = RE * 1e-3)
+            d1, d2, d3, e1, e2, e3 = self.dpl.get_apex_base_vectors(np.asnumpy(90 - theta), np.asnumpy(r * 1e-3), R = RE * 1e-3)
 
         if self.kind == 'igrf':
-            d1, d2, d3, e1, e2, e3 = self.apx.basevectors_apex(90 - theta, phi, (r - RE) * 1e-3, coords='geo')
+            d1, d2, d3, e1, e2, e3 = self.apx.basevectors_apex(np.asnumpy(90 - theta), np.asnumpy(phi), (r - RE) * 1e-3, coords='geo')
 
         return(d1, d2, d3, e1, e2, e3)
 
