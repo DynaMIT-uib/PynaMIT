@@ -1,7 +1,7 @@
 import cupy as np
 import numpy as np_nocu
-import dipole
 from pynamit.decorators import default_2Dcoords, default_3Dcoords
+from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
 import sys
 import os
@@ -10,66 +10,52 @@ import os
 cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
 sys.path.insert(0, cs_path)
 import cubedsphere
-csp = cubedsphere.CSprojection() # cubed sphere projection object
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
 
-def B0_radial(r, theta, phi):
-    r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    size = r.size
-    zeros, ones = np.zeros(size), np.ones(size)
-    return(np.vstack((ones, zeros, zeros)))
-
-dd = dipole.Dipole(2020)
-def B0_dipole(r, theta, phi):
-    r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    r, theta, phi = r.flatten(), theta.flatten(), phi.flatten()
-    size = r.size
-    Bn, Br = dd.B(np.asnumpy(90 - theta), np.asnumpy(r * 1e-3))
-    Bn, Br = np.array(Bn), np.array(Br)
-    return(np.vstack((Br, -Bn, np.zeros(r.size))))
 
 
 class I2D(object):
     """ 2D ionosphere """
 
-    def __init__(self, Nmax, Mmax, Ncs = 20, B0 = None, RI = np.array(RE + 110.e3)):
+    def __init__(self, Nmax, Mmax, Ncs = 20, RI = np.array(RE + 110.e3), B0 = 'dipole', B0_parameters = {'epoch':2020}):
         """
-
 
         Parameters
         ----------
-        B0: function, optional
-            Should return the main magnetic field r, theta, phi components, in that order.
-            The function should accept r, theta, phi as input. The coordinate system used
-            by this function defines the coordinate system used in I2D. It is assumed to be
-            an orthogonal spherical coordinate system. 
-            The default B0 for now gives a radial field
-            The unit of this function does not matter, since the vectors will be normalized.  
+        Nmax: int
+            Maximum spherical harmonic degree
+        Mmax: int
+            Maximum spherical harmonic order
+        Ncs: int, optional
+            Each cube block with have (Ncs-1)*(Ncs-1) cells. Default is Ncs = 20
+        RI: float, optional
+            Radius of the ionosphere in m. Default value is RE + 110 km. 
+        B0: string, optional
+            Set to 'dipole', 'radial', or 'igrf', depending on which main field model you want. For 
+            dipole and igrf, you can specify epoch via B0_parameters
 
         """
         self.RI = RI
         self.Nmax, self.Mmax = Nmax, Mmax
 
-        self.B0 = B0_default if B0 is None else B0
+        self.B0 = Mainfield(kind = B0, **B0_parameters)
 
         # Define CS grid used for SH analysis and gradient calculations
-        k, i, j = csp.get_gridpoints(Ncs)
-        xi, eta = csp.xi(i, Ncs), csp.eta(j, Ncs)
-        _, self.theta, self.phi = csp.cube2spherical(xi, eta, k, deg = True)
-        self.theta, self.phi = self.theta.flatten(), self.phi.flatten()
-        self.Dxi, self.Deta = csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
-        self.g  = csp.get_metric_tensor(xi, eta, np.array(1.), covariant = True)
-        self.Ps = csp.get_Ps(xi, eta, np.array(1.), k)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Qi = csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
-        self.sqrtg = np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
+        self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
+        self.theta, self.phi = self.csp.arr_theta, self.csp.arr_phi
+        #self.Dxi, self.Deta = self.csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
+        self.g  = self.csp.g # csp.get_metric_tensor(xi, eta, np.array(1.), covariant = True) 
+        self.Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, np.array(1.), self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
+        self.Qi = self.csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
+        self.sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         self.g12 = self.g[:, 0, 1]
         self.g22 = self.g[:, 1, 1]
         self.g11 = self.g[:, 0, 0]
 
         # get magnetic field unit vectors at CS grid:
-        B = np.vstack(self.B0(self.RI, self.theta, self.phi))
+        B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
         self.br, self.btheta, self.bphi = B / np.linalg.norm(B, axis = 0)
         self.sinI = self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -83,7 +69,6 @@ class I2D(object):
         self.lat, self.lon = np.meshgrid(lat, lon)
 
         # Define matrices for surface spherical harmonics
-        print('TODO: it would be nice to have access to n without this stupid syntax. write a class?')
         self.Gnum, self.n = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_n   = True)
         self.Gnum_ph      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
         self.Gnum_th      = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
@@ -108,6 +93,8 @@ class I2D(object):
         self.Gdf = np.vstack((-self.Gnum_th, -self.Gnum_ph)) 
         self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
 
+        self.E_to_shc_EW = self.GTGcf_inv.dot(self.Gcf.T)
+
         # Pre-calculate matrix for calculating Br
         self.GBr = self.Gnum * self.n.reshape((1, -1))
 
@@ -127,9 +114,9 @@ class I2D(object):
 
         #self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
 
-
-        GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
-        self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
+        #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        self.shc_EW = self.E_to_shc_EW.dot(np.hstack( self.get_E()))
         self.set_shc(Br = self.shc_Br + self.n * (self.n + 1) * self.shc_EW * dt / self.RI**2)
 
 
@@ -212,7 +199,7 @@ class I2D(object):
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
             print('not implemented: calculation of poloidal... -- also, check the factor RI**2!')
         else:
-            raise Excpetion('This should not happen')
+            raise Exception('This should not happen')
 
 
 
@@ -332,14 +319,7 @@ class I2D(object):
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs'):
 
-    if B0_type == 'dipole':
-        B0 = B0_dipole
-    elif B0_type == 'radial':
-        B0 = B0_radial
-    else:
-        raise Exception('Invalid B0_type')
-
-    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0)
+    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0_type)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
@@ -451,8 +431,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
-        pede_plt = cs_interpolate(csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
+        hall_plt = cs_interpolate(i2d.csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
+        pede_plt = cs_interpolate(i2d.csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
 
         globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = np.asnumpy(c_levels), save = 'hall.png')
         globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = np.asnumpy(c_levels), save = 'pede.png')
@@ -494,6 +474,11 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     #globalplot(i2d.phi, 90 - i2d.theta, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
+    fig_directory_writeable = os.access(fig_directory, os.W_OK)
+
+    if not fig_directory_writeable:
+        print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
+
     if SIMULATE:
 
         coeffs = []
@@ -508,7 +493,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
             count += 1
             #print(count, time, i2d.shc_Br[:3])
 
-            if count % plotsteps == 0:
+            if (count % plotsteps == 0) and fig_directory_writeable:
                 print(count, time, i2d.shc_Br[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
@@ -534,7 +519,3 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
             if count > totalsteps:
                 break
     return coeffs
-
-
-if __name__ == '__main__':
-    run_pynamit()

@@ -7,9 +7,9 @@ import cupy as np
 
 def test_run_pynamit():
     # Arrange
-    expected_coeff_norm = 2.0322837331048516e-16
-    expected_coeff_max = 1.0302465681964904e-17
-    expected_coeff_min = -5.040932467648457e-18
+    expected_coeff_norm = 2.030783453351264e-16
+    expected_coeff_max = 1.0178191775378528e-17
+    expected_coeff_min = -4.9443522504953425e-18
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")

@@ -124,13 +124,10 @@ if __name__ == "__main__":
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
 
-    import pyamps
     from pynamit.visualization import globalplot
-    import matplotlib.pyplot as plt
     from lompe import conductance
     import dipole
     import datetime
-    import polplot
 
     # specify a time and Kp (for conductance):
     date = datetime.datetime(2001, 5, 12, 21, 45)
