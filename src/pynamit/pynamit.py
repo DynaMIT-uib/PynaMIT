@@ -385,7 +385,7 @@ class I2D(object):
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs'):
 
-    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0, ignore_PNAF = True)
+    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0_type, ignore_PNAF = True)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
