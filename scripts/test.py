@@ -12,16 +12,6 @@ from lompe import conductance
 
 reload(pynamit)
 
-
-print('todo: the magnetic field models should be built-in')
-dd = dipole.Dipole(2020) 
-def B0_dipole(r, theta, phi): 
-    r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    r, theta, phi = r.flatten(), theta.flatten(), phi.flatten()
-    size = r.size
-    Bn, Br = dd.B(90 - theta, r * 1e-3)
-    return(np.vstack((Br, -Bn, np.zeros(r.size))))
-
 # SIMULATION PARAMETERS
 Nmax, Mmax, Ncs = 45, 3, 40
 dt = 5e-4
@@ -37,7 +27,7 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = B0_dipole)
+i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole')
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)

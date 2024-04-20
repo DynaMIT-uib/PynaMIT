@@ -68,7 +68,7 @@ class Mainfield(object):
         self._Bfunc = _Bfunc
 
 
-    def B(self, r, theta, phi):
+    def get_B(self, r, theta, phi):
         """ Calculate magnetic field vector [nT] at r [m], theta [deg], phi [deg]
         
         Broadcasting rules apply

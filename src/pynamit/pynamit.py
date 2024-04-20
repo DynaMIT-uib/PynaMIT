@@ -1,6 +1,6 @@
 import numpy as np
-import dipole
 from pynamit.decorators import default_2Dcoords, default_3Dcoords
+from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
 import sys
 import os
@@ -13,43 +13,33 @@ import cubedsphere
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
 
-def B0_radial(r, theta, phi):
-    r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    size = r.size
-    zeros, ones = np.zeros(size), np.ones(size)
-    return(np.vstack((ones, zeros, zeros)))
-
-dd = dipole.Dipole(2020)
-def B0_dipole(r, theta, phi):
-    r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    r, theta, phi = r.flatten(), theta.flatten(), phi.flatten()
-    size = r.size
-    Bn, Br = dd.B(90 - theta, r * 1e-3)
-    return(np.vstack((Br, -Bn, np.zeros(r.size))))
 
 
 class I2D(object):
     """ 2D ionosphere """
 
-    def __init__(self, Nmax, Mmax, Ncs = 20, B0 = None, RI = RE + 110.e3):
+    def __init__(self, Nmax, Mmax, Ncs = 20, RI = RE + 110.e3, B0 = 'dipole', B0_parameters = {'epoch':2020}):
         """
-
 
         Parameters
         ----------
-        B0: function, optional
-            Should return the main magnetic field r, theta, phi components, in that order.
-            The function should accept r, theta, phi as input. The coordinate system used
-            by this function defines the coordinate system used in I2D. It is assumed to be
-            an orthogonal spherical coordinate system. 
-            The default B0 for now gives a radial field
-            The unit of this function does not matter, since the vectors will be normalized.  
+        Nmax: int
+            Maximum spherical harmonic degree
+        Mmax: int
+            Maximum spherical harmonic order
+        Ncs: int, optional
+            Each cube block with have (Ncs-1)*(Ncs-1) cells. Default is Ncs = 20
+        RI: float, optional
+            Radius of the ionosphere in m. Default value is RE + 110 km. 
+        B0: string, optional
+            Set to 'dipole', 'radial', or 'igrf', depending on which main field model you want. For 
+            dipole and igrf, you can specify epoch via B0_parameters
 
         """
         self.RI = RI
         self.Nmax, self.Mmax = Nmax, Mmax
 
-        self.B0 = B0_default if B0 is None else B0
+        self.B0 = Mainfield(kind = B0, **B0_parameters)
 
         # Define CS grid used for SH analysis and gradient calculations
         self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
@@ -64,7 +54,7 @@ class I2D(object):
         self.g11 = self.g[:, 0, 0]
 
         # get magnetic field unit vectors at CS grid:
-        B = np.vstack(self.B0(self.RI, self.theta, self.phi))
+        B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
         self.br, self.btheta, self.bphi = B / np.linalg.norm(B, axis = 0)
         self.sinI = self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -327,13 +317,6 @@ class I2D(object):
         return(Eth, Eph)
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs'):
-
-    if B0_type == 'dipole':
-        B0 = B0_dipole
-    elif B0_type == 'radial':
-        B0 = B0_radial
-    else:
-        raise Exception('Invalid B0_type')
 
     i2d = I2D(Nmax, Mmax, Ncs, B0 = B0)
 
