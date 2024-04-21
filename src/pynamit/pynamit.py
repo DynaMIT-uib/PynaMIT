@@ -115,18 +115,18 @@ class I2D(object):
             # initialize matrix that will map from self.TJr to coefficients for poloidal field:
             shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
-                print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end='\r')
+                print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                 # map coordinates from r_k[i] to RI:
                 theta_mapped, phi_mapped = self.B0.map_coords(self.RI, r_k[i], self.theta, self.phi)
 
                 # Calculate magnetic field at grid points at r_k[i]:
                 B_rk  = np.vstack(self.B0.get_B(r_k[i], self.theta, self.phi))
-                B0_rk = np.linalg.norm(B_rk, axis = 0)
+                B0_rk = np.linalg.norm(B_rk, axis = 0) # magnetic field magnitude
                 b_rk = B_rk / B0_rk # unit vectors
 
                 # Calculate magnetic field at the points in the ionosphere to which the grid maps:
                 B_RI  = np.vstack(self.B0.get_B(self.RI, theta_mapped, phi_mapped))
-                B0_RI = np.linalg.norm(B_RI, axis = 0)
+                B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
                 sinI_RI = B_RI[0] / B0_RI
 
                 # find matrix that gets radial current at these coordinates:

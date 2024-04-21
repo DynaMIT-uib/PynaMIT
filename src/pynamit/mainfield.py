@@ -128,7 +128,9 @@ class Mainfield(object):
             phi_out = phi
 
         if self.kind == 'dipole': # Map from r to r_dest for dipole field:
-            theta_out = np.rad2deg(np.arcsin(np.sin(np.deg2rad(theta)) * np.sqrt(r_dest/r)))
+            hemisphere = np.sign(90 - theta)
+            la_ = 90 - np.rad2deg(np.arcsin(np.sin(np.deg2rad(theta)) * np.sqrt(r_dest/r)))
+            theta_out = 90 - hemisphere * la_
             phi_out = phi # longitude is the same
 
         elif self.kind == 'igrf': # Use apexpy to map along IGRF 

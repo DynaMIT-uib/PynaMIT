@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from lompe import conductance
 
 reload(pynamit)
+RE = 6371.2e3
+
 
 # MODEL PARAMETERS
 Nmax, Mmax, Ncs = 45, 20, 40
@@ -25,7 +27,7 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole')
+i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(7 * RE), 21)})
 
 
 ## CONDUCTANCE AND FAC INPUT:
@@ -40,12 +42,11 @@ a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) / i2d.sinI * 1e-6
 jparallel[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
 
-secsI = jparallel * i2d.sinI * i2d.csp.unit_area * i2d.RI**2 # SECS amplitudes are radial current density times area
 
 i2d.set_FAC(jparallel)
 
-# Build SECS matrices. This takes some time (and memory) because of global grids
-secsI = jparallel * i2d.csp.unit_area * i2d.RI**2 # SECS amplitudes are radial current density times area
+print('Building SECS matrices. This takes some time (and memory) because of global grids...')
+secsI = jparallel * i2d.sinI * i2d.csp.unit_area * i2d.RI**2 # SECS amplitudes are radial current density times area
 lat, lon = i2d.lat.flatten(), i2d.lon.flatten()
 r = np.full(lat.size, i2d.RI - 1)
 lat_secs, lon_secs = 90 - i2d.theta, i2d.phi
