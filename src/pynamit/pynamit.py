@@ -1,5 +1,5 @@
 import cupy as np
-import numpy as np_nocu
+import numpy as np_cpu
 from pynamit.decorators import default_2Dcoords, default_3Dcoords
 from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
@@ -102,7 +102,7 @@ class I2D(object):
         self.vector_to_shc_df = self.GTGdf_inv.dot(self.Gdf.T)
 
         # Report condition number for GTG
-        self.cond_GTG = np.linalg.cond(np.asnumpy(self.GTG))
+        self.cond_GTG = np_cpu.linalg.cond(np.asnumpy(self.GTG))
         print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
@@ -447,10 +447,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         mlatv , mltv  = np.array(mlatv), np.array(mltv)
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
-        paxes[0].contourf(np.asnumpy(mlatn) , np.asnumpy(mltn) ,  np_nocu.split(np.asnumpy(ju_amps), 2)[0], levels = np.asnumpy(levels), cmap = plt.cm.bwr)
-        paxes[0].quiver(  np.asnumpy(mlatnv), np.asnumpy(mltnv),  np_nocu.split(np.asnumpy(jn_amps), 2)[0], np_nocu.split(np.asnumpy(je_amps), 2)[0], scale = SCALE, color = 'black')
-        paxes[1].contourf(np.asnumpy(mlatn) , np.asnumpy(mltn) ,  np_nocu.split(np.asnumpy(ju_amps), 2)[1], levels = np.asnumpy(levels), cmap = plt.cm.bwr)
-        paxes[1].quiver(  np.asnumpy(mlatnv), np.asnumpy(mltnv), -np_nocu.split(np.asnumpy(jn_amps), 2)[1], np_nocu.split(np.asnumpy(je_amps), 2)[1], scale = SCALE, color = 'black')
+        paxes[0].contourf(np.asnumpy(mlatn) , np.asnumpy(mltn) ,  np_cpu.split(np.asnumpy(ju_amps), 2)[0], levels = np.asnumpy(levels), cmap = plt.cm.bwr)
+        paxes[0].quiver(  np.asnumpy(mlatnv), np.asnumpy(mltnv),  np_cpu.split(np.asnumpy(jn_amps), 2)[0], np_cpu.split(np.asnumpy(je_amps), 2)[0], scale = SCALE, color = 'black')
+        paxes[1].contourf(np.asnumpy(mlatn) , np.asnumpy(mltn) ,  np_cpu.split(np.asnumpy(ju_amps), 2)[1], levels = np.asnumpy(levels), cmap = plt.cm.bwr)
+        paxes[1].quiver(  np.asnumpy(mlatnv), np.asnumpy(mltnv), -np_cpu.split(np.asnumpy(jn_amps), 2)[1], np_cpu.split(np.asnumpy(je_amps), 2)[1], scale = SCALE, color = 'black')
 
 
         lon  = d.mlt2mlon(np.asnumpy(mlt) , date)
@@ -467,9 +467,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         jrn, jrs = np.split(jr, 2) 
         paxes[2].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np.asnumpy(jrn), levels = np.asnumpy(levels), cmap = plt.cm.bwr)
-        paxes[2].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  np_nocu.split(np.asnumpy(jn), 2)[0], np_nocu.split(np.asnumpy(je), 2)[0], scale = SCALE, color = 'black')
+        paxes[2].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  np_cpu.split(np.asnumpy(jn), 2)[0], np_cpu.split(np.asnumpy(je), 2)[0], scale = SCALE, color = 'black')
         paxes[3].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np.asnumpy(jrs), levels = np.asnumpy(levels), cmap = plt.cm.bwr)
-        paxes[3].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  -np_nocu.split(np.asnumpy(jn), 2)[1], np_nocu.split(np.asnumpy(je), 2)[1], scale = SCALE, color = 'black')
+        paxes[3].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  -np_cpu.split(np.asnumpy(jn), 2)[1], np_cpu.split(np.asnumpy(je), 2)[1], scale = SCALE, color = 'black')
 
         jr = i2d.Gplt.dot(i2d.shc_TJr)
 
@@ -490,8 +490,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         Bu = a.get_ground_Buqd(height = a.height)
         Bu = np.array(Bu)
-        paxes[0].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np_nocu.split(np.asnumpy(Bu), 2)[0], levels = np.asnumpy(Blevels * 1e9), cmap = plt.cm.bwr)
-        paxes[1].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np_nocu.split(np.asnumpy(Bu), 2)[1], levels = np.asnumpy(Blevels * 1e9), cmap = plt.cm.bwr)
+        paxes[0].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np_cpu.split(np.asnumpy(Bu), 2)[0], levels = np.asnumpy(Blevels * 1e9), cmap = plt.cm.bwr)
+        paxes[1].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np_cpu.split(np.asnumpy(Bu), 2)[1], levels = np.asnumpy(Blevels * 1e9), cmap = plt.cm.bwr)
 
         plt.show()
 
