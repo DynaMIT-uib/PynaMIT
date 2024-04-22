@@ -1,4 +1,4 @@
-name: testing
+name: 'Build and test'
 
 on:
   push:
@@ -9,7 +9,8 @@ on:
       - main
 
 jobs:
-  testing-ubuntu:
+  build-and-test-ubuntu:
+    name: 'Build and test on Ubuntu'
     runs-on: ubuntu-latest
     container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-19
     defaults:

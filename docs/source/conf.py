@@ -16,8 +16,8 @@ copyright = '2024, PynaMIT Developers'
 # General configuration
 
 extensions = [
-    'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
+    'sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
     ]
 
