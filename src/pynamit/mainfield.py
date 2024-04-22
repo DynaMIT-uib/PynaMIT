@@ -10,6 +10,7 @@ RE = 6371.2e3 # Earth radius
 class Mainfield(object):
     def __init__(self, kind = 'dipole', epoch = 2020., B0 = None):
         """
+
         Supported fields (kind kw):
         'dipole': 
             Dipole magnetic field, using IGRF coefficients to determine dipole
@@ -35,6 +36,7 @@ class Mainfield(object):
         B0: float, optional
             Define the magnitude of the field on ground for kind == 'radial'
             The default is the reference field for epoch = 2020 (pointing upward)
+
         """
 
         if kind.lower() not in ['radial', 'dipole', 'igrf']:

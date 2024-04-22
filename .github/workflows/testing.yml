@@ -1,4 +1,4 @@
-name: 'Build and test'
+name: testing
 
 on:
   push:
@@ -9,8 +9,7 @@ on:
       - main
 
 jobs:
-  ubuntu:
-    name: 'Ubuntu'
+  testing-ubuntu:
     runs-on: ubuntu-latest
     container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-19
     defaults:
@@ -21,7 +20,5 @@ jobs:
         uses: actions/checkout@v4
       - name: Install PynaMIT
         run: 'pip install .'
-      - name: Install Sphinx and build documentation
-        run: 'pip install sphinx sphinx-rtd-theme && sphinx-apidoc -o docs/source src && sphinx-build -b html docs/source docs/build'
       - name: Test PynaMIT
         run: 'pytest -v'
