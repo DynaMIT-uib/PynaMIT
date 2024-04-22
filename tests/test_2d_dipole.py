@@ -5,7 +5,7 @@ import pytest
 from pynamit.pynamit import run_pynamit
 import numpy as np
 
-def test_run_pynamit():
+def test_2d_dipole():
     # Arrange
     expected_coeff_norm = 2.030783453351264e-16
     expected_coeff_max = 1.0178191775378528e-17
