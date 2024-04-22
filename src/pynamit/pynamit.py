@@ -102,7 +102,7 @@ class I2D(object):
         self.vector_to_shc_df = self.GTGdf_inv.dot(self.Gdf.T)
 
         # Report condition number for GTG
-        self.cond_GTG = np.linalg.cond(self.GTG)
+        self.cond_GTG = np.linalg.cond(np.asnumpy(self.GTG))
         print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
