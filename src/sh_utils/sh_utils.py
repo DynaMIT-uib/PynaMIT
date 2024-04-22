@@ -250,7 +250,7 @@ def legendre(nmax, mmax, theta, schmidtnormalize = True, keys = None):
 
 
 
-def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_n = False):
+def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_nm = False):
     """ Calculate matrix that evaluates surface spherical harmonics using the terms
         contained in shkeys, and at the locations defined by lat and lon
 
@@ -311,8 +311,8 @@ def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_n = False):
     else:
         raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
-    if return_n:
-        return np.hstack((Gc, Gs)), np.hstack((cnm.n.flatten(), snm.n.flatten()))
+    if return_nm:
+        return np.hstack((Gc, Gs)), np.hstack((cnm.n.flatten(), snm.n.flatten())), np.hstack((cnm.m.flatten(), snm.m.flatten()))
     else:
         return np.hstack((Gc, Gs))
 
