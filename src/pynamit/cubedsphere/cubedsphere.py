@@ -2,19 +2,21 @@
 Python implementation of cubed sphere projection and differential calculus, largely based on:
 Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai, Parallel numerical simulation of the thermal convection in the Earth’s outer core on the cubed-sphere, Geophysical Journal International, Volume 209, Issue 3, June 2017, Pages 1934–1954, https://doi.org/10.1093/gji/ggx125
 
-      _______
-      |     |
-      |  V  |
-______|_____|____________
-|     |     |     |     |
-| IV  |  I  | II  | III |
-|_____|_____|_____|_____|
-      |     |
-      | VI  |
-      |_____|
+::
+
+          _______
+          |     |
+          |  V  |
+    ______|_____|____________
+    |     |     |     |     |
+    | IV  |  I  | II  | III |
+    |_____|_____|_____|_____|
+          |     |
+          | VI  |
+          |_____|
 
 cube block indices:
-------------------
+-------------------
 0 = I  : Equator
 1 = II : Equator 
 2 = III: Equator    
@@ -429,11 +431,11 @@ class CSprojection(object):
         """ Calculate elements of transformation matrix Ps at all input points
 
         The Ps matrix transforms vector components (u_east, u_north, u_r) to contravariant components in a cubed
-        sphere coordinate system:
+        sphere coordinate system::
         
-        |u1| = |P00 P01 P02| |u_east|
-        |u2| = |P10 P11 P12| |u_north| 
-        |u3| = |P20 P21 P22| |u_r|
+            |u1| = |P00 P01 P02| |u_east|
+            |u2| = |P10 P11 P12| |u_north| 
+            |u3| = |P20 P21 P22| |u_r|
 
         The output, Ps, will have shape (N, 3, 3), 
 
@@ -549,11 +551,11 @@ class CSprojection(object):
         Calculations are done via transformation to spherical coordinates, as suggested by Yin et al.
         See equations (66) and (67) in their paper.
 
-        It works like this, where u1, u2, u_3 refer to contravariant vector components:
+        It works like this, where u1, u2, u_3 refer to contravariant vector components::
 
-        |u1_j|      |u1_i|
-        |u2_j| = Qij|u2_i|
-        |u3_j|      |u3_i|
+            |u1_j|      |u1_i|
+            |u2_j| = Qij|u2_i|
+            |u3_j|      |u3_i|
 
         
         Parameters
@@ -593,14 +595,15 @@ class CSprojection(object):
 
 
     def get_Q(self, lat, r, inverse = False):
-        """ calculate the matrices that convert from not normalized spherical components to 
-            normalized spherical vector components:
+        """
+        Calculate the matrices that convert from not normalized spherical components to 
+        normalized spherical vector components::
 
             |u_east_normalized |    |u_east |
             |u_north_normalized| = Q|u_north|
             |u_r_normalized    |    |u_r    |
 
-            Calculations based on Yin et al. 2017 (equations after A25)
+        Calculations based on Yin et al. 2017 (equations after A25)
 
         Parameters
         ----------

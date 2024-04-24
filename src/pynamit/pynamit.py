@@ -213,6 +213,7 @@ class I2D(object):
 
         This function accepts one (and only one) set of spherical harmonic coefficients.
         Valid values for kwargs (only one):
+
             VB : Coefficients for magnetic field scalar V
             TB : Coefficients for surface current scalar T
             VJ : Coefficients for magnetic field scalar V

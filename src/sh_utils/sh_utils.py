@@ -1,4 +1,5 @@
-""" tools that are useful for spherical harmonic analysis
+"""
+Tools that are useful for spherical harmonic analysis
 
     SHkeys       -- class to contain n and m - the indices of the spherical harmonic terms
     nterms       -- function which calculates the number of terms in a 

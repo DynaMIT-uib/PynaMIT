@@ -145,11 +145,12 @@ class Mainfield(object):
 
         The basevectors are the apex basevectors as defined by Richmond 1995.
         For the three types of mainfield, we use different methods:
-            'dipole': we use the dipole module, see documentation of that
-                      module for full explanation
-            'radial': the basevectors are orthonormal unit vectors
-            'igrf': we use apexpy. NOTE: We treat theta as 90 - geodetic latitude
-                    and r as RE + geodetic height.
+
+        - 'dipole': we use the dipole module, see documentation of that
+                    module for full explanation
+        - 'radial': the basevectors are orthonormal unit vectors
+        - 'igrf': we use apexpy. NOTE: We treat theta as 90 - geodetic latitude
+                  and r as RE + geodetic height.
 
 
         Broadcasting rules apply, but output vectors will be (3, size), where 
