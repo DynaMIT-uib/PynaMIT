@@ -28,11 +28,11 @@ class Mainfield(object):
 
         Parameters
         ----------
-        kind: string, optional
-            should be 'radial', 'dipole', or 'igrf'. Default is 'dipole'
-        epoch: float, optional
+        kind : str, optional, default = 'dipole'
+            should be 'radial', 'dipole', or 'igrf'
+        epoch : float, optional
             Define the epoch [decimal year] for the field model
-        B0: float, optional
+        B0 : float, optional
             Define the magnitude of the field on ground for kind == 'radial'
             The default is the reference field for epoch = 2020 (pointing upward)
         """

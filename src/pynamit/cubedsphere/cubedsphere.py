@@ -309,13 +309,13 @@ class CSprojection(object):
         """ Calculate elements of transformation matrix Pc at all input points
 
         The Pc matrix transforms Cartesian components (ux, uy, uz) to contravariant components in a cubed
-        sphere coordinate system:
+        sphere coordinate system::
         
-        |u1| = |P00 P01 P02| |ux|
-        |u2| = |P10 P11 P12| |uy| 
-        |u3| = |P20 P21 P22| |uz|
+            |u1| = |P00 P01 P02| |ux|
+            |u2| = |P10 P11 P12| |uy|
+            |u3| = |P20 P21 P22| |uz|
 
-        The output, Pc, will have shape (N, 3, 3), 
+        The output, Pc, will have shape (N, 3, 3).
 
         Calculations based on equations from Appendix A of Yin et al. (2017), with similar notation
 
