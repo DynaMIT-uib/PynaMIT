@@ -11,20 +11,20 @@ class Mainfield(object):
     def __init__(self, kind = 'dipole', epoch = 2020., B0 = None):
         """
         Supported fields (kind kw):
-        'dipole': 
-            Dipole magnetic field, using IGRF coefficients to determine dipole
-            moment. The functions will refer to *dipole coordinates*. Other parameters
-            (FAC, conductanace, ...) must be given in the same coordinate system. 
-        'igrf':
-            International Geomagentic Reference Field, described in *geocentric* 
-            coordinates. Other parameters (FAC, conductanace, ...) must be given in the
-            same coordinate system. 
-            NOTE: Conversion between geodetic and geocentric is ignored. geodetic height 
-            is calculated as h = r - RE
-        'radial':
-            Radial field lines. You can specify the magnitude of B on ground through the
-            B0 keyword. If not specified, the magnitude will be the (positive) dipole 
-            reference field for the given epoch (and the epoch keyword is ignored)
+            'dipole': 
+                Dipole magnetic field, using IGRF coefficients to determine dipole
+                moment. The functions will refer to *dipole coordinates*. Other parameters
+                (FAC, conductanace, ...) must be given in the same coordinate system. 
+            'igrf':
+                International Geomagentic Reference Field, described in *geocentric* 
+                coordinates. Other parameters (FAC, conductanace, ...) must be given in the
+                same coordinate system. 
+                NOTE: Conversion between geodetic and geocentric is ignored. geodetic height 
+                is calculated as h = r - RE
+            'radial':
+                Radial field lines. You can specify the magnitude of B on ground through the
+                B0 keyword. If not specified, the magnitude will be the (positive) dipole 
+                reference field for the given epoch (and the epoch keyword is ignored)
 
         Parameters
         ----------
