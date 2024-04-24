@@ -5,7 +5,7 @@ import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
-    """ interpolate from cubed sphere grid to new points lon, lat 
+    """ Interpolate from cubed sphere grid to new points lon, lat
 
     Parameters
     ----------

@@ -27,19 +27,21 @@ class I2D(object):
         Parameters
         ----------
         Nmax: int
-            Maximum spherical harmonic degree
+            Maximum spherical harmonic degree.
         Mmax: int
-            Maximum spherical harmonic order
-        Ncs: int, optional
-            Each cube block with have (Ncs-1)*(Ncs-1) cells. Default is Ncs = 20
-        RI: float, optional
-            Radius of the ionosphere in m. Default value is RE + 110 km. 
+            Maximum spherical harmonic order.
+        Ncs: int, optional, default = 20
+            Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
+        RI: float, optional, default = RE + 110.e3
+            Radius of the ionosphere in m.
         B0: string, optional
-            Set to 'dipole', 'radial', or 'igrf', depending on which main field model you want. For 
-            dipole and igrf, you can specify epoch via B0_parameters
+            Set to ``dipole``, ``radial``, or ``igrf``, depending on
+            which main field model you want. For ``dipole`` and
+            ``igrf``, you can specify epoch via ``B0_parameters``.
         FAC_integration_parameters: dict
-            use this to specify parameters in the integration required to find the poloidal
-            part of the magnetic field of FACs. Not relevant for radial B0.
+            use this to specify parameters in the integration required
+            to find the poloidal part of the magnetic field of FACs.
+            Not relevant for radial B0.
 
         """
         self.ignore_PNAF = ignore_PNAF
@@ -161,7 +163,9 @@ class I2D(object):
 
 
     def evolve_Br(self, dt):
-        """ evolve Br in time """
+        """ Evolve Br in time
+        
+        """
 
         #Eth, Eph = self.get_E()
         #u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
@@ -177,7 +181,7 @@ class I2D(object):
 
 
     def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
-        """ convert from east, north up to u^1, u^2, u^3 (ref Yin)
+        """ Convert from east, north up to u^1, u^2, u^3 (ref Yin)
 
             The input must match the CS grid
         """
@@ -198,7 +202,11 @@ class I2D(object):
 
 
     def curlr(self, u1, u2):
-        """ construct a matrix that calculates the radial curl using B6 in Yin et al. """
+        """
+        Construct a matrix that calculates the radial curl using B6 in
+        Yin et al.
+
+        """
         
 
 
@@ -209,17 +217,18 @@ class I2D(object):
     def set_shc(self, **kwargs):
         """ Set spherical harmonic coefficients 
 
-        Specify a set of spherical harmonic coefficients and update the rest so that they are consistent. 
+        Specify a set of spherical harmonic coefficients and update the
+        rest so that they are consistent. 
 
-        This function accepts one (and only one) set of spherical harmonic coefficients.
-        Valid values for kwargs (only one):
+        This function accepts one (and only one) set of spherical
+        harmonic coefficients. Valid values for kwargs (only one):
 
-            VB : Coefficients for magnetic field scalar V
-            TB : Coefficients for surface current scalar T
-            VJ : Coefficients for magnetic field scalar V
-            TJ : Coefficients for surface current scalar T
-            Br : Coefficients for magnetic field Br (at r=RI)
-            TJr: Coefficients for radial current scalar
+        - ``VB`` : Coefficients for magnetic field scalar V
+        - ``TB`` : Coefficients for surface current scalar T
+        - ``VJ`` : Coefficients for magnetic field scalar V
+        - ``TJ`` : Coefficients for surface current scalar T
+        - ``Br`` : Coefficients for magnetic field Br (at r=RI)
+        - ``TJr``: Coefficients for radial current scalar
 
         """ 
         valid_kws = ['VB', 'TB', 'VJ', 'TJ', 'Br', 'TJr']
@@ -264,9 +273,10 @@ class I2D(object):
 
 
     def set_initial_condition(self, I2D_object):
-        """ provide a
+        """ Provide a
 
-            If this is not called, initial condictions should be zero
+            If this is not called, initial condictions should be zero.
+
         """
         print('not implemented. inital conditions will be zero')
 
@@ -277,8 +287,10 @@ class I2D(object):
             Parameters
             ----------
             FAC: array
-                The field-aligned current, in A/m^2, at self.theta and self.phi, at RI 
-                The values in the array have to match the corresponding coordinates
+                The field-aligned current, in A/m^2, at ``self.theta``
+                and ``self.phi``, at RI. The values in the array have
+                to match the corresponding coordinates
+
         """
 
         # Extract the radial component of the FAC:
@@ -293,7 +305,8 @@ class I2D(object):
 
 
     def set_conductance(self, Hall, Pedersen):
-        """ Specify Hall and Pedersen conductance at self.theta, self.phi
+        """ Specify Hall and Pedersen conductance at ``self.theta``,
+        ``self.phi``
 
 
         """
@@ -308,7 +321,7 @@ class I2D(object):
 
     @default_3Dcoords
     def get_Br(self, r = None, theta = None, phi = None, deg = False):
-        """ calculate Br 
+        """ Calculate Br 
 
         """
         return(self.Gplt.dot(self.shc_Br))
@@ -316,7 +329,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_JS(self, theta = None, phi = None, deg = False):
-        """ calculate ionospheric sheet current
+        """ Calculate ionospheric sheet current
 
         """
         Je_V =  self.Gnum_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
@@ -335,7 +348,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_Jr(self, theta = None, phi = None, deg = False):
-        """ calculate radial current
+        """ Calculate radial current
 
         """
 
@@ -347,7 +360,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_equivalent_current_function(self, theta = None, phi = None, deg = False):
-        """ calculate equivalent current function
+        """ Calculate equivalent current function
 
         """
         print('not implemented')
@@ -355,7 +368,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_Phi(self, theta = None, phi = None, deg = False):
-        """ calculate electric potential
+        """ Calculate electric potential
 
         """
         print('not implemented')
@@ -363,7 +376,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_W(self, theta = None, phi = None, deg = False):
-        """ calculate the induction electric field scalar
+        """ Calculate the induction electric field scalar
 
         """
         print('not implemented')
@@ -371,7 +384,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_E(self, theta = None, phi = None, deg = False):
-        """ calculate electric field
+        """ Calculate electric field
 
         """
 

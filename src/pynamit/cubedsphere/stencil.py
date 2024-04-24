@@ -5,12 +5,17 @@ from scipy.special import factorial
 
 
 def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
-    """ Calculate stencil coefficients for numerical differentiation of f(x, y)
+    """
+    Calculate stencil coefficients for numerical differentiation of
+    ``f(x, y)``
 
-    derivative is found by sum over i: c[i] * f(x + dx[i], y + dy[i]) 
+    Derivative is found by sum over ``i``::
 
-    Only second order differentiation is supported at the moment but it would be fairly easy to expand...
-    It should also be pretty easy to expand this to functions of more than one parameter
+        c[i] * f(x + dx[i], y + dy[i]) 
+
+    Only second order differentiation is supported at the moment but it
+    would be fairly easy to expand... It should also be pretty easy to
+    expand this to functions of more than one parameter
 
     Parameters
     ----------
@@ -19,7 +24,8 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
     dy: array-like
         array of stencil points in y-dimension
     derivative: string
-        'x': df/dx, 'y': df/dy, 'xy': d^2f/dxdy, 'yx': d^2f/dxdy, 'xx':d^2f/dx^2, 'yy':d^2f/dy^2
+        ``x``: df/dx, ``y``: df/dy, ``xy``: d^2f/dxdy,
+        ``yx``: d^2f/dxdy, ``xx``: d^2f/dx^2, ``yy``: d^2f/dy^2
 
     Returns
     -------

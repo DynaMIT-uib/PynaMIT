@@ -26,30 +26,33 @@ def stencil(evaluation_points, order = 1, h = 1, fraction = False):
     Parameters
     ----------
     evaluation_points: array_like
-        evaluation points in regular grid. e.g. [-1, 0, 1] for 
-        central difference or [-1, 0] for backward difference
-    order: integer, optional
-        order of the derivative. Default 1 (first order)
-    h: scalar, optional
-        Step size. Default 1
+        evaluation points in regular grid. e.g. ``[-1, 0, 1]`` for 
+        central difference or ``[-1, 0]`` for backward difference
+    order: integer, optional, default = 1
+        order of the derivative, default gives a first order derivative
+    h: scalar, optional, default = 1
+        Step size in seconds
     fraction: bool, optional
-        Set to True to return coefficients as integer numerators
+        Set to ``True`` to return coefficients as integer numerators
         and a common denomenator. Be careful with this if you use
         a very large number of evaluation points...
 
     Returns
     -------
     coefficients: array
-        array of coefficients in stencil. Unless fraction is set 
-        to True - in which case a tuple will be returned with
-        an array of numerators and an integer denominator. If 
-        fraction is True, h is ignored - and you should multiply the 
-        denominator by h**order to get the coefficients
+        array of coefficients in stencil. Unless fraction is set to
+        ``True`` - in which case a tuple will be returned with
+        an array of numerators and an integer denominator. If fraction
+        is ``True``, ``h`` is ignored - and you should multiply the
+        denominator by ``h**order`` to get the coefficients
 
     Note
     ----
-    Algorithm based on Taylor series expansion. See this page for explanation:
-    https://web.media.mit.edu/~crtaylor/calculator.html
+    Algorithm based on Taylor series expansion. See this page for
+    explanation:
+
+        https://web.media.mit.edu/~crtaylor/calculator.html
+
     """
 
     # calculate coefficients:
@@ -74,19 +77,26 @@ def stencil(evaluation_points, order = 1, h = 1, fraction = False):
 
 
 def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
-    """ Calculate stencil coefficients for numerical differentiation of f(x, y)
+    """
+    Calculate stencil coefficients for numerical differentiation of
+    ``f(x, y)``
 
-    derivative is found by sum over i: c[i] * f(x + dx[i], y + dy[i]) 
+    Derivative is found by sum over ``i``::
+
+        c[i] * f(x + dx[i], y + dy[i])
 
     Note
     ----
-    This function is also based on Taylor series expansion (see docs for rough summary)
+    This function is also based on Taylor series expansion (see docs
+    for rough summary)
 
-    Only second order differentiation is supported at the moment but it would be fairly easy to expand...
-    It should also be pretty easy to expand this to functions of more than one parameter
+    Only second order differentiation is supported at the moment but it
+    would be fairly easy to expand... It should also be pretty easy to
+    expand this to functions of more than one parameter
 
-    Also, this function shoudl probably be tested more, in particular if it is used in ways that are not
-    currently tested in the __main__ block at the bottom of the script
+    Also, this function shoudl probably be tested more, in particular
+    if it is used in ways that are not currently tested in the
+    ``__main__`` block at the bottom of the script
 
 
     Parameters
@@ -96,8 +106,15 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
     dy: array-like
         array of stencil points in y-dimension
     derivative: string
-        defines which derivative you want. Currently these strings are supported:
-        'x': df/dx, 'y': df/dy, 'xy': d^2f/dxdy, 'yx': d^2f/dxdy, 'xx':d^2f/dx^2, 'yy':d^2f/dy^2
+        defines which derivative you want. Currently these strings are
+        supported:
+
+        - ``x``: df/dx
+        - ``y``: df/dy
+        - ``xy``: d^2f/dxdy
+        - ``yx``: d^2f/dxdy
+        - ``xx``: d^2f/dx^2
+        - ``yy``: d^2f/dy^2
 
     Returns
     -------

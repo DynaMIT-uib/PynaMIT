@@ -7,11 +7,13 @@ def get_3D_determinants(M):
     Parameters
     ----------
     M : array
-        array with shape (N, 3, 3), corresponding to N 3D matrices
+        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D matrices.
 
-    Returns:
+    Returns
+    -------
     det : array
-        array with determinants, shape (N)
+        Array with determinants, shape ``(N)``.
+
     """
 
     # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
@@ -31,11 +33,14 @@ def invert_3D_matrices(M):
         Parameters
         ----------
         M : array
-            array with shape (N, 3, 3), corresponding to N 3D invertible matrices
+            Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
+            invertible matrices.
 
-        Returns:
+        Returns
+        -------
         Minv : array
-            array with inverse matrices, shape (N, 3, 3)
+            Array with inverse matrices, shape ``(N, 3, 3)``.
+
         """
 
         # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
@@ -61,25 +66,27 @@ def invert_3D_matrices(M):
         return Minv / det.reshape((M.shape[0], 1, 1))
 
 def constrain_values(arr, vmin, vmax, axis):
-    """ constrain the values of arr to be between vmin and vmax by adding a 
-        constant along a given axis
+    """
+    Constrain the values of `arr` to be between `vmin` and `vmax` by
+    adding a constant along a given axis.
 
     Parameters
     ----------
     arr: array
-        array to be clipped
+        Array to be clipped.
     vmin: scalar
-        minimum allowed value in result array
+        Minimum allowed value in result array `a_shifted`.
     vmax: scalar
-        maximum allowed value in result array
+        Maximum allowed value in result array `a_shifted`.
     axis: integer
-        axis along which to add a constant
+        Axis along which to add a constant.
 
     Returns
     -------
     a_shifted: array
-        a + constant, where constant is chosen so that all values of a
-        is >= vmin and <= vmax (if possible)
+        `a` + ``constant``, where ``constant`` is chosen so that
+        ``vmin <= a_shifted(i) <= vmax`` for all ``i`` (if possible).
+
     """
 
     amin = arr.min(axis = axis, keepdims = True)

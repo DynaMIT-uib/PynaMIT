@@ -10,20 +10,23 @@ r2d = 180/np.pi
 
 
 def sph_to_car(sph, deg = True):
-    """ convert from spherical to cartesian coordinates
+    """ Convert from spherical to cartesian coordinates
 
-        input: 3 X N array:
+        Input: ``3 X N`` array::
+
            [r1    , r2    , ..., rN    ]
            [colat1, colat2, ..., colatN]
            [lon1  , lon2  , ..., lonN  ]
 
-        output: 3 X N array:
+        Output: ``3 X N`` array::
+
            [x1, x2, ... xN]
            [y1, y2, ... yN]
            [z1, z2, ... zN]
 
-        deg = True if lat and lon are given in degrees, 
-              False if radians
+        ``deg = True`` if lat and lon are given in degrees, ``False``
+        if radians
+
     """
 
     r, theta, phi = sph
@@ -39,20 +42,23 @@ def sph_to_car(sph, deg = True):
                       r * np.cos(theta * conv)))
 
 def car_to_sph(car, deg = True):
-    """ convert from cartesian to spherical coordinates
+    """ Convert from cartesian to spherical coordinates
 
-        input: 3 X N array:
+        Input: ``3 X N`` array::
+
            [x1, x2, ... xN]
            [y1, y2, ... yN]
            [z1, z2, ... zN]
 
-        output: 3 X N array:
+        Output: ``3 X N`` array::
+
            [r1    , r2    , ..., rN    ]
            [colat1, colat2, ..., colatN]
            [lon1  , lon2  , ..., lonN  ]
 
-        deg = True if lat and lon is wanted in degrees
-              False if radians
+        ``deg = True`` if lat and lon is wanted in degrees ``False``
+        if radians
+
     """
 
     x, y, z = car
@@ -70,35 +76,38 @@ def car_to_sph(car, deg = True):
 
 
 def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg = True):
-    """ calculate the latitude and longitude in a spherical coordinate system
-        with the north pole at pole_lat, pole_lon. lat, lon are latitude and 
-        longitude in the original coordinate system
+    """
+    Calculate the latitude and longitude in a spherical coordinate
+    system with the north pole at ``pole_lat, pole_lon``. ``lat``,
+    ``lon`` are latitude and longitude in the original coordinate
+    system.
 
-        the cooridnates of the new z and x axes must be given. They must describe
-        orthogonal positions, otherwise an exception is raised
+    The cooridnates of the new z and x axes must be given. They must
+    describe orthogonal positions, otherwise an exception is raised.
 
-        parameters
-        ----------
-        lat : array
-            latitude of the points that will be converted - will be flattened
-        lon : array
-            longitude of the points that will be converted - will be flattened
-        x_lat : float
-            latitude of the new x axis
-        x_lon : float
-            longitude of the new x axis
-        z_lat : float
-            latitude of the new z axis
-        z_lon : float
-            longitude of the new z axis
-        deg : bool, optional
-            True if input and output in degrees, False if radians.
-            Default is True
+    Parameters
+    ----------
+    lat : array
+        latitude of the points that will be converted - will be flattened
+    lon : array
+        longitude of the points that will be converted - will be flattened
+    x_lat : float
+        latitude of the new x axis
+    x_lon : float
+        longitude of the new x axis
+    z_lat : float
+        latitude of the new z axis
+    z_lon : float
+        longitude of the new z axis
+    deg : bool, optional, default = True
+        ``True`` if input and output in degrees, ``False`` if radians.
 
-        output
-        ------
-        latitude and longitude in the new coordinate system. These are arrays with the same
-        size as lat and lon (although, shape is not conserved if input dimensions are > 1)
+    Output
+    ------
+    Latitude and longitude in the new coordinate system. These are
+    arrays with the same size as lat and lon (although, shape is not
+    conserved if input dimensions are ``> 1``)
+
     """
     lat, lon = lat.flatten(), lon.flatten()
 
@@ -135,23 +144,23 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg = True):
 
 
 def enu_to_ecef(v, lon, lat, reverse = False):
-    """ convert vector(s) v from ENU to ECEF (or opposite)
+    """ Convert vector(s) v from ENU to ECEF (or opposite)
 
     Parameters
     ----------
     v: array
-        N x 3 array of east, north, up components
+        ``N x 3`` array of east, north, up components
     lat: array
-        N array of latitudes (degrees)
+        ``N`` array of latitudes (degrees)
     lon: array
-        N array of longitudes (degrees)
-    reverse: bool (optional)
-        perform the reverse operation (ecef -> enu). Default False
+        ``N`` array of longitudes (degrees)
+    reverse: bool, optional, default = False
+        perform the reverse operation (ecef -> enu)
 
     Returns
     -------
     v_ecef: array
-        N x 3 array of x, y, z components
+        ``N x 3`` array of x, y, z components
 
 
     Author: Kalle, March 2020
@@ -173,21 +182,21 @@ def enu_to_ecef(v, lon, lat, reverse = False):
 
 
 def ecef_to_enu(v, lon, lat):
-    """ convert vector(s) v from ECEF to ENU
+    """ Convert vector(s) v from ECEF to ENU
 
     Parameters
     ----------
     v: array
-        N x 3 array of x, y, z components
+        ``N x 3`` array of x, y, z components
     lat: array
-        N array of latitudes (degrees)
+        ``N`` array of latitudes (degrees)
     lon: array
-        N array of longitudes (degrees)
+        ``N`` array of longitudes (degrees)
 
     Returns
     -------
     v_ecef: array
-        N x 3 array of east, north, up components
+        ``N x 3`` array of east, north, up components
 
     See enu_to_ecef for implementation details
     """
@@ -195,24 +204,30 @@ def ecef_to_enu(v, lon, lat):
 
 
 def tangent_vector(lat1, lon1, lat2, lon2, degrees = True):
-    """ calculate tangential (to a sphere) unit vector at (lat1, lon1) pointing towards (lat2, lon2) 
+    """
+    Calculate tangential (to a sphere) unit vector at ``(lat1, lon1)``
+    pointing towards ``(lat2, lon2)``
 
-        input must be arrays with equal shape:
-        lat1, lon1 -- latitude (not colat) and longitude of origin
-        lat2, lon2 -- latitude (not colat) and longitude which return vector points towards
-        degrees    -- True if input in degrees, False if radians
+    Input must be arrays with equal shape:
 
-        output:
-        east, north -- eastward and northward components of tangential unit vector
+    - lat1, lon1: latitude (not colat) and longitude of origin
+    - lat2, lon2: latitude (not colat) and longitude which return
+      vector points towards
+    - degrees: ``True`` if input in degrees, ``False`` if radians
 
-        Will raise ValueError if
-          - inputs do not have equal shapes
-          - inputs contain points that are closer to identical or antipodal than (roughly) 0.3 degrees
+    Output:
 
-        vectorized code (fast)
+    - east, north: eastward and northward components of tangential unit vector
 
-        KML 2016-04-20
-        2020-04 - fixed check to see if tangent is well defined
+    Will raise ValueError if
+
+    - inputs do not have equal shapes
+    - inputs contain points that are closer to identical or antipodal than (roughly) 0.3 degrees
+
+    Vectorized code (fast)
+
+    KML 2016-04-20
+    2020-04 - fixed check to see if tangent is well defined
     """
 
     if not (lat1.shape == lon1.shape == lat2.shape == lon2.shape):
@@ -262,11 +277,12 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees = True):
 
 
 def geo2local(lat, lon, Ae, An, lon0, lat0, inverse = False):
-    """ Convert geographic (geocentric) coordinates and components to a 
-    coordinate system in which lon0, lat0 defines the pole, and the y axis
-    is perpendicular to both the geocentric and local axes. 
+    """ Convert geographic (geocentric) coordinates and components to a
+    coordinate system in which lon0, lat0 defines the pole, and the y
+    axis is perpendicular to both the geocentric and local axes. 
 
-    Preserves shape. glat, glon, Ae, and An should have matching shapes
+    Preserves shape. ``glat``, ``glon``, ``Ae``, and ``An`` should have
+    matching shapes
 
     Parameters
     ----------
@@ -282,9 +298,8 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse = False):
         longitude of the pole in the new system [deg]
     lat0 : float
         latitude of the pole in the new system [deg] 
-    inverse: bool, optional
-        set to True to convert from magnetic to geographic. 
-        Default is False
+    inverse: bool, optional, default = False
+        set to ``True`` to convert from magnetic to geographic.
 
     Returns
     -------
