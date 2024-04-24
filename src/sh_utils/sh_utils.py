@@ -4,8 +4,7 @@ Tools that are useful for spherical harmonic analysis
 Classes and functions in this module:
 
     SHkeys  : class to contain n and m - the indices of the spherical harmonic terms
-    nterms  : function which calculates the number of terms in a real expansion of a
-              poloidal (internal + external) and toroidal expansion
+    nterms  : function which calculates the number of terms in a real expansion of a poloidal (internal + external) and toroidal expansion
     legendre: calculate associated legendre functions - with option for Schmidt semi-normalization
     get_G   : calculate matrix for evaluating surface spherical harmonics at given grid
 
