@@ -26,6 +26,7 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
+    'myst_parser',
     ]
 
 templates_path = ['_templates']
@@ -50,3 +51,12 @@ autodoc_default_options = {
 # https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html
 
 napoleon_google_docstring = False
+
+# -- Options for myst_parser -------------------------------------------------
+# https://myst-parser.readthedocs.io/en/latest/index.html
+
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.txt': 'markdown',
+    '.md': 'markdown',
+    }
