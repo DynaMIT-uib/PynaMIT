@@ -11,6 +11,7 @@ Welcome to PynaMIT's documentation!
    :caption: Contents:
 
    readme
+   modules
 
 Indices and tables
 ==================
