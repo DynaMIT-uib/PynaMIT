@@ -34,5 +34,11 @@ RUN python -m build .
 RUN pip install .
 WORKDIR /
 
+# Install ppigrf with deg2rad fix
+RUN git clone --branch d2r-fix https://github.com/andreasskeidsvoll/ppigrf.git
+WORKDIR /ppigrf
+RUN python setup.py install
+WORKDIR /
+
 # Install Lompe
 RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaundal/lompe.git@main"
