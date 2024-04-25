@@ -305,7 +305,7 @@ def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_nm = False):
     try: # broadcast lat and lon, and turn results into column vectors:
         lat, lon = np.broadcast_arrays(lat, lon)
         lat, lon = lat.flatten().reshape((-1, 1)), lon.flatten().reshape((-1, 1))
-    except:
+    except ValueError:
         raise Exception('get_G: could not brodcast lat and lon')
 
     ph, th = np.deg2rad(lon), np.deg2rad(90 - lat) # lon and colat in radians

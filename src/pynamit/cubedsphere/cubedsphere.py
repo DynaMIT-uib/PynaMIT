@@ -35,7 +35,8 @@ Cube block indices:
 
 
 import numpy as np
-import diffutils, arrayutils
+import diffutils
+import arrayutils
 import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix
@@ -60,7 +61,7 @@ class CSprojection(object):
 
         """
 
-        if N != None: # Calculate grid arrays
+        if N is not None: # Calculate grid arrays
             k, i, j = self.get_gridpoints(N)
             k, i, j = k[:, :-1, :-1], i[:, :-1, :-1], j[:, :-1, :-1] # crop, since we only want cell centers
             self.arr_xi  = self.xi( i, N).flatten()
@@ -128,7 +129,7 @@ class CSprojection(object):
             Array of `xi` values.
 
         """
-        if type(N) is not int:
+        if isinstance(N, int):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
         return(-np.pi / 4 + i * np.pi / 2 / (N-1))
@@ -160,7 +161,7 @@ class CSprojection(object):
         makes code more readable.
 
         """
-        if type(N) is not int:
+        if isinstance(N, int):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
         return(-np.pi / 4 + j * np.pi / 2 / (N-1))
@@ -910,7 +911,6 @@ class CSprojection(object):
 
         """
         lon, lat = np.broadcast_arrays(lon, lat)
-        shape = lat.shape
         lat, lon = lat.flatten(), lon.flatten()
 
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)

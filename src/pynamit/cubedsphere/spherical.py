@@ -31,7 +31,7 @@ def sph_to_car(sph, deg = True):
 
     r, theta, phi = sph
 
-    if deg == False:
+    if not deg:
         conv = 1.
     else:
         conv = d2r
@@ -63,7 +63,7 @@ def car_to_sph(car, deg = True):
 
     x, y, z = car
 
-    if deg == False:
+    if not deg:
         conv = 1.
     else:
         conv = r2d
@@ -108,7 +108,7 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg = True):
     """
     lat, lon = lat.flatten(), lon.flatten()
 
-    if deg == False:
+    if not deg:
         conv = 1.
     else:
         conv = d2r
@@ -251,9 +251,9 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees = True):
 
     # convert to radians if necessary, and flatten:
     if degrees:
-        converter = lambda x: x.flatten() * np.pi/180.
+        def converter(x): return x.flatten() * np.pi/180.
     else:
-        converter = lambda x: x.flatten()
+        def converter(x): return x.flatten()
 
     lat1, lon1, lat2, lon2 = list(map(converter, (lat1, lon1, lat2, lon2)))
 
@@ -333,7 +333,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse = False):
         lat, lon, Ae, An = np.broadcast_arrays(lat, lon, Ae, An)
         shape = lat.shape
         lat, lon, Ae, An = lat.flatten(), lon.flatten(), Ae.flatten(), An.flatten()
-    except:
+    except ValueError:
         raise Exception('Input have inconsistent shapes')
 
     lon, lat,  = lon.flatten(), lat.flatten()

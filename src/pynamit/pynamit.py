@@ -2,12 +2,7 @@ import numpy as np
 from pynamit.decorators import default_2Dcoords, default_3Dcoords
 from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
-import sys
 import os
-
-# import cubedsphere submodule
-cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
-sys.path.insert(0, cs_path)
 import cubedsphere
 
 RE = 6371.2e3
@@ -420,7 +415,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
     levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
-    Wlevels = np.r_[-512.5:512.5:5]
+    #Wlevels = np.r_[-512.5:512.5:5]
     Philevels = np.r_[-212.5:212.5:5]
 
     # specify a time and Kp (for conductance):
@@ -573,7 +568,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 Br = i2d.get_Br()
                 fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+                #W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
 
                 GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
                 shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential

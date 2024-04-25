@@ -74,7 +74,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     else:
         ax.contourf(lon, lat, data, transform = ccrs.PlateCarree(), **kwargs)
     
-    if title != None:
+    if title is not None:
         ax.set_title(title)
 
     pax1 = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat = 50)
@@ -103,7 +103,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
         return(fig, pax1, pax2, ax)
 
 
-    if save != None:
+    if save is not None:
         plt.savefig(save)
     else:
         plt.show()
@@ -112,7 +112,8 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
 if __name__ == "__main__":
 
     # import cubedsphere submodule
-    import os, sys
+    import os
+    import sys
     cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
     sys.path.insert(0, cs_path)
     import cubedsphere

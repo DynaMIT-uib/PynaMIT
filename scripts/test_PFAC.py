@@ -5,7 +5,6 @@ import pynamit
 import dipole
 import numpy as np
 import datetime
-import os
 import secsy
 import pyamps
 import matplotlib.pyplot as plt

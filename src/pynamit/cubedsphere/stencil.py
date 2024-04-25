@@ -67,12 +67,12 @@ if __name__ == '__main__':
     dx, dy = map(np.ravel, np.meshgrid([-0.2, -0.1, 0, 0.1, 0.2], [-0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3], indexing="ij"))
 
     # define a test function with derivatives
-    f       = lambda x, y: x**2 - y**2 + x**2 * y - x*y + y**3
-    dfdx    = lambda x, y:  2* x + 2 * x * y - y
-    dfdy    = lambda x, y: -2* y + x**2 - x + 3 * y**2
-    d2fdx2  = lambda x, y:  2 + 2 * y
-    d2fdy2  = lambda x, y: -2 + 6 * y
-    d2fdxdy = lambda x, y:  2*x - 1
+    def f(x, y)      : return x**2 - y**2 + x**2 * y - x*y + y**3
+    def dfdx(x, y)   : return 2* x + 2 * x * y - y
+    def dfdy(x, y)   : return -2* y + x**2 - x + 3 * y**2
+    def d2fdx2(x, y) : return 2 + 2 * y
+    def d2fdy2(x, y) : return -2 + 6 * y
+    def d2fdxdy(x, y): return 2*x - 1
 
     x0, y0 = (np.random.random(500) - 0.5) * 20,  (np.random.random(500) - 0.5) * 20
 
