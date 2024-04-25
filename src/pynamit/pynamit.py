@@ -3,7 +3,7 @@ from pynamit.decorators import default_2Dcoords, default_3Dcoords
 from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
 import os
-import cubedsphere
+from pynamit.cubedsphere import cubedsphere
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
