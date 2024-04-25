@@ -259,7 +259,7 @@ def test_differentiation():
     fig, axes = plt.subplots(ncols = 3, nrows = 2)
     cc = 0
     for ax, mm in zip(axes.flatten(), mismatches):
-        ax.scatter(np.asnumpy(i[0]), np.asnumpy(j[0]), c = mm, cmap = plt.cm.bwr, vmin = -10, vmax = 10)
+        ax.scatter(np.asnumpy(i[0]), np.asnumpy(j[0]), c = np.asnumpy(mm), cmap = plt.cm.bwr, vmin = -10, vmax = 10)
         ax.set_aspect('equal')
         ax.set_title(str(cc))
         cc+=1
