@@ -114,7 +114,7 @@ def test_differentiation():
     k_inner, i_inner, j_inner = k[:, Ns:-Ns, Ns:-Ns], i[:, Ns:-Ns, Ns:-Ns], j[:, Ns:-Ns, Ns:-Ns]
 
     # set up differentiation stencil
-    stencil_points  = np.hstack((np.r_[-Ns:0], np.r_[1:Ns + 1]))
+    stencil_points  = np.hstack((np.arange(-Ns, 0), np.arange(1, Ns + 1)))
     Nsp = len(stencil_points)
     stencil_weight1 = diffutils.stencil(stencil_points, order = 1, h = h) # 1st order differentiation
     stencil_weight2 = diffutils.stencil(stencil_points, order = 2, h = h) # 2nd order differentiation
@@ -222,7 +222,7 @@ def test_differentiation():
 
     print('\nTesting 2D differentiation (Laplacian) on full sphere')
     Ns = 2
-    stencil_points  = np.hstack((np.r_[-Ns:0], np.r_[1:Ns + 1]))
+    stencil_points  = np.hstack((np.arange(-Ns, 0), np.arange(1, Ns + 1)))
     Nsp = len(stencil_points)
 
     h = p.xi(1, N) - p.xi(0, N) # step size between each grid cell

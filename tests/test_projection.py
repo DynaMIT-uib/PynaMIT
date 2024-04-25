@@ -232,9 +232,9 @@ def test_projection():
         axes[1, block].set_title('block ' + str(block) + ', northward')
 
         for ax in axes.T[block]:
-            #cs = ax.contour(xihd, etahd, la, levels = np.r_[-80:90:10], colors = 'lightgrey', linewidths = 1, zorder = 0)
+            #cs = ax.contour(xihd, etahd, la, levels = np.arange(-80, 90, 10), colors = 'lightgrey', linewidths = 1, zorder = 0)
             #ax.clabel(cs, cs.levels, inline = True, fmt = lambda x: '{:.0f}$^\circ$N'.format(x), zorder = 0)
-            for lo_ in np.r_[-180:180:30]:
+            for lo_ in np.arange(-180, 180, 30):
                 la_ = np.linspace(-90, 90, 181)
                 f = p.block(lo_, la_)
                 la_ = la_[f == block]
