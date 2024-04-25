@@ -14,3 +14,10 @@ dependencies = [
 where = ["src"]
 
 [tool.setuptools_scm]
+
+[tool.ruff]
+src = ["src", "tests", "scripts"]
+extend-exclude = ["__init__.py"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

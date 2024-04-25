@@ -1,0 +1,29 @@
+name: 'Build and test'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  ubuntu:
+    name: 'Ubuntu'
+    runs-on: ubuntu-latest
+    container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-24
+    defaults:
+      run:
+        shell: 'bash -leo pipefail {0}'
+    steps:
+      - name: Check out PynaMIT repository
+        uses: actions/checkout@v4
+      - name: Install PynaMIT
+        run: 'pip install .'
+      - name: Install Ruff and lint PynaMIT code
+        run: 'pip install ruff && ruff check'
+      - name: Install Sphinx and build PynaMIT documentation
+        run: 'pip install sphinx sphinx-rtd-theme myst-parser && sphinx-apidoc -o docs/source src && sphinx-build -b html docs/source docs/build'
+      - name: Run PynaMIT tests
+        run: 'pytest -v'

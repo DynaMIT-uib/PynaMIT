@@ -5,14 +5,16 @@ import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
-    """ interpolate from cubed sphere grid to new points lon, lat 
+    """ Interpolate from cubed sphere grid to new points ``lon``, ``lat``.
 
     Parameters
     ----------
-    projection: cubed sphere projection object
-    inlat: latitudes of input
-    inon : longitudes of input
-    etc.
+    projection: CSprojection
+        Cubed sphere projection object.
+    inlat: array
+        Latitudes of input.
+    inlon: array
+        Longitudes of input.
 
     """
     inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
@@ -72,7 +74,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     else:
         ax.contourf(np.asnumpy(lon), np.asnumpy(lat), np.asnumpy(data), transform = ccrs.PlateCarree(), **kwargs)
     
-    if title != None:
+    if title is not None:
         ax.set_title(title)
 
     pax1 = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat = 50)
@@ -101,7 +103,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
         return(fig, pax1, pax2, ax)
 
 
-    if save != None:
+    if save is not None:
         plt.savefig(save)
     else:
         plt.show()
@@ -110,7 +112,8 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
 if __name__ == "__main__":
 
     # import cubedsphere submodule
-    import os, sys
+    import os
+    import sys
     cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
     sys.path.insert(0, cs_path)
     import cubedsphere

@@ -3,20 +3,15 @@ import numpy as np_cpu
 from pynamit.decorators import default_2Dcoords, default_3Dcoords
 from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
-import sys
 import os
-
-# import cubedsphere submodule
-cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
-sys.path.insert(0, cs_path)
-import cubedsphere
+from pynamit.cubedsphere import cubedsphere
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
 
 
 class I2D(object):
-    """ 2D ionosphere """
+    """ 2D ionosphere. """
 
     def __init__(self, Nmax, Mmax, Ncs = 20, 
                        RI = np.array(RE + 110.e3), B0 = 'dipole', 
@@ -28,19 +23,20 @@ class I2D(object):
         Parameters
         ----------
         Nmax: int
-            Maximum spherical harmonic degree
+            Maximum spherical harmonic degree.
         Mmax: int
-            Maximum spherical harmonic order
-        Ncs: int, optional
-            Each cube block with have (Ncs-1)*(Ncs-1) cells. Default is Ncs = 20
-        RI: float, optional
-            Radius of the ionosphere in m. Default value is RE + 110 km. 
-        B0: string, optional
-            Set to 'dipole', 'radial', or 'igrf', depending on which main field model you want. For 
-            dipole and igrf, you can specify epoch via B0_parameters
+            Maximum spherical harmonic order.
+        Ncs: int, optional, default = 20
+            Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
+        RI: float, optional, default = RE + 110.e3
+            Radius of the ionosphere in m.
+        B0: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
+            Set to the main field model you want. For 'dipole' and
+            'igrf', you can specify epoch via `B0_parameters`.
         FAC_integration_parameters: dict
-            use this to specify parameters in the integration required to find the poloidal
-            part of the magnetic field of FACs. Not relevant for radial B0.
+            Use this to specify parameters in the integration required to
+            find the poloidal part of the magnetic field of FACs. Not
+            relevant for radial `B0`.
 
         """
         self.ignore_PNAF = ignore_PNAF
@@ -162,7 +158,9 @@ class I2D(object):
 
 
     def evolve_Br(self, dt):
-        """ evolve Br in time """
+        """ Evolve Br in time.
+
+        """
 
         #Eth, Eph = self.get_E()
         #u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
@@ -178,9 +176,12 @@ class I2D(object):
 
 
     def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
-        """ convert from east, north up to u^1, u^2, u^3 (ref Yin)
+        """
+        Convert from ``(east, north, up)`` to ``(u^1, u^2, u^3)`` (ref.
+        Yin).
 
-            The input must match the CS grid
+        The input must match the CS grid.
+
         """
 
         east = Aphi
@@ -199,7 +200,11 @@ class I2D(object):
 
 
     def curlr(self, u1, u2):
-        """ construct a matrix that calculates the radial curl using B6 in Yin et al. """
+        """
+        Construct a matrix that calculates the radial curl using B6 in
+        Yin et al.
+
+        """
         
 
 
@@ -208,18 +213,20 @@ class I2D(object):
 
 
     def set_shc(self, **kwargs):
-        """ Set spherical harmonic coefficients 
+        """ Set spherical harmonic coefficients.
 
-        Specify a set of spherical harmonic coefficients and update the rest so that they are consistent. 
+        Specify a set of spherical harmonic coefficients and update the
+        rest so that they are consistent. 
 
-        This function accepts one (and only one) set of spherical harmonic coefficients.
-        Valid values for kwargs (only one):
-            VB : Coefficients for magnetic field scalar V
-            TB : Coefficients for surface current scalar T
-            VJ : Coefficients for magnetic field scalar V
-            TJ : Coefficients for surface current scalar T
-            Br : Coefficients for magnetic field Br (at r=RI)
-            TJr: Coefficients for radial current scalar
+        This function accepts one (and only one) set of spherical harmonic
+        coefficients. Valid values for kwargs (only one):
+
+        - 'VB' : Coefficients for magnetic field scalar ``V``.
+        - 'TB' : Coefficients for surface current scalar ``T``.
+        - 'VJ' : Coefficients for magnetic field scalar ``V``.
+        - 'TJ' : Coefficients for surface current scalar ``T``.
+        - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
+        - 'TJr': Coefficients for radial current scalar.
 
         """ 
         valid_kws = ['VB', 'TB', 'VJ', 'TJ', 'Br', 'TJr']
@@ -264,21 +271,24 @@ class I2D(object):
 
 
     def set_initial_condition(self, I2D_object):
-        """ provide a
+        """ Set initial conditions.
 
-            If this is not called, initial condictions should be zero
+        If this is not called, initial condictions should be zero.
+
         """
         print('not implemented. inital conditions will be zero')
 
 
     def set_FAC(self, FAC):
-        """ Specify field-aligned current at self.theta, self.phi
+        """ Specify field-aligned current at ``self.theta``, ``self.phi``.
 
             Parameters
             ----------
             FAC: array
-                The field-aligned current, in A/m^2, at self.theta and self.phi, at RI 
-                The values in the array have to match the corresponding coordinates
+                The field-aligned current, in A/m^2, at ``self.theta`` and
+                ``self.phi``, at ``RI``. The values in the array have to
+                match the corresponding coordinates.
+
         """
 
         # Extract the radial component of the FAC:
@@ -293,8 +303,9 @@ class I2D(object):
 
 
     def set_conductance(self, Hall, Pedersen):
-        """ Specify Hall and Pedersen conductance at self.theta, self.phi
-
+        """
+        Specify Hall and Pedersen conductance at ``self.theta``,
+        ``self.phi``.
 
         """
         if Hall.size != Pedersen.size != self.theta.size:
@@ -308,7 +319,7 @@ class I2D(object):
 
     @default_3Dcoords
     def get_Br(self, r = None, theta = None, phi = None, deg = False):
-        """ calculate Br 
+        """ Calculate ``Br``.
 
         """
         return(self.Gplt.dot(self.shc_Br))
@@ -316,7 +327,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_JS(self, theta = None, phi = None, deg = False):
-        """ calculate ionospheric sheet current
+        """ Calculate ionospheric sheet current.
 
         """
         Je_V =  self.Gnum_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
@@ -335,7 +346,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_Jr(self, theta = None, phi = None, deg = False):
-        """ calculate radial current
+        """ Calculate radial current.
 
         """
 
@@ -347,7 +358,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_equivalent_current_function(self, theta = None, phi = None, deg = False):
-        """ calculate equivalent current function
+        """ Calculate equivalent current function.
 
         """
         print('not implemented')
@@ -355,7 +366,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_Phi(self, theta = None, phi = None, deg = False):
-        """ calculate electric potential
+        """ Calculate electric potential.
 
         """
         print('not implemented')
@@ -363,7 +374,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_W(self, theta = None, phi = None, deg = False):
-        """ calculate the induction electric field scalar
+        """ Calculate the induction electric field scalar.
 
         """
         print('not implemented')
@@ -371,7 +382,7 @@ class I2D(object):
 
     @default_2Dcoords
     def get_E(self, theta = None, phi = None, deg = False):
-        """ calculate electric field
+        """ Calculate electric field.
 
         """
 
@@ -405,7 +416,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
     levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
-    Wlevels = np.arange(-512.5, 512.5, 5)
+    #Wlevels = np.arange(-512.5, 512.5, 5)
     Philevels = np.arange(-212.5, 212.5, 5)
 
     # specify a time and Kp (for conductance):
@@ -567,8 +578,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
                 fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
+<<<<<<< HEAD
                                                    levels = np.asnumpy(Blevels), cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+=======
+                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+                #W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+>>>>>>> main
 
                 GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
                 shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential

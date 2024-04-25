@@ -2,7 +2,6 @@ import polplot
 import matplotlib.pyplot as plt
 from pynamit import CSprojection
 from pynamit import Mainfield
-import numpy as np
 
 RE = 6371.2e3
 
