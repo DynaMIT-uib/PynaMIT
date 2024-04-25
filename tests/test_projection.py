@@ -9,18 +9,12 @@ Testing of the cubedsphere CSprojection class
 """
 
 import matplotlib.pyplot as plt
-from scipy.sparse import coo_matrix
 import numpy as np
-from ppigrf.ppigrf import igrf_gc, igrf_V
-import datetime
-from pynamit.cubedsphere import cubedsphere, diffutils, spherical
+from pynamit.cubedsphere import cubedsphere
 from pynamit.cubedsphere.testutils import Geocentric_to_PlateCarree_vector_components
 from importlib import reload
 import cartopy.crs as ccrs
 reload(cubedsphere)
-
-import pytest
-
 
 p = cubedsphere.CSprojection()
 
@@ -130,7 +124,7 @@ def test_projection():
         # xi-direction:
         Aeast, Anorth, Ar = np.einsum('nij, nj -> ni', Ps_normalized, Axis).T
         assert np.all(np.isclose(Ar, 0))
-        norms = np.sqrt(Aeast**2 + Anorth**2)
+        #norms = np.sqrt(Aeast**2 + Anorth**2)
 
         Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(Aeast.flatten(), Anorth.flatten(), lat)
         axg1.quiver(lon, lat, Ae_pc, An_pc, transform = ccrs.PlateCarree(), color = C)
@@ -197,7 +191,7 @@ def test_projection():
             return
         fig.canvas.draw_idle()
 
-    c1 = fig.canvas.mpl_connect('motion_notify_event', on_move)
+    #c1 = fig.canvas.mpl_connect('motion_notify_event', on_move)
 
     plt.tight_layout()
 
@@ -237,7 +231,7 @@ def test_projection():
         axes[1, block].set_title('block ' + str(block) + ', northward')
 
         for ax in axes.T[block]:
-            cs = ax.contour(xihd, etahd, la, levels = np.r_[-80:90:10], colors = 'lightgrey', linewidths = 1, zorder = 0)
+            #cs = ax.contour(xihd, etahd, la, levels = np.r_[-80:90:10], colors = 'lightgrey', linewidths = 1, zorder = 0)
             #ax.clabel(cs, cs.levels, inline = True, fmt = lambda x: '{:.0f}$^\circ$N'.format(x), zorder = 0)
             for lo_ in np.r_[-180:180:30]:
                 la_ = np.linspace(-90, 90, 181)

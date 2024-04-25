@@ -9,12 +9,8 @@ from scipy.sparse import coo_matrix
 import numpy as np
 from ppigrf.ppigrf import igrf_gc, igrf_V
 import datetime
-from pynamit.cubedsphere import cubedsphere, diffutils, spherical
-from importlib import reload
-import cartopy.crs as ccrs
+from pynamit.cubedsphere import cubedsphere, diffutils
 from functools import reduce
-
-import pytest
 
 def test_differentiation():
     # set up projection and make a grid (not using the grid class)
@@ -22,7 +18,7 @@ def test_differentiation():
     p = cubedsphere.CSprojection()
     N = 40 # number of grid points in each direction per block
     dxi = np.pi / 2 / (N - 1)
-    deta = np.pi / 2 / (N - 1)
+    #deta = np.pi / 2 / (N - 1)
     block, xi, eta = np.meshgrid(np.arange(6), np.linspace(-np.pi/4, np.pi/4, N), np.linspace(-np.pi/4, np.pi/4, N), indexing = 'ij')
     r, theta, phi = p.cube2spherical(xi, eta, r = R, block = block, deg = True)
 
@@ -47,10 +43,10 @@ def test_differentiation():
     # differentiate wrt to xi and eta
     stencil_points = [-2, -1, 0, 1, 2]
     stencil = diffutils.stencil(np.array(stencil_points) * dxi)
-    dxi_dxi = reduce(lambda x, y: x+ y, [stencil[i] * xi [:, 2 + stencil_points[i] :  (N - 2) + stencil_points[i], 2     :                            -2] for i in range(len(stencil_points))])
+    #dxi_dxi = reduce(lambda x, y: x+ y, [stencil[i] * xi [:, 2 + stencil_points[i] :  (N - 2) + stencil_points[i], 2     :                            -2] for i in range(len(stencil_points))])
     dV_dxi  = reduce(lambda x, y: x+ y, [stencil[i] * V  [:, 2 + stencil_points[i] :  (N - 2) + stencil_points[i], 2     :                            -2] for i in range(len(stencil_points))])
 
-    det_det = reduce(lambda x, y: x+ y, [stencil[i] * eta[:, 2                     :            -2, 2 + stencil_points[i] :  (N - 2) + stencil_points[i]] for i in range(len(stencil_points))])
+    #det_det = reduce(lambda x, y: x+ y, [stencil[i] * eta[:, 2                     :            -2, 2 + stencil_points[i] :  (N - 2) + stencil_points[i]] for i in range(len(stencil_points))])
     dV_det  = reduce(lambda x, y: x+ y, [stencil[i] * V  [:, 2                     :            -2, 2 + stencil_points[i] :  (N - 2) + stencil_points[i]] for i in range(len(stencil_points))])
 
     # calcualte the contravariant components of the gradient:
@@ -156,8 +152,8 @@ def test_differentiation():
 
     dVdxi    = Dxi1 .dot(V)
     dVdeta   = Deta1.dot(V)
-    dV2dxi2  = Dxi2 .dot(V)
-    dV2deta2 = Deta2.dot(V)
+    #dV2dxi2  = Dxi2 .dot(V)
+    #dV2deta2 = Deta2.dot(V)
 
 
     gc = p.get_metric_tensor(xi, eta, r = R, covariant = False)
