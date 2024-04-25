@@ -149,8 +149,8 @@ def test_projection():
         # Cartesian 3D:
         # -------------
         x, y, z = p.cube2cartesian(xi, eta, block = i)
-        axxyz1.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = np.asnumpy(C), s = 5)
-        axxyz2.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = np.asnumpy(C), s = 5)
+        axxyz1.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = C, s = 5)
+        axxyz2.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = C, s = 5)
         Pc = p.get_Pc(xi, eta, r = 1, block = i, inverse = True)
 
         Ax, Ay, Az = np.einsum('nij, nj -> ni', Pc, Axis).T
