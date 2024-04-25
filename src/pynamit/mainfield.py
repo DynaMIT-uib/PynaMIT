@@ -1,4 +1,4 @@
-""" main field models """
+""" Main field models. """
 
 import ppigrf
 import apexpy
@@ -10,32 +10,32 @@ RE = 6371.2e3 # Earth radius
 class Mainfield(object):
     def __init__(self, kind = 'dipole', epoch = 2020., B0 = None):
         """
-        Supported fields (kind kw):
+        Supported fields (with kind keywords):
 
-        - ``dipole``: Dipole magnetic field, using IGRF coefficients to
+        - 'dipole': Dipole magnetic field, using IGRF coefficients to
           determine dipole moment. The functions will refer to *dipole
-          coordinates*. Other parameters (FAC, conductanace, ...) must
-          be given in the same coordinate system.
-        - ``igrf``: International Geomagentic Reference Field,
-          described in *geocentric*  coordinates. Other parameters
-          (FAC, conductanace, ...) must be given in the same coordinate
-          system. NOTE: Conversion between geodetic and geocentric is
-          ignored. Geodetic height is calculated as ``h = r - RE``
-        - ``radial``: Radial field lines. You can specify the magnitude
-          of B on ground through the B0 keyword. If not specified, the
-          magnitude will be the (positive) dipole reference field for
-          the given epoch (and the epoch keyword is ignored)
+          coordinates*. Other parameters (FAC, conductanace, ...) must be
+          given in the same coordinate system.
+        - 'igrf': International Geomagentic Reference Field, described
+          in *geocentric*  coordinates. Other parameters (FAC,
+          conductance, ...) must be given in the same coordinate system.
+          NOTE: Conversion between geodetic and geocentric is ignored.
+          Geodetic height is calculated as ``h = r - RE``.
+        - 'radial': Radial field lines. You can specify the magnitude of
+          ``B`` on ground through the `B0` keyword. If not specified, the
+          magnitude will be the (positive) dipole reference field for the
+          given epoch (and the epoch keyword is ignored).
 
         Parameters
         ----------
-        kind : str, optional, default = 'dipole'
-            should be 'radial', 'dipole', or 'igrf'
+        kind : str, {'dipole', 'igrf', 'radial'}, default = 'dipole'
+            The field model kind.
         epoch : float, optional
-            Define the epoch [decimal year] for the field model
+            The epoch [decimal year] for the field model.
         B0 : float, optional
-            Define the magnitude of the field on ground for
-            ``kind == 'radial'``. The default is the reference field
-            for epoch = 2020 (pointing upward)
+            The magnitude of the field on ground for ``kind == 'radial'``.
+            The default is the reference field for ``epoch = 2020``
+            (pointing upward).
 
         """
 
@@ -70,31 +70,31 @@ class Mainfield(object):
 
     def get_B(self, r, theta, phi):
         """
-        Calculate magnetic field vector [nT] at r [m], theta [deg],
-        phi [deg]
-        
-        Broadcasting rules apply
+        Calculate magnetic field vector [nT] at `r` [m], `theta` [deg],
+        `phi` [deg].
+
+        Broadcasting rules apply.
 
         Parameters
         ----------
         r: array
-            radius [m] of the points where the magnetic field is to be
-            evaluated
+            Radius [m] of the points where the magnetic field is to be
+            evaluated.
         theta: array
-            colatitude [deg] of the points where the magnetic field is
-            to be evaluated
+            Colatitude [deg] of the points where the magnetic field is to
+            be evaluated.
         phi: array
-            longitude [deg] of the points where the magnetic field is
-            to be evaluated
+            Longitude [deg] of the points where the magnetic field is to
+            be evaluated.
 
         Return
         ------
         Br : array
-            Magnetic field [nT] in radial direction
+            Magnetic field [nT] in radial direction.
         Btheta : array
-            Magnetic field [nT] in theta (south) direction
+            Magnetic field [nT] in `theta` (south) direction.
         Bphi : array
-            Magnetic field [nT] in eastward direction
+            Magnetic field [nT] in eastward direction.
 
         """
 
@@ -102,32 +102,32 @@ class Mainfield(object):
 
 
     def map_coords(self, r_dest, r, theta, phi):
-        """ Map coordinates from r, theta, phi to a radius r_dest
+        """ Map coordinates from `r`, `theta`, `phi` to a radius `r_dest`.
 
         Broadcasting rules apply.
 
         Parameters
         ----------
         r_dest: float
-            radius [m] to which we map the coordinates
+            Radius [m] to which we map the coordinates.
         r: array
-            radius [m] of the coordinates that shall be mapped to
-            ``r_dest``
+            Radius [m] of the coordinates that shall be mapped to
+            ``r_dest``.
         theta: array
-            colatitude [deg] of the coordinates that shall be mapped to
-            ``r_dest``
+            Colatitude [deg] of the coordinates that shall be mapped to
+            ``r_dest``.
         phi: array
-            longitude [deg] of the coordinates that shall be mapped to
-            ``r_dest``
+            Longitude [deg] of the coordinates that shall be mapped to
+            ``r_dest``.
 
         Return
         ------
         theta_out: array
-            colatitude [deg] of the input points when mapped to radius
-            ``r_dest``
+            Colatitude [deg] of the input points when mapped to radius
+            ``r_dest``.
         phi_out: array
-            longitude [deg] of the input points when mapped to radius
-            ``r_dest``
+            Longitude [deg] of the input points when mapped to radius
+            ``r_dest``.
 
         """
 
@@ -153,40 +153,37 @@ class Mainfield(object):
 
 
     def basevectors(self, r, theta, phi):
-        """ Get basevectors at r, theta, phi
+        """ Get basevectors at `r`, `theta`, `phi`.
 
         The basevectors are the apex basevectors as defined by Richmond
-        1995. For the three types of mainfield, we use different
-        methods:
+        1995. For the three types of mainfield, we use different methods:
 
-        - ``dipole``: we use the dipole module, see documentation of
-          that module for full explanation
-        - ``radial``: the basevectors are orthonormal unit vectors
-        - ``igrf``: we use apexpy. NOTE: We treat ``theta`` as
-          ``90 - geodetic latitude`` and ``r`` as
-          ``RE + geodetic height``.
+        - 'dipole': we use the dipole module, see documentation of that
+          module for full explanation.
+        - 'radial': the basevectors are orthonormal unit vectors.
+        - 'igrf': we use apexpy. NOTE: We treat `theta` as
+          ``90 - geodetic latitude`` and `r` as ``RE + geodetic height``.
 
 
         Broadcasting rules apply, but output vectors will be
-        ``(3, size)``, where size is the size of the broadcast arrays.
+        ``(3, size)``, where ``size`` is the size of the broadcast arrays.
 
         Parameters
         ----------
         r: array
-            radius [m] of the coordinates where we calcualte base
-            vectors
+            Radius [m] of the coordinates where we calculate base vectors.
         theta: array
-            colatitude [deg] of the coordinates where we calcualte base
-            vectors
+            Colatitude [deg] of the coordinates where we calculate base
+            vectors.
         phi: array
-            longitude [deg] of the coordinates where we calcualte base
-            vectors
+            Longitude [deg] of the coordinates where we calculate base
+            vectors.
 
         Return
         ------
         d1, d2, d3, e1, e2, e3: arrays
-            modifified apex base vectors, with the components referring
-            to east, north up
+            Modifified apex base vectors, with the components referring to
+            ``(east, north, up)``.
 
         """
 

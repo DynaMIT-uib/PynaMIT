@@ -5,14 +5,16 @@ import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
-    """ Interpolate from cubed sphere grid to new points lon, lat
+    """ Interpolate from cubed sphere grid to new points ``lon``, ``lat``.
 
     Parameters
     ----------
-    projection: cubed sphere projection object
-    inlat: latitudes of input
-    inon : longitudes of input
-    etc.
+    projection: CSprojection
+        Cubed sphere projection object.
+    inlat: array
+        Latitudes of input.
+    inlon: array
+        Longitudes of input.
 
     """
     inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
