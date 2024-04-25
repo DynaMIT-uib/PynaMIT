@@ -181,8 +181,6 @@ def enu_to_ecef(v, lon, lat, reverse = False):
 def ecef_to_enu(v, lon, lat):
     """ Convert vector(s) `v` from ECEF to ENU.
 
-    See ``enu_to_ecef()`` for implementation details.
-
     Parameters
     ----------
     v: array
@@ -196,6 +194,10 @@ def ecef_to_enu(v, lon, lat):
     -------
     v_ecef: array
         ``N x 3`` array of east, north, up components.
+
+    Note
+    ----
+    See ``enu_to_ecef()`` for implementation details.
 
     """
     return enu_to_ecef(v, lon, lat, reverse = True)
