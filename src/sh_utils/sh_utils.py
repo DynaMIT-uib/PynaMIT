@@ -1,16 +1,16 @@
 """
-Tools that are useful for spherical harmonic analysis
+Tools that are useful for spherical harmonic analysis.
 
 Classes and functions in this module:
 
-- SHkeys: class to contain n and m - the indices of the spherical
-  harmonic terms
-- nterms  : function which calculates the number of terms in a real
-  expansion of a poloidal (internal + external) and toroidal expansion
-- legendre: calculate associated legendre functions - with option for
-  Schmidt semi-normalization
-- get_G: calculate matrix for evaluating surface spherical harmonics
-  at given grid
+- ``SHkeys``: class to contain ``n`` and ``m`` - the indices of the spherical
+  harmonic terms.
+- ``nterms``: function which calculates the number of terms in a real
+  expansion of a poloidal (internal + external) and toroidal expansion.
+- ``legendre``: calculate associated legendre functions - with option for
+  Schmidt semi-normalization.
+- ``get_G``: calculate matrix for evaluating surface spherical harmonics
+  at given grid.
 
 
 MIT License
@@ -34,22 +34,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
 """
 import numpy as np
 
 class SHkeys(object):
-    """ Container for n and m in spherical harmonics
+    """ Container for ``n`` and ``m`` in spherical harmonics.
 
     Container can be generated with::
 
         keys = SHkeys(Nmax, Mmax)
 
     ``keys`` will behave as a tuple of tuples, more or less.
-    ``keys['n']`` will return a list of the n's.
-    ``keys['m']`` will return a list of the m's.
-    ``keys[3]`` will return the fourth n,m tuple.
+    ``keys['n']`` will return a list of the ``n``'s.
+    ``keys['m']`` will return a list of the ``m``'s.
+    ``keys[3]`` will return the fourth ``(n,m)`` tuple.
 
-    ``keys`` is also iterable
+    ``keys`` is also iterable.
 
     """
 
@@ -144,10 +145,10 @@ class SHkeys(object):
 def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
     """
     Return number of coefficients in an expansion in real spherical
-    harmonics of toroidal magnetic potential truncated at NT, MT
+    harmonics of toroidal magnetic potential truncated at `NT`, `MT`.
 
-    Poloidal magnetic potential truncated at NVi, MVi for internal
-    sources and at NVe, MVe for external sources.
+    Poloidal magnetic potential truncated at `NVi`, `MVi` for internal
+    sources and at `NVe`, `MVe` for external sources.
 
     """
 
@@ -162,48 +163,47 @@ def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
 
 def legendre(nmax, mmax, theta, schmidtnormalize = True, keys = None):
     """
-    Calculate associated Legendre function P and its derivative
+    Calculate associated Legendre function ``P`` and its derivative.
 
     Algorithm from "Spacecraft Attitude Determination and Control" by
-    James Richard Wertz
+    James Richard Wertz.
 
     Parameters
     ----------
     nmax : int
-        highest spherical harmonic degree
+        Highest spherical harmonic degree.
     mmax : int
-        highest spherical harmonic order
+        Highest spherical harmonic order.
     theta : array, float
-        colatitude in degrees (shape is not preserved)
+        Colatitude in degrees (shape is not preserved).
     schmidtnormalize : bool, optional, default = True
         ``True`` if Schmidth seminormalization is wanted, ``False``
         otherwise.
     keys : SHkeys, optional
-        If this parameter is set, an array will be returned instead of
-        a dict. The array will be ``(N, 2M)``, where ``N`` is the
-        number of elements in `theta`, and ``M`` is the number of keys.
-        The first ``M`` columns represents a matrix of P values, and
-        the last ``M`` columns represent values of dP/dtheta
+        If this parameter is set, an array will be returned instead of a
+        dict. The array will be ``(N, 2M)``, where ``N`` is the number of
+        elements in `theta`, and ``M`` is the number of keys. The first
+        ``M`` columns represents a matrix of ``P`` values, and the last
+        ``M`` columns represent values of ``dP/dtheta``.
 
-        Returns
-        -------
-        P : dict
-            dictionary of Legendre function evalulated at theta.
-            Dictionary keys are spherical harmonic wave number tuples
-            ``(n, m)``, and values will have shape ``(N, 1)``, where
-            ``N`` is the number of elements in `theta`. 
-        dP : dict
-            dictionary of Legendre function derivatives evaluated at
-            theta. Dictionary keys are spherical harmonic wave number
-            tuples ``(n, m)``, and values will have shape ``(N, 1)``,
-            where ``N`` is number of elements in theta. 
-        PdP : array (only if keys != None)
-            if ``keys != None``, ``PdP`` is returned instead of ``P``
-            and ``dP``. ``PdP`` is an ``(N, 2M)`` array, where ``N`` is
-            the number of elements in `theta`, and ``M`` is the number
-            of keys. The first M columns represent a matrix of ``P``
-            values, and the last ``M`` columns represent values of
-            ``dP/dtheta``.
+    Returns
+    -------
+    P : dict
+        If ``keys = None``, the dictionary of Legendre function evalulated
+        at `theta` is returned. Dictionary keys are spherical harmonic
+        wave number tuples ``(n, m)``, and values will have shape
+        ``(N, 1)``, where ``N`` is the number of elements in `theta`. 
+    dP : dict
+        If ``keys = None``, the dictionary of Legendre function
+        derivatives evaluated at `theta` is returned. Dictionary keys are
+        spherical harmonic wave number tuples ``(n, m)``, and values will
+        have shape ``(N, 1)``, where ``N`` is number of elements in theta.
+    PdP : array
+        If ``keys != None``, ``PdP`` is returned instead of `P` and
+        `dP`. `PdP` is an ``(N, 2M)`` array, where ``N`` is the number
+        of elements in `theta`, and ``M`` is the number of keys. The
+        first ``M`` columns represent a matrix of ``P`` values, and
+        the last ``M`` columns represent values of ``dP/dtheta``.
 
     """
 
@@ -271,35 +271,34 @@ def legendre(nmax, mmax, theta, schmidtnormalize = True, keys = None):
 
 def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_nm = False):
     """
-    Calculate matrix that evaluates surface spherical harmonics using
-    the terms contained in shkeys, and at the locations defined by lat
-    and lon
+    Calculate matrix that evaluates surface spherical harmonics using the
+    terms contained in ``shkeys``, and at the locations defined by `lat`
+    and `lon`.
 
     Parameters
     ----------
     lat : array
-        latitude in degrees. Must be broadcastable with lon
+        Latitude in degrees. Must be broadcastable with `lon`.
     lon : array
-        longitude in degrees. Must be broadcastable with lat
+        Longitude in degrees. Must be broadcastable with `lat`.
     N: int
-        maximum spherical harmonic degree
+        Maximum spherical harmonic degree.
     M: int
-        maximum spherical harmonic order
+        Maximum spherical harmonic order.
     a : float, optional, default = 6371.2
         Reference radius.
-    derivative : string, optional, default = None
-        Set to ``phi`` to get the matrix that gives the eastward
-        gradient. Set to ``theta`` to get the matrix that gives the
-        southward gradient. Default gives surface SH (no derivative).
-
-
+    derivative : string, {None, 'phi', 'theta'}, default = None
+        Set to 'phi' to get the matrix that gives the eastward gradient.
+        Set to 'theta' to get the matrix that gives the southward
+        gradient. Default gives surface SH (no derivative).
+ 
     Returns
     -------
     G : array
-        ``N x M`` array, where ``N`` is the size inferred by
-        broadcasting lon and lat, and ``M`` is the number of terms in
-        the spherical harmonics inferred from shkeys. The cos terms are
-        given first, and sin terms after.
+        ``N x M`` array, where ``N`` is the size inferred by broadcasting
+        `lon` and `lat`, and ``M`` is the number of terms in the spherical
+        harmonics inferred from ``shkeys``. The ``cos`` terms are given
+        first, and ``sin`` terms after.
         
     """
 
