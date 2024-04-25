@@ -2,10 +2,10 @@
 Python implementation of cubed sphere projection and differential
 calculus, largely based on:
 
-    Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai,
-    Parallel numerical simulation of the thermal convection in the
-    Earth's outer core on the cubed-sphere, Geophysical Journal
-    International, Volume 209, Issue 3, June 2017, Pages 1934–1954,
+    Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai, Parallel
+    numerical simulation of the thermal convection in the Earth's outer
+    core on the cubed-sphere, Geophysical Journal International,
+    Volume 209, Issue 3, June 2017, Pages 1934–1954,
     https://doi.org/10.1093/gji/ggx125
 
 Cube block indices:
@@ -55,8 +55,8 @@ class CSprojection(object):
             correspond to the centers of the cells in a ``6 x N x N``
             grid. The ``xi`` [rad], ``eta`` [rad], ``theta`` [deg] and
             ``phi`` [deg] coordinates will be calculated along with the
-            cube block number and cell areas for a unit sphere. All
-            arrays will be flat ``6*(N-1)**2`` arrays.
+            cube block number and cell areas for a unit sphere. All arrays
+            will be flat ``6*(N-1)**2`` arrays.
 
         """
 
@@ -93,11 +93,12 @@ class CSprojection(object):
         k: array
             Array of block indices.
         i: array
-            Array of indices referring to ``xi`` direction (from ``0``
-            to ``N-1``).
+            Array of indices referring to ``xi`` direction (from ``0`` to
+            ``N-1``).
         j: array
-            Array of indices referring to ``eta`` direction (from ``0``
-            to ``N-1``).
+            Array of indices referring to ``eta`` direction (from ``0`` to
+            ``N-1``).
+
         """
 
         k, i, j = np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing = 'ij')
@@ -109,7 +110,7 @@ class CSprojection(object):
 
     def xi(self, i, N):
         """
-        Calculate the ``xi`` value for a given grid index `i` and grid
+        Calculate the `xi` value for a given grid index `i` and grid
         resolution `N`.
         
         ``xi(0)`` is ``-pi/4`` and ``xi(N-1)`` is ``pi/4``.
@@ -121,6 +122,11 @@ class CSprojection(object):
         N: int
             Grid resolution.
 
+        Returns
+        -------
+        xi: array
+            Array of `xi` values.
+
         """
         if type(N) is not int:
             print('Warning: N is integer in the intended applications, did you make a mistake?')
@@ -131,13 +137,10 @@ class CSprojection(object):
 
     def eta(self, j, N):
         """
-        Calculate the eta value for a given grid index `j` and grid
+        Calculate the `eta` value for a given grid index `j` and grid
         resolution `N`.
         
         ``eta(0)`` is ``-pi/4`` and ``eta(N-1)`` is ``pi/4``.
-
-        (this function is a copy of xi(), it's just included because it
-        makes code more readable)
 
         Parameters
         ----------
@@ -145,6 +148,17 @@ class CSprojection(object):
             Array of indices (could be non-integer).
         N: int
             Grid resolution.
+
+        Returns
+        -------
+        eta: array
+            Array of `eta` values.
+
+        Note
+        ----
+        This function is a copy of ``xi()``, it's just included because it
+        makes code more readable.
+
         """
         if type(N) is not int:
             print('Warning: N is integer in the intended applications, did you make a mistake?')
@@ -169,8 +183,8 @@ class CSprojection(object):
         Returns
         -------
         delta: array
-            Array of `delta` values, shape determined by input
-            according to broadcasting rules.
+            Array of `delta` values, shape determined by input according
+            to broadcasting rules.
 
         """
         
@@ -180,7 +194,7 @@ class CSprojection(object):
 
 
     def get_metric_tensor(self, xi, eta, r = 1, covariant = True):
-        """ Calculate metric tensor g
+        """ Calculate metric tensor `g`.
 
         Calculate the elements of a the metric tensor for each input
         point, using equation (12) of Yin et al. (2017).
@@ -195,16 +209,15 @@ class CSprojection(object):
             Array of radius values.
         covariant: bool, optional, default = True
             If ``True`` (default), return covariant components of the
-            metric tensor. If ``False``, return contravariant
-            components.
+            metric tensor. If ``False``, return contravariant components.
 
         Returns
         -------
         g : array
-            ``(N, 3, 3) array of metric tensor elements. `g` will have
+            ``(N, 3, 3)`` array of metric tensor elements. `g` will have
             shape ``(N, 3, 3)``, where the last two dimensions refer to
-            column and row of the matrix, and ``N`` is the number of
-            input points, using broadcasting.
+            column and row of the matrix, and ``N`` is the number of input
+            points, using broadcasting.
 
         """
 
@@ -303,7 +316,9 @@ class CSprojection(object):
 
 
     def cube2spherical(self, xi, eta, block, r = 1, deg = False):
-        """ Calculate spherical (`r`, `theta`, `phi`) coordinates of given points
+        """
+        Calculate spherical (`r`, `theta`, `phi`) coordinates of given
+        points.
 
         Parameters
         ----------
@@ -350,9 +365,8 @@ class CSprojection(object):
         Calculate elements of transformation matrix `Pc` at all input
         points.
 
-        The `Pc` matrix transforms Cartesian components
-        ``(ux, uy, uz)`` to contravariant components in a cubed sphere
-        coordinate system::
+        The `Pc` matrix transforms Cartesian components ``(ux, uy, uz)``
+        to contravariant components in a cubed sphere coordinate system::
         
             |u1| = |P00 P01 P02| |ux|
             |u2| = |P10 P11 P12| |uy|
@@ -374,17 +388,15 @@ class CSprojection(object):
         block: array-like, optional, default = 0
             Array of block indices.
         inverse: bool, optional
-            Set to ``True`` if you want the inverse transformation
-            matrix.
+            Set to ``True`` if you want the inverse transformation matrix.
 
         Returns
         -------
         Pc: array
-            Transformation matrices `Pc`, one for each point described
-            by the input parameters (using broadcasting rules). For
-            ``N`` such points, `Pc` will have shape ``(N, 3, 3)``,
-            where the last two dimensions refer to column and row of
-            the matrix.
+            Transformation matrices `Pc`, one for each point described by
+            the input parameters (using broadcasting rules). For ``N``
+            such points, `Pc` will have shape ``(N, 3, 3)``, where the
+            last two dimensions refer to column and row of the matrix.
 
         """ 
 
@@ -475,11 +487,12 @@ class CSprojection(object):
 
     def get_Ps(self, xi, eta, r = 1, block = 0, inverse = False):
         """
-        Calculate elements of transformation matrix `Ps` at all input points.
+        Calculate elements of transformation matrix `Ps` at all input
+        points.
 
         The `Ps` matrix transforms vector components
-        ``(u_east, u_north, u_r)`` to contravariant components in a
-        cubed sphere coordinate system::
+        ``(u_east, u_north, u_r)`` to contravariant components in a cubed
+        sphere coordinate system::
         
             |u1| = |P00 P01 P02| |u_east|
             |u2| = |P10 P11 P12| |u_north| 
@@ -488,9 +501,9 @@ class CSprojection(object):
         The output, `Ps`, will have shape ``(N, 3, 3)``.
 
         Calculations based on equations from Appendix A of Yin et al.
-        (2017), with similar notation, except that I replace ``lambda``
-        and ``phi`` with ``east`` and ``north`` (when I use ``phi`` it
-        means longitude, not latitude as in the Yin paper).
+        (2017), with similar notation, except that ``lambda`` and ``phi``
+        is replaced with ``east`` and ``north`` (here, ``phi`` means
+        longitude, and not latitude as in the Yin paper).
 
         Parameters
         ----------
@@ -503,17 +516,15 @@ class CSprojection(object):
         block: array-like, optional, default = 0
             Array of block indices.
         inverse: bool, optional
-            Set to `True` if you want the inverse transformation
-            matrix.
+            Set to ``True`` if you want the inverse transformation matrix.
 
         Returns
         -------
         Ps: array
-            Transformation matrices `Ps`, one for each point described
-            by the input parameters (using broadcasting rules). For
-            ``N`` such points, `Ps` will have shape ``(N, 3, 3)``,
-            where the last two dimensions refer to column and row of
-            the matrix.
+            Transformation matrices `Ps`, one for each point described by
+            the input parameters (using broadcasting rules). For ``N``
+            such points, `Ps` will have shape ``(N, 3, 3)``, where the
+            last two dimensions refer to column and row of the matrix.
 
         """ 
 
@@ -603,9 +614,9 @@ class CSprojection(object):
         Calculate matrix `Qij` that transforms contravariant vector
         components from `block_i` to `block_j`.
 
-        Calculations are done via transformation to spherical
-        coordinates, as suggested by Yin et al. See equations (66) and
-        (67) in their paper.
+        Calculations are done via transformation to spherical coordinates,
+        as suggested by Yin et al. See equations (66) and (67) in their
+        paper.
 
         It works like this, where ``(u1, u2, u_3)`` refer to
         contravariant vector components::
@@ -622,20 +633,17 @@ class CSprojection(object):
         eta: array-like
             Array of `eta` values on block given by `block_j`.
         block_i: array-like, optional
-            Indices of block(s) from which to transform vector
-            components.
+            Indices of block(s) from which to transform vector components.
         block_j: array-like, optional
-            Indices of block(s) to which to transform vector
-            components.
+            Indices of block(s) to which to transform vector components.
 
         Returns
         -------
         Qij: array
-            Transformation matrices `Qij`, one for each point described
-            by the input parameters (using broadcasting rules). For
-            ``N`` such points, `Qij` will have shape ``(N, 3, 3)``,
-            where the last two dimensions refer to column and row of
-            the matrix.
+            Transformation matrices `Qij`, one for each point described by
+            the input parameters (using broadcasting rules). For ``N``
+            such points, `Qij` will have shape ``(N, 3, 3)``, where the
+            last two dimensions refer to column and row of the matrix.
 
         """
 
@@ -658,9 +666,8 @@ class CSprojection(object):
 
     def get_Q(self, lat, r, inverse = False):
         """
-        Calculate the matrices that convert from not normalized
-        spherical components to normalized spherical vector
-        components::
+        Calculate the matrices that convert from not normalized spherical
+        components to normalized spherical vector components::
 
             |u_east_normalized |    |u_east |
             |u_north_normalized| = Q|u_north|
@@ -675,8 +682,7 @@ class CSprojection(object):
         r: array
             Array of radii.
         inverse: bool, optional
-            Set to ``True`` if you want the inverse transformation
-            matrix.
+            Set to ``True`` if you want the inverse transformation matrix.
 
         Returns
         -------
@@ -700,34 +706,33 @@ class CSprojection(object):
 
     def get_Diff(self, N, coordinate = 'xi', Ns = 1, Ni = 4, order = 1):
         """
-        Calculate matrix that differentiates a scalar field, defined
-        on a ``(6, N, N)`` grid, with respect to ``xi`` or ``eta``.
-        
+        Calculate matrix that differentiates a scalar field, defined on a
+        ``(6, N, N)`` grid, with respect to ``xi`` or ``eta``.
+
         Parameters
         ----------
         N: int
             Number of grid cells in each dimension on each block.
-        coordinate: string, optional, default = 'xi'
-            Which coordinate to differentiate with respect to. Either
-            ``xi``, ``eta``, or ``both``.
+        coordinate: string, {'xi', 'eta', 'both'}, default = 'xi'
+            Which coordinate to differentiate with respect to.
         Ns: int, optional, default = 1
-            Differentiation stencil size (default is first order central difference).
+            Differentiation stencil size. Default gives first order
+            central difference.
         Ni: int, optional
             Number of points to use for interpolation for points in the
             stencil that fall on non-integer grid points on neighboring
             block.
         order: int, optional, default = 1
-            Order of differentiation. Default first derivative. Make
-            sure that ``Ns >= order``.
+            Order of differentiation. Default gives first order
+            derivative. Make sure that ``Ns >= order``.
 
         Returns
         -------
         D: sparse matrix
             Sparse ``(6*N*N, 6*N*N)`` matrix that calculates the
-            derivative of a scalar field with respect to ``xi``,
-            ``eta``, or both (in which case two matrices will be
-            returned), as ``derivative = D.dot(f)``, where ``f`` is the
-            scalar field.
+            derivative of a scalar field with respect to ``xi``, ``eta``,
+            or both (in which case two matrices will be returned), as
+            ``derivative = D.dot(f)``, where ``f`` is the scalar field.
 
         """
         if coordinate not in ['xi', 'eta', 'both']:
@@ -768,44 +773,51 @@ class CSprojection(object):
 
     def get_interpolation_matrix(self, k, i, j, N, Ni, weights = None, rows = None):
         """
-        Calculate a sparse matrix D that interpolates from grid points
-        in a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`). 
+        Calculate a sparse matrix D that interpolates from grid points in
+        a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`). 
 
-        `D` will have ``6*N**2`` columns that refer to the
-        ``(6, N, N)`` grid points, spanning the 6 blocks in the cubed
-        sphere, with duplicate points on the boundaries. 
+        `D` will have ``6*N**2`` columns that refer to the ``(6, N, N)``
+        grid points, spanning the 6 blocks in the cubed sphere, with
+        duplicate points on the boundaries. 
 
         Parameters
         ----------
         k: array-like
-            Integer indices that refer to cube block. Must be ``>= 0``
-            and ``<= 5``. Will be flattened.
+            Integer indices that refer to cube block. Must be ``>= 0`` and
+            ``<= 5``. Will be flattened.
         i: array-like
-            Integer indices that refer to the ``xi``-direction (but can
-            be negative or ``>= N``). Will be flattened.
+            Integer indices that refer to the ``xi``-direction (but can be
+            negative or ``>= N``). Will be flattened.
         j: array-like
-            Integer indices that refer to the ``eta``-direction (but
-            can be negative or ``>= N``). Will be flattened.
+            Integer indices that refer to the ``eta``-direction (but can
+            be negative or ``>= N``). Will be flattened.
         N: int
             Number of grid points.
         Ni: int
-            Number of interpolation points. Must be ``<= N`` (usually
-            4 is ok).
+            Number of interpolation points. Must be ``<= N`` (usually 4 is
+            ok).
         weights: array-like, optional
-            If different values of k, i, j are assigned to the same row, the corresponding element will have 
-            value 1 (or whatever the interpolation dictates) unless weights is specified. For differentiation, 
-            use weights to specify the stencil coefficients
+            If different values of `k`, `i`, `j` are assigned to the same
+            row, the corresponding element will have value 1 (or whatever
+            the interpolation dictates) unless weights is specified. For
+            differentiation, use weights to specify the stencil
+            coefficients.
         rows: array-like, optional
-            The row index of each element in k, i, j. Different elements of k, i, j can be put in the same
-            row. If not specified, each element in k, i, j will be given its own row. 
+            The row index of each element in `k`, `i`, `j`. Different
+            elements of `k`, `i`, `j` can be put in the same row. If not
+            specified, each element in `k`, `i`, `j` will be given its own
+            row. 
 
-        Returns:
-        --------
+        Returns
+        -------
         D: sparse matrix
-            (rows.max() + 1 by 6*N*N) matrix that, when multiplied by a vector containing a scalar field on
-            the 6*N*N grid points, produces interpolated values at the given grid points, which may be outside
-            the cube blocks, for example they can be negative (actually that's the point, if not this function 
-            wouldn't be needed)
+            ``(rows.max() + 1 by 6*N*N)`` matrix that, when multiplied by
+            a vector containing a scalar field on the ``6*N*N`` grid
+            points, produces interpolated values at the given grid points.
+            The grid points may be outside the cube blocks, for example
+            they can be negative (actually that's the point, if not this
+            function wouldn't be needed).
+
         """
 
         if Ni > N:
@@ -879,21 +891,23 @@ class CSprojection(object):
 
 
     def block(self, lon, lat):
-        """ find the block that points belong to
+        """ Find the block that points belong to.
 
-        Find which block the input coordinates belong to
+        Find which block the input coordinates belong to.
 
         Parameters
         ----------
         lon: array
-            geocentric longitude(s) [deg] to convert to cube coords
+            Geocentric longitude(s) [deg] to convert to cube coords.
         lat: array:
-            geocentric latitude(s) [deg] to convert to cube coords
+            Geocentric latitude(s) [deg] to convert to cube coords.
 
         Returns
         -------
         block: array
-            indices of the block that (lon, lat) is on (I = 0, II = 1,...)
+            Indices of the block that (`lon`, `lat`) is on
+            ``(I = 0, II = 1,...)``.
+
         """
         lon, lat = np.broadcast_arrays(lon, lat)
         shape = lat.shape
@@ -922,30 +936,32 @@ class CSprojection(object):
 
 
     def geo2cube(self, lon, lat, block = None):
-        """ convert from geocentric coordinates to cube coords (xi, eta) 
+        """
+        Convert from geocentric coordinates to cube coords (`xi`, `eta`).
         
-        Input parameters must have same shape. Output will have same shape.
-        If    
+        Input parameters must have same shape. Output will have same
+        shape.
 
         Parameters
         ----------
         lon: array
-            geocentric longitude(s) [deg] to convert to cube coords
+            Geocentric longitude(s) [deg] to convert to cube coords.
         lat: array
-            geocentric latitude(s) [deg] to convert to cube coords.
+            Geocentric latitude(s) [deg] to convert to cube coords.
         block: array-like, optional
-            option to specify cube block. If None, it will be calculated.
-            If specified, be careful because the function will map points
-            at opposite side of the sphere to specified block. 
+            Option to specify cube block. If ``None``, it will be
+            calculated. If specified, be careful because the function will
+            map points at opposite side of the sphere to specified block.
 
         Returns
         -------
         xi: array
-            xi, as defined in Ronchi et al. Unit is radians 
+            `xi`, as defined in Ronchi et al. Unit is radians.
         eta: array
-            eta, as defined in Ronchi et al. Unit is radians
+            `eta`, as defined in Ronchi et al. Unit is radians.
         block: array
-            index of the block that xi, eta belongs to
+            Index of the block that `xi`, `eta` belongs to.
+
         """
 
         lon, lat = np.broadcast_arrays(lon, lat)
@@ -987,7 +1003,7 @@ class CSprojection(object):
 
 
     def get_projected_coastlines(self, resolution = '50m'):
-        """ generate coastlines in projected coordinates """
+        """ Generate coastlines in projected coordinates. """
 
         coastlines = np.load(datapath + 'coastlines_' + resolution + '.npz')
         for key in coastlines:

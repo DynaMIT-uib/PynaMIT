@@ -2,7 +2,7 @@ import numpy as np
 
 
 def get_3D_determinants(M):
-    """ Calculate determinants of 3D matrices
+    """ Calculate determinants of 3D matrices.
 
     Parameters
     ----------
@@ -28,7 +28,7 @@ def get_3D_determinants(M):
 
 
 def invert_3D_matrices(M):
-        """ Calculate inverse of 3D matrices 
+        """ Calculate inverse of 3D matrices.
 
         Parameters
         ----------
@@ -84,8 +84,8 @@ def constrain_values(arr, vmin, vmax, axis):
     Returns
     -------
     a_shifted: array
-        `a` + ``constant``, where ``constant`` is chosen so that
-        ``vmin <= a_shifted(i) <= vmax`` for all ``i`` (if possible).
+        ``a + constant``, where ``constant`` is chosen so that all
+        elements of `a_shifted` is ``>= vmin`` and ``<= vmax`` (if possible).
 
     """
 

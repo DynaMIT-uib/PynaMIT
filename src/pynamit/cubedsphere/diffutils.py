@@ -10,7 +10,8 @@ from itertools import combinations_with_replacement
 
 
 def lcm_arr(arr):
-    """ Calculate least common multiplier for array of integers
+    """ Calculate least common multiplier for array of integers.
+
     """
     result = np.lcm(arr[0], arr[1])
     for i in range(2, len(arr)-1):
@@ -21,30 +22,30 @@ def lcm_arr(arr):
 
 def stencil(evaluation_points, order = 1, h = 1, fraction = False):
     """ 
-    Calculate stencil for finite difference calculation of derivative
+    Calculate stencil for finite difference calculation of derivative.
 
     Parameters
     ----------
     evaluation_points: array_like
-        evaluation points in regular grid. e.g. ``[-1, 0, 1]`` for 
-        central difference or ``[-1, 0]`` for backward difference
+        Evaluation points in regular grid. e.g. ``[-1, 0, 1]`` for central
+        difference or ``[-1, 0]`` for backward difference.
     order: integer, optional, default = 1
-        order of the derivative, default gives a first order derivative
+        Order of the derivative, default gives a first order derivative.
     h: scalar, optional, default = 1
-        Step size in seconds
+        Step size in seconds.
     fraction: bool, optional
-        Set to ``True`` to return coefficients as integer numerators
-        and a common denomenator. Be careful with this if you use
-        a very large number of evaluation points...
+        Set to ``True`` to return coefficients as integer numerators and a
+        common denomenator. Be careful with this if you use a very large
+        number of evaluation points.
 
     Returns
     -------
     coefficients: array
-        array of coefficients in stencil. Unless fraction is set to
-        ``True`` - in which case a tuple will be returned with
-        an array of numerators and an integer denominator. If fraction
-        is ``True``, ``h`` is ignored - and you should multiply the
-        denominator by ``h**order`` to get the coefficients
+        Array of coefficients in stencil. Unless fraction is set to
+        ``True`` - in which case a tuple will be returned with an array of
+        numerators and an integer denominator. If fraction is ``True``,
+        `h` is ignored - and you should multiply the denominator by
+        ``h**order`` to get the coefficients.
 
     Note
     ----
@@ -79,47 +80,46 @@ def stencil(evaluation_points, order = 1, h = 1, fraction = False):
 def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
     """
     Calculate stencil coefficients for numerical differentiation of
-    ``f(x, y)``
+    ``f(x, y)``.
 
     Derivative is found by sum over ``i``::
 
         c[i] * f(x + dx[i], y + dy[i])
 
-    Note
-    ----
-    This function is also based on Taylor series expansion (see docs
-    for rough summary)
-
-    Only second order differentiation is supported at the moment but it
-    would be fairly easy to expand... It should also be pretty easy to
-    expand this to functions of more than one parameter
-
-    Also, this function shoudl probably be tested more, in particular
-    if it is used in ways that are not currently tested in the
-    ``__main__`` block at the bottom of the script
-
-
     Parameters
     ----------
     dx: array-like
-        array of stencil points in x-dimension
+        Array of stencil points in x-dimension.
     dy: array-like
-        array of stencil points in y-dimension
+        Array of stencil points in y-dimension.
     derivative: string
-        defines which derivative you want. Currently these strings are
+        Defines which derivative you want. Currently these strings are
         supported:
 
-        - ``x``: df/dx
-        - ``y``: df/dy
-        - ``xy``: d^2f/dxdy
-        - ``yx``: d^2f/dxdy
-        - ``xx``: d^2f/dx^2
-        - ``yy``: d^2f/dy^2
+        - 'x': ``df/dx``
+        - 'y': ``df/dy``
+        - 'xy': ``d^2f/dxdy``
+        - 'yx': ``d^2f/dxdy``
+        - 'xx': ``d^2f/dx^2``
+        - 'yy': ``d^2f/dy^2``
 
     Returns
     -------
     c: array
-        array of finite difference coefficients
+        Array of finite difference coefficients.
+
+    Note
+    ----
+    This function is based on Taylor series expansion (see docs for rough
+    summary).
+
+    Only second order differentiation is supported at the moment but it
+    would be fairly easy to expand... It should also be pretty easy to
+    expand this to functions of more than one parameter.
+
+    Also, this function should probably be tested more, in particular if
+    it is used in ways that are not currently tested in the ``__main__``
+    block at the bottom of the script.
 
     """
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
