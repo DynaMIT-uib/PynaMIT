@@ -13,6 +13,12 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
 
         c[i] * f(x + dx[i], y + dy[i]) 
 
+    Note
+    ----
+    Only second order differentiation is supported at the moment but it
+    would be fairly easy to expand. It should also be pretty easy to
+    expand this to functions of more than one parameter.
+
     Parameters
     ----------
     dx: array-like
@@ -27,12 +33,6 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
     -------
     c: array
         Array of finite difference coefficients.
-
-    Note
-    ----
-    Only second order differentiation is supported at the moment but it
-    would be fairly easy to expand. It should also be pretty easy to
-    expand this to functions of more than one parameter.
 
     """
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
