@@ -86,6 +86,19 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
 
         c[i] * f(x + dx[i], y + dy[i])
 
+    Note
+    ----
+    This function is based on Taylor series expansion (see docs for rough
+    summary).
+
+    Only second order differentiation is supported at the moment but it
+    would be fairly easy to expand... It should also be pretty easy to
+    expand this to functions of more than one parameter.
+
+    Also, this function should probably be tested more, in particular if
+    it is used in ways that are not currently tested in the ``__main__``
+    block at the bottom of the script.
+
     Parameters
     ----------
     dx: array-like
@@ -107,19 +120,6 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
     -------
     c: array
         Array of finite difference coefficients.
-
-    Note
-    ----
-    This function is based on Taylor series expansion (see docs for rough
-    summary).
-
-    Only second order differentiation is supported at the moment but it
-    would be fairly easy to expand... It should also be pretty easy to
-    expand this to functions of more than one parameter.
-
-    Also, this function should probably be tested more, in particular if
-    it is used in ways that are not currently tested in the ``__main__``
-    block at the bottom of the script.
 
     """
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
