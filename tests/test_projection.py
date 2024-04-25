@@ -117,7 +117,7 @@ def test_projection():
         r, theta, phi = p.cube2spherical(xi, eta, block = i)
         lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
         lon, lat = np.rad2deg(phi).flatten(), 90 - np.rad2deg(theta).flatten()
-        Ps_inv = p.get_Ps(xi, eta, r = np.array(1.), block = i, inverse = True)
+        Ps_inv = p.get_Ps(xi, eta, r = np.array(1.), block = np.array(i), inverse = True)
         Q      = p.get_Q(lat, r.flatten())
         Ps_normalized = np.einsum('nij, njk -> nik', Q, Ps_inv) # multiply Ps_inv by Q to get normalized vector components 
 
@@ -139,7 +139,7 @@ def test_projection():
         axg4.quiver(np.asnumpy(lon % 360), np.asnumpy(lat), np.asnumpy(Ae_pc), np.asnumpy(An_pc), transform = ccrs.PlateCarree(), color = C)
 
         for ax in [axg1, axg2, axg3, axg4]:
-            ax.scatter(lon, lat, color = C, transform = ccrs.PlateCarree(), s = 5, zorder = 60)
+            ax.scatter(np.asnumpy(lon), np.asnumpy(lat), color = C, transform = ccrs.PlateCarree(), s = 5, zorder = 60)
 
             for k in range(N):
                 ax.plot(np.asnumpy(lo[k, :].flatten()), np.asnumpy(la[k, :].flatten()), color = C, linewidth = .5, linestyle = '--', transform = ccrs.Geodetic())
