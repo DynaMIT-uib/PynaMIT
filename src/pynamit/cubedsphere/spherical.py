@@ -223,9 +223,9 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees = True):
     lon1: array
         Longitude of origin.
     lat2: array
-        Latitude (not colat) that unit vector should point towards.
+        Latitude (not colat) which returned unit vector should point towards.
     lon2: array
-        Longitude that unit vector should point towards.
+        Longitude which returned unit vector should point towards.
     degrees, bool
         ``True`` if input in degrees, ``False`` if radians.
 
