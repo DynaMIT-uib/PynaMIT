@@ -151,7 +151,7 @@ def test_projection():
         x, y, z = p.cube2cartesian(xi, eta, block = i)
         axxyz1.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = C, s = 5)
         axxyz2.scatter(np.asnumpy(x), np.asnumpy(y), np.asnumpy(z), c = C, s = 5)
-        Pc = p.get_Pc(xi, eta, r = np.array(1.), block = i, inverse = True)
+        Pc = p.get_Pc(xi, eta, r = np.array(1.), block = np.array(i), inverse = True)
 
         Ax, Ay, Az = np.einsum('nij, nj -> ni', Pc, Axis).T
         axxyz1.quiver(np.asnumpy(x.flatten()), np.asnumpy(y.flatten()), np.asnumpy(z.flatten()), np.asnumpy(Ax), np.asnumpy(Ay), np.asnumpy(Az), length = 1e-1, color = C)
