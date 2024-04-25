@@ -189,17 +189,17 @@ def legendre(nmax, mmax, theta, schmidtnormalize = True, keys = None):
     Returns
     -------
     P : dict
-        If ``keys = None``, the dictionary of Legendre function evalulated
+        If ``keys is None``, the dictionary of Legendre function evalulated
         at `theta` is returned. Dictionary keys are spherical harmonic
         wave number tuples ``(n, m)``, and values will have shape
         ``(N, 1)``, where ``N`` is the number of elements in `theta`. 
     dP : dict
-        If ``keys = None``, the dictionary of Legendre function
+        If ``keys is None``, the dictionary of Legendre function
         derivatives evaluated at `theta` is returned. Dictionary keys are
         spherical harmonic wave number tuples ``(n, m)``, and values will
         have shape ``(N, 1)``, where ``N`` is number of elements in theta.
     PdP : array
-        If ``keys != None``, ``PdP`` is returned instead of `P` and
+        If ``keys is not None``, ``PdP`` is returned instead of `P` and
         `dP`. `PdP` is an ``(N, 2M)`` array, where ``N`` is the number
         of elements in `theta`, and ``M`` is the number of keys. The
         first ``M`` columns represent a matrix of ``P`` values, and
