@@ -5,26 +5,34 @@ from scipy.special import factorial
 
 
 def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
-    """ Calculate stencil coefficients for numerical differentiation of f(x, y)
+    """
+    Calculate stencil coefficients for numerical differentiation of
+    ``f(x, y)``.
 
-    derivative is found by sum over i: c[i] * f(x + dx[i], y + dy[i]) 
+    Derivative is found by sum over ``i``::
 
-    Only second order differentiation is supported at the moment but it would be fairly easy to expand...
-    It should also be pretty easy to expand this to functions of more than one parameter
+        c[i] * f(x + dx[i], y + dy[i]) 
+
+    Note
+    ----
+    Only second order differentiation is supported at the moment but it
+    would be fairly easy to expand. It should also be pretty easy to
+    expand this to functions of more than one parameter.
 
     Parameters
     ----------
     dx: array-like
-        array of stencil points in x-dimension
+        Array of stencil points in x-dimension.
     dy: array-like
-        array of stencil points in y-dimension
+        Array of stencil points in y-dimension.
     derivative: string
-        'x': df/dx, 'y': df/dy, 'xy': d^2f/dxdy, 'yx': d^2f/dxdy, 'xx':d^2f/dx^2, 'yy':d^2f/dy^2
+        'x': ``df/dx``, 'y': ``df/dy``, 'xy': ``d^2f/dxdy``,
+        'yx': ``d^2f/dxdy``, 'xx': ``d^2f/dx^2``, 'yy': ``d^2f/dy^2``.
 
     Returns
     -------
     c: array
-        array of finite difference coefficients
+        Array of finite difference coefficients.
 
     """
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
@@ -59,12 +67,12 @@ if __name__ == '__main__':
     dx, dy = map(np.ravel, np.meshgrid([-0.2, -0.1, 0, 0.1, 0.2], [-0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3], indexing="ij"))
 
     # define a test function with derivatives
-    f       = lambda x, y: x**2 - y**2 + x**2 * y - x*y + y**3
-    dfdx    = lambda x, y:  2* x + 2 * x * y - y
-    dfdy    = lambda x, y: -2* y + x**2 - x + 3 * y**2
-    d2fdx2  = lambda x, y:  2 + 2 * y
-    d2fdy2  = lambda x, y: -2 + 6 * y
-    d2fdxdy = lambda x, y:  2*x - 1
+    def f(x, y)      : return x**2 - y**2 + x**2 * y - x*y + y**3
+    def dfdx(x, y)   : return 2* x + 2 * x * y - y
+    def dfdy(x, y)   : return -2* y + x**2 - x + 3 * y**2
+    def d2fdx2(x, y) : return 2 + 2 * y
+    def d2fdy2(x, y) : return -2 + 6 * y
+    def d2fdxdy(x, y): return 2*x - 1
 
     x0, y0 = (np.random.random(500) - 0.5) * 20,  (np.random.random(500) - 0.5) * 20
 
