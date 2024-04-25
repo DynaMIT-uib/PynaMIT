@@ -11,7 +11,7 @@ on:
 jobs:
   testing-ubuntu:
     runs-on: ubuntu-latest
-    container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-19
+    container: ghcr.io/dynamit-uib/pynamit:x86_64-2024-04-24
     defaults:
       run:
         shell: 'bash -leo pipefail {0}'
