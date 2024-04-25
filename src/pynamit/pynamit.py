@@ -578,13 +578,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
                 fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
-<<<<<<< HEAD
                                                    levels = np.asnumpy(Blevels), cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
-=======
-                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
->>>>>>> main
 
                 GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
                 shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential
