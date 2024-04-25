@@ -17,7 +17,7 @@ where = ["src"]
 
 [tool.ruff]
 src = ["src", "tests", "scripts"]
-extend-exclude = ["__init__.py", "differentation_test.py", "projection_test.py"]
+extend-exclude = ["__init__.py"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
