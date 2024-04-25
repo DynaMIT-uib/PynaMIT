@@ -23,13 +23,13 @@ def test_differentiation():
     r, theta, phi = p.cube2spherical(xi, eta, r = R, block = block, deg = True)
 
     # calculate IGRF potential and spherical vector components at the grid points
-    V                = igrf_V (r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
-    Br, Btheta, Bphi = igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1))
+    V                = np.array(igrf_V (np.asnumpy(r), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1))).squeeze()
+    Br, Btheta, Bphi = np.array(igrf_gc(np.asnumpy(r), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1)))
 
 
     # - sanity check differentiate V wrt to R and get back Br
     rs  = np.array([-2, -1, 0, 1, 2]) * 1e3 + R
-    Vs  = np.vstack([igrf_V( rr, theta, phi, datetime.datetime(2020, 1, 1)) for rr in rs])
+    Vs  = np.vstack([np.array(igrf_V( np.asnumpy(rr), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1))) for rr in rs])
     r_stencil = diffutils.stencil(rs - R)
     Br_num = -np.sum(Vs * r_stencil.reshape((-1, 1, 1, 1)), axis = 0)
 
@@ -147,8 +147,8 @@ def test_differentiation():
     # to test it, recalculate IGRF values in the grid chosen for the differentiation:
     xi, eta = p.xi(i, N), p.eta(j, N)
     r, theta, phi = p.cube2spherical(xi, eta, r = R, block = k, deg = True)
-    V                = igrf_V (r, theta, phi, datetime.datetime(2020, 1, 1)).flatten()
-    Br, Btheta, Bphi = map(np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
+    V                = np.array(igrf_V (np.asnumpy(r), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1))).flatten()
+    Br, Btheta, Bphi = map(np.squeeze, np.array(igrf_gc(np.asnumpy(r), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1))))
 
     dVdxi    = Dxi1 .dot(V)
     dVdeta   = Deta1.dot(V)
@@ -193,8 +193,8 @@ def test_differentiation():
 
     xi, eta = p.xi(ii, N), p.eta(jj, N)
     r, theta, phi = p.cube2spherical(xi, eta, r = R, block = kk, deg = True)
-    V                = igrf_V (r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
-    Br, Btheta, Bphi = map(np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
+    V                = np.array(igrf_V (np.asnumpy(r), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1))).squeeze()
+    Br, Btheta, Bphi = map(np.squeeze, np.array(igrf_gc(np.asnumpy(r), np.asnumpy(theta), np.asnumpy(phi), datetime.datetime(2020, 1, 1))))
 
     dVdxi    = Dxi .dot(V)
     dVdeta   = Deta.dot(V)
