@@ -5,7 +5,7 @@ Testing differentiation on internal grid points (not including ghost cells)
 """
 
 import matplotlib.pyplot as plt
-from cupy.scipyx.sparse import coo_matrix
+from cupyx.scipy.sparse import coo_matrix
 import cupy as np
 from ppigrf.ppigrf import igrf_gc, igrf_V
 import datetime
