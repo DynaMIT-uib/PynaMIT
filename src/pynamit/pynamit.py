@@ -59,7 +59,7 @@ class I2D(object):
         # get magnetic field unit vectors at CS grid:
         B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
         self.br, self.btheta, self.bphi = B / np.linalg.norm(B, axis = 0)
-        self.sinI = self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
+        self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
         self.b00 = self.bphi**2 + self.br**2
         self.b01 = -self.btheta * self.bphi
@@ -108,6 +108,8 @@ class I2D(object):
             Delta_k = np.diff(r_k_steps)
             r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
+            jh_to_shc = -self.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+
             # initialize matrix that will map from self.TJr to coefficients for poloidal field:
             shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
@@ -123,13 +125,13 @@ class I2D(object):
                 # Calculate magnetic field at the points in the ionosphere to which the grid maps:
                 B_RI  = np.vstack(self.B0.get_B(self.RI, theta_mapped, phi_mapped))
                 B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
-                sinI_RI = B_RI[0] / B0_RI
+                sinI_RI = -B_RI[0] / B0_RI
 
                 # find matrix that gets radial current at these coordinates:
                 Q_k = get_G(90 - theta_mapped, phi_mapped, self.Nmax, self.Mmax, a = self.RI)
 
-                # we need to scale this by 1/sin(inclination) to get the FAC:
-                Q_k = Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+                # we need to scale this by -1/sin(inclination) to get the FAC:
+                Q_k = -Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
 
                 # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
                 ratio = (B0_rk / B0_RI).reshape((1, -1))
@@ -139,10 +141,10 @@ class I2D(object):
                 A_k = np.diag((self.RI / r_k[i])**(self.n - 1))
 
                 # put it all together (crazy)
-                shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(self.vector_to_shc_df.dot(S_k.dot(Q_k)))
+                shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(Q_k)))
 
             # finally scale the matrix by the term in front of the integral
-            self.shc_TJr_to_shc_PFAC = -np.diag((self.n + 1) / (2 * self.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
+            self.shc_TJr_to_shc_PFAC =  np.diag((self.n + 1) / (2 * self.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
 
             # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
             self.shc_PFAC_to_Jph = -  1 / (self.n + 1) * self.Gnum_ph / mu0
@@ -291,7 +293,7 @@ class I2D(object):
         """
 
         # Extract the radial component of the FAC:
-        jr = FAC * self.sinI 
+        jr = -FAC * self.sinI 
         # Get the corresponding spherical harmonic coefficients
         TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
