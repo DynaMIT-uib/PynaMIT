@@ -368,7 +368,9 @@ class I2D(object):
         """ Calculate electric potential.
 
         """
-        print('not implemented')
+
+        print('this must be fixed so that Phi can be evaluated anywere')
+        return self.Gplt.dot(self.shc_Phi) * 1e-3
 
 
     @default_2Dcoords
@@ -376,7 +378,9 @@ class I2D(object):
         """ Calculate the induction electric field scalar.
 
         """
-        print('not implemented')
+
+        print('this must be fixed so that W can be evaluated anywere')
+        return self.Gplt.dot(self.shc_EW) * 1e-3
 
 
     @default_2Dcoords
@@ -473,7 +477,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(mlatn, mltn, jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(mlatnv, mltnv,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
-        jr = i2d.Gplt.dot(i2d.shc_TJr)
+        jr = i2d.get_Jr()
 
         globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
@@ -504,7 +508,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-        jr = i2d.Gplt.dot(i2d.shc_TJr)
+        jr = i2d.get_Jr()
         globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
@@ -568,11 +572,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 Br = i2d.get_Br()
                 fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+                #W = i2d.get_W()
 
-                GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
-                shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential
-                Phi = i2d.Gplt.dot(shc_Phi) * 1e-3
+                i2d.shc_Phi = i2d.vector_to_shc_df.dot(np.hstack( i2d.get_E()))
+                Phi = i2d.get_Phi()
 
 
                 nnn = i2d.lat.flatten() >  50
