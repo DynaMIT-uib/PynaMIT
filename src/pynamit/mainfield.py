@@ -184,8 +184,8 @@ class Mainfield(object):
         if self.kind == 'igrf':
             print('Note: We treat geodetic and geocentric as equal. Fix it (?)')
             h = (r - RE) * 1e-3
-            mlat, mlon = apx.geo2apex(90 - theta, phi, h)
-            glat, phi_conj, _ = apx.apex2geo(-mlat, mlon, h)
+            mlat, mlon = self.apx.geo2apex(90 - theta, phi, h)
+            glat, phi_conj, _ = self.apx.apex2geo(-mlat, mlon, h)
             theta_conj = 90 - glat
 
         return(theta_conj, phi_conj)
