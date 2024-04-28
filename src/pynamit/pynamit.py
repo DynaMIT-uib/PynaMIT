@@ -16,7 +16,9 @@ class I2D(object):
                        RI = RE + 110.e3, B0 = 'dipole', 
                        B0_parameters = {'epoch':2020}, 
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
-                       ignore_PNAF = False):
+                       ignore_PNAF = False,
+                       connect_hemispheres = False,
+                       latitude_boundary = 50):
         """
 
         Parameters
@@ -39,6 +41,8 @@ class I2D(object):
 
         """
         self.ignore_PNAF = ignore_PNAF
+        self.connect_hemispheres = connect_hemispheres
+        self.latitude_boundary = latitude_boundary
         self.RI = RI
         self.Nmax, self.Mmax = Nmax, Mmax
 
@@ -57,8 +61,8 @@ class I2D(object):
         self.g11 = self.g[:, 0, 0]
 
         # get magnetic field unit vectors at CS grid:
-        B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
-        self.br, self.btheta, self.bphi = B / np.linalg.norm(B, axis = 0)
+        self.B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
+        self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
         self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
         self.b00 = self.bphi**2 + self.br**2
@@ -149,6 +153,43 @@ class I2D(object):
             # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
             self.shc_PFAC_to_Jph = -  1 / (self.n + 1) * self.Gnum_ph / mu0
             self.shc_PFAC_to_Jth =    1 / (self.n + 1) * self.Gnum_th / mu0
+
+        if self.connect_hemispheres:
+            if self.ignore_PNAF:
+                raise ValueError('Hemispheres can not be connected when ignore_PNAF is True')
+            if self.B0.kind == 'radial':
+                raise ValueError('Hemispheres can not be connected with radial magnetic field')
+
+            # identify the low latitude points
+            if self.B0.kind == 'dipole':
+                ll_mask = np.abs(90 - self.theta) < self.latitude_boundary
+            elif self.B0.kind == 'igrf':
+                mlat, mlon = B0.apx.geo2apex(90 - self.theta, self.phi, (self.RI - RE)*1e-3)
+                ll_mask = np.abs(mlat) < self.latitude_boundary
+            else:
+                print('this should not happen')
+
+            # calculate coordinates and parameters at the low latitude points
+            self.ll_theta, self.ll_phi = self.theta[ll_mask], self.phi[ll_mask]
+            self.ll_Br = self.B[0][ll_mask]
+            self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
+            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta, self.ll_phi)
+            self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
+
+            # calculate coordinates and parameters at the conjugate points:
+            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.RI, self.ll_theta, self.ll_phi)
+            self.B_conj = np.vstack(self.B0.get_B(self.RI, self.ll_theta_conj, self.ll_phi_conj))
+            self.ll_br_conj, self.ll_btheta_conj, self.ll_bphi_conj = self.B_conj / np.linalg.norm(self.B_conj, axis = 0)
+            self.ll_Br_conj = self.B_conj[0]
+            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
+
+            # TODO: Pre-compute parts of constraint matrices that do not depend on conductance and wind
+
+            # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
+            #       This is needed to get values for conductance (and neutral wind u once that is included)
+            #       The interpolation matrix should be calculated here on initiation since the grid is fixed
+
 
         # Initialize the spherical harmonic coefficients
         shc_VB, shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
@@ -298,6 +339,9 @@ class I2D(object):
         TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.set_shc(TJr = TJr)
+
+        if self.connect_hemispheres:
+            print('connect_hemispheres is not fully implemented')
 
         print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
