@@ -150,6 +150,46 @@ class Mainfield(object):
 
         return(theta_out, phi_out)
 
+    def conjugate_coordinates(self, r, theta, phi):
+        """ Calculate coordinates at magnetically conjugate points at radius `r`
+
+        Parameters
+        ----------
+        r: array
+            Radius [m] of original coordinates 
+        theta: array
+            Colatitude [deg] of original coordinates 
+        phi: array
+            Longitude [deg] of original coordinates 
+
+        Return
+        ------
+        Parameters
+        ----------
+        theta_conj: array
+            Colatitude [deg] of magnetically connected point in opposite hemisphere
+        phi_conj: array
+            Longitude [deg] of magnetically connected point in opposite hemisphere
+
+        """
+
+        r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
+
+        if self.kind == 'radial':
+            raise ValueError('Conjugate coordinates do not exist with radial field lines')
+
+        if self.kind == 'dipole':
+            theta_conj, phi_conj = 180 - theta, phi # assuming dipole coordinates are used
+
+        if self.kind == 'igrf':
+            print('Note: We treat geodetic and geocentric as equal. Fix it (?)')
+            h = (r - RE) * 1e-3
+            mlat, mlon = apx.geo2apex(90 - theta, phi, h)
+            glat, phi_conj, _ = apx.apex2geo(-mlat, mlon, h)
+            theta_conj = 90 - glat
+
+        return(theta_conj, phi_conj)
+
 
 
     def basevectors(self, r, theta, phi):
