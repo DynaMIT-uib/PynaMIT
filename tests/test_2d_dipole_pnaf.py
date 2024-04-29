@@ -3,7 +3,7 @@ import tempfile
 import pytest
 
 from pynamit.pynamit import run_pynamit
-import numpy as np
+import cupy as np
 
 def test_2d_dipole_pnaf():
     # Arrange
