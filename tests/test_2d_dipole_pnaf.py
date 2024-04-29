@@ -7,17 +7,17 @@ import numpy as np
 
 def test_2d_dipole_pnaf():
     # Arrange
-    expected_coeff_norm = 3.1747131876906014e-18
-    expected_coeff_max = 5.9194693291573005e-19
-    expected_coeff_min = -3.0149027890855758e-19
-    expected_n_coeffs = 21
+    expected_coeff_norm = 8.948095167379721e-17
+    expected_coeff_max = 5.52456070815957e-18
+    expected_coeff_min = -2.7392775063883824e-18
+    expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)  
 
     # Act
-    coeffs = run_pynamit(totalsteps=20, dt=5e-4, Nmax=5, Mmax=3, Ncs=60, B0_type='dipole', fig_directory=temp_dir, ignore_PNAF=False)
+    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=30, B0_type='dipole', fig_directory=temp_dir, ignore_PNAF=False)
 
     # Assert
     coeff_array = np.array(coeffs)
