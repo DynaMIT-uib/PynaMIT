@@ -48,3 +48,12 @@ for i in range(4):
 for i in range(4):
     print('A4_' + str(i + 1) + '=&')
     print(sp.simplify(A4_pars[i]))
+
+
+# Write A5 and c, which are just A4 split up:
+A5_pars = []
+c_pars = []
+
+
+
+
