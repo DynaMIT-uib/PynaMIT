@@ -61,10 +61,10 @@ class I2D(object):
         g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True)
         sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        Qi = self.csp.get_Q(self.num_grid.get_lat(), self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
+        Qi = self.csp.get_Q(self.num_grid.lat, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
 
         # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.B0.get_B(self.RI, self.num_grid.get_colat(), self.num_grid.get_lon()))
+        self.B = np.vstack(self.B0.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
         self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
         self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -81,12 +81,12 @@ class I2D(object):
         self.plt_grid = grid(RI, lat, lon)
 
         # Define matrices for surface spherical harmonics
-        self.Gnum, self.n, self.m = self.sha.get_G(self.num_grid, return_nm  = True)
-        self.Gnum_ph              = self.sha.get_G(self.num_grid, derivative = 'phi'  )
-        self.Gnum_th              = self.sha.get_G(self.num_grid, derivative = 'theta')
-        self.Gplt                 = self.sha.get_G(self.plt_grid)
-        self.Gplt_ph              = self.sha.get_G(self.plt_grid, derivative = 'phi'  )
-        self.Gplt_th              = self.sha.get_G(self.plt_grid, derivative = 'theta')
+        self.Gnum    = self.sha.get_G(self.num_grid)
+        self.Gnum_ph = self.sha.get_G(self.num_grid, derivative = 'phi'  )
+        self.Gnum_th = self.sha.get_G(self.num_grid, derivative = 'theta')
+        self.Gplt    = self.sha.get_G(self.plt_grid)
+        self.Gplt_ph = self.sha.get_G(self.plt_grid, derivative = 'phi'  )
+        self.Gplt_th = self.sha.get_G(self.plt_grid, derivative = 'theta')
 
         self.Nshc = self.Gnum.shape[1] # number of spherical harmonic coefficients
 
@@ -125,16 +125,16 @@ class I2D(object):
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
                 print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                 # map coordinates from r_k[i] to RI:
-                theta_mapped, phi_mapped = self.B0.map_coords(self.num_grid.get_RI(), r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon())
+                theta_mapped, phi_mapped = self.B0.map_coords(self.num_grid.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
                 mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped)
 
                 # Calculate magnetic field at grid points at r_k[i]:
-                B_rk  = np.vstack(self.B0.get_B(r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon()))
+                B_rk  = np.vstack(self.B0.get_B(r_k[i], self.num_grid.theta, self.num_grid.lon))
                 B0_rk = np.linalg.norm(B_rk, axis = 0) # magnetic field magnitude
                 b_rk = B_rk / B0_rk # unit vectors
 
                 # Calculate magnetic field at the points in the ionosphere to which the grid maps:
-                B_RI  = np.vstack(self.B0.get_B(self.num_grid.get_RI(), mapped_grid.get_colat(), mapped_grid.get_lon()))
+                B_RI  = np.vstack(self.B0.get_B(mapped_grid.RI, mapped_grid.theta, mapped_grid.lon))
                 B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
                 sinI_RI = -B_RI[0] / B0_RI
 
@@ -149,17 +149,17 @@ class I2D(object):
                 S_k = np.vstack((np.diag(b_rk[1]), np.diag(b_rk[2]))) * ratio
 
                 # matrix that scales the terms by (R/r_k)**(n-1):
-                A_k = np.diag((self.RI / r_k[i])**(self.n - 1))
+                A_k = np.diag((self.RI / r_k[i])**(self.sha.n - 1))
 
                 # put it all together (crazy)
                 shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(Q_k)))
 
             # finally scale the matrix by the term in front of the integral
-            self.shc_TJr_to_shc_PFAC =  np.diag((self.n + 1) / (2 * self.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
+            self.shc_TJr_to_shc_PFAC =  np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
 
             # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
-            self.shc_PFAC_to_Jph = -  1 / (self.n + 1) * self.Gnum_ph / mu0
-            self.shc_PFAC_to_Jth =    1 / (self.n + 1) * self.Gnum_th / mu0
+            self.shc_PFAC_to_Jph = -  1 / (self.sha.n + 1) * self.Gnum_ph / mu0
+            self.shc_PFAC_to_Jth =    1 / (self.sha.n + 1) * self.Gnum_th / mu0
 
         if self.connect_hemispheres:
             if self.ignore_PNAF:
@@ -169,26 +169,26 @@ class I2D(object):
 
             # identify the low latitude points
             if self.B0.kind == 'dipole':
-                ll_mask = np.abs(self.num_grid.get_lat()) < self.latitude_boundary
+                ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
             elif self.B0.kind == 'igrf':
-                mlat, mlon = B0.apx.geo2apex(self.num_grid.get_lat(), self.num_grid.get_lon(), (self.num_grid.get_RI() - RE)*1e-3)
+                mlat, mlon = B0.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.num_grid.RI - RE)*1e-3)
                 ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
             # calculate coordinates and parameters at the low latitude points
-            self.ll_theta, self.ll_phi = self.num_grid.get_colat()[ll_mask], self.num_grid.get_lon()[ll_mask]
+            self.ll_theta, self.ll_phi = self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask]
             self.ll_Br = self.B[0][ll_mask]
             self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
-            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.num_grid.get_RI(), self.ll_theta, self.ll_phi)
+            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.num_grid.RI, self.ll_theta, self.ll_phi)
             self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
 
             # calculate coordinates and parameters at the conjugate points:
-            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.num_grid.get_RI(), self.ll_theta, self.ll_phi)
-            self.B_conj = np.vstack(self.B0.get_B(self.num_grid.get_RI(), self.ll_theta_conj, self.ll_phi_conj))
+            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
+            self.B_conj = np.vstack(self.B0.get_B(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj))
             self.ll_br_conj, self.ll_btheta_conj, self.ll_bphi_conj = self.B_conj / np.linalg.norm(self.B_conj, axis = 0)
             self.ll_Br_conj = self.B_conj[0]
-            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.num_grid.get_RI(), self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
             self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
 
             # TODO: Pre-compute parts of constraint matrices that do not depend on conductance and wind
@@ -221,7 +221,7 @@ class I2D(object):
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
         self.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E()))
-        self.set_shc(Br = self.shc_Br + self.n * (self.n + 1) * self.shc_EW * dt / self.RI**2)
+        self.set_shc(Br = self.shc_Br + self.sha.n * (self.sha.n + 1) * self.shc_EW * dt / self.RI**2)
 
 
     def set_shc(self, **kwargs):
@@ -251,29 +251,29 @@ class I2D(object):
 
         if key == 'VB':
             self.shc_VB = kwargs['VB']
-            self.shc_VJ = self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
-            self.shc_Br = 1 / self.n * self.shc_VB
+            self.shc_VJ = self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
+            self.shc_Br = 1 / self.sha.n * self.shc_VB
         elif key == 'TB':
             self.shc_TB = kwargs['TB']
             self.shc_TJ = -self.RI / mu0 * self.shc_TB
-            self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
+            self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
             self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
         elif key == 'VJ':
             self.shc_VJ = kwargs['VJ']
-            self.shc_VB = mu0 / self.RI * (self.n + 1) / (2 * self.n + 1) * self.shc_VJ
-            self.shc_Br = 1 / self.n * self.shc_VB
+            self.shc_VB = mu0 / self.RI * (self.sha.n + 1) / (2 * self.sha.n + 1) * self.shc_VJ
+            self.shc_Br = 1 / self.sha.n * self.shc_VB
         elif key == 'TJ':
             self.shc_TJ = kwargs['TJ']
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_TJr = -self.n * (self.n + 1) / self.RI**2 * self.shc_TJ 
+            self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
             self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
         elif key == 'Br':
             self.shc_Br = kwargs['Br']
-            self.shc_VB = self.shc_Br / self.n
-            self.shc_VJ = -self.RI / mu0 * (2 * self.n + 1) / (self.n + 1) * self.shc_VB
+            self.shc_VB = self.shc_Br / self.sha.n
+            self.shc_VJ = -self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
         elif key == 'TJr':
             self.shc_TJr = kwargs['TJr']
-            self.shc_TJ = -1 /(self.n * (self.n + 1)) * self.shc_TJr * self.RI**2
+            self.shc_TJ = -1 /(self.sha.n * (self.sha.n + 1)) * self.shc_TJr * self.RI**2
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
             self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
             print('check the factor RI**2!')
@@ -293,16 +293,16 @@ class I2D(object):
 
     def set_FAC(self, FAC):
         """
-        Specify field-aligned current at ``self.num_grid.get_colat()``,
-        ``self.num_grid.get_lon()``.
+        Specify field-aligned current at ``self.num_grid.theta``,
+        ``self.num_grid.lon``.
 
             Parameters
             ----------
             FAC: array
                 The field-aligned current, in A/m^2, at
-                ``self.num_grid.get_colat()`` and
-                ``self.num_grid.get_lon()``, at ``RI``. The values in the
-                array have to match the corresponding coordinates.
+                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
+                ``RI``. The values in the array have to match the
+                corresponding coordinates.
 
         """
 
@@ -323,10 +323,10 @@ class I2D(object):
     def set_conductance(self, Hall, Pedersen):
         """
         Specify Hall and Pedersen conductance at
-        ``self.num_grid.get_colat()``, ``self.num_grid.get_lon()``.
+        ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
-        if Hall.size != Pedersen.size != self.num_grid.get_colat().size:
+        if Hall.size != Pedersen.size != self.num_grid.theta.size:
             raise Exception('Conductances must match phi and theta')
 
         self.SH = Hall
@@ -449,14 +449,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # noon longitude
     lon0 = d.mlt2mlon(12, date)
 
-    hall, pedersen = conductance.hardy_EUV(i2d.num_grid.get_lon(), i2d.num_grid.get_lat(), Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = i2d.num_grid.get_lat(), mlt = d.mlon2mlt(i2d.num_grid.get_lon(), date)) * 1e-6
-    ju[np.abs(i2d.num_grid.get_lat()) < 50] = 0 # filter low latitude FACs
+    ju = a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) * 1e-6
+    ju[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
 
-    ju[i2d.num_grid.get_colat() < 90] = -ju[i2d.num_grid.get_colat() < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
+    ju[i2d.num_grid.theta < 90] = -ju[i2d.num_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
     i2d.set_FAC(ju)
 
@@ -502,7 +502,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         jr = i2d.get_Jr()
 
-        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), jr.reshape(i2d.plt_grid.get_lon().shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
+        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
 
 
@@ -525,14 +525,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), hall, i2d.plt_grid.get_lat(), i2d.plt_grid.get_lon())
-        pede_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), pedersen, i2d.plt_grid.get_lat(), i2d.plt_grid.get_lon())
+        hall_plt = cs_interpolate(i2d.csp, i2d.num_grid.lat, i2d.num_grid.lon, hall, i2d.plt_grid.lat, i2d.plt_grid.lon)
+        pede_plt = cs_interpolate(i2d.csp, i2d.num_grid.lat, i2d.num_grid.lon, pedersen, i2d.plt_grid.lat, i2d.plt_grid.lon)
 
-        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
-        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
+        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
+        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
         jr = i2d.get_Jr()
-        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), jr.reshape(i2d.plt_grid.get_lon().shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
+        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
         # conductance:
@@ -563,10 +563,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
 
     print('bug in cartopy makes it impossible to not center levels at zero... replace when cartopy has been improved')
-    #globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), jr.reshape(i2d.plt_grid.get_lat().shape), 
+    #globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lat.shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
-    #globalplot(i2d.num_grid.get_lon(), i2d.num_grid.get_lat(), i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
+    #globalplot(i2d.num_grid.lon, i2d.num_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
     fig_directory_writeable = os.access(fig_directory, os.W_OK)
 
@@ -593,7 +593,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
-                fig, paxn, paxs, axg =  globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), Br.reshape(i2d.plt_grid.get_lat().shape) , title = title, returnplot = True, 
+                fig, paxn, paxs, axg =  globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, Br.reshape(i2d.plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W()
 
@@ -601,12 +601,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 Phi = i2d.get_Phi()
 
 
-                nnn = i2d.plt_grid.get_lat().flatten() >  50
-                sss = i2d.plt_grid.get_lat().flatten() < -50
-                #paxn.contour(i2d.plt_grid.get_lat().flatten()[nnn], (i2d.plt_grid.get_lon().flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
-                #paxs.contour(i2d.plt_grid.get_lat().flatten()[sss], (i2d.plt_grid.get_lon().flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
-                paxn.contour(i2d.plt_grid.get_lat().flatten()[nnn], (i2d.plt_grid.get_lon().flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
-                paxs.contour(i2d.plt_grid.get_lat().flatten()[sss], (i2d.plt_grid.get_lon().flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+                nnn = i2d.plt_grid.lat.flatten() >  50
+                sss = i2d.plt_grid.lat.flatten() < -50
+                #paxn.contour(i2d.plt_grid.lat.flatten()[nnn], (i2d.plt_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+                #paxs.contour(i2d.plt_grid.lat.flatten()[sss], (i2d.plt_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+                paxn.contour(i2d.plt_grid.lat.flatten()[nnn], (i2d.plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+                paxs.contour(i2d.plt_grid.lat.flatten()[sss], (i2d.plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
                 plt.savefig(fn)
 
             if count > totalsteps:

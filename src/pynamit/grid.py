@@ -14,26 +14,4 @@ class grid(object):
         self.lat = lat
         self.lon = lon
 
-    def get_RI(self):
-        """ Get the radius of the grid.
-
-        """
-        return self.RI
-
-    def get_lat(self):
-        """ Get the latitude of the grid.
-
-        """
-        return self.lat
-    
-    def get_colat(self):
-        """ Get the colatitude of the grid.
-
-        """
-        return 90 - self.lat
-
-    def get_lon(self):
-        """ Get the longitude of the grid.
-
-        """
-        return self.lon
+        self.theta = 90 - lat

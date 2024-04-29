@@ -27,6 +27,8 @@ class sha(object):
         self.cnm = SHkeys(self.Nmax, self.Mmax).setNmin(1).MleN()
         self.snm = SHkeys(self.Nmax, self.Mmax).setNmin(1).MleN().Mge(1)
 
+        self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
+        self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
 
 
     def nterms(self, NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
@@ -45,7 +47,6 @@ class sha(object):
                len(SHkeys(NVe, MVe).setNmin(1).MleN().Mge(1)) + \
                len(SHkeys(NVi, MVi).setNmin(1).MleN().Mge(0)) + \
                len(SHkeys(NVi, MVi).setNmin(1).MleN().Mge(1))
-
 
 
     def legendre(self, theta, schmidtnormalize = True, keys = None):
@@ -195,8 +196,8 @@ class sha(object):
         """
 
         try: # broadcast lat and lon, and turn results into column vectors:
-            lat, lon = np.broadcast_arrays(grid.get_lat(), grid.get_lon())
-            lat, lon = grid.get_lat().flatten().reshape((-1, 1)), grid.get_lon().flatten().reshape((-1, 1))
+            lat, lon = np.broadcast_arrays(grid.lat, grid.lon)
+            lat, lon = lat.flatten().reshape((-1, 1)), lon.flatten().reshape((-1, 1))
         except ValueError:
             raise Exception('get_G: could not brodcast lat and lon')
 
@@ -209,8 +210,8 @@ class sha(object):
         dPs     = dPc[: , self.cnm.m.flatten() != 0]
 
         if derivative is None:
-            Gc = grid.get_RI() * Pc * np.cos(ph * self.cnm.m)
-            Gs = grid.get_RI() * Ps * np.sin(ph * self.snm.m)
+            Gc = grid.RI * Pc * np.cos(ph * self.cnm.m)
+            Gs = grid.RI * Ps * np.sin(ph * self.snm.m)
         elif derivative == 'phi':
             Gc = -Pc * self.cnm.m * np.sin(ph * self.cnm.m) / np.sin(th)
             Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th) 
@@ -220,7 +221,4 @@ class sha(object):
         else:
             raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
-        if return_nm:
-            return np.hstack((Gc, Gs)), np.hstack((self.cnm.n.flatten(), self.snm.n.flatten())), np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
-        else:
-            return np.hstack((Gc, Gs))
+        return np.hstack((Gc, Gs))
