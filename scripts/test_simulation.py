@@ -22,11 +22,11 @@ totalsteps = 20001
 ## PLOT PARAMETERS
 plotsteps = 200
 fig_directory = 'figs/'
-Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
+Blevels = np.linspace(-50, 50, 22) * 1e-9 # color levels for Br
 levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
 c_levels = np.linspace(0, 20, 100) # color levels for conductance
 Wlevels = np.r_[-512.5:512.5:5]
-Philevels = np.r_[-212.5:212.5:5]
+Philevels = np.r_[-212.5:212.5:2.5]
 
 ## SET UP SIMULATION OBJECT
 i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole', ignore_PNAF = IGNORE_PNAF)
@@ -40,10 +40,9 @@ hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starli
 i2d.set_conductance(hall, pedersen)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-ju = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) * 1e-6
-ju[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
-ju[i2d.theta < 90] = -ju[i2d.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
-i2d.set_FAC(ju)
+jparallel = -a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) / i2d.sinI * 1e-6
+jparallel[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
+i2d.set_FAC(jparallel)
 
 
 # make an integration matrix

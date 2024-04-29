@@ -17,7 +17,9 @@ class I2D(object):
                        RI = np.array(RE + 110.e3), B0 = 'dipole', 
                        B0_parameters = {'epoch':2020}, 
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
-                       ignore_PNAF = False):
+                       ignore_PNAF = False,
+                       connect_hemispheres = False,
+                       latitude_boundary = 50):
         """
 
         Parameters
@@ -40,6 +42,8 @@ class I2D(object):
 
         """
         self.ignore_PNAF = ignore_PNAF
+        self.connect_hemispheres = connect_hemispheres
+        self.latitude_boundary = latitude_boundary
         self.RI = RI
         self.Nmax, self.Mmax = Nmax, Mmax
 
@@ -58,9 +62,9 @@ class I2D(object):
         self.g11 = self.g[:, 0, 0]
 
         # get magnetic field unit vectors at CS grid:
-        B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
-        self.br, self.btheta, self.bphi = B / np.linalg.norm(B, axis = 0)
-        self.sinI = self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
+        self.B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
+        self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
+        self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
         self.b00 = self.bphi**2 + self.br**2
         self.b01 = -self.btheta * self.bphi
@@ -109,6 +113,8 @@ class I2D(object):
             Delta_k = np.diff(r_k_steps)
             r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
+            jh_to_shc = -self.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+
             # initialize matrix that will map from self.TJr to coefficients for poloidal field:
             shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
@@ -124,13 +130,13 @@ class I2D(object):
                 # Calculate magnetic field at the points in the ionosphere to which the grid maps:
                 B_RI  = np.vstack(self.B0.get_B(self.RI, theta_mapped, phi_mapped))
                 B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
-                sinI_RI = B_RI[0] / B0_RI
+                sinI_RI = -B_RI[0] / B0_RI
 
                 # find matrix that gets radial current at these coordinates:
                 Q_k = get_G(90 - theta_mapped, phi_mapped, self.Nmax, self.Mmax, a = self.RI)
 
-                # we need to scale this by 1/sin(inclination) to get the FAC:
-                Q_k = Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+                # we need to scale this by -1/sin(inclination) to get the FAC:
+                Q_k = -Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
 
                 # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
                 ratio = (B0_rk / B0_RI).reshape((1, -1))
@@ -140,14 +146,51 @@ class I2D(object):
                 A_k = np.diag((self.RI / r_k[i])**(self.n - 1))
 
                 # put it all together (crazy)
-                shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(self.vector_to_shc_df.dot(S_k.dot(Q_k)))
+                shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(Q_k)))
 
             # finally scale the matrix by the term in front of the integral
-            self.shc_TJr_to_shc_PFAC = -np.diag((self.n + 1) / (2 * self.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
+            self.shc_TJr_to_shc_PFAC =  np.diag((self.n + 1) / (2 * self.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
 
             # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
             self.shc_PFAC_to_Jph = -  1 / (self.n + 1) * self.Gnum_ph / mu0
             self.shc_PFAC_to_Jth =    1 / (self.n + 1) * self.Gnum_th / mu0
+
+        if self.connect_hemispheres:
+            if self.ignore_PNAF:
+                raise ValueError('Hemispheres can not be connected when ignore_PNAF is True')
+            if self.B0.kind == 'radial':
+                raise ValueError('Hemispheres can not be connected with radial magnetic field')
+
+            # identify the low latitude points
+            if self.B0.kind == 'dipole':
+                ll_mask = np.abs(90 - self.theta) < self.latitude_boundary
+            elif self.B0.kind == 'igrf':
+                mlat, mlon = B0.apx.geo2apex(90 - self.theta, self.phi, (self.RI - RE)*1e-3)
+                ll_mask = np.abs(mlat) < self.latitude_boundary
+            else:
+                print('this should not happen')
+
+            # calculate coordinates and parameters at the low latitude points
+            self.ll_theta, self.ll_phi = self.theta[ll_mask], self.phi[ll_mask]
+            self.ll_Br = self.B[0][ll_mask]
+            self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
+            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta, self.ll_phi)
+            self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
+
+            # calculate coordinates and parameters at the conjugate points:
+            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.RI, self.ll_theta, self.ll_phi)
+            self.B_conj = np.vstack(self.B0.get_B(self.RI, self.ll_theta_conj, self.ll_phi_conj))
+            self.ll_br_conj, self.ll_btheta_conj, self.ll_bphi_conj = self.B_conj / np.linalg.norm(self.B_conj, axis = 0)
+            self.ll_Br_conj = self.B_conj[0]
+            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
+
+            # TODO: Pre-compute parts of constraint matrices that do not depend on conductance and wind
+
+            # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
+            #       This is needed to get values for conductance (and neutral wind u once that is included)
+            #       The interpolation matrix should be calculated here on initiation since the grid is fixed
+
 
         # Initialize the spherical harmonic coefficients
         shc_VB, shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
@@ -292,11 +335,14 @@ class I2D(object):
         """
 
         # Extract the radial component of the FAC:
-        jr = FAC * self.sinI 
+        jr = -FAC * self.sinI 
         # Get the corresponding spherical harmonic coefficients
         TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.set_shc(TJr = TJr)
+
+        if self.connect_hemispheres:
+            print('connect_hemispheres is not fully implemented')
 
         print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
@@ -369,7 +415,9 @@ class I2D(object):
         """ Calculate electric potential.
 
         """
-        print('not implemented')
+
+        print('this must be fixed so that Phi can be evaluated anywere')
+        return self.Gplt.dot(self.shc_Phi) * 1e-3
 
 
     @default_2Dcoords
@@ -377,7 +425,9 @@ class I2D(object):
         """ Calculate the induction electric field scalar.
 
         """
-        print('not implemented')
+
+        print('this must be fixed so that W can be evaluated anywere')
+        return self.Gplt.dot(self.shc_EW) * 1e-3
 
 
     @default_2Dcoords
@@ -395,9 +445,9 @@ class I2D(object):
 
         return(Eth, Eph)
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs'):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs', ignore_PNAF = True):
 
-    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0_type, ignore_PNAF = True)
+    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0_type, ignore_PNAF = ignore_PNAF)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
@@ -482,7 +532,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(np.asnumpy(mlatn), np.asnumpy(mltn), np.asnumpy(jrs), levels = np.asnumpy(levels), cmap = plt.cm.bwr)
         paxes[3].quiver(np.asnumpy(mlatnv), np.asnumpy(mltnv),  -np_cpu.split(np.asnumpy(jn), 2)[1], np_cpu.split(np.asnumpy(je), 2)[1], scale = SCALE, color = 'black')
 
-        jr = i2d.Gplt.dot(i2d.shc_TJr)
+        jr = i2d.get_Jr()
 
         globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = np.asnumpy(levels))
 
@@ -515,7 +565,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = np.asnumpy(c_levels), save = 'hall.png')
         globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = np.asnumpy(c_levels), save = 'pede.png')
 
-        jr = i2d.Gplt.dot(i2d.shc_TJr)
+        jr = i2d.get_Jr()
         globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape), noon_longitude = lon0, levels = np.asnumpy(levels * 1e-6), save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
@@ -578,12 +628,16 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
                 fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
+<<<<<<< HEAD
                                                    levels = np.asnumpy(Blevels), cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+=======
+                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+                #W = i2d.get_W()
+>>>>>>> main
 
-                GTE  = i2d.Gdf.T.dot(np.hstack( i2d.get_E()) )
-                shc_Phi = i2d.GTGdf_inv.dot(GTE) # find coefficients for electric potential
-                Phi = i2d.Gplt.dot(shc_Phi) * 1e-3
+                i2d.shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack( i2d.get_E()))
+                Phi = i2d.get_Phi()
 
 
                 nnn = i2d.lat.flatten() >  50
