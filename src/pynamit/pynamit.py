@@ -480,9 +480,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
-        G   = get_G(mlat ,  lon, i2d.Nmax, i2d.Mmax, a = i2d.RI) * 1e6
-        Gph = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'phi'  ) * 1e3 
-        Gth = get_G(mlatv, lonv, i2d.Nmax, i2d.Mmax, a = i2d.RI, derivative = 'theta') * 1e3
+
+        m_grid = grid(i2d.RI, mlat, lon)
+        mv_grid = grid(i2d.RI, mlatv, lonv)
+
+        G   = get_G(m_grid.get_lat() ,  m_grid.get_lon(), i2d.Nmax, i2d.Mmax, a = m_grid.get_RI()) * 1e6
+        Gph = get_G(mv_grid.get_lat(), mv_grid.get_lon(), i2d.Nmax, i2d.Mmax, a = mv_grid.get_RI(), derivative = 'phi'  ) * 1e3
+        Gth = get_G(mv_grid.get_lat(), mv_grid.get_lon(), i2d.Nmax, i2d.Mmax, a = mv_grid.get_RI(), derivative = 'theta') * 1e3
         jr = G.dot(i2d.shc_TJr)
 
         je = -Gph.dot(i2d.shc_TJ)
