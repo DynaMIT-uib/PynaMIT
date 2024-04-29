@@ -4,6 +4,7 @@ from pynamit.mainfield import Mainfield
 from sh_utils.sh_utils import get_G
 import os
 from pynamit.cubedsphere import cubedsphere
+from pynamit.equations import equations
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
@@ -51,14 +52,12 @@ class I2D(object):
         # Define CS grid used for SH analysis and gradient calculations
         self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
         self.theta, self.phi = self.csp.arr_theta, self.csp.arr_phi
+
         #self.Dxi, self.Deta = self.csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
-        self.g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True) 
-        self.Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Qi = self.csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
-        self.sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
-        self.g12 = self.g[:, 0, 1]
-        self.g22 = self.g[:, 1, 1]
-        self.g11 = self.g[:, 0, 0]
+        g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True)
+        sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
+        Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
+        Qi = self.csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
 
         # get magnetic field unit vectors at CS grid:
         self.B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
@@ -69,6 +68,8 @@ class I2D(object):
         self.b01 = -self.btheta * self.bphi
         self.b10 = -self.btheta * self.bphi
         self.b11 = self.btheta**2 + self.br**2
+
+        self.equations = equations(B0 = self.B0, g = g, sqrtg = sqrtg, Ps = Ps, Qi = Qi)
 
         # Define grid used for plotting 
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -205,8 +206,8 @@ class I2D(object):
         """
 
         #Eth, Eph = self.get_E()
-        #u1, u2, u3 = self.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
-        #curlEr = self.curlr(u1, u2) 
+        #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
+        #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
 
         #self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
@@ -215,43 +216,6 @@ class I2D(object):
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
         self.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E()))
         self.set_shc(Br = self.shc_Br + self.n * (self.n + 1) * self.shc_EW * dt / self.RI**2)
-
-
-    def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
-        """
-        Convert from ``(east, north, up)`` to ``(u^1, u^2, u^3)`` (ref.
-        Yin).
-
-        The input must match the CS grid.
-
-        """
-
-        east = Aphi
-        north = -Atheta
-        up = Ar
-
-        #print('TODO: Add checks that input matches grid etc.')
-
-        v = np.vstack((east, north, up))
-        v_components = np.einsum('nij, jn -> in', self.Qi, v)
-        u1, u2, u3   = np.einsum('nij, jn -> in', self.Ps, v_components)
-        
-        return u1, u2, u3
-
-
-
-
-    def curlr(self, u1, u2):
-        """
-        Construct a matrix that calculates the radial curl using B6 in
-        Yin et al.
-
-        """
-        
-
-
-        return( 1/self.sqrtg * ( self.Dxi.dot(self.g12 * u1 + self.g22 * u2) - 
-                                 self.Deta.dot(self.g11 * u1 + self.g12 *u2) ) )
 
 
     def set_shc(self, **kwargs):
