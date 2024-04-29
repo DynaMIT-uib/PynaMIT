@@ -75,15 +75,16 @@ class I2D(object):
 
         # Define grid used for plotting 
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-        self.lat, self.lon = np.meshgrid(lat, lon)
+        lat, lon = np.meshgrid(lat, lon)
+        self.plt_grid = grid(lat, lon)
 
         # Define matrices for surface spherical harmonics
         self.Gnum, self.n, self.m = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, return_nm  = True)
         self.Gnum_ph              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
         self.Gnum_th              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
-        self.Gplt                 = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI)
-        self.Gplt_ph              = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gplt_th              = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+        self.Gplt                 = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI)
+        self.Gplt_ph              = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
+        self.Gplt_th              = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
 
         self.Nshc = self.Gnum.shape[1] # number of spherical harmonic coefficients
 
@@ -494,7 +495,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         jr = i2d.get_Jr()
 
-        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
+        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), jr.reshape(i2d.plt_grid.get_lon().shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
 
 
@@ -517,14 +518,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), hall, i2d.lat, i2d.lon)
-        pede_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), pedersen, i2d.lat, i2d.lon)
+        hall_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), hall, i2d.plt_grid.get_lat(), i2d.plt_grid.get_lon())
+        pede_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), pedersen, i2d.plt_grid.get_lat(), i2d.plt_grid.get_lon())
 
-        globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
-        globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
+        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
+        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
         jr = i2d.get_Jr()
-        globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
+        globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), jr.reshape(i2d.plt_grid.get_lon().shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
         # conductance:
@@ -555,7 +556,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
 
     print('bug in cartopy makes it impossible to not center levels at zero... replace when cartopy has been improved')
-    #globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lat.shape), 
+    #globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), jr.reshape(i2d.plt_grid.get_lat().shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
     #globalplot(i2d.num_grid.get_lon(), i2d.num_grid.get_lat(), i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
@@ -585,7 +586,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.get_Br()
-                fig, paxn, paxs, axg =  globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
+                fig, paxn, paxs, axg =  globalplot(i2d.plt_grid.get_lon(), i2d.plt_grid.get_lat(), Br.reshape(i2d.plt_grid.get_lat().shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W()
 
@@ -593,12 +594,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 Phi = i2d.get_Phi()
 
 
-                nnn = i2d.lat.flatten() >  50
-                sss = i2d.lat.flatten() < -50
-                #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
-                #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
-                paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
-                paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+                nnn = i2d.plt_grid.get_lat().flatten() >  50
+                sss = i2d.plt_grid.get_lat().flatten() < -50
+                #paxn.contour(i2d.plt_grid.get_lat().flatten()[nnn], (i2d.plt_grid.get_lon().flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+                #paxs.contour(i2d.plt_grid.get_lat().flatten()[sss], (i2d.plt_grid.get_lon().flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+                paxn.contour(i2d.plt_grid.get_lat().flatten()[nnn], (i2d.plt_grid.get_lon().flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+                paxs.contour(i2d.plt_grid.get_lat().flatten()[sss], (i2d.plt_grid.get_lon().flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
                 plt.savefig(fn)
 
             if count > totalsteps:
