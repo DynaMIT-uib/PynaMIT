@@ -269,7 +269,7 @@ def legendre(nmax, mmax, theta, schmidtnormalize = True, keys = None):
 
 
 
-def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_nm = False):
+def get_G(grid, N, M, derivative = None, return_nm = False):
     """
     Calculate matrix that evaluates surface spherical harmonics using the
     terms contained in ``shkeys``, and at the locations defined by `lat`
@@ -303,8 +303,8 @@ def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_nm = False):
     """
 
     try: # broadcast lat and lon, and turn results into column vectors:
-        lat, lon = np.broadcast_arrays(lat, lon)
-        lat, lon = lat.flatten().reshape((-1, 1)), lon.flatten().reshape((-1, 1))
+        lat, lon = np.broadcast_arrays(grid.get_lat(), grid.get_lon())
+        lat, lon = grid.get_lat().flatten().reshape((-1, 1)), grid.get_lon().flatten().reshape((-1, 1))
     except ValueError:
         raise Exception('get_G: could not brodcast lat and lon')
 
@@ -321,8 +321,8 @@ def get_G(lat, lon, N, M, a = 6371.2, derivative = None, return_nm = False):
     dPs     = dPc[: , cnm.m.flatten() != 0]
 
     if derivative is None:
-        Gc = a * Pc * np.cos(ph * cnm.m)
-        Gs = a * Ps * np.sin(ph * snm.m)
+        Gc = grid.get_RI() * Pc * np.cos(ph * cnm.m)
+        Gs = grid.get_RI() * Ps * np.sin(ph * snm.m)
     elif derivative == 'phi':
         Gc = -Pc * cnm.m * np.sin(ph * cnm.m) / np.sin(th)
         Gs =  Ps * snm.m * np.cos(ph * snm.m) / np.sin(th) 
