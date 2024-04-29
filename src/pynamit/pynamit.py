@@ -88,8 +88,6 @@ class I2D(object):
         self.Gplt_ph = self.sha.get_G(self.plt_grid, derivative = 'phi'  )
         self.Gplt_th = self.sha.get_G(self.plt_grid, derivative = 'theta')
 
-        self.Nshc = self.Gnum.shape[1] # number of spherical harmonic coefficients
-
         # Pre-calculate GTG and its inverse
         self.GTG = self.Gnum.T.dot(self.Gnum)
         self.GTG_inv = np.linalg.pinv(self.GTG)
@@ -112,7 +110,7 @@ class I2D(object):
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
         if self.mainfield.kind == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
-            self.shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
+            self.shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
         else: # Use the method by Engels and Olsen 1998, Eq. 13:
             r_k_steps = FAC_integration_parameters['steps']
             Delta_k = np.diff(r_k_steps)
@@ -121,7 +119,7 @@ class I2D(object):
             jh_to_shc = -self.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
             # initialize matrix that will map from self.TJr to coefficients for poloidal field:
-            shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
+            shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
                 print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                 # map coordinates from r_k[i] to RI:
@@ -199,7 +197,7 @@ class I2D(object):
 
 
         # Initialize the spherical harmonic coefficients
-        shc_VB, shc_TB = np.zeros(self.Gnum.shape[1]), np.zeros(self.Gnum.shape[1])
+        shc_VB, shc_TB = np.zeros(self.sha.Nshc), np.zeros(self.sha.Nshc)
         self.set_shc(VB = shc_VB)
         self.set_shc(TB = shc_TB)
 

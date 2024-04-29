@@ -30,6 +30,8 @@ class sha(object):
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
 
+        # Number of spherical harmonic coefficients
+        self.Nshc = len(self.cnm.keys) + len(self.snm.keys)
 
     def nterms(self, NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
         """
