@@ -5,6 +5,7 @@ from sh_utils.sh_utils import get_G
 import os
 from pynamit.cubedsphere import cubedsphere
 from pynamit.equations import equations
+from pynamit.grid import grid
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
@@ -51,16 +52,17 @@ class I2D(object):
 
         # Define CS grid used for SH analysis and gradient calculations
         self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
-        self.theta, self.phi = self.csp.arr_theta, self.csp.arr_phi
+
+        self.num_grid = grid(90 - self.csp.arr_theta, self.csp.arr_phi)
 
         #self.Dxi, self.Deta = self.csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
         g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True)
         sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        Qi = self.csp.get_Q(90 - self.theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
+        Qi = self.csp.get_Q(self.num_grid.get_lat(), self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
 
         # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.B0.get_B(self.RI, self.theta, self.phi))
+        self.B = np.vstack(self.B0.get_B(self.RI, self.num_grid.get_colat(), self.num_grid.get_lon()))
         self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
         self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -76,9 +78,9 @@ class I2D(object):
         self.lat, self.lon = np.meshgrid(lat, lon)
 
         # Define matrices for surface spherical harmonics
-        self.Gnum, self.n, self.m = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, return_nm  = True)
-        self.Gnum_ph              = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gnum_th              = get_G(90 - self.theta, self.phi, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+        self.Gnum, self.n, self.m = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, return_nm  = True)
+        self.Gnum_ph              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
+        self.Gnum_th              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
         self.Gplt                 = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI)
         self.Gplt_ph              = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
         self.Gplt_th              = get_G(self.lat, self.lon, self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
@@ -120,10 +122,10 @@ class I2D(object):
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
                 print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                 # map coordinates from r_k[i] to RI:
-                theta_mapped, phi_mapped = self.B0.map_coords(self.RI, r_k[i], self.theta, self.phi)
+                theta_mapped, phi_mapped = self.B0.map_coords(self.RI, r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon())
 
                 # Calculate magnetic field at grid points at r_k[i]:
-                B_rk  = np.vstack(self.B0.get_B(r_k[i], self.theta, self.phi))
+                B_rk  = np.vstack(self.B0.get_B(r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon()))
                 B0_rk = np.linalg.norm(B_rk, axis = 0) # magnetic field magnitude
                 b_rk = B_rk / B0_rk # unit vectors
 
@@ -163,15 +165,15 @@ class I2D(object):
 
             # identify the low latitude points
             if self.B0.kind == 'dipole':
-                ll_mask = np.abs(90 - self.theta) < self.latitude_boundary
+                ll_mask = np.abs(self.num_grid.get_lat()) < self.latitude_boundary
             elif self.B0.kind == 'igrf':
-                mlat, mlon = B0.apx.geo2apex(90 - self.theta, self.phi, (self.RI - RE)*1e-3)
+                mlat, mlon = B0.apx.geo2apex(self.num_grid.get_lat(), self.num_grid.get_lon(), (self.RI - RE)*1e-3)
                 ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
             # calculate coordinates and parameters at the low latitude points
-            self.ll_theta, self.ll_phi = self.theta[ll_mask], self.phi[ll_mask]
+            self.ll_theta, self.ll_phi = self.num_grid.get_colat()[ll_mask], self.num_grid.get_lon()[ll_mask]
             self.ll_Br = self.B[0][ll_mask]
             self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
             self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta, self.ll_phi)
@@ -286,14 +288,17 @@ class I2D(object):
 
 
     def set_FAC(self, FAC):
-        """ Specify field-aligned current at ``self.theta``, ``self.phi``.
+        """
+        Specify field-aligned current at ``self.num_grid.get_colat()``,
+        ``self.num_grid.get_lon()``.
 
             Parameters
             ----------
             FAC: array
-                The field-aligned current, in A/m^2, at ``self.theta`` and
-                ``self.phi``, at ``RI``. The values in the array have to
-                match the corresponding coordinates.
+                The field-aligned current, in A/m^2, at
+                ``self.num_grid.get_colat()`` and
+                ``self.num_grid.get_lon()``, at ``RI``. The values in the
+                array have to match the corresponding coordinates.
 
         """
 
@@ -313,11 +318,11 @@ class I2D(object):
 
     def set_conductance(self, Hall, Pedersen):
         """
-        Specify Hall and Pedersen conductance at ``self.theta``,
-        ``self.phi``.
+        Specify Hall and Pedersen conductance at
+        ``self.num_grid.get_colat()``, ``self.num_grid.get_lon()``.
 
         """
-        if Hall.size != Pedersen.size != self.theta.size:
+        if Hall.size != Pedersen.size != self.num_grid.get_colat().size:
             raise Exception('Conductances must match phi and theta')
 
         self.SH = Hall
@@ -440,14 +445,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # noon longitude
     lon0 = d.mlt2mlon(12, date)
 
-    hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = conductance.hardy_EUV(i2d.num_grid.get_lon(), i2d.num_grid.get_lat(), Kp, date, starlight = 1, dipole = True)
     i2d.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) * 1e-6
-    ju[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
+    ju = a.get_upward_current(mlat = i2d.num_grid.get_lat(), mlt = d.mlon2mlt(i2d.num_grid.get_lon(), date)) * 1e-6
+    ju[np.abs(i2d.num_grid.get_lat()) < 50] = 0 # filter low latitude FACs
 
-    ju[i2d.theta < 90] = -ju[i2d.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
+    ju[i2d.num_grid.get_colat() < 90] = -ju[i2d.num_grid.get_colat() < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
     i2d.set_FAC(ju)
 
@@ -512,8 +517,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(i2d.csp, 90 - i2d.theta, i2d.phi, hall, i2d.lat, i2d.lon)
-        pede_plt = cs_interpolate(i2d.csp, 90 - i2d.theta, i2d.phi, pedersen, i2d.lat, i2d.lon)
+        hall_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), hall, i2d.lat, i2d.lon)
+        pede_plt = cs_interpolate(i2d.csp, i2d.num_grid.get_lat(), i2d.num_grid.get_lon(), pedersen, i2d.lat, i2d.lon)
 
         globalplot(i2d.lon, i2d.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(i2d.lon, i2d.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
@@ -553,7 +558,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     #globalplot(i2d.lon, i2d.lat, jr.reshape(i2d.lat.shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
-    #globalplot(i2d.phi, 90 - i2d.theta, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
+    #globalplot(i2d.num_grid.get_lon(), i2d.num_grid.get_lat(), i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
     fig_directory_writeable = os.access(fig_directory, os.W_OK)
 
