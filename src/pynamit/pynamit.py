@@ -15,7 +15,7 @@ class I2D(object):
     """ 2D ionosphere. """
 
     def __init__(self, Nmax, Mmax, Ncs = 20, 
-                       RI = RE + 110.e3, B0 = 'dipole', 
+                       RI = RE + 110.e3, mainfield_kind = 'dipole', 
                        B0_parameters = {'epoch':2020}, 
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
                        ignore_PNAF = False,
@@ -33,13 +33,13 @@ class I2D(object):
             Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
         RI: float, optional, default = RE + 110.e3
             Radius of the ionosphere in m.
-        B0: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
+        mainfield_kind: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
             Set to the main field model you want. For 'dipole' and
             'igrf', you can specify epoch via `B0_parameters`.
         FAC_integration_parameters: dict
             Use this to specify parameters in the integration required to
             find the poloidal part of the magnetic field of FACs. Not
-            relevant for radial `B0`.
+            relevant for radial main field.
 
         """
         self.ignore_PNAF = ignore_PNAF
@@ -48,7 +48,7 @@ class I2D(object):
         self.RI = RI
         self.Nmax, self.Mmax = Nmax, Mmax
 
-        self.B0 = Mainfield(kind = B0, **B0_parameters)
+        self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
         self.sha = sha(Nmax, Mmax)
 
@@ -64,7 +64,7 @@ class I2D(object):
         Qi = self.csp.get_Q(self.num_grid.lat, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
 
         # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.B0.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
+        self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
         self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
         self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -73,7 +73,7 @@ class I2D(object):
         self.b10 = -self.btheta * self.bphi
         self.b11 = self.btheta**2 + self.br**2
 
-        self.equations = equations(B0 = self.B0, g = g, sqrtg = sqrtg, Ps = Ps, Qi = Qi)
+        self.equations = equations(mainfield = self.mainfield, g = g, sqrtg = sqrtg, Ps = Ps, Qi = Qi)
 
         # Define grid used for plotting 
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -111,7 +111,7 @@ class I2D(object):
         print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
-        if self.B0 == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
+        if self.mainfield.kind == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
             self.shc_TJr_to_shc_PFAC = np.zeros((self.Nshc, self.Nshc))
         else: # Use the method by Engels and Olsen 1998, Eq. 13:
             r_k_steps = FAC_integration_parameters['steps']
@@ -125,16 +125,16 @@ class I2D(object):
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
                 print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                 # map coordinates from r_k[i] to RI:
-                theta_mapped, phi_mapped = self.B0.map_coords(self.num_grid.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
+                theta_mapped, phi_mapped = self.mainfield.map_coords(self.num_grid.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
                 mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped)
 
                 # Calculate magnetic field at grid points at r_k[i]:
-                B_rk  = np.vstack(self.B0.get_B(r_k[i], self.num_grid.theta, self.num_grid.lon))
+                B_rk  = np.vstack(self.mainfield.get_B(r_k[i], self.num_grid.theta, self.num_grid.lon))
                 B0_rk = np.linalg.norm(B_rk, axis = 0) # magnetic field magnitude
                 b_rk = B_rk / B0_rk # unit vectors
 
                 # Calculate magnetic field at the points in the ionosphere to which the grid maps:
-                B_RI  = np.vstack(self.B0.get_B(mapped_grid.RI, mapped_grid.theta, mapped_grid.lon))
+                B_RI  = np.vstack(self.mainfield.get_B(mapped_grid.RI, mapped_grid.theta, mapped_grid.lon))
                 B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
                 sinI_RI = -B_RI[0] / B0_RI
 
@@ -164,14 +164,14 @@ class I2D(object):
         if self.connect_hemispheres:
             if self.ignore_PNAF:
                 raise ValueError('Hemispheres can not be connected when ignore_PNAF is True')
-            if self.B0.kind == 'radial':
+            if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
 
             # identify the low latitude points
-            if self.B0.kind == 'dipole':
+            if self.mainfield.kind == 'dipole':
                 ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
-            elif self.B0.kind == 'igrf':
-                mlat, mlon = B0.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.num_grid.RI - RE)*1e-3)
+            elif self.mainfield.kind == 'igrf':
+                mlat, mlon = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.num_grid.RI - RE)*1e-3)
                 ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
@@ -180,15 +180,15 @@ class I2D(object):
             self.ll_theta, self.ll_phi = self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask]
             self.ll_Br = self.B[0][ll_mask]
             self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
-            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.num_grid.RI, self.ll_theta, self.ll_phi)
+            self.ll_d1, self.ll_d2, _, _, _, _ = self.mainfield.basevectors(self.num_grid.RI, self.ll_theta, self.ll_phi)
             self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
 
             # calculate coordinates and parameters at the conjugate points:
-            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
-            self.B_conj = np.vstack(self.B0.get_B(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj))
+            self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
+            self.B_conj = np.vstack(self.mainfield.get_B(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj))
             self.ll_br_conj, self.ll_btheta_conj, self.ll_bphi_conj = self.B_conj / np.linalg.norm(self.B_conj, axis = 0)
             self.ll_Br_conj = self.B_conj[0]
-            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.mainfield.basevectors(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
             self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
 
             # TODO: Pre-compute parts of constraint matrices that do not depend on conductance and wind
@@ -417,9 +417,9 @@ class I2D(object):
 
         return(Eth, Eph)
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, B0_type = 'dipole', fig_directory = './figs', ignore_PNAF = True):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PNAF = True):
 
-    i2d = I2D(Nmax, Mmax, Ncs, B0 = B0_type, ignore_PNAF = ignore_PNAF)
+    i2d = I2D(Nmax, Mmax, Ncs, mainfield_kind = mainfield_kind, ignore_PNAF = ignore_PNAF)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate

@@ -5,7 +5,7 @@ class equations(object):
     Class to define the equations of motion for the system.
     """
 
-    def __init__(self, B0, g, sqrtg, Ps, Qi):
+    def __init__(self, mainfield, g, sqrtg, Ps, Qi):
         """
         Initialize the equations of motion.
 
@@ -16,7 +16,7 @@ class equations(object):
         """
         #self.system = system
 
-        self.B0 = B0
+        self.mainfield = mainfield
         self.Ps = Ps
         self.Qi = Qi
 
