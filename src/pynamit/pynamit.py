@@ -53,7 +53,7 @@ class I2D(object):
         # Define CS grid used for SH analysis and gradient calculations
         self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
 
-        self.num_grid = grid(90 - self.csp.arr_theta, self.csp.arr_phi)
+        self.num_grid = grid(RI, 90 - self.csp.arr_theta, self.csp.arr_phi)
 
         #self.Dxi, self.Deta = self.csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
         g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True)
@@ -76,15 +76,15 @@ class I2D(object):
         # Define grid used for plotting 
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
         lat, lon = np.meshgrid(lat, lon)
-        self.plt_grid = grid(lat, lon)
+        self.plt_grid = grid(RI, lat, lon)
 
         # Define matrices for surface spherical harmonics
-        self.Gnum, self.n, self.m = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, return_nm  = True)
-        self.Gnum_ph              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gnum_th              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
-        self.Gplt                 = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI)
-        self.Gplt_ph              = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'phi'  )
-        self.Gplt_th              = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.RI, derivative = 'theta')
+        self.Gnum, self.n, self.m = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.num_grid.RI, return_nm  = True)
+        self.Gnum_ph              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.num_grid.RI, derivative = 'phi'  )
+        self.Gnum_th              = get_G(self.num_grid.get_lat(), self.num_grid.get_lon(), self.Nmax, self.Mmax, a = self.num_grid.RI, derivative = 'theta')
+        self.Gplt                 = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.plt_grid.RI)
+        self.Gplt_ph              = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.plt_grid.RI, derivative = 'phi'  )
+        self.Gplt_th              = get_G(self.plt_grid.get_lat(), self.plt_grid.get_lon(), self.Nmax, self.Mmax, a = self.plt_grid.RI, derivative = 'theta')
 
         self.Nshc = self.Gnum.shape[1] # number of spherical harmonic coefficients
 
@@ -123,7 +123,7 @@ class I2D(object):
             for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
                 print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                 # map coordinates from r_k[i] to RI:
-                theta_mapped, phi_mapped = self.B0.map_coords(self.RI, r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon())
+                theta_mapped, phi_mapped = self.B0.map_coords(self.num_grid.RI, r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon())
 
                 # Calculate magnetic field at grid points at r_k[i]:
                 B_rk  = np.vstack(self.B0.get_B(r_k[i], self.num_grid.get_colat(), self.num_grid.get_lon()))
@@ -131,12 +131,12 @@ class I2D(object):
                 b_rk = B_rk / B0_rk # unit vectors
 
                 # Calculate magnetic field at the points in the ionosphere to which the grid maps:
-                B_RI  = np.vstack(self.B0.get_B(self.RI, theta_mapped, phi_mapped))
+                B_RI  = np.vstack(self.B0.get_B(self.num_grid.RI, theta_mapped, phi_mapped))
                 B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
                 sinI_RI = -B_RI[0] / B0_RI
 
                 # find matrix that gets radial current at these coordinates:
-                Q_k = get_G(90 - theta_mapped, phi_mapped, self.Nmax, self.Mmax, a = self.RI)
+                Q_k = get_G(90 - theta_mapped, phi_mapped, self.Nmax, self.Mmax, a = self.num_grid.RI)
 
                 # we need to scale this by -1/sin(inclination) to get the FAC:
                 Q_k = -Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
@@ -168,7 +168,7 @@ class I2D(object):
             if self.B0.kind == 'dipole':
                 ll_mask = np.abs(self.num_grid.get_lat()) < self.latitude_boundary
             elif self.B0.kind == 'igrf':
-                mlat, mlon = B0.apx.geo2apex(self.num_grid.get_lat(), self.num_grid.get_lon(), (self.RI - RE)*1e-3)
+                mlat, mlon = B0.apx.geo2apex(self.num_grid.get_lat(), self.num_grid.get_lon(), (self.num_grid.RI - RE)*1e-3)
                 ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
@@ -177,15 +177,15 @@ class I2D(object):
             self.ll_theta, self.ll_phi = self.num_grid.get_colat()[ll_mask], self.num_grid.get_lon()[ll_mask]
             self.ll_Br = self.B[0][ll_mask]
             self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
-            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta, self.ll_phi)
+            self.ll_d1, self.ll_d2, _, _, _, _ = self.B0.basevectors(self.num_grid.RI, self.ll_theta, self.ll_phi)
             self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
 
             # calculate coordinates and parameters at the conjugate points:
-            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.RI, self.ll_theta, self.ll_phi)
-            self.B_conj = np.vstack(self.B0.get_B(self.RI, self.ll_theta_conj, self.ll_phi_conj))
+            self.ll_theta_conj, self.ll_phi_conj = self.B0.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
+            self.B_conj = np.vstack(self.B0.get_B(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj))
             self.ll_br_conj, self.ll_btheta_conj, self.ll_bphi_conj = self.B_conj / np.linalg.norm(self.B_conj, axis = 0)
             self.ll_Br_conj = self.B_conj[0]
-            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.RI, self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.B0.basevectors(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
             self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
 
             # TODO: Pre-compute parts of constraint matrices that do not depend on conductance and wind
