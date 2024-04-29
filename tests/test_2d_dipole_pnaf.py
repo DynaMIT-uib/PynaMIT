@@ -22,9 +22,9 @@ def test_2d_dipole_pnaf():
     # Assert
     coeff_array = np.array(coeffs)
 
-    actual_coeff_norm = np.linalg.norm(coeff_array)
-    actual_coeff_max = np.max(coeff_array)
-    actual_coeff_min = np.min(coeff_array)
+    actual_coeff_norm = np.linalg.norm(coeff_array).item()
+    actual_coeff_max = np.max(coeff_array).item()
+    actual_coeff_min = np.min(coeff_array).item()
     actual_n_coeffs = len(coeffs)
 
     assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
