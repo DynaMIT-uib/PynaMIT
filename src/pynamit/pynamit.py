@@ -1,7 +1,7 @@
 import numpy as np
 from pynamit.decorators import default_2Dcoords, default_3Dcoords
 from pynamit.mainfield import Mainfield
-from sh_utils.sh_utils import get_G
+from pynamit.sha.sha import sha
 import os
 from pynamit.cubedsphere import cubedsphere
 from pynamit.equations import equations
@@ -50,6 +50,8 @@ class I2D(object):
 
         self.B0 = Mainfield(kind = B0, **B0_parameters)
 
+        self.sha = sha(Nmax, Mmax)
+
         # Define CS grid used for SH analysis and gradient calculations
         self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
 
@@ -79,12 +81,12 @@ class I2D(object):
         self.plt_grid = grid(RI, lat, lon)
 
         # Define matrices for surface spherical harmonics
-        self.Gnum, self.n, self.m = get_G(self.num_grid, self.Nmax, self.Mmax, return_nm  = True)
-        self.Gnum_ph              = get_G(self.num_grid, self.Nmax, self.Mmax, derivative = 'phi'  )
-        self.Gnum_th              = get_G(self.num_grid, self.Nmax, self.Mmax, derivative = 'theta')
-        self.Gplt                 = get_G(self.plt_grid, self.Nmax, self.Mmax)
-        self.Gplt_ph              = get_G(self.plt_grid, self.Nmax, self.Mmax, derivative = 'phi'  )
-        self.Gplt_th              = get_G(self.plt_grid, self.Nmax, self.Mmax, derivative = 'theta')
+        self.Gnum, self.n, self.m = self.sha.get_G(self.num_grid, return_nm  = True)
+        self.Gnum_ph              = self.sha.get_G(self.num_grid, derivative = 'phi'  )
+        self.Gnum_th              = self.sha.get_G(self.num_grid, derivative = 'theta')
+        self.Gplt                 = self.sha.get_G(self.plt_grid)
+        self.Gplt_ph              = self.sha.get_G(self.plt_grid, derivative = 'phi'  )
+        self.Gplt_th              = self.sha.get_G(self.plt_grid, derivative = 'theta')
 
         self.Nshc = self.Gnum.shape[1] # number of spherical harmonic coefficients
 
@@ -137,7 +139,7 @@ class I2D(object):
                 sinI_RI = -B_RI[0] / B0_RI
 
                 # find matrix that gets radial current at these coordinates:
-                Q_k = get_G(mapped_grid, self.Nmax, self.Mmax)
+                Q_k = self.sha.get_G(mapped_grid)
 
                 # we need to scale this by -1/sin(inclination) to get the FAC:
                 Q_k = -Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
@@ -484,9 +486,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         m_grid = grid(i2d.RI, mlat, lon)
         mv_grid = grid(i2d.RI, mlatv, lonv)
 
-        G   = get_G(m_grid, i2d.Nmax, i2d.Mmax) * 1e6
-        Gph = get_G(mv_grid, i2d.Nmax, i2d.Mmax, derivative = 'phi'  ) * 1e3
-        Gth = get_G(mv_grid, i2d.Nmax, i2d.Mmax, derivative = 'theta') * 1e3
+        G   = i2d.sha.get_G(m_grid) * 1e6
+        Gph = i2d.sha.get_G(mv_grid, derivative = 'phi'  ) * 1e3
+        Gth = i2d.sha.get_G(mv_grid, derivative = 'theta') * 1e3
         jr = G.dot(i2d.shc_TJr)
 
         je = -Gph.dot(i2d.shc_TJ)
