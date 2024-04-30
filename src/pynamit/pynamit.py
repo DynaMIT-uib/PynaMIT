@@ -6,6 +6,7 @@ import os
 from pynamit.cubedsphere import cubedsphere
 from pynamit.equations import equations
 from pynamit.grid import grid
+from pynamit.state import state
 
 RE = 6371.2e3
 mu0 = 4 * np.pi * 1e-7
@@ -110,7 +111,7 @@ class I2D(object):
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
         if self.mainfield.kind == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
-            self.shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
+            shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
         else: # Use the method by Engels and Olsen 1998, Eq. 13:
             r_k_steps = FAC_integration_parameters['steps']
             Delta_k = np.diff(r_k_steps)
@@ -153,7 +154,7 @@ class I2D(object):
                 shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(Q_k)))
 
             # finally scale the matrix by the term in front of the integral
-            self.shc_TJr_to_shc_PFAC =  np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
+            shc_TJr_to_shc_PFAC =  np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
 
             # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
             self.shc_PFAC_to_Jph = -  1 / (self.sha.n + 1) * self.Gnum_ph / mu0
@@ -196,10 +197,7 @@ class I2D(object):
             #       The interpolation matrix should be calculated here on initiation since the grid is fixed
 
 
-        # Initialize the spherical harmonic coefficients
-        shc_VB, shc_TB = np.zeros(self.sha.Nshc), np.zeros(self.sha.Nshc)
-        self.set_shc(VB = shc_VB)
-        self.set_shc(TB = shc_TB)
+        self.state = state(self.sha, shc_TJr_to_shc_PFAC, mu0, RI, shc_VB = np.zeros(self.sha.Nshc), shc_TB = np.zeros(self.sha.Nshc))
 
 
 
@@ -212,71 +210,14 @@ class I2D(object):
         #Eth, Eph = self.get_E()
         #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         #curlEr = self.equations.curlr(u1, u2) 
-        #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
+        #Br = -self.GBr.dot(self.state.shc_VB) - dt * curlEr
 
-        #self.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
+        #self.state.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
-        #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-        self.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E()))
-        self.set_shc(Br = self.shc_Br + self.sha.n * (self.sha.n + 1) * self.shc_EW * dt / self.RI**2)
-
-
-    def set_shc(self, **kwargs):
-        """ Set spherical harmonic coefficients.
-
-        Specify a set of spherical harmonic coefficients and update the
-        rest so that they are consistent. 
-
-        This function accepts one (and only one) set of spherical harmonic
-        coefficients. Valid values for kwargs (only one):
-
-        - 'VB' : Coefficients for magnetic field scalar ``V``.
-        - 'TB' : Coefficients for surface current scalar ``T``.
-        - 'VJ' : Coefficients for magnetic field scalar ``V``.
-        - 'TJ' : Coefficients for surface current scalar ``T``.
-        - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
-        - 'TJr': Coefficients for radial current scalar.
-
-        """ 
-        valid_kws = ['VB', 'TB', 'VJ', 'TJ', 'Br', 'TJr']
-
-        if len(kwargs) != 1:
-            raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
-        key = list(kwargs.keys())[0]
-        if key not in valid_kws:
-            raise Exception('Invalid keyword. See documentation')
-
-        if key == 'VB':
-            self.shc_VB = kwargs['VB']
-            self.shc_VJ = self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
-            self.shc_Br = 1 / self.sha.n * self.shc_VB
-        elif key == 'TB':
-            self.shc_TB = kwargs['TB']
-            self.shc_TJ = -self.RI / mu0 * self.shc_TB
-            self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
-            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
-        elif key == 'VJ':
-            self.shc_VJ = kwargs['VJ']
-            self.shc_VB = mu0 / self.RI * (self.sha.n + 1) / (2 * self.sha.n + 1) * self.shc_VJ
-            self.shc_Br = 1 / self.sha.n * self.shc_VB
-        elif key == 'TJ':
-            self.shc_TJ = kwargs['TJ']
-            self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
-            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
-        elif key == 'Br':
-            self.shc_Br = kwargs['Br']
-            self.shc_VB = self.shc_Br / self.sha.n
-            self.shc_VJ = -self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
-        elif key == 'TJr':
-            self.shc_TJr = kwargs['TJr']
-            self.shc_TJ = -1 /(self.sha.n * (self.sha.n + 1)) * self.shc_TJr * self.RI**2
-            self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
-            print('check the factor RI**2!')
-        else:
-            raise Exception('This should not happen')
+        #self.state.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        self.state.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E()))
+        self.state.set_shc(Br = self.state.shc_Br + self.sha.n * (self.sha.n + 1) * self.state.shc_EW * dt / self.RI**2)
 
 
 
@@ -309,7 +250,7 @@ class I2D(object):
         # Get the corresponding spherical harmonic coefficients
         TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
-        self.set_shc(TJr = TJr)
+        self.state.set_shc(TJr = TJr)
 
         if self.connect_hemispheres:
             print('connect_hemispheres is not fully implemented')
@@ -338,7 +279,7 @@ class I2D(object):
         """ Calculate ``Br``.
 
         """
-        return(self.Gplt.dot(self.shc_Br))
+        return(self.Gplt.dot(self.state.shc_Br))
 
 
     @default_2Dcoords
@@ -346,16 +287,16 @@ class I2D(object):
         """ Calculate ionospheric sheet current.
 
         """
-        Je_V =  self.Gnum_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
-        Js_V = -self.Gnum_ph.dot(self.shc_VJ) # r cross grad(VJ) southward component
-        Je_T = -self.Gnum_ph.dot(self.shc_TJ) # -grad(VT) eastward component
-        Js_T = -self.Gnum_th.dot(self.shc_TJ) # -grad(VT) southward component
+        Je_V =  self.Gnum_th.dot(self.state.shc_VJ) # r cross grad(VJ) eastward component
+        Js_V = -self.Gnum_ph.dot(self.state.shc_VJ) # r cross grad(VJ) southward component
+        Je_T = -self.Gnum_ph.dot(self.state.shc_TJ) # -grad(VT) eastward component
+        Js_T = -self.Gnum_th.dot(self.state.shc_TJ) # -grad(VT) southward component
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
         if not self.ignore_PNAF:
-            Jth = Jth + self.shc_PFAC_to_Jth.dot(self.shc_PFAC)
-            Jph = Jph + self.shc_PFAC_to_Jph.dot(self.shc_PFAC)
+            Jth = Jth + self.shc_PFAC_to_Jth.dot(self.state.shc_PFAC)
+            Jph = Jph + self.shc_PFAC_to_Jph.dot(self.state.shc_PFAC)
 
         return(Jth, Jph)
 
@@ -367,7 +308,7 @@ class I2D(object):
         """
 
         print('this must be fixed so that I can evaluate anywere')
-        return self.Gplt.dot(self.shc_TJr)
+        return self.Gplt.dot(self.state.shc_TJr)
 
 
 
@@ -387,7 +328,7 @@ class I2D(object):
         """
 
         print('this must be fixed so that Phi can be evaluated anywere')
-        return self.Gplt.dot(self.shc_Phi) * 1e-3
+        return self.Gplt.dot(self.state.shc_Phi) * 1e-3
 
 
     @default_2Dcoords
@@ -397,7 +338,7 @@ class I2D(object):
         """
 
         print('this must be fixed so that W can be evaluated anywere')
-        return self.Gplt.dot(self.shc_EW) * 1e-3
+        return self.Gplt.dot(self.state.shc_EW) * 1e-3
 
 
     @default_2Dcoords
@@ -487,10 +428,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         G   = i2d.sha.get_G(m_grid) * 1e6
         Gph = i2d.sha.get_G(mv_grid, derivative = 'phi'  ) * 1e3
         Gth = i2d.sha.get_G(mv_grid, derivative = 'theta') * 1e3
-        jr = G.dot(i2d.shc_TJr)
+        jr = G.dot(i2d.state.shc_TJr)
 
-        je = -Gph.dot(i2d.shc_TJ)
-        jn =  Gth.dot(i2d.shc_TJ)
+        je = -Gph.dot(i2d.state.shc_TJ)
+        jn =  Gth.dot(i2d.state.shc_TJ)
 
         jrn, jrs = np.split(jr, 2) 
         paxes[2].contourf(mlatn, mltn, jrn, levels = levels, cmap = plt.cm.bwr)
@@ -581,12 +522,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
             i2d.evolve_Br(dt)
             time = time + dt
-            coeffs.append(i2d.shc_VB)
+            coeffs.append(i2d.state.shc_VB)
             count += 1
-            #print(count, time, i2d.shc_Br[:3])
+            #print(count, time, i2d.state.shc_Br[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, i2d.shc_Br[:3])
+                print(count, time, i2d.state.shc_Br[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
@@ -595,7 +536,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W()
 
-                i2d.shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack( i2d.get_E()))
+                i2d.state.shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack( i2d.get_E()))
                 Phi = i2d.get_Phi()
 
 
