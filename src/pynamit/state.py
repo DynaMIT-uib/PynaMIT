@@ -145,10 +145,10 @@ class state(object):
             raise Exception('This should not happen')
 
 
-    def set_initial_condition(self, I2D_object):
+    def set_initial_condition(self):
         """ Set initial conditions.
 
-        If this is not called, initial condictions should be zero.
+        If this is not called, initial conditions should be zero.
 
         """
 

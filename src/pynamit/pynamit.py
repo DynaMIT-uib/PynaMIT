@@ -106,7 +106,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define CS grid used for SH analysis and gradient calculations
     csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
 
-    i2d = I2D(i2d_sha, csp, mainfield_kind = mainfield_kind, ignore_PNAF = ignore_PNAF)
+    # Initialize the 2D ionosphere object at 110 km altitude
+    RI = RE + 110.e3
+    i2d = I2D(i2d_sha, csp, RI, mainfield_kind, ignore_PNAF = ignore_PNAF)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
@@ -139,7 +141,6 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
-    RI = RE + 110.e3
     plt_grid = grid(RI, lat, lon)
 
     # Construct matrix for transforming from surface spherical harmonic coefficients to plotting grid
