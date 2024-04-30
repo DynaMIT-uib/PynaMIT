@@ -70,22 +70,13 @@ class I2D(object):
             else:
                 print('this should not happen')
 
-            # calculate coordinates and parameters at the low latitude points
+            # calculate constraint matrices for low latitude points
             self.ll_theta, self.ll_phi = self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask]
-            self.ll_Br = self.B[0][ll_mask]
-            self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
-            self.ll_d1, self.ll_d2, _, _, _, _ = self.mainfield.basevectors(self.num_grid.RI, self.ll_theta, self.ll_phi)
-            self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
-            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.RI, self.ll_theta, self.ll_phi)
-
-            # calculate coordinates and parameters at the conjugate points:
+            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.num_grid.RI, self.ll_theta, self.ll_phi)
+            # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
-            self.B_conj = np.vstack(self.mainfield.get_B(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj))
-            self.ll_br_conj, self.ll_btheta_conj, self.ll_bphi_conj = self.B_conj / np.linalg.norm(self.B_conj, axis = 0)
-            self.ll_Br_conj = self.B_conj[0]
-            self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.mainfield.basevectors(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
-            self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
-            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.RI, self.ll_theta_conj, self.ll_phi_conj)
+            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
+
 
 
 
@@ -104,11 +95,11 @@ class I2D(object):
 
         """
 
-        B = np.vstack(self.B0.get_B(R, theta, phi))
-        B0 = np.linalg.norm(self.B, axis = 0)
+        B = np.vstack(self.mainfield.get_B(R, theta, phi))
+        B0 = np.linalg.norm(B, axis = 0)
         br, bt, bp = B / B0
         Br = B[0]
-        d1, d2, _, _, _, _ = self.B0.basevectors(R, theta, phi)
+        d1, d2, _, _, _, _ = self.mainfield.basevectors(R, theta, phi)
         d1r, d1t, d1p = d1 # r theta phi components
         d2r, d2t, d2p = d2
 

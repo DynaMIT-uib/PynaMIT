@@ -227,7 +227,7 @@ class Mainfield(object):
 
         """
 
-        print('not tested!')
+        print('basevector function not tested!')
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
         size = r.size
 
