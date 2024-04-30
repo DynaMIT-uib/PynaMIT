@@ -43,6 +43,8 @@ class I2D(object):
         """
         self.latitude_boundary = latitude_boundary
 
+        self.sha = sha
+
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
         self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
@@ -72,15 +74,28 @@ class I2D(object):
 
             # calculate constraint matrices for low latitude points
             self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
-            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
+            self.ll_grid.construct_G (self.sha)
+            self.ll_grid.construct_dG(self.sha)
+            self.c_u_theta, self.c_u_phi, self.A5_eP_V, self.A5_eH_V, self.A5_eP_T, self.A5_eH_T = self._get_A5_and_c(self.ll_grid)
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
             self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
-            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
+            self.ll_grid_conj.construct_G (self.sha)
+            self.ll_grid_conj.construct_dG(self.sha)
+            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj_V, self.A5_eH_conj_V, self.A5_eP_conj_T, self.A5_eH_conj_T = self._get_A5_and_c(self.ll_grid_conj)
+
+            # calculate sin(inclination)
+            self.ll_sinI = self.mainfield.get_sinI(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon).reshape((-1 ,1))
+            self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
+
+            # constraint matrix: FAC out of one hemisphere = FAC into the other
+            self.G_par_ll_grid = self.ll_grid.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI
+            self.G_par_ll_grid_conj = self.ll_grid_conj.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI_conj
+            self.constraint_Gpar = self.G_par_ll_grid - self.G_par_ll_grid_conj
 
 
-
-
+            # TODO: Should check for singularities - where field is horizontal - and probably just eliminate such points
+            #       from the constraint calculation
             # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
             #       This is needed to get values for conductance (and neutral wind u once that is included)
             #       The interpolation matrix should be calculated here on initiation since the grid is fixed
@@ -132,8 +147,23 @@ class I2D(object):
         a5eH11 = spr.diags((bp*br*d2r + bp*bt*d2t - br**2*d2p - bt**2*d2p)/B0)
         a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
 
+        # Get spherical harmonic matrices and multiply with the relevant geometry matrices
+        Gph   = _grid.G_ph
+        Gth   = _grid.G_th
+        print('TODO: This is missing the poloidal part of the field related to T')
+        G_DeltaB_th_V =  Gph / (self.sha.n + 1) / mu0
+        G_DeltaB_ph_V =  Gth / (self.sha.n + 1) / mu0
+        G_DeltaB_V    = np.vstack((G_DeltaB_th_V, G_DeltaB_ph_V))
+        G_DeltaB_th_T = -Gth / (self.sha.n + 1) / mu0
+        G_DeltaB_ph_T =  Gph / (self.sha.n + 1) / mu0
+        G_DeltaB_T    = np.vstack((G_DeltaB_th_T, G_DeltaB_ph_T))
 
-        return(c_ut, c_up, a5eP, a5eH)
+        A5_eP_V = a5eP.dot(G_DeltaB_V)
+        A5_eH_V = a5eH.dot(G_DeltaB_V)
+        A5_eP_T = a5eP.dot(G_DeltaB_T)
+        A5_eH_T = a5eH.dot(G_DeltaB_T)
+
+        return(c_ut, c_up, A5_eP_V, A5_eH_V, A5_eP_T, A5_eH_T)
 
 
 

@@ -101,6 +101,39 @@ class Mainfield(object):
         return(self._Bfunc(r, theta, phi))
 
 
+    def get_sinI(self, r, theta, phi):
+        """ 
+        Calculate sin inclination angle 
+
+        Defined as the angle of the magnetic field with nadir
+
+        Broadcasting rules apply.
+
+        Parameters
+        ----------
+        r: array
+            Radius [m] of the points where the magnetic field is to be
+            evaluated.
+        theta: array
+            Colatitude [deg] of the points where the magnetic field is to
+            be evaluated.
+        phi: array
+            Longitude [deg] of the points where the magnetic field is to
+            be evaluated.
+
+        Return
+        ------
+        sinI: array
+            sin(inclination)
+
+        """
+
+        B = np.vstack(self.get_B(r, theta, phi))
+
+        # return -Br/B0
+        return(-B[0] / np.linalg.norm(B, axis = 0))
+
+
     def map_coords(self, r_dest, r, theta, phi):
         """ Map coordinates from `r`, `theta`, `phi` to a radius `r_dest`.
 
