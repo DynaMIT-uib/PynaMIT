@@ -1,5 +1,4 @@
 import numpy as np
-from pynamit.decorators import default_2Dcoords, default_3Dcoords
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sha import sha
 import os
@@ -205,16 +204,16 @@ class I2D(object):
 
         """
 
-        #Eth, Eph = self.get_E()
+        #Eth, Eph = self.get_E(self.num_grid)
         #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.state.shc_VB) - dt * curlEr
 
         #self.state.set_shc(Br = self.GTG_inv.dot(self.num_grid.G.T.dot(-Br)))
 
-        #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
+        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
         #self.state.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-        self.state.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E()))
+        self.state.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E(self.num_grid)))
         self.state.set_shc(Br = self.state.shc_Br + self.sha.n * (self.sha.n + 1) * self.state.shc_EW * dt / self.RI**2)
 
 
@@ -272,23 +271,21 @@ class I2D(object):
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
 
-    @default_3Dcoords
-    def get_Br(self, r = None, theta = None, phi = None, deg = False):
+    def get_Br(self, grid, deg = False):
         """ Calculate ``Br``.
 
         """
-        return(self.plt_grid.G.dot(self.state.shc_Br))
+        return(grid.G.dot(self.state.shc_Br))
 
 
-    @default_2Dcoords
-    def get_JS(self, theta = None, phi = None, deg = False):
+    def get_JS(self, grid, deg = False):
         """ Calculate ionospheric sheet current.
 
         """
-        Je_V =  self.num_grid.G_th.dot(self.state.shc_VJ) # r cross grad(VJ) eastward component
-        Js_V = -self.num_grid.G_ph.dot(self.state.shc_VJ) # r cross grad(VJ) southward component
-        Je_T = -self.num_grid.G_ph.dot(self.state.shc_TJ) # -grad(VT) eastward component
-        Js_T = -self.num_grid.G_th.dot(self.state.shc_TJ) # -grad(VT) southward component
+        Je_V =  grid.G_th.dot(self.state.shc_VJ) # r cross grad(VJ) eastward component
+        Js_V = -grid.G_ph.dot(self.state.shc_VJ) # r cross grad(VJ) southward component
+        Je_T = -grid.G_ph.dot(self.state.shc_TJ) # -grad(VT) eastward component
+        Js_T = -grid.G_th.dot(self.state.shc_TJ) # -grad(VT) southward component
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
@@ -299,60 +296,54 @@ class I2D(object):
         return(Jth, Jph)
 
 
-    @default_2Dcoords
-    def get_Jr(self, theta = None, phi = None, deg = False):
+    def get_Jr(self, grid, deg = False):
         """ Calculate radial current.
 
         """
 
         print('this must be fixed so that I can evaluate anywere')
-        return self.plt_grid.G.dot(self.state.shc_TJr)
+        return grid.G.dot(self.state.shc_TJr)
 
 
-
-
-    @default_2Dcoords
-    def get_equivalent_current_function(self, theta = None, phi = None, deg = False):
+    def get_equivalent_current_function(self, grid, deg = False):
         """ Calculate equivalent current function.
 
         """
         print('not implemented')
 
 
-    @default_2Dcoords
-    def get_Phi(self, theta = None, phi = None, deg = False):
+    def get_Phi(self, grid, deg = False):
         """ Calculate electric potential.
 
         """
 
         print('this must be fixed so that Phi can be evaluated anywere')
-        return self.plt_grid.G.dot(self.state.shc_Phi) * 1e-3
+        return grid.G.dot(self.state.shc_Phi) * 1e-3
 
 
-    @default_2Dcoords
-    def get_W(self, theta = None, phi = None, deg = False):
+    def get_W(self, grid, deg = False):
         """ Calculate the induction electric field scalar.
 
         """
 
         print('this must be fixed so that W can be evaluated anywere')
-        return self.plt_grid.G.dot(self.state.shc_EW) * 1e-3
+        return grid.G.dot(self.state.shc_EW) * 1e-3
 
 
-    @default_2Dcoords
-    def get_E(self, theta = None, phi = None, deg = False):
+    def get_E(self, grid, deg = False):
         """ Calculate electric field.
 
         """
 
 
-        Jth, Jph = self.get_JS(theta = theta, phi = phi)
+        Jth, Jph = self.get_JS(grid)
 
 
         Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
         Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
 
         return(Eth, Eph)
+
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PNAF = True):
 
@@ -440,7 +431,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
-        jr = i2d.get_Jr()
+        jr = i2d.get_Jr(i2d.plt_grid)
 
         globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
@@ -472,7 +463,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-        jr = i2d.get_Jr()
+        jr = i2d.get_Jr(i2d.plt_grid)
         globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
@@ -533,13 +524,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
-                Br = i2d.get_Br()
+                Br = i2d.get_Br(i2d.plt_grid)
                 fig, paxn, paxs, axg =  globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, Br.reshape(i2d.plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.get_W()
+                #W = i2d.get_W(i2d.plt_grid)
 
-                i2d.state.shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack( i2d.get_E()))
-                Phi = i2d.get_Phi()
+                i2d.state.shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack( i2d.get_E(i2d.num_grid)))
+                Phi = i2d.get_Phi(i2d.plt_grid)
 
 
                 nnn = i2d.plt_grid.lat.flatten() >  50

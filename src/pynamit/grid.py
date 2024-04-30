@@ -17,18 +17,14 @@ class grid(object):
         self.theta = 90 - lat
 
     def construct_G(self, sha):
-        """
-        Construct the G matrix for transforming to spherical harmonic
-        coefficients.
+        """ Construct the G matrix.
 
         """
 
         self.G = sha.get_G(self)
 
     def costruct_dG(self, sha):
-        """
-        Construct the dG matrix for transforming to spherical harmonic
-        coefficients.
+        """ Construct the G_ph and G_th matrices.
 
         """
 
