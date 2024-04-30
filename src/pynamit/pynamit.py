@@ -25,12 +25,10 @@ class I2D(object):
 
         Parameters
         ----------
-        Nmax: int
-            Maximum spherical harmonic degree.
-        Mmax: int
-            Maximum spherical harmonic order.
-        Ncs: int, optional, default = 20
-            Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
+        sha: sha object
+            Spherical harmonic analysis object.
+        csp: cubedsphere.CSprojection object
+            Cubed sphere projection object.
         RI: float, optional, default = RE + 110.e3
             Radius of the ionosphere in m.
         mainfield_kind: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
@@ -104,6 +102,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     i2d_sha = sha(Nmax, Mmax)
 
     # Define CS grid used for SH analysis and gradient calculations
+    # Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
     csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
 
     # Initialize the 2D ionosphere object at 110 km altitude
