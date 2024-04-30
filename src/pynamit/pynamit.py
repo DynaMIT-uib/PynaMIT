@@ -3,7 +3,7 @@ from pynamit.mainfield import Mainfield
 from pynamit.sha.sha import sha
 import os
 from pynamit.cubedsphere import cubedsphere
-from pynamit.equations import equations
+#from pynamit.cs_equations import cs_equations
 from pynamit.grid import grid
 from pynamit.state import state
 
@@ -43,7 +43,6 @@ class I2D(object):
 
         """
         self.latitude_boundary = latitude_boundary
-        self.RI = RI
 
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
@@ -51,28 +50,22 @@ class I2D(object):
 
         # Define CS grid used for SH analysis and gradient calculations
         self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
-
         self.num_grid = grid(RI, 90 - self.csp.arr_theta, self.csp.arr_phi)
 
-        #self.Dxi, self.Deta = self.csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
-        g  = self.csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True)
-        sqrtg = np.sqrt(self.csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
-        Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        Qi = self.csp.get_Q(self.num_grid.lat, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
-
-        self.equations = equations(self.mainfield, g, sqrtg, Ps, Qi)
-
-        # Define grid used for plotting 
-        lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-        lat, lon = np.meshgrid(lat, lon)
-        self.plt_grid = grid(RI, lat, lon)
-
-        # Define matrices for surface spherical harmonics
+        # Construct matrices for transforming from surface spherical harmonic coefficients to cubed sphere grid
         self.num_grid.construct_G(self.sha)
         self.num_grid.construct_dG(self.sha)
         self.num_grid.construct_GTG()
         self.num_grid.construct_vector_to_shc_cf_df()
 
+        #self.cs_equations = cs_equations(self.csp, RI)
+
+        # Define grid used for plotting
+        lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+        lat, lon = np.meshgrid(lat, lon)
+        self.plt_grid = grid(RI, lat, lon)
+
+        # Construct matrix for transforming from surface spherical harmonic coefficients to plotting grid
         self.plt_grid.construct_G(self.sha)
 
         if connect_hemispheres:

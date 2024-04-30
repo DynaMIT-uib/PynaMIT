@@ -17,14 +17,19 @@ class grid(object):
         self.theta = 90 - lat
 
     def construct_G(self, sha):
-        """ Construct the G matrix.
+        """
+        Construct the ``G`` matrix, which is the matrix that transforms a
+        vector of spherical harmonic coefficients into the corresponding
+        grid vector.
 
         """
 
         self.G = sha.get_G(self)
 
     def construct_dG(self, sha):
-        """ Construct the G_ph and G_th matrices.
+        """
+        Construct the G matrix differentiated with respect to ``theta``
+        and ``phi``.
 
         """
 
@@ -37,8 +42,10 @@ class grid(object):
 
         """
 
-        # Pre-calculate GTG and its inverse
+        # Pre-calculate GTG
         self.GTG = self.G.T.dot(self.G)
+
+        # Calculate its inverse
         #self.GTG_inv = np.linalg.pinv(self.GTG)
 
         # Report condition number for GTG
@@ -49,7 +56,7 @@ class grid(object):
     def construct_vector_to_shc_cf_df(self):
         """
         Construct matrices for obtaining SH coefficients corresponding to
-        curl- and divergence-free components of vector.
+        the curl- and divergence-free components of a vector.
 
         """
 
