@@ -82,29 +82,13 @@ class I2D(object):
 
         # Define matrices for surface spherical harmonics
         self.num_grid.construct_G(self.sha)
-        self.num_grid.costruct_dG(self.sha)
+        self.num_grid.construct_dG(self.sha)
+        self.num_grid.construct_GTG()
+        self.num_grid.construct_vector_to_shc_cf_df()
 
         self.plt_grid.construct_G(self.sha)
 
-        # Pre-calculate GTG and its inverse
-        self.GTG = self.num_grid.G.T.dot(self.num_grid.G)
-        self.GTG_inv = np.linalg.pinv(self.GTG)
 
-        # Pre-calculate matrix to get coefficients for curl-free fields:
-        self.Gcf = np.vstack((-self.num_grid.G_th, -self.num_grid.G_ph))
-        self.GTGcf_inv = np.linalg.pinv(self.Gcf.T.dot(self.Gcf))
-        
-        self.vector_to_shc_cf = self.GTGcf_inv.dot(self.Gcf.T)
-
-        # Pre-calculate matrix to get coefficients for divergence-free fields
-        self.Gdf = np.vstack((-self.num_grid.G_ph, self.num_grid.G_th))
-        self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
-
-        self.vector_to_shc_df = self.GTGdf_inv.dot(self.Gdf.T)
-
-        # Report condition number for GTG
-        self.cond_GTG = np.linalg.cond(self.GTG)
-        print('The condition number for the surface SH matrix is {:.1f}'.format(self.cond_GTG))
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
         if self.mainfield.kind == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
@@ -114,7 +98,7 @@ class I2D(object):
             Delta_k = np.diff(r_k_steps)
             r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-            jh_to_shc = -self.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+            jh_to_shc = -self.num_grid.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
             # initialize matrix that will map from self.TJr to coefficients for poloidal field:
             shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
@@ -213,7 +197,7 @@ class I2D(object):
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
         #self.state.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-        self.state.shc_EW = self.vector_to_shc_df.dot(np.hstack( self.get_E(self.num_grid)))
+        self.state.shc_EW = self.num_grid.vector_to_shc_df.dot(np.hstack( self.get_E(self.num_grid)))
         self.state.set_shc(Br = self.state.shc_Br + self.sha.n * (self.sha.n + 1) * self.state.shc_EW * dt / self.RI**2)
 
 
@@ -245,7 +229,7 @@ class I2D(object):
         # Extract the radial component of the FAC:
         jr = -FAC * self.sinI 
         # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(self.GTG, self.num_grid.G.T.dot(jr), rcond = 1e-3)[0]
+        TJr = np.linalg.lstsq(self.num_grid.GTG, self.num_grid.G.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.state.set_shc(TJr = TJr)
 
@@ -529,7 +513,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W(i2d.plt_grid)
 
-                i2d.state.shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack( i2d.get_E(i2d.num_grid)))
+                i2d.state.shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack( i2d.get_E(i2d.num_grid)))
                 Phi = i2d.get_Phi(i2d.plt_grid)
 
 
