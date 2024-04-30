@@ -71,11 +71,12 @@ class I2D(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_theta, self.ll_phi = self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask]
-            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.num_grid.RI, self.ll_theta, self.ll_phi)
+            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
+            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
             # ... and for their conjugate points:
-            self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
-            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
+            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
+            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
 
 
 
@@ -89,12 +90,13 @@ class I2D(object):
         self.state = state(sha, self.mainfield, self.num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres)
 
 
-    def _get_A5_and_c(self, R, theta, phi):
+    def _get_A5_and_c(self, _grid):
         """ Calculte A5 and c 
             
 
         """
 
+        R, theta, phi = _grid.RI, _grid.theta, _grid.lon
         B = np.vstack(self.mainfield.get_B(R, theta, phi))
         B0 = np.linalg.norm(B, axis = 0)
         br, bt, bp = B / B0
