@@ -1,3 +1,4 @@
+import scipy.sparse as spr
 import numpy as np
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sha import sha
@@ -75,6 +76,7 @@ class I2D(object):
             self.ll_br, self.ll_btheta, self.ll_bphi = self.br[ll_mask], self.btheta[ll_mask], self.bphi[ll_mask]
             self.ll_d1, self.ll_d2, _, _, _, _ = self.mainfield.basevectors(self.num_grid.RI, self.ll_theta, self.ll_phi)
             self.ll_B0 = np.linalg.norm(self.B, axis = 0)[ll_mask]
+            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.RI, self.ll_theta, self.ll_phi)
 
             # calculate coordinates and parameters at the conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.num_grid.RI, self.ll_theta, self.ll_phi)
@@ -83,8 +85,9 @@ class I2D(object):
             self.ll_Br_conj = self.B_conj[0]
             self.ll_d1_conj, self.ll_d2_conj, _, _, _, _ = self.mainfield.basevectors(self.num_grid.RI, self.ll_theta_conj, self.ll_phi_conj)
             self.ll_B0_conj = np.linalg.norm(self.B_conj, axis = 0)
+            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.RI, self.ll_theta_conj, self.ll_phi_conj)
 
-            # TODO: Pre-compute parts of constraint matrices that do not depend on conductance and wind
+
 
             # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
             #       This is needed to get values for conductance (and neutral wind u once that is included)
@@ -93,6 +96,52 @@ class I2D(object):
 
         # Initialize the state of the ionosphere
         self.state = state(sha, self.mainfield, self.num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres)
+
+
+    def _get_A5_and_c(self, R, theta, phi):
+        """ Calculte A5 and c 
+            
+
+        """
+
+        B = np.vstack(self.B0.get_B(R, theta, phi))
+        B0 = np.linalg.norm(self.B, axis = 0)
+        br, bt, bp = B / B0
+        Br = B[0]
+        d1, d2, _, _, _, _ = self.B0.basevectors(R, theta, phi)
+        d1r, d1t, d1p = d1 # r theta phi components
+        d2r, d2t, d2p = d2
+
+        # The following lines of code are copied from output from sympy_matrix_algebra.py
+
+        # constant that is to be multiplied by u in theta direction:
+        c_ut_theta = Br*(bp*(bp*d1t - bt*d1p) + br*(br*d1t - bt*d1r))/(B0*br)
+        c_ut_phi   = Br*(bp*(bp*d2t - bt*d2p) + br*(br*d2t - bt*d2r))/(B0*br)
+        c_ut = np.hstack((c_ut_theta, c_ut_phi)).reshape((-1, 1)) # stack and convert to column vector
+
+        # constant that is to be multiplied by u in phi direction:
+        c_up_theta = Br*(br*(-bp*d1r + br*d1p) + bt*(-bp*d1t + bt*d1p))/(B0*br)
+        c_up_phi   = Br*(br*(-bp*d2r + br*d2p) + bt*(-bp*d2t + bt*d2p))/(B0*br)
+        c_up = np.hstack((c_up_theta, c_up_phi)).reshape((-1, 1)) # stack and convert to column vector
+
+
+        # A5eP matrix
+        a5eP00 = spr.diags((bp**3*d1r - bp**2*br*d1p + bp*br**2*d1r + bp*bt**2*d1r - br**3*d1p - br*bt**2*d1p)/B0)
+        a5eP01 = spr.diags((bp**2*br*d1t - bp**2*bt*d1r + br**3*d1t - br**2*bt*d1r + br*bt**2*d1t - bt**3*d1r)/B0)
+        a5eP10 = spr.diags((bp**3*d2r - bp**2*br*d2p + bp*br**2*d2r + bp*bt**2*d2r - br**3*d2p - br*bt**2*d2p)/B0)
+        a5eP11 = spr.diags((bp**2*br*d2t - bp**2*bt*d2r + br**3*d2t - br**2*bt*d2r + br*bt**2*d2t - bt**3*d2r)/B0)
+        a5eP = spr.vstack((spr.hstack((a5eP00, a5eP01)), spr.hstack((a5eP10, a5eP11)))).tocsr()
+
+        # A5eH matrix
+        a5eH00 = spr.diags((-bp**2*d1t + bp*bt*d1p - br**2*d1t + br*bt*d1r)/B0)
+        a5eH01 = spr.diags((bp*br*d1r + bp*bt*d1t - br**2*d1p - bt**2*d1p)/B0)
+        a5eH10 = spr.diags((-bp**2*d2t + bp*bt*d2p - br**2*d2t + br*bt*d2r)/B0)
+        a5eH11 = spr.diags((bp*br*d2r + bp*bt*d2t - br**2*d2p - bt**2*d2p)/B0)
+        a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
+
+
+        return(c_ut, c_up, a5eP, a5eH)
+
 
 
 
