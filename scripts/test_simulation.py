@@ -16,6 +16,7 @@ IGNORE_PNAF = False
 
 # SIMULATION PARAMETERS
 Nmax, Mmax, Ncs = 45, 3, 40
+RI = (6371.2 + 110)*1e3
 dt = 5e-4
 totalsteps = 20001
 
@@ -29,20 +30,25 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:2.5]
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole', ignore_PNAF = IGNORE_PNAF)
+i2d_sha = pynamit.sha(Nmax, Mmax)
+i2d_csp = pynamit.CSprojection(Ncs)
+
+i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PNAF = IGNORE_PNAF)
+
+#i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole', ignore_PNAF = IGNORE_PNAF)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
-hall, pedersen = conductance.hardy_EUV(i2d.phi, 90 - i2d.theta, Kp, date, starlight = 1, dipole = True)
-i2d.set_conductance(hall, pedersen)
+hall, pedersen = conductance.hardy_EUV(i2d_csp.arr_phi, 90 - i2d_csp.arr_theta, Kp, date, starlight = 1, dipole = True)
+i2d.state.set_conductance(hall, pedersen)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = 90 - i2d.theta, mlt = d.mlon2mlt(i2d.phi, date)) / i2d.sinI * 1e-6
-jparallel[np.abs(90 - i2d.theta) < 50] = 0 # filter low latitude FACs
-i2d.set_FAC(jparallel)
+jparallel = -a.get_upward_current(mlat = 90 - i2d_csp.arr_theta, mlt = d.mlon2mlt(i2d_csp.arr_phi, date)) / i2d.state.sinI * 1e-6
+jparallel[np.abs(90 - i2d_csp.arr_theta) < 50] = 0 # filter low latitude FACs
+i2d.state.set_FAC(jparallel)
 
 
 # make an integration matrix
@@ -54,7 +60,14 @@ i2d.set_FAC(jparallel)
 #Ginv = i2d.Gnum.T * np.vstack((cS, sS)) * i2d.csp.unit_area
 #gg = Ginv.dot(i2d.Gnum)
 
-
+# make plot grid:
+lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+lat, lon = np.meshgrid(lat, lon)
+plt_grid = pynamit.grid.grid(RI, lat, lon)
+plt_grid.construct_G(i2d_sha)
+plt_grid.construct_dG(i2d_sha)
+nnn = plt_grid.lat.flatten() >  50
+sss = plt_grid.lat.flatten() < -50
 
 
 ## RUN SIMULATION
@@ -64,32 +77,30 @@ filecount = 1
 time = 0
 while True:
 
-    i2d.evolve_Br(dt)
+    i2d.state.evolve_Br(dt)
     time = time + dt
-    coeffs.append(i2d.shc_VB)
+    coeffs.append(i2d.state.shc_VB)
     count += 1
     #print(count, time, i2d.shc_Br[:3])
 
     if count % plotsteps == 0:
-        print(count, time, i2d.shc_Br[:3])
+        print(count, time, i2d.state.shc_Br[:3])
         fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
         filecount +=1
         title = 't = {:.3} s'.format(time)
-        Br = i2d.get_Br()
-        fig, paxn, paxs, axg =  pynamit.globalplot(i2d.lon, i2d.lat, Br.reshape(i2d.lat.shape) , title = title, returnplot = True, 
-                                           levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-        W = i2d.Gplt.dot(i2d.shc_EW) * 1e-3
+        Br = i2d.state.get_Br(plt_grid)
+        fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
+                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
-        shc_Phi = i2d.vector_to_shc_cf.dot(np.hstack(i2d.get_E())) # find coefficients for electric potential
-        Phi = i2d.Gplt.dot(shc_Phi) * 1e-3
+        W = plt_grid.G.dot(i2d.state.shc_EW) * 1e-3
 
+        shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.num_grid))) # find coefficients for electric potential
+        Phi = plt_grid.G.dot(shc_Phi) * 1e-3
 
-        nnn = i2d.lat.flatten() >  50
-        sss = i2d.lat.flatten() < -50
         #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
         #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
-        paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
-        paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+        paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+        paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
         plt.savefig(fn)
 
     if count > totalsteps:
