@@ -82,25 +82,23 @@ class I2D(object):
         self.plt_grid = grid(RI, lat, lon)
 
         # Define matrices for surface spherical harmonics
-        self.Gnum    = self.sha.get_G(self.num_grid)
-        self.Gnum_ph = self.sha.get_G(self.num_grid, derivative = 'phi'  )
-        self.Gnum_th = self.sha.get_G(self.num_grid, derivative = 'theta')
-        self.Gplt    = self.sha.get_G(self.plt_grid)
-        self.Gplt_ph = self.sha.get_G(self.plt_grid, derivative = 'phi'  )
-        self.Gplt_th = self.sha.get_G(self.plt_grid, derivative = 'theta')
+        self.num_grid.construct_G(self.sha)
+        self.num_grid.costruct_dG(self.sha)
+
+        self.plt_grid.construct_G(self.sha)
 
         # Pre-calculate GTG and its inverse
-        self.GTG = self.Gnum.T.dot(self.Gnum)
+        self.GTG = self.num_grid.G.T.dot(self.num_grid.G)
         self.GTG_inv = np.linalg.pinv(self.GTG)
 
         # Pre-calculate matrix to get coefficients for curl-free fields:
-        self.Gcf = np.vstack((-self.Gnum_th, -self.Gnum_ph)) 
+        self.Gcf = np.vstack((-self.num_grid.G_th, -self.num_grid.G_ph))
         self.GTGcf_inv = np.linalg.pinv(self.Gcf.T.dot(self.Gcf))
         
         self.vector_to_shc_cf = self.GTGcf_inv.dot(self.Gcf.T)
 
         # Pre-calculate matrix to get coefficients for divergence-free fields
-        self.Gdf = np.vstack((-self.Gnum_ph, self.Gnum_th)) 
+        self.Gdf = np.vstack((-self.num_grid.G_ph, self.num_grid.G_th))
         self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
 
         self.vector_to_shc_df = self.GTGdf_inv.dot(self.Gdf.T)
@@ -138,10 +136,10 @@ class I2D(object):
                 sinI_RI = -B_RI[0] / B0_RI
 
                 # find matrix that gets radial current at these coordinates:
-                Q_k = self.sha.get_G(mapped_grid)
+                mapped_grid.construct_G(self.sha)
 
                 # we need to scale this by -1/sin(inclination) to get the FAC:
-                Q_k = -Q_k / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+                Q_k = -mapped_grid.G / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
 
                 # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
                 ratio = (B0_rk / B0_RI).reshape((1, -1))
@@ -157,8 +155,8 @@ class I2D(object):
             shc_TJr_to_shc_PFAC =  np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
 
             # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
-            self.shc_PFAC_to_Jph = -  1 / (self.sha.n + 1) * self.Gnum_ph / mu0
-            self.shc_PFAC_to_Jth =    1 / (self.sha.n + 1) * self.Gnum_th / mu0
+            self.shc_PFAC_to_Jph = -  1 / (self.sha.n + 1) * self.num_grid.G_ph / mu0
+            self.shc_PFAC_to_Jth =    1 / (self.sha.n + 1) * self.num_grid.G_th / mu0
 
         if self.connect_hemispheres:
             if self.ignore_PNAF:
@@ -212,7 +210,7 @@ class I2D(object):
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.state.shc_VB) - dt * curlEr
 
-        #self.state.set_shc(Br = self.GTG_inv.dot(self.Gnum.T.dot(-Br)))
+        #self.state.set_shc(Br = self.GTG_inv.dot(self.num_grid.G.T.dot(-Br)))
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E()) )
         #self.state.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
@@ -248,7 +246,7 @@ class I2D(object):
         # Extract the radial component of the FAC:
         jr = -FAC * self.sinI 
         # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(self.GTG, self.Gnum.T.dot(jr), rcond = 1e-3)[0]
+        TJr = np.linalg.lstsq(self.GTG, self.num_grid.G.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.state.set_shc(TJr = TJr)
 
@@ -279,7 +277,7 @@ class I2D(object):
         """ Calculate ``Br``.
 
         """
-        return(self.Gplt.dot(self.state.shc_Br))
+        return(self.plt_grid.G.dot(self.state.shc_Br))
 
 
     @default_2Dcoords
@@ -287,10 +285,10 @@ class I2D(object):
         """ Calculate ionospheric sheet current.
 
         """
-        Je_V =  self.Gnum_th.dot(self.state.shc_VJ) # r cross grad(VJ) eastward component
-        Js_V = -self.Gnum_ph.dot(self.state.shc_VJ) # r cross grad(VJ) southward component
-        Je_T = -self.Gnum_ph.dot(self.state.shc_TJ) # -grad(VT) eastward component
-        Js_T = -self.Gnum_th.dot(self.state.shc_TJ) # -grad(VT) southward component
+        Je_V =  self.num_grid.G_th.dot(self.state.shc_VJ) # r cross grad(VJ) eastward component
+        Js_V = -self.num_grid.G_ph.dot(self.state.shc_VJ) # r cross grad(VJ) southward component
+        Je_T = -self.num_grid.G_ph.dot(self.state.shc_TJ) # -grad(VT) eastward component
+        Js_T = -self.num_grid.G_th.dot(self.state.shc_TJ) # -grad(VT) southward component
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
@@ -308,7 +306,7 @@ class I2D(object):
         """
 
         print('this must be fixed so that I can evaluate anywere')
-        return self.Gplt.dot(self.state.shc_TJr)
+        return self.plt_grid.G.dot(self.state.shc_TJr)
 
 
 
@@ -328,7 +326,7 @@ class I2D(object):
         """
 
         print('this must be fixed so that Phi can be evaluated anywere')
-        return self.Gplt.dot(self.state.shc_Phi) * 1e-3
+        return self.plt_grid.G.dot(self.state.shc_Phi) * 1e-3
 
 
     @default_2Dcoords
@@ -338,7 +336,7 @@ class I2D(object):
         """
 
         print('this must be fixed so that W can be evaluated anywere')
-        return self.Gplt.dot(self.state.shc_EW) * 1e-3
+        return self.plt_grid.G.dot(self.state.shc_EW) * 1e-3
 
 
     @default_2Dcoords
