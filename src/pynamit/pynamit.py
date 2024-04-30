@@ -409,14 +409,15 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         ju_amps = a.get_upward_current()
         je_amps, jn_amps = a.get_curl_free_current()
+
         mlat  , mlt   = a.scalargrid
         mlatv , mltv  = a.vectorgrid
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
-        paxes[0].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
-        paxes[0].quiver(  mlatnv, mltnv,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
-        paxes[1].contourf(mlatn , mltn ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
-        paxes[1].quiver(  mlatnv, mltnv, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
+        paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
+        paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
+        paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
+        paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
 
         lon  = d.mlt2mlon(mlt , date)
@@ -424,6 +425,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         m_grid = grid(i2d.RI, mlat, lon)
         mv_grid = grid(i2d.RI, mlatv, lonv)
+        mn_grid = grid(i2d.RI, mlatn, mltn)
+        mnv_grid = grid(i2d.RI, mlatnv, mltnv)
 
         G   = i2d.sha.get_G(m_grid) * 1e6
         Gph = i2d.sha.get_G(mv_grid, derivative = 'phi'  ) * 1e3
@@ -434,30 +437,31 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         jn =  Gth.dot(i2d.state.shc_TJ)
 
         jrn, jrs = np.split(jr, 2) 
-        paxes[2].contourf(mlatn, mltn, jrn, levels = levels, cmap = plt.cm.bwr)
-        paxes[2].quiver(mlatnv, mltnv,  np.split(jn, 2)[0], np.split(je, 2)[0], scale = SCALE, color = 'black')
-        paxes[3].contourf(mlatn, mltn, jrs, levels = levels, cmap = plt.cm.bwr)
-        paxes[3].quiver(mlatnv, mltnv,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
+        paxes[2].contourf(mn_grid.lat,  mn_grid.lon,   jrn, levels = levels, cmap = plt.cm.bwr)
+        paxes[2].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn, 2)[0], np.split(je, 2)[0], scale = SCALE, color = 'black')
+        paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
+        paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
         jr = i2d.get_Jr()
 
         globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
-
-
-
         plt.show()
 
 
-
     if plot_AMPS_Br:
+
         fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
         paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
-        mlat  , mlt   = a.scalargrid
-        mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
+
+        if not compare_AMPS_FAC_and_CF_currents:
+            mlat  , mlt   = a.scalargrid
+            mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
+            mn_grid = grid(i2d.RI, mlatn, mltn)
+
         Bu = a.get_ground_Buqd(height = a.height)
-        paxes[0].contourf(mlatn, mltn, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
-        paxes[1].contourf(mlatn, mltn, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+        paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+        paxes[1].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
 
         plt.show()
 
