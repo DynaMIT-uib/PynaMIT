@@ -14,7 +14,7 @@ mu0 = 4 * np.pi * 1e-7
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, Nmax, Mmax, Ncs = 20, 
+    def __init__(self, sha, csp,
                        RI = RE + 110.e3, mainfield_kind = 'dipole', 
                        B0_parameters = {'epoch':2020}, 
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
@@ -46,27 +46,15 @@ class I2D(object):
 
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
-        self.sha = sha(Nmax, Mmax)
-
-        # Define CS grid used for SH analysis and gradient calculations
-        self.csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
-        self.num_grid = grid(RI, 90 - self.csp.arr_theta, self.csp.arr_phi)
+        self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
 
         # Construct matrices for transforming from surface spherical harmonic coefficients to cubed sphere grid
-        self.num_grid.construct_G(self.sha)
-        self.num_grid.construct_dG(self.sha)
+        self.num_grid.construct_G(sha)
+        self.num_grid.construct_dG(sha)
         self.num_grid.construct_GTG()
         self.num_grid.construct_vector_to_shc_cf_df()
 
-        #self.cs_equations = cs_equations(self.csp, RI)
-
-        # Define grid used for plotting
-        lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-        lat, lon = np.meshgrid(lat, lon)
-        self.plt_grid = grid(RI, lat, lon)
-
-        # Construct matrix for transforming from surface spherical harmonic coefficients to plotting grid
-        self.plt_grid.construct_G(self.sha)
+        #self.cs_equations = cs_equations(csp, RI)
 
         if connect_hemispheres:
             if ignore_PNAF:
@@ -106,13 +94,19 @@ class I2D(object):
 
 
         # Initialize the state of the ionosphere
-        self.state = state(self.sha, self.mainfield, self.num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres)
+        self.state = state(sha, self.mainfield, self.num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres)
 
 
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PNAF = True):
 
-    i2d = I2D(Nmax, Mmax, Ncs, mainfield_kind = mainfield_kind, ignore_PNAF = ignore_PNAF)
+    # Set up the spherical harmonic analysis object
+    i2d_sha = sha(Nmax, Mmax)
+
+    # Define CS grid used for SH analysis and gradient calculations
+    csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
+
+    i2d = I2D(i2d_sha, csp, mainfield_kind = mainfield_kind, ignore_PNAF = ignore_PNAF)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
@@ -141,6 +135,15 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # noon longitude
     lon0 = d.mlt2mlon(12, date)
+
+    # Define grid used for plotting
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.meshgrid(lat, lon)
+    RI = RE + 110.e3
+    plt_grid = grid(RI, lat, lon)
+
+    # Construct matrix for transforming from surface spherical harmonic coefficients to plotting grid
+    plt_grid.construct_G(i2d_sha)
 
     hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.state.set_conductance(hall, pedersen)
@@ -182,9 +185,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         mn_grid = grid(i2d.RI, mlatn, mltn)
         mnv_grid = grid(i2d.RI, mlatnv, mltnv)
 
-        G   = i2d.sha.get_G(m_grid) * 1e6
-        Gph = i2d.sha.get_G(mv_grid, derivative = 'phi'  ) * 1e3
-        Gth = i2d.sha.get_G(mv_grid, derivative = 'theta') * 1e3
+        G   = i2d_sha.get_G(m_grid) * 1e6
+        Gph = i2d_sha.get_G(mv_grid, derivative = 'phi'  ) * 1e3
+        Gth = i2d_sha.get_G(mv_grid, derivative = 'theta') * 1e3
         jr = G.dot(i2d.state.shc_TJr)
 
         je = -Gph.dot(i2d.state.shc_TJ)
@@ -196,9 +199,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
-        jr = i2d.get_Jr(i2d.plt_grid)
+        jr = i2d.get_Jr(plt_grid)
 
-        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
+        globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
         plt.show()
 
@@ -222,14 +225,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(i2d.csp, i2d.num_grid.lat, i2d.num_grid.lon, hall, i2d.plt_grid.lat, i2d.plt_grid.lon)
-        pede_plt = cs_interpolate(i2d.csp, i2d.num_grid.lat, i2d.num_grid.lon, pedersen, i2d.plt_grid.lat, i2d.plt_grid.lon)
+        hall_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, hall, plt_grid.lat, plt_grid.lon)
+        pede_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
 
-        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
-        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
+        globalplot(plt_grid.lon, plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
+        globalplot(plt_grid.lon, plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-        jr = i2d.get_Jr(i2d.plt_grid)
-        globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
+        jr = i2d.state.get_Jr(plt_grid)
+        globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
         # conductance:
@@ -260,7 +263,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
 
     print('bug in cartopy makes it impossible to not center levels at zero... replace when cartopy has been improved')
-    #globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, jr.reshape(i2d.plt_grid.lat.shape), 
+    #globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lat.shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
     #globalplot(i2d.num_grid.lon, i2d.num_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
@@ -289,21 +292,21 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
-                Br = i2d.state.get_Br(i2d.plt_grid)
-                fig, paxn, paxs, axg =  globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, Br.reshape(i2d.plt_grid.lat.shape) , title = title, returnplot = True, 
+                Br = i2d.state.get_Br(plt_grid)
+                fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.get_W(i2d.plt_grid)
+                #W = i2d.get_W(plt_grid)
 
                 i2d.state.update_shc_Phi(i2d.num_grid)
-                Phi = i2d.state.get_Phi(i2d.plt_grid)
+                Phi = i2d.state.get_Phi(plt_grid)
 
 
-                nnn = i2d.plt_grid.lat.flatten() >  50
-                sss = i2d.plt_grid.lat.flatten() < -50
-                #paxn.contour(i2d.plt_grid.lat.flatten()[nnn], (i2d.plt_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
-                #paxs.contour(i2d.plt_grid.lat.flatten()[sss], (i2d.plt_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
-                paxn.contour(i2d.plt_grid.lat.flatten()[nnn], (i2d.plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
-                paxs.contour(i2d.plt_grid.lat.flatten()[sss], (i2d.plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+                nnn = plt_grid.lat.flatten() >  50
+                sss = plt_grid.lat.flatten() < -50
+                #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+                #paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+                paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+                paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
                 plt.savefig(fn)
 
             if count > totalsteps:
