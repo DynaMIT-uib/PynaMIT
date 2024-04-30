@@ -103,7 +103,7 @@ if not PRINT_LATEX: # print code:
     print('a5eH01 = spr.diags(' + str(A5_eH[0, 1]) + ')') 
     print('a5eH10 = spr.diags(' + str(A5_eH[1, 0]) + ')') 
     print('a5eH11 = spr.diags(' + str(A5_eH[1, 1]) + ')')
-    print('a5eH = spr.vstack((sp.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()')
+    print('a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()')
 
 
 

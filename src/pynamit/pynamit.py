@@ -239,7 +239,7 @@ class I2D(object):
         a5eH01 = spr.diags((bp*br*d1r + bp*bt*d1t - br**2*d1p - bt**2*d1p)/B0)
         a5eH10 = spr.diags((-bp**2*d2t + bp*bt*d2p - br**2*d2t + br*bt*d2r)/B0)
         a5eH11 = spr.diags((bp*br*d2r + bp*bt*d2t - br**2*d2p - bt**2*d2p)/B0)
-        a5eH = spr.vstack((sp.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
+        a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
 
 
         return(c_ut, c_up, a5eP, a5eH)
