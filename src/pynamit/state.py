@@ -5,7 +5,7 @@ class state(object):
     """ State of the ionosphere.
 
     """
-    def __init__(self, sha, mainfield, num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters):
+    def __init__(self, sha, mainfield, num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres):
         """ Initialize the state of the ionosphere.
     
         """
@@ -17,6 +17,18 @@ class state(object):
         self.mu0 = mu0
         self.RI = RI
         self.ignore_PNAF = ignore_PNAF
+
+        self.connect_hemispheres = connect_hemispheres
+
+        # get magnetic field unit vectors at CS grid:
+        self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
+        self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
+        self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
+        # construct the elements in the matrix in the electric field equation
+        self.b00 = self.bphi**2 + self.br**2
+        self.b01 = -self.btheta * self.bphi
+        self.b10 = -self.btheta * self.bphi
+        self.b11 = self.btheta**2 + self.br**2
 
         # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
         if self.mainfield.kind == 'radial' or self.ignore_PNAF: # no Poloidal field so get matrix of zeros
@@ -129,3 +141,130 @@ class state(object):
             print('check the factor RI**2!')
         else:
             raise Exception('This should not happen')
+
+
+    def set_initial_condition(self, I2D_object):
+        """ Set initial conditions.
+
+        If this is not called, initial condictions should be zero.
+
+        """
+        print('not implemented. inital conditions will be zero')
+
+
+    def set_FAC(self, FAC):
+        """
+        Specify field-aligned current at ``self.num_grid.theta``,
+        ``self.num_grid.lon``.
+
+            Parameters
+            ----------
+            FAC: array
+                The field-aligned current, in A/m^2, at
+                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
+                ``RI``. The values in the array have to match the
+                corresponding coordinates.
+
+        """
+
+        # Extract the radial component of the FAC:
+        jr = -FAC * self.sinI 
+        # Get the corresponding spherical harmonic coefficients
+        TJr = np.linalg.lstsq(self.num_grid.GTG, self.num_grid.G.T.dot(jr), rcond = 1e-3)[0]
+        # Propagate to the other coefficients (TB, TJ, PFAC):
+        self.set_shc(TJr = TJr)
+
+        if self.connect_hemispheres:
+            print('connect_hemispheres is not fully implemented')
+
+        print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
+        print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
+
+
+    def set_conductance(self, Hall, Pedersen):
+        """
+        Specify Hall and Pedersen conductance at
+        ``self.num_grid.theta``, ``self.num_grid.lon``.
+
+        """
+        if Hall.size != Pedersen.size != self.num_grid.theta.size:
+            raise Exception('Conductances must match phi and theta')
+
+        self.SH = Hall
+        self.SP = Pedersen
+        self.etaP = Pedersen / (Hall**2 + Pedersen**2)
+        self.etaH = Hall     / (Hall**2 + Pedersen**2)
+
+
+    def get_Br(self, grid, deg = False):
+        """ Calculate ``Br``.
+
+        """
+        return(grid.G.dot(self.shc_Br))
+
+
+    def get_JS(self, grid, deg = False):
+        """ Calculate ionospheric sheet current.
+
+        """
+        Je_V =  grid.G_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
+        Js_V = -grid.G_ph.dot(self.shc_VJ) # r cross grad(VJ) southward component
+        Je_T = -grid.G_ph.dot(self.shc_TJ) # -grad(VT) eastward component
+        Js_T = -grid.G_th.dot(self.shc_TJ) # -grad(VT) southward component
+
+        Jth, Jph = Js_V + Js_T, Je_V + Je_T
+
+        if not self.ignore_PNAF:
+            Jth = Jth + self.shc_PFAC_to_Jth.dot(self.shc_PFAC)
+            Jph = Jph + self.shc_PFAC_to_Jph.dot(self.shc_PFAC)
+
+        return(Jth, Jph)
+
+
+    def get_Jr(self, grid, deg = False):
+        """ Calculate radial current.
+
+        """
+
+        print('this must be fixed so that I can evaluate anywere')
+        return grid.G.dot(self.shc_TJr)
+
+
+    def get_equivalent_current_function(self, grid, deg = False):
+        """ Calculate equivalent current function.
+
+        """
+        print('not implemented')
+
+
+    def get_Phi(self, grid, deg = False):
+        """ Calculate electric potential.
+
+        """
+
+        print('this must be fixed so that Phi can be evaluated anywere')
+        return grid.G.dot(self.shc_Phi) * 1e-3
+
+
+    def get_W(self, grid, deg = False):
+        """ Calculate the induction electric field scalar.
+
+        """
+
+        print('this must be fixed so that W can be evaluated anywere')
+        return grid.G.dot(self.shc_EW) * 1e-3
+
+
+    def get_E(self, grid, deg = False):
+        """ Calculate electric field.
+
+        """
+
+
+        Jth, Jph = self.get_JS(grid)
+
+
+        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
+        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
+
+        return(Eth, Eph)

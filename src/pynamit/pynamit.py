@@ -42,11 +42,8 @@ class I2D(object):
             relevant for radial main field.
 
         """
-        self.ignore_PNAF = ignore_PNAF
-        self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
         self.RI = RI
-        self.Nmax, self.Mmax = Nmax, Mmax
 
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
@@ -63,17 +60,7 @@ class I2D(object):
         Ps = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, 1, self.csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
         Qi = self.csp.get_Q(self.num_grid.lat, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
 
-        # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
-        self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
-        self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
-        # construct the elements in the matrix in the electric field equation
-        self.b00 = self.bphi**2 + self.br**2
-        self.b01 = -self.btheta * self.bphi
-        self.b10 = -self.btheta * self.bphi
-        self.b11 = self.btheta**2 + self.br**2
-
-        self.equations = equations(mainfield = self.mainfield, g = g, sqrtg = sqrtg, Ps = Ps, Qi = Qi)
+        self.equations = equations(self.mainfield, g, sqrtg, Ps, Qi)
 
         # Define grid used for plotting 
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -88,8 +75,8 @@ class I2D(object):
 
         self.plt_grid.construct_G(self.sha)
 
-        if self.connect_hemispheres:
-            if self.ignore_PNAF:
+        if connect_hemispheres:
+            if ignore_PNAF:
                 raise ValueError('Hemispheres can not be connected when ignore_PNAF is True')
             if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
@@ -125,9 +112,7 @@ class I2D(object):
             #       The interpolation matrix should be calculated here on initiation since the grid is fixed
 
 
-        self.state = state(self.sha, self.mainfield, self.num_grid, mu0, RI, self.ignore_PNAF, FAC_integration_parameters)
-
-
+        self.state = state(self.sha, self.mainfield, self.num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres)
 
 
     def evolve_Br(self, dt):
@@ -135,145 +120,18 @@ class I2D(object):
 
         """
 
-        #Eth, Eph = self.get_E(self.num_grid)
+        #Eth, Eph = self.state.get_E(self.num_grid)
         #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.state.shc_VB) - dt * curlEr
 
         #self.state.set_shc(Br = self.GTG_inv.dot(self.num_grid.G.T.dot(-Br)))
 
-        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
+        #GTE = self.Gcf.T.dot(np.hstack( self.state.get_E(self.num_grid)) )
         #self.state.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-        self.state.shc_EW = self.num_grid.vector_to_shc_df.dot(np.hstack( self.get_E(self.num_grid)))
+        self.state.shc_EW = self.num_grid.vector_to_shc_df.dot(np.hstack( self.state.get_E(self.num_grid)))
         self.state.set_shc(Br = self.state.shc_Br + self.sha.n * (self.sha.n + 1) * self.state.shc_EW * dt / self.RI**2)
 
-
-
-    def set_initial_condition(self, I2D_object):
-        """ Set initial conditions.
-
-        If this is not called, initial condictions should be zero.
-
-        """
-        print('not implemented. inital conditions will be zero')
-
-
-    def set_FAC(self, FAC):
-        """
-        Specify field-aligned current at ``self.num_grid.theta``,
-        ``self.num_grid.lon``.
-
-            Parameters
-            ----------
-            FAC: array
-                The field-aligned current, in A/m^2, at
-                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
-                ``RI``. The values in the array have to match the
-                corresponding coordinates.
-
-        """
-
-        # Extract the radial component of the FAC:
-        jr = -FAC * self.sinI 
-        # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(self.num_grid.GTG, self.num_grid.G.T.dot(jr), rcond = 1e-3)[0]
-        # Propagate to the other coefficients (TB, TJ, PFAC):
-        self.state.set_shc(TJr = TJr)
-
-        if self.connect_hemispheres:
-            print('connect_hemispheres is not fully implemented')
-
-        print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
-        print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
-
-
-    def set_conductance(self, Hall, Pedersen):
-        """
-        Specify Hall and Pedersen conductance at
-        ``self.num_grid.theta``, ``self.num_grid.lon``.
-
-        """
-        if Hall.size != Pedersen.size != self.num_grid.theta.size:
-            raise Exception('Conductances must match phi and theta')
-
-        self.SH = Hall
-        self.SP = Pedersen
-        self.etaP = Pedersen / (Hall**2 + Pedersen**2)
-        self.etaH = Hall     / (Hall**2 + Pedersen**2)
-
-
-    def get_Br(self, grid, deg = False):
-        """ Calculate ``Br``.
-
-        """
-        return(grid.G.dot(self.state.shc_Br))
-
-
-    def get_JS(self, grid, deg = False):
-        """ Calculate ionospheric sheet current.
-
-        """
-        Je_V =  grid.G_th.dot(self.state.shc_VJ) # r cross grad(VJ) eastward component
-        Js_V = -grid.G_ph.dot(self.state.shc_VJ) # r cross grad(VJ) southward component
-        Je_T = -grid.G_ph.dot(self.state.shc_TJ) # -grad(VT) eastward component
-        Js_T = -grid.G_th.dot(self.state.shc_TJ) # -grad(VT) southward component
-
-        Jth, Jph = Js_V + Js_T, Je_V + Je_T
-
-        if not self.ignore_PNAF:
-            Jth = Jth + self.state.shc_PFAC_to_Jth.dot(self.state.shc_PFAC)
-            Jph = Jph + self.state.shc_PFAC_to_Jph.dot(self.state.shc_PFAC)
-
-        return(Jth, Jph)
-
-
-    def get_Jr(self, grid, deg = False):
-        """ Calculate radial current.
-
-        """
-
-        print('this must be fixed so that I can evaluate anywere')
-        return grid.G.dot(self.state.shc_TJr)
-
-
-    def get_equivalent_current_function(self, grid, deg = False):
-        """ Calculate equivalent current function.
-
-        """
-        print('not implemented')
-
-
-    def get_Phi(self, grid, deg = False):
-        """ Calculate electric potential.
-
-        """
-
-        print('this must be fixed so that Phi can be evaluated anywere')
-        return grid.G.dot(self.state.shc_Phi) * 1e-3
-
-
-    def get_W(self, grid, deg = False):
-        """ Calculate the induction electric field scalar.
-
-        """
-
-        print('this must be fixed so that W can be evaluated anywere')
-        return grid.G.dot(self.state.shc_EW) * 1e-3
-
-
-    def get_E(self, grid, deg = False):
-        """ Calculate electric field.
-
-        """
-
-
-        Jth, Jph = self.get_JS(grid)
-
-
-        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
-        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
-
-        return(Eth, Eph)
 
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PNAF = True):
@@ -309,7 +167,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     lon0 = d.mlt2mlon(12, date)
 
     hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.set_conductance(hall, pedersen)
+    i2d.state.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     ju = a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) * 1e-6
@@ -317,7 +175,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     ju[i2d.num_grid.theta < 90] = -ju[i2d.num_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
-    i2d.set_FAC(ju)
+    i2d.state.set_FAC(ju)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
@@ -455,13 +313,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
-                Br = i2d.get_Br(i2d.plt_grid)
+                Br = i2d.state.get_Br(i2d.plt_grid)
                 fig, paxn, paxs, axg =  globalplot(i2d.plt_grid.lon, i2d.plt_grid.lat, Br.reshape(i2d.plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W(i2d.plt_grid)
 
-                i2d.state.shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack( i2d.get_E(i2d.num_grid)))
-                Phi = i2d.get_Phi(i2d.plt_grid)
+                i2d.state.shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack( i2d.state.get_E(i2d.num_grid)))
+                Phi = i2d.state.get_Phi(i2d.plt_grid)
 
 
                 nnn = i2d.plt_grid.lat.flatten() >  50
