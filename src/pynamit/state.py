@@ -217,7 +217,7 @@ class state(object):
 
 
     def evolve_Br(self, dt):
-        """ Evolve Br in time.
+        """ Evolve ``Br`` in time.
 
         """
 
@@ -280,7 +280,7 @@ class state(object):
 
 
     def get_Phi(self, grid, deg = False):
-        """ Calculate electric potential.
+        """ Calculate Phi.
 
         """
 
