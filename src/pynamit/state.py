@@ -5,6 +5,7 @@ class state(object):
     """ State of the ionosphere.
 
     """
+
     def __init__(self, sha, mainfield, num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres):
         """ Initialize the state of the ionosphere.
     
@@ -102,7 +103,8 @@ class state(object):
         - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
         - 'TJr': Coefficients for radial current scalar.
 
-        """ 
+        """
+
         valid_kws = ['VB', 'TB', 'VJ', 'TJ', 'Br', 'TJr']
 
         if len(kwargs) != 1:
@@ -149,6 +151,7 @@ class state(object):
         If this is not called, initial condictions should be zero.
 
         """
+
         print('not implemented. inital conditions will be zero')
 
 
@@ -187,6 +190,7 @@ class state(object):
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
+
         if Hall.size != Pedersen.size != self.num_grid.theta.size:
             raise Exception('Conductances must match phi and theta')
 
@@ -196,10 +200,47 @@ class state(object):
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
 
+    def update_shc_EW(self, grid):
+        """ Update the coefficients for the induction electric field.
+
+        """
+
+        self.shc_EW = grid.vector_to_shc_df.dot(np.hstack(self.get_E(grid)))
+
+
+    def update_shc_Phi(self, grid):
+        """ Update the coefficients for the electric potential.
+
+        """
+
+        self.shc_Phi = grid.vector_to_shc_cf.dot(np.hstack(self.get_E(grid)))
+
+
+    def evolve_Br(self, dt):
+        """ Evolve Br in time.
+
+        """
+
+        #Eth, Eph = self.get_E(self.num_grid)
+        #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
+        #curlEr = self.equations.curlr(u1, u2) 
+        #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
+
+        #self.set_shc(Br = self.GTG_inv.dot(self.num_grid.G.T.dot(-Br)))
+
+        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
+        #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+
+        self.update_shc_EW(self.num_grid)
+        new_shc_Br = self.shc_Br + self.sha.n * (self.sha.n + 1) * self.shc_EW * dt / self.RI**2
+        self.set_shc(Br = new_shc_Br)
+
+
     def get_Br(self, grid, deg = False):
         """ Calculate ``Br``.
 
         """
+
         return(grid.G.dot(self.shc_Br))
 
 
@@ -207,6 +248,7 @@ class state(object):
         """ Calculate ionospheric sheet current.
 
         """
+
         Je_V =  grid.G_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
         Js_V = -grid.G_ph.dot(self.shc_VJ) # r cross grad(VJ) southward component
         Je_T = -grid.G_ph.dot(self.shc_TJ) # -grad(VT) eastward component
@@ -259,7 +301,6 @@ class state(object):
         """ Calculate electric field.
 
         """
-
 
         Jth, Jph = self.get_JS(grid)
 

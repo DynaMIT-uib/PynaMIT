@@ -11,6 +11,7 @@ Functions in this module:
   at given grid.
 
 """
+
 import numpy as np
 from pynamit.sha.shkeys import SHkeys
 

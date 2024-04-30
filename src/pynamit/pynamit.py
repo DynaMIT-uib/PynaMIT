@@ -112,25 +112,8 @@ class I2D(object):
             #       The interpolation matrix should be calculated here on initiation since the grid is fixed
 
 
+        # Initialize the state of the ionosphere
         self.state = state(self.sha, self.mainfield, self.num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres)
-
-
-    def evolve_Br(self, dt):
-        """ Evolve Br in time.
-
-        """
-
-        #Eth, Eph = self.state.get_E(self.num_grid)
-        #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
-        #curlEr = self.equations.curlr(u1, u2) 
-        #Br = -self.GBr.dot(self.state.shc_VB) - dt * curlEr
-
-        #self.state.set_shc(Br = self.GTG_inv.dot(self.num_grid.G.T.dot(-Br)))
-
-        #GTE = self.Gcf.T.dot(np.hstack( self.state.get_E(self.num_grid)) )
-        #self.state.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-        self.state.shc_EW = self.num_grid.vector_to_shc_df.dot(np.hstack( self.state.get_E(self.num_grid)))
-        self.state.set_shc(Br = self.state.shc_Br + self.sha.n * (self.sha.n + 1) * self.state.shc_EW * dt / self.RI**2)
 
 
 
@@ -302,7 +285,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         time = 0
         while True:
 
-            i2d.evolve_Br(dt)
+            i2d.state.evolve_Br(dt)
             time = time + dt
             coeffs.append(i2d.state.shc_VB)
             count += 1
@@ -318,7 +301,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W(i2d.plt_grid)
 
-                i2d.state.shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack( i2d.state.get_E(i2d.num_grid)))
+                i2d.state.update_shc_Phi(i2d.num_grid)
                 Phi = i2d.state.get_Phi(i2d.plt_grid)
 
 
