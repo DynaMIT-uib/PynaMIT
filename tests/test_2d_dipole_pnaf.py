@@ -17,7 +17,7 @@ def test_2d_dipole_pnaf():
         os.mkdir(temp_dir)  
 
     # Act
-    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=30, B0_type='dipole', fig_directory=temp_dir, ignore_PNAF=False)
+    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=30, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PNAF=False)
 
     # Assert
     coeff_array = np.array(coeffs)
