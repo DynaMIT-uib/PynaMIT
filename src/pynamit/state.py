@@ -1,12 +1,15 @@
 import numpy as np
+import scipy.sparse as spr
 from pynamit.grid import grid
+
+mu0 = 4 * np.pi * 1e-7
 
 class state(object):
     """ State of the ionosphere.
 
     """
 
-    def __init__(self, sha, mainfield, num_grid, mu0, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres):
+    def __init__(self, sha, mainfield, num_grid, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres, latitude_boundary):
         """ Initialize the state of the ionosphere.
     
         """
@@ -15,11 +18,12 @@ class state(object):
         self.mainfield = mainfield
         self.num_grid = num_grid
 
-        self.mu0 = mu0
+        self.mu0 = mu0 # TODO
         self.RI = RI
         self.ignore_PNAF = ignore_PNAF
 
         self.connect_hemispheres = connect_hemispheres
+        self.latitude_boundary = latitude_boundary
 
         # get magnetic field unit vectors at CS grid:
         self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
@@ -82,9 +86,120 @@ class state(object):
             self.shc_PFAC_to_Jph = -  1 / (self.sha.n + 1) * self.num_grid.G_ph / mu0
             self.shc_PFAC_to_Jth =    1 / (self.sha.n + 1) * self.num_grid.G_th / mu0
 
+
+
+        if connect_hemispheres:
+            if ignore_PNAF:
+                raise ValueError('Hemispheres can not be connected when ignore_PNAF is True')
+            if self.mainfield.kind == 'radial':
+                raise ValueError('Hemispheres can not be connected with radial magnetic field')
+
+            # identify the low latitude points
+            if self.mainfield.kind == 'dipole':
+                ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
+            elif self.mainfield.kind == 'igrf':
+                mlat, mlon = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.num_grid.RI - RE)*1e-3)
+                ll_mask = np.abs(mlat) < self.latitude_boundary
+            else:
+                print('this should not happen')
+
+            # calculate constraint matrices for low latitude points
+            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
+            self.ll_grid.construct_G (self.sha)
+            self.ll_grid.construct_dG(self.sha)
+            self.c_u_theta, self.c_u_phi, self.A5_eP_V, self.A5_eH_V, self.A5_eP_T, self.A5_eH_T = self._get_A5_and_c(self.ll_grid)
+            # ... and for their conjugate points:
+            self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
+            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_grid_conj.construct_G (self.sha)
+            self.ll_grid_conj.construct_dG(self.sha)
+            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj_V, self.A5_eH_conj_V, self.A5_eP_conj_T, self.A5_eH_conj_T = self._get_A5_and_c(self.ll_grid_conj)
+
+            # calculate sin(inclination)
+            self.ll_sinI = self.mainfield.get_sinI(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon).reshape((-1 ,1))
+            self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
+
+            # constraint matrix: FAC out of one hemisphere = FAC into the other
+            self.G_par_ll_grid = self.ll_grid.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI
+            self.G_par_ll_grid_conj = self.ll_grid_conj.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI_conj
+            self.constraint_Gpar = self.G_par_ll_grid - self.G_par_ll_grid_conj
+
+
+            # TODO: Should check for singularities - where field is horizontal - and probably just eliminate such points
+            #       from the constraint calculation
+            # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
+            #       This is needed to get values for conductance (and neutral wind u once that is included)
+            #       The interpolation matrix should be calculated here on initiation since the grid is fixed
+
+
+
+
         # Initialize the spherical harmonic coefficients
         self.set_shc(VB = np.zeros(sha.Nshc))
         self.set_shc(TB = np.zeros(sha.Nshc))
+
+
+    def _get_A5_and_c(self, _grid):
+        """ Calculte A5 and c 
+            
+
+        """
+
+        R, theta, phi = _grid.RI, _grid.theta, _grid.lon
+        B = np.vstack(self.mainfield.get_B(R, theta, phi))
+        B0 = np.linalg.norm(B, axis = 0)
+        br, bt, bp = B / B0
+        Br = B[0]
+        d1, d2, _, _, _, _ = self.mainfield.basevectors(R, theta, phi)
+        d1r, d1t, d1p = d1 # r theta phi components
+        d2r, d2t, d2p = d2
+
+        # The following lines of code are copied from output from sympy_matrix_algebra.py
+
+        # constant that is to be multiplied by u in theta direction:
+        c_ut_theta = Br*(bp*(bp*d1t - bt*d1p) + br*(br*d1t - bt*d1r))/(B0*br)
+        c_ut_phi   = Br*(bp*(bp*d2t - bt*d2p) + br*(br*d2t - bt*d2r))/(B0*br)
+        c_ut = np.hstack((c_ut_theta, c_ut_phi)).reshape((-1, 1)) # stack and convert to column vector
+
+        # constant that is to be multiplied by u in phi direction:
+        c_up_theta = Br*(br*(-bp*d1r + br*d1p) + bt*(-bp*d1t + bt*d1p))/(B0*br)
+        c_up_phi   = Br*(br*(-bp*d2r + br*d2p) + bt*(-bp*d2t + bt*d2p))/(B0*br)
+        c_up = np.hstack((c_up_theta, c_up_phi)).reshape((-1, 1)) # stack and convert to column vector
+
+
+        # A5eP matrix
+        a5eP00 = spr.diags((bp**3*d1r - bp**2*br*d1p + bp*br**2*d1r + bp*bt**2*d1r - br**3*d1p - br*bt**2*d1p)/B0)
+        a5eP01 = spr.diags((bp**2*br*d1t - bp**2*bt*d1r + br**3*d1t - br**2*bt*d1r + br*bt**2*d1t - bt**3*d1r)/B0)
+        a5eP10 = spr.diags((bp**3*d2r - bp**2*br*d2p + bp*br**2*d2r + bp*bt**2*d2r - br**3*d2p - br*bt**2*d2p)/B0)
+        a5eP11 = spr.diags((bp**2*br*d2t - bp**2*bt*d2r + br**3*d2t - br**2*bt*d2r + br*bt**2*d2t - bt**3*d2r)/B0)
+        a5eP = spr.vstack((spr.hstack((a5eP00, a5eP01)), spr.hstack((a5eP10, a5eP11)))).tocsr()
+
+        # A5eH matrix
+        a5eH00 = spr.diags((-bp**2*d1t + bp*bt*d1p - br**2*d1t + br*bt*d1r)/B0)
+        a5eH01 = spr.diags((bp*br*d1r + bp*bt*d1t - br**2*d1p - bt**2*d1p)/B0)
+        a5eH10 = spr.diags((-bp**2*d2t + bp*bt*d2p - br**2*d2t + br*bt*d2r)/B0)
+        a5eH11 = spr.diags((bp*br*d2r + bp*bt*d2t - br**2*d2p - bt**2*d2p)/B0)
+        a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
+
+        # Get spherical harmonic matrices and multiply with the relevant geometry matrices
+        Gph   = _grid.G_ph
+        Gth   = _grid.G_th
+        print('TODO: This is missing the poloidal part of the field related to T')
+        G_DeltaB_th_V =  Gph / (self.sha.n + 1) / mu0
+        G_DeltaB_ph_V =  Gth / (self.sha.n + 1) / mu0
+        G_DeltaB_V    = np.vstack((G_DeltaB_th_V, G_DeltaB_ph_V))
+        G_DeltaB_th_T = -Gth / (self.sha.n + 1) / mu0
+        G_DeltaB_ph_T =  Gph / (self.sha.n + 1) / mu0
+        G_DeltaB_T    = np.vstack((G_DeltaB_th_T, G_DeltaB_ph_T))
+
+        A5_eP_V = a5eP.dot(G_DeltaB_V)
+        A5_eH_V = a5eH.dot(G_DeltaB_V)
+        A5_eP_T = a5eP.dot(G_DeltaB_T)
+        A5_eH_T = a5eH.dot(G_DeltaB_T)
+
+        return(c_ut, c_up, A5_eP_V, A5_eH_V, A5_eP_T, A5_eH_T)
+
+
 
     
     def set_shc(self, **kwargs):
