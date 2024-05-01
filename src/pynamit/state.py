@@ -34,11 +34,16 @@ class state(object):
         self.b10 = -self.btheta * self.bphi
         self.b11 = self.btheta**2 + self.br**2
 
-        # Pre-calculate the matrix that maps from TJr_shc to coefficients for the poloidal magnetic field of FACs
+        # Pre-calculate the matrix that maps from shc_TB to the boundary magnetic field (Bh+)
+        self.GTB = -self.num_grid.Gdf * self.RI # matrix that gets -r x grad(T)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
-        else: # Use the method by Engels and Olsen 1998, Eq. 13:
-            self.shc_TJr_to_shc_PFAC, self.shc_PFAC_to_Jph, self.shc_PFAC_to_Jth, self.shc_PFAC_to_Bph, self.shc_PFAC_to_Bth = self._get_PFAC_matrices(self.num_grid)
+            self.shc_TB_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
+        else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
+            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(self.num_grid)
+            GPFAC    = self.num_grid.Gcf                      # matrix that calculates potential magnetic field of external source
+            Gshield  = (self.num_grid.Gcf / (self.sha.n + 1)) # matrix that calculates potential magnetic field of shielding current
+            self.GTB = self.GTB + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC) # add these contributions to GTB
+
 
         if connect_hemispheres:
             if ignore_PFAC:
@@ -91,7 +96,7 @@ class state(object):
         self.set_shc(TB = np.zeros(sha.Nshc))
 
 
-    def _get_PFAC_matrices(self, _grid):
+    def _get_PFAC_matrix(self, _grid):
         """ """
         # initialize matrix that will map from self.TJr to coefficients for poloidal field:
 
@@ -103,7 +108,7 @@ class state(object):
 
         jh_to_shc = -_grid.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
-        shc_TJr_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
+        shc_TB_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
@@ -123,8 +128,8 @@ class state(object):
             # find matrix that gets radial current at these coordinates:
             mapped_grid.construct_G(self.sha)
 
-            # we need to scale this by -1/sin(inclination) to get the FAC:
-            Q_k = -mapped_grid.G / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+            # Calculate matrix that gives FAC from toroidal coefficients
+            G_k = -mapped_grid.G * self.sha.n * (self.sha.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
             ratio = (B0_rk / B0_RI).reshape((1, -1))
@@ -134,20 +139,10 @@ class state(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sha.n - 1))
 
             # put it all together (crazy)
-            shc_TJr_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(Q_k)))
+            shc_TB_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(G_k)))
 
-        # finally scale the matrix by the term in front of the integral
-        shc_TJr_to_shc_PFAC =  np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TJr_to_shc_PFAC) / self.RI
-
-        # make matrices that translate shc_PFAC to horizontal current density (assuming divergence-free shielding current)
-        shc_PFAC_to_Jph     = -  1 / (self.sha.n + 1) * _grid.G_ph / mu0
-        shc_PFAC_to_Jth     =    1 / (self.sha.n + 1) * _grid.G_th / mu0
-
-        # and matrices that calculate the magnetic field just above the ionosphere (TODO: This really needs to be checked carefully):
-        shc_PFAC_to_Bph     =  shc_PFAC_to_Jth * mu0 / self.RI /(self.sha.n * (self.sha.n + 1)) * self.RI**2
-        shc_PFAC_to_Bth     = -shc_PFAC_to_Jph * mu0 / self.RI /(self.sha.n * (self.sha.n + 1)) * self.RI**2
-
-        return(shc_TJr_to_shc_PFAC, shc_PFAC_to_Jph, shc_PFAC_to_Jth, shc_PFAC_to_Bph, shc_PFAC_to_Bth)
+        # return the matrix scaled by the term in front of the integral
+        return(np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TB_to_shc_PFAC) / self.RI)
 
 
     def _get_A5_and_c(self, _grid):
@@ -247,7 +242,7 @@ class state(object):
             self.shc_TB = kwargs['TB']
             self.shc_TJ = -self.RI / mu0 * self.shc_TB
             self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
-            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
+            self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
         elif key == 'VJ':
             self.shc_VJ = kwargs['VJ']
             self.shc_VB = mu0 / self.RI * (self.sha.n + 1) / (2 * self.sha.n + 1) * self.shc_VJ
@@ -256,7 +251,7 @@ class state(object):
             self.shc_TJ = kwargs['TJ']
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
             self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
-            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
+            self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
         elif key == 'Br':
             self.shc_Br = kwargs['Br']
             self.shc_VB = self.shc_Br / self.sha.n
@@ -265,7 +260,7 @@ class state(object):
             self.shc_TJr = kwargs['TJr']
             self.shc_TJ = -1 /(self.sha.n * (self.sha.n + 1)) * self.shc_TJr * self.RI**2
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
+            self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
             print('check the factor RI**2!')
         else:
             raise Exception('This should not happen')
@@ -377,14 +372,15 @@ class state(object):
 
         Je_V =  grid.G_th.dot(self.shc_VJ) # r cross grad(VJ) eastward component
         Js_V = -grid.G_ph.dot(self.shc_VJ) # r cross grad(VJ) southward component
-        Je_T = -grid.G_ph.dot(self.shc_TJ) # -grad(VT) eastward component
-        Js_T = -grid.G_th.dot(self.shc_TJ) # -grad(VT) southward component
+        Bs_T, Be_T = np.split(self.GTB.dot(self.shc_TB), 2, axis = 0)
+        Js_T, Je_T = -Be_T/mu0, Bs_T/mu0
+
+
+        #Je_T = -grid.G_ph.dot(self.shc_TJ) # -grad(VT) eastward component
+        #Js_T = -grid.G_th.dot(self.shc_TJ) # -grad(VT) southward component
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
-        if not self.ignore_PFAC:
-            Jth = Jth + self.shc_PFAC_to_Jth.dot(self.shc_PFAC)
-            Jph = Jph + self.shc_PFAC_to_Jph.dot(self.shc_PFAC)
 
         return(Jth, Jph)
 

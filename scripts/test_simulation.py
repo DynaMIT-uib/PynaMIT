@@ -12,7 +12,7 @@ from lompe import conductance
 
 reload(pynamit)
 
-IGNORE_PNAF = False
+IGNORE_PFAC = False
 
 # SIMULATION PARAMETERS
 Nmax, Mmax, Ncs = 45, 3, 40
@@ -32,10 +32,8 @@ Philevels = np.r_[-212.5:212.5:2.5]
 ## SET UP SIMULATION OBJECT
 i2d_sha = pynamit.sha(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
+i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC)
 
-i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PNAF = IGNORE_PNAF)
-
-#i2d = pynamit.I2D(Nmax, Mmax, Ncs, B0 = 'dipole', ignore_PNAF = IGNORE_PNAF)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)
