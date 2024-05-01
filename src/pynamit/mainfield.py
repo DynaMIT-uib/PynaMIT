@@ -4,8 +4,7 @@ import ppigrf
 import apexpy
 import dipole
 import numpy as np
-
-RE = 6371.2e3 # Earth radius
+from pynamit.constants import RE
 
 class Mainfield(object):
     def __init__(self, kind = 'dipole', epoch = 2020., B0 = None):

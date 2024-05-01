@@ -1,8 +1,7 @@
 import numpy as np
 import scipy.sparse as spr
 from pynamit.grid import grid
-
-mu0 = 4 * np.pi * 1e-7
+from pynamit.constants import mu0
 
 class state(object):
     """ State of the ionosphere.
@@ -18,7 +17,6 @@ class state(object):
         self.mainfield = mainfield
         self.num_grid = num_grid
 
-        self.mu0 = mu0 # TODO
         self.RI = RI
         self.ignore_PNAF = ignore_PNAF
 
@@ -230,30 +228,30 @@ class state(object):
 
         if key == 'VB':
             self.shc_VB = kwargs['VB']
-            self.shc_VJ = self.RI / self.mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
+            self.shc_VJ = self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
             self.shc_Br = 1 / self.sha.n * self.shc_VB
         elif key == 'TB':
             self.shc_TB = kwargs['TB']
-            self.shc_TJ = -self.RI / self.mu0 * self.shc_TB
+            self.shc_TJ = -self.RI / mu0 * self.shc_TB
             self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
             self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
         elif key == 'VJ':
             self.shc_VJ = kwargs['VJ']
-            self.shc_VB = self.mu0 / self.RI * (self.sha.n + 1) / (2 * self.sha.n + 1) * self.shc_VJ
+            self.shc_VB = mu0 / self.RI * (self.sha.n + 1) / (2 * self.sha.n + 1) * self.shc_VJ
             self.shc_Br = 1 / self.sha.n * self.shc_VB
         elif key == 'TJ':
             self.shc_TJ = kwargs['TJ']
-            self.shc_TB = -self.mu0 / self.RI * self.shc_TJ
+            self.shc_TB = -mu0 / self.RI * self.shc_TJ
             self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
             self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
         elif key == 'Br':
             self.shc_Br = kwargs['Br']
             self.shc_VB = self.shc_Br / self.sha.n
-            self.shc_VJ = -self.RI / self.mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
+            self.shc_VJ = -self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
         elif key == 'TJr':
             self.shc_TJr = kwargs['TJr']
             self.shc_TJ = -1 /(self.sha.n * (self.sha.n + 1)) * self.shc_TJr * self.RI**2
-            self.shc_TB = -self.mu0 / self.RI * self.shc_TJ
+            self.shc_TB = -mu0 / self.RI * self.shc_TJ
             self.shc_PFAC = self.shc_TJr_to_shc_PFAC.dot(self.shc_TJr) 
             print('check the factor RI**2!')
         else:

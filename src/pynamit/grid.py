@@ -57,7 +57,6 @@ class grid(object):
         """
         Construct matrices for obtaining SH coefficients corresponding to
         the curl- and divergence-free components of a vector.
-
         """
 
         # Pre-calculate matrix to get coefficients for curl-free fields:

@@ -6,9 +6,7 @@ from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import cs_equations
 from pynamit.grid import grid
 from pynamit.state import state
-
-RE = 6371.2e3
-mu0 = 4 * np.pi * 1e-7
+from pynamit.constants import RE, mu0
 
 
 class I2D(object):
