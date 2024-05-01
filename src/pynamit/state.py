@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse as spr
 from pynamit.grid import grid
-from pynamit.constants import mu0
+from pynamit.constants import mu0, RE
 
 class state(object):
     """ State of the ionosphere.

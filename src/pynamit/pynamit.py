@@ -6,7 +6,7 @@ from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import cs_equations
 from pynamit.grid import grid
 from pynamit.state import state
-from pynamit.constants import RE, mu0
+from pynamit.constants import RE
 
 
 class I2D(object):
