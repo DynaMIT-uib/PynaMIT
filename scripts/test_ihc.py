@@ -28,7 +28,7 @@ Philevels = np.r_[-212.5:212.5:5]
 i2d_sha = pynamit.sha(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
 i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, 
-                                        ignore_PNAF = False, connect_hemispheres = True, latitude_boundary = 50)
+                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = 50)
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)

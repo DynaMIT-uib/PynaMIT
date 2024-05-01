@@ -16,7 +16,7 @@ class I2D(object):
                        RI = RE + 110.e3, mainfield_kind = 'dipole', 
                        B0_parameters = {'epoch':2020}, 
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
-                       ignore_PNAF = False,
+                       ignore_PFAC = False,
                        connect_hemispheres = False,
                        latitude_boundary = 50):
         """
@@ -55,12 +55,12 @@ class I2D(object):
         #self.cs_equations = cs_equations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = state(sha, self.mainfield, self.num_grid, RI, ignore_PNAF, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = state(sha, self.mainfield, self.num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
 
 
 
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PNAF = True):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True):
 
     # Set up the spherical harmonic analysis object
     i2d_sha = sha(Nmax, Mmax)
@@ -71,7 +71,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(i2d_sha, csp, RI, mainfield_kind, ignore_PNAF = ignore_PNAF)
+    i2d = I2D(i2d_sha, csp, RI, mainfield_kind, ignore_PFAC = ignore_PFAC)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
