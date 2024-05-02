@@ -40,6 +40,7 @@ from pynamit.cubedsphere import arrayutils
 import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix
+from scipy.interpolate import griddata
 d2r = np.pi / 180
 
 datapath = os.path.dirname(os.path.abspath(__file__)) + '/data/' # for coastlines
@@ -632,7 +633,7 @@ class CSprojection(object):
         xi: array-like
             Array of `xi` values on block given by `block_i`.
         eta: array-like
-            Array of `eta` values on block given by `block_j`.
+            Array of `eta` values on block given by `block_i`.
         block_i: array-like, optional
             Indices of block(s) from which to transform vector components.
         block_j: array-like, optional
@@ -1000,8 +1001,6 @@ class CSprojection(object):
         return xi.reshape(shape), eta.reshape(shape), block.reshape(shape)
 
 
-
-
     def get_projected_coastlines(self, resolution = '50m'):
         """ Generate coastlines in projected coordinates. """
 
@@ -1009,5 +1008,103 @@ class CSprojection(object):
         for key in coastlines:
             lat, lon = coastlines[key]
             yield self.geo2cube(lon, lat)
+
+
+    def interpolate_vectors_to_cubed_sphere(self, u_east, u_north, u_r, theta, phi, xi, eta, block, **kwargs):
+        """ Interpolate vector_components defined on theta, phi to given cubed sphere coordinates
+    
+        Broadcasting rules apply for input arrays (`values`, `theta`, `phi`) 
+        and target coordinates (`xi`, `eta`, `block`) separately. Output is
+        given in the combined shape of `xi`, `eta`, `block`
+
+
+        Parameters
+        ----------
+        values: array
+            array of scalar field values that shall be interpolated to 
+            (`xi`, `eta`, `block`) shape must be consistent with `values` 
+            and `theta` and `phi`
+        theta: array
+            array of coordinates for `values`. shape must be consistent 
+            with `values` and `phi`
+        phi: array
+            array of coordinates for `values`. shape must be consistent 
+            with `values` and `theta`
+        xi: array
+            array of target coordinates. Shape must be consistent with 
+            `eta` and `block`
+        eta: array
+            array of target coordinates. Shape must be consistent with 
+            `xi` and `block`
+        block: array
+            array of target coordinates. Shape must be consistent with 
+            `xi` and `eta`
+        **kwargs
+            passed to scipy.interpolate.griddata which performs the interpolation
+            on each block
+
+        Returns
+        -------
+        interpolated_values: array
+            array of values interpolated to `xi`, `eta`, `block`
+        """
+        print('TODO: Fix documentation and code -- the code works, but started out as something else')
+
+        xi, eta, block = np.broadcast_arrays(xi, eta, block)
+        xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
+
+        u_east, u_north, u_r, theta, phi = np.broadcast_arrays(u_east, u_north, u_r, theta, phi)
+        u_east, u_north, u_r, theta, phi = u_east.flatten(), u_north.flatten(), u_r.flatten(), theta.flatten(), phi.flatten()
+
+        print(u_east.max())
+        # define vectors that point at all the original points:
+        th, ph = np.deg2rad(theta), np.deg2rad(phi)
+        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+
+        # convert vector components to cubed sphere
+        u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
+        Ps = self.get_Ps(u_xi, u_eta, r = 1, block = u_block)
+        Q  = self.get_Q(90 - theta, r = 1, inverse = True)
+        Ps_normalized = np.einsum('nij, njk -> nik', Ps, Q)
+        u_vec_sph = np.vstack((u_east, u_north, u_r))
+        u_vec = np.einsum('nij, nj -> ni', Ps_normalized, u_vec_sph.T).T
+
+        interpolated_u1 = np.empty_like(block, dtype = np.float64)
+        interpolated_u2 = np.empty_like(block, dtype = np.float64)
+        interpolated_u3 = np.empty_like(block, dtype = np.float64)
+
+
+        # loop over blocks and interpolate on each block:
+        for i in range(6):
+
+            # express vector components with respect to block i:
+            Qij = self.get_Qij(u_xi, u_eta, u_block, i)
+            u_vec_i = np.einsum('nij, nj -> ni', Qij, u_vec.T).T
+
+            # filter points whose position vectors have anti-parallel component to center of the block
+            _, th, ph = self.cube2spherical(0, 0, i, deg = False)
+            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape((-1, 1))
+            mask = np.sum(r0 * r, axis = 0) > 0
+
+            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block = i)
+
+            interpolated_u1[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[0][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+            interpolated_u2[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[1][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+            interpolated_u3[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[2][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+
+        # convert back to spherical:
+        r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg = True)
+        u = np.vstack((interpolated_u1, interpolated_u2, interpolated_u3))
+        Q      = self.get_Q(90 - theta_out, r = 1, inverse = False)
+        Ps_inv = self.get_Ps(xi, eta, r = 1, block = block, inverse = True)
+        Ps_normalized_inv = np.einsum('nij, njk -> nik', Q, Ps_inv)
+        u_east_int, u_north_int, u_r_int = np.einsum('nij, nj -> ni', Ps_normalized_inv, u.T).T
+
+        print(u_east_int.max() , '\n\n')
+
+        return( np.vstack((u_east_int, u_north_int, u_r_int)) )
+
+
+
 
 csp = CSprojection()
