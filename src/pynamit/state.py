@@ -35,14 +35,15 @@ class state(object):
         self.b11 = self.btheta**2 + self.br**2
 
         # Pre-calculate the matrix that maps from shc_TB to the boundary magnetic field (Bh+)
-        self.GTB = -self.num_grid.Gdf * self.RI # matrix that gets -r x grad(T)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
             self.shc_TB_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
             self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(self.num_grid)
-            GPFAC    = self.num_grid.Gcf                      # matrix that calculates potential magnetic field of external source
-            Gshield  = (self.num_grid.Gcf / (self.sha.n + 1)) # matrix that calculates potential magnetic field of shielding current
-            self.GTB = self.GTB + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC) # add these contributions to GTB
+
+        self.GTB = self.get_GTB(self.num_grid)
+
+
+
 
 
         if connect_hemispheres:
@@ -206,6 +207,13 @@ class state(object):
         return(c_ut, c_up, A5_eP_V, A5_eH_V, A5_eP_T, A5_eH_T)
 
 
+    def get_GTB(self, _grid):
+        """ Calculate matrix that maps the coefficients shc_TB to horizontal magnetic field above the ionosphere """
+        GrxgradT = -_grid.Gdf * _grid.RI # matrix that gets -r x grad(T)
+        GPFAC    = _grid.Gcf                      # matrix that calculates potential magnetic field of external source
+        Gshield  = (_grid.Gcf / (self.sha.n + 1)) # matrix that calculates potential magnetic field of shielding current
+
+        return(GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC))
 
     
     def set_shc(self, **kwargs):
