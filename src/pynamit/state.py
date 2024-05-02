@@ -210,7 +210,7 @@ class state(object):
     def get_GTB(self, _grid):
         """ Calculate matrix that maps the coefficients shc_TB to horizontal magnetic field above the ionosphere """
         GrxgradT = -_grid.Gdf * _grid.RI # matrix that gets -r x grad(T)
-        GPFAC    = _grid.Gcf                      # matrix that calculates potential magnetic field of external source
+        GPFAC    = -_grid.Gcf                      # matrix that calculates potential magnetic field of external source
         Gshield  = (_grid.Gcf / (self.sha.n + 1)) # matrix that calculates potential magnetic field of shielding current
 
         return(GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC))
