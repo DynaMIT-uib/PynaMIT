@@ -24,6 +24,10 @@ class state(object):
         self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
 
+        # initialize neutral wind
+        self.u_theta = None
+        self.u_phi = None 
+
         # get magnetic field unit vectors at CS grid:
         self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
         self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
@@ -313,6 +317,16 @@ class state(object):
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
 
 
+    def set_u(self, u_theta, u_phi):
+        """ set neutral wind theta and phi components 
+            For now, they *have* to be given on num_grid
+        """
+        self.u_theta = u_theta
+        self.u_phi = u_phi
+
+        self.uxB_theta =  self.u_phi   * self.B[0] 
+        self.uxB_phi   = -self.u_theta * self.B[0] 
+
     def set_conductance(self, Hall, Pedersen):
         """
         Specify Hall and Pedersen conductance at
@@ -431,11 +445,17 @@ class state(object):
         """ Calculate electric field.
 
         """
+        if self.u_theta is not None:
+            Eth = -self.uxB_theta
+            Eph = -self.uxB_phi
+        else:
+            Eth = 0
+            Eph = 0
 
         Jth, Jph = self.get_JS(grid)
 
-
-        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
-        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
+        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
+        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
 
         return(Eth, Eph)
+
