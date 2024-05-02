@@ -66,15 +66,11 @@ class state(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
-            self.ll_grid.construct_G (self.sha)
-            self.ll_grid.construct_dG(self.sha)
+            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.sha)
             self.c_u_theta, self.c_u_phi, self.A5_eP_V, self.A5_eH_V, self.A5_eP_T, self.A5_eH_T = self._get_A5_and_c(self.ll_grid)
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
-            self.ll_grid_conj.construct_G (self.sha)
-            self.ll_grid_conj.construct_dG(self.sha)
+            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj, self.sha)
             self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj_V, self.A5_eH_conj_V, self.A5_eP_conj_T, self.A5_eH_conj_T = self._get_A5_and_c(self.ll_grid_conj)
 
             # calculate sin(inclination)
@@ -109,8 +105,6 @@ class state(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        _grid.construct_vector_to_shc_cf_df()
-
         jh_to_shc = -_grid.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         shc_TB_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
@@ -118,7 +112,7 @@ class state(object):
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
             theta_mapped, phi_mapped = self.mainfield.map_coords(_grid.RI, r_k[i], _grid.theta, _grid.lon)
-            mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped)
+            mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped, self.sha)
 
             # Calculate magnetic field at grid points at r_k[i]:
             B_rk  = np.vstack(self.mainfield.get_B(r_k[i], _grid.theta, _grid.lon))
@@ -129,9 +123,6 @@ class state(object):
             B_RI  = np.vstack(self.mainfield.get_B(mapped_grid.RI, mapped_grid.theta, mapped_grid.lon))
             B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
             sinI_RI = -B_RI[0] / B0_RI
-
-            # find matrix that gets radial current at these coordinates:
-            mapped_grid.construct_G(self.sha)
 
             # Calculate matrix that gives FAC from toroidal coefficients
             G_k = -mapped_grid.G * self.sha.n * (self.sha.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)

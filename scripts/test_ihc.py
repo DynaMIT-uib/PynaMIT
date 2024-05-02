@@ -34,7 +34,6 @@ i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integrati
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.grid.grid(RI, lat, lon)
-plt_grid.construct_G(i2d_sha)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)

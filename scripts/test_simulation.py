@@ -61,9 +61,7 @@ i2d.state.set_FAC(jparallel)
 # make plot grid:
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon)
-plt_grid.construct_G(i2d_sha)
-plt_grid.construct_dG(i2d_sha)
+plt_grid = pynamit.grid.grid(RI, lat, lon, i2d_sha)
 nnn = plt_grid.lat.flatten() >  50
 sss = plt_grid.lat.flatten() < -50
 

@@ -45,13 +45,7 @@ class I2D(object):
 
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
-        self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
-
-        # Construct matrices for transforming from surface spherical harmonic coefficients to cubed sphere grid
-        self.num_grid.construct_G(sha)
-        self.num_grid.construct_dG(sha)
-        self.num_grid.construct_GTG()
-        self.num_grid.construct_vector_to_shc_cf_df()
+        self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi, sha)
 
         #self.cs_equations = cs_equations(csp, RI)
 
@@ -105,10 +99,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
-    plt_grid = grid(RI, lat, lon)
-
-    # Construct matrix for transforming from surface spherical harmonic coefficients to plotting grid
-    plt_grid.construct_G(i2d_sha)
+    plt_grid = grid(RI, lat, lon, i2d_sha)
 
     hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.state.set_conductance(hall, pedersen)
@@ -140,10 +131,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
 
-        m_grid = grid(i2d.RI, mlat, lon)
-        mv_grid = grid(i2d.RI, mlatv, lonv)
-        mn_grid = grid(i2d.RI, mlatn, mltn)
-        mnv_grid = grid(i2d.RI, mlatnv, mltnv)
+        m_grid = grid(i2d.RI, mlat, lon, i2d_sha)
+        mv_grid = grid(i2d.RI, mlatv, lonv, i2d_sha)
+        mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sha)
+        mnv_grid = grid(i2d.RI, mlatnv, mltnv, i2d_sha)
 
         paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
         paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
@@ -179,7 +170,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         if not compare_AMPS_FAC_and_CF_currents:
             mlat  , mlt   = a.scalargrid
             mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
-            mn_grid = grid(i2d.RI, mlatn, mltn)
+            mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sha)
 
         Bu = a.get_ground_Buqd(height = a.height)
         paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
