@@ -41,6 +41,7 @@ class I2D(object):
         self.latitude_boundary = latitude_boundary
 
         self.sha = sha
+        self.csp = csp
 
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
