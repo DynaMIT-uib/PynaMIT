@@ -13,6 +13,7 @@ class grid(object):
         self.RI = RI
         self.lat = lat
         self.lon = lon
+        self.size = self.lon.size
 
         self.theta = 90 - lat
 
