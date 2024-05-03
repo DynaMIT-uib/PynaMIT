@@ -30,9 +30,9 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:2.5]
 
 ## SET UP SIMULATION OBJECT
-i2d_sha = pynamit.sha(Nmax, Mmax)
+i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
-i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC)
+i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC)
 
 
 ## CONDUCTANCE AND FAC INPUT:
@@ -61,7 +61,7 @@ i2d.state.set_FAC(jparallel)
 # make plot grid:
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon, i2d_sha)
+plt_grid = pynamit.grid.grid(RI, lat, lon, i2d_sh)
 nnn = plt_grid.lat.flatten() >  50
 sss = plt_grid.lat.flatten() < -50
 
@@ -90,7 +90,7 @@ while True:
 
         W = plt_grid.G.dot(i2d.state.shc_EW) * 1e-3
 
-        shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.num_grid))) # find coefficients for electric potential
+        shc_Phi = i2d.state.grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.state.grid))) # find coefficients for electric potential
         Phi = plt_grid.G.dot(shc_Phi) * 1e-3
 
         #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)

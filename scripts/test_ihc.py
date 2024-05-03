@@ -29,7 +29,7 @@ u_phi   =  hwm14Obj.Uwind
 u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-i2d_sha = pynamit.sha(Nmax, Mmax)
+i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
 
 u_int = i2d_csp.interpolate_vectors_to_cubed_sphere(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_xi, i2d_csp.arr_eta, i2d_csp.arr_block)
@@ -52,7 +52,7 @@ Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
 
-i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, 
+i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, 
                                         ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = 50)
 
 ## SET UP PLOTTING GRID
@@ -61,17 +61,17 @@ lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.grid.grid(RI, lat, lon)
 
 ## CONDUCTANCE AND FAC INPUT:
-hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
+hall, pedersen = conductance.hardy_EUV(i2d.state.grid.lon, i2d.state.grid.lat, Kp, date, starlight = 1, dipole = True)
 i2d.state.set_conductance(hall, pedersen)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) / i2d.state.sinI * 1e-6
-jparallel[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
+jparallel = -a.get_upward_current(mlat = i2d.state.grid.lat, mlt = d.mlon2mlt(i2d.state.grid.lon, date)) / i2d.state.sinI * 1e-6
+jparallel[np.abs(i2d.state.grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_FAC(jparallel)
 i2d.state.set_u(-u_north_int, u_east_int)
 
-GBr = plt_grid.G * i2d_sha.n / i2d.num_grid.RI
+GBr = plt_grid.G * i2d_sh.n / i2d.state.grid.RI
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 

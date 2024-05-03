@@ -8,14 +8,14 @@ class state(object):
 
     """
 
-    def __init__(self, sha, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary):
+    def __init__(self, sh, mainfield, grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary):
         """ Initialize the state of the ionosphere.
     
         """
 
-        self.sha = sha
+        self.sh = sh
         self.mainfield = mainfield
-        self.num_grid = num_grid
+        self.grid = grid
         self.FAC_integration_parameters = FAC_integration_parameters
 
         self.RI = RI
@@ -29,7 +29,7 @@ class state(object):
         self.u_phi = None 
 
         # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
+        self.B = np.vstack(self.mainfield.get_B(self.RI, self.grid.theta, self.grid.lon))
         self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
         self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -40,11 +40,11 @@ class state(object):
 
         # Pre-calculate the matrix that maps from shc_TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.shc_TB_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
+            self.shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(self.num_grid)
+            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(self.grid)
 
-        self.GTB = self.get_GTB(self.num_grid)
+        self.GTB = self.get_GTB(self.grid)
 
 
 
@@ -58,19 +58,19 @@ class state(object):
 
             # identify the low latitude points
             if self.mainfield.kind == 'dipole':
-                ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
+                ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
             elif self.mainfield.kind == 'igrf':
-                mlat, mlon = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.num_grid.RI - RE)*1e-3)
+                mlat, mlon = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.grid.RI - RE)*1e-3)
                 ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.sha)
+            self.ll_grid = grid(RI, 90 - self.grid.theta[ll_mask], self.grid.lon[ll_mask], self.sh)
             self.c_u_theta, self.c_u_phi, self.A5_eP_V, self.A5_eH_V, self.A5_eP_T, self.A5_eH_T = self._get_A5_and_c(self.ll_grid)
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj, self.sha)
+            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj, self.sh)
             self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj_V, self.A5_eH_conj_V, self.A5_eP_conj_T, self.A5_eH_conj_T = self._get_A5_and_c(self.ll_grid_conj)
 
             # calculate sin(inclination)
@@ -78,8 +78,8 @@ class state(object):
             self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll_grid = self.ll_grid.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI
-            self.G_par_ll_grid_conj = self.ll_grid_conj.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI_conj
+            self.G_par_ll_grid = self.ll_grid.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI
+            self.G_par_ll_grid_conj = self.ll_grid_conj.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj
             self.constraint_Gpar = self.G_par_ll_grid - self.G_par_ll_grid_conj
 
 
@@ -93,8 +93,8 @@ class state(object):
 
 
         # Initialize the spherical harmonic coefficients
-        self.set_shc(VB = np.zeros(sha.Nshc))
-        self.set_shc(TB = np.zeros(sha.Nshc))
+        self.set_shc(VB = np.zeros(sh.Nshc))
+        self.set_shc(TB = np.zeros(sh.Nshc))
 
 
     def _get_PFAC_matrix(self, _grid):
@@ -107,12 +107,12 @@ class state(object):
 
         jh_to_shc = -_grid.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
-        shc_TB_to_shc_PFAC = np.zeros((self.sha.Nshc, self.sha.Nshc))
+        shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
             theta_mapped, phi_mapped = self.mainfield.map_coords(_grid.RI, r_k[i], _grid.theta, _grid.lon)
-            mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped, self.sha)
+            mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped, self.sh)
 
             # Calculate magnetic field at grid points at r_k[i]:
             B_rk  = np.vstack(self.mainfield.get_B(r_k[i], _grid.theta, _grid.lon))
@@ -125,20 +125,20 @@ class state(object):
             sinI_RI = -B_RI[0] / B0_RI
 
             # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = -mapped_grid.G * self.sha.n * (self.sha.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+            G_k = -mapped_grid.G * self.sh.n * (self.sh.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
             ratio = (B0_rk / B0_RI).reshape((1, -1))
             S_k = np.vstack((np.diag(b_rk[1]), np.diag(b_rk[2]))) * ratio
 
             # matrix that scales the terms by (R/r_k)**(n-1):
-            A_k = np.diag((self.RI / r_k[i])**(self.sha.n - 1))
+            A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # put it all together (crazy)
             shc_TB_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(G_k)))
 
         # return the matrix scaled by the term in front of the integral
-        return(np.diag((self.sha.n + 1) / (2 * self.sha.n + 1)).dot(shc_TB_to_shc_PFAC) / self.RI)
+        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(shc_TB_to_shc_PFAC) / self.RI)
 
 
     def _get_A5_and_c(self, _grid):
@@ -187,11 +187,11 @@ class state(object):
         Gph   = _grid.G_ph
         Gth   = _grid.G_th
         print('this is missing poloidal part of magnetic field...')
-        G_DeltaB_th_V =  Gph / (self.sha.n + 1) / mu0
-        G_DeltaB_ph_V =  Gth / (self.sha.n + 1) / mu0
+        G_DeltaB_th_V =  Gph / (self.sh.n + 1) / mu0
+        G_DeltaB_ph_V =  Gth / (self.sh.n + 1) / mu0
         G_DeltaB_V    = np.vstack((G_DeltaB_th_V, G_DeltaB_ph_V))
-        G_DeltaB_th_T = -Gth / (self.sha.n + 1) / mu0
-        G_DeltaB_ph_T =  Gph / (self.sha.n + 1) / mu0
+        G_DeltaB_th_T = -Gth / (self.sh.n + 1) / mu0
+        G_DeltaB_ph_T =  Gph / (self.sh.n + 1) / mu0
         G_DeltaB_T    = np.vstack((G_DeltaB_th_T, G_DeltaB_ph_T))
 
         A5_eP_V = a5eP.dot(G_DeltaB_V)
@@ -206,7 +206,7 @@ class state(object):
         """ Calculate matrix that maps the coefficients shc_TB to horizontal magnetic field above the ionosphere """
         GrxgradT = -_grid.Gdf * _grid.RI # matrix that gets -r x grad(T)
         GPFAC    = -_grid.Gcf                      # matrix that calculates potential magnetic field of external source
-        Gshield  = -(_grid.Gcf / (self.sha.n + 1)) # matrix that calculates potential magnetic field of shielding current
+        Gshield  = -(_grid.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
 
         return(GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC))
 
@@ -239,29 +239,29 @@ class state(object):
 
         if key == 'VB':
             self.shc_VB = kwargs['VB']
-            self.shc_VJ = self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
-            self.shc_Br = 1 / self.sha.n * self.shc_VB
+            self.shc_VJ = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB
+            self.shc_Br = 1 / self.sh.n * self.shc_VB
         elif key == 'TB':
             self.shc_TB = kwargs['TB']
             self.shc_TJ = -self.RI / mu0 * self.shc_TB
-            self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
+            self.shc_TJr = -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ 
             self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
         elif key == 'VJ':
             self.shc_VJ = kwargs['VJ']
-            self.shc_VB = mu0 / self.RI * (self.sha.n + 1) / (2 * self.sha.n + 1) * self.shc_VJ
-            self.shc_Br = 1 / self.sha.n * self.shc_VB
+            self.shc_VB = mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.shc_VJ
+            self.shc_Br = 1 / self.sh.n * self.shc_VB
         elif key == 'TJ':
             self.shc_TJ = kwargs['TJ']
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_TJr = -self.sha.n * (self.sha.n + 1) / self.RI**2 * self.shc_TJ 
+            self.shc_TJr = -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ 
             self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
         elif key == 'Br':
             self.shc_Br = kwargs['Br']
-            self.shc_VB = self.shc_Br / self.sha.n
-            self.shc_VJ = -self.RI / mu0 * (2 * self.sha.n + 1) / (self.sha.n + 1) * self.shc_VB
+            self.shc_VB = self.shc_Br / self.sh.n
+            self.shc_VJ = -self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB
         elif key == 'TJr':
             self.shc_TJr = kwargs['TJr']
-            self.shc_TJ = -1 /(self.sha.n * (self.sha.n + 1)) * self.shc_TJr * self.RI**2
+            self.shc_TJ = -1 /(self.sh.n * (self.sh.n + 1)) * self.shc_TJr * self.RI**2
             self.shc_TB = -mu0 / self.RI * self.shc_TJ
             self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
             print('check the factor RI**2!')
@@ -281,14 +281,14 @@ class state(object):
 
     def set_FAC(self, FAC):
         """
-        Specify field-aligned current at ``self.num_grid.theta``,
-        ``self.num_grid.lon``.
+        Specify field-aligned current at ``self.grid.theta``,
+        ``self.grid.lon``.
 
             Parameters
             ----------
             FAC: array
                 The field-aligned current, in A/m^2, at
-                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
+                ``self.grid.theta`` and ``self.grid.lon``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
@@ -297,7 +297,7 @@ class state(object):
         # Extract the radial component of the FAC:
         jr = -FAC * self.sinI 
         # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(self.num_grid.GTG, self.num_grid.G.T.dot(jr), rcond = 1e-3)[0]
+        TJr = np.linalg.lstsq(self.grid.GTG, self.grid.G.T.dot(jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.set_shc(TJr = TJr)
 
@@ -310,7 +310,7 @@ class state(object):
 
     def set_u(self, u_theta, u_phi):
         """ set neutral wind theta and phi components 
-            For now, they *have* to be given on num_grid
+            For now, they *have* to be given on grid
         """
         self.u_theta = u_theta
         self.u_phi = u_phi
@@ -321,11 +321,11 @@ class state(object):
     def set_conductance(self, Hall, Pedersen):
         """
         Specify Hall and Pedersen conductance at
-        ``self.num_grid.theta``, ``self.num_grid.lon``.
+        ``self.grid.theta``, ``self.grid.lon``.
 
         """
 
-        if Hall.size != Pedersen.size != self.num_grid.theta.size:
+        if Hall.size != Pedersen.size != self.grid.theta.size:
             raise Exception('Conductances must match phi and theta')
 
         self.SH = Hall
@@ -355,18 +355,18 @@ class state(object):
 
         """
 
-        #Eth, Eph = self.get_E(self.num_grid)
+        #Eth, Eph = self.get_E(self.grid)
         #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
 
-        #self.set_shc(Br = self.GTG_inv.dot(self.num_grid.G.T.dot(-Br)))
+        #self.set_shc(Br = self.GTG_inv.dot(self.grid.G.T.dot(-Br)))
 
-        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
+        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.grid)) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
-        self.update_shc_EW(self.num_grid)
-        new_shc_Br = self.shc_Br + self.sha.n * (self.sha.n + 1) * self.shc_EW * dt / self.RI**2
+        self.update_shc_EW(self.grid)
+        new_shc_Br = self.shc_Br + self.sh.n * (self.sh.n + 1) * self.shc_EW * dt / self.RI**2
         self.set_shc(Br = new_shc_Br)
 
 

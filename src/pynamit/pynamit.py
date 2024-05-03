@@ -1,6 +1,6 @@
 import numpy as np
 from pynamit.mainfield import Mainfield
-from pynamit.sha.sha import sha
+from pynamit.sha.sh_basis import SHBasis
 import os
 from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import cs_equations
@@ -12,7 +12,7 @@ from pynamit.constants import RE
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, sha, csp,
+    def __init__(self, sh, grid,
                        RI = RE + 110.e3, mainfield_kind = 'dipole', 
                        B0_parameters = {'epoch':2020}, 
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
@@ -23,10 +23,10 @@ class I2D(object):
 
         Parameters
         ----------
-        sha: sha object
+        sh: sh object
             Spherical harmonic analysis object.
-        csp: cubedsphere.CSprojection object
-            Cubed sphere projection object.
+        grid: grid object
+            Grid object.
         RI: float, optional, default = RE + 110.e3
             Radius of the ionosphere in m.
         mainfield_kind: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
@@ -40,17 +40,15 @@ class I2D(object):
         """
         self.latitude_boundary = latitude_boundary
 
-        self.sha = sha
-        self.csp = csp
+        self.sh = sh
+        self.grid = grid
 
         self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
-
-        self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi, sha)
 
         #self.cs_equations = cs_equations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = state(sha, self.mainfield, self.num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = state(sh, self.mainfield, self.grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
 
 
 
@@ -58,7 +56,7 @@ class I2D(object):
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True):
 
     # Set up the spherical harmonic analysis object
-    i2d_sha = sha(Nmax, Mmax)
+    i2d_sh = SHBasis(Nmax, Mmax)
 
     # Define CS grid used for SH analysis and gradient calculations
     # Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
@@ -66,7 +64,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(i2d_sha, csp, RI, mainfield_kind, ignore_PFAC = ignore_PFAC)
+    num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi, i2d_sh)
+    i2d = I2D(i2d_sh, num_grid, RI, mainfield_kind, ignore_PFAC = ignore_PFAC)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
@@ -99,16 +98,16 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
-    plt_grid = grid(RI, lat, lon, i2d_sha)
+    plt_grid = grid(RI, lat, lon, i2d_sh)
 
-    hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = conductance.hardy_EUV(i2d.state.grid.lon, i2d.state.grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.state.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) * 1e-6
-    ju[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
+    ju = a.get_upward_current(mlat = i2d.state.grid.lat, mlt = d.mlon2mlt(i2d.state.grid.lon, date)) * 1e-6
+    ju[np.abs(i2d.state.grid.lat) < 50] = 0 # filter low latitude FACs
 
-    ju[i2d.num_grid.theta < 90] = -ju[i2d.num_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
+    ju[i2d.state.grid.theta < 90] = -ju[i2d.state.grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
     i2d.state.set_FAC(ju)
 
@@ -131,19 +130,19 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
 
-        m_grid = grid(i2d.RI, mlat, lon, i2d_sha)
-        mv_grid = grid(i2d.RI, mlatv, lonv, i2d_sha)
-        mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sha)
-        mnv_grid = grid(i2d.RI, mlatnv, mltnv, i2d_sha)
+        m_grid = grid(i2d.RI, mlat, lon, i2d_sh)
+        mv_grid = grid(i2d.RI, mlatv, lonv, i2d_sh)
+        mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sh)
+        mnv_grid = grid(i2d.RI, mlatnv, mltnv, i2d_sh)
 
         paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
         paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
         paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
         paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-        G   = i2d_sha.get_G(m_grid) * 1e6
-        Gph = i2d_sha.get_G(mv_grid, derivative = 'phi'  ) * 1e3
-        Gth = i2d_sha.get_G(mv_grid, derivative = 'theta') * 1e3
+        G   = i2d_sh.get_G(m_grid) * 1e6
+        Gph = i2d_sh.get_G(mv_grid, derivative = 'phi'  ) * 1e3
+        Gth = i2d_sh.get_G(mv_grid, derivative = 'theta') * 1e3
         jr = G.dot(i2d.state.shc_TJr)
 
         je = -Gph.dot(i2d.state.shc_TJ)
@@ -170,7 +169,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         if not compare_AMPS_FAC_and_CF_currents:
             mlat  , mlt   = a.scalargrid
             mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
-            mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sha)
+            mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sh)
 
         Bu = a.get_ground_Buqd(height = a.height)
         paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
@@ -181,8 +180,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, hall, plt_grid.lat, plt_grid.lon)
-        pede_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
+        hall_plt = cs_interpolate(csp, i2d.state.grid.lat, i2d.state.grid.lon, hall, plt_grid.lat, plt_grid.lon)
+        pede_plt = cs_interpolate(csp, i2d.state.grid.lat, i2d.state.grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
 
         globalplot(plt_grid.lon, plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(plt_grid.lon, plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
@@ -222,7 +221,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     #globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lat.shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
-    #globalplot(i2d.num_grid.lon, i2d.num_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
+    #globalplot(i2d.state.grid.lon, i2d.state.grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
     fig_directory_writeable = os.access(fig_directory, os.W_OK)
 
@@ -253,7 +252,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W(plt_grid)
 
-                i2d.state.update_shc_Phi(i2d.num_grid)
+                i2d.state.update_shc_Phi(i2d.state.grid)
                 Phi = i2d.state.get_Phi(plt_grid)
 
 
