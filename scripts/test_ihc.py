@@ -8,8 +8,7 @@ import datetime
 import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
-import pyhwm2014 # https://github.com/rilma/pyHWM14 
-import cartopy.crs as ccrs
+import pyhwm2014 # https://github.com/rilma/pyHWM14
 
 reload(pynamit)
 RE = 6371.2e3
