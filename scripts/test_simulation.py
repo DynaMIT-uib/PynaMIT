@@ -13,9 +13,10 @@ from lompe import conductance
 reload(pynamit)
 
 IGNORE_PFAC = False
+CONNECT_HEMISPHERES = False
 
 # SIMULATION PARAMETERS
-Nmax, Mmax, Ncs = 45, 3, 40
+Nmax, Mmax, Ncs = 15, 3, 20
 RI = (6371.2 + 110)*1e3
 dt = 5e-4
 totalsteps = 20001
@@ -32,7 +33,7 @@ Philevels = np.r_[-212.5:212.5:2.5]
 ## SET UP SIMULATION OBJECT
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
-i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC)
+i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
 
 ## CONDUCTANCE AND FAC INPUT:

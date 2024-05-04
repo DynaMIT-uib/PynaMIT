@@ -48,7 +48,7 @@ class Mainfield(object):
             self.dpl = dipole.Dipole(epoch)
             def _Bfunc(r, theta, phi):
                 Bn, Br = self.dpl.B(90 - theta, r * 1e-3)
-                return (Br, -Bn, Bn*0)
+                return (Br * 1e-9, -Bn * 1e-9, Bn*0)
 
         elif self.kind == 'igrf':
             self.apx = apexpy.Apex(epoch, refh = 0)

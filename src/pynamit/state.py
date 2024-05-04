@@ -3,6 +3,7 @@ import scipy.sparse as spr
 from pynamit.grid import grid
 from pynamit.constants import mu0, RE
 from pynamit.basis_evaluator import BasisEvaluator
+from pynamit.cubedsphere.cubedsphere import csp
 
 class state(object):
     """ State of the ionosphere.
@@ -48,11 +49,8 @@ class state(object):
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
             self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(grid, self.sh_evaluator)
 
-        self.GTB = self.get_GTB(grid, self.sh_evaluator)
-
-
-
-
+        self.GTBrxdB = self.get_GTrxdB(grid, self.sh_evaluator) # matrices that map sch_TB to r x deltaB
+        self.GVBrxdB = self.get_GVrxdB(grid, self.sh_evaluator) # matrices that map sch_VB to r x deltaB
 
         if connect_hemispheres:
             if ignore_PFAC:
@@ -70,23 +68,33 @@ class state(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = grid(RI, 90 - self.grid.theta[ll_mask], self.grid.lon[ll_mask])
+            self.ll_grid = grid(RI, 90 - self.grid.theta[ll_mask], self.grid.lon[ll_mask], self.sh)
             ll_sh_evaluator = BasisEvaluator(sh, self.ll_grid)
-            self.c_u_theta, self.c_u_phi, self.A5_eP_V, self.A5_eH_V, self.A5_eP_T, self.A5_eH_T = self._get_A5_and_c(self.ll_grid)
+            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
+            self.GTBrxdB_ll = self.get_GTrxdB(self.ll_grid, ll_sh_evaluator)
+            self.GVBrxdB_ll = self.get_GVrxdB(self.ll_grid, ll_sh_evaluator)
+            self.A_eP_T, self.A_eH_T = self.A5_eP.dot(self.GTBrxdB_ll) / mu0, self.A5_eH.dot(self.GTBrxdB_ll) / mu0
+            self.A_eP_V, self.A_eH_V = self.A5_eP.dot(self.GVBrxdB_ll) / mu0, self.A5_eH.dot(self.GVBrxdB_ll) / mu0
+
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj, self.sh)
             ll_conj_sh_evaluator = BasisEvaluator(sh, self.ll_grid_conj)
-            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj_V, self.A5_eH_conj_V, self.A5_eP_conj_T, self.A5_eH_conj_T = self._get_A5_and_c(self.ll_grid_conj)
+            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
+            self.GTBrxdB_ll_conj = self.get_GTrxdB(self.ll_grid_conj, ll_conj_sh_evaluator)
+            self.GVBrxdB_ll_conj = self.get_GVrxdB(self.ll_grid_conj, ll_conj_sh_evaluator)
+            self.A_eP_conj_T, self.A_eH_conj_T = self.A5_eP_conj.dot(self.GTBrxdB_ll_conj) / mu0, self.A5_eH_conj.dot(self.GTBrxdB_ll_conj) / mu0
+            self.A_eP_conj_V, self.A_eH_conj_V = self.A5_eP_conj.dot(self.GVBrxdB_ll_conj) / mu0, self.A5_eH_conj.dot(self.GVBrxdB_ll_conj) / mu0
+
 
             # calculate sin(inclination)
             self.ll_sinI = self.mainfield.get_sinI(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon).reshape((-1 ,1))
             self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll_grid = ll_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI
-            self.G_par_ll_grid_conj = ll_conj_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj
-            self.constraint_Gpar = self.G_par_ll_grid - self.G_par_ll_grid_conj
+            self.G_par_ll      = 1/self.RI * ll_sh_evaluator.G      / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI
+            self.G_par_ll_conj = 1/self.RI * ll_conj_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj
+            self.constraint_Gpar = self.G_par_ll - self.G_par_ll_conj
 
 
             # TODO: Should check for singularities - where field is horizontal - and probably just eliminate such points
@@ -95,13 +103,13 @@ class state(object):
             #       This is needed to get values for conductance (and neutral wind u once that is included)
             #       The interpolation matrix should be calculated here on initiation since the grid is fixed
 
-
-
+        # Initialize neutral wind and conductances
+        self.set_u(np.zeros(self.grid.size), np.zeros((self.grid.size)), update = False)
+        self.set_conductance(np.zeros(self.grid.size), np.zeros((self.grid.size)), update = True)
 
         # Initialize the spherical harmonic coefficients
         self.set_shc(VB = np.zeros(sh.Nshc))
         self.set_shc(TB = np.zeros(sh.Nshc))
-
 
     def _get_PFAC_matrix(self, _grid, _sh_evaluator):
         """ """
@@ -190,34 +198,43 @@ class state(object):
         a5eH11 = spr.diags((bp*br*d2r + bp*bt*d2t - br**2*d2p - bt**2*d2p)/B0)
         a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
 
-        # Get spherical harmonic matrices and multiply with the relevant geometry matrices
-        Gph   = _grid.G_ph
-        Gth   = _grid.G_th
-        print('this is missing poloidal part of magnetic field...')
-        G_DeltaB_th_V =  Gph / (self.sh.n + 1) / mu0
-        G_DeltaB_ph_V =  Gth / (self.sh.n + 1) / mu0
-        G_DeltaB_V    = np.vstack((G_DeltaB_th_V, G_DeltaB_ph_V))
-        G_DeltaB_th_T = -Gth / (self.sh.n + 1) / mu0
-        G_DeltaB_ph_T =  Gph / (self.sh.n + 1) / mu0
-        G_DeltaB_T    = np.vstack((G_DeltaB_th_T, G_DeltaB_ph_T))
-
-        A5_eP_V = a5eP.dot(G_DeltaB_V)
-        A5_eH_V = a5eH.dot(G_DeltaB_V)
-        A5_eP_T = a5eP.dot(G_DeltaB_T)
-        A5_eH_T = a5eH.dot(G_DeltaB_T)
-
-        return(c_ut, c_up, A5_eP_V, A5_eH_V, A5_eP_T, A5_eH_T)
+        return(c_ut, c_up, a5eP, a5eH)
 
 
-    def get_GTB(self, _grid, _sh_evaluator):
-        """ Calculate matrix that maps the coefficients shc_TB to horizontal magnetic field above the ionosphere """
+    def update_constraints(self):
+        """ update the constraint arrays c and A - should be called when changing u and eta """
+        self.cu =  (self.u_phi_ll_conj * self.c_u_phi_conj + self.u_theta_ll_conj * self.c_u_theta_conj) \
+                  -(self.u_phi_ll * self.c_u_phi + self.u_theta_ll * self.c_u_theta)
+        self.cu = self.cu.flatten()
+        self.AT  =  (self.etaP_ll * self.A_eP_T + self.etaH_ll * self.A_eH_T) \
+                   -(self.etaP_ll_conj * self.A_eP_conj_T + self.etaH_ll_conj * self.A_eH_conj_T)
+        self.AV  =  (self.etaP_ll * self.A_eP_V + self.etaH_ll * self.A_eH_V) \
+                   -(self.etaP_ll_conj * self.A_eP_conj_V + self.etaH_ll_conj * self.A_eH_conj_V)
+
+
+
+    def get_GTrxdB(self, _grid, _sh_evaluator):
+        """ Calculate matrix that maps the coefficients shc_TB to delta B across ionosphere """
         GrxgradT = -_sh_evaluator.Gdf * _grid.RI # matrix that gets -r x grad(T)
         GPFAC    = -_sh_evaluator.Gcf                      # matrix that calculates potential magnetic field of external source
         Gshield  = -(_sh_evaluator.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
 
-        return(GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC))
+        GTB = GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC)
+        GTBth, GTBph = np.split(GTB, 2, axis = 0)
+        GTrxdB = np.vstack((-GTBph, GTBth))
+        return(GTrxdB)
 
+
+    def get_GVrxdB(self, _grid, _sh_evaluator):
+        """ Calculate matrix that maps the coefficients shc_VB to delta B across ionosphere """
+        n = _sh_evaluator.basis.n
+        GVdB = _sh_evaluator.Gcf * (n / (n + 1) + 1) * _grid.RI
+        GVBth, GVBph = np.split(GVdB, 2, axis = 0)
+        GVrxdB = np.vstack((-GVBph, GVBth))
+
+        return(GVrxdB)
     
+
     def set_shc(self, **kwargs):
         """ Set spherical harmonic coefficients.
 
@@ -302,20 +319,37 @@ class state(object):
         """
 
         # Extract the radial component of the FAC:
-        jr = -FAC * self.sinI 
+        self.jr = -FAC * self.sinI 
         # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(self.sh_evaluator.GTG, self.sh_evaluator.from_grid(jr), rcond = 1e-3)[0]
+        TJr = np.linalg.lstsq(self.sh_evaluator.GTG, self.sh_evaluator.from_grid(self.jr), rcond = 1e-3)[0]
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.set_shc(TJr = TJr)
 
         if self.connect_hemispheres:
-            print('connect_hemispheres is not fully implemented')
+
+            self.Gpar =  self.grid.G / mu0 * self.sh.n * (self.sh.n + 1) / self.sinI.reshape((-1, 1)) / self.RI
+            self.constraint_Gpar
+            
+            self.G_shc_TB = np.vstack((self.Gpar, self.constraint_Gpar, self.AT))
+            #print('inverting')
+
+            self.Gpinv = np.linalg.pinv(self.G_shc_TB)
+
+            c = (self.cu.flatten() + self.AV.dot(self.shc_VB))
+            
+            self.ccc = c
+            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten()))
+            self.set_shc(TB = 
+                self.Gpinv.dot(d))
+            #self.ggg = G
+
+            #print('connect_hemispheres is not fully implemented')
 
         print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
         print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
 
 
-    def set_u(self, u_theta, u_phi):
+    def set_u(self, u_theta, u_phi, update = True):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
@@ -325,7 +359,22 @@ class state(object):
         self.uxB_theta =  self.u_phi   * self.B[0] 
         self.uxB_phi   = -self.u_theta * self.B[0] 
 
-    def set_conductance(self, Hall, Pedersen):
+        if self.connect_hemispheres:
+            # find wind field at low lat grid points
+            u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.grid.theta, self.grid.lon, self.ll_grid.theta, self.ll_grid.lon)
+            u_ll = np.tile(u_ll, (1, 2)) # duplicate 
+            self.u_theta_ll, self.u_phi_ll = -u_ll[1].reshape((-1, 1)), u_ll[0].reshape((-1, 1))
+
+            # find wind field at conjugate grid points
+            u_ll_conj = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.grid.theta, self.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon)
+            u_ll_conj = np.tile(u_ll_conj, (1, 2)) # duplicate 
+            self.u_theta_ll_conj, self.u_phi_ll_conj = -u_ll_conj[1].reshape((-1, 1)), u_ll_conj[0].reshape((-1, 1))
+
+            if update:
+                self.update_constraints()
+
+
+    def set_conductance(self, Hall, Pedersen, update = True):
         """
         Specify Hall and Pedersen conductance at
         ``self.grid.theta``, ``self.grid.lon``.
@@ -339,6 +388,19 @@ class state(object):
         self.SP = Pedersen
         self.etaP = Pedersen / (Hall**2 + Pedersen**2)
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
+
+        if self.connect_hemispheres:
+            # TODO: 1) csp structure is strange. 2) This is inefficient when eta is updated often
+            # find resistances at low lat grid points
+            self.etaP_ll      = np.tile(csp.interpolate_scalar(self.etaP, self.grid.theta, self.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+            self.etaH_ll      = np.tile(csp.interpolate_scalar(self.etaH, self.grid.theta, self.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+
+            # find resistances at conjugate grid points
+            self.etaP_ll_conj = np.tile(csp.interpolate_scalar(self.etaP, self.grid.theta, self.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+            self.etaH_ll_conj = np.tile(csp.interpolate_scalar(self.etaH, self.grid.theta, self.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+
+            if update:
+                self.update_constraints()            
 
 
     def update_shc_EW(self):
@@ -372,6 +434,11 @@ class state(object):
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.grid)) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
+        if self.connect_hemispheres:
+            c = (self.cu + self.AV.dot(self.shc_VB))
+            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten()))
+            self.set_shc(TB = self.Gpinv.dot(d))
+
         self.update_shc_EW()
         new_shc_Br = self.shc_Br + self.sh.n * (self.sh.n + 1) * self.shc_EW * dt / self.RI**2
         self.set_shc(Br = new_shc_Br)
@@ -389,15 +456,8 @@ class state(object):
         """ Calculate ionospheric sheet current.
 
         """
-
-        Je_V =  _sh_evaluator.to_grid(self.shc_VJ, derivative = "theta") # r cross grad(VJ) eastward component
-        Js_V = -_sh_evaluator.to_grid(self.shc_VJ, derivative = "phi") # r cross grad(VJ) southward component
-        Bs_T, Be_T = np.split(self.GTB.dot(self.shc_TB), 2, axis = 0)
-        Js_T, Je_T = -Be_T/mu0, Bs_T/mu0
-
-
-        #Je_T = -grid.G_ph.dot(self.shc_TJ) # -grad(VT) eastward component
-        #Js_T = -grid.G_th.dot(self.shc_TJ) # -grad(VT) southward component
+        Js_V, Je_V = np.split(self.GVBrxdB.dot(self.shc_VB) / mu0, 2, axis = 0)
+        Js_T, Je_T = np.split(self.GTBrxdB.dot(self.shc_TB) / mu0, 2, axis = 0)
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 

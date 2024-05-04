@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 from lompe import conductance
 import os
 
-COMPARE_TO_SECS = False
-SIMULATE_DYNAMIC_RESPONSE = True
+COMPARE_TO_SECS = True
+SIMULATE_DYNAMIC_RESPONSE = False
 
 reload(pynamit)
 RE = 6371.2e3
