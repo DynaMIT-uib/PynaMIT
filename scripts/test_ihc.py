@@ -9,13 +9,18 @@ import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
 import pyhwm2014 # https://github.com/rilma/pyHWM14
+import cartopy.crs as ccrs
+import os
+
+PLOT_WIND = False # True to make a plot of the wind field
+SIMULATE = True
 
 reload(pynamit)
 RE = 6371.2e3
 RI = RE + 110e3
 
 # MODEL PARAMETERS
-Nmax, Mmax, Ncs = 15, 15, 20
+Nmax, Mmax, Ncs = 25, 10, 40
 
 # PARAMETERS FOR EMPIRICAL MODELS:
 date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -32,14 +37,15 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij'
 i2d_sha = pynamit.sha(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
 
-u_int = i2d_csp.interpolate_vectors_to_cubed_sphere(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_xi, i2d_csp.arr_eta, i2d_csp.arr_block)
+u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
 u_east_int, u_north_int, u_r_int = u_int
 
-#fig, ax = plt.subplots(figsize=(10, 7),
-#                       subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-#ax.coastlines()
-#Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
-#ax.quiver(i2d_csp.arr_phi, 90 - i2d_csp.arr_theta, u_east_int, u_north_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
+if PLOT_WIND:
+    fig, ax = plt.subplots(figsize=(10, 7),
+                           subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+    ax.coastlines()
+    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
+    ax.quiver(i2d_csp.arr_phi, 90 - i2d_csp.arr_theta, u_east_int, u_north_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
 ## PLOT PARAMETERS
@@ -58,7 +64,7 @@ i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integrati
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon)
+plt_grid = pynamit.grid.grid(RI, lat, lon, sha = i2d_sha)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
@@ -68,16 +74,66 @@ a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = -a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) / i2d.state.sinI * 1e-6
 jparallel[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.state.set_FAC(jparallel)
 i2d.state.set_u(-u_north_int, u_east_int)
+i2d.state.set_FAC(jparallel)
 
 GBr = plt_grid.G * i2d_sha.n / i2d.num_grid.RI
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 
-fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br_I2D.reshape(plt_grid.lat.shape), returnplot = True, 
-                                           levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+if SIMULATE:
+    dt = 5e-4
+    totalsteps = 200001
+    ## PLOT PARAMETERS
+    plotsteps = 500
+    fig_directory = 'figs/'
+    Blevels = np.linspace(-50, 50, 22) * 1e-9 # color levels for Br
+    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+    c_levels = np.linspace(0, 20, 100) # color levels for conductance
+    Wlevels = np.r_[-512.5:512.5:5]
+    Philevels = np.r_[-212.5:212.5:2.5]
+
+
+    ## RUN SIMULATION
+    coeffs = []
+    count = 0
+    filecount = 1
+    time = 0
+    while True:
+
+        i2d.state.evolve_Br(dt)
+        time = time + dt
+        coeffs.append(i2d.state.shc_VB)
+        count += 1
+        #print(count, time, i2d.shc_Br[:3])
+
+        if count % plotsteps == 0:
+            print(count, time, i2d.state.shc_Br[:3])
+            fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
+            filecount +=1
+            title = 't = {:.3} s'.format(time)
+            Br = i2d.state.get_Br(plt_grid)
+            fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
+                                                       levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+
+            W = plt_grid.G.dot(i2d.state.shc_EW) * 1e-3
+
+            shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.num_grid))) # find coefficients for electric potential
+            Phi = plt_grid.G.dot(shc_Phi) * 1e-3
+
+            #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+            #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+            #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+            #paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+            plt.savefig(fn)
+
+        if count > totalsteps:
+            break
+
+else:
+    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br_I2D.reshape(plt_grid.lat.shape), returnplot = True, 
+                                               levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
 
 
-plt.show()
+    plt.show()

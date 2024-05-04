@@ -1010,47 +1010,43 @@ class CSprojection(object):
             yield self.geo2cube(lon, lat)
 
 
-    def interpolate_vectors_to_cubed_sphere(self, u_east, u_north, u_r, theta, phi, xi, eta, block, **kwargs):
+    def interpolate_vector_components(self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs):
         """ Interpolate vector_components defined on theta, phi to given cubed sphere coordinates
     
-        Broadcasting rules apply for input arrays (`values`, `theta`, `phi`) 
-        and target coordinates (`xi`, `eta`, `block`) separately. Output is
-        given in the combined shape of `xi`, `eta`, `block`
+        Broadcasting rules apply for input and output separately
 
 
         Parameters
         ----------
-        values: array
-            array of scalar field values that shall be interpolated to 
-            (`xi`, `eta`, `block`) shape must be consistent with `values` 
-            and `theta` and `phi`
+        u_east: array
+            array of eastward components
+        u_north: array
+            array northward components
+        u_r: array
+            array of radial components
         theta: array
-            array of coordinates for `values`. shape must be consistent 
-            with `values` and `phi`
+            array of coordinates for components
         phi: array
-            array of coordinates for `values`. shape must be consistent 
-            with `values` and `theta`
-        xi: array
-            array of target coordinates. Shape must be consistent with 
-            `eta` and `block`
-        eta: array
-            array of target coordinates. Shape must be consistent with 
-            `xi` and `block`
-        block: array
-            array of target coordinates. Shape must be consistent with 
-            `xi` and `eta`
+            array of coordinates for vector components
+        theta_target: array
+            array of target coordinates. 
+        phi_target: array
+            array of target coordinates
+
         **kwargs
             passed to scipy.interpolate.griddata which performs the interpolation
             on each block
 
         Returns
         -------
-        interpolated_values: array
-            array of values interpolated to `xi`, `eta`, `block`
+        interpolated_vector: array
+            3 x N vector of interpolated components, east, north, up
         """
+
         print('TODO: Fix documentation and code -- the code works, but started out as something else')
 
-        xi, eta, block = np.broadcast_arrays(xi, eta, block)
+        xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
+        #xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
         u_east, u_north, u_r, theta, phi = np.broadcast_arrays(u_east, u_north, u_r, theta, phi)
@@ -1100,10 +1096,66 @@ class CSprojection(object):
         Ps_normalized_inv = np.einsum('nij, njk -> nik', Q, Ps_inv)
         u_east_int, u_north_int, u_r_int = np.einsum('nij, nj -> ni', Ps_normalized_inv, u.T).T
 
-        print(u_east_int.max() , '\n\n')
-
         return( np.vstack((u_east_int, u_north_int, u_r_int)) )
 
+
+
+    def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
+        """ Interpolate vector_components defined on theta, phi to given cubed sphere coordinates
+    
+        Broadcasting rules apply for input and output separately
+
+
+        Parameters
+        ----------
+        scalar: array
+            array of scalar values
+        theta: array
+            array of coordinates for components
+        phi: array
+            array of coordinates for vector components
+        theta_target: array
+            array of target coordinates. 
+        phi_target: array
+            array of target coordinates
+
+        **kwargs
+            passed to scipy.interpolate.griddata which performs the interpolation
+            on each block
+
+        Returns
+        -------
+        interpolated_scalar: array
+            N-element array of interpolated components, east, north, up
+        """
+
+        xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
+        #xi, eta, block = np.broadcast_arrays(xi, eta, block)
+        xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
+
+        scalar, theta, phi = np.broadcast_arrays(scalar, theta, phi)
+        scalar, theta, phi = scalar.flatten(), theta.flatten(), phi.flatten()
+
+        # define vectors that point at all the original points:
+        th, ph = np.deg2rad(theta), np.deg2rad(phi)
+        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+
+        interpolated_scalar = np.empty_like(block, dtype = np.float64)
+
+
+        # loop over blocks and interpolate on each block:
+        for i in range(6):
+
+            # filter points whose position vectors have anti-parallel component to center of the block
+            _, th, ph = self.cube2spherical(0, 0, i, deg = False)
+            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape((-1, 1))
+            mask = np.sum(r0 * r, axis = 0) > 0
+
+            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block = i)
+
+            interpolated_scalar[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, scalar[mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+
+        return( interpolated_scalar )
 
 
 
