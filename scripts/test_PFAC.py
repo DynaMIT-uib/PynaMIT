@@ -37,7 +37,8 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon, i2d_sh)
+plt_grid = pynamit.grid.grid(RI, lat, lon)
+plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -52,7 +53,7 @@ jparallel = -a.get_upward_current(mlat = i2d.state.grid.lat, mlt = d.mlon2mlt(i2
 jparallel[np.abs(i2d.state.grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_FAC(jparallel)
-GBr = plt_grid.G * i2d_sh.n / i2d.state.grid.RI
+GBr = plt_sh_evaluator.G * i2d_sh.n / i2d.state.grid.RI
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 
@@ -95,10 +96,10 @@ if SIMULATE_DYNAMIC_RESPONSE:
             fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
-            W = plt_grid.G.dot(i2d.state.shc_EW) * 1e-3
+            W = plt_sh_evaluator.to_grid(i2d.state.shc_EW) * 1e-3
 
             shc_Phi = i2d.state.grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.state.grid))) # find coefficients for electric potential
-            Phi = plt_grid.G.dot(shc_Phi) * 1e-3
+            Phi = plt_sh_evaluator.to_grid(shc_Phi) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
             #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)

@@ -12,21 +12,19 @@ from pynamit.constants import RE
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, sh, grid,
-                       RI = RE + 110.e3, mainfield_kind = 'dipole', 
-                       B0_parameters = {'epoch':2020}, 
-                       FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
-                       ignore_PFAC = False,
-                       connect_hemispheres = False,
-                       latitude_boundary = 50):
+    def __init__(self, sh, csp, RI = RE + 110.e3, mainfield_kind = 'dipole',
+                 B0_parameters = {'epoch':2020},
+                 FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
+                 ignore_PFAC = False, connect_hemispheres = False,
+                 latitude_boundary = 50):
         """
 
         Parameters
         ----------
         sh: sh object
             Spherical harmonic analysis object.
-        grid: grid object
-            Grid object.
+        csp: CSProjection object
+            Cubed sphere projection object.
         RI: float, optional, default = RE + 110.e3
             Radius of the ionosphere in m.
         mainfield_kind: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
@@ -38,18 +36,14 @@ class I2D(object):
             relevant for radial main field.
 
         """
-        self.latitude_boundary = latitude_boundary
 
-        self.sh = sh
-        self.grid = grid
-
-        self.mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
+        num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
+        mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
         #self.cs_equations = cs_equations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = state(sh, self.mainfield, self.grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
-
+        self.state = state(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
 
 
 
@@ -64,8 +58,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi, i2d_sh)
-    i2d = I2D(i2d_sh, num_grid, RI, mainfield_kind, ignore_PFAC = ignore_PFAC)
+    i2d = I2D(i2d_sh, csp, RI, mainfield_kind, ignore_PFAC = ignore_PFAC)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
@@ -74,6 +67,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     import dipole
     import datetime
     import polplot
+    from pynamit.basis_evaluator import BasisEvaluator
 
     compare_AMPS_FAC_and_CF_currents = False # set to True for debugging
     SIMULATE = True
@@ -98,7 +92,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
-    plt_grid = grid(RI, lat, lon, i2d_sh)
+    plt_grid = grid(RI, lat, lon)
+    plt_sh_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
     hall, pedersen = conductance.hardy_EUV(i2d.state.grid.lon, i2d.state.grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.state.set_conductance(hall, pedersen)
@@ -130,10 +125,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
 
-        m_grid = grid(i2d.RI, mlat, lon, i2d_sh)
-        mv_grid = grid(i2d.RI, mlatv, lonv, i2d_sh)
-        mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sh)
-        mnv_grid = grid(i2d.RI, mlatnv, mltnv, i2d_sh)
+        m_grid = grid(i2d.RI, mlat, lon)
+        mv_grid = grid(i2d.RI, mlatv, lonv)
+        mn_grid = grid(i2d.RI, mlatn, mltn)
+        mnv_grid = grid(i2d.RI, mlatnv, mltnv)
 
         paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
         paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
@@ -154,7 +149,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
-        jr = i2d.get_Jr(plt_grid)
+        jr = i2d.get_Jr(plt_sh_evaluator)
 
         globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
@@ -169,7 +164,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         if not compare_AMPS_FAC_and_CF_currents:
             mlat  , mlt   = a.scalargrid
             mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
-            mn_grid = grid(i2d.RI, mlatn, mltn, i2d_sh)
+            mn_grid = grid(i2d.RI, mlatn, mltn)
 
         Bu = a.get_ground_Buqd(height = a.height)
         paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
@@ -186,7 +181,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         globalplot(plt_grid.lon, plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(plt_grid.lon, plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-        jr = i2d.state.get_Jr(plt_grid)
+        jr = i2d.state.get_Jr(plt_sh_evaluator)
         globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
@@ -247,13 +242,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
-                Br = i2d.state.get_Br(plt_grid)
+                Br = i2d.state.get_Br(plt_sh_evaluator)
                 fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.get_W(plt_grid)
 
-                i2d.state.update_shc_Phi(i2d.state.grid)
-                Phi = i2d.state.get_Phi(plt_grid)
+                i2d.state.update_shc_Phi()
+                Phi = i2d.state.get_Phi(plt_sh_evaluator)
 
 
                 nnn = plt_grid.lat.flatten() >  50

@@ -59,6 +59,7 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.grid.grid(RI, lat, lon)
+plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(i2d.state.grid.lon, i2d.state.grid.lat, Kp, date, starlight = 1, dipole = True)
@@ -71,7 +72,7 @@ jparallel[np.abs(i2d.state.grid.lat) < 50] = 0 # filter low latitude FACs
 i2d.state.set_FAC(jparallel)
 i2d.state.set_u(-u_north_int, u_east_int)
 
-GBr = plt_grid.G * i2d_sh.n / i2d.state.grid.RI
+GBr = plt_sh_evaluator.G * i2d_sh.n / i2d.state.grid.RI
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 

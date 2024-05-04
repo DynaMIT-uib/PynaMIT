@@ -11,5 +11,5 @@ class Basis(ABC):
     """
 
     @abstractmethod
-    def get_G(self, coeffs, grid):
+    def get_G(self, coeffs, grid, derivative = None):
         pass

@@ -35,7 +35,7 @@ class SHBasis(object):
         self.Nshc = len(self.cnm.keys) + len(self.snm.keys)
 
 
-    def get_G(self, grid, derivative = None, return_nm = False):
+    def get_G(self, grid, derivative = None):
         """
         Calculate matrix that evaluates surface spherical harmonics using
         the terms contained in ``shkeys``, and at the locations defined by
