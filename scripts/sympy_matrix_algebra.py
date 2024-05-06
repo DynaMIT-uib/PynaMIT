@@ -3,7 +3,7 @@
 import sympy as sp
 #sp.init_printing(use_unicode=True)
 
-PRINT_LATEX = True # set to True to print LaTeX, False to print something more code-friendly
+PRINT_LATEX = False # set to True to print LaTeX, False to print something more code-friendly
 
 if PRINT_LATEX:
     br, bt, bp, ut, up, eP, eH, B0, Br = sp.symbols('b_r, b_theta, b_phi, u_theta, u_phi, eta_P, eta_H, B_0, B_r')
@@ -82,13 +82,13 @@ c_ut, c_up   = [A4_pars[2][:,  -1], A4_pars[3][:,  -1]]
 if not PRINT_LATEX: # print code:
     print('CODE:\n\n')
     print('# constant that is to be multiplied by u in theta direction:')
-    print('c_ut_theta = ' + str(c_ut[0]))
-    print('c_ut_phi   = ' + str(c_ut[1]))
+    print('c_ut_theta = ' + str(sp.simplify(c_ut[0])))
+    print('c_ut_phi   = ' + str(sp.simplify(c_ut[1])))
     print('c_ut = np.hstack((c_ut_theta, c_ut_phi)).reshape((-1, 1)) # stack and convert to column vector\n')
 
     print('# constant that is to be multiplied by u in phi direction:')
-    print('c_up_theta = ' + str(c_up[0]))
-    print('c_up_phi   = ' + str(c_up[1]))
+    print('c_up_theta = ' + str(sp.simplify(c_up[0])))
+    print('c_up_phi   = ' + str(sp.simplify(c_up[1])))
     print('c_up = np.hstack((c_up_theta, c_up_phi)).reshape((-1, 1)) # stack and convert to column vector\n\n')
 
     print('# A5eP matrix')
