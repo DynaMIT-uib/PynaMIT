@@ -126,10 +126,10 @@ if SIMULATE:
             fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
-            W = plt_grid.G.dot(i2d.state.shc_EW) * 1e-3
+            W = i2d.get_W(plt_sh_evaluator) * 1e-3
 
-            shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.num_grid))) # find coefficients for electric potential
-            Phi = plt_grid.G.dot(shc_Phi) * 1e-3
+            i2d.state.update_shc_Phi()
+            Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
             #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
