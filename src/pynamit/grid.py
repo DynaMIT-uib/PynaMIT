@@ -1,5 +1,3 @@
-import numpy as np
-
 class grid(object):
     """ Grid for the ionosphere.
 
