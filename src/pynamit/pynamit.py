@@ -55,7 +55,7 @@ class I2D(object):
 
 
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50):
 
     # Set up the spherical harmonic analysis object
     i2d_sha = sha(Nmax, Mmax)
@@ -66,7 +66,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(i2d_sha, csp, RI, mainfield_kind, ignore_PFAC = ignore_PFAC)
+    i2d = I2D(i2d_sha, csp, RI, mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
