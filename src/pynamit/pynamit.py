@@ -12,18 +12,20 @@ from pynamit.constants import RE
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, sh, csp, RI = RE + 110.e3, mainfield_kind = 'dipole',
-                 B0_parameters = {'epoch':2020},
-                 FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
-                 ignore_PFAC = False, connect_hemispheres = False,
-                 latitude_boundary = 50):
+    def __init__(self, sh, csp,
+                       RI = RE + 110.e3, mainfield_kind = 'dipole',
+                       B0_parameters = {'epoch':2020},
+                       FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
+                       ignore_PFAC = False,
+                       connect_hemispheres = False,
+                       latitude_boundary = 50):
         """
 
         Parameters
         ----------
         sh: sh object
             Spherical harmonic analysis object.
-        csp: CSProjection object
+        csp: cubedsphere.CSProjection object
             Cubed sphere projection object.
         RI: float, optional, default = RE + 110.e3
             Radius of the ionosphere in m.

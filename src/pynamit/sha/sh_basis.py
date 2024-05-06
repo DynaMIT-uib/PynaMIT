@@ -96,24 +96,3 @@ class SHBasis(object):
             raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
         return np.hstack((Gc, Gs))
-
-    def evaluate_on_grid(self, coeffs, grid):
-        """
-        Evaluate the spherical harmonic coefficients on the grid.
-
-        Parameters
-        ----------
-        coeffs : array
-            Spherical harmonic coefficients.
-        grid : pynamit.grid.grid
-            Grid object.
-
-        Returns
-        -------
-        array
-            The values of the spherical harmonic coefficients on the grid.
-
-        """
-
-        G = self.get_G(grid)
-        return G.dot(coeffs)
