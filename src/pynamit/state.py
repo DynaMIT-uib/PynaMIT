@@ -95,8 +95,8 @@ class state(object):
             self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll        = 1/self.RI * ll_sh_evaluator.G      / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI
-            self.G_par_ll_conj   = 1/self.RI * ll_conj_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj
+            self.G_par_ll        = ll_sh_evaluator.scaled_G(1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
+            self.G_par_ll_conj   = ll_conj_sh_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj)
             self.constraint_Gpar = (self.G_par_ll - self.G_par_ll_conj) * DEBUG_jpar_scale
 
  
@@ -143,7 +143,7 @@ class state(object):
             sinI_RI = -B_RI[0] / B0_RI
 
             # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = -mapped_sh_evaluator.G * self.sh.n * (self.sh.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1)) # TODO: Handle singularity at equator (may be fine)
+            G_k = mapped_sh_evaluator.scaled_G(-self.sh.n * (self.sh.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1))) # TODO: Handle singularity at equator (may be fine)
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
             ratio = (B0_rk / B0_RI).reshape((1, -1))
@@ -342,7 +342,7 @@ class state(object):
             br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
             #hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
 
-            self.Gjr = hl_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.RI
+            self.Gjr = hl_sh_evaluator.scaled_G(1 / mu0 * self.sh.n * (self.sh.n + 1) / self.RI)
             self.jr = self.jr[hl_mask]
 
             # combine matrices:

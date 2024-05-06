@@ -193,3 +193,21 @@ class BasisEvaluator(object):
         """
 
         other_coeffs.values = other_coeffs.basis.from_grid(self.to_grid(this_coeffs))
+
+    def scaled_G(self, factor):
+        """
+        Return the scaled G matrix. The factor can be a matrix with the
+        same shape as G, in which case the scaling is done element-wise.
+
+        Parameters
+        ----------
+        factor : float
+            The scaling factor.
+
+        Returns
+        -------
+        ndarray
+            The scaled G matrix.
+
+        """
+        return factor * self.G
