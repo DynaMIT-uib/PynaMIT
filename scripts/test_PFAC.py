@@ -45,15 +45,15 @@ date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
-hall, pedersen = conductance.hardy_EUV(i2d.state.grid.lon, i2d.state.grid.lat, Kp, date, starlight = 1, dipole = True)
+hall, pedersen = conductance.hardy_EUV(i2d.state.num_grid.lon, i2d.state.num_grid.lat, Kp, date, starlight = 1, dipole = True)
 i2d.state.set_conductance(hall, pedersen)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = i2d.state.grid.lat, mlt = d.mlon2mlt(i2d.state.grid.lon, date)) / i2d.state.sinI * 1e-6
-jparallel[np.abs(i2d.state.grid.lat) < 50] = 0 # filter low latitude FACs
+jparallel = -a.get_upward_current(mlat = i2d.state.num_grid.lat, mlt = d.mlon2mlt(i2d.state.num_grid.lon, date)) / i2d.state.sinI * 1e-6
+jparallel[np.abs(i2d.state.num_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_FAC(jparallel)
-GBr = plt_sh_evaluator.G * i2d_sh.n / i2d.state.grid.RI
+GBr = plt_sh_evaluator.G * i2d_sh.n / i2d.state.num_grid.RI
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 
@@ -66,7 +66,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 
     # manipulate GTB to remove the r x grad(T) part:
-    GrxgradT = -i2d.state.grid.Gdf * i2d.state.grid.RI
+    GrxgradT = -i2d.state.num_grid.Gdf * i2d.state.num_grid.RI
     i2d.state.GTB = i2d.state.GTB - GrxgradT # subtract GrxgradT off
 
 
@@ -98,7 +98,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
             W = plt_sh_evaluator.to_grid(i2d.state.shc_EW) * 1e-3
 
-            shc_Phi = i2d.state.grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.state.grid))) # find coefficients for electric potential
+            shc_Phi = i2d.state.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.state.num_grid))) # find coefficients for electric potential
             Phi = plt_sh_evaluator.to_grid(shc_Phi) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
@@ -114,12 +114,12 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 if COMPARE_TO_SECS:
     print('Building SECS matrices. This takes some time (and memory) because of global grids...')
-    secsI = jparallel * i2d.state.sinI * i2d_csp.unit_area * i2d.state.grid.RI**2 # SECS amplitudes are downward current density times area
+    secsI = jparallel * i2d.state.sinI * i2d_csp.unit_area * i2d.state.num_grid.RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
-    r = np.full(lat.size, i2d.state.grid.RI - 1)
-    lat_secs, lon_secs = i2d.state.grid.lat, i2d.state.grid.lon
+    r = np.full(lat.size, i2d.state.num_grid.RI - 1)
+    lat_secs, lon_secs = i2d.state.num_grid.lat, i2d.state.num_grid.lon
     Be, Bn, Br = i2d.state.bphi, - i2d.state.btheta, i2d.state.br
-    Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = i2d.state.grid.RI)
+    Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = i2d.state.num_grid.RI)
 
 
     Br_SECS = Gu.dot(secsI)

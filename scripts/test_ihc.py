@@ -77,17 +77,17 @@ plt_grid = pynamit.grid.grid(RI, lat, lon)
 plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
-hall, pedersen = conductance.hardy_EUV(i2d.state.grid.lon, i2d.state.grid.lat, Kp, date, starlight = 1, dipole = True)
+hall, pedersen = conductance.hardy_EUV(i2d.state.num_grid.lon, i2d.state.num_grid.lat, Kp, date, starlight = 1, dipole = True)
 i2d.state.set_conductance(hall, pedersen)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = i2d.state.grid.lat, mlt = d.mlon2mlt(i2d.state.grid.lon, date)) / i2d.state.sinI * 1e-6
-jparallel[np.abs(i2d.state.grid.lat) < 50] = 0 # filter low latitude FACs
+jparallel = -a.get_upward_current(mlat = i2d.state.num_grid.lat, mlt = d.mlon2mlt(i2d.state.num_grid.lon, date)) / i2d.state.sinI * 1e-6
+jparallel[np.abs(i2d.state.num_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_u(-u_north_int, u_east_int)
 i2d.state.set_FAC(jparallel)
 
-GBr = plt_sh_evaluator.G * i2d_sh.n / i2d.state.grid.RI
+GBr = plt_sh_evaluator.G * i2d_sh.n / i2d.state.num_grid.RI
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 

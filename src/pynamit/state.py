@@ -13,14 +13,14 @@ class state(object):
 
     """
 
-    def __init__(self, sh, mainfield, grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary):
+    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary):
         """ Initialize the state of the ionosphere.
     
         """
 
         self.sh = sh
         self.mainfield = mainfield
-        self.grid = grid
+        self.num_grid = num_grid
         self.FAC_integration_parameters = FAC_integration_parameters
 
         self.RI = RI
@@ -30,14 +30,14 @@ class state(object):
         self.latitude_boundary = latitude_boundary
 
         # initialize the basis evaluator
-        self.sh_evaluator = BasisEvaluator(sh, grid)
+        self.sh_evaluator = BasisEvaluator(sh, num_grid)
 
         # initialize neutral wind
         self.u_theta = None
         self.u_phi = None 
 
         # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.mainfield.get_B(self.RI, self.grid.theta, self.grid.lon))
+        self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
         self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
         self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
@@ -50,10 +50,10 @@ class state(object):
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
             self.shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(grid, self.sh_evaluator)
+            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(num_grid, self.sh_evaluator)
 
-        self.GTBrxdB = self.get_GTrxdB(grid, self.sh_evaluator) # matrices that map sch_TB to r x deltaB
-        self.GVBrxdB = self.get_GVrxdB(grid, self.sh_evaluator) # matrices that map sch_VB to r x deltaB
+        self.GTBrxdB = self.get_GTrxdB(num_grid, self.sh_evaluator) # matrices that map sch_TB to r x deltaB
+        self.GVBrxdB = self.get_GVrxdB(num_grid, self.sh_evaluator) # matrices that map sch_VB to r x deltaB
 
         if connect_hemispheres:
             if ignore_PFAC:
@@ -63,15 +63,15 @@ class state(object):
 
             # identify the low latitude points
             if self.mainfield.kind == 'dipole':
-                ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
+                ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
             elif self.mainfield.kind == 'igrf':
-                mlat, mlon = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.grid.RI - RE)*1e-3)
+                mlat, mlon = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.num_grid.RI - RE)*1e-3)
                 ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = grid(RI, 90 - self.grid.theta[ll_mask], self.grid.lon[ll_mask], self.sh)
+            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
             ll_sh_evaluator = BasisEvaluator(sh, self.ll_grid)
             self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
             self.GTBrxdB_ll = self.get_GTrxdB(self.ll_grid, ll_sh_evaluator)
@@ -81,7 +81,7 @@ class state(object):
 
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj, self.sh)
+            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
             ll_conj_sh_evaluator = BasisEvaluator(sh, self.ll_grid_conj)
             self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
             self.GTBrxdB_ll_conj = self.get_GTrxdB(self.ll_grid_conj, ll_conj_sh_evaluator)
@@ -95,8 +95,8 @@ class state(object):
             self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll        = 1/self.RI * self.ll_sh_evaluator.G      / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI
-            self.G_par_ll_conj   = 1/self.RI * self.ll_conj_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj
+            self.G_par_ll        = 1/self.RI * ll_sh_evaluator.G      / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI
+            self.G_par_ll_conj   = 1/self.RI * ll_conj_sh_evaluator.G / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj
             self.constraint_Gpar = (self.G_par_ll - self.G_par_ll_conj) * DEBUG_jpar_scale
 
  
@@ -107,8 +107,8 @@ class state(object):
             #       The interpolation matrix should be calculated here on initiation since the grid is fixed
 
         # Initialize neutral wind and conductances
-        self.set_u(np.zeros(self.grid.size), np.zeros((self.grid.size)), update = False)
-        self.set_conductance(np.zeros(self.grid.size), np.zeros((self.grid.size)), update = True)
+        self.set_u(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), update = False)
+        self.set_conductance(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), update = True)
 
         # Initialize the spherical harmonic coefficients
         self.set_shc(VB = np.zeros(sh.Nshc))
@@ -311,14 +311,14 @@ class state(object):
 
     def set_FAC(self, FAC):
         """
-        Specify field-aligned current at ``self.grid.theta``,
-        ``self.grid.lon``.
+        Specify field-aligned current at ``self.num_grid.theta``,
+        ``self.num_grid.lon``.
 
             Parameters
             ----------
             FAC: array
                 The field-aligned current, in A/m^2, at
-                ``self.grid.theta`` and ``self.grid.lon``, at
+                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
@@ -334,9 +334,9 @@ class state(object):
         if self.connect_hemispheres:
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
-            hl_mask = np.abs(self.grid.lat) > self.latitude_boundary
-            self.hl_grid = grid(self.RI, 90 - self.grid.theta[hl_mask], self.grid.lon[hl_mask], self.sh)
-            hl_sh_evaluator = BasisEvaluator(sh, self.hl_grid)
+            hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
+            self.hl_grid = grid(self.RI, 90 - self.num_grid.theta[hl_mask], self.num_grid.lon[hl_mask])
+            hl_sh_evaluator = BasisEvaluator(self.sh, self.hl_grid)
 
             B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
             br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
@@ -377,12 +377,12 @@ class state(object):
 
         if self.connect_hemispheres:
             # find wind field at low lat grid points
-            u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.grid.theta, self.grid.lon, self.ll_grid.theta, self.ll_grid.lon)
+            u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.ll_grid.theta, self.ll_grid.lon)
             u_ll = np.tile(u_ll, (1, 2)) # duplicate 
             self.u_theta_ll, self.u_phi_ll = -u_ll[1].reshape((-1, 1)), u_ll[0].reshape((-1, 1))
 
             # find wind field at conjugate grid points
-            u_ll_conj = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.grid.theta, self.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon)
+            u_ll_conj = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon)
             u_ll_conj = np.tile(u_ll_conj, (1, 2)) # duplicate 
             self.u_theta_ll_conj, self.u_phi_ll_conj = -u_ll_conj[1].reshape((-1, 1)), u_ll_conj[0].reshape((-1, 1))
 
@@ -393,11 +393,11 @@ class state(object):
     def set_conductance(self, Hall, Pedersen, update = True):
         """
         Specify Hall and Pedersen conductance at
-        ``self.grid.theta``, ``self.grid.lon``.
+        ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
 
-        if Hall.size != Pedersen.size != self.grid.theta.size:
+        if Hall.size != Pedersen.size != self.num_grid.theta.size:
             raise Exception('Conductances must match phi and theta')
 
         self.SH = Hall
@@ -408,12 +408,12 @@ class state(object):
         if self.connect_hemispheres:
             # TODO: 1) csp structure is strange. 2) This is inefficient when eta is updated often
             # find resistances at low lat grid points
-            self.etaP_ll      = np.tile(csp.interpolate_scalar(self.etaP, self.grid.theta, self.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
-            self.etaH_ll      = np.tile(csp.interpolate_scalar(self.etaH, self.grid.theta, self.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+            self.etaP_ll      = np.tile(csp.interpolate_scalar(self.etaP, self.num_grid.theta, self.num_grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+            self.etaH_ll      = np.tile(csp.interpolate_scalar(self.etaH, self.num_grid.theta, self.num_grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
 
             # find resistances at conjugate grid points
-            self.etaP_ll_conj = np.tile(csp.interpolate_scalar(self.etaP, self.grid.theta, self.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
-            self.etaH_ll_conj = np.tile(csp.interpolate_scalar(self.etaH, self.grid.theta, self.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+            self.etaP_ll_conj = np.tile(csp.interpolate_scalar(self.etaP, self.num_grid.theta, self.num_grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+            self.etaH_ll_conj = np.tile(csp.interpolate_scalar(self.etaH, self.num_grid.theta, self.num_grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
 
             if update:
                 self.update_constraints()            
@@ -440,14 +440,14 @@ class state(object):
 
         """
 
-        #Eth, Eph = self.get_E(self.grid)
+        #Eth, Eph = self.get_E(self.num_grid)
         #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
 
         #self.set_shc(Br = self.GTG_inv.dot(self.sh_evaluator.from_grid(-Br)))
 
-        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.grid)) )
+        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
         if self.connect_hemispheres:

@@ -92,7 +92,7 @@ while True:
 
         W = plt_sh_evaluator.to_grid(i2d.state.shc_EW) * 1e-3
 
-        shc_Phi = i2d.state.grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.state.grid))) # find coefficients for electric potential
+        shc_Phi = i2d.state.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.state.num_grid))) # find coefficients for electric potential
         Phi = plt_sh_evaluator.to_grid(shc_Phi) * 1e-3
 
         #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
