@@ -251,10 +251,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 Br = i2d.state.get_Br(plt_grid)
                 fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.get_W(plt_grid)
+                #W = i2d.get_W(plt_grid) * 1e-3
 
                 i2d.state.update_shc_Phi(i2d.num_grid)
-                Phi = i2d.state.get_Phi(plt_grid)
+                Phi = i2d.state.get_Phi(plt_grid) * 1e-3
 
 
                 nnn = plt_grid.lat.flatten() >  50

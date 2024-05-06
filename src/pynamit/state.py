@@ -478,7 +478,6 @@ class state(object):
 
         """
 
-        print('this must be fixed so that I can evaluate anywere')
         return grid.G.dot(self.shc_TJr)
 
 
@@ -494,8 +493,7 @@ class state(object):
 
         """
 
-        print('this must be fixed so that Phi can be evaluated anywere')
-        return grid.G.dot(self.shc_Phi) * 1e-3
+        return grid.G.dot(self.shc_Phi)
 
 
     def get_W(self, grid, deg = False):
@@ -503,8 +501,7 @@ class state(object):
 
         """
 
-        print('this must be fixed so that W can be evaluated anywere')
-        return grid.G.dot(self.shc_EW) * 1e-3
+        return grid.G.dot(self.shc_EW)
 
 
     def get_E(self, grid, deg = False):
