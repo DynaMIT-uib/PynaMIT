@@ -332,7 +332,7 @@ class state(object):
 
             B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
             br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
-            hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
+            #hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
 
             self.Gjr = self.hl_grid.G / mu0 * self.sha.n * (self.sha.n + 1) / self.RI
             self.jr = self.jr[hl_mask]
