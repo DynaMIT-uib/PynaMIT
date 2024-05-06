@@ -18,9 +18,18 @@ SIMULATE = True
 reload(pynamit)
 RE = 6371.2e3
 RI = RE + 110e3
+latitude_boundary = 40
 
 # MODEL PARAMETERS
-Nmax, Mmax, Ncs = 25, 10, 40
+Nmax, Mmax, Ncs = 25, 15, 50
+print('we need a check that the poloidal field calculation is high enough resoultion compared ot SH ')
+
+
+rk = RI / np.cos(np.deg2rad(np.linspace(0, 70, int(360 / (Nmax  + .5)) + 1))) ** 2
+#rk = np.hstack((rk, np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)[5:] / RE))
+
+rk = {'steps':rk}
+
 
 # PARAMETERS FOR EMPIRICAL MODELS:
 date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -58,8 +67,8 @@ Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
 
-i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, 
-                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = 50)
+i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
+                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
