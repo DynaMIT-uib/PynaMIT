@@ -127,8 +127,6 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
 
-        m_grid = grid(i2d.RI, mlat, lon)
-        mv_grid = grid(i2d.RI, mlatv, lonv)
         mn_grid = grid(i2d.RI, mlatn, mltn)
         mnv_grid = grid(i2d.RI, mlatnv, mltnv)
 
@@ -137,10 +135,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
         paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-        G   = i2d_sh.get_G(m_grid) * 1e6
-        Gph = i2d_sh.get_G(mv_grid, derivative = 'phi'  ) * 1e3
-        Gth = i2d_sh.get_G(mv_grid, derivative = 'theta') * 1e3
-        jr = G.dot(i2d.state.shc_TJr)
+        m_sh_evaluator = BasisEvaluator(i2d_sh, grid(i2d.RI, mlat, lon))
+        jr = i2d.get_Jr(m_sh_evaluator) * 1e6
+
+        mv_sh_evaluator = BasisEvaluator(i2d_sh, grid(i2d.RI, mlatv, lonv))
+        Gph = mv_sh_evaluator.G_ph * 1e3
+        Gth = mv_sh_evaluator.G_th * 1e3
 
         je = -Gph.dot(i2d.state.shc_TJ)
         jn =  Gth.dot(i2d.state.shc_TJ)
