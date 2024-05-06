@@ -4,6 +4,9 @@ from pynamit.grid import grid
 from pynamit.constants import mu0, RE
 from pynamit.cubedsphere.cubedsphere import csp
 
+DEBUG_constraint_scale = 1e-10 # to be deleted
+DEBUG_jpar_scale = 1#1e15
+
 class state(object):
     """ State of the ionosphere.
 
@@ -82,15 +85,15 @@ class state(object):
 
 
             # calculate sin(inclination)
-            self.ll_sinI = self.mainfield.get_sinI(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon).reshape((-1 ,1))
+            self.ll_sinI      = self.mainfield.get_sinI(self.ll_grid.RI     , self.ll_grid.theta     , self.ll_grid.lon     ).reshape((-1 ,1))
             self.ll_sinI_conj = self.mainfield.get_sinI(self.ll_grid_conj.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll      = 1/self.RI * self.ll_grid.G      / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI
-            self.G_par_ll_conj = 1/self.RI * self.ll_grid_conj.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI_conj
-            self.constraint_Gpar = self.G_par_ll - self.G_par_ll_conj
+            self.G_par_ll        = 1/self.RI * self.ll_grid.G      / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI
+            self.G_par_ll_conj   = 1/self.RI * self.ll_grid_conj.G / mu0 * self.sha.n * (self.sha.n + 1) / self.ll_sinI_conj
+            self.constraint_Gpar = (self.G_par_ll - self.G_par_ll_conj) * DEBUG_jpar_scale
 
-
+ 
             # TODO: Should check for singularities - where field is horizontal - and probably just eliminate such points
             #       from the constraint calculation
             # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
@@ -161,8 +164,9 @@ class state(object):
         br, bt, bp = B / B0
         Br = B[0]
         d1, d2, _, _, _, _ = self.mainfield.basevectors(R, theta, phi)
-        d1r, d1t, d1p = d1 # r theta phi components
-        d2r, d2t, d2p = d2
+        d1p, d1n, d1r = d1 # e, n, u components
+        d2p, d2n, d2r = d2
+        d1t, d2t = -d1n, -d2n # north -> theta component
 
         # The following lines of code are copied from output from sympy_matrix_algebra.py
 
@@ -172,8 +176,8 @@ class state(object):
         c_ut = np.hstack((c_ut_theta, c_ut_phi)).reshape((-1, 1)) # stack and convert to column vector
 
         # constant that is to be multiplied by u in phi direction:
-        c_up_theta = Br*(br*(-bp*d1r + br*d1p) + bt*(-bp*d1t + bt*d1p))/(B0*br)
-        c_up_phi   = Br*(br*(-bp*d2r + br*d2p) + bt*(-bp*d2t + bt*d2p))/(B0*br)
+        c_up_theta = -Br*(br*(bp*d1r - br*d1p) + bt*(bp*d1t - bt*d1p))/(B0*br)
+        c_up_phi   = -Br*(br*(bp*d2r - br*d2p) + bt*(bp*d2t - bt*d2p))/(B0*br)
         c_up = np.hstack((c_up_theta, c_up_phi)).reshape((-1, 1)) # stack and convert to column vector
 
 
@@ -203,6 +207,8 @@ class state(object):
                    -(self.etaP_ll_conj * self.A_eP_conj_T + self.etaH_ll_conj * self.A_eH_conj_T)
         self.AV  =  (self.etaP_ll * self.A_eP_V + self.etaH_ll * self.A_eH_V) \
                    -(self.etaP_ll_conj * self.A_eP_conj_V + self.etaH_ll_conj * self.A_eH_conj_V)
+        self.AV = -self.AV
+
 
 
 
@@ -320,21 +326,30 @@ class state(object):
 
         if self.connect_hemispheres:
 
-            self.Gpar =  self.num_grid.G / mu0 * self.sha.n * (self.sha.n + 1) / self.sinI.reshape((-1, 1)) / self.RI
-            self.constraint_Gpar
-            
-            self.G_shc_TB = np.vstack((self.Gpar, self.constraint_Gpar, self.AT))
+            # mask the jr so that it only applies poleward of self.latitude_boundary
+            hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
+            self.hl_grid = grid(self.RI, 90 - self.num_grid.theta[hl_mask], self.num_grid.lon[hl_mask], self.sha)
+
+            B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
+            br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
+            hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
+
+            self.Gjr = self.hl_grid.G / mu0 * self.sha.n * (self.sha.n + 1) / self.RI
+            self.jr = self.jr[hl_mask]
+
+            # combine matrices:
+            self.G_shc_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.AT * DEBUG_constraint_scale ))
             #print('inverting')
 
-            self.Gpinv = np.linalg.pinv(self.G_shc_TB)
+            self.Gpinv = np.linalg.pinv(self.G_shc_TB, rcond = 1e-3)
+            print('rcond!')
 
             c = (self.cu.flatten() + self.AV.dot(self.shc_VB))
             
             self.ccc = c
-            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten()))
-            self.set_shc(TB = 
-                self.Gpinv.dot(d))
-            #self.ggg = G
+            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale ))
+            self.set_shc(TB = self.Gpinv.dot(d))
+            self.ggg = self.G_shc_TB
 
             #print('connect_hemispheres is not fully implemented')
 
@@ -429,7 +444,7 @@ class state(object):
 
         if self.connect_hemispheres:
             c = (self.cu + self.AV.dot(self.shc_VB))
-            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten()))
+            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale))
             self.set_shc(TB = self.Gpinv.dot(d))
 
         self.update_shc_EW(self.num_grid)
