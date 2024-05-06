@@ -1,14 +1,7 @@
 """
-Tools that are useful for spherical harmonic analysis.
+Spherical harmonic basis.
 
-Functions in this module:
-
-- ``nterms``: function which calculates the number of terms in a real
-  expansion of a poloidal (internal + external) and toroidal expansion.
-- ``legendre``: calculate associated legendre functions - with option for
-  Schmidt semi-normalization.
-- ``get_G``: calculate matrix for evaluating surface spherical harmonics
-  at given grid.
+This module contains the ``SHBasis`` class.
 
 """
 
@@ -16,7 +9,11 @@ import numpy as np
 from pynamit.sha.helpers import SHkeys, legendre
 
 class SHBasis(object):
-    """ Class for spherical harmonic analysis.
+    """ Spherical harmonic basis.
+
+    Class to store information about a spherical harmonic basis and to
+    generate matrices for evaluating the spherical harmonics at a given
+    grid.
 
     """
 
@@ -37,22 +34,15 @@ class SHBasis(object):
 
     def get_G(self, grid, derivative = None):
         """
-        Calculate matrix that evaluates surface spherical harmonics using
-        the terms contained in ``shkeys``, and at the locations defined by
-        `lat` and `lon`.
+        Calculate matrix that evaluates surface spherical harmonics at the
+        latitudes and longitudes of the given `grid`, using the terms
+        contained in the ``shkeys`` of the ``SHBasis`` object.
 
         Parameters
         ----------
-        lat : array
-            Latitude in degrees. Must be broadcastable with `lon`.
-        lon : array
-            Longitude in degrees. Must be broadcastable with `lat`.
-        N: int
-            Maximum spherical harmonic degree.
-        M: int
-            Maximum spherical harmonic order.
-        a : float, optional, default = 6371.2
-            Reference radius.
+        grid: grid object
+            Grid object containing the latitudes and longitudes where the
+            spherical harmonics are to be evaluated.
         derivative : string, {None, 'phi', 'theta'}, default = None
             Set to 'phi' to get the matrix that gives the eastward
             gradient.
@@ -63,9 +53,10 @@ class SHBasis(object):
         -------
         G : array
             ``N x M`` array, where ``N`` is the size inferred by
-            broadcasting `lon` and `lat`, and ``M`` is the number of terms
-            in the spherical harmonics inferred from ``shkeys``. The
-            ``cos`` terms are given first, and ``sin`` terms after.
+            broadcasting `grid.lon` and `grid.lat`, and ``M`` is the
+            number of terms in the spherical harmonics inferred from
+            the ``shkeys`` of the ``SHBasis`` object. The ``cos`` terms
+            are given first, and ``sin`` terms after.
         
         """
 

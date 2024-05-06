@@ -1,17 +1,16 @@
 """
-Spherical harmonic keys
+Spherical harmonic analysis helpers.
 
-Classes in this module:
-
-- ``SHkeys``: class to contain ``n`` and ``m`` - the indices of the
-  spherical harmonic terms.
+This module contains helpers for spherical harmonic analysis.
 
 """
 
 import numpy as np
 
 class SHkeys(object):
-    """ Container for ``n`` and ``m`` in spherical harmonics.
+    """
+    Container for ``n`` and ``m``, the indices of the terms in a spherical
+    harmonic expansion.
 
     Container can be generated with::
 
@@ -116,10 +115,12 @@ class SHkeys(object):
 def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
     """
     Return number of coefficients in an expansion in real spherical
-    harmonics of toroidal magnetic potential truncated at `NT`, `MT`.
+    harmonics.
+    
+    Toroidal magnetic potential is truncated at `NT`, `MT`.
 
-    Poloidal magnetic potential truncated at `NVi`, `MVi` for internal
-    sources and at `NVe`, `MVe` for external sources.
+    Poloidal magnetic potential is truncated at `NVi`, `MVi` for internal
+    sources, and at `NVe`, `MVe` for external sources.
 
     """
 
@@ -134,6 +135,8 @@ def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
 def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
     """
     Calculate associated Legendre function ``P`` and its derivative.
+
+    Optional Schmidt semi-normalization.
 
     Algorithm from "Spacecraft Attitude Determination and Control" by
     James Richard Wertz.
