@@ -486,7 +486,6 @@ class state(object):
 
         """
 
-        print('this must be fixed so that I can evaluate anywere')
         return _sh_evaluator.to_grid(self.shc_TJr)
 
 
@@ -502,8 +501,7 @@ class state(object):
 
         """
 
-        print('this must be fixed so that Phi can be evaluated anywere')
-        return _sh_evaluator.to_grid(self.shc_Phi) * 1e-3
+        return _sh_evaluator.to_grid(self.shc_Phi)
 
 
     def get_W(self, _sh_evaluator, deg = False):
@@ -511,8 +509,7 @@ class state(object):
 
         """
 
-        print('this must be fixed so that W can be evaluated anywere')
-        return _sh_evaluator.to_grid(self.shc_EW) * 1e-3
+        return _sh_evaluator.to_grid(self.shc_EW)
 
 
     def get_E(self, _sh_evaluator, deg = False):
