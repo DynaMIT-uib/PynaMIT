@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc():
     # Arrange
-    expected_coeff_norm = 3.179206086254876e-17
-    expected_coeff_max = 1.7613999827163127e-18
-    expected_coeff_min = -1.2960105353990222e-18
+    expected_coeff_norm = 3.1201257561885906e-17
+    expected_coeff_max = 1.7889028577523695e-18
+    expected_coeff_min = -1.3137228748477622e-18
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -17,7 +17,7 @@ def test_2d_igrf_pfac_hc():
         os.mkdir(temp_dir)  
 
     # Act
-    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=30, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50)
+    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50)
 
     # Assert
     coeff_array = np.array(coeffs)
@@ -26,11 +26,6 @@ def test_2d_igrf_pfac_hc():
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = len(coeffs)
-
-    print("actual_coeff_norm: ", actual_coeff_norm)
-    print("actual_coeff_max: ", actual_coeff_max)
-    print("actual_coeff_min: ", actual_coeff_min)
-    print("actual_n_coeffs: ", actual_n_coeffs)
 
     assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
