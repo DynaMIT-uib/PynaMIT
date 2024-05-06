@@ -37,13 +37,13 @@ class I2D(object):
 
         """
 
-        num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
+        self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
         mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
         #self.cs_equations = cs_equations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = state(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = state(sh, mainfield, self.num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
 
 
 
@@ -95,14 +95,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     plt_grid = grid(RI, lat, lon)
     plt_sh_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
-    hall, pedersen = conductance.hardy_EUV(i2d.state.num_grid.lon, i2d.state.num_grid.lat, Kp, date, starlight = 1, dipole = True)
+    hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.state.set_conductance(hall, pedersen)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = i2d.state.num_grid.lat, mlt = d.mlon2mlt(i2d.state.num_grid.lon, date)) * 1e-6
-    ju[np.abs(i2d.state.num_grid.lat) < 50] = 0 # filter low latitude FACs
+    ju = a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) * 1e-6
+    ju[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
 
-    ju[i2d.state.num_grid.theta < 90] = -ju[i2d.state.num_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
+    ju[i2d.num_grid.theta < 90] = -ju[i2d.num_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
     i2d.state.set_FAC(ju)
 
@@ -175,8 +175,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(csp, i2d.state.num_grid.lat, i2d.state.num_grid.lon, hall, plt_grid.lat, plt_grid.lon)
-        pede_plt = cs_interpolate(csp, i2d.state.num_grid.lat, i2d.state.num_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
+        hall_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, hall, plt_grid.lat, plt_grid.lon)
+        pede_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
 
         globalplot(plt_grid.lon, plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(plt_grid.lon, plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
@@ -216,7 +216,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     #globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lat.shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
-    #globalplot(i2d.state.num_grid.lon, i2d.state.num_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
+    #globalplot(i2d.num_grid.lon, i2d.num_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
     fig_directory_writeable = os.access(fig_directory, os.W_OK)
 
