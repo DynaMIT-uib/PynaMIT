@@ -507,6 +507,22 @@ class State(object):
         return _basis_evaluator.to_grid(self.shc_TJ.coeffs, derivative = 'theta')
 
 
+    def get_Je(self, _basis_evaluator, deg = False):
+        """ Calculate eastward current.
+
+        """
+
+        return _basis_evaluator.to_grid(-self.shc_TJ.coeffs, derivative = 'phi')
+
+
+    def get_Jn(self, _basis_evaluator, deg = False):
+        """ Calculate northward current.
+
+        """
+
+        return _basis_evaluator.to_grid(self.shc_TJ.coeffs, derivative = 'theta')
+
+
     def get_equivalent_current_function(self, grid, deg = False):
         """ Calculate equivalent current function.
 
