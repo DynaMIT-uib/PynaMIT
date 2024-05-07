@@ -142,8 +142,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         Gph = mv_sh_evaluator.G_ph * 1e3
         Gth = mv_sh_evaluator.G_th * 1e3
 
-        je = -Gph.dot(i2d.state.shc_TJ)
-        jn =  Gth.dot(i2d.state.shc_TJ)
+        je = -Gph.dot(i2d.state.shc_TJ.coeffs)
+        jn =  Gth.dot(i2d.state.shc_TJ.coeffs)
 
         jrn, jrs = np.split(jr, 2) 
         paxes[2].contourf(mn_grid.lat,  mn_grid.lon,   jrn, levels = levels, cmap = plt.cm.bwr)
@@ -235,19 +235,19 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
             i2d.state.evolve_Br(dt)
             time = time + dt
-            coeffs.append(i2d.state.shc_VB)
+            coeffs.append(i2d.state.shc_VB.coeffs)
             count += 1
-            #print(count, time, i2d.state.shc_Br[:3])
+            #print(count, time, i2d.state.shc_Br.coeffs[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, i2d.state.shc_Br[:3])
+                print(count, time, i2d.state.shc_Br.coeffs[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.state.get_Br(plt_sh_evaluator)
                 fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.get_W(plt_sh_evaluator) * 1e-3
+                #W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
 
                 i2d.state.update_shc_Phi()
                 Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3

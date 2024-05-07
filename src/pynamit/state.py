@@ -4,6 +4,7 @@ from pynamit.grid import Grid
 from pynamit.constants import mu0, RE
 from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
+from pynamit.vector import Vector
 
 DEBUG_constraint_scale = 1e-10 # to be deleted
 DEBUG_jpar_scale = 1#1e15
@@ -268,32 +269,32 @@ class State(object):
             raise Exception('Invalid keyword. See documentation')
 
         if key == 'VB':
-            self.shc_VB = kwargs['VB']
-            self.shc_VJ = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB
-            self.shc_Br = 1 / self.sh.n * self.shc_VB
+            self.shc_VB = Vector(self.sh, kwargs['VB'])
+            self.shc_VJ = Vector(self.sh, self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB.coeffs)
+            self.shc_Br = Vector(self.sh, 1 / self.sh.n * self.shc_VB.coeffs)
         elif key == 'TB':
-            self.shc_TB = kwargs['TB']
-            self.shc_TJ = -self.RI / mu0 * self.shc_TB
-            self.shc_TJr = -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ 
-            self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
+            self.shc_TB = Vector(self.sh, kwargs['TB'])
+            self.shc_TJ = Vector(self.sh, -self.RI / mu0 * self.shc_TB.coeffs)
+            self.shc_TJr = Vector(self.sh, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ.coeffs)
+            self.shc_PFAC = Vector(self.sh, self.shc_TB_to_shc_PFAC.dot(self.shc_TB.coeffs))
         elif key == 'VJ':
-            self.shc_VJ = kwargs['VJ']
-            self.shc_VB = mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.shc_VJ
-            self.shc_Br = 1 / self.sh.n * self.shc_VB
+            self.shc_VJ = Vector(self.sh, kwargs['VJ'])
+            self.shc_VB = Vector(self.sh, mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.shc_VJ.coeffs)
+            self.shc_Br = Vector(self.sh, 1 / self.sh.n * self.shc_VB.coeffs)
         elif key == 'TJ':
-            self.shc_TJ = kwargs['TJ']
-            self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_TJr = -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ 
-            self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
+            self.shc_TJ = Vector(self.sh, kwargs['TJ'])
+            self.shc_TB = Vector(self.sh, -mu0 / self.RI * self.shc_TJ.coeffs)
+            self.shc_TJr = Vector(self.sh, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ.coeffs)
+            self.shc_PFAC = Vector(self.sh, self.shc_TB_to_shc_PFAC.dot(self.shc_TB.coeffs))
         elif key == 'Br':
-            self.shc_Br = kwargs['Br']
-            self.shc_VB = self.shc_Br / self.sh.n
-            self.shc_VJ = -self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB
+            self.shc_Br = Vector(self.sh, kwargs['Br'])
+            self.shc_VB = Vector(self.sh, self.shc_Br.coeffs / self.sh.n)
+            self.shc_VJ = Vector(self.sh, -self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB.coeffs)
         elif key == 'TJr':
             self.shc_TJr = kwargs['TJr']
-            self.shc_TJ = -1 /(self.sh.n * (self.sh.n + 1)) * self.shc_TJr * self.RI**2
-            self.shc_TB = -mu0 / self.RI * self.shc_TJ
-            self.shc_PFAC = self.shc_TB_to_shc_PFAC.dot(self.shc_TB) 
+            self.shc_TJ = Vector(self.sh, -1 /(self.sh.n * (self.sh.n + 1)) * self.shc_TJr * self.RI**2)
+            self.shc_TB = Vector(self.sh, -mu0 / self.RI * self.shc_TJ.coeffs)
+            self.shc_PFAC = Vector(self.sh, self.shc_TB_to_shc_PFAC.dot(self.shc_TB.coeffs))
             print('check the factor RI**2!')
         else:
             raise Exception('This should not happen')
@@ -352,7 +353,7 @@ class State(object):
             self.Gpinv = np.linalg.pinv(self.G_shc_TB, rcond = 1e-3)
             print('rcond!')
 
-            c = (self.cu.flatten() + self.AV.dot(self.shc_VB))
+            c = (self.cu.flatten() + self.AV.dot(self.shc_VB.coeffs))
             
             self.ccc = c
             d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale ))
@@ -424,7 +425,7 @@ class State(object):
 
         """
 
-        self.shc_EW = self.sh_evaluator.from_grid(np.hstack(self.get_E(self.sh_evaluator)), component='df')
+        self.shc_EW = Vector(self.sh, self.sh_evaluator.from_grid(np.hstack(self.get_E(self.sh_evaluator)), component='df'))
 
 
     def update_shc_Phi(self):
@@ -432,7 +433,7 @@ class State(object):
 
         """
 
-        self.shc_Phi = self.sh_evaluator.from_grid(np.hstack(self.get_E(self.sh_evaluator)), component='cf')
+        self.shc_Phi = Vector(self.sh, self.sh_evaluator.from_grid(np.hstack(self.get_E(self.sh_evaluator)), component='cf'))
 
 
     def evolve_Br(self, dt):
@@ -451,12 +452,12 @@ class State(object):
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
         if self.connect_hemispheres:
-            c = (self.cu + self.AV.dot(self.shc_VB))
+            c = (self.cu + self.AV.dot(self.shc_VB.coeffs))
             d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale))
             self.set_shc(TB = self.Gpinv.dot(d))
 
         self.update_shc_EW()
-        new_shc_Br = self.shc_Br + self.sh.n * (self.sh.n + 1) * self.shc_EW * dt / self.RI**2
+        new_shc_Br = self.shc_Br.coeffs + self.sh.n * (self.sh.n + 1) * self.shc_EW.coeffs * dt / self.RI**2
         self.set_shc(Br = new_shc_Br)
 
 
@@ -465,15 +466,15 @@ class State(object):
 
         """
 
-        return(_sh_evaluator.to_grid(self.shc_Br))
+        return(_sh_evaluator.to_grid(self.shc_Br.coeffs))
 
 
     def get_JS(self, _sh_evaluator, deg = False):
         """ Calculate ionospheric sheet current.
 
         """
-        Js_V, Je_V = np.split(self.GVBrxdB.dot(self.shc_VB) / mu0, 2, axis = 0)
-        Js_T, Je_T = np.split(self.GTBrxdB.dot(self.shc_TB) / mu0, 2, axis = 0)
+        Js_V, Je_V = np.split(self.GVBrxdB.dot(self.shc_VB.coeffs) / mu0, 2, axis = 0)
+        Js_T, Je_T = np.split(self.GTBrxdB.dot(self.shc_TB.coeffs) / mu0, 2, axis = 0)
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
@@ -486,7 +487,7 @@ class State(object):
 
         """
 
-        return _sh_evaluator.to_grid(self.shc_TJr)
+        return _sh_evaluator.to_grid(self.shc_TJr.coeffs)
 
 
     def get_equivalent_current_function(self, grid, deg = False):
@@ -501,7 +502,7 @@ class State(object):
 
         """
 
-        return _sh_evaluator.to_grid(self.shc_Phi)
+        return _sh_evaluator.to_grid(self.shc_Phi.coeffs)
 
 
     def get_W(self, _sh_evaluator, deg = False):
@@ -509,7 +510,7 @@ class State(object):
 
         """
 
-        return _sh_evaluator.to_grid(self.shc_EW)
+        return _sh_evaluator.to_grid(self.shc_EW.coeffs)
 
 
     def get_E(self, _sh_evaluator, deg = False):
