@@ -425,7 +425,7 @@ class State(object):
 
         """
 
-        self.shc_EW = Vector(self.sh, self.sh_evaluator.from_grid(np.hstack(self.get_E(self.sh_evaluator)), component='df'))
+        self.shc_EW = Vector(self.sh, basis_evaluator = self.sh_evaluator, grid_values = np.hstack(self.get_E(self.sh_evaluator)), component='df')
 
 
     def update_shc_Phi(self):
@@ -433,7 +433,7 @@ class State(object):
 
         """
 
-        self.shc_Phi = Vector(self.sh, self.sh_evaluator.from_grid(np.hstack(self.get_E(self.sh_evaluator)), component='cf'))
+        self.shc_Phi = Vector(self.sh, basis_evaluator = self.sh_evaluator, grid_values = np.hstack(self.get_E(self.sh_evaluator)), component='cf')
 
 
     def evolve_Br(self, dt):
