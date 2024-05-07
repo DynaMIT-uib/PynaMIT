@@ -139,11 +139,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         jr = i2d.get_Jr(m_sh_evaluator) * 1e6
 
         mv_sh_evaluator = BasisEvaluator(i2d_sh, Grid(i2d.RI, mlatv, lonv))
-        Gph = mv_sh_evaluator.G_ph * 1e3
-        Gth = mv_sh_evaluator.G_th * 1e3
-
-        je = -Gph.dot(i2d.state.shc_TJ.coeffs)
-        jn =  Gth.dot(i2d.state.shc_TJ.coeffs)
+        je = i2d.state.get_Je(mv_sh_evaluator) * 1e3
+        jn = i2d.state.get_Jn(mv_sh_evaluator) * 1e3
 
         jrn, jrs = np.split(jr, 2) 
         paxes[2].contourf(mn_grid.lat,  mn_grid.lon,   jrn, levels = levels, cmap = plt.cm.bwr)
