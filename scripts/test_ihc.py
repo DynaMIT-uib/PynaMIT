@@ -43,7 +43,7 @@ u_phi   =  hwm14Obj.Uwind
 u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-i2d_sha = pynamit.sha(Nmax, Mmax)
+i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSprojection(Ncs)
 
 u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
@@ -67,13 +67,14 @@ Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
 
-i2d = pynamit.I2D(i2d_sha, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
-                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
+i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
+                                       ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon, sha = i2d_sha)
+plt_grid = pynamit.grid.grid(RI, lat, lon)
+plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
@@ -86,7 +87,7 @@ jparallel[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
 i2d.state.set_u(-u_north_int, u_east_int)
 i2d.state.set_FAC(jparallel)
 
-GBr = plt_grid.G * i2d_sha.n / i2d.num_grid.RI
+GBr = plt_sh_evaluator.scaled_G(i2d_sh.n / i2d.num_grid.RI)
 Br_I2D = GBr.dot(i2d.state.shc_PFAC)
 
 
@@ -125,10 +126,10 @@ if SIMULATE:
             fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
-            W = plt_grid.G.dot(i2d.state.shc_EW) * 1e-3
+            W = i2d.get_W(plt_sh_evaluator) * 1e-3
 
-            shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.num_grid))) # find coefficients for electric potential
-            Phi = plt_grid.G.dot(shc_Phi) * 1e-3
+            i2d.state.update_shc_Phi()
+            Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
             #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
