@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.sparse as spr
-from pynamit.grid import grid
+from pynamit.grid import Grid
 from pynamit.constants import mu0, RE
 from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
@@ -8,7 +8,7 @@ from pynamit.cubedsphere.cubedsphere import csp
 DEBUG_constraint_scale = 1e-10 # to be deleted
 DEBUG_jpar_scale = 1#1e15
 
-class state(object):
+class State(object):
     """ State of the ionosphere.
 
     """
@@ -71,7 +71,7 @@ class state(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
+            self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
             ll_sh_evaluator = BasisEvaluator(sh, self.ll_grid)
             self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
             self.GTBrxdB_ll = self.get_GTrxdB(self.ll_grid, ll_sh_evaluator)
@@ -81,7 +81,7 @@ class state(object):
 
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.ll_grid.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.ll_grid_conj = grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
+            self.ll_grid_conj = Grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
             ll_conj_sh_evaluator = BasisEvaluator(sh, self.ll_grid_conj)
             self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
             self.GTBrxdB_ll_conj = self.get_GTrxdB(self.ll_grid_conj, ll_conj_sh_evaluator)
@@ -129,7 +129,7 @@ class state(object):
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
             theta_mapped, phi_mapped = self.mainfield.map_coords(_grid.RI, r_k[i], _grid.theta, _grid.lon)
-            mapped_grid = grid(self.RI, 90 - theta_mapped, phi_mapped)
+            mapped_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped)
             mapped_sh_evaluator = BasisEvaluator(self.sh, mapped_grid)
 
             # Calculate magnetic field at grid points at r_k[i]:
@@ -335,7 +335,7 @@ class state(object):
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
             hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
-            self.hl_grid = grid(self.RI, 90 - self.num_grid.theta[hl_mask], self.num_grid.lon[hl_mask])
+            self.hl_grid = Grid(self.RI, 90 - self.num_grid.theta[hl_mask], self.num_grid.lon[hl_mask])
             hl_sh_evaluator = BasisEvaluator(self.sh, self.hl_grid)
 
             B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))

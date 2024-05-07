@@ -32,7 +32,7 @@ Philevels = np.r_[-212.5:212.5:2.5]
 
 ## SET UP SIMULATION OBJECT
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
-i2d_csp = pynamit.CSprojection(Ncs)
+i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
 
@@ -52,8 +52,8 @@ i2d.state.set_FAC(jparallel)
 
 # make an integration matrix
 
-#cnm = SHkeys(Nmax, Mmax).setNmin(1).MleN()
-#snm = SHkeys(Nmax, Mmax).setNmin(1).MleN().Mge(1)
+#cnm = SHKeys(Nmax, Mmax).setNmin(1).MleN()
+#snm = SHKeys(Nmax, Mmax).setNmin(1).MleN().Mge(1)
 #cS =  (2 * cnm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(cnm).T
 #sS =  (2 * snm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(snm).T
 #Ginv = i2d.Gnum.T * np.vstack((cS, sS)) * i2d.csp.unit_area
@@ -62,7 +62,7 @@ i2d.state.set_FAC(jparallel)
 # make plot grid:
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon, i2d_sh)
+plt_grid = pynamit.grid.Grid(RI, lat, lon, i2d_sh)
 plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 nnn = plt_grid.lat.flatten() >  50
 sss = plt_grid.lat.flatten() < -50

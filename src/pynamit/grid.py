@@ -1,4 +1,4 @@
-class grid(object):
+class Grid(object):
     """ Grid for the ionosphere.
 
     """

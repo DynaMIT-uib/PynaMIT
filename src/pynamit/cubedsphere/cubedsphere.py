@@ -46,7 +46,7 @@ d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + '/data/' # for coastlines
 
 
-class CSprojection(object):
+class CSProjection(object):
     def __init__(self, N = None):
         """ Set up cubed sphere projection.
 
@@ -1159,4 +1159,4 @@ class CSprojection(object):
 
 
 
-csp = CSprojection()
+csp = CSProjection()

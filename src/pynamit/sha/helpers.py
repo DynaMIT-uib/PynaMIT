@@ -7,14 +7,14 @@ This module contains helpers for spherical harmonic analysis.
 
 import numpy as np
 
-class SHkeys(object):
+class SHKeys(object):
     """
     Container for ``n`` and ``m``, the indices of the terms in a spherical
     harmonic expansion.
 
     Container can be generated with::
 
-        keys = SHkeys(Nmax, Mmax)
+        keys = SHKeys(Nmax, Mmax)
 
     ``keys`` will behave as a tuple of tuples, more or less.
     ``keys['n']`` will return a list of the ``n``'s.
@@ -124,12 +124,12 @@ def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
 
     """
 
-    return len(SHkeys(NT , MT ).setNmin(1).MleN().Mge(0)) + \
-           len(SHkeys(NT , MT ).setNmin(1).MleN().Mge(1)) + \
-           len(SHkeys(NVe, MVe).setNmin(1).MleN().Mge(0)) + \
-           len(SHkeys(NVe, MVe).setNmin(1).MleN().Mge(1)) + \
-           len(SHkeys(NVi, MVi).setNmin(1).MleN().Mge(0)) + \
-           len(SHkeys(NVi, MVi).setNmin(1).MleN().Mge(1))
+    return len(SHKeys(NT , MT ).setNmin(1).MleN().Mge(0)) + \
+           len(SHKeys(NT , MT ).setNmin(1).MleN().Mge(1)) + \
+           len(SHKeys(NVe, MVe).setNmin(1).MleN().Mge(0)) + \
+           len(SHKeys(NVe, MVe).setNmin(1).MleN().Mge(1)) + \
+           len(SHKeys(NVi, MVi).setNmin(1).MleN().Mge(0)) + \
+           len(SHKeys(NVi, MVi).setNmin(1).MleN().Mge(1))
 
 
 def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
@@ -152,7 +152,7 @@ def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
     schmidtnormalize : bool, optional, default = True
         ``True`` if Schmidth seminormalization is wanted, ``False``
         otherwise.
-    keys : SHkeys, optional
+    keys : SHKeys, optional
         If this parameter is set, an array will be returned instead of
         a dict. The array will be ``(N, 2M)``, where ``N`` is the
         number of elements in `theta`, and ``M`` is the number of

@@ -9,7 +9,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
 
     Parameters
     ----------
-    projection: CSprojection
+    projection: CSProjection
         Cubed sphere projection object.
     inlat: array
         Latitudes of input.
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
     sys.path.insert(0, cs_path)
     import cubedsphere
-    csp = cubedsphere.CSprojection() # cubed sphere projection object
+    csp = cubedsphere.CSProjection() # cubed sphere projection object
 
     Ncs = 30
     k, i, j = csp.get_gridpoints(Ncs)

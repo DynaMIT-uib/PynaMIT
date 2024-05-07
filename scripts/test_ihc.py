@@ -44,7 +44,7 @@ u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
-i2d_csp = pynamit.CSprojection(Ncs)
+i2d_csp = pynamit.CSProjection(Ncs)
 
 u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
 u_east_int, u_north_int, u_r_int = u_int
@@ -73,7 +73,7 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.grid(RI, lat, lon)
+plt_grid = pynamit.grid.Grid(RI, lat, lon)
 plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:

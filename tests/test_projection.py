@@ -1,5 +1,5 @@
 """ 
-Testing of the cubedsphere CSprojection class
+Testing of the cubedsphere CSProjection class
 
 1) Conversions to / from cubed sphere, Cartesian, and spherical coordinates
 2) Conversions to / from cubed sphere, Cartesians, and spherical components
@@ -16,7 +16,7 @@ from importlib import reload
 import cartopy.crs as ccrs
 reload(cubedsphere)
 
-p = cubedsphere.CSprojection()
+p = cubedsphere.CSProjection()
 
 def test_projection():
 

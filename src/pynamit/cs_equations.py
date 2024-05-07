@@ -1,6 +1,6 @@
 import numpy as np
 
-class cs_equations(object):
+class CSEquations(object):
     """ Unused (for now) equations related to cubed sphere coordinates.
 
     """

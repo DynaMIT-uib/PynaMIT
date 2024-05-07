@@ -6,7 +6,7 @@ This module contains the ``SHBasis`` class.
 """
 
 import numpy as np
-from pynamit.sha.helpers import SHkeys, legendre
+from pynamit.sha.helpers import SHKeys, legendre
 
 class SHBasis(object):
     """ Spherical harmonic basis.
@@ -22,8 +22,8 @@ class SHBasis(object):
         self.Mmax = Mmax
 
         # make separate sets of spherical harmonic keys for cos and sin terms:
-        self.cnm = SHkeys(self.Nmax, self.Mmax).setNmin(1).MleN()
-        self.snm = SHkeys(self.Nmax, self.Mmax).setNmin(1).MleN().Mge(1)
+        self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(1).MleN()
+        self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(1).MleN().Mge(1)
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
@@ -36,7 +36,7 @@ class SHBasis(object):
         """
         Calculate matrix that evaluates surface spherical harmonics at the
         latitudes and longitudes of the given `grid`, using the terms
-        contained in the ``shkeys`` of the ``SHBasis`` object.
+        contained in the ``SHKeys`` of the ``SHBasis`` object.
 
         Parameters
         ----------
@@ -55,7 +55,7 @@ class SHBasis(object):
             ``N x M`` array, where ``N`` is the size inferred by
             broadcasting `grid.lon` and `grid.lat`, and ``M`` is the
             number of terms in the spherical harmonics inferred from
-            the ``shkeys`` of the ``SHBasis`` object. The ``cos`` terms
+            the ``SHKeys`` of the ``SHBasis`` object. The ``cos`` terms
             are given first, and ``sin`` terms after.
         
         """

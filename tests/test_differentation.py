@@ -15,7 +15,7 @@ from functools import reduce
 def test_differentiation():
     # set up projection and make a grid (not using the grid class)
     R = 6371.2e3
-    p = cubedsphere.CSprojection()
+    p = cubedsphere.CSProjection()
     N = 40 # number of grid points in each direction per block
     dxi = np.pi / 2 / (N - 1)
     #deta = np.pi / 2 / (N - 1)
@@ -104,7 +104,7 @@ def test_differentiation():
     shape = (6, N, N)
     size = np.product(shape)
 
-    p = cubedsphere.CSprojection()
+    p = cubedsphere.CSProjection()
     h = p.xi(1, N) - p.xi(0, N) # step size between each grid cell
 
     # with ij indexing, (i, xi) vary along the first (numpy vertical) axis, and (j, eta) along the second (numpy horizontal) axis. 

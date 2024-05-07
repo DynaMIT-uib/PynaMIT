@@ -1,6 +1,6 @@
 import polplot
 import matplotlib.pyplot as plt
-from pynamit import CSprojection
+from pynamit import CSProjection
 from pynamit import Mainfield
 
 RE = 6371.2e3
@@ -11,7 +11,7 @@ r_dest = RE
 fig, axes = plt.subplots(ncols = 3, figsize = (15, 5))
 paxes = [polplot.Polarplot(ax) for ax in axes]
 
-csp = CSprojection(N = 20)
+csp = CSProjection(N = 20)
 
 lat, lon = 90 - csp.arr_theta, csp.arr_phi
 mask = lat > 50

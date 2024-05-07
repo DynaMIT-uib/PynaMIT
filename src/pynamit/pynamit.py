@@ -3,9 +3,9 @@ from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
 import os
 from pynamit.cubedsphere import cubedsphere
-#from pynamit.cs_equations import cs_equations
-from pynamit.grid import grid
-from pynamit.state import state
+#from pynamit.cs_equations import CSEquations
+from pynamit.grid import Grid
+from pynamit.state import State
 from pynamit.constants import RE
 
 
@@ -39,13 +39,13 @@ class I2D(object):
 
         """
 
-        self.num_grid = grid(RI, 90 - csp.arr_theta, csp.arr_phi)
+        self.num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
         mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
-        #self.cs_equations = cs_equations(csp, RI)
+        #self.cs_equations = CSEquations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = state(sh, mainfield, self.num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = State(sh, mainfield, self.num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
 
 
 
@@ -56,7 +56,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Define CS grid used for SH analysis and gradient calculations
     # Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
-    csp = cubedsphere.CSprojection(Ncs) # cubed sphere projection object
+    csp = cubedsphere.CSProjection(Ncs) # cubed sphere projection object
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
@@ -94,7 +94,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
-    plt_grid = grid(RI, lat, lon)
+    plt_grid = Grid(RI, lat, lon)
     plt_sh_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
     hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
@@ -127,18 +127,18 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
 
-        mn_grid = grid(i2d.RI, mlatn, mltn)
-        mnv_grid = grid(i2d.RI, mlatnv, mltnv)
+        mn_grid = Grid(i2d.RI, mlatn, mltn)
+        mnv_grid = Grid(i2d.RI, mlatnv, mltnv)
 
         paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
         paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
         paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
         paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-        m_sh_evaluator = BasisEvaluator(i2d_sh, grid(i2d.RI, mlat, lon))
+        m_sh_evaluator = BasisEvaluator(i2d_sh, Grid(i2d.RI, mlat, lon))
         jr = i2d.get_Jr(m_sh_evaluator) * 1e6
 
-        mv_sh_evaluator = BasisEvaluator(i2d_sh, grid(i2d.RI, mlatv, lonv))
+        mv_sh_evaluator = BasisEvaluator(i2d_sh, Grid(i2d.RI, mlatv, lonv))
         Gph = mv_sh_evaluator.G_ph * 1e3
         Gth = mv_sh_evaluator.G_th * 1e3
 
@@ -166,7 +166,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         if not compare_AMPS_FAC_and_CF_currents:
             mlat  , mlt   = a.scalargrid
             mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
-            mn_grid = grid(i2d.RI, mlatn, mltn)
+            mn_grid = Grid(i2d.RI, mlatn, mltn)
 
         Bu = a.get_ground_Buqd(height = a.height)
         paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
