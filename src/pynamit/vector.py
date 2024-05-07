@@ -1,5 +1,3 @@
-from pynamit.basis_evaluator import BasisEvaluator
-
 class Vector(object):
 
     def __init__(self, basis, coeffs = None, basis_evaluator = None, grid_values = None, component = None):
