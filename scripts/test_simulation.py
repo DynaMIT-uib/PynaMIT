@@ -35,6 +35,8 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
+csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_csp, csp_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -42,7 +44,7 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 hall, pedersen = conductance.hardy_EUV(i2d_csp.arr_phi, 90 - i2d_csp.arr_theta, Kp, date, starlight = 1, dipole = True)
-i2d.state.set_conductance(hall, pedersen)
+i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = -a.get_upward_current(mlat = 90 - i2d_csp.arr_theta, mlt = d.mlon2mlt(i2d_csp.arr_phi, date)) / i2d.state.sinI * 1e-6
@@ -54,8 +56,8 @@ i2d.state.set_FAC(jparallel)
 
 #cnm = SHKeys(Nmax, Mmax).setNmin(1).MleN()
 #snm = SHKeys(Nmax, Mmax).setNmin(1).MleN().Mge(1)
-#cS =  (2 * cnm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(cnm).T
-#sS =  (2 * snm.n.T + 1) / (4 * np.pi * i2d.RI**2) #pynamit.get_Schmidt_normalization(snm).T
+#cS =  (2 * cnm.n.T + 1) / (4 * np.pi * RI**2) #pynamit.get_Schmidt_normalization(cnm).T
+#sS =  (2 * snm.n.T + 1) / (4 * np.pi * RI**2) #pynamit.get_Schmidt_normalization(snm).T
 #Ginv = i2d.Gnum.T * np.vstack((cS, sS)) * i2d.csp.unit_area
 #gg = Ginv.dot(i2d.Gnum)
 
