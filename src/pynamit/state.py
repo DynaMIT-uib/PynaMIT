@@ -235,8 +235,7 @@ class State(object):
 
     def get_GVrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients shc_VB to delta B across ionosphere """
-        n = _basis_evaluator.basis.n
-        GVdB = _basis_evaluator.Gcf * (n / (n + 1) + 1) * self.RI
+        GVdB = _basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         GVBth, GVBph = np.split(GVdB, 2, axis = 0)
         GVrxdB = np.vstack((-GVBph, GVBth))
 
