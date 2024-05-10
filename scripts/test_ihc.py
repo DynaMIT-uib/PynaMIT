@@ -70,6 +70,9 @@ Philevels = np.r_[-212.5:212.5:5]
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
+csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_csp, csp_grid)
+
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
@@ -77,18 +80,18 @@ plt_grid = pynamit.grid.Grid(RI, lat, lon)
 plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
-hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.state.set_conductance(hall, pedersen)
+hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
+i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) / i2d.state.sinI * 1e-6
-jparallel[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
+jparallel = -a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / i2d.state.sinI * 1e-6
+jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_u(-u_north_int, u_east_int)
 i2d.state.set_FAC(jparallel)
 
-GBr = plt_sh_evaluator.scaled_G(i2d_sh.n / i2d.num_grid.RI)
-Br_I2D = GBr.dot(i2d.state.shc_PFAC)
+GBr = plt_sh_evaluator.scaled_G(i2d_sh.n / RI)
+Br_I2D = GBr.dot(i2d.state.shc_PFAC.coeffs)
 
 
 if SIMULATE:
@@ -113,12 +116,12 @@ if SIMULATE:
 
         i2d.state.evolve_Br(dt)
         time = time + dt
-        coeffs.append(i2d.state.shc_VB)
+        coeffs.append(i2d.state.shc_VB.coeffs)
         count += 1
-        #print(count, time, i2d.shc_Br[:3])
+        #print(count, time, i2d.shc_Br.coeffs[:3])
 
         if count % plotsteps == 0:
-            print(count, time, i2d.state.shc_Br[:3])
+            print(count, time, i2d.state.shc_Br.coeffs[:3])
             fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
             filecount +=1
             title = 't = {:.3} s'.format(time)
@@ -126,7 +129,7 @@ if SIMULATE:
             fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
-            W = i2d.get_W(plt_sh_evaluator) * 1e-3
+            W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
 
             i2d.state.update_shc_Phi()
             Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3

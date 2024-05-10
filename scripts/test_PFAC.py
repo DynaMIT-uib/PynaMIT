@@ -34,6 +34,9 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, ignore_PFAC = False)
 
+csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_csp, csp_grid)
+
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
@@ -45,16 +48,16 @@ date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
-hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.state.set_conductance(hall, pedersen)
+hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
+i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) / i2d.state.sinI * 1e-6
-jparallel[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
+jparallel = -a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / i2d.state.sinI * 1e-6
+jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_FAC(jparallel)
-GBr = plt_sh_evaluator.scaled_G(i2d_sh.n / i2d.num_grid.RI)
-Br_I2D = GBr.dot(i2d.state.shc_PFAC)
+GBr = plt_sh_evaluator.scaled_G(i2d_sh.n / RI)
+Br_I2D = GBr.dot(i2d.state.shc_PFAC.coeffs)
 
 
 if SIMULATE_DYNAMIC_RESPONSE:
@@ -66,7 +69,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 
     # manipulate GTB to remove the r x grad(T) part:
-    GrxgradT = -i2d.num_grid.Gdf * i2d.num_grid.RI
+    GrxgradT = -csp_sh_evaluator.Gdf * RI
     i2d.state.GTB = i2d.state.GTB - GrxgradT # subtract GrxgradT off
 
 
@@ -83,12 +86,12 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
         i2d.state.evolve_Br(dt)
         time = time + dt
-        coeffs.append(i2d.state.shc_VB)
+        coeffs.append(i2d.state.shc_VB.coeffs)
         count += 1
-        #print(count, time, i2d.shc_Br[:3])
+        #print(count, time, i2d.shc_Br.coeffs[:3])
 
         if count % plotsteps == 0:
-            print(count, time, i2d.state.shc_Br[:3])
+            print(count, time, i2d.state.shc_Br.coeffs[:3])
             fn = os.path.join(fig_directory, 'PFAC_' + str(filecount).zfill(3) + '.png')
             filecount +=1
             title = 't = {:.3} s'.format(time)
@@ -96,10 +99,10 @@ if SIMULATE_DYNAMIC_RESPONSE:
             fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
-            W = plt_sh_evaluator.to_grid(i2d.state.shc_EW) * 1e-3
+            W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
 
-            shc_Phi = i2d.num_grid.vector_to_shc_cf.dot(np.hstack(i2d.state.get_E(i2d.num_grid))) # find coefficients for electric potential
-            Phi = plt_sh_evaluator.to_grid(shc_Phi) * 1e-3
+            i2d.state.update_shc_Phi()
+            Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
             #paxs.contour(i2d.lat.flatten()[sss], (i2d.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
@@ -114,12 +117,12 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 if COMPARE_TO_SECS:
     print('Building SECS matrices. This takes some time (and memory) because of global grids...')
-    secsI = jparallel * i2d.state.sinI * i2d_csp.unit_area * i2d.num_grid.RI**2 # SECS amplitudes are downward current density times area
+    secsI = jparallel * i2d.state.sinI * i2d_csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
-    r = np.full(lat.size, i2d.num_grid.RI - 1)
-    lat_secs, lon_secs = i2d.num_grid.lat, i2d.num_grid.lon
+    r = np.full(lat.size, RI - 1)
+    lat_secs, lon_secs = csp_grid.lat, csp_grid.lon
     Be, Bn, Br = i2d.state.bphi, - i2d.state.btheta, i2d.state.br
-    Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = i2d.num_grid.RI)
+    Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)
 
 
     Br_SECS = Gu.dot(secsI)

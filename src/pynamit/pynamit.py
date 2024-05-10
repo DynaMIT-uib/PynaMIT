@@ -39,13 +39,13 @@ class I2D(object):
 
         """
 
-        self.num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
+        num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
         mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
 
         #self.cs_equations = CSEquations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, self.num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
 
 
 
@@ -91,22 +91,26 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # noon longitude
     lon0 = d.mlt2mlon(12, date)
 
+    # Define cubed sphere grid
+    csp_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
+    csp_sh_evaluator = BasisEvaluator(i2d_sh, csp_grid)
+
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = Grid(RI, lat, lon)
     plt_sh_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
-    hall, pedersen = conductance.hardy_EUV(i2d.num_grid.lon, i2d.num_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.state.set_conductance(hall, pedersen)
+    hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
+    i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = i2d.num_grid.lat, mlt = d.mlon2mlt(i2d.num_grid.lon, date)) * 1e-6
-    ju[np.abs(i2d.num_grid.lat) < 50] = 0 # filter low latitude FACs
+    ju = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) * 1e-6
+    ju[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-    ju[i2d.num_grid.theta < 90] = -ju[i2d.num_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
+    ju[csp_grid.theta < 90] = -ju[csp_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
-    i2d.state.set_FAC(ju)
+    i2d.state.set_FAC(ju, csp_sh_evaluator)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
@@ -127,23 +131,20 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         lon  = d.mlt2mlon(mlt , date)
         lonv = d.mlt2mlon(mltv, date)
 
-        mn_grid = Grid(i2d.RI, mlatn, mltn)
-        mnv_grid = Grid(i2d.RI, mlatnv, mltnv)
+        mn_grid = Grid(RI, mlatn, mltn)
+        mnv_grid = Grid(RI, mlatnv, mltnv)
 
         paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
         paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
         paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
         paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-        m_sh_evaluator = BasisEvaluator(i2d_sh, Grid(i2d.RI, mlat, lon))
+        m_sh_evaluator = BasisEvaluator(i2d_sh, Grid(RI, mlat, lon))
         jr = i2d.get_Jr(m_sh_evaluator) * 1e6
 
-        mv_sh_evaluator = BasisEvaluator(i2d_sh, Grid(i2d.RI, mlatv, lonv))
-        Gph = mv_sh_evaluator.G_ph * 1e3
-        Gth = mv_sh_evaluator.G_th * 1e3
-
-        je = -Gph.dot(i2d.state.shc_TJ)
-        jn =  Gth.dot(i2d.state.shc_TJ)
+        mv_sh_evaluator = BasisEvaluator(i2d_sh, Grid(RI, mlatv, lonv))
+        je = i2d.state.get_Je(mv_sh_evaluator) * 1e3
+        jn = i2d.state.get_Jn(mv_sh_evaluator) * 1e3
 
         jrn, jrs = np.split(jr, 2) 
         paxes[2].contourf(mn_grid.lat,  mn_grid.lon,   jrn, levels = levels, cmap = plt.cm.bwr)
@@ -166,7 +167,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         if not compare_AMPS_FAC_and_CF_currents:
             mlat  , mlt   = a.scalargrid
             mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
-            mn_grid = Grid(i2d.RI, mlatn, mltn)
+            mn_grid = Grid(RI, mlatn, mltn)
 
         Bu = a.get_ground_Buqd(height = a.height)
         paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
@@ -177,8 +178,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if show_FAC_and_conductance:
 
-        hall_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, hall, plt_grid.lat, plt_grid.lon)
-        pede_plt = cs_interpolate(csp, i2d.num_grid.lat, i2d.num_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
+        hall_plt = cs_interpolate(csp, csp_grid.lat, csp_grid.lon, hall, plt_grid.lat, plt_grid.lon)
+        pede_plt = cs_interpolate(csp, csp_grid.lat, csp_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
 
         globalplot(plt_grid.lon, plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(plt_grid.lon, plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
@@ -218,7 +219,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     #globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lat.shape), 
     #           levels = levels, cmap = 'bwr', central_longitude = lon0)
 
-    #globalplot(i2d.num_grid.lon, i2d.num_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
+    #globalplot(csp_grid.lon, csp_grid.lat, i2d.SH, vmin = 0, vmax = 20, cmap = 'viridis', scatter = True, central_longitude = lon0)
 
     fig_directory_writeable = os.access(fig_directory, os.W_OK)
 
@@ -235,19 +236,19 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
             i2d.state.evolve_Br(dt)
             time = time + dt
-            coeffs.append(i2d.state.shc_VB)
+            coeffs.append(i2d.state.shc_VB.coeffs)
             count += 1
-            #print(count, time, i2d.state.shc_Br[:3])
+            #print(count, time, i2d.state.shc_Br.coeffs[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, i2d.state.shc_Br[:3])
+                print(count, time, i2d.state.shc_Br.coeffs[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.state.get_Br(plt_sh_evaluator)
                 fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.get_W(plt_sh_evaluator) * 1e-3
+                #W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
 
                 i2d.state.update_shc_Phi()
                 Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3

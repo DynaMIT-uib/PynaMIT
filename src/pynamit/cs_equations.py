@@ -12,7 +12,7 @@ class CSEquations(object):
         self.g  = csp.g # csp.get_metric_tensor(xi, eta, 1, covariant = True)
         self.sqrtg = np.sqrt(csp.detg) #np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         self.Ps = csp.get_Ps(csp.arr_xi, csp.arr_eta, 1, csp.arr_block)                           # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Qi = csp.get_Q(90 - csp.arr_theta, self.RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
+        self.Qi = csp.get_Q(90 - csp.arr_theta, RI, inverse = True) # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
 
         self.g12 = self.g[:, 0, 1]
         self.g22 = self.g[:, 1, 1]
