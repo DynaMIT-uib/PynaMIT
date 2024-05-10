@@ -91,7 +91,7 @@ i2d.state.set_u(-u_north_int, u_east_int)
 i2d.state.set_FAC(jparallel)
 
 GBr = plt_sh_evaluator.scaled_G(i2d_sh.n / RI)
-Br_I2D = GBr.dot(i2d.state.shc_PFAC.coeffs)
+Br_I2D = GBr.dot(i2d.state.PFAC.coeffs)
 
 
 if SIMULATE:
@@ -116,12 +116,12 @@ if SIMULATE:
 
         i2d.state.evolve_Br(dt)
         time = time + dt
-        coeffs.append(i2d.state.shc_VB.coeffs)
+        coeffs.append(i2d.state.VB.coeffs)
         count += 1
-        #print(count, time, i2d.shc_Br.coeffs[:3])
+        #print(count, time, i2d.Br.coeffs[:3])
 
         if count % plotsteps == 0:
-            print(count, time, i2d.state.shc_Br.coeffs[:3])
+            print(count, time, i2d.state.Br.coeffs[:3])
             fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
             filecount +=1
             title = 't = {:.3} s'.format(time)
@@ -131,7 +131,7 @@ if SIMULATE:
 
             W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
 
-            i2d.state.update_shc_Phi()
+            i2d.state.update_Phi()
             Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)

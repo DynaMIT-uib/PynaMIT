@@ -23,8 +23,8 @@ class I2D(object):
 
         Parameters
         ----------
-        sh: sh object
-            Spherical harmonic analysis object.
+        sh: sha.SHBasis object
+            Spherical harmonic basis object.
         csp: cubedsphere.CSProjection object
             Cubed sphere projection object.
         RI: float, optional, default = RE + 110.e3
@@ -51,7 +51,7 @@ class I2D(object):
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50):
 
-    # Set up the spherical harmonic analysis object
+    # Set up the spherical harmonic basis object
     i2d_sh = SHBasis(Nmax, Mmax)
 
     # Define CS grid used for SH analysis and gradient calculations
@@ -236,12 +236,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
             i2d.state.evolve_Br(dt)
             time = time + dt
-            coeffs.append(i2d.state.shc_VB.coeffs)
+            coeffs.append(i2d.state.VB.coeffs)
             count += 1
-            #print(count, time, i2d.state.shc_Br.coeffs[:3])
+            #print(count, time, i2d.state.Br.coeffs[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, i2d.state.shc_Br.coeffs[:3])
+                print(count, time, i2d.state.Br.coeffs[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
@@ -250,7 +250,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
 
-                i2d.state.update_shc_Phi()
+                i2d.state.update_Phi()
                 Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3
 
 
