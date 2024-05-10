@@ -50,9 +50,9 @@ class State(object):
 
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
+            self.TB_to_PFAC = np.zeros((self.basis.N_coeffs, self.basis.N_coeffs))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
+            self.TB_to_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
 
         self.GTBrxdB = self.get_GTrxdB(self.basis_evaluator) # matrices that map sch_TB to r x deltaB
         self.GVBrxdB = self.get_GVrxdB(self.basis_evaluator) # matrices that map sch_VB to r x deltaB
@@ -113,8 +113,8 @@ class State(object):
         self.set_conductance(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), self.basis_evaluator, update = True)
 
         # Initialize the spherical harmonic coefficients
-        self.set_coeffs(VB = np.zeros(sh.Nshc))
-        self.set_coeffs(TB = np.zeros(sh.Nshc))
+        self.set_coeffs(VB = np.zeros(self.basis.N_coeffs))
+        self.set_coeffs(TB = np.zeros(self.basis.N_coeffs))
 
     def _get_PFAC_matrix(self, _grid, _basis_evaluator):
         """ """
@@ -124,9 +124,9 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_to_shc = -_basis_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        jh_grid_to_basis = -_basis_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
-        shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
+        TB_to_PFAC = np.zeros((self.basis.N_coeffs, self.basis.N_coeffs))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
@@ -155,10 +155,10 @@ class State(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # put it all together (crazy)
-            shc_TB_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(G_k)))
+            TB_to_PFAC += Delta_k[i] * A_k.dot(jh_grid_to_basis.dot(S_k.dot(G_k)))
 
         # return the matrix scaled by the term in front of the integral
-        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(shc_TB_to_shc_PFAC) / self.RI)
+        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(TB_to_PFAC) / self.RI)
 
 
     def _get_A5_and_c(self, _grid):
@@ -227,7 +227,7 @@ class State(object):
         GPFAC    = -_basis_evaluator.Gcf                      # matrix that calculates potential magnetic field of external source
         Gshield  = -(_basis_evaluator.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
 
-        GTB = GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC)
+        GTB = GrxgradT + (GPFAC + Gshield).dot(self.TB_to_PFAC)
         GTBth, GTBph = np.split(GTB, 2, axis = 0)
         GTrxdB = np.vstack((-GTBph, GTBth))
         return(GTrxdB)
@@ -276,7 +276,7 @@ class State(object):
             self.TB = Vector(self.basis, kwargs['TB'])
             self.TJ = Vector(self.basis, -self.RI / mu0 * self.TB.coeffs)
             self.TJr = Vector(self.basis, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.TJ.coeffs)
-            self.PFAC = Vector(self.basis, self.shc_TB_to_shc_PFAC.dot(self.TB.coeffs))
+            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
         elif key == 'VJ':
             self.VJ = Vector(self.basis, kwargs['VJ'])
             self.VB = Vector(self.basis, mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.VJ.coeffs)
@@ -285,7 +285,7 @@ class State(object):
             self.TJ = Vector(self.basis, kwargs['TJ'])
             self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
             self.TJr = Vector(self.basis, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.TJ.coeffs)
-            self.PFAC = Vector(self.basis, self.shc_TB_to_shc_PFAC.dot(self.TB.coeffs))
+            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
         elif key == 'Br':
             self.Br = Vector(self.basis, kwargs['Br'])
             self.VB = Vector(self.basis, self.Br.coeffs / self.sh.n)
@@ -294,7 +294,7 @@ class State(object):
             self.TJr = kwargs['TJr']
             self.TJ = Vector(self.basis, -1 /(self.sh.n * (self.sh.n + 1)) * self.TJr * self.RI**2)
             self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
-            self.PFAC = Vector(self.basis, self.shc_TB_to_shc_PFAC.dot(self.TB.coeffs))
+            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
             print('check the factor RI**2!')
         else:
             raise Exception('This should not happen')
