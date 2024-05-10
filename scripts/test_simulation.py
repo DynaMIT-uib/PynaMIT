@@ -36,7 +36,7 @@ i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
 csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_csp, csp_grid)
+csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, csp_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)

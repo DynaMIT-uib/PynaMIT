@@ -71,7 +71,7 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
 csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_csp, csp_grid)
+csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, csp_grid)
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
