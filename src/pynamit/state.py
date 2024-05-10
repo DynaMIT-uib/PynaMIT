@@ -20,6 +20,7 @@ class State(object):
         """
 
         self.sh = sh
+        self.basis = sh # SHBasis for now, but can in principle be any basis if we generalize
         self.mainfield = mainfield
         self.num_grid = num_grid
         self.FAC_integration_parameters = FAC_integration_parameters
@@ -31,7 +32,7 @@ class State(object):
         self.latitude_boundary = latitude_boundary
 
         # initialize the basis evaluator
-        self.sh_evaluator = BasisEvaluator(sh, num_grid)
+        self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
 
         # initialize neutral wind
         self.u_theta = None
@@ -47,14 +48,14 @@ class State(object):
         self.b10 = -self.btheta * self.bphi
         self.b11 = self.btheta**2 + self.br**2
 
-        # Pre-calculate the matrix that maps from shc_TB to the boundary magnetic field (Bh+)
+        # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
+            self.TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            self.shc_TB_to_shc_PFAC = self._get_PFAC_matrix(num_grid, self.sh_evaluator)
+            self.TB_to_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
 
-        self.GTBrxdB = self.get_GTrxdB(self.sh_evaluator) # matrices that map sch_TB to r x deltaB
-        self.GVBrxdB = self.get_GVrxdB(self.sh_evaluator) # matrices that map sch_VB to r x deltaB
+        self.GTBrxdB = self.get_GTrxdB(self.basis_evaluator) # matrices that map sch_TB to r x deltaB
+        self.GVBrxdB = self.get_GVrxdB(self.basis_evaluator) # matrices that map sch_VB to r x deltaB
 
         if connect_hemispheres:
             if ignore_PFAC:
@@ -73,20 +74,20 @@ class State(object):
 
             # calculate constraint matrices for low latitude points
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
-            ll_sh_evaluator = BasisEvaluator(sh, self.ll_grid)
+            ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
-            self.GTBrxdB_ll = self.get_GTrxdB(ll_sh_evaluator)
-            self.GVBrxdB_ll = self.get_GVrxdB(ll_sh_evaluator)
+            self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator)
+            self.GVBrxdB_ll = self.get_GVrxdB(ll_basis_evaluator)
             self.A_eP_T, self.A_eH_T = self.A5_eP.dot(self.GTBrxdB_ll) / mu0, self.A5_eH.dot(self.GTBrxdB_ll) / mu0
             self.A_eP_V, self.A_eH_V = self.A5_eP.dot(self.GVBrxdB_ll) / mu0, self.A5_eH.dot(self.GVBrxdB_ll) / mu0
 
             # ... and for their conjugate points:
             self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
             self.ll_grid_conj = Grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
-            ll_conj_sh_evaluator = BasisEvaluator(sh, self.ll_grid_conj)
+            ll_conj_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid_conj)
             self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
-            self.GTBrxdB_ll_conj = self.get_GTrxdB(ll_conj_sh_evaluator)
-            self.GVBrxdB_ll_conj = self.get_GVrxdB(ll_conj_sh_evaluator)
+            self.GTBrxdB_ll_conj = self.get_GTrxdB(ll_conj_basis_evaluator)
+            self.GVBrxdB_ll_conj = self.get_GVrxdB(ll_conj_basis_evaluator)
             self.A_eP_conj_T, self.A_eH_conj_T = self.A5_eP_conj.dot(self.GTBrxdB_ll_conj) / mu0, self.A5_eH_conj.dot(self.GTBrxdB_ll_conj) / mu0
             self.A_eP_conj_V, self.A_eH_conj_V = self.A5_eP_conj.dot(self.GVBrxdB_ll_conj) / mu0, self.A5_eH_conj.dot(self.GVBrxdB_ll_conj) / mu0
 
@@ -96,8 +97,8 @@ class State(object):
             self.ll_sinI_conj = self.mainfield.get_sinI(self.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll        = ll_sh_evaluator.scaled_G(1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
-            self.G_par_ll_conj   = ll_conj_sh_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj)
+            self.G_par_ll        = ll_basis_evaluator.scaled_G(1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
+            self.G_par_ll_conj   = ll_conj_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj)
             self.constraint_Gpar = (self.G_par_ll - self.G_par_ll_conj) * DEBUG_jpar_scale
 
  
@@ -109,13 +110,13 @@ class State(object):
 
         # Initialize neutral wind and conductances
         self.set_u(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), update = False)
-        self.set_conductance(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), self.sh_evaluator, update = True)
+        self.set_conductance(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), self.basis_evaluator, update = True)
 
         # Initialize the spherical harmonic coefficients
-        self.set_shc(VB = np.zeros(sh.Nshc))
-        self.set_shc(TB = np.zeros(sh.Nshc))
+        self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
+        self.set_coeffs(TB = np.zeros(self.basis.num_coeffs))
 
-    def _get_PFAC_matrix(self, _grid, _sh_evaluator):
+    def _get_PFAC_matrix(self, _grid, _basis_evaluator):
         """ """
         # initialize matrix that will map from self.TJr to coefficients for poloidal field:
 
@@ -123,15 +124,15 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_to_shc = -_sh_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        jh_grid_to_basis = -_basis_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
-        shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
+        TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
             theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
             mapped_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped)
-            mapped_sh_evaluator = BasisEvaluator(self.sh, mapped_grid)
+            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
 
             # Calculate magnetic field at grid points at r_k[i]:
             B_rk  = np.vstack(self.mainfield.get_B(r_k[i], _grid.theta, _grid.lon))
@@ -144,7 +145,7 @@ class State(object):
             sinI_RI = -B_RI[0] / B0_RI
 
             # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = mapped_sh_evaluator.scaled_G(-self.sh.n * (self.sh.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1))) # TODO: Handle singularity at equator (may be fine)
+            G_k = mapped_basis_evaluator.scaled_G(-self.sh.n * (self.sh.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1))) # TODO: Handle singularity at equator (may be fine)
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
             ratio = (B0_rk / B0_RI).reshape((1, -1))
@@ -154,10 +155,10 @@ class State(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # put it all together (crazy)
-            shc_TB_to_shc_PFAC += Delta_k[i] * A_k.dot(jh_to_shc.dot(S_k.dot(G_k)))
+            TB_to_PFAC += Delta_k[i] * A_k.dot(jh_grid_to_basis.dot(S_k.dot(G_k)))
 
         # return the matrix scaled by the term in front of the integral
-        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(shc_TB_to_shc_PFAC) / self.RI)
+        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(TB_to_PFAC) / self.RI)
 
 
     def _get_A5_and_c(self, _grid):
@@ -220,36 +221,35 @@ class State(object):
 
 
 
-    def get_GTrxdB(self, _sh_evaluator):
-        """ Calculate matrix that maps the coefficients shc_TB to delta B across ionosphere """
-        GrxgradT = -_sh_evaluator.Gdf * self.RI # matrix that gets -r x grad(T)
-        GPFAC    = -_sh_evaluator.Gcf                      # matrix that calculates potential magnetic field of external source
-        Gshield  = -(_sh_evaluator.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
+    def get_GTrxdB(self, _basis_evaluator):
+        """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
+        GrxgradT = -_basis_evaluator.Gdf * self.RI # matrix that gets -r x grad(T)
+        GPFAC    = -_basis_evaluator.Gcf                      # matrix that calculates potential magnetic field of external source
+        Gshield  = -(_basis_evaluator.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
 
-        GTB = GrxgradT + (GPFAC + Gshield).dot(self.shc_TB_to_shc_PFAC)
+        GTB = GrxgradT + (GPFAC + Gshield).dot(self.TB_to_PFAC)
         GTBth, GTBph = np.split(GTB, 2, axis = 0)
         GTrxdB = np.vstack((-GTBph, GTBth))
         return(GTrxdB)
 
 
-    def get_GVrxdB(self, _sh_evaluator):
-        """ Calculate matrix that maps the coefficients shc_VB to delta B across ionosphere """
-        n = _sh_evaluator.basis.n
-        GVdB = _sh_evaluator.Gcf * (n / (n + 1) + 1) * self.RI
+    def get_GVrxdB(self, _basis_evaluator):
+        """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
+        GVdB = _basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         GVBth, GVBph = np.split(GVdB, 2, axis = 0)
         GVrxdB = np.vstack((-GVBph, GVBth))
 
         return(GVrxdB)
     
 
-    def set_shc(self, **kwargs):
-        """ Set spherical harmonic coefficients.
+    def set_coeffs(self, **kwargs):
+        """ Set coefficients.
 
-        Specify a set of spherical harmonic coefficients and update the
-        rest so that they are consistent. 
+        Specify a set of coefficients and update the rest so that they are
+        consistent.
 
-        This function accepts one (and only one) set of spherical harmonic
-        coefficients. Valid values for kwargs (only one):
+        This function accepts one (and only one) set of coefficients.
+        Valid values for kwargs (only one):
 
         - 'VB' : Coefficients for magnetic field scalar ``V``.
         - 'TB' : Coefficients for surface current scalar ``T``.
@@ -269,32 +269,32 @@ class State(object):
             raise Exception('Invalid keyword. See documentation')
 
         if key == 'VB':
-            self.shc_VB = Vector(self.sh, kwargs['VB'])
-            self.shc_VJ = Vector(self.sh, self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB.coeffs)
-            self.shc_Br = Vector(self.sh, 1 / self.sh.n * self.shc_VB.coeffs)
+            self.VB = Vector(self.basis, kwargs['VB'])
+            self.VJ = Vector(self.basis, self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.VB.coeffs)
+            self.Br = Vector(self.basis, 1 / self.sh.n * self.VB.coeffs)
         elif key == 'TB':
-            self.shc_TB = Vector(self.sh, kwargs['TB'])
-            self.shc_TJ = Vector(self.sh, -self.RI / mu0 * self.shc_TB.coeffs)
-            self.shc_TJr = Vector(self.sh, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ.coeffs)
-            self.shc_PFAC = Vector(self.sh, self.shc_TB_to_shc_PFAC.dot(self.shc_TB.coeffs))
+            self.TB = Vector(self.basis, kwargs['TB'])
+            self.TJ = Vector(self.basis, -self.RI / mu0 * self.TB.coeffs)
+            self.TJr = Vector(self.basis, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.TJ.coeffs)
+            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
         elif key == 'VJ':
-            self.shc_VJ = Vector(self.sh, kwargs['VJ'])
-            self.shc_VB = Vector(self.sh, mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.shc_VJ.coeffs)
-            self.shc_Br = Vector(self.sh, 1 / self.sh.n * self.shc_VB.coeffs)
+            self.VJ = Vector(self.basis, kwargs['VJ'])
+            self.VB = Vector(self.basis, mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.VJ.coeffs)
+            self.Br = Vector(self.basis, 1 / self.sh.n * self.VB.coeffs)
         elif key == 'TJ':
-            self.shc_TJ = Vector(self.sh, kwargs['TJ'])
-            self.shc_TB = Vector(self.sh, -mu0 / self.RI * self.shc_TJ.coeffs)
-            self.shc_TJr = Vector(self.sh, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.shc_TJ.coeffs)
-            self.shc_PFAC = Vector(self.sh, self.shc_TB_to_shc_PFAC.dot(self.shc_TB.coeffs))
+            self.TJ = Vector(self.basis, kwargs['TJ'])
+            self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
+            self.TJr = Vector(self.basis, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.TJ.coeffs)
+            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
         elif key == 'Br':
-            self.shc_Br = Vector(self.sh, kwargs['Br'])
-            self.shc_VB = Vector(self.sh, self.shc_Br.coeffs / self.sh.n)
-            self.shc_VJ = Vector(self.sh, -self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.shc_VB.coeffs)
+            self.Br = Vector(self.basis, kwargs['Br'])
+            self.VB = Vector(self.basis, self.Br.coeffs / self.sh.n)
+            self.VJ = Vector(self.basis, -self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.VB.coeffs)
         elif key == 'TJr':
-            self.shc_TJr = kwargs['TJr']
-            self.shc_TJ = Vector(self.sh, -1 /(self.sh.n * (self.sh.n + 1)) * self.shc_TJr * self.RI**2)
-            self.shc_TB = Vector(self.sh, -mu0 / self.RI * self.shc_TJ.coeffs)
-            self.shc_PFAC = Vector(self.sh, self.shc_TB_to_shc_PFAC.dot(self.shc_TB.coeffs))
+            self.TJr = kwargs['TJr']
+            self.TJ = Vector(self.basis, -1 /(self.sh.n * (self.sh.n + 1)) * self.TJr * self.RI**2)
+            self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
+            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
             print('check the factor RI**2!')
         else:
             raise Exception('This should not happen')
@@ -310,7 +310,7 @@ class State(object):
         print('not implemented. inital conditions will be zero')
 
 
-    def set_FAC(self, FAC, _sh_evaluator):
+    def set_FAC(self, FAC, _basis_evaluator):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -330,38 +330,38 @@ class State(object):
 
         # Extract the radial component of the FAC:
         self.jr = -FAC * self.sinI
-        # Get the corresponding spherical harmonic coefficients
-        TJr = _sh_evaluator.grid_to_basis(self.jr)
+        # Get the corresponding basis coefficients
+        TJr = _basis_evaluator.grid_to_basis(self.jr)
         # Propagate to the other coefficients (TB, TJ, PFAC):
-        self.set_shc(TJr = TJr)
+        self.set_coeffs(TJr = TJr)
 
         if self.connect_hemispheres:
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
-            hl_mask = np.abs(_sh_evaluator.grid.lat) > self.latitude_boundary
-            self.hl_grid = Grid(self.RI, 90 - _sh_evaluator.grid.theta[hl_mask], _sh_evaluator.grid.lon[hl_mask])
-            hl_sh_evaluator = BasisEvaluator(self.sh, self.hl_grid)
+            hl_mask = np.abs(_basis_evaluator.grid.lat) > self.latitude_boundary
+            self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
+            hl_basis_evaluator = BasisEvaluator(self.sh, self.hl_grid)
 
             B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
             br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
             #hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
 
-            self.Gjr = hl_sh_evaluator.scaled_G(1 / mu0 * self.sh.n * (self.sh.n + 1) / self.RI)
+            self.Gjr = hl_basis_evaluator.scaled_G(1 / mu0 * self.sh.n * (self.sh.n + 1) / self.RI)
             self.jr = self.jr[hl_mask]
 
             # combine matrices:
-            self.G_shc_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.AT * DEBUG_constraint_scale ))
+            self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.AT * DEBUG_constraint_scale ))
             #print('inverting')
 
-            self.Gpinv = np.linalg.pinv(self.G_shc_TB, rcond = 1e-3)
+            self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 1e-3)
             print('rcond!')
 
-            c = (self.cu.flatten() + self.AV.dot(self.shc_VB.coeffs))
+            c = (self.cu.flatten() + self.AV.dot(self.VB.coeffs))
             
             self.ccc = c
             d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale ))
-            self.set_shc(TB = self.Gpinv.dot(d))
-            self.ggg = self.G_shc_TB
+            self.set_coeffs(TB = self.Gpinv.dot(d))
+            self.ggg = self.G_TB
 
             #print('connect_hemispheres is not fully implemented')
 
@@ -394,7 +394,7 @@ class State(object):
                 self.update_constraints()
 
 
-    def set_conductance(self, Hall, Pedersen, _sh_evaluator, update = True):
+    def set_conductance(self, Hall, Pedersen, _basis_evaluator, update = True):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
@@ -410,31 +410,31 @@ class State(object):
         if self.connect_hemispheres:
             # TODO: 1) csp structure is strange. 2) This is inefficient when eta is updated often
             # find resistances at low lat grid points
-            self.etaP_ll      = np.tile(csp.interpolate_scalar(self.etaP, _sh_evaluator.grid.theta, _sh_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
-            self.etaH_ll      = np.tile(csp.interpolate_scalar(self.etaH, _sh_evaluator.grid.theta, _sh_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+            self.etaP_ll      = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+            self.etaH_ll      = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
 
             # find resistances at conjugate grid points
-            self.etaP_ll_conj = np.tile(csp.interpolate_scalar(self.etaP, _sh_evaluator.grid.theta, _sh_evaluator.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
-            self.etaH_ll_conj = np.tile(csp.interpolate_scalar(self.etaH, _sh_evaluator.grid.theta, _sh_evaluator.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+            self.etaP_ll_conj = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+            self.etaH_ll_conj = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
 
             if update:
                 self.update_constraints()            
 
 
-    def update_shc_EW(self):
+    def update_EW(self):
         """ Update the coefficients for the induction electric field.
 
         """
 
-        self.shc_EW = Vector(self.sh, basis_evaluator = self.sh_evaluator, grid_values = np.hstack(self.get_E(self.sh_evaluator)), component='df')
+        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='df')
 
 
-    def update_shc_Phi(self):
+    def update_Phi(self):
         """ Update the coefficients for the electric potential.
 
         """
 
-        self.shc_Phi = Vector(self.sh, basis_evaluator = self.sh_evaluator, grid_values = np.hstack(self.get_E(self.sh_evaluator)), component='cf')
+        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='cf')
 
 
     def evolve_Br(self, dt):
@@ -445,37 +445,37 @@ class State(object):
         #Eth, Eph = self.get_E(self.num_grid)
         #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
         #curlEr = self.equations.curlr(u1, u2) 
-        #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
+        #Br = -self.GBr.dot(self.VB) - dt * curlEr
 
-        #self.set_shc(Br = self.sh_evaluator.grid_to_basis(-Br))
+        #self.set_coeffs(Br = self.basis_evaluator.grid_to_basis(-Br))
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
-        #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
+        #self.EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
         if self.connect_hemispheres:
-            c = (self.cu + self.AV.dot(self.shc_VB.coeffs))
+            c = (self.cu + self.AV.dot(self.VB.coeffs))
             d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale))
-            self.set_shc(TB = self.Gpinv.dot(d))
+            self.set_coeffs(TB = self.Gpinv.dot(d))
 
-        self.update_shc_EW()
-        new_shc_Br = self.shc_Br.coeffs + self.sh.n * (self.sh.n + 1) * self.shc_EW.coeffs * dt / self.RI**2
-        self.set_shc(Br = new_shc_Br)
+        self.update_EW()
+        new_Br = self.Br.coeffs + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI**2
+        self.set_coeffs(Br = new_Br)
 
 
-    def get_Br(self, _sh_evaluator, deg = False):
+    def get_Br(self, _basis_evaluator, deg = False):
         """ Calculate ``Br``.
 
         """
 
-        return(_sh_evaluator.basis_to_grid(self.shc_Br.coeffs))
+        return(_basis_evaluator.basis_to_grid(self.Br.coeffs))
 
 
-    def get_JS(self, _sh_evaluator, deg = False):
+    def get_JS(self, _basis_evaluator, deg = False):
         """ Calculate ionospheric sheet current.
 
         """
-        Js_V, Je_V = np.split(self.GVBrxdB.dot(self.shc_VB.coeffs) / mu0, 2, axis = 0)
-        Js_T, Je_T = np.split(self.GTBrxdB.dot(self.shc_TB.coeffs) / mu0, 2, axis = 0)
+        Js_V, Je_V = np.split(self.GVBrxdB.dot(self.VB.coeffs) / mu0, 2, axis = 0)
+        Js_T, Je_T = np.split(self.GTBrxdB.dot(self.TB.coeffs) / mu0, 2, axis = 0)
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
@@ -483,12 +483,12 @@ class State(object):
         return(Jth, Jph)
 
 
-    def get_Jr(self, _sh_evaluator, deg = False):
+    def get_Jr(self, _basis_evaluator, deg = False):
         """ Calculate radial current.
 
         """
 
-        return _sh_evaluator.basis_to_grid(self.shc_TJr.coeffs)
+        return _basis_evaluator.basis_to_grid(self.TJr.coeffs)
 
 
     def get_Je(self, _basis_evaluator, deg = False):
@@ -496,7 +496,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(-self.shc_TJ.coeffs, derivative = 'phi')
+        return _basis_evaluator.basis_to_grid(-self.TJ.coeffs, derivative = 'phi')
 
 
     def get_Jn(self, _basis_evaluator, deg = False):
@@ -504,7 +504,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.shc_TJ.coeffs, derivative = 'theta')
+        return _basis_evaluator.basis_to_grid(self.TJ.coeffs, derivative = 'theta')
 
 
     def get_equivalent_current_function(self, grid, deg = False):
@@ -514,23 +514,23 @@ class State(object):
         print('not implemented')
 
 
-    def get_Phi(self, _sh_evaluator, deg = False):
+    def get_Phi(self, _basis_evaluator, deg = False):
         """ Calculate Phi.
 
         """
 
-        return _sh_evaluator.basis_to_grid(self.shc_Phi.coeffs)
+        return _basis_evaluator.basis_to_grid(self.Phi.coeffs)
 
 
-    def get_W(self, _sh_evaluator, deg = False):
+    def get_W(self, _basis_evaluator, deg = False):
         """ Calculate the induction electric field scalar.
 
         """
 
-        return _sh_evaluator.basis_to_grid(self.shc_EW.coeffs)
+        return _basis_evaluator.basis_to_grid(self.EW.coeffs)
 
 
-    def get_E(self, _sh_evaluator, deg = False):
+    def get_E(self, _basis_evaluator, deg = False):
         """ Calculate electric field.
 
         """
@@ -541,7 +541,7 @@ class State(object):
             Eth = 0
             Eph = 0
 
-        Jth, Jph = self.get_JS(_sh_evaluator, deg = deg)
+        Jth, Jph = self.get_JS(_basis_evaluator, deg = deg)
 
         Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
         Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)

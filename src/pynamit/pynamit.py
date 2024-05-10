@@ -23,8 +23,8 @@ class I2D(object):
 
         Parameters
         ----------
-        sh: sh object
-            Spherical harmonic analysis object.
+        sh: sha.SHBasis object
+            Spherical harmonic basis object.
         csp: cubedsphere.CSProjection object
             Cubed sphere projection object.
         RI: float, optional, default = RE + 110.e3
@@ -51,7 +51,7 @@ class I2D(object):
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50):
 
-    # Set up the spherical harmonic analysis object
+    # Set up the spherical harmonic basis object
     i2d_sh = SHBasis(Nmax, Mmax)
 
     # Define CS grid used for SH analysis and gradient calculations
@@ -93,16 +93,16 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Define cubed sphere grid
     csp_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
-    csp_sh_evaluator = BasisEvaluator(i2d_sh, csp_grid)
+    csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, csp_grid)
 
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = Grid(RI, lat, lon)
-    plt_sh_evaluator = BasisEvaluator(i2d_sh, plt_grid)
+    plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
 
     hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
+    i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     ju = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) * 1e-6
@@ -110,7 +110,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     ju[csp_grid.theta < 90] = -ju[csp_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
-    i2d.state.set_FAC(ju, csp_sh_evaluator)
+    i2d.state.set_FAC(ju, csp_i2d_evaluator)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
@@ -139,12 +139,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
         paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-        m_sh_evaluator = BasisEvaluator(i2d_sh, Grid(RI, mlat, lon))
-        jr = i2d.get_Jr(m_sh_evaluator) * 1e6
+        m_i2d_evaluator = BasisEvaluator(i2d.state.basis, Grid(RI, mlat, lon))
+        jr = i2d.get_Jr(m_i2d_evaluator) * 1e6
 
-        mv_sh_evaluator = BasisEvaluator(i2d_sh, Grid(RI, mlatv, lonv))
-        je = i2d.state.get_Je(mv_sh_evaluator) * 1e3
-        jn = i2d.state.get_Jn(mv_sh_evaluator) * 1e3
+        mv_i2d_evaluator = BasisEvaluator(i2d.state.basis, Grid(RI, mlatv, lonv))
+        je = i2d.state.get_Je(mv_i2d_evaluator) * 1e3
+        jn = i2d.state.get_Jn(mv_i2d_evaluator) * 1e3
 
         jrn, jrs = np.split(jr, 2) 
         paxes[2].contourf(mn_grid.lat,  mn_grid.lon,   jrn, levels = levels, cmap = plt.cm.bwr)
@@ -152,7 +152,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
-        jr = i2d.get_Jr(plt_sh_evaluator)
+        jr = i2d.get_Jr(plt_i2d_evaluator)
 
         globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
@@ -184,7 +184,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         globalplot(plt_grid.lon, plt_grid.lat, hall_plt, noon_longitude = lon0, levels = c_levels, save = 'hall.png')
         globalplot(plt_grid.lon, plt_grid.lat, pede_plt, noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-        jr = i2d.state.get_Jr(plt_sh_evaluator)
+        jr = i2d.state.get_Jr(plt_i2d_evaluator)
         globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
     if make_colorbars:
@@ -236,22 +236,22 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
             i2d.state.evolve_Br(dt)
             time = time + dt
-            coeffs.append(i2d.state.shc_VB.coeffs)
+            coeffs.append(i2d.state.VB.coeffs)
             count += 1
-            #print(count, time, i2d.state.shc_Br.coeffs[:3])
+            #print(count, time, i2d.state.Br.coeffs[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, i2d.state.shc_Br.coeffs[:3])
+                print(count, time, i2d.state.Br.coeffs[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
-                Br = i2d.state.get_Br(plt_sh_evaluator)
+                Br = i2d.state.get_Br(plt_i2d_evaluator)
                 fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
-                #W = i2d.state.get_W(plt_sh_evaluator) * 1e-3
+                #W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
 
-                i2d.state.update_shc_Phi()
-                Phi = i2d.state.get_Phi(plt_sh_evaluator) * 1e-3
+                i2d.state.update_Phi()
+                Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
 
 
                 nnn = plt_grid.lat.flatten() >  50
