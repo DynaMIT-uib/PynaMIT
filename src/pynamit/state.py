@@ -50,7 +50,7 @@ class State(object):
 
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.TB_to_PFAC = np.zeros((self.basis.N_coeffs, self.basis.N_coeffs))
+            self.TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
             self.TB_to_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
 
@@ -113,8 +113,8 @@ class State(object):
         self.set_conductance(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), self.basis_evaluator, update = True)
 
         # Initialize the spherical harmonic coefficients
-        self.set_coeffs(VB = np.zeros(self.basis.N_coeffs))
-        self.set_coeffs(TB = np.zeros(self.basis.N_coeffs))
+        self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
+        self.set_coeffs(TB = np.zeros(self.basis.num_coeffs))
 
     def _get_PFAC_matrix(self, _grid, _basis_evaluator):
         """ """
@@ -126,7 +126,7 @@ class State(object):
 
         jh_grid_to_basis = -_basis_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
-        TB_to_PFAC = np.zeros((self.basis.N_coeffs, self.basis.N_coeffs))
+        TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:

@@ -29,7 +29,7 @@ class SHBasis(object):
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
 
         # Number of spherical harmonic coefficients
-        self.N_coeffs = len(self.cnm.keys) + len(self.snm.keys)
+        self.num_coeffs = len(self.cnm.keys) + len(self.snm.keys)
 
 
     def get_G(self, grid, derivative = None):
