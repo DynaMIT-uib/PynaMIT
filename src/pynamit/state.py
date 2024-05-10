@@ -123,7 +123,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_to_shc = -_sh_evaluator.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        jh_to_shc = -_sh_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
@@ -331,7 +331,7 @@ class State(object):
         # Extract the radial component of the FAC:
         self.jr = -FAC * self.sinI
         # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(_sh_evaluator.GTG, _sh_evaluator.grid_to_basis(self.jr), rcond = 1e-3)[0]
+        TJr = _sh_evaluator.grid_to_basis(self.jr)
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.set_shc(TJr = TJr)
 
@@ -447,7 +447,7 @@ class State(object):
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
 
-        #self.set_shc(Br = self.GTG_inv.dot(self.sh_evaluator.grid_to_basis(-Br)))
+        #self.set_shc(Br = self.sh_evaluator.grid_to_basis(-Br))
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
