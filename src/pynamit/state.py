@@ -124,7 +124,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_to_shc = -_basis_evaluator.vector_to_shc_df * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        jh_to_shc = -_basis_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         shc_TB_to_shc_PFAC = np.zeros((self.sh.Nshc, self.sh.Nshc))
         for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
@@ -331,7 +331,7 @@ class State(object):
         # Extract the radial component of the FAC:
         self.jr = -FAC * self.sinI
         # Get the corresponding spherical harmonic coefficients
-        TJr = np.linalg.lstsq(_basis_evaluator.GTG, _basis_evaluator.from_grid(self.jr), rcond = 1e-3)[0]
+        TJr = _basis_evaluator.grid_to_basis(self.jr)
         # Propagate to the other coefficients (TB, TJ, PFAC):
         self.set_shc(TJr = TJr)
 
@@ -447,7 +447,7 @@ class State(object):
         #curlEr = self.equations.curlr(u1, u2) 
         #Br = -self.GBr.dot(self.shc_VB) - dt * curlEr
 
-        #self.set_shc(Br = self.GTG_inv.dot(self.basis_evaluator.from_grid(-Br)))
+        #self.set_shc(Br = self.basis_evaluator.grid_to_basis(-Br))
 
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
         #self.shc_EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
@@ -467,7 +467,7 @@ class State(object):
 
         """
 
-        return(_basis_evaluator.to_grid(self.shc_Br.coeffs))
+        return(_basis_evaluator.basis_to_grid(self.shc_Br.coeffs))
 
 
     def get_JS(self, _basis_evaluator, deg = False):
@@ -488,7 +488,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.to_grid(self.shc_TJr.coeffs)
+        return _basis_evaluator.basis_to_grid(self.shc_TJr.coeffs)
 
 
     def get_Je(self, _basis_evaluator, deg = False):
@@ -496,7 +496,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.to_grid(-self.shc_TJ.coeffs, derivative = 'phi')
+        return _basis_evaluator.basis_to_grid(-self.shc_TJ.coeffs, derivative = 'phi')
 
 
     def get_Jn(self, _basis_evaluator, deg = False):
@@ -504,7 +504,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.to_grid(self.shc_TJ.coeffs, derivative = 'theta')
+        return _basis_evaluator.basis_to_grid(self.shc_TJ.coeffs, derivative = 'theta')
 
 
     def get_equivalent_current_function(self, grid, deg = False):
@@ -519,7 +519,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.to_grid(self.shc_Phi.coeffs)
+        return _basis_evaluator.basis_to_grid(self.shc_Phi.coeffs)
 
 
     def get_W(self, _basis_evaluator, deg = False):
@@ -527,7 +527,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.to_grid(self.shc_EW.coeffs)
+        return _basis_evaluator.basis_to_grid(self.shc_EW.coeffs)
 
 
     def get_E(self, _basis_evaluator, deg = False):

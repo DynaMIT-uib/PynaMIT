@@ -94,17 +94,16 @@ class BasisEvaluator(object):
         return self._Gcf
 
     @property
-    def vector_to_shc_cf(self):
+    def Gcf_inv(self):
         """
-        Return matrix for obtaining SH coefficients corresponding to the
-        curl-free components of a vector.
+        Return the inverse of the G matrix for the curl-free components of
+        a vector.
 
         """
 
-        if not hasattr(self, '_vector_to_shc_cf'):
-            self.GTGcf_inv = np.linalg.pinv(self.Gcf.T.dot(self.Gcf))
-            self._vector_to_shc_cf = self.GTGcf_inv.dot(self.Gcf.T)
-        return self._vector_to_shc_cf
+        if not hasattr(self, '_Gcf_inv'):
+            self._Gcf_inv = np.linalg.pinv(self.Gcf)
+        return self._Gcf_inv
 
     @property
     def Gdf(self):
@@ -119,22 +118,20 @@ class BasisEvaluator(object):
         return self._Gdf
 
     @property
-    def vector_to_shc_df(self):
+    def Gdf_inv(self):
         """
-        Return matrix for obtaining SH coefficients corresponding to the
-        divergence-free components of a vector.
+        Return the inverse of the G matrix for the divergence-free
+        components of a vector.
 
         """
 
-        if not hasattr(self, '_vector_to_shc_df'):
-            self.GTGdf_inv = np.linalg.pinv(self.Gdf.T.dot(self.Gdf))
-            self._vector_to_shc_df = self.GTGdf_inv.dot(self.Gdf.T)
+        if not hasattr(self, '_Gdf_inv'):
+            self._Gdf_inv = np.linalg.pinv(self.Gdf)
+        return self._Gdf_inv
 
-        return self._vector_to_shc_df
-
-    def to_grid(self, coeffs, derivative = None):
+    def basis_to_grid(self, coeffs, derivative = None):
         """
-        Transform coefficients to grid.
+        Transform basis coefficients to grid values.
 
         Parameters
         ----------
@@ -144,9 +141,10 @@ class BasisEvaluator(object):
         Returns
         -------
         ndarray
-            Data on the grid.
+            Values at the grid points.
 
         """
+
         if derivative == 'theta':
             return np.dot(self.G_th, coeffs)
         elif derivative == 'phi':
@@ -154,9 +152,9 @@ class BasisEvaluator(object):
         else:
             return np.dot(self.G, coeffs)
 
-    def from_grid(self, grid_values, component = None):
+    def grid_to_basis(self, grid_values, component = None):
         """
-        Transform data on the grid to coefficients in the basis.
+        Transform grid values to basis coefficients.
 
         Parameters
         ----------
@@ -169,12 +167,13 @@ class BasisEvaluator(object):
             Coefficients in the basis.
 
         """
+
         if component == 'cf':
-            return np.dot(self.vector_to_shc_cf, grid_values)
+            return np.dot(self.Gcf_inv, grid_values)
         elif component == 'df':
-            return np.dot(self.vector_to_shc_df, grid_values)
+            return np.dot(self.Gdf_inv, grid_values)
         else:
-            return np.dot(self.G.T, grid_values)
+            return np.dot(self.Ginv, grid_values)
     
     def to_other_basis(self, this_coeffs, other_coeffs):
         """
@@ -192,7 +191,7 @@ class BasisEvaluator(object):
 
         """
 
-        other_coeffs.values = other_coeffs.basis.from_grid(self.to_grid(this_coeffs))
+        other_coeffs.values = other_coeffs.basis.grid_to_basis(self.basis_to_grid(this_coeffs))
 
     def scaled_G(self, factor):
         """
