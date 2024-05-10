@@ -49,7 +49,7 @@ i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = -a.get_upward_current(mlat = 90 - i2d_csp.arr_theta, mlt = d.mlon2mlt(i2d_csp.arr_phi, date)) / i2d.state.sinI * 1e-6
 jparallel[np.abs(90 - i2d_csp.arr_theta) < 50] = 0 # filter low latitude FACs
-i2d.state.set_FAC(jparallel)
+i2d.state.set_FAC(jparallel, csp_sh_evaluator)
 
 
 # make an integration matrix
