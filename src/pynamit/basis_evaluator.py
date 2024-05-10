@@ -132,9 +132,9 @@ class BasisEvaluator(object):
 
         return self._vector_to_shc_df
 
-    def to_grid(self, coeffs, derivative = None):
+    def basis_to_grid(self, coeffs, derivative = None):
         """
-        Transform coefficients to grid.
+        Transform basis coefficients to grid values.
 
         Parameters
         ----------
@@ -144,9 +144,10 @@ class BasisEvaluator(object):
         Returns
         -------
         ndarray
-            Data on the grid.
+            Values at the grid points.
 
         """
+
         if derivative == 'theta':
             return np.dot(self.G_th, coeffs)
         elif derivative == 'phi':
@@ -154,9 +155,9 @@ class BasisEvaluator(object):
         else:
             return np.dot(self.G, coeffs)
 
-    def from_grid(self, grid_values, component = None):
+    def grid_to_basis(self, grid_values, component = None):
         """
-        Transform data on the grid to coefficients in the basis.
+        Transform grid values to basis coefficients.
 
         Parameters
         ----------
@@ -169,6 +170,7 @@ class BasisEvaluator(object):
             Coefficients in the basis.
 
         """
+
         if component == 'cf':
             return np.dot(self.vector_to_shc_cf, grid_values)
         elif component == 'df':
@@ -192,7 +194,7 @@ class BasisEvaluator(object):
 
         """
 
-        other_coeffs.values = other_coeffs.basis.from_grid(self.to_grid(this_coeffs))
+        other_coeffs.values = other_coeffs.basis.grid_to_basis(self.basis_to_grid(this_coeffs))
 
     def scaled_G(self, factor):
         """
