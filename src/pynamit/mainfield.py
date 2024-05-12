@@ -255,13 +255,21 @@ class Mainfield(object):
         ------
         d1, d2, d3, e1, e2, e3: arrays
             Modifified apex base vectors, with the components referring to
-            ``(east, north, up)``.
+            ``(r, theta, phi)``.
 
         """
 
         print('basevector function not tested!')
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
         size = r.size
+        d1 = np.empty((3, size))
+        d2 = np.empty((3, size))
+        d3 = np.empty((3, size))
+        e1 = np.empty((3, size))
+        e2 = np.empty((3, size))
+        e3 = np.empty((3, size))
+
+
 
         if self.kind == 'radial':
             e = np.vstack((np.ones( size), np.zeros(size), np.zeros(size)))
@@ -272,10 +280,50 @@ class Mainfield(object):
             d3, e3 = u * np.sign(self.B(RE, 0, 0)[0])
 
         if self.kind == 'dipole':
-            d1, d2, d3, e1, e2, e3 = self.dpl.get_apex_base_vectors(90 - theta, r * 1e-3, R = RE * 1e-3)
+            _d1, _d2, _d3, _e1, _e2, _e3 = self.dpl.get_apex_base_vectors(90 - theta, r * 1e-3, R = RE * 1e-3)
+            # transform vectors from east north up to r, theta phi:
+            d1[0] =  _d1[2] # radial
+            d2[0] =  _d2[2] # radial
+            d3[0] =  _d3[2] # radial
+            e1[0] =  _e1[2] # radial
+            e2[0] =  _e2[2] # radial
+            e3[0] =  _e3[2] # radial
+            d1[1] = -_d1[1] # theta
+            d2[1] = -_d2[1] # theta
+            d3[1] = -_d3[1] # theta
+            e1[1] = -_e1[1] # theta
+            e2[1] = -_e2[1] # theta
+            e3[1] = -_e3[1] # theta
+            d1[2] =  _d1[0] # phi
+            d2[2] =  _d2[0] # phi
+            d3[2] =  _d3[0] # phi
+            e1[2] =  _e1[0] # phi
+            e2[2] =  _e2[0] # phi
+            e3[2] =  _e3[0] # phi
+
 
         if self.kind == 'igrf':
-            d1, d2, d3, e1, e2, e3 = self.apx.basevectors_apex(90 - theta, phi, (r - RE) * 1e-3, coords='geo')
+            _, _, _, _, _, _, _d1, _d2, _d3, _e1, _e2, _e3 = self.apx.basevectors_apex(90 - theta, phi, (r - RE) * 1e-3, coords='geo')
+            # transform vectors from east north up to r, theta phi:
+            d1[0] =  _d1[2] # radial
+            d1[1] = -_d1[1] # theta
+            d1[2] =  _d1[0] # phi
+            d2[0] =  _d2[2] # radial
+            d2[1] = -_d2[1] # theta
+            d2[2] =  _d2[0] # phi
+            d3[0] =  _d3[2] # radial
+            d3[1] = -_d3[1] # theta
+            d3[2] =  _d3[0] # phi
+            e1[0] =  _e1[2] # radial
+            e1[1] = -_e1[1] # theta
+            e1[2] =  _e1[0] # phi
+            e2[0] =  _e2[2] # radial
+            e2[1] = -_e2[1] # theta
+            e2[2] =  _e2[0] # phi
+            e3[0] =  _e3[2] # radial
+            e3[1] = -_e3[1] # theta
+            e3[2] =  _e3[0] # phi
+
 
         return(d1, d2, d3, e1, e2, e3)
 
