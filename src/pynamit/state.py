@@ -1,12 +1,11 @@
 import numpy as np
-import scipy.sparse as spr
 from pynamit.grid import Grid
 from pynamit.constants import mu0, RE
 from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.vector import Vector
 
-DEBUG_constraint_scale = 1e-10 # to be deleted
+DEBUG_constraint_scale = mu0#1/ 3e8 # 1/(mu0 * c)
 DEBUG_jpar_scale = 1#1e15
 
 class State(object):
@@ -75,38 +74,32 @@ class State(object):
             # calculate constraint matrices for low latitude points
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
-            self.c_u_theta, self.c_u_phi, self.A5_eP, self.A5_eH = self._get_A5_and_c(self.ll_grid)
-            self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator)
-            self.GVBrxdB_ll = self.get_GVrxdB(ll_basis_evaluator)
-            self.A_eP_T, self.A_eH_T = self.A5_eP.dot(self.GTBrxdB_ll) / mu0, self.A5_eH.dot(self.GTBrxdB_ll) / mu0
-            self.A_eP_V, self.A_eH_V = self.A5_eP.dot(self.GVBrxdB_ll) / mu0, self.A5_eH.dot(self.GVBrxdB_ll) / mu0
+            self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
+            self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator) / mu0
+            self.GVBrxdB_ll = self.get_GVrxdB(ll_basis_evaluator) / mu0
+            self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.GVBrxdB_ll), self.aeH_ll.dot(self.GVBrxdB_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.GTBrxdB_ll), self.aeH_ll.dot(self.GTBrxdB_ll)
+
 
             # ... and for their conjugate points:
-            self.ll_theta_conj, self.ll_phi_conj = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.ll_grid_conj = Grid(RI, 90 - self.ll_theta_conj, self.ll_phi_conj)
-            ll_conj_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid_conj)
-            self.c_u_theta_conj, self.c_u_phi_conj, self.A5_eP_conj, self.A5_eH_conj = self._get_A5_and_c(self.ll_grid_conj)
-            self.GTBrxdB_ll_conj = self.get_GTrxdB(ll_conj_basis_evaluator)
-            self.GVBrxdB_ll_conj = self.get_GVrxdB(ll_conj_basis_evaluator)
-            self.A_eP_conj_T, self.A_eH_conj_T = self.A5_eP_conj.dot(self.GTBrxdB_ll_conj) / mu0, self.A5_eH_conj.dot(self.GTBrxdB_ll_conj) / mu0
-            self.A_eP_conj_V, self.A_eH_conj_V = self.A5_eP_conj.dot(self.GVBrxdB_ll_conj) / mu0, self.A5_eH_conj.dot(self.GVBrxdB_ll_conj) / mu0
-
+            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
+            self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi)
+            cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
+            self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
+            self.GTBrxdB_cp = self.get_GTrxdB(cp_basis_evaluator) / mu0
+            self.GVBrxdB_cp = self.get_GVrxdB(cp_basis_evaluator) / mu0
+            self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.GVBrxdB_cp), self.aeH_cp.dot(self.GVBrxdB_cp)
+            self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.GTBrxdB_cp), self.aeH_cp.dot(self.GTBrxdB_cp)
 
             # calculate sin(inclination)
-            self.ll_sinI      = self.mainfield.get_sinI(self.RI     , self.ll_grid.theta     , self.ll_grid.lon).reshape((-1 ,1))
-            self.ll_sinI_conj = self.mainfield.get_sinI(self.RI, self.ll_grid_conj.theta, self.ll_grid_conj.lon).reshape((-1 ,1))
+            self.ll_sinI = self.mainfield.get_sinI(self.RI, self.ll_grid.theta, self.ll_grid.lon).reshape((-1 ,1))
+            self.cp_sinI = self.mainfield.get_sinI(self.RI, self.cp_grid.theta, self.cp_grid.lon).reshape((-1 ,1))
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll        = ll_basis_evaluator.scaled_G(1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
-            self.G_par_ll_conj   = ll_conj_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI_conj)
-            self.constraint_Gpar = (self.G_par_ll - self.G_par_ll_conj) * DEBUG_jpar_scale
-
+            self.G_par_ll     = ll_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
+            self.G_par_cp     = cp_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.cp_sinI)
+            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) * DEBUG_jpar_scale
  
-            # TODO: Should check for singularities - where field is horizontal - and probably just eliminate such points
-            #       from the constraint calculation
-            # TODO: We need a matrix for interpolation from the cubed sphere grid to the conjugate points. 
-            #       This is needed to get values for conductance (and neutral wind u once that is included)
-            #       The interpolation matrix should be calculated here on initiation since the grid is fixed
 
         # Initialize neutral wind and conductances
         self.set_u(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), update = False)
@@ -127,7 +120,7 @@ class State(object):
         jh_grid_to_basis = -_basis_evaluator.Gdf_inv * self.RI * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
-        for i in range(r_k.size): # TODO: it would be useful to use Dask for this loop to speed things up a little
+        for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # map coordinates from r_k[i] to RI:
             theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
@@ -161,8 +154,8 @@ class State(object):
         return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(TB_to_PFAC) / self.RI)
 
 
-    def _get_A5_and_c(self, _grid):
-        """ Calculate A5 and c 
+    def _get_alpha(self, _grid):
+        """ Calculate alpha
             
 
         """
@@ -172,57 +165,54 @@ class State(object):
         B0 = np.linalg.norm(B, axis = 0)
         br, bt, bp = B / B0
         Br = B[0]
-        d1, d2, _, _, _, _ = self.mainfield.basevectors(R, theta, phi)
-        d1p, d1n, d1r = d1 # e, n, u components
-        d2p, d2n, d2r = d2
-        d1t, d2t = -d1n, -d2n # north -> theta component
+        _, _, _, e1, e2, _ = self.mainfield.basevectors(R, theta, phi)
+        e1r, e1t, e1p = e1
+        e2r, e2t, e2p = e2
 
         # The following lines of code are copied from output from sympy_matrix_algebra.py
 
-        # constant that is to be multiplied by u in theta direction:
-        c_ut_theta = Br*(bp*(bp*d1t - bt*d1p) + br*(br*d1t - bt*d1r))/(B0*br)
-        c_ut_phi   = Br*(bp*(bp*d2t - bt*d2p) + br*(br*d2t - bt*d2r))/(B0*br)
-        c_ut = np.hstack((c_ut_theta, c_ut_phi)).reshape((-1, 1)) # stack and convert to column vector
+        # resistance terms:
+        alpha11_eP = bp**2*e1t - bp*bt*e1p + br**2*e1t - br*bt*e1r
+        alpha12_eP = -bp*br*e1r - bp*bt*e1t + br**2*e1p + bt**2*e1p
+        alpha21_eP = bp**2*e2t - bp*bt*e2p + br**2*e2t - br*bt*e2r
+        alpha22_eP = -bp*br*e2r - bp*bt*e2t + br**2*e2p + bt**2*e2p
+        alpha11_eH = bp*e1r - br*e1p
+        alpha12_eH = br*e1t - bt*e1r
+        alpha21_eH = bp*e2r - br*e2p
+        alpha22_eH = br*e2t - bt*e2r
 
-        # constant that is to be multiplied by u in phi direction:
-        c_up_theta = -Br*(br*(bp*d1r - br*d1p) + bt*(bp*d1t - bt*d1p))/(B0*br)
-        c_up_phi   = -Br*(br*(bp*d2r - br*d2p) + bt*(bp*d2t - bt*d2p))/(B0*br)
-        c_up = np.hstack((c_up_theta, c_up_phi)).reshape((-1, 1)) # stack and convert to column vector
+        # wind terms:
+        alpha13_ut = -Br*bp*e1r/br + Br*e1p
+        alpha23_ut = -Br*bp*e2r/br + Br*e2p
+        alpha13_up = -Br*e1t + Br*bt*e1r/br
+        alpha23_up = -Br*e2t + Br*bt*e2r/br
 
+        # construct matrices
+        aeP = np.vstack((np.hstack((np.diag(alpha11_eP), np.diag(alpha12_eP))), 
+                         np.hstack((np.diag(alpha21_eP), np.diag(alpha22_eP)))))
+        aeH = np.vstack((np.hstack((np.diag(alpha11_eH), np.diag(alpha12_eH))), 
+                         np.hstack((np.diag(alpha21_eH), np.diag(alpha22_eH)))))
+        aut = np.hstack((alpha13_ut, alpha23_ut))
+        aup = np.hstack((alpha13_up, alpha23_up))
 
-        # A5eP matrix
-        a5eP00 = spr.diags((bp**3*d1r - bp**2*br*d1p + bp*br**2*d1r + bp*bt**2*d1r - br**3*d1p - br*bt**2*d1p)/B0)
-        a5eP01 = spr.diags((bp**2*br*d1t - bp**2*bt*d1r + br**3*d1t - br**2*bt*d1r + br*bt**2*d1t - bt**3*d1r)/B0)
-        a5eP10 = spr.diags((bp**3*d2r - bp**2*br*d2p + bp*br**2*d2r + bp*bt**2*d2r - br**3*d2p - br*bt**2*d2p)/B0)
-        a5eP11 = spr.diags((bp**2*br*d2t - bp**2*bt*d2r + br**3*d2t - br**2*bt*d2r + br*bt**2*d2t - bt**3*d2r)/B0)
-        a5eP = spr.vstack((spr.hstack((a5eP00, a5eP01)), spr.hstack((a5eP10, a5eP11)))).tocsr()
-
-        # A5eH matrix
-        a5eH00 = spr.diags((-bp**2*d1t + bp*bt*d1p - br**2*d1t + br*bt*d1r)/B0)
-        a5eH01 = spr.diags((bp*br*d1r + bp*bt*d1t - br**2*d1p - bt**2*d1p)/B0)
-        a5eH10 = spr.diags((-bp**2*d2t + bp*bt*d2p - br**2*d2t + br*bt*d2r)/B0)
-        a5eH11 = spr.diags((bp*br*d2r + bp*bt*d2t - br**2*d2p - bt**2*d2p)/B0)
-        a5eH = spr.vstack((spr.hstack((a5eH00, a5eH01)), spr.hstack((a5eH10, a5eH11)))).tocsr()
-
-        return(c_ut, c_up, a5eP, a5eH)
+        return(aeP, aeH, aut, aup)
 
 
     def update_constraints(self):
         """ update the constraint arrays c and A - should be called when changing u and eta """
-        self.cu =  (self.u_phi_ll_conj * self.c_u_phi_conj + self.u_theta_ll_conj * self.c_u_theta_conj) \
-                  -(self.u_phi_ll * self.c_u_phi + self.u_theta_ll * self.c_u_theta)
-        self.cu = self.cu.flatten()
-        self.AT  =  (self.etaP_ll * self.A_eP_T + self.etaH_ll * self.A_eH_T) \
-                   -(self.etaP_ll_conj * self.A_eP_conj_T + self.etaH_ll_conj * self.A_eH_conj_T)
-        self.AV  =  (self.etaP_ll * self.A_eP_V + self.etaH_ll * self.A_eH_V) \
-                   -(self.etaP_ll_conj * self.A_eP_conj_V + self.etaH_ll_conj * self.A_eH_conj_V)
-        self.AV = -self.AV
 
+        self.cu =  (self.u_theta_cp * self.aut_cp + self.u_phi_cp * self.aup_cp) \
+                  -(self.u_theta_ll * self.aut_ll + self.u_phi_ll * self.aup_ll)
+        self.AV =  (self.etaP_cp * self.aeP_V_cp + self.etaH_cp * self.aeH_V_cp) \
+                  -(self.etaP_ll * self.aeP_V_ll + self.etaH_ll * self.aeH_V_ll)
+        self.AT =  (self.etaP_ll * self.aeP_T_ll + self.etaH_ll * self.aeH_T_ll)\
+                  -(self.etaP_cp * self.aeP_T_cp + self.etaH_cp * self.aeH_T_cp)
 
 
 
     def get_GTrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
+        print('should write a test for these functions')
         GrxgradT = -_basis_evaluator.Gdf * self.RI # matrix that gets -r x grad(T)
         GPFAC    = -_basis_evaluator.Gcf                      # matrix that calculates potential magnetic field of external source
         Gshield  = -(_basis_evaluator.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
@@ -342,26 +332,27 @@ class State(object):
             self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
             hl_basis_evaluator = BasisEvaluator(self.sh, self.hl_grid)
 
-            B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
-            br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
+            #B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
+            #br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
             #hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
 
-            self.Gjr = hl_basis_evaluator.scaled_G(1 / mu0 * self.sh.n * (self.sh.n + 1) / self.RI)
-            self.jr = self.jr[hl_mask]
+            self.Gjr = hl_basis_evaluator.scaled_G(1  / self.RI / mu0 * self.sh.n * (self.sh.n + 1))
+            self.jr = self.jr[hl_mask].flatten()
 
             # combine matrices:
             self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.AT * DEBUG_constraint_scale ))
             #print('inverting')
 
-            self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 1e-3)
+            self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 0)
             print('rcond!')
 
-            c = (self.cu.flatten() + self.AV.dot(self.VB.coeffs))
+            c = self.cu + self.AV.dot(self.VB.coeffs)
             
             self.ccc = c
-            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale ))
+            d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), c * DEBUG_constraint_scale ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
             self.ggg = self.G_TB
+
 
             #print('connect_hemispheres is not fully implemented')
 
@@ -374,7 +365,7 @@ class State(object):
             For now, they *have* to be given on grid
         """
         self.u_theta = u_theta
-        self.u_phi = u_phi
+        self.u_phi   = u_phi
 
         self.uxB_theta =  self.u_phi   * self.B[0] 
         self.uxB_phi   = -self.u_theta * self.B[0] 
@@ -383,12 +374,12 @@ class State(object):
             # find wind field at low lat grid points
             u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.ll_grid.theta, self.ll_grid.lon)
             u_ll = np.tile(u_ll, (1, 2)) # duplicate 
-            self.u_theta_ll, self.u_phi_ll = -u_ll[1].reshape((-1, 1)), u_ll[0].reshape((-1, 1))
+            self.u_theta_ll, self.u_phi_ll = -u_ll[1], u_ll[0]
 
             # find wind field at conjugate grid points
-            u_ll_conj = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon)
-            u_ll_conj = np.tile(u_ll_conj, (1, 2)) # duplicate 
-            self.u_theta_ll_conj, self.u_phi_ll_conj = -u_ll_conj[1].reshape((-1, 1)), u_ll_conj[0].reshape((-1, 1))
+            u_cp = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta, self.cp_grid.lon)
+            u_cp = np.tile(u_cp, (1, 2)) # duplicate 
+            self.u_theta_cp, self.u_phi_cp = -u_cp[1], u_cp[0]
 
             if update:
                 self.update_constraints()
@@ -414,8 +405,8 @@ class State(object):
             self.etaH_ll      = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
 
             # find resistances at conjugate grid points
-            self.etaP_ll_conj = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
-            self.etaH_ll_conj = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid_conj.theta, self.ll_grid_conj.lon), 2).reshape((-1, 1))
+            self.etaP_cp = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon), 2).reshape((-1, 1))
+            self.etaH_cp = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon), 2).reshape((-1, 1))
 
             if update:
                 self.update_constraints()            
@@ -453,8 +444,8 @@ class State(object):
         #self.EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
         if self.connect_hemispheres:
-            c = (self.cu + self.AV.dot(self.VB.coeffs))
-            d = np.hstack((self.jr.flatten(), np.zeros(self.constraint_Gpar.shape[0]), c.flatten() * DEBUG_constraint_scale))
+            c = self.cu + self.AV.dot(self.VB.coeffs)
+            d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), c * DEBUG_constraint_scale ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
