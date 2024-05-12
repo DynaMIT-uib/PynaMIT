@@ -3,45 +3,70 @@
 import sympy as sp
 #sp.init_printing(use_unicode=True)
 
-PRINT_LATEX = False # set to True to print LaTeX, False to print something more code-friendly
+PRINT_LATEX = True # set to True to print LaTeX, False to print something more code-friendly
 
 if PRINT_LATEX:
     br, bt, bp, ut, up, eP, eH, B0, Br = sp.symbols('b_r, b_theta, b_phi, u_theta, u_phi, eta_P, eta_H, B_0, B_r')
-    d1r, d1t, d1p, d2r, d2t, d2p   = sp.symbols('d_1_r, d_1_theta, d_1_phi, d_2_r, d_2_theta, d_2_phi  ')
+    e1r, e1t, e1p, e2r, e2t, e2p   = sp.symbols('e_1_r, e_1_theta, e_1_phi, e_2_r, e_2_theta, e_2_phi  ')
 else:
     br, bt, bp, ut, up, eP, eH, B0, Br = sp.symbols('br, bt, bp, ut, up, eP, eH, B0, Br')
-    d1r, d1t, d1p, d2r, d2t, d2p   = sp.symbols('d1r, d1t, d1p, d2r, d2t, d2p  ')
+    e1r, e1t, e1p, e2r, e2t, e2p   = sp.symbols('e1r, e1t, e1p, e2r, e2t, e2p  ')
 
 # Matrix that produces the horizontal electric field when muliplied to (J_theta, J_phi, 1)
-A1 = sp.Matrix([[ eP * (bp**2 + br**2), -eP * bp * bt + eH * br, -up * Br],
-                [-eP * bp * bt - eH * br, eP * (bt**2 + br**2),  ut * Br]])
+A2D_ = sp.Matrix([[ eP * (bp**2 + br**2), -eP * bp * bt + eH * br, -up * Br],
+                  [-eP * bp * bt - eH * br, eP * (bt**2 + br**2),  ut * Br]])
 
 # Adding a row which produces E_r
-A2r = -sp.Matrix([[A1[0, 0] * bt/br + A1[1, 0] * bp/br , A1[0, 1] * bt/br + A1[1, 1] * bp/br, A1[0, 2] * bt/br + A1[1, 2] * bp/br]])
-A2 =  sp.Matrix.vstack(A2r, A1)
+Ar   = -sp.Matrix([[A2D_[0, 0] * bt/br + A2D_[1, 0] * bp/br , A2D_[0, 1] * bt/br + A2D_[1, 1] * bp/br, A2D_[0, 2] * bt/br + A2D_[1, 2] * bp/br]])
+A3D_ =  sp.Matrix.vstack(Ar, A2D_)
+
+#if PRINT_LATEX:
+#    print('E = X (Jth, Jph, 1):')
+#    print(sp.latex(A3D_))
+
+# A3D_, multiplied by any vector [x, y, 1] should give a vector that is perpendicular to b. Check:
+assert (A3D_ * sp.Matrix([[sp.symbols('x')], [sp.symbols('y')], [1]])).dot(sp.Matrix([br, bt, bp])).simplify() == 0
+
+
+ee    = sp.Matrix([[e1r, e1t, e1p], [e2r, e2t, e2p]])
+A_Eei = ee * A3D_
+alpha11 = A_Eei[0, 0].simplify()
+alpha12 = A_Eei[0, 1].simplify()
+alpha13 = A_Eei[0, 2].simplify()
+alpha21 = A_Eei[1, 0].simplify()
+alpha22 = A_Eei[1, 1].simplify()
+alpha23 = A_Eei[1, 2].simplify()
+
+alpha11 = sp.collect(sp.factor(alpha11), [eP, eH]).expand()
+alpha12 = sp.collect(sp.factor(alpha12), [eP, eH]).expand()
+alpha13 = sp.collect(sp.factor(alpha13), [eP, eH]).expand()
+alpha21 = sp.collect(sp.factor(alpha21), [eP, eH]).expand()
+alpha22 = sp.collect(sp.factor(alpha22), [ut, up]).expand()
+alpha23 = sp.collect(sp.factor(alpha23), [ut, up]).expand()
 
 if PRINT_LATEX:
-    print('A2:')
-    print(sp.latex(A2))
 
-bBcrossE = sp.Matrix([[0, bp, -bt], [-bp, 0, br], [bt, -br, 0]]) / B0
+    print('\\alpha_{11}=&' + '\\eta_P('+ sp.latex(alpha11.coeff(eP))   + ')    && + \\eta_H('+ sp.latex(alpha11.coeff(eH)) + ')\\nonumber \\\\')
+    print('=&                 \\eta_P\\alpha_{11}^{\\eta_P}                    && + \\eta_H\\alpha_{11}^{\\eta_H}                         \\\\')
+    print('\\alpha_{12}=&' + '\\eta_P('+ sp.latex(alpha12.coeff(eP))   + ')    && + \\eta_H('+ sp.latex(alpha12.coeff(eH)) + ')\\nonumber \\\\')
+    print('=&                 \\eta_P\\alpha_{12}^{\\eta_P}                    && + \\eta_H\\alpha_{12}^{\\eta_H}                         \\\\')
+    print('\\alpha_{21}=&' + '\\eta_P('+ sp.latex(alpha21.coeff(eP))   + ')    && + \\eta_H('+ sp.latex(alpha21.coeff(eH)) + ')\\nonumber \\\\')
+    print('=&                 \\eta_P\\alpha_{21}^{\\eta_P}                    && + \\eta_H\\alpha_{21}^{\\eta_H}                         \\\\')
+    print('\\alpha_{22}=&' + '\\eta_P('+ sp.latex(alpha22.coeff(eP))   + ')    && + \\eta_H('+ sp.latex(alpha22.coeff(eH)) + ')\\nonumber \\\\')
+    print('=&                 \\eta_P\\alpha_{22}^{\\eta_P}                    && + \\eta_H\\alpha_{22}^{\\eta_H}                         \\\\')
+    print('\\alpha_{13}=&' + 'u_\\theta('+ sp.latex(alpha23.coeff(ut)) + ')    && + u_\\phi('+ sp.latex(alpha23.coeff(up)) + ')\\nonumber \\\\')
+    print('=&                 u_\\theta\\alpha_{13}^{u_\\theta}                && + u_\\phi\\alpha_{13}^{u_\\phi}                         \\\\')
+    print('\\alpha_{23}=&' + 'u_\\theta('+ sp.latex(alpha23.coeff(ut)) + ')   && + u_\\phi('+ sp.latex(alpha23.coeff(up)) + ')\\nonumber \\\\')
+    print('=&                 u_\\theta\\alpha_{23}^{u_\\theta}                && + u_\\phi\\alpha_{23}^{u_\\phi}                             ')
 
-# test that the cross product matrix works
-x, y, z = sp.symbols('x y z')
-xx = sp.Matrix([[x], [y], [z]])
-bb = sp.Matrix([[br], [bt], [bp]]) / B0
-print('this should be zeros: ', xx.cross(bb) - bBcrossE * xx, '\n\n')
+
+print(3/0)
 
 
-A3 = bBcrossE * A2
 
-if PRINT_LATEX:
-    print('A3:')
-    print(sp.latex(sp.simplify(A3)))
-    print('\n\n')
 
-dd = sp.Matrix([[d1r, d1t, d1p], [d2r, d2t, d2p]])
-A4 = dd * A3
+
+
 #print('A4:')
 #print(sp.latex(A4))
 
