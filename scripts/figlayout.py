@@ -90,7 +90,8 @@ ax_1 = plt.subplot2grid((4, 3), (3, 0))
 ax_2 = plt.subplot2grid((4, 3), (3, 1))
 ax_3 = plt.subplot2grid((4, 3), (3, 2))
 
-for ax in [gax_B, gax_j]: ax.coastlines(zorder = 2, color = 'grey')
+for ax in [gax_B, gax_j]:
+    ax.coastlines(zorder = 2, color = 'grey')
 
 ## CALCULATE VALUES TO PLOT
 Br  = plt_sh_evaluator.scaled_G(i2d.state.sh.n / i2d.state.num_grid.RI).dot(i2d.state.VB.coeffs)
