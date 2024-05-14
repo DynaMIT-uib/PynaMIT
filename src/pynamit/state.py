@@ -261,7 +261,7 @@ class State(object):
         if key == 'VB':
             self.VB = Vector(self.basis, kwargs['VB'])
             self.VJ = Vector(self.basis, self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.VB.coeffs)
-            self.Br = Vector(self.basis, 1 / self.sh.n * self.VB.coeffs)
+            self.Br = Vector(self.basis, 1 * self.sh.n * self.VB.coeffs)
         elif key == 'TB':
             self.TB = Vector(self.basis, kwargs['TB'])
             self.TJ = Vector(self.basis, -self.RI / mu0 * self.TB.coeffs)
@@ -270,7 +270,7 @@ class State(object):
         elif key == 'VJ':
             self.VJ = Vector(self.basis, kwargs['VJ'])
             self.VB = Vector(self.basis, mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.VJ.coeffs)
-            self.Br = Vector(self.basis, 1 / self.sh.n * self.VB.coeffs)
+            self.Br = Vector(self.basis, 1 * self.sh.n * self.VB.coeffs)
         elif key == 'TJ':
             self.TJ = Vector(self.basis, kwargs['TJ'])
             self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
