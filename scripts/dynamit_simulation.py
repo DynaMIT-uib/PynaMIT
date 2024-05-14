@@ -15,7 +15,7 @@ latitude_boundary = 35
 WIND_FACTOR = 1 # scale wind by this factor
 
 Nmax, Mmax, Ncs = 45, 45, 65
-rk = RI / np.cos(np.deg2rad(np.r_[0: 80: int(80 / Nmax)])) ** 2
+rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 20]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 rk = {'steps':rk}
 date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -24,16 +24,20 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
                              glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour, day = date.timetuple().tm_yday)
-u_phi   =  hwm14Obj.Uwind
-u_theta = -hwm14Obj.Vwind
-u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+
+# u_phi   =  hwm14Obj.Uwind
+# u_theta = -hwm14Obj.Vwind
+# u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
+
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
 u_east_int, u_north_int, u_r_int = u_int
 
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
-                                       ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
+                                       ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
+                                       zero_jr_at_dip_equator = True)
 
 csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
 csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
