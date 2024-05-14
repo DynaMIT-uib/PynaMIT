@@ -105,9 +105,9 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     Br  = i2d.state.get_Br(plt_sh_evaluator)
 
     sinI   = i2d.state.mainfield.get_sinI(plt_grid.RI, plt_grid.theta, plt_grid.lon)
-    FAC    = -(plt_sh_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TJr.coeffs)
-    jr_mod =   plt_sh_evaluator.G.dot(i2d.state.TJr.coeffs)
-    eq_current_function = plt_sh_evaluator.G.dot(i2d.state.VJ.coeffs)
+    FAC    = -(plt_sh_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
+    jr_mod =   plt_sh_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
+    eq_current_function = plt_sh_evaluator.G.dot(i2d.state.VB.coeffs * i2d.state.VB_to_VJ)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
