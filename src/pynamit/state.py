@@ -32,9 +32,9 @@ class State(object):
 
         # Conversion factors
         self.VB_to_VJ = (2 * self.sh.n + 1) / (self.sh.n + 1) * self.RI / mu0
-        self.VB_to_Br = self.sh.n
         self.TB_to_TJ = -self.RI / mu0
-        self.TB_to_TJr = self.sh.n * (self.sh.n + 1) / self.RI / mu0
+        self.VB_to_Br = self.sh.n
+        self.TB_to_Jr = self.sh.n * (self.sh.n + 1) / self.RI / mu0
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
@@ -249,14 +249,12 @@ class State(object):
 
         - 'VB' : Coefficients for magnetic field scalar ``V``.
         - 'TB' : Coefficients for surface current scalar ``T``.
-        - 'VJ' : Coefficients for magnetic field scalar ``V``.
-        - 'TJ' : Coefficients for surface current scalar ``T``.
         - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
-        - 'TJr': Coefficients for radial current scalar.
+        - 'Jr': Coefficients for radial current scalar.
 
         """
 
-        valid_kws = ['VB', 'TB', 'VJ', 'TJ', 'Br', 'TJr']
+        valid_kws = ['VB', 'TB', 'Br', 'Jr']
 
         if len(kwargs) != 1:
             raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
@@ -268,14 +266,10 @@ class State(object):
             self.VB = Vector(self.basis, kwargs['VB'])
         elif key == 'TB':
             self.TB = Vector(self.basis, kwargs['TB'])
-        elif key == 'VJ':
-            self.VB = Vector(self.basis, kwargs['VJ'] / self.VB_to_VJ)
-        elif key == 'TJ':
-            self.TB = Vector(self.basis, kwargs['TJ'] / self.TB_to_TJ)
         elif key == 'Br':
             self.VB = Vector(self.basis, kwargs['Br'] / self.VB_to_Br)
-        elif key == 'TJr':
-            self.TB = Vector(self.basis, kwargs['TJr'] / self.TB_to_TJr)
+        elif key == 'Jr':
+            self.TB = Vector(self.basis, kwargs['Jr'] / self.TB_to_Jr)
         else:
             raise Exception('This should not happen')
 
@@ -310,10 +304,8 @@ class State(object):
 
         # Extract the radial component of the FAC:
         self.jr = -FAC * self.sinI
-        # Get the corresponding basis coefficients
-        TJr = _basis_evaluator.grid_to_basis(self.jr)
-        # Propagate to the other coefficients (TB, TJ, PFAC):
-        self.set_coeffs(TJr = TJr)
+        # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
+        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
         if self.connect_hemispheres:
 
@@ -469,7 +461,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_TJr)
+        return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_Jr)
 
 
     def get_Je(self, _basis_evaluator, deg = False):
