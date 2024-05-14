@@ -18,7 +18,8 @@ class I2D(object):
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
                        ignore_PFAC = False,
                        connect_hemispheres = False,
-                       latitude_boundary = 50):
+                       latitude_boundary = 50,
+                       zero_jr_at_dip_equator = False):
         """
 
         Parameters
@@ -45,7 +46,7 @@ class I2D(object):
         #self.cs_equations = CSEquations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator)
 
 
 

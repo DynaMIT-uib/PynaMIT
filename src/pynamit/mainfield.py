@@ -328,4 +328,28 @@ class Mainfield(object):
         return(d1, d2, d3, e1, e2, e3)
 
 
+    def dip_equator(self, phi):
+        """ Calculate the co-latitude of the dip equator at given phi """
+
+        phi = np.array(phi) % 360
+
+        if self.kind == 'radial':
+            print('dip_equator: Not defined for mainfield.kind=="radial"')
+            return np.full_like(phi, np.nan)
+
+        if self.kind == 'dipole':
+            return np.zeros_like(phi) + 90
+
+        if self.kind == 'igrf':
+            mlon = np.linspace(0, 360, 360)
+            lat, lon, _ = self.apx.apex2geo(0, mlon, self.apx.refh) # lat of evenly spaced points
+            # interpolate to phi:
+            return( np.interp(phi.flatten(), lon % 360, 90 - lat, period = 360)).reshape(phi.shape) 
+
+
+
+
+
+
+
 
