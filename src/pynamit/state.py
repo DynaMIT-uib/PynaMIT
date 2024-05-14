@@ -7,13 +7,14 @@ from pynamit.vector import Vector
 
 DEBUG_constraint_scale = mu0#1/ 3e8 # 1/(mu0 * c)
 DEBUG_jpar_scale = 1#1e15
+DEBUG_jr_dip_scale = 1
 
 class State(object):
     """ State of the ionosphere.
 
     """
 
-    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary):
+    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator):
         """ Initialize the state of the ionosphere.
     
         """
@@ -26,6 +27,7 @@ class State(object):
 
         self.RI = RI
         self.ignore_PFAC = ignore_PFAC
+        self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
 
         self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
@@ -99,11 +101,20 @@ class State(object):
             self.G_par_ll     = ll_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
             self.G_par_cp     = cp_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.cp_sinI)
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) * DEBUG_jpar_scale
+
+            if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
+                dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
+                dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
+                self.dip_equator_grid = Grid(RI, 90 - dip_equator_theta, dip_equator_phi)
+                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
+                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1))
+            else: # make zero-row stand-in for the jr matrix:
+                self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
  
 
         # Initialize neutral wind and conductances
-        self.set_u(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), update = False)
-        self.set_conductance(np.zeros(self.num_grid.size), np.zeros((self.num_grid.size)), self.basis_evaluator, update = True)
+        self.set_u(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), update = False)
+        self.set_conductance(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), self.basis_evaluator, update = True)
 
         # Initialize the spherical harmonic coefficients
         self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
@@ -340,8 +351,10 @@ class State(object):
             self.jr = self.jr[hl_mask].flatten()
 
             # combine matrices:
-            self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.AT * DEBUG_constraint_scale ))
+            self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.G_jr_dip_equator * DEBUG_jr_dip_scale, self.AT * DEBUG_constraint_scale ))
             #print('inverting')
+
+            self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
 
             self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 0)
             print('rcond!')
@@ -349,7 +362,7 @@ class State(object):
             c = self.cu + self.AV.dot(self.VB.coeffs)
             
             self.ccc = c
-            d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), c * DEBUG_constraint_scale ))
+            d = np.hstack((self.jr, self._zeros, c * DEBUG_constraint_scale ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
             self.ggg = self.G_TB
 
@@ -445,7 +458,7 @@ class State(object):
 
         if self.connect_hemispheres:
             c = self.cu + self.AV.dot(self.VB.coeffs)
-            d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), c * DEBUG_constraint_scale ))
+            d = np.hstack((self.jr, self._zeros, c * DEBUG_constraint_scale ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()

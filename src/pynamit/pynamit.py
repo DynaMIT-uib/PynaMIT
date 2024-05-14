@@ -18,7 +18,8 @@ class I2D(object):
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
                        ignore_PFAC = False,
                        connect_hemispheres = False,
-                       latitude_boundary = 50):
+                       latitude_boundary = 50,
+                       zero_jr_at_dip_equator = False):
         """
 
         Parameters
