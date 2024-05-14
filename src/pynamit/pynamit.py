@@ -46,7 +46,7 @@ class I2D(object):
         #self.cs_equations = CSEquations(csp, RI)
 
         # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary)
+        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator)
 
 
 
