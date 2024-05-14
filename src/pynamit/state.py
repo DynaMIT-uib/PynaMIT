@@ -31,10 +31,11 @@ class State(object):
         self.latitude_boundary = latitude_boundary
 
         # Conversion factors
-        self.VB_to_VJ = (2 * self.sh.n + 1) / (self.sh.n + 1) * self.RI / mu0
+        self.VB_to_Br = self.sh.n # Equation for Br in paper has negative sign...?
+        self.TB_to_Jr = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # Equation for Jr in paper has RI in the numerator instead...?
+
+        self.VB_to_VJ = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
         self.TB_to_TJ = -self.RI / mu0
-        self.VB_to_Br = self.sh.n
-        self.TB_to_Jr = self.sh.n * (self.sh.n + 1) / self.RI / mu0
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
