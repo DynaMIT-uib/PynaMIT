@@ -238,10 +238,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
             time = time + dt
             coeffs.append(i2d.state.VB.coeffs)
             count += 1
-            #print(count, time, i2d.state.Br.coeffs[:3])
+            #print(count, time, (i2d.state.VB.coeffs * i2d.state.VB_to_Br)[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, i2d.state.Br.coeffs[:3])
+                print(count, time, (i2d.state.VB.coeffs * i2d.state.VB_to_Br)[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)

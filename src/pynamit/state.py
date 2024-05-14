@@ -30,6 +30,12 @@ class State(object):
         self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
 
+        # Conversion factors
+        self.VB_to_VJ = (2 * self.sh.n + 1) / (self.sh.n + 1) * self.RI / mu0
+        self.VB_to_Br = self.sh.n
+        self.TB_to_TJ = -self.RI / mu0
+        self.TB_to_TJr = self.sh.n * (self.sh.n + 1) / self.RI / mu0
+
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
 
@@ -111,7 +117,7 @@ class State(object):
 
     def _get_PFAC_matrix(self, _grid, _basis_evaluator):
         """ """
-        # initialize matrix that will map from self.TJr to coefficients for poloidal field:
+        # initialize matrix that will map from self.TB to coefficients for poloidal field:
 
         r_k_steps = self.FAC_integration_parameters['steps']
         Delta_k = np.diff(r_k_steps)
@@ -260,32 +266,16 @@ class State(object):
 
         if key == 'VB':
             self.VB = Vector(self.basis, kwargs['VB'])
-            self.VJ = Vector(self.basis, self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.VB.coeffs)
-            self.Br = Vector(self.basis, 1 / self.sh.n * self.VB.coeffs)
         elif key == 'TB':
             self.TB = Vector(self.basis, kwargs['TB'])
-            self.TJ = Vector(self.basis, -self.RI / mu0 * self.TB.coeffs)
-            self.TJr = Vector(self.basis, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.TJ.coeffs)
-            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
         elif key == 'VJ':
-            self.VJ = Vector(self.basis, kwargs['VJ'])
-            self.VB = Vector(self.basis, mu0 / self.RI * (self.sh.n + 1) / (2 * self.sh.n + 1) * self.VJ.coeffs)
-            self.Br = Vector(self.basis, 1 / self.sh.n * self.VB.coeffs)
+            self.VB = Vector(self.basis, kwargs['VJ'] / self.VB_to_VJ)
         elif key == 'TJ':
-            self.TJ = Vector(self.basis, kwargs['TJ'])
-            self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
-            self.TJr = Vector(self.basis, -self.sh.n * (self.sh.n + 1) / self.RI**2 * self.TJ.coeffs)
-            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
+            self.TB = Vector(self.basis, kwargs['TJ'] / self.TB_to_TJ)
         elif key == 'Br':
-            self.Br = Vector(self.basis, kwargs['Br'])
-            self.VB = Vector(self.basis, self.Br.coeffs / self.sh.n)
-            self.VJ = Vector(self.basis, -self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1) * self.VB.coeffs)
+            self.VB = Vector(self.basis, kwargs['Br'] / self.VB_to_Br)
         elif key == 'TJr':
-            self.TJr = kwargs['TJr']
-            self.TJ = Vector(self.basis, -1 /(self.sh.n * (self.sh.n + 1)) * self.TJr * self.RI**2)
-            self.TB = Vector(self.basis, -mu0 / self.RI * self.TJ.coeffs)
-            self.PFAC = Vector(self.basis, self.TB_to_PFAC.dot(self.TB.coeffs))
-            print('check the factor RI**2!')
+            self.TB = Vector(self.basis, kwargs['TJr'] / self.TB_to_TJr)
         else:
             raise Exception('This should not happen')
 
@@ -449,7 +439,7 @@ class State(object):
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
-        new_Br = self.Br.coeffs + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI**2
+        new_Br = self.VB.coeffs * self.VB_to_Br + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI**2
         self.set_coeffs(Br = new_Br)
 
 
@@ -458,7 +448,7 @@ class State(object):
 
         """
 
-        return(_basis_evaluator.basis_to_grid(self.Br.coeffs))
+        return(_basis_evaluator.basis_to_grid(self.VB.coeffs * self.VB_to_Br))
 
 
     def get_JS(self, _basis_evaluator, deg = False):
@@ -479,7 +469,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.TJr.coeffs)
+        return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_TJr)
 
 
     def get_Je(self, _basis_evaluator, deg = False):
@@ -487,7 +477,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(-self.TJ.coeffs, derivative = 'phi')
+        return _basis_evaluator.basis_to_grid(-(self.TB.coeffs * self.TB_to_TJ), derivative = 'phi')
 
 
     def get_Jn(self, _basis_evaluator, deg = False):
@@ -495,7 +485,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.TJ.coeffs, derivative = 'theta')
+        return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_TJ, derivative = 'theta')
 
 
     def get_equivalent_current_function(self, grid, deg = False):
