@@ -36,9 +36,6 @@ class State(object):
         self.VB_to_Br = -self.sh.n
         self.TB_to_Jr = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
 
-        self.VB_to_VJ = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
-        self.TB_to_TJ = -self.RI / mu0
-
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
 
@@ -476,22 +473,6 @@ class State(object):
         """
 
         return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_Jr)
-
-
-    def get_Je(self, _basis_evaluator, deg = False):
-        """ Calculate eastward current.
-
-        """
-
-        return _basis_evaluator.basis_to_grid(-(self.TB.coeffs * self.TB_to_TJ), derivative = 'phi')
-
-
-    def get_Jn(self, _basis_evaluator, deg = False):
-        """ Calculate northward current.
-
-        """
-
-        return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_TJ, derivative = 'theta')
 
 
     def get_equivalent_current_function(self, grid, deg = False):
