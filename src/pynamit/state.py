@@ -33,8 +33,9 @@ class State(object):
         self.latitude_boundary = latitude_boundary
 
         # Conversion factors
-        self.VB_to_Br = -self.sh.n
-        self.TB_to_Jr = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
+        self.VB_to_Br  = -self.sh.n
+        self.TB_to_Jr  = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
+        self.VB_to_Jeq = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
@@ -475,11 +476,12 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_Jr)
 
 
-    def get_equivalent_current_function(self, grid, deg = False):
+    def get_Jeq(self, _basis_evaluator, deg = False):
         """ Calculate equivalent current function.
 
         """
-        print('not implemented')
+
+        return _basis_evaluator.basis_to_grid(self.VB.coeffs * self.VB_to_Jeq)
 
 
     def get_Phi(self, _basis_evaluator, deg = False):

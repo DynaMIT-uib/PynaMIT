@@ -72,7 +72,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
 
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-50, 50, 22) * 1e-9, 'extend':'both'}
-    #eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e-3}
+    eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e-3}
     FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
 
 
@@ -107,12 +107,11 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     sinI   = i2d.state.mainfield.get_sinI(plt_grid.RI, plt_grid.theta, plt_grid.lon)
     FAC    = -(plt_sh_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
     jr_mod =   plt_sh_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
-    # Equivalent current needs reimplentation
-    #eq_current_function = plt_sh_evaluator.G.dot(i2d.state.VB.coeffs * i2d.state.VB_to_VJ)
+    eq_current_function = i2d.state.get_Jeq(plt_sh_evaluator)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
-    #gax_j.contour( lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), eq_current_function.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **eqJ_kwargs)
+    gax_j.contour( lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), eq_current_function.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **eqJ_kwargs)
     gax_j.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), FAC.reshape((NLO, NLA)), **FAC_kwargs)
 
 
@@ -122,13 +121,13 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     # north:
     iii = lat >  50
     paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    #paxn_j.contour( lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
+    paxn_j.contour( lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
     # south:
     iii = lat < -50
     paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    #paxs_j.contour( lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
+    paxs_j.contour( lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
 
