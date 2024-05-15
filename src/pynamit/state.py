@@ -231,7 +231,7 @@ class State(object):
         print('should write a test for these functions')
         GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
         GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
-        Gshield  = -_basis_evaluator.Gcf / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
+        Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
 
         GTB = GrxgradT + (GPFAC + Gshield).dot(self.TB_to_PFAC)
         GTBth, GTBph = np.split(GTB, 2, axis = 0)
