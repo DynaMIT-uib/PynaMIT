@@ -33,7 +33,7 @@ class State(object):
         self.latitude_boundary = latitude_boundary
 
         # Conversion factors
-        self.VB_to_Br = self.sh.n # Equation for Br in paper has negative sign...?
+        self.VB_to_Br = -self.sh.n
         self.TB_to_Jr = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # Equation for Jr in paper has RI in the numerator instead...?
 
         self.VB_to_VJ = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
@@ -231,9 +231,9 @@ class State(object):
     def get_GTrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
         print('should write a test for these functions')
-        GrxgradT = -_basis_evaluator.Gdf * self.RI # matrix that gets -r x grad(T)
-        GPFAC    = -_basis_evaluator.Gcf                      # matrix that calculates potential magnetic field of external source
-        Gshield  = -(_basis_evaluator.Gcf / (self.sh.n + 1)) # matrix that calculates potential magnetic field of shielding current
+        GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
+        GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
+        Gshield  = -_basis_evaluator.Gcf / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
 
         GTB = GrxgradT + (GPFAC + Gshield).dot(self.TB_to_PFAC)
         GTBth, GTBph = np.split(GTB, 2, axis = 0)
@@ -243,7 +243,7 @@ class State(object):
 
     def get_GVrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
-        GVdB = _basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
+        GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         GVBth, GVBph = np.split(GVdB, 2, axis = 0)
         GVrxdB = np.vstack((-GVBph, GVBth))
 
