@@ -34,7 +34,7 @@ class State(object):
 
         # Conversion factors
         self.VB_to_Br = -self.sh.n
-        self.TB_to_Jr = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # Equation for Jr in paper has RI in the numerator instead...?
+        self.TB_to_Jr = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
 
         self.VB_to_VJ = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
         self.TB_to_TJ = -self.RI / mu0
@@ -62,8 +62,8 @@ class State(object):
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
             self.TB_to_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
 
-        self.GTBrxdB = self.get_GTrxdB(self.basis_evaluator) # matrices that map sch_TB to r x deltaB
-        self.GVBrxdB = self.get_GVrxdB(self.basis_evaluator) # matrices that map sch_VB to r x deltaB
+        self.GTBrxdB = self.get_GTrxdB(self.basis_evaluator) # matrices that map TB to r x deltaB
+        self.GVBrxdB = self.get_GVrxdB(self.basis_evaluator) # matrices that map VB to r x deltaB
 
         if connect_hemispheres:
             if ignore_PFAC:
