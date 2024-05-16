@@ -40,8 +40,8 @@ class I2D(object):
 
         """
 
-        num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
         mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
+        num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
 
         #self.cs_equations = CSEquations(csp, RI)
 

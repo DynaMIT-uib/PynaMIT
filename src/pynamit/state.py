@@ -44,15 +44,11 @@ class State(object):
         self.u_theta = None
         self.u_phi = None 
 
-        # get magnetic field unit vectors at CS grid:
-        self.B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
-        self.br, self.btheta, self.bphi = self.B / np.linalg.norm(self.B, axis = 0)
-        self.sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2) # sin(inclination)
         # construct the elements in the matrix in the electric field equation
-        self.b00 = self.bphi**2 + self.br**2
-        self.b01 = -self.btheta * self.bphi
-        self.b10 = -self.btheta * self.bphi
-        self.b11 = self.btheta**2 + self.br**2
+        self.b00 = num_grid.bphi**2 + num_grid.br**2
+        self.b01 = -num_grid.btheta * num_grid.bphi
+        self.b10 = -num_grid.btheta * num_grid.bphi
+        self.b11 = num_grid.btheta**2 + num_grid.br**2
 
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
@@ -313,7 +309,7 @@ class State(object):
             raise Exception('FAC must match phi and theta')
 
         # Extract the radial component of the FAC:
-        self.jr = -FAC * self.sinI
+        self.jr = -FAC * self.num_grid.sinI
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
@@ -361,8 +357,10 @@ class State(object):
         self.u_theta = u_theta
         self.u_phi   = u_phi
 
-        self.uxB_theta =  self.u_phi   * self.B[0] 
-        self.uxB_phi   = -self.u_theta * self.B[0] 
+        B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
+
+        self.uxB_theta =  self.u_phi   * B[0]
+        self.uxB_phi   = -self.u_theta * B[0]
 
         if self.connect_hemispheres:
             # find wind field at low lat grid points
@@ -513,8 +511,8 @@ class State(object):
 
         Jth, Jph = self.get_JS(_basis_evaluator, deg = deg)
 
-        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.br * Jph)
-        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.br * Jth)
+        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.num_grid.br * Jph)
+        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.num_grid.br * Jth)
 
         return(Eth, Eph)
 
