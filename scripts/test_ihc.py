@@ -139,6 +139,7 @@ if SIMULATE:
             #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
             #paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
             plt.savefig(fn)
+            plt.close()
 
         if count > totalsteps:
             break
@@ -150,3 +151,4 @@ else:
 
 
     plt.show()
+    plt.close()

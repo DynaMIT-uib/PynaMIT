@@ -174,7 +174,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     else:
         plt.show()
 
-
+    plt.close()
 
 
 debugplot(i2d, title = 'hoi!', filename = None, noon_longitude = noon_longitude)

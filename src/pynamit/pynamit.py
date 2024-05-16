@@ -115,7 +115,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
-        fig, axes = plt.subplots(ncols = 2, nrows = 2)
+        _, axes = plt.subplots(ncols = 2, nrows = 2)
         SCALE = 1e3
 
 
@@ -153,16 +153,17 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
         paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
 
+        plt.show()
+        plt.close()
+
         jr = i2d.get_Jr(plt_i2d_evaluator)
 
         globalplot(plt_grid.lon, plt_grid.lat, jr.reshape(plt_grid.lon.shape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
-        plt.show()
-
 
     if plot_AMPS_Br:
 
-        fig, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+        _, axes = plt.subplots(ncols = 2, figsize = (10, 5))
         paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
 
         if not compare_AMPS_FAC_and_CF_currents:
@@ -175,6 +176,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[1].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
 
         plt.show()
+        plt.close()
 
 
     if show_FAC_and_conductance:
@@ -190,16 +192,17 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     if make_colorbars:
         # conductance:
-        fig, axc = plt.subplots(figsize = (1, 10))
+        _, axc = plt.subplots(figsize = (1, 10))
         cz, co = np.zeros_like(c_levels), np.ones_like(c_levels)
         axc.contourf(np.vstack((cz, co)).T, np.vstack((c_levels, c_levels)).T, np.vstack((c_levels, c_levels)).T, levels = c_levels)
         axc.set_ylabel('mho', size = 16)
         axc.set_xticks([])
         plt.subplots_adjust(left = .7)
         plt.savefig('conductance_colorbar.png')
+        plt.close()
 
         # FAC and Br:
-        fig, axf = plt.subplots(figsize = (2, 10))
+        _, axf = plt.subplots(figsize = (2, 10))
         fz, fo = np.zeros_like(levels), np.ones_like(levels)
         axf.contourf(np.vstack((fz, fo)).T, np.vstack((levels, levels)).T, np.vstack((levels, levels)).T, levels = levels, cmap = plt.cm.bwr)
         axf.set_ylabel(r'$\mu$A/m$^2$', size = 16)
@@ -213,6 +216,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         plt.subplots_adjust(left = .45, right = .6)
         plt.savefig('mag_colorbar.png')
+        plt.close()
 
 
 
@@ -247,8 +251,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
                 Br = i2d.state.get_Br(plt_i2d_evaluator)
-                fig, paxn, paxs, axg =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
-                                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+                _, paxn, paxs, _ =  globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True,
+                                               levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
 
                 i2d.state.update_Phi()
@@ -262,6 +266,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                 paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
                 paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
                 plt.savefig(fn)
+                plt.close()
 
             if count > totalsteps:
                 break

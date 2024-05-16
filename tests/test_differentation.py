@@ -264,4 +264,5 @@ def test_differentiation():
         ax.set_title(str(cc))
         cc+=1
     #plt.show()
+    #plt.close()
 

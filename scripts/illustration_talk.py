@@ -150,5 +150,6 @@ plt.savefig('equations_fig04.png', dpi = 250)
 
 
 plt.show()
+plt.close()
 
 

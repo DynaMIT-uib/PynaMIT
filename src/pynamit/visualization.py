@@ -110,6 +110,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     else:
         plt.show()
 
+    plt.close()
 
 
 def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
@@ -225,8 +226,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     else:
         plt.show()
 
-    plt.clf()
-
+    plt.close()
 
 
 if __name__ == "__main__":

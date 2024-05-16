@@ -137,5 +137,5 @@ plt.savefig('equations_fig3.png', dpi = 250)
 
 
 plt.show()
-
+plt.close()
 

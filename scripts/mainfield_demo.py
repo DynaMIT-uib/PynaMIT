@@ -28,5 +28,6 @@ for pax, kind in zip(paxes, ['radial', 'dipole', 'igrf']):
 
 plt.tight_layout()
 plt.show()
+plt.close()
 
 

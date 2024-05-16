@@ -289,6 +289,7 @@ def test_projection():
 
 
     #plt.show()
+    #plt.close()
 
 
 

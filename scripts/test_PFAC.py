@@ -66,6 +66,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
                                                levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
     plt.savefig('figs/PFAC_steady_state.png')
+    plt.close()
 
 
     # manipulate GTB to remove the r x grad(T) part:
@@ -109,6 +110,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
             #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
             #paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
             plt.savefig(fn)
+            plt.close()
 
 
 
@@ -141,3 +143,4 @@ if COMPARE_TO_SECS:
 
 
     plt.show()
+    plt.close()
