@@ -75,7 +75,7 @@ class State(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
+            self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
             self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator) / mu0
@@ -86,7 +86,7 @@ class State(object):
 
             # ... and for their conjugate points:
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi)
+            self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
             self.GTBrxdB_cp = self.get_GTrxdB(cp_basis_evaluator) / mu0
@@ -94,13 +94,9 @@ class State(object):
             self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.GVBrxdB_cp), self.aeH_cp.dot(self.GVBrxdB_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.GTBrxdB_cp), self.aeH_cp.dot(self.GTBrxdB_cp)
 
-            # calculate sin(inclination)
-            self.ll_sinI = self.mainfield.get_sinI(self.RI, self.ll_grid.theta, self.ll_grid.lon).reshape((-1 ,1))
-            self.cp_sinI = self.mainfield.get_sinI(self.RI, self.cp_grid.theta, self.cp_grid.lon).reshape((-1 ,1))
-
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll     = ll_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_sinI)
-            self.G_par_cp     = cp_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.cp_sinI)
+            self.G_par_ll     = ll_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_grid.sinI.reshape((-1 ,1)))
+            self.G_par_cp     = cp_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.cp_grid.sinI.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) * DEBUG_jpar_scale
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
