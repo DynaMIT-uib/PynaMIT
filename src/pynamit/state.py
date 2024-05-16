@@ -310,10 +310,6 @@ class State(object):
             self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
             hl_basis_evaluator = BasisEvaluator(self.basis, self.hl_grid)
 
-            #B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
-            #br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
-            #hl_sinI = -br / np.sqrt(btheta**2 + bphi**2 + br**2) # sin(inclination)
-
             self.Gjr = hl_basis_evaluator.scaled_G(1  / self.RI / mu0 * self.sh.n * (self.sh.n + 1))
             self.jr = self.jr[hl_mask].flatten()
 
