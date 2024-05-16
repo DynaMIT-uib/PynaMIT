@@ -88,7 +88,7 @@ while True:
         fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
         filecount +=1
         title = 't = {:.3} s'.format(time)
-        Br = i2d.state.get_Br(plt_grid)
+        Br = i2d.state.get_Br(plt_i2d_evaluator)
         fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 

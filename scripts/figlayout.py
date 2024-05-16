@@ -40,25 +40,25 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
 csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
+csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
 
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.grid.Grid(RI, lat, lon)
-plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
+plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.state.set_conductance(hall, pedersen, csp_sh_evaluator)
+i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = -a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / i2d.state.sinI * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
-i2d.state.set_FAC(jparallel, csp_sh_evaluator)
+i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 
 
 #### MODEL OBJECT DONE
@@ -68,7 +68,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = pynamit.grid.Grid(RI, lat, lon)
-    plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d_sh, plt_grid)
+    plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
 
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-50, 50, 22) * 1e-9, 'extend':'both'}
@@ -81,7 +81,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.grid.Grid(i2d.state.RI, lat, lon)
-    plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.sh, plt_grid)
+    plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
     ## MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
@@ -102,12 +102,12 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
         ax.coastlines(zorder = 2, color = 'grey')
 
     ## CALCULATE VALUES TO PLOT
-    Br  = i2d.state.get_Br(plt_sh_evaluator)
+    Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
     sinI   = i2d.state.mainfield.get_sinI(plt_grid.RI, plt_grid.theta, plt_grid.lon)
-    FAC    = -(plt_sh_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
-    jr_mod =   plt_sh_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
-    eq_current_function = i2d.state.get_Jeq(plt_sh_evaluator)
+    FAC    = -(plt_i2d_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
+    jr_mod =   plt_i2d_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
+    eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)

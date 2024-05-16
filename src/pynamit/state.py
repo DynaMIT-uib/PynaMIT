@@ -322,7 +322,7 @@ class State(object):
             # mask the jr so that it only applies poleward of self.latitude_boundary
             hl_mask = np.abs(_basis_evaluator.grid.lat) > self.latitude_boundary
             self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
-            hl_basis_evaluator = BasisEvaluator(self.sh, self.hl_grid)
+            hl_basis_evaluator = BasisEvaluator(self.basis, self.hl_grid)
 
             #B = np.vstack(self.mainfield.get_B(self.RI, self.hl_grid.theta, self.hl_grid.lon))
             #br, btheta, bphi = B / np.linalg.norm(B, axis = 0)
@@ -351,7 +351,7 @@ class State(object):
             #print('connect_hemispheres is not fully implemented')
 
         print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
-        print('Note to self: Remember to write a function that compares the AMPS SH coefficient to the ones derived here')
+        print('Note to self: Remember to write a function that compares the AMPS coefficient to the ones derived here')
 
 
     def set_u(self, u_theta, u_phi, update = True):

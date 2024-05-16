@@ -78,7 +78,7 @@ class BasisEvaluator(object):
 
             # Report condition number for GTG
             cond_GTG = np.linalg.cond(self._GTG)
-            print('The condition number for the surface SH matrix is {:.1f}'.format(cond_GTG))
+            print('The condition number for the GTG matrix is {:.1f}'.format(cond_GTG))
 
         return self._GTG
 

@@ -118,9 +118,9 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = pynamit.grid.Grid(i2d.state.RI, lat, lon)
-    plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.sh, plt_grid)
+    plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
-    csp_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
+    csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
 
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-50, 50, 22) * 1e-9, 'extend':'both'}
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
@@ -132,7 +132,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.grid.Grid(i2d.state.RI, lat, lon)
-    plt_sh_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.sh, plt_grid)
+    plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
     ## MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
@@ -153,12 +153,12 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
         ax.coastlines(zorder = 2, color = 'grey')
 
     ## CALCULATE VALUES TO PLOT
-    Br  = i2d.state.get_Br(plt_sh_evaluator)
+    Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
     sinI   = i2d.state.mainfield.get_sinI(plt_grid.RI, plt_grid.theta, plt_grid.lon)
-    FAC    = -(plt_sh_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
-    jr_mod =   csp_sh_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
-    eq_current_function = i2d.state.get_Jeq(plt_sh_evaluator)
+    FAC    = -(plt_i2d_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
+    jr_mod =   csp_i2d_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
+    eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
