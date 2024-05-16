@@ -104,7 +104,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
-    sinI   = i2d.state.mainfield.get_sinI(plt_grid.RI, plt_grid.theta, plt_grid.lon)
+    sinI   = i2d.state.mainfield.get_sinI(plt_grid.r, plt_grid.theta, plt_grid.lon)
     FAC    = -(plt_i2d_evaluator.scaled_G(1 / sinI.reshape((-1, 1)))).dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
     jr_mod =   plt_i2d_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)

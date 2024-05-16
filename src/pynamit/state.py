@@ -139,7 +139,7 @@ class State(object):
             r_k_grid = Grid(r_k[i], 90 - _grid.theta, _grid.lon, self.mainfield)
 
             # Map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k_grid.RI, r_k_grid.theta, r_k_grid.lon)
+            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k_grid.r, r_k_grid.theta, r_k_grid.lon)
             mapped_r_k_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped, self.mainfield)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_r_k_grid)
 
