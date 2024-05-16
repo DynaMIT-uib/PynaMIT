@@ -134,27 +134,21 @@ class State(object):
         TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
-            # map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
-            mapped_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped)
-            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
 
-            # Calculate magnetic field at grid points at r_k[i]:
-            B_rk  = np.vstack(self.mainfield.get_B(r_k[i], _grid.theta, _grid.lon))
-            B0_rk = np.linalg.norm(B_rk, axis = 0) # magnetic field magnitude
-            b_rk = B_rk / B0_rk # unit vectors
+            # Create grid at r_k[i]:
+            r_k_grid = Grid(r_k[i], 90 - _grid.theta, _grid.lon, self.mainfield)
 
-            # Calculate magnetic field at the points in the ionosphere to which the grid maps:
-            B_RI  = np.vstack(self.mainfield.get_B(self.RI, mapped_grid.theta, mapped_grid.lon))
-            B0_RI = np.linalg.norm(B_RI, axis = 0) # magnetic field magnitude
-            sinI_RI = -B_RI[0] / B0_RI
+            # Map coordinates from r_k[i] to RI:
+            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k_grid.RI, r_k_grid.theta, r_k_grid.lon)
+            mapped_r_k_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped, self.mainfield)
+            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_r_k_grid)
 
             # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = mapped_basis_evaluator.scaled_G(-self.sh.n * (self.sh.n + 1) / self.RI / mu0 / sinI_RI.reshape((-1, 1))) # TODO: Handle singularity at equator (may be fine)
+            G_k = mapped_basis_evaluator.scaled_G(-self.sh.n * (self.sh.n + 1) / self.RI / mu0 / mapped_r_k_grid.sinI.reshape((-1, 1))) # TODO: Handle singularity at equator (may be fine)
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
-            ratio = (B0_rk / B0_RI).reshape((1, -1))
-            S_k = np.vstack((np.diag(b_rk[1]), np.diag(b_rk[2]))) * ratio
+            ratio = (r_k_grid.B_magnitude / mapped_r_k_grid.B_magnitude).reshape((1, -1))
+            S_k = np.vstack((np.diag(r_k_grid.btheta), np.diag(r_k_grid.bphi))) * ratio
 
             # matrix that scales the terms by (R/r_k)**(n-1):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
