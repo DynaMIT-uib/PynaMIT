@@ -163,10 +163,10 @@ class State(object):
         """
 
         R, theta, phi = self.RI, _grid.theta, _grid.lon
-        B = np.vstack(self.mainfield.get_B(R, theta, phi))
-        B0 = np.linalg.norm(B, axis = 0)
-        br, bt, bp = B / B0
-        Br = B[0]
+
+        br, bt, bp = _grid.br, _grid.btheta, _grid.bphi
+        Br = br * _grid.B_magnitude
+
         _, _, _, e1, e2, _ = self.mainfield.basevectors(R, theta, phi)
         e1r, e1t, e1p = e1
         e2r, e2t, e2p = e2
