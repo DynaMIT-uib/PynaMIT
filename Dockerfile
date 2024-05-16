@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 # Use login bash shell to ensure activation of Mamba and environments
 SHELL ["/bin/bash", "-l", "-c"]
@@ -6,10 +6,10 @@ SHELL ["/bin/bash", "-l", "-c"]
 # Install system dependencies
 RUN apt update
 RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections
-RUN apt install -y wget git cargo gfortran-12 gcc-12 libhdf5-dev pkg-config ttf-mscorefonts-installer
-ENV FC=gfortran-12
-ENV CC=gcc-12
-ENV CXX=g++-12
+RUN apt install -y wget git cargo gfortran gcc libhdf5-dev pkg-config ttf-mscorefonts-installer
+ENV FC=gfortran
+ENV CC=gcc
+ENV CXX=g++
 
 # Install Mamba through Miniforge
 RUN wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" && \
@@ -42,3 +42,6 @@ WORKDIR /
 
 # Install Lompe
 RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaundal/lompe.git@main"
+
+# Install horizontal wind model
+RUN pip install pyhwm2014
