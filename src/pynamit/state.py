@@ -34,7 +34,7 @@ class State(object):
 
         # Conversion factors
         self.VB_to_Br  = -self.sh.n
-        self.TB_to_Jr  = 1 / self.RI / mu0 * self.sh.n * (self.sh.n + 1) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
+        self.TB_to_Jr  = -self.sh.n * (self.sh.n + 1) / (self.RI * mu0) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
         self.VB_to_Jeq = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
 
         # initialize the basis evaluator
@@ -140,7 +140,7 @@ class State(object):
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_r_k_grid)
 
             # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = mapped_basis_evaluator.scaled_G(-self.sh.n * (self.sh.n + 1) / self.RI / mu0 / mapped_r_k_grid.sinI.reshape((-1, 1))) # TODO: Handle singularity at equator (may be fine)
+            G_k = mapped_basis_evaluator.scaled_G(self.TB_to_Jr / mapped_r_k_grid.sinI.reshape((-1, 1))) 
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
             ratio = (r_k_grid.B_magnitude / mapped_r_k_grid.B_magnitude).reshape((1, -1))
@@ -310,7 +310,7 @@ class State(object):
             self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
             hl_basis_evaluator = BasisEvaluator(self.basis, self.hl_grid)
 
-            self.Gjr = hl_basis_evaluator.scaled_G(1  / self.RI / mu0 * self.sh.n * (self.sh.n + 1))
+            self.Gjr = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
             self.jr = self.jr[hl_mask].flatten()
 
             # combine matrices:
