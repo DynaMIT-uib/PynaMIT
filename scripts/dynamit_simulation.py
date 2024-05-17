@@ -14,7 +14,7 @@ latitude_boundary = 35
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-Nmax, Mmax, Ncs = 45, 45, 65
+Nmax, Mmax, Ncs = 15, 10, 34
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 20]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 rk = {'steps':rk}
@@ -29,6 +29,7 @@ hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp
 # u_theta = -hwm14Obj.Vwind
 # u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
+u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)

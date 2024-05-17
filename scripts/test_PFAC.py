@@ -56,7 +56,7 @@ jparallel = -a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
-GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
+GBr = plt_i2d_evaluator.scaled_G(i2d.state.VB_to_Br / i2d.state.RI)
 Br_I2D = GBr.dot(i2d.state.TB_to_PFAC.dot(i2d.state.TB.coeffs))
 
 
@@ -123,7 +123,7 @@ if COMPARE_TO_SECS:
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = csp_grid.lat, csp_grid.lon
-    Be, Bn, Br = i2d.state.bphi, - i2d.state.btheta, i2d.state.br
+    Be, Bn, Br = i2d.state.num_grid.bphi, - i2d.state.num_grid.btheta, i2d.state.num_grid.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)
 
 
