@@ -9,13 +9,14 @@ class Grid(object):
         """ Initialize the grid for the ionosphere.
 
         """
+        r, lat, lon = np.broadcast_arrays(r, lat, lon)
 
-        self.r = r
-        self.lat = lat
-        self.lon = lon
+        self.r = r.flatten()
+        self.lat = lat.flatten()
+        self.lon = lon.flatten()
         self.size = self.lon.size
 
-        self.theta = 90 - lat
+        self.theta = 90 - self.lat
 
         # Get magnetic field unit vectors and inclination at grid:
         if mainfield is not None:
