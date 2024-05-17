@@ -60,24 +60,20 @@ class SHBasis(object):
         
         """
 
-        try: # broadcast lat and lon, and turn results into column vectors:
-            lat, lon = np.broadcast_arrays(grid.lat, grid.lon)
-            lat, lon = lat.flatten().reshape((-1, 1)), lon.flatten().reshape((-1, 1))
-        except ValueError:
-            raise Exception('get_G: could not brodcast lat and lon')
-
-        ph, th = np.deg2rad(lon), np.deg2rad(90 - lat) # lon and colat in radians
+        # convert grid angular coordinates to radians and convert to (N, 1) arrays:
+        ph, th = np.deg2rad(grid.lon).reshape((-1, 1)), np.deg2rad(90 - grid.lat).reshape((-1, 1)) 
+        r = grid.r.reshape((-1, 1))
 
         # generate Legendre matrices - first get dicts of arrays, and then stack them in the appropriate fashion
-        PdP = legendre(self.Nmax, self.Mmax, 90 - lat.flatten(), keys = self.cnm)
+        PdP = legendre(self.Nmax, self.Mmax, grid.theta, keys = self.cnm)
         Pc, dPc = np.split(PdP, 2, axis = 1)
         Ps      =  Pc[: , self.cnm.m.flatten() != 0]
         dPs     = dPc[: , self.cnm.m.flatten() != 0]
 
         if derivative is None:
             # Warning: the variable grid.r is included, but this only evaluates to the radius-dependent harmonics at r = RI
-            Gc = grid.r * Pc * np.cos(ph * self.cnm.m)
-            Gs = grid.r * Ps * np.sin(ph * self.snm.m)
+            Gc = r * Pc * np.cos(ph * self.cnm.m)
+            Gs = r * Ps * np.sin(ph * self.snm.m)
         elif derivative == 'phi':
             Gc = -Pc * self.cnm.m * np.sin(ph * self.cnm.m) / np.sin(th)
             Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th) 
