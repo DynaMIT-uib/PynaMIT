@@ -75,8 +75,9 @@ class SHBasis(object):
         dPs     = dPc[: , self.cnm.m.flatten() != 0]
 
         if derivative is None:
-            Gc = grid.RI * Pc * np.cos(ph * self.cnm.m)
-            Gs = grid.RI * Ps * np.sin(ph * self.snm.m)
+            # Warning: the variable grid.r is included, but this only evaluates to the radius-dependent harmonics at r = RI
+            Gc = grid.r * Pc * np.cos(ph * self.cnm.m)
+            Gs = grid.r * Ps * np.sin(ph * self.snm.m)
         elif derivative == 'phi':
             Gc = -Pc * self.cnm.m * np.sin(ph * self.cnm.m) / np.sin(th)
             Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th) 
