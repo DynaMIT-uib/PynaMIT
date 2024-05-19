@@ -14,8 +14,8 @@ latitude_boundary = 35
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-Nmax, Mmax, Ncs = 15, 10, 34
-rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 20]))**2 #int(80 / Nmax)])) ** 2
+Nmax, Mmax, Ncs = 20, 15, 44
+rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 3]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 rk = {'steps':rk}
 date = datetime.datetime(2001, 5, 12, 21, 45)

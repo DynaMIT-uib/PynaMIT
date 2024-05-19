@@ -5,9 +5,9 @@ from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.vector import Vector
 
-DEBUG_constraint_scale = mu0#1/ 3e8 # 1/(mu0 * c)
+DEBUG_constraint_scale = 1e-5#1/ 3e8 # 1/(mu0 * c)
 DEBUG_jpar_scale = 1#1e15
-DEBUG_jr_dip_scale = 1
+DEBUG_jr_dip_scale = 1e4
 
 class State(object):
     """ State of the ionosphere.
@@ -215,21 +215,31 @@ class State(object):
     def get_GTrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
         print('should write a test for these functions')
-        GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
-        GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
-        Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
+        #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
+        GrxgradT_theta = -_basis_evaluator.G_th * self.RI
+        GrxgradT_phi   = -_basis_evaluator.G_ph * self.RI
+        GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi))
 
-        GTB = GrxgradT + (GPFAC + Gshield).dot(self.TB_to_PFAC)
-        GTBth, GTBph = np.split(GTB, 2, axis = 0)
-        GTrxdB = np.vstack((-GTBph, GTBth))
+        GPFAC_theta =  _basis_evaluator.G_ph  * (1 / (self.sh.n + 1) + 1)
+        GPFAC_phi   = -_basis_evaluator.G_th  * (1 / (self.sh.n + 1) + 1)
+        GPFAC = np.vstack((GPFAC_theta, GPFAC_phi))
+
+        #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
+        #Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
+
+        GTrxdB = GrxgradT + GPFAC.dot(self.TB_to_PFAC) 
+        #GTBth, GTBph = np.split(GTB, 2, axis = 0)
+        #GTrxdB = np.vstack((-GTBph, GTBth))
         return(GTrxdB)
 
 
     def get_GVrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
-        GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
-        GVBth, GVBph = np.split(GVdB, 2, axis = 0)
-        GVrxdB = np.vstack((-GVBph, GVBth))
+        GVrxdB_theta = -_basis_evaluator.G_ph * (1 / (self.sh.n + 1) + 1) * self.RI
+        GVrxdB_phi   =  _basis_evaluator.G_th * (1 / (self.sh.n + 1) + 1) * self.RI
+        #GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
+        #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
+        GVrxdB = np.vstack((GVrxdB_theta, GVrxdB_phi))
 
         return(GVrxdB)
     
