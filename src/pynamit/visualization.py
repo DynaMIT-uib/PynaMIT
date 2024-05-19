@@ -125,7 +125,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-50, 50, 22) * 1e-9, 'extend':'both'}
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
-    FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
+    FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/2 * 1e-6, 'extend':'both'}
 
 
     ## SET UP PLOTTING GRID AND BASIS EVALUATOR
