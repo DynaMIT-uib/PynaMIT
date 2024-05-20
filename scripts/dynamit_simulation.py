@@ -3,7 +3,7 @@ import pynamit
 from pynamit import debugplot
 from lompe import conductance
 import dipole
-import pyhwm2014 # https://github.com/rilma/pyHWM14
+#import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import pyamps
 import apexpy
@@ -23,6 +23,7 @@ date = datetime.datetime(2001, 5, 12, 21, 0)
 Kp   = 5
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
+noon_mlon = d.mlt2mlon(12, date) # noon longitude
 #hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
 #                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
@@ -58,6 +59,8 @@ i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(csp_grid.lat, csp_grid.lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
+
+_, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = -a.get_upward_current(mlat = mlat, mlt = mlt) / csp_grid.sinI * 1e-6

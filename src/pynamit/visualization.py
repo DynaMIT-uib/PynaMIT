@@ -123,7 +123,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
     csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
 
-    B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-50, 50, 22) * 1e-9, 'extend':'both'}
+    B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
     FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/2 * 1e-6, 'extend':'both'}
 
@@ -163,7 +163,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
     gax_j.contour( lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), eq_current_function.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **eqJ_kwargs)
-    gax_j.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), FAC.reshape((NLO, NLA)), **FAC_kwargs)
+    gax_j.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), FAC.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **FAC_kwargs)
 
 
     ## POLAR PLOTS
