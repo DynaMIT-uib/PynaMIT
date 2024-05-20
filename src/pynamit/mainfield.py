@@ -4,6 +4,7 @@ import ppigrf
 import apexpy
 import dipole
 import numpy as np
+from datetime import datetime
 from pynamit.constants import RE
 
 class Mainfield(object):
@@ -52,8 +53,10 @@ class Mainfield(object):
 
         elif self.kind == 'igrf':
             self.apx = apexpy.Apex(epoch, refh = 0)
+            epoch = datetime(epoch, 1, 1, 0, 0)
             def _Bfunc(r, theta, phi):
-                return ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
+                Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
+                return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
 
         elif self.kind == 'radial':
             B0 = dipole.Dipole(epoch).B0 if B0 is None else B0 # use Dipole B0 as default
