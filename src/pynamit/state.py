@@ -52,12 +52,12 @@ class State(object):
 
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+            self.TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            self.TB_to_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
+            self.TB_to_VB_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
 
-        self.GTBrxdB = self.get_GTrxdB(self.basis_evaluator) # matrices that map TB to r x deltaB
-        self.GVBrxdB = self.get_GVrxdB(self.basis_evaluator) # matrices that map VB to r x deltaB
+        self.G_TB_to_JS = self.get_G_TB_to_JS(self.basis_evaluator) # matrices that map TB to r x deltaB
+        self.G_VB_to_JS = self.get_G_VB_to_JS(self.basis_evaluator) # matrices that map VB to r x deltaB
 
         if connect_hemispheres:
             if ignore_PFAC:
@@ -78,10 +78,10 @@ class State(object):
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
-            self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator) * self.RI / mu0
-            self.GVBrxdB_ll = self.get_GVrxdB(ll_basis_evaluator) * self.RI / mu0
-            self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.GVBrxdB_ll), self.aeH_ll.dot(self.GVBrxdB_ll)
-            self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.GTBrxdB_ll), self.aeH_ll.dot(self.GTBrxdB_ll)
+            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator) * self.RI 
+            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator) * self.RI
+            self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.G_VB_to_JS_ll), self.aeH_ll.dot(self.G_VB_to_JS_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.G_TB_to_JS_ll), self.aeH_ll.dot(self.G_TB_to_JS_ll)
 
 
             # ... and for their conjugate points:
@@ -89,10 +89,10 @@ class State(object):
             self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
-            self.GTBrxdB_cp = self.get_GTrxdB(cp_basis_evaluator) * self.RI / mu0
-            self.GVBrxdB_cp = self.get_GVrxdB(cp_basis_evaluator) * self.RI / mu0
-            self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.GVBrxdB_cp), self.aeH_cp.dot(self.GVBrxdB_cp)
-            self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.GTBrxdB_cp), self.aeH_cp.dot(self.GTBrxdB_cp)
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * self.RI
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * self.RI
+            self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.G_VB_to_JS_cp), self.aeH_cp.dot(self.G_VB_to_JS_cp)
+            self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.G_TB_to_JS_cp), self.aeH_cp.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
             self.G_par_ll     = ll_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_grid.sinI.reshape((-1 ,1)))
@@ -125,9 +125,9 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_grid_to_basis = -_basis_evaluator.Gdf_inv * mu0 # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        jh_grid_to_basis = -((self.sh.n + 1) / (2 * self.sh.n + 1)).reshape((-1, 1)) * (_basis_evaluator.Gdf_inv * mu0) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
-        TB_to_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+        TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
 
@@ -150,10 +150,10 @@ class State(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # put it all together (crazy)
-            TB_to_PFAC += Delta_k[i] * A_k.dot(jh_grid_to_basis.dot(S_k.dot(G_k)))
+            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(jh_grid_to_basis.dot(S_k.dot(G_k))) / self.RI
 
         # return the matrix scaled by the term in front of the integral
-        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(TB_to_PFAC) / self.RI)
+        return(TB_to_VB_PFAC)
 
 
     def _get_alpha(self, _grid):
@@ -212,26 +212,26 @@ class State(object):
 
 
 
-    def get_GTrxdB(self, _basis_evaluator):
+    def get_G_TB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
         print('should write a test for these functions')
         #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
         GrxgradT_theta = -_basis_evaluator.G_th
         GrxgradT_phi   = -_basis_evaluator.G_ph
-        GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi))
+        GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
 
-        GPFAC = - self.get_GVrxdB(_basis_evaluator)
+        GPFAC = - self.get_G_VB_to_JS(_basis_evaluator)
 
         #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
         #Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
 
-        GTrxdB = GrxgradT + GPFAC.dot(self.TB_to_PFAC) 
+        GTrxdB = GrxgradT + GPFAC.dot(self.TB_to_VB_PFAC) 
         #GTBth, GTBph = np.split(GTB, 2, axis = 0)
         #GTrxdB = np.vstack((-GTBph, GTBth))
         return(GTrxdB)
 
 
-    def get_GVrxdB(self, _basis_evaluator):
+    def get_G_VB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
         GVrxdB_theta = -_basis_evaluator.G_ph * (1 / (self.sh.n + 1) + 1)
         GVrxdB_phi   =  _basis_evaluator.G_th * (1 / (self.sh.n + 1) + 1)
@@ -239,7 +239,7 @@ class State(object):
         #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
         GVrxdB = np.vstack((GVrxdB_theta, GVrxdB_phi))
 
-        return(GVrxdB)
+        return(GVrxdB / mu0)
     
 
     def set_coeffs(self, **kwargs):
@@ -451,8 +451,8 @@ class State(object):
         """ Calculate ionospheric sheet current.
 
         """
-        Js_V, Je_V = np.split(self.GVBrxdB.dot(self.VB.coeffs) / mu0, 2, axis = 0)
-        Js_T, Je_T = np.split(self.GTBrxdB.dot(self.TB.coeffs) / mu0, 2, axis = 0)
+        Js_V, Je_V = np.split(self.G_VB_to_JS.dot(self.VB.coeffs), 2, axis = 0)
+        Js_T, Je_T = np.split(self.G_TB_to_JS.dot(self.TB.coeffs), 2, axis = 0)
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
