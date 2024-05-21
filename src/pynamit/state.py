@@ -217,17 +217,17 @@ class State(object):
         #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
         GrxgradT_theta = -_basis_evaluator.G_th
         GrxgradT_phi   = -_basis_evaluator.G_ph
-        GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
+        G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
 
-        GPFAC = self.get_G_VB_to_JS(_basis_evaluator)
+        G_VB_to_JS = self.get_G_VB_to_JS(_basis_evaluator)
 
         #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
         #Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
 
-        GTrxdB = GrxgradT + GPFAC.dot(self.TB_to_VB_PFAC) 
+        G_TB_to_JS = G_TB0_to_JS + G_VB_to_JS.dot(self.TB_to_VB_PFAC)
         #GTBth, GTBph = np.split(GTB, 2, axis = 0)
         #GTrxdB = np.vstack((-GTBph, GTBth))
-        return(GTrxdB)
+        return(G_TB_to_JS)
 
 
     def get_G_VB_to_JS(self, _basis_evaluator):
@@ -236,9 +236,10 @@ class State(object):
         GVrxdB_phi   =  _basis_evaluator.G_th * (1 / (self.sh.n + 1) + 1)
         #GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
-        GVrxdB = np.vstack((GVrxdB_theta, GVrxdB_phi))
 
-        return(GVrxdB / mu0)
+        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) / mu0
+
+        return(G_VB_to_JS)
 
     def get_G_VB_to_JS_inv(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
