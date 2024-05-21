@@ -125,7 +125,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        js_grid_to_basis = self.get_G_VB_to_JS_inv(_basis_evaluator) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        js_grid_to_basis = np.linalg.pinv(self.get_G_VB_to_JS(_basis_evaluator)) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
@@ -232,8 +232,8 @@ class State(object):
 
     def get_G_VB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
-        GVrxdB_theta = -_basis_evaluator.G_ph * (1 / (self.sh.n + 1) + 1)
-        GVrxdB_phi   =  _basis_evaluator.G_th * (1 / (self.sh.n + 1) + 1)
+        GVrxdB_theta = -_basis_evaluator.G_ph * (2 * self.sh.n + 1) / (self.sh.n + 1)
+        GVrxdB_phi   =  _basis_evaluator.G_th * (2 * self.sh.n + 1) / (self.sh.n + 1)
         #GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
 
@@ -241,15 +241,6 @@ class State(object):
 
         return(G_VB_to_JS)
 
-    def get_G_VB_to_JS_inv(self, _basis_evaluator):
-        """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
-        GVrxdB_theta = -_basis_evaluator.G_ph * (2 * self.sh.n + 1) / (self.sh.n + 1)
-        GVrxdB_phi   =  _basis_evaluator.G_th * (2 * self.sh.n + 1) / (self.sh.n + 1)
-
-        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) / mu0
-
-        return(np.linalg.pinv(G_VB_to_JS))
-    
 
     def set_coeffs(self, **kwargs):
         """ Set coefficients.
