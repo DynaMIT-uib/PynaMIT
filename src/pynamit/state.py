@@ -152,7 +152,6 @@ class State(object):
             # put it all together (crazy)
             TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k))) / self.RI
 
-        # return the matrix scaled by the term in front of the integral
         return(TB_to_VB_PFAC)
 
 
