@@ -125,7 +125,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_grid_to_basis = -((self.sh.n + 1) / (2 * self.sh.n + 1)).reshape((-1, 1)) * (_basis_evaluator.Gdf_inv * mu0) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        jh_grid_to_basis = - self.get_G_VB_to_JS_inv(_basis_evaluator) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
@@ -240,6 +240,15 @@ class State(object):
         GVrxdB = np.vstack((GVrxdB_theta, GVrxdB_phi))
 
         return(GVrxdB / mu0)
+
+    def get_G_VB_to_JS_inv(self, _basis_evaluator):
+        """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
+        GVrxdB_theta = -_basis_evaluator.G_ph * (2 * self.sh.n + 1) / (self.sh.n + 1)
+        GVrxdB_phi   =  _basis_evaluator.G_th * (2 * self.sh.n + 1) / (self.sh.n + 1)
+
+        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) / mu0
+
+        return(np.linalg.pinv(G_VB_to_JS))
     
 
     def set_coeffs(self, **kwargs):
