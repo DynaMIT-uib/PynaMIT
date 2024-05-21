@@ -125,7 +125,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        jh_grid_to_basis = - self.get_G_VB_to_JS_inv(_basis_evaluator) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        js_grid_to_basis = self.get_G_VB_to_JS_inv(_basis_evaluator) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
@@ -150,7 +150,7 @@ class State(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # put it all together (crazy)
-            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(jh_grid_to_basis.dot(S_k.dot(G_k))) / self.RI
+            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k))) / self.RI
 
         # return the matrix scaled by the term in front of the integral
         return(TB_to_VB_PFAC)
@@ -220,7 +220,7 @@ class State(object):
         GrxgradT_phi   = -_basis_evaluator.G_ph
         GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
 
-        GPFAC = - self.get_G_VB_to_JS(_basis_evaluator)
+        GPFAC = self.get_G_VB_to_JS(_basis_evaluator)
 
         #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
         #Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
