@@ -78,8 +78,8 @@ class State(object):
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
-            self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator) / mu0
-            self.GVBrxdB_ll = self.get_GVrxdB(ll_basis_evaluator) / mu0
+            self.GTBrxdB_ll = self.get_GTrxdB(ll_basis_evaluator) * self.RI / mu0
+            self.GVBrxdB_ll = self.get_GVrxdB(ll_basis_evaluator) * self.RI / mu0
             self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.GVBrxdB_ll), self.aeH_ll.dot(self.GVBrxdB_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.GTBrxdB_ll), self.aeH_ll.dot(self.GTBrxdB_ll)
 
@@ -89,8 +89,8 @@ class State(object):
             self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
-            self.GTBrxdB_cp = self.get_GTrxdB(cp_basis_evaluator) / mu0
-            self.GVBrxdB_cp = self.get_GVrxdB(cp_basis_evaluator) / mu0
+            self.GTBrxdB_cp = self.get_GTrxdB(cp_basis_evaluator) * self.RI / mu0
+            self.GVBrxdB_cp = self.get_GVrxdB(cp_basis_evaluator) * self.RI / mu0
             self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.GVBrxdB_cp), self.aeH_cp.dot(self.GVBrxdB_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.GTBrxdB_cp), self.aeH_cp.dot(self.GTBrxdB_cp)
 
@@ -216,12 +216,12 @@ class State(object):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
         print('should write a test for these functions')
         #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
-        GrxgradT_theta = -_basis_evaluator.G_th * self.RI
-        GrxgradT_phi   = -_basis_evaluator.G_ph * self.RI
+        GrxgradT_theta = -_basis_evaluator.G_th
+        GrxgradT_phi   = -_basis_evaluator.G_ph
         GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi))
 
-        GPFAC_theta =  _basis_evaluator.G_ph  * (1 / (self.sh.n + 1) + 1)
-        GPFAC_phi   = -_basis_evaluator.G_th  * (1 / (self.sh.n + 1) + 1)
+        GPFAC_theta =  _basis_evaluator.G_ph  * (1 / (self.sh.n + 1) + 1) / self.RI
+        GPFAC_phi   = -_basis_evaluator.G_th  * (1 / (self.sh.n + 1) + 1) / self.RI
         GPFAC = np.vstack((GPFAC_theta, GPFAC_phi))
 
         #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
@@ -235,8 +235,8 @@ class State(object):
 
     def get_GVrxdB(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
-        GVrxdB_theta = -_basis_evaluator.G_ph * (1 / (self.sh.n + 1) + 1) * self.RI
-        GVrxdB_phi   =  _basis_evaluator.G_th * (1 / (self.sh.n + 1) + 1) * self.RI
+        GVrxdB_theta = -_basis_evaluator.G_ph * (1 / (self.sh.n + 1) + 1)
+        GVrxdB_phi   =  _basis_evaluator.G_th * (1 / (self.sh.n + 1) + 1)
         #GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
         GVrxdB = np.vstack((GVrxdB_theta, GVrxdB_phi))
@@ -437,7 +437,7 @@ class State(object):
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
-        new_Br = self.VB.coeffs * self.VB_to_Br + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI**2
+        new_Br = self.VB.coeffs * self.VB_to_Br + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI
         self.set_coeffs(Br = new_Br)
 
 
