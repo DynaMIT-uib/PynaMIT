@@ -220,9 +220,7 @@ class State(object):
         GrxgradT_phi   = -_basis_evaluator.G_ph
         GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi))
 
-        GPFAC_theta =  _basis_evaluator.G_ph  * (1 / (self.sh.n + 1) + 1)
-        GPFAC_phi   = -_basis_evaluator.G_th  * (1 / (self.sh.n + 1) + 1)
-        GPFAC = np.vstack((GPFAC_theta, GPFAC_phi))
+        GPFAC = - self.get_GVrxdB(_basis_evaluator)
 
         #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
         #Gshield  =  _basis_evaluator.Gcf * self.sh.n / (self.sh.n + 1) # matrix that calculates potential magnetic field of shielding current
