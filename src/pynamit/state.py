@@ -153,7 +153,7 @@ class State(object):
             TB_to_PFAC += Delta_k[i] * A_k.dot(jh_grid_to_basis.dot(S_k.dot(G_k)))
 
         # return the matrix scaled by the term in front of the integral
-        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(TB_to_PFAC) / self.RI)
+        return(np.diag((self.sh.n + 1) / (2 * self.sh.n + 1)).dot(TB_to_PFAC) / self.RI**2)
 
 
     def _get_alpha(self, _grid):
@@ -220,8 +220,8 @@ class State(object):
         GrxgradT_phi   = -_basis_evaluator.G_ph
         GrxgradT = np.vstack((GrxgradT_theta, GrxgradT_phi))
 
-        GPFAC_theta =  _basis_evaluator.G_ph  * (1 / (self.sh.n + 1) + 1) / self.RI
-        GPFAC_phi   = -_basis_evaluator.G_th  * (1 / (self.sh.n + 1) + 1) / self.RI
+        GPFAC_theta =  _basis_evaluator.G_ph  * (1 / (self.sh.n + 1) + 1)
+        GPFAC_phi   = -_basis_evaluator.G_th  * (1 / (self.sh.n + 1) + 1)
         GPFAC = np.vstack((GPFAC_theta, GPFAC_phi))
 
         #GPFAC    = -_basis_evaluator.Gcf                   # matrix that calculates potential magnetic field of external source
