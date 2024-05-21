@@ -78,8 +78,8 @@ class State(object):
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
-            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator) * self.RI 
-            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator) * self.RI
+            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator) * self.RI # should there be a factor RI here?
+            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator) * self.RI # should there be a factor RI here?
             self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.G_VB_to_JS_ll), self.aeH_ll.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.G_TB_to_JS_ll), self.aeH_ll.dot(self.G_TB_to_JS_ll)
 
@@ -89,8 +89,8 @@ class State(object):
             self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * self.RI
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * self.RI
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * self.RI # should there be a factor RI here?
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * self.RI # should there be a factor RI here?
             self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.G_VB_to_JS_cp), self.aeH_cp.dot(self.G_VB_to_JS_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.G_TB_to_JS_cp), self.aeH_cp.dot(self.G_TB_to_JS_cp)
 
