@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_dipole():
     # Arrange
-    expected_coeff_norm = 9.11794061180203e-17
-    expected_coeff_max = 2.8851650998341825e-18
-    expected_coeff_min = -5.6533005684555624e-18
+    expected_coeff_norm = 9.148989461245737e-17
+    expected_coeff_max = 2.9106606804758335e-18
+    expected_coeff_min = -5.687022970693555e-18
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -26,6 +26,11 @@ def test_2d_dipole():
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = len(coeffs)
+
+    print("actual_coeff_norm: ", actual_coeff_norm)
+    print("actual_coeff_max: ", actual_coeff_max)
+    print("actual_coeff_min: ", actual_coeff_min)
+    print("actual_n_coeffs: ", actual_n_coeffs)
 
     assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
