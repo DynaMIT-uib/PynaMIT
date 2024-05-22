@@ -34,7 +34,8 @@ class State(object):
 
         # Conversion factors
         self.VB_to_Br  = -self.sh.n
-        self.TB_to_Jr  = -self.sh.n * (self.sh.n + 1) / (self.RI * mu0) # 1/RI**2 factor coming from r/RI coordinate scaling in spherical harmonic expansion, which from the chain rule leads to a scaling of the Laplacian eigenvalue by 1/RI**2?
+        self.laplacian = -self.sh.n * (self.sh.n + 1) / RI**2
+        self.TB_to_Jr  = self.laplacian * self.RI / mu0
         self.VB_to_Jeq = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
 
         # initialize the basis evaluator
@@ -435,7 +436,7 @@ class State(object):
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
-        new_Br = self.VB.coeffs * self.VB_to_Br + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI**2
+        new_Br = self.VB.coeffs * self.VB_to_Br - self.laplacian * self.EW.coeffs * dt
         self.set_coeffs(Br = new_Br)
 
 
