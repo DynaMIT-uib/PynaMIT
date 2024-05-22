@@ -95,8 +95,8 @@ class State(object):
             self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.G_TB_to_JS_cp), self.aeH_cp.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll     = ll_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.ll_grid.sinI.reshape((-1 ,1)))
-            self.G_par_cp     = cp_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1) / self.cp_grid.sinI.reshape((-1 ,1)))
+            self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_grid.sinI.reshape((-1 ,1)))
+            self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_grid.sinI.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) * DEBUG_jpar_scale
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
@@ -104,7 +104,7 @@ class State(object):
                 dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
                 self.dip_equator_grid = Grid(RI, 90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
-                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(1 /self.RI / mu0 * self.sh.n * (self.sh.n + 1))
+                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr)
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
  
