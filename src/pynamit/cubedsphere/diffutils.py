@@ -134,7 +134,7 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
         newkeys = [''.join(combination) for combination in combinations_with_replacement(['x', 'y'], i)]
         keys   += newkeys
         permutations = [len(set(key)) for key in newkeys] 
-        values += [p * np.product(_, axis=0) / factorial(i) for p, _ in zip(permutations, [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)])]
+        values += [p * np.prod(_, axis=0) / factorial(i) for p, _ in zip(permutations, [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)])]
 
     d = np.zeros(len(keys))
     for i, key in enumerate(keys):

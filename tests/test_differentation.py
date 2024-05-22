@@ -102,7 +102,7 @@ def test_differentiation():
 
     Ns = 2
     shape = (6, N, N)
-    size = np.product(shape)
+    size = np.prod(shape)
 
     p = cubedsphere.CSProjection()
     h = p.xi(1, N) - p.xi(0, N) # step size between each grid cell

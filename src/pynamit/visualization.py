@@ -195,8 +195,8 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     j_par_max = np.max(np.abs(j_par_ll))
     ax_2.scatter(j_par_ll, j_par_cp)
     ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], 'k-')
-    ax_2.set_xlabel('$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$'.format(i2d.state.latitude_boundary))
-    ax_2.set_ylabel('$j_\parallel$ [A/m$^2$] at conjugate points')
+    ax_2.set_xlabel(r'$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$'.format(i2d.state.latitude_boundary))
+    ax_2.set_ylabel(r'$j_\parallel$ [A/m$^2$] at conjugate points')
 
     # scatter plot of Ed1 and Ed2 vs corresponding values at conjugate points
     cu_ll = i2d.state.u_phi_cp * i2d.state.aup_cp   + i2d.state.u_theta_cp * i2d.state.aut_cp

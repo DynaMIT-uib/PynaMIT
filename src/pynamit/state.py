@@ -214,8 +214,8 @@ class State(object):
 
     def get_G_TB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
-        print('should write a test for these functions')
-        #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
+
+        #GrxgradT = -_basis_evaluator.Gdf         # matrix that gets -r x grad(T)
         GrxgradT_theta = -_basis_evaluator.G_th
         GrxgradT_phi   = -_basis_evaluator.G_ph
         G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
