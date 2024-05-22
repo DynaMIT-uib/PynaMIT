@@ -34,9 +34,9 @@ class SHBasis(object):
 
     def get_G(self, grid, derivative = None):
         """
-        Calculate matrix that evaluates surface spherical harmonics at the
-        latitudes and longitudes of the given `grid`, using the terms
-        contained in the ``SHKeys`` of the ``SHBasis`` object.
+        Calculate matrix that evaluates surface spherical harmonics at
+        unit radius and the latitudes and longitudes of the given `grid`,
+        using the terms contained in the ``SHKeys`` of the ``SHBasis`` object.
 
         Parameters
         ----------
@@ -71,7 +71,6 @@ class SHBasis(object):
         dPs     = dPc[: , self.cnm.m.flatten() != 0]
 
         if derivative is None:
-            # Warning: the variable grid.r is included, but this only evaluates to the radius-dependent harmonics at r = RI
             Gc = Pc * np.cos(ph * self.cnm.m)
             Gs = Ps * np.sin(ph * self.snm.m)
         elif derivative == 'phi':

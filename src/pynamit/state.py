@@ -404,7 +404,7 @@ class State(object):
 
         """
 
-        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='df') # RI factor is for going from locally Cartesian to spherical theta/phi derivatives
+        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='df') # RI factor is for going from theta/phi derivatives on unit sphere to sphere at RI
 
 
     def update_Phi(self):
@@ -412,7 +412,7 @@ class State(object):
 
         """
 
-        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='cf') # RI factor is for going from locally Cartesian to spherical theta/phi derivatives
+        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='cf') # RI factor is for going from theta/phi derivatives on unit sphere to sphere at RI
 
 
     def evolve_Br(self, dt):
