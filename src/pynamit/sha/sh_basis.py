@@ -61,8 +61,7 @@ class SHBasis(object):
         """
 
         # convert grid angular coordinates to radians and convert to (N, 1) arrays:
-        ph, th = np.deg2rad(grid.lon).reshape((-1, 1)), np.deg2rad(90 - grid.lat).reshape((-1, 1)) 
-        r = grid.r.reshape((-1, 1))
+        ph, th = np.deg2rad(grid.lon).reshape((-1, 1)), np.deg2rad(90 - grid.lat).reshape((-1, 1))
 
         # generate Legendre matrices - first get dicts of arrays, and then stack them in the appropriate fashion
         PdP = legendre(self.Nmax, self.Mmax, grid.theta, keys = self.cnm)
