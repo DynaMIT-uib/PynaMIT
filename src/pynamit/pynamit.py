@@ -50,7 +50,7 @@ class I2D(object):
 
 
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind = False):
 
     # Set up the spherical harmonic basis object
     i2d_sh = SHBasis(Nmax, Mmax)
@@ -71,12 +71,15 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     import datetime
     import polplot
     from pynamit.basis_evaluator import BasisEvaluator
+    import pyhwm2014 # https://github.com/rilma/pyHWM14
 
     compare_AMPS_FAC_and_CF_currents = False # set to True for debugging
     SIMULATE = True
     show_FAC_and_conductance = False
     make_colorbars = False
     plot_AMPS_Br = False
+
+    WIND_FACTOR = 1
 
     Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
     levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
@@ -96,6 +99,15 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     csp_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi)
     csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, csp_grid)
 
+    if wind:
+        hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
+                                     glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
+        u_phi   =  hwm14Obj.Uwind
+        u_theta = -hwm14Obj.Vwind
+        u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+        u_int = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, csp.arr_theta, csp.arr_phi)
+        u_east_int, u_north_int, u_r_int = u_int
+
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
@@ -112,6 +124,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     ju[csp_grid.theta < 90] = -ju[csp_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
 
+    if wind:
+        i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
     i2d.state.set_FAC(ju, csp_i2d_evaluator)
 
     if compare_AMPS_FAC_and_CF_currents:
