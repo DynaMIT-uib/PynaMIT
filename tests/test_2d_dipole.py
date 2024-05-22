@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_dipole():
     # Arrange
-    expected_coeff_norm = 9.117940611802043e-17
-    expected_coeff_max = 2.8851650998341825e-18
-    expected_coeff_min = -5.6533005684555624e-18
+    expected_coeff_norm = 5.909519669321147e-10
+    expected_coeff_max = 1.8699332045045302e-11
+    expected_coeff_min = -3.6640171644274226e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")

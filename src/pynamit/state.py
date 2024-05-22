@@ -218,7 +218,7 @@ class State(object):
         #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
         GrxgradT_theta = -_basis_evaluator.G_th
         GrxgradT_phi   = -_basis_evaluator.G_ph
-        G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) * self.RI / mu0
+        G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
 
         G_VB_to_JS = self.get_G_VB_to_JS(_basis_evaluator)
 
@@ -238,7 +238,7 @@ class State(object):
         #GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
 
-        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) * self.RI / mu0
+        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) / mu0
 
         return(G_VB_to_JS)
 
@@ -404,7 +404,7 @@ class State(object):
 
         """
 
-        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='df')
+        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='df') # RI factor is for going from locally Cartesian to spherical theta/phi derivatives
 
 
     def update_Phi(self):
@@ -412,7 +412,7 @@ class State(object):
 
         """
 
-        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='cf')
+        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='cf') # RI factor is for going from locally Cartesian to spherical theta/phi derivatives
 
 
     def evolve_Br(self, dt):

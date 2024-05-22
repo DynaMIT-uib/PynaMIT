@@ -72,8 +72,8 @@ class SHBasis(object):
 
         if derivative is None:
             # Warning: the variable grid.r is included, but this only evaluates to the radius-dependent harmonics at r = RI
-            Gc = r * Pc * np.cos(ph * self.cnm.m)
-            Gs = r * Ps * np.sin(ph * self.snm.m)
+            Gc = Pc * np.cos(ph * self.cnm.m)
+            Gs = Ps * np.sin(ph * self.snm.m)
         elif derivative == 'phi':
             Gc = -Pc * self.cnm.m * np.sin(ph * self.cnm.m) / np.sin(th)
             Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th)
