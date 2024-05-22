@@ -1,24 +1,29 @@
 import os
 import tempfile
 import pytest
+import shutil
 
 from pynamit.pynamit import run_pynamit
 import numpy as np
 
-#@pytest.mark.skip(reason="Implementation of hemisphere connection not finalized")
 def test_2d_igrf_pfac_hc_zerodip_wind():
     # Arrange
-    expected_coeff_norm = 2.483688194633022e-10
-    expected_coeff_max = 8.899877464222888e-12
-    expected_coeff_min = -1.5988638243210087e-11
+    expected_coeff_norm = 3.639035834201878e-10
+    expected_coeff_max = 2.252409197527198e-11
+    expected_coeff_min = -1.918881575033352e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)  
+        os.mkdir(temp_dir)
+
+    input_dir = os.path.join(os.path.dirname(__file__), 'input')
+    input_files = ['ulat.npy', 'ulon.npy', 'uphi.npy', 'utheta.npy'] # wind files
+    for file in input_files:
+        shutil.copyfile(os.path.join(input_dir, file), os.path.join(temp_dir, file))        
 
     # Act
-    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50, zero_jr_at_dip_equator = True, wind = True)
+    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50, zero_jr_at_dip_equator = True, wind_directory = temp_dir)
 
     # Assert
     coeff_array = np.array(coeffs)
