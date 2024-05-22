@@ -78,8 +78,8 @@ class State(object):
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
-            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator) * self.RI # should there be a factor RI here?
-            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator) * self.RI # should there be a factor RI here?
+            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
+            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
             self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.G_VB_to_JS_ll), self.aeH_ll.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.G_TB_to_JS_ll), self.aeH_ll.dot(self.G_TB_to_JS_ll)
 
@@ -89,8 +89,8 @@ class State(object):
             self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * self.RI # should there be a factor RI here?
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * self.RI # should there be a factor RI here?
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
             self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.G_VB_to_JS_cp), self.aeH_cp.dot(self.G_VB_to_JS_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.G_TB_to_JS_cp), self.aeH_cp.dot(self.G_TB_to_JS_cp)
 
@@ -150,7 +150,7 @@ class State(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # put it all together (crazy)
-            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k))) / self.RI
+            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k)))
 
         return(TB_to_VB_PFAC)
 
@@ -217,7 +217,7 @@ class State(object):
         #GrxgradT = -_basis_evaluator.Gdf * self.RI         # matrix that gets -r x grad(T)
         GrxgradT_theta = -_basis_evaluator.G_th
         GrxgradT_phi   = -_basis_evaluator.G_ph
-        G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
+        G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) * self.RI / mu0
 
         G_VB_to_JS = self.get_G_VB_to_JS(_basis_evaluator)
 
@@ -237,7 +237,7 @@ class State(object):
         #GVdB = -_basis_evaluator.Gcf * (self.sh.n / (self.sh.n + 1) + 1) * self.RI
         #GVBth, GVBph = np.split(GVdB, 2, axis = 0)
 
-        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) / mu0
+        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) * self.RI / mu0
 
         return(G_VB_to_JS)
 
@@ -435,7 +435,7 @@ class State(object):
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
-        new_Br = self.VB.coeffs * self.VB_to_Br + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI
+        new_Br = self.VB.coeffs * self.VB_to_Br + self.sh.n * (self.sh.n + 1) * self.EW.coeffs * dt / self.RI**2
         self.set_coeffs(Br = new_Br)
 
 

@@ -76,7 +76,7 @@ class SHBasis(object):
             Gs = r * Ps * np.sin(ph * self.snm.m)
         elif derivative == 'phi':
             Gc = -Pc * self.cnm.m * np.sin(ph * self.cnm.m) / np.sin(th)
-            Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th) 
+            Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th)
         elif derivative == 'theta':
             Gc = dPc * np.cos(ph * self.cnm.m)
             Gs = dPs * np.sin(ph * self.snm.m)
