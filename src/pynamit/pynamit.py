@@ -14,7 +14,7 @@ class I2D(object):
 
     def __init__(self, sh, csp,
                        RI = RE + 110.e3, mainfield_kind = 'dipole',
-                       B0_parameters = {'epoch':2020},
+                       B0_parameters = {'epoch':2020, 'B0':None},
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
                        ignore_PFAC = False,
                        connect_hemispheres = False,
@@ -40,6 +40,8 @@ class I2D(object):
             relevant for radial main field.
 
         """
+
+        B0_parameters['hI'] = (RI - RE) * 1e-3 # add ionosphere height in km
 
         mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
         num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)

@@ -8,7 +8,7 @@ from datetime import datetime
 from pynamit.constants import RE
 
 class Mainfield(object):
-    def __init__(self, kind = 'dipole', epoch = 2020., B0 = None):
+    def __init__(self, kind = 'dipole', epoch = 2020., hI = 0., B0 = None):
         """
         Supported fields (with kind keywords):
 
@@ -32,6 +32,8 @@ class Mainfield(object):
             The field model kind.
         epoch : float, optional
             The epoch [decimal year] for the field model.
+        hI : float, optional
+            Height of the ionosphere [km]
         B0 : float, optional
             The magnitude of the field on ground for ``kind == 'radial'``.
             The default is the reference field for ``epoch = 2020``
@@ -52,7 +54,7 @@ class Mainfield(object):
                 return (Br * 1e-9, -Bn * 1e-9, Bn*0)
 
         elif self.kind == 'igrf':
-            self.apx = apexpy.Apex(epoch, refh = 0)
+            self.apx = apexpy.Apex(epoch, refh = hI)
             epoch = datetime(epoch, 1, 1, 0, 0)
             def _Bfunc(r, theta, phi):
                 Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
