@@ -1011,7 +1011,7 @@ class CSProjection(object):
 
 
     def interpolate_vector_components(self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs):
-        """ Interpolate vector_components defined on theta, phi to given cubed sphere coordinates
+        """ Interpolate vector_components defined on theta, phi to given spherical coordinates
     
         Broadcasting rules apply for input and output separately
 
@@ -1042,8 +1042,6 @@ class CSProjection(object):
         interpolated_vector: array
             3 x N vector of interpolated components, east, north, up
         """
-
-        print('TODO: Fix documentation and code -- the code works, but started out as something else')
 
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         #xi, eta, block = np.broadcast_arrays(xi, eta, block)
@@ -1101,7 +1099,7 @@ class CSProjection(object):
 
 
     def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
-        """ Interpolate vector_components defined on theta, phi to given cubed sphere coordinates
+        """ Interpolate vector_components defined on theta, phi to given spherical coordinates
     
         Broadcasting rules apply for input and output separately
 
