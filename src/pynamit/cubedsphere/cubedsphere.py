@@ -1050,7 +1050,6 @@ class CSProjection(object):
         u_east, u_north, u_r, theta, phi = np.broadcast_arrays(u_east, u_north, u_r, theta, phi)
         u_east, u_north, u_r, theta, phi = u_east.flatten(), u_north.flatten(), u_r.flatten(), theta.flatten(), phi.flatten()
 
-        print(u_east.max())
         # define vectors that point at all the original points:
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
