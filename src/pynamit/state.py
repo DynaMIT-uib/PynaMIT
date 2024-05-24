@@ -31,11 +31,11 @@ class State(object):
         self.latitude_boundary = latitude_boundary
 
         # Conversion factors
-        self.VB_to_Br      = -self.sh.n
-        self.laplacian     = -self.sh.n * (self.sh.n + 1) / RI**2
-        self.TB_to_Jr      = self.laplacian * self.RI / mu0
-        self.EW_to_dBr_dt  = -self.laplacian * self.RI
-        self.VB_to_Jeq     = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
+        self.VB_to_Br     = -self.sh.n
+        self.laplacian    = -self.sh.n * (self.sh.n + 1) / RI**2
+        self.TB_to_Jr     = self.laplacian * self.RI / mu0
+        self.EW_to_dBr_dt = -self.laplacian * self.RI
+        self.VB_to_Jeq    = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
