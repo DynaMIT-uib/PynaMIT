@@ -15,8 +15,8 @@ latitude_boundary = 35
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-Nmax, Mmax, Ncs = 35, 35, 54
-rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 3]))**2 #int(80 / Nmax)])) ** 2
+Nmax, Mmax, Ncs = 20, 20, 16
+rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 5]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 rk = {'steps':rk}
 date = datetime.datetime(2001, 5, 12, 21, 0)
@@ -40,7 +40,7 @@ u_east_int, u_north_int, u_r_int = u_int
 
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'igrf', FAC_integration_parameters = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
-                                       zero_jr_at_dip_equator = True)
+                                       zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
 csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi, i2d.state.mainfield)
 csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
@@ -72,7 +72,7 @@ i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 
 dt = 5e-4
 count = 0
-totalsteps = 500001
+totalsteps = 100001
 plotsteps = 1000
 fig_directory = 'figs/'
 
@@ -83,7 +83,7 @@ while True:
     time = time + dt
     title = 't = {:.2f} s'.format(time)
     
-    fn = os.path.join(fig_directory, 'dynamit_' + str(filecount).zfill(3) + '.png')
+    fn = os.path.join(fig_directory, 'debug_' + str(filecount).zfill(3) + '.png')
 
     if count % plotsteps == 0:
         print('count = {} saving {}'.format(count, fn))
