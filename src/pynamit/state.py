@@ -31,10 +31,11 @@ class State(object):
         self.latitude_boundary = latitude_boundary
 
         # Conversion factors
-        self.VB_to_Br  = -self.sh.n
-        self.laplacian = -self.sh.n * (self.sh.n + 1) / RI**2
-        self.TB_to_Jr  = self.laplacian * self.RI / mu0
-        self.VB_to_Jeq = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
+        self.VB_to_Br      = -self.sh.n
+        self.laplacian     = -self.sh.n * (self.sh.n + 1) / RI**2
+        self.TB_to_Jr      = self.laplacian * self.RI / mu0
+        self.EW_to_dBr_dt  = -self.laplacian * self.RI
+        self.VB_to_Jeq     = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
@@ -404,7 +405,7 @@ class State(object):
 
         """
 
-        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='df') # RI factor is for going from theta/phi derivatives on unit sphere to sphere at RI
+        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='df')
 
 
     def update_Phi(self):
@@ -412,7 +413,7 @@ class State(object):
 
         """
 
-        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)) * self.RI, component='cf') # RI factor is for going from theta/phi derivatives on unit sphere to sphere at RI
+        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='cf')
 
 
     def evolve_Br(self, dt):
@@ -436,7 +437,7 @@ class State(object):
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
-        new_Br = self.VB.coeffs * self.VB_to_Br - self.laplacian * self.EW.coeffs * dt
+        new_Br = self.VB.coeffs * self.VB_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
         self.set_coeffs(Br = new_Br)
 
 
