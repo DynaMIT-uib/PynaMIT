@@ -325,12 +325,10 @@ class State(object):
 
             # combine matrices:
             self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling ))
-            #print('inverting')
 
             self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
 
             self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 0)
-            print('rcond!')
 
             c = self.cu + self.AV.dot(self.VB.coeffs)
             
@@ -339,11 +337,6 @@ class State(object):
             self.set_coeffs(TB = self.Gpinv.dot(d))
             self.ggg = self.G_TB
 
-
-            #print('connect_hemispheres is not fully implemented')
-
-        print('Note: Check if rcond is really needed. It should not be necessary if the FAC is given sufficiently densely')
-        print('Note to self: Remember to write a function that compares the AMPS coefficient to the ones derived here')
 
 
     def set_u(self, u_theta, u_phi, update = True):
