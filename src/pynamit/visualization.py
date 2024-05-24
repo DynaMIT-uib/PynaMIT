@@ -199,8 +199,8 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ax_2.set_ylabel(r'$j_\parallel$ [A/m$^2$] at conjugate points')
 
     # scatter plot of Ed1 and Ed2 vs corresponding values at conjugate points
-    cu_ll = i2d.state.u_phi_cp * i2d.state.aup_cp   + i2d.state.u_theta_cp * i2d.state.aut_cp
-    cu_cp = i2d.state.u_phi_ll * i2d.state.aup_ll   + i2d.state.u_theta_ll * i2d.state.aut_ll
+    cu_cp = i2d.state.u_phi_cp * i2d.state.aup_cp   + i2d.state.u_theta_cp * i2d.state.aut_cp
+    cu_ll = i2d.state.u_phi_ll * i2d.state.aup_ll   + i2d.state.u_theta_ll * i2d.state.aut_ll
     AT_ll = i2d.state.etaP_ll  * i2d.state.aeP_T_ll + i2d.state.etaH_ll    * i2d.state.aeH_T_ll
     AT_cp = i2d.state.etaP_cp  * i2d.state.aeP_T_cp + i2d.state.etaH_cp    * i2d.state.aeH_T_cp
     AV_ll = i2d.state.etaP_ll  * i2d.state.aeP_V_ll + i2d.state.etaH_ll    * i2d.state.aeH_V_ll
