@@ -5,16 +5,13 @@ from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.vector import Vector
 
-DEBUG_constraint_scale = 1e-5#1/ 3e8 # 1/(mu0 * c)
-DEBUG_jpar_scale = 1#1e15
-DEBUG_jr_dip_scale = 1e4
 
 class State(object):
     """ State of the ionosphere.
 
     """
 
-    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator):
+    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5):
         """ Initialize the state of the ionosphere.
     
         """
@@ -28,6 +25,7 @@ class State(object):
         self.RI = RI
         self.ignore_PFAC = ignore_PFAC
         self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
+        self.ih_constraint_scaling = ih_constraint_scaling
 
         self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
@@ -98,14 +96,16 @@ class State(object):
             # constraint matrix: FAC out of one hemisphere = FAC into the other
             self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_grid.sinI.reshape((-1 ,1)))
             self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_grid.sinI.reshape((-1 ,1)))
-            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) * DEBUG_jpar_scale
+            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
                 dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
                 dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
                 self.dip_equator_grid = Grid(RI, 90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
-                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr)
+
+                _equation_scaling = self.ll_grid.size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
+                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
  
@@ -323,7 +323,7 @@ class State(object):
             self.jr = self.jr[hl_mask].flatten()
 
             # combine matrices:
-            self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.G_jr_dip_equator * DEBUG_jr_dip_scale, self.AT * DEBUG_constraint_scale ))
+            self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling ))
             #print('inverting')
 
             self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
@@ -334,7 +334,7 @@ class State(object):
             c = self.cu + self.AV.dot(self.VB.coeffs)
             
             self.ccc = c
-            d = np.hstack((self.jr, self._zeros, c * DEBUG_constraint_scale ))
+            d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
             self.ggg = self.G_TB
 
@@ -432,7 +432,7 @@ class State(object):
 
         if self.connect_hemispheres:
             c = self.cu + self.AV.dot(self.VB.coeffs)
-            d = np.hstack((self.jr, self._zeros, c * DEBUG_constraint_scale ))
+            d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
         self.update_EW()
