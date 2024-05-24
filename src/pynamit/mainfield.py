@@ -219,7 +219,6 @@ class Mainfield(object):
             theta_conj, phi_conj = 180 - theta, phi # assuming dipole coordinates are used
 
         if self.kind == 'igrf':
-            print('Note: We treat geodetic and geocentric as equal. Fix it (?)')
             h = (r - RE) * 1e-3
             mlat, mlon = self.apx.geo2apex(90 - theta, phi, h)
             glat, phi_conj, _ = self.apx.apex2geo(-mlat, mlon, h)
@@ -264,7 +263,6 @@ class Mainfield(object):
 
         """
 
-        print('basevector function not tested!')
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
         size = r.size
         d1 = np.empty((3, size))
