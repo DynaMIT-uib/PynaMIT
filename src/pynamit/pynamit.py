@@ -1,4 +1,6 @@
 import numpy as np
+import xarray as xr
+import pandas as pd
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
 import os
@@ -12,7 +14,8 @@ from pynamit.constants import RE
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, sh, csp,
+    def __init__(self, fn = 'tmp.ncdf',
+                       sh = None, csp = None,
                        RI = RE + 110.e3, mainfield_kind = 'dipole',
                        B0_parameters = {'epoch':2020, 'B0':None},
                        FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
@@ -40,16 +43,92 @@ class I2D(object):
             relevant for radial main field.
 
         """
+        self.filename = fn
+        self.FAC_integration_steps  = FAC_integration_parameters['steps']
+        self.zero_jr_at_dip_equator = int(zero_jr_at_dip_equator)
+        self.connect_hemispheres    = int(connect_hemispheres)
+        self.ignore_PFAC            = int(ignore_PFAC)
+        self.latitude_boundary      = latitude_boundary
+        self.ih_constraint_scaling  = ih_constraint_scaling
 
-        B0_parameters['hI'] = (RI - RE) * 1e-3 # add ionosphere height in km
+        if os.path.exists(self.filename): # 
+            dataset = xr.load_dataset(self.filename) 
+            raise Exception('Not implemented. create state object from file!')
 
-        mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
-        num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
+        else: # initialize             
+            B0_parameters['hI'] = (RI - RE) * 1e-3 # add ionosphere height in km
 
-        #self.cs_equations = CSEquations(csp, RI)
+            mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
+            num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
 
-        # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = ih_constraint_scaling)
+            # Initialize the state of the ionosphere
+            self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = ih_constraint_scaling)
+
+
+    def save_state(self, time):
+        """ save state to file """
+
+        if time == 0: # the file will be initialized
+
+            # resolution parameters:
+            resolution_params = {}
+            resolution_params['Ncs'] = int(np.sqrt(self.state.num_grid.size / 6) + 1)
+            resolution_params['N']   = self.state.sh.Nmax
+            resolution_params['M']   = self.state.sh.Mmax
+            resolution_params['FAC_integration_steps'] = self.FAC_integration_steps
+
+            # model settings:
+            model_settings = {}
+            model_settings['ih_constraint_scaling']  = self.ih_constraint_scaling
+            model_settings['zero_jr_at_dip_equator'] = self.zero_jr_at_dip_equator
+            model_settings['latitude_boundary']      = self.latitude_boundary
+            model_settings['connect_hemispheres']    = self.connect_hemispheres
+            model_settings['ignore_PFAC']            = self.ignore_PFAC
+
+            PFAC_matrix = self.state.TB_to_VB_PFAC
+            size = self.state.sh.num_coeffs
+
+            dataset = xr.Dataset()
+
+            dataset['SH_coefficients_imposed'] = xr.DataArray(self.state.TB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_coefficients_induced'] = xr.DataArray(self.state.VB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+
+            dataset.attrs.update(resolution_params)
+            dataset.attrs.update(model_settings)
+            dataset.attrs.update({'PFAC_matrix':PFAC_matrix.flatten()})
+            dataset['n'] = xr.DataArray(self.state.sh.n, coords = {'i': range(size)}, dims = ['i'], name = 'n')
+            dataset['m'] = xr.DataArray(self.state.sh.m, coords = {'i': range(size)}, dims = ['i'], name = 'm')
+
+            dataset.to_netcdf(self.filename)
+            print('Created {}'.format(self.filename))
+
+
+        else: # adding new coefficients to existing file:
+
+            dataset = xr.load_dataset(self.filename)
+
+            size = self.state.sh.num_coeffs
+            imposed_coeffs = xr.DataArray(self.state.TB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            induced_coeffs = xr.DataArray(self.state.VB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+
+            # make a copy of the dataset but with new coefficients:            
+            new_dataset = dataset.copy(deep = True).drop(["SH_coefficients_imposed", "SH_coefficients_induced", 'time'])
+            new_dataset['SH_coefficients_induced'] = induced_coeffs
+            new_dataset['SH_coefficients_imposed'] = imposed_coeffs
+
+            # merge the copy with the old_
+            dataset = xr.concat([dataset, new_dataset], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
+
+            dataset.to_netcdf(self.filename)
+
+
+
+
+    def set_time(self, t):
+        """ Set the time of the currently loaded state. Simulate if necessary
+
+        """
+        pass
 
 
 
