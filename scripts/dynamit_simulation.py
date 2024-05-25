@@ -18,7 +18,7 @@ WIND_FACTOR = 1 # scale wind by this factor
 Nmax, Mmax, Ncs = 10, 10, 10
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 5]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
-rk = {'steps':rk}
+
 date = datetime.datetime(2001, 5, 12, 21, 0)
 Kp   = 5
 d = dipole.Dipole(date.year)
@@ -38,7 +38,7 @@ i2d_csp = pynamit.CSProjection(Ncs)
 u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
 u_east_int, u_north_int, u_r_int = u_int
 
-i2d = pynamit.I2D(sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_parameters = rk, 
+i2d = pynamit.I2D(sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
                                        zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
@@ -69,42 +69,4 @@ jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
 i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 
-
-dt = 5e-4
-count = 0
-totalsteps = 100001
-plotsteps = 1000
-fig_directory = 'figs/'
-SAVE_STEPS = 100 # saving every SAVE_STEPS time steps
-
-filecount = 0
-time = 0.
-i2d.save_state(time)
-
-while True:
-
-    time = time + dt
-    title = 't = {:.2f} s'.format(time)
-    
-    fn = os.path.join(fig_directory, 'debug_' + str(filecount).zfill(3) + '.png')
-
-    #if count % plotsteps == 0:
-    #    print('count = {} saving {}'.format(count, fn))
-    #    debugplot(i2d, title = title, filename = fn, noon_longitude = noon_longitude)
-    #    filecount+=1
-
-    i2d.state.evolve_Br(dt)
-
-    count += 1
-
-    if count % SAVE_STEPS == 0:
-        i2d.save_state(time)
-        print(time)
-
-
-    if count > totalsteps:
-        break
-
-
-
-
+i2d.evolve_to_time(120)
