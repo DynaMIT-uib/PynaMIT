@@ -1,6 +1,5 @@
 import numpy as np
 import xarray as xr
-import pandas as pd
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
 import os
@@ -9,7 +8,7 @@ from pynamit.cubedsphere import cubedsphere
 from pynamit.grid import Grid
 from pynamit.state import State
 from pynamit.constants import RE
-
+import pynamit
 
 class I2D(object):
     """ 2D ionosphere. """
@@ -18,12 +17,13 @@ class I2D(object):
                        sh = None, csp = None,
                        RI = RE + 110.e3, mainfield_kind = 'dipole',
                        B0_parameters = {'epoch':2020, 'B0':None},
-                       FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
+                       FAC_integration_steps = np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11),
                        ignore_PFAC = False,
                        connect_hemispheres = False,
                        latitude_boundary = 50,
                        zero_jr_at_dip_equator = False,
-                       ih_constraint_scaling = 1e-5):
+                       ih_constraint_scaling = 1e-5,
+                       PFAC_matrix = None):
         """
 
         Parameters
@@ -37,32 +37,65 @@ class I2D(object):
         mainfield_kind: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
             Set to the main field model you want. For 'dipole' and
             'igrf', you can specify epoch via `B0_parameters`.
-        FAC_integration_parameters: dict
-            Use this to specify parameters in the integration required to
-            find the poloidal part of the magnetic field of FACs. Not
-            relevant for radial main field.
+        FAC_integration_steps: array-like
+            Use this to specify the radii used in the integral to calculate
+            the poloidal field of FACs
 
         """
         self.filename = fn
-        self.FAC_integration_steps  = FAC_integration_parameters['steps']
-        self.zero_jr_at_dip_equator = int(zero_jr_at_dip_equator)
-        self.connect_hemispheres    = int(connect_hemispheres)
-        self.ignore_PFAC            = int(ignore_PFAC)
+        self.FAC_integration_steps  = FAC_integration_steps
+        self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
+        self.connect_hemispheres    = connect_hemispheres
+        self.ignore_PFAC            = ignore_PFAC
         self.latitude_boundary      = latitude_boundary
         self.ih_constraint_scaling  = ih_constraint_scaling
+        self.RI                     = RI
+        self.mainfield_kind         = mainfield_kind
+        self.mainfield_epoch        = B0_parameters['epoch']
+        self.mainfield_B0           = B0_parameters['B0']
 
-        if os.path.exists(self.filename): # 
+        if os.path.exists(self.filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.filename) 
-            raise Exception('Not implemented. create state object from file!')
 
-        else: # initialize             
-            B0_parameters['hI'] = (RI - RE) * 1e-3 # add ionosphere height in km
+            self.FAC_integration_steps  = dataset.FAC_integration_steps
+            self.zero_jr_at_dip_equator = dataset.zero_jr_at_dip_equator
+            self.connect_hemispheres    = dataset.connect_hemispheres
+            self.ignore_PFAC            = dataset.ignore_PFAC
+            self.latitude_boundary      = dataset.latitude_boundary
+            self.ih_constraint_scaling  = dataset.ih_constraint_scaling
+            self.RI                     = dataset.RI
+            self.mainfield_kind         = dataset.mainfield_kind
+            self.mainfield_epoch        = dataset.mainfield_epoch
+            self.mainfield_B0           = dataset.mainfield_B0
 
-            mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
-            num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
+            shape = (dataset.i.size, dataset.i.size)
+            PFAC_matrix                 = dataset.PFAC_matrix.reshape( shape )
 
-            # Initialize the state of the ionosphere
-            self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = ih_constraint_scaling)
+            sh  = pynamit.SHBasis(dataset.N, dataset.M)
+            csp = pynamit.CSProjection(dataset.Ncs)
+
+            B0_parameters = {'epoch':self.mainfield_epoch, 'B0':self.mainfield_B0}
+            self.latest_time = dataset.time.values[-1]
+        else:
+            self.latest_time = 0
+
+
+        B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
+        mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
+        num_grid = Grid(self.RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
+
+
+        # Initialize the state of the ionosphere
+        self.state = State(sh, mainfield, num_grid, 
+                           RI = self.RI, 
+                           ignore_PFAC = self.ignore_PFAC, 
+                           FAC_integration_steps = self.FAC_integration_steps, 
+                           connect_hemispheres = self.connect_hemispheres, 
+                           latitude_boundary = self.latitude_boundary, 
+                           zero_jr_at_dip_equator = self.zero_jr_at_dip_equator, 
+                           ih_constraint_scaling = self.ih_constraint_scaling,
+                           PFAC_matrix = PFAC_matrix
+                           )
 
 
     def save_state(self, time):
@@ -79,11 +112,15 @@ class I2D(object):
 
             # model settings:
             model_settings = {}
+            model_settings['RI']                     = self.RI
             model_settings['ih_constraint_scaling']  = self.ih_constraint_scaling
-            model_settings['zero_jr_at_dip_equator'] = self.zero_jr_at_dip_equator
             model_settings['latitude_boundary']      = self.latitude_boundary
-            model_settings['connect_hemispheres']    = self.connect_hemispheres
-            model_settings['ignore_PFAC']            = self.ignore_PFAC
+            model_settings['zero_jr_at_dip_equator'] = int(self.zero_jr_at_dip_equator)
+            model_settings['connect_hemispheres']    = int(self.connect_hemispheres   )
+            model_settings['ignore_PFAC']            = int(self.ignore_PFAC           )
+            model_settings['mainfield_kind']         = self.mainfield_kind
+            model_settings['mainfield_epoch']        = self.mainfield_epoch
+            model_settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
 
             PFAC_matrix = self.state.TB_to_VB_PFAC
             size = self.state.sh.num_coeffs
@@ -123,12 +160,35 @@ class I2D(object):
 
 
 
-
-    def set_time(self, t):
-        """ Set the time of the currently loaded state. Simulate if necessary
+    def evolve_to_time(self, t, dt = 5e-4, save_steps = 200, quiet = False):
+        """ Evolve to given time
 
         """
-        pass
+
+        if self.latest_time == 0:
+            self.save_state(0) # initialize save file
+
+        time = self.latest_time
+        count = 0
+        while self.latest_time <= t:
+
+            self.state.evolve_Br(dt)
+
+            time  += dt
+            count += 1
+
+            if count % save_steps == 0:
+                self.save_state(time)
+                self.latest_time = time
+                if quiet:
+                    pass
+                else:
+                    print('Saved output at t = {:.2f} s'.format(time), end = '\r')
+
+
+
+
+
 
 
 
