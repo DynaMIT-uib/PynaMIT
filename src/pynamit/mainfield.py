@@ -8,7 +8,7 @@ from datetime import datetime
 from pynamit.constants import RE
 
 class Mainfield(object):
-    def __init__(self, kind = 'dipole', epoch = 2020., hI = 0., B0 = None):
+    def __init__(self, kind = 'dipole', epoch = 2020, hI = 0., B0 = None):
         """
         Supported fields (with kind keywords):
 
@@ -30,7 +30,7 @@ class Mainfield(object):
         ----------
         kind : str, {'dipole', 'igrf', 'radial'}, default = 'dipole'
             The field model kind.
-        epoch : float, optional
+        epoch : int, optional
             The epoch [decimal year] for the field model.
         hI : float, optional
             Height of the ionosphere [km]
