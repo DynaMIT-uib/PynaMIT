@@ -130,7 +130,7 @@ class CSProjection(object):
             Array of `xi` values.
 
         """
-        if not isinstance(N, int):
+        if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
         return(-np.pi / 4 + i * np.pi / 2 / (N-1))
@@ -162,7 +162,7 @@ class CSProjection(object):
         makes code more readable.
 
         """
-        if not isinstance(N, int):
+        if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
         return(-np.pi / 4 + j * np.pi / 2 / (N-1))
