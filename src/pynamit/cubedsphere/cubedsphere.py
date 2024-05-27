@@ -1076,12 +1076,20 @@ class CSProjection(object):
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
             u_vec_i = np.einsum('nij, nj -> ni', Qij, u_vec.T).T
 
+            print("Qij for block", i, np.linalg.norm(Qij))
+            print("u_vec_i for block", i, np.linalg.norm(u_vec_i))
+
             # filter points whose position vectors have anti-parallel component to center of the block
             _, th, ph = self.cube2spherical(0, 0, i, deg = False)
             r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape((-1, 1))
             mask = np.sum(r0 * r, axis = 0) > 0
 
+            print("mask for block", i, np.sum(mask))
+
             xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block = i)
+
+            print ("xi_ for block", i, np.linalg.norm(xi_))
+            print ("eta_ for block", i, np.linalg.norm(eta_))
 
             interpolated_u1[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[0][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
             interpolated_u2[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[1][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
