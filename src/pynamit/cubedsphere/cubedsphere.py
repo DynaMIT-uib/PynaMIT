@@ -975,7 +975,7 @@ class CSProjection(object):
         lon, lat = np.broadcast_arrays(lon, lat)
         shape = lon.shape
         N = lon.size
-        
+
         # find the correct block for each point
         if block is None:
             block = self.block(lon, lat)
