@@ -8,9 +8,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_zerodip_wind():
     # Arrange
-    expected_coeff_norm = 3.648595285636486e-10
-    expected_coeff_max = 2.254614039308227e-11
-    expected_coeff_min = -1.9239057120386388e-11
+    expected_coeff_norm = 1.3764922701994962e-09
+    expected_coeff_max = 2.975934040982427e-11
+    expected_coeff_min = -7.422142722372063e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -23,7 +23,7 @@ def test_2d_igrf_pfac_hc_zerodip_wind():
         shutil.copyfile(os.path.join(input_dir, file), os.path.join(temp_dir, file))        
 
     # Act
-    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50, zero_jr_at_dip_equator = True, wind_directory = temp_dir)
+    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=15, Mmax=14, Ncs=14, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50, zero_jr_at_dip_equator = True, wind_directory = temp_dir)
 
     # Assert
     coeff_array = np.array(coeffs)
