@@ -1,13 +1,11 @@
 import numpy as np
 import pynamit
-from pynamit import debugplot
 from lompe import conductance
 import dipole
 #import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import pyamps
 import apexpy
-import os
 
 RE = 6371.2e3
 RI = RE + 110e3
