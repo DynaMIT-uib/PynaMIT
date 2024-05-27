@@ -1050,12 +1050,7 @@ class CSProjection(object):
             3 x N vector of interpolated components, east, north, up
         """
 
-        print("phi_target", np.linalg.norm(phi_target))
-        print("90 - theta_target", np.linalg.norm(90 - theta_target))
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
-        print("xi", np.linalg.norm(xi))
-        print("eta", np.linalg.norm(eta))
-        print("block", np.linalg.norm(block))
         #xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
