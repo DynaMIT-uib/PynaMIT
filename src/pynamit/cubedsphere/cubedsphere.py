@@ -917,7 +917,9 @@ class CSProjection(object):
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
 
         xyz = np.vstack((np.cos(ph) * np.sin(th), np.sin(th) * np.sin(ph), np.cos(th)))
+        print("xyz before", np.linalg.norm(xyz))
         xyz[np.isclose(xyz, 0)] += 1e-3 # to avoid division by zero problems
+        print("xyz after", np.linalg.norm(xyz))
 
         # calculate how much xyz must be extended to intersect the various surfaces
         t = {}
@@ -932,6 +934,8 @@ class CSProjection(object):
         for key in t.keys():
             norms[key] = np.linalg.norm(xyz * t[key], axis = 0)
             norms[key][t[key] < 0] += 10 # increase norm of vectors with negative t
+
+        print("norms", np.linalg.norm(norms))
 
         return np.argmin(np.vstack([norms[i] for i in range(6)]), axis = 0)
 
