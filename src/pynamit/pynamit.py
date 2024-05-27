@@ -268,6 +268,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
 
         u_int = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, csp.arr_theta, csp.arr_phi)
+        print("u_int norm", np.linalg.norm(u_int))
+        exit()
         u_east_int, u_north_int, u_r_int = u_int
         i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
 
