@@ -934,8 +934,8 @@ class CSProjection(object):
         for key in t.keys():
             norms[key] = np.linalg.norm(xyz * t[key], axis = 0)
             norms[key][t[key] < 0] += 10 # increase norm of vectors with negative t
-
-        print("norms", np.linalg.norm(norms))
+            print("t", key, np.linalg.norm(t[key]))
+            print("norms", key, np.linalg.norm(norms[key]))
 
         return np.argmin(np.vstack([norms[i] for i in range(6)]), axis = 0)
 
@@ -1002,14 +1002,6 @@ class CSProjection(object):
 
         xi, eta = np.arctan(X), np.arctan(Y)
 
-        print("block", np.linalg.norm(block))
-        print("theta", np.linalg.norm(theta))
-        print("phi", np.linalg.norm(phi))
-        print("X", np.linalg.norm(X))
-        print("Y", np.linalg.norm(Y))
-        print("xi", np.linalg.norm(xi))
-        print("eta", np.linalg.norm(eta))
-
         return xi.reshape(shape), eta.reshape(shape), block.reshape(shape)
 
 
@@ -1055,7 +1047,12 @@ class CSProjection(object):
             3 x N vector of interpolated components, east, north, up
         """
 
+        print("phi_target", np.linalg.norm(phi_target))
+        print("90 - theta_target", np.linalg.norm(90 - theta_target))
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
+        print("xi", np.linalg.norm(xi))
+        print("eta", np.linalg.norm(eta))
+        print("block", np.linalg.norm(block))
         #xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
@@ -1067,19 +1064,12 @@ class CSProjection(object):
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
         # convert vector components to cubed sphere
-        print("phi", np.linalg.norm(phi))
-        print("90 - theta", np.linalg.norm(90 - theta))
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
-        print("u_xi", np.linalg.norm(u_xi))
-        print("u_eta", np.linalg.norm(u_eta))
-        print("u_block", np.linalg.norm(u_block))
         Ps = self.get_Ps(u_xi, u_eta, r = 1, block = u_block)
         Q  = self.get_Q(90 - theta, r = 1, inverse = True)
         Ps_normalized = np.einsum('nij, njk -> nik', Ps, Q)
         u_vec_sph = np.vstack((u_east, u_north, u_r))
         u_vec = np.einsum('nij, nj -> ni', Ps_normalized, u_vec_sph.T).T
-
-        print("u_vec", np.linalg.norm(u_vec))
 
         interpolated_u1 = np.empty_like(block, dtype = np.float64)
         interpolated_u2 = np.empty_like(block, dtype = np.float64)
@@ -1093,28 +1083,16 @@ class CSProjection(object):
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
             u_vec_i = np.einsum('nij, nj -> ni', Qij, u_vec.T).T
 
-            print("Qij for block", i, np.linalg.norm(Qij))
-            print("u_vec_i for block", i, np.linalg.norm(u_vec_i))
-
             # filter points whose position vectors have anti-parallel component to center of the block
             _, th, ph = self.cube2spherical(0, 0, i, deg = False)
             r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape((-1, 1))
             mask = np.sum(r0 * r, axis = 0) > 0
 
-            print("mask for block", i, np.sum(mask))
-
             xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block = i)
-
-            print ("xi_ for block", i, np.linalg.norm(xi_))
-            print ("eta_ for block", i, np.linalg.norm(eta_))
 
             interpolated_u1[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[0][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
             interpolated_u2[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[1][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
             interpolated_u3[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[2][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
-
-            print("interpolated_u1 for block", i, np.linalg.norm(interpolated_u1))
-            print("interpolated_u2 for block", i, np.linalg.norm(interpolated_u2))
-            print("interpolated_u3 for block", i, np.linalg.norm(interpolated_u3))
 
         # convert back to spherical:
         r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg = True)

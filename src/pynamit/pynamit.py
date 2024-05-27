@@ -266,16 +266,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         u_lat, u_lon, u_phi, u_theta = np.load(os.path.join(wind_directory, 'ulat.npy')), np.load(os.path.join(wind_directory, 'ulon.npy')), np.load(os.path.join(wind_directory, 'uphi.npy')), np.load(os.path.join(wind_directory, 'utheta.npy'))
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-        print("u_lat", np.linalg.norm(u_lat))
-        print("u_lon", np.linalg.norm(u_lon))
-        print("u_phi", np.linalg.norm(u_phi))
-        print("u_theta", np.linalg.norm(u_theta))
 
         u_int = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, csp.arr_theta, csp.arr_phi)
         u_east_int, u_north_int, u_r_int = u_int
-        print("u_east_int", np.linalg.norm(u_east_int))
-        print("u_north_int", np.linalg.norm(u_north_int))
-        print("u_r_int", np.linalg.norm(u_r_int))
         exit()
         i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
 
