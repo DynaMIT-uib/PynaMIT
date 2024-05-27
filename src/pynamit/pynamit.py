@@ -78,6 +78,8 @@ class I2D(object):
             self.latest_time = dataset.time.values[-1]
         else:
             self.latest_time = 0
+            self.evolve_to_time(0)
+
 
 
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
