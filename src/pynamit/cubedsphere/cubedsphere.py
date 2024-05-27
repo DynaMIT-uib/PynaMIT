@@ -1056,7 +1056,7 @@ class CSProjection(object):
 
         # convert vector components to cubed sphere
         print("phi", np.linalg.norm(phi))
-        print("theta", np.linalg.norm(theta))
+        print("90 - theta", np.linalg.norm(90 - theta))
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
         print("u_xi", np.linalg.norm(u_xi))
         print("u_eta", np.linalg.norm(u_eta))
