@@ -998,6 +998,14 @@ class CSProjection(object):
 
         xi, eta = np.arctan(X), np.arctan(Y)
 
+        print("block", np.linalg.norm(block))
+        print("theta", np.linalg.norm(theta))
+        print("phi", np.linalg.norm(phi))
+        print("X", np.linalg.norm(X))
+        print("Y", np.linalg.norm(Y))
+        print("xi", np.linalg.norm(xi))
+        print("eta", np.linalg.norm(eta))
+
         return xi.reshape(shape), eta.reshape(shape), block.reshape(shape)
 
 
