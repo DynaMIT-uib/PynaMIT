@@ -1056,6 +1056,9 @@ class CSProjection(object):
 
         # convert vector components to cubed sphere
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
+        print("u_xi", np.linalg.norm(u_xi))
+        print("u_eta", np.linalg.norm(u_eta))
+        print("u_block", np.linalg.norm(u_block))
         Ps = self.get_Ps(u_xi, u_eta, r = 1, block = u_block)
         Q  = self.get_Q(90 - theta, r = 1, inverse = True)
         Ps_normalized = np.einsum('nij, njk -> nik', Ps, Q)
