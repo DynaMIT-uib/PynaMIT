@@ -917,9 +917,8 @@ class CSProjection(object):
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
 
         xyz = np.vstack((np.cos(ph) * np.sin(th), np.sin(th) * np.sin(ph), np.cos(th)))
-        print("xyz before", np.linalg.norm(xyz))
         xyz[np.isclose(xyz, 0)] += 1e-3 # to avoid division by zero problems
-        print("xyz after", np.linalg.norm(xyz))
+        print("xyz", np.linalg.norm(xyz))
 
         # calculate how much xyz must be extended to intersect the various surfaces
         t = {}
@@ -936,6 +935,10 @@ class CSProjection(object):
             norms[key][t[key] < 0] += 10 # increase norm of vectors with negative t
             print("t", key, np.linalg.norm(t[key]))
             print("norms", key, np.linalg.norm(norms[key]))
+
+        argmin = np.argmin(np.vstack([norms[i] for i in range(6)]), axis = 0)
+        print("argmin" , argmin)
+        print("argmin norm" , np.linalg.norm(argmin))
 
         return np.argmin(np.vstack([norms[i] for i in range(6)]), axis = 0)
 
@@ -972,11 +975,6 @@ class CSProjection(object):
         lon, lat = np.broadcast_arrays(lon, lat)
         shape = lon.shape
         N = lon.size
-
-        print("lon before", np.linalg.norm(lon))
-        print("lat before", np.linalg.norm(lat))
-        print("shape", shape)
-        print("N", N)
         
         # find the correct block for each point
         if block is None:
@@ -985,10 +983,6 @@ class CSProjection(object):
             block = block * np.ones_like(lat)
 
         block, lon, lat = block.flatten(), lon.flatten(), lat.flatten()
-
-        print("block after", np.linalg.norm(block))
-        print("lon after", np.linalg.norm(lon))
-        print("lat after", np.linalg.norm(lat))
 
         # prepare parameters
         X, Y, xi, eta = np.empty(N), np.empty(N), np.empty(N), np.empty(N)
