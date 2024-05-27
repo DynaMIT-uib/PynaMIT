@@ -1055,6 +1055,8 @@ class CSProjection(object):
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
         # convert vector components to cubed sphere
+        print("phi", np.linalg.norm(phi))
+        print("theta", np.linalg.norm(theta))
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
         print("u_xi", np.linalg.norm(u_xi))
         print("u_eta", np.linalg.norm(u_eta))
