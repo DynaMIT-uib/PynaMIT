@@ -1062,6 +1062,8 @@ class CSProjection(object):
         u_vec_sph = np.vstack((u_east, u_north, u_r))
         u_vec = np.einsum('nij, nj -> ni', Ps_normalized, u_vec_sph.T).T
 
+        print("u_vec", np.linalg.norm(u_vec))
+
         interpolated_u1 = np.empty_like(block, dtype = np.float64)
         interpolated_u2 = np.empty_like(block, dtype = np.float64)
         interpolated_u3 = np.empty_like(block, dtype = np.float64)
@@ -1084,6 +1086,10 @@ class CSProjection(object):
             interpolated_u1[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[0][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
             interpolated_u2[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[1][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
             interpolated_u3[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[2][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+
+            print("interpolated_u1 for block", i, np.linalg.norm(interpolated_u1))
+            print("interpolated_u2 for block", i, np.linalg.norm(interpolated_u2))
+            print("interpolated_u3 for block", i, np.linalg.norm(interpolated_u3))
 
         # convert back to spherical:
         r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg = True)
