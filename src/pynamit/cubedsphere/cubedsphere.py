@@ -973,6 +973,11 @@ class CSProjection(object):
         shape = lon.shape
         N = lon.size
 
+        print("lon before", np.linalg.norm(lon))
+        print("lat before", np.linalg.norm(lat))
+        print("shape", shape)
+        print("N", N)
+        
         # find the correct block for each point
         if block is None:
             block = self.block(lon, lat)
@@ -980,6 +985,10 @@ class CSProjection(object):
             block = block * np.ones_like(lat)
 
         block, lon, lat = block.flatten(), lon.flatten(), lat.flatten()
+
+        print("block after", np.linalg.norm(block))
+        print("lon after", np.linalg.norm(lon))
+        print("lat after", np.linalg.norm(lat))
 
         # prepare parameters
         X, Y, xi, eta = np.empty(N), np.empty(N), np.empty(N), np.empty(N)
