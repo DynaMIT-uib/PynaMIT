@@ -916,8 +916,16 @@ class CSProjection(object):
 
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
 
-        xyz = np.vstack((np.cos(ph) * np.sin(th), np.sin(th) * np.sin(ph), np.cos(th)))
-        xyz[np.isclose(xyz, 0)] += 1e-3 # to avoid division by zero problems
+        x = np.cos(ph) * np.sin(th)
+        y = np.sin(th) * np.sin(ph)
+        z = np.cos(th)
+
+        # to avoid division by zero problems
+        x[np.isclose(x, 0)] += 1e-3
+        y[np.isclose(y, 0)] += 1e-3
+        z[np.isclose(z, 0)] += 1e-3
+
+        xyz = np.vstack((x, y, z))
         print("xyz", np.linalg.norm(xyz))
 
         # calculate how much xyz must be extended to intersect the various surfaces
