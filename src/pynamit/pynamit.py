@@ -78,7 +78,7 @@ class I2D(object):
             self.latest_time = dataset.time.values[-1]
         else:
             self.latest_time = 0
-            self.evolve_to_time(0)
+
 
 
 
@@ -99,9 +99,15 @@ class I2D(object):
                            PFAC_matrix = PFAC_matrix
                            )
 
+        if self.latest_time == 0: # ensure that the save file is created
+            self.evolve_to_time(0)  
+
 
     def save_state(self, time):
         """ save state to file """
+
+        self.state.update_Phi()
+        self.state.update_EW()
 
         if time == 0: # the file will be initialized
 
@@ -131,6 +137,9 @@ class I2D(object):
 
             dataset['SH_coefficients_imposed'] = xr.DataArray(self.state.TB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
             dataset['SH_coefficients_induced'] = xr.DataArray(self.state.VB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_Phi']                  = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_W'  ]                  = xr.DataArray(self.state.EW.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+
 
             dataset.attrs.update(resolution_params)
             dataset.attrs.update(model_settings)
@@ -147,13 +156,18 @@ class I2D(object):
             dataset = xr.load_dataset(self.filename)
 
             size = self.state.sh.num_coeffs
-            imposed_coeffs = xr.DataArray(self.state.TB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
-            induced_coeffs = xr.DataArray(self.state.VB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            imposed_coeffs = xr.DataArray(self.state.TB.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            induced_coeffs = xr.DataArray(self.state.VB.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            Phi_coeffs     = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            EW_coeffs      = xr.DataArray(self.state.EW.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+
 
             # make a copy of the dataset but with new coefficients:            
-            new_dataset = dataset.copy(deep = True).drop(["SH_coefficients_imposed", "SH_coefficients_induced", 'time'])
+            new_dataset = dataset.copy(deep = True).drop(['SH_coefficients_imposed', 'SH_coefficients_induced', 'SH_Phi', 'SH_W', 'time'])
             new_dataset['SH_coefficients_induced'] = induced_coeffs
             new_dataset['SH_coefficients_imposed'] = imposed_coeffs
+            new_dataset['SH_Phi'                 ] = Phi_coeffs
+            new_dataset['SH_W'                   ] = EW_coeffs 
 
             # merge the copy with the old_
             dataset = xr.concat([dataset, new_dataset], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
@@ -172,7 +186,7 @@ class I2D(object):
 
         time = self.latest_time
         count = 0
-        while self.latest_time <= t:
+        while self.latest_time < t:
 
             self.state.evolve_Br(dt)
 
