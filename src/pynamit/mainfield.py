@@ -8,7 +8,7 @@ from datetime import datetime
 from pynamit.constants import RE
 
 class Mainfield(object):
-    def __init__(self, kind = 'dipole', epoch = 2020, hI = 0., B0 = None):
+    def __init__(self, kind = 'dipole', epoch = 2020, r = RE, B0 = None):
         """
         Supported fields (with kind keywords):
 
@@ -32,8 +32,8 @@ class Mainfield(object):
             The field model kind.
         epoch : int, optional
             The epoch [decimal year] for the field model.
-        hI : float, optional
-            Height of the ionosphere [km]
+        r : float, optional
+            Radius where the magnetic field is to be evaluated [m].
         B0 : float, optional
             The magnitude of the field on ground for ``kind == 'radial'``.
             The default is the reference field for ``epoch = 2020``
@@ -49,21 +49,21 @@ class Mainfield(object):
         # define the magnetic field and mapping functions for the different options:
         if self.kind == 'dipole':
             self.dpl = dipole.Dipole(epoch)
-            def _Bfunc(r, theta, phi):
+            def _Bfunc(theta, phi):
                 Bn, Br = self.dpl.B(90 - theta, r * 1e-3)
                 return (Br * 1e-9, -Bn * 1e-9, Bn*0)
 
         elif self.kind == 'igrf':
-            self.apx = apexpy.Apex(epoch, refh = hI)
+            self.apx = apexpy.Apex(epoch, refh = (r - RE) * 1e-3)
             epoch = datetime(epoch, 1, 1, 0, 0)
-            def _Bfunc(r, theta, phi):
+            def _Bfunc(theta, phi):
                 Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
                 return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
 
         elif self.kind == 'radial':
             B0 = dipole.Dipole(epoch).B0 if B0 is None else B0 # use Dipole B0 as default
-            def _Bfunc(r, theta, phi):
-                r, theta, phi = np.broadcast_arrays(r, theta, phi)
+            def _Bfunc(theta, phi):
+                theta, phi = np.broadcast_arrays(theta, phi)
                 return ((RE / r)**2 * B0, r*0, r*0)
 
         else:
@@ -72,7 +72,7 @@ class Mainfield(object):
         self._Bfunc = _Bfunc
 
 
-    def get_B(self, r, theta, phi):
+    def get_B(self, theta, phi):
         """
         Calculate magnetic field vector [nT] at `r` [m], `theta` [deg],
         `phi` [deg].
@@ -81,9 +81,6 @@ class Mainfield(object):
 
         Parameters
         ----------
-        r: array
-            Radius [m] of the points where the magnetic field is to be
-            evaluated.
         theta: array
             Colatitude [deg] of the points where the magnetic field is to
             be evaluated.
@@ -102,10 +99,10 @@ class Mainfield(object):
 
         """
 
-        return(self._Bfunc(r, theta, phi))
+        return(self._Bfunc(theta, phi))
 
 
-    def get_sinI(self, r, theta, phi):
+    def get_sinI(self, theta, phi):
         """ 
         Calculate sin inclination angle 
 
@@ -132,7 +129,7 @@ class Mainfield(object):
 
         """
 
-        B = np.vstack(self.get_B(r, theta, phi))
+        B = np.vstack(self.get_B(theta, phi))
 
         # return -Br/B0
         return(-B[0] / np.linalg.norm(B, axis = 0))
