@@ -54,7 +54,7 @@ class I2D(object):
         self.mainfield_epoch        = B0_parameters['epoch']
         self.mainfield_B0           = B0_parameters['B0']
 
-        if os.path.exists(self.filename): # override input and load parameters from file:
+        if (self.filename is not None) and os.path.exists(self.filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.filename) 
 
             self.FAC_integration_steps  = dataset.FAC_integration_steps
@@ -219,7 +219,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
+    i2d = I2D(fn = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
