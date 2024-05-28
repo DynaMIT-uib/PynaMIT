@@ -1,6 +1,6 @@
 import numpy as np
 import xarray as xr
-from pynamit.mainfield import Mainfield
+from pynamit.b_field.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
 import os
 from pynamit.cubedsphere import cubedsphere

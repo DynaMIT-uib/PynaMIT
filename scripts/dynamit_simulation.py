@@ -62,7 +62,7 @@ mlt = d.mlon2mlt(mlon, date)
 _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = mlat, mlt = mlt) / csp_grid.sinI * 1e-6
+jparallel = -a.get_upward_current(mlat = mlat, mlt = mlt) / csp_grid.b_geometry.sinI * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
