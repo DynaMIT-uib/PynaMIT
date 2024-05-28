@@ -1,4 +1,5 @@
 import numpy as np
+import xarray as xr
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
 import os
@@ -7,20 +8,22 @@ from pynamit.cubedsphere import cubedsphere
 from pynamit.grid import Grid
 from pynamit.state import State
 from pynamit.constants import RE
-
+import pynamit
 
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, sh, csp,
+    def __init__(self, fn = 'tmp.ncdf',
+                       sh = None, csp = None,
                        RI = RE + 110.e3, mainfield_kind = 'dipole',
                        B0_parameters = {'epoch':2020, 'B0':None},
-                       FAC_integration_parameters = {'steps':np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11)},
+                       FAC_integration_steps = np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11),
                        ignore_PFAC = False,
                        connect_hemispheres = False,
                        latitude_boundary = 50,
                        zero_jr_at_dip_equator = False,
-                       ih_constraint_scaling = 1e-5):
+                       ih_constraint_scaling = 1e-5,
+                       PFAC_matrix = None):
         """
 
         Parameters
@@ -34,22 +37,174 @@ class I2D(object):
         mainfield_kind: string, {'dipole', 'radial', 'igrf'}, default = 'dipole'
             Set to the main field model you want. For 'dipole' and
             'igrf', you can specify epoch via `B0_parameters`.
-        FAC_integration_parameters: dict
-            Use this to specify parameters in the integration required to
-            find the poloidal part of the magnetic field of FACs. Not
-            relevant for radial main field.
+        FAC_integration_steps: array-like
+            Use this to specify the radii used in the integral to calculate
+            the poloidal field of FACs
+
+        """
+        self.filename = fn
+        self.FAC_integration_steps  = FAC_integration_steps
+        self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
+        self.connect_hemispheres    = connect_hemispheres
+        self.ignore_PFAC            = ignore_PFAC
+        self.latitude_boundary      = latitude_boundary
+        self.ih_constraint_scaling  = ih_constraint_scaling
+        self.RI                     = RI
+        self.mainfield_kind         = mainfield_kind
+        self.mainfield_epoch        = B0_parameters['epoch']
+        self.mainfield_B0           = B0_parameters['B0']
+
+        if (self.filename is not None) and os.path.exists(self.filename): # override input and load parameters from file:
+            dataset = xr.load_dataset(self.filename) 
+
+            self.FAC_integration_steps  = dataset.FAC_integration_steps
+            self.zero_jr_at_dip_equator = dataset.zero_jr_at_dip_equator
+            self.connect_hemispheres    = dataset.connect_hemispheres
+            self.ignore_PFAC            = dataset.ignore_PFAC
+            self.latitude_boundary      = dataset.latitude_boundary
+            self.ih_constraint_scaling  = dataset.ih_constraint_scaling
+            self.RI                     = dataset.RI
+            self.mainfield_kind         = dataset.mainfield_kind
+            self.mainfield_epoch        = dataset.mainfield_epoch
+            self.mainfield_B0           = dataset.mainfield_B0
+
+            shape = (dataset.i.size, dataset.i.size)
+            PFAC_matrix                 = dataset.PFAC_matrix.reshape( shape )
+
+            sh  = pynamit.SHBasis(dataset.N, dataset.M)
+            csp = pynamit.CSProjection(dataset.Ncs)
+
+            B0_parameters = {'epoch':self.mainfield_epoch, 'B0':self.mainfield_B0}
+            self.latest_time = dataset.time.values[-1]
+        else:
+            self.latest_time = 0
+
+
+
+
+        B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
+        mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
+        num_grid = Grid(self.RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
+
+
+        # Initialize the state of the ionosphere
+        self.state = State(sh, mainfield, num_grid, 
+                           RI = self.RI, 
+                           ignore_PFAC = self.ignore_PFAC, 
+                           FAC_integration_steps = self.FAC_integration_steps, 
+                           connect_hemispheres = self.connect_hemispheres, 
+                           latitude_boundary = self.latitude_boundary, 
+                           zero_jr_at_dip_equator = self.zero_jr_at_dip_equator, 
+                           ih_constraint_scaling = self.ih_constraint_scaling,
+                           PFAC_matrix = PFAC_matrix
+                           )
+
+        if self.latest_time == 0: # ensure that the save file is created
+            self.evolve_to_time(0)  
+
+
+    def save_state(self, time):
+        """ save state to file """
+
+        self.state.update_Phi()
+        self.state.update_EW()
+
+        if time == 0: # the file will be initialized
+
+            # resolution parameters:
+            resolution_params = {}
+            resolution_params['Ncs'] = int(np.sqrt(self.state.num_grid.size / 6) + 1)
+            resolution_params['N']   = self.state.sh.Nmax
+            resolution_params['M']   = self.state.sh.Mmax
+            resolution_params['FAC_integration_steps'] = self.FAC_integration_steps
+
+            # model settings:
+            model_settings = {}
+            model_settings['RI']                     = self.RI
+            model_settings['ih_constraint_scaling']  = self.ih_constraint_scaling
+            model_settings['latitude_boundary']      = self.latitude_boundary
+            model_settings['zero_jr_at_dip_equator'] = int(self.zero_jr_at_dip_equator)
+            model_settings['connect_hemispheres']    = int(self.connect_hemispheres   )
+            model_settings['ignore_PFAC']            = int(self.ignore_PFAC           )
+            model_settings['mainfield_kind']         = self.mainfield_kind
+            model_settings['mainfield_epoch']        = self.mainfield_epoch
+            model_settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
+
+            PFAC_matrix = self.state.TB_to_VB_PFAC
+            size = self.state.sh.num_coeffs
+
+            dataset = xr.Dataset()
+
+            dataset['SH_coefficients_imposed'] = xr.DataArray(self.state.TB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_coefficients_induced'] = xr.DataArray(self.state.VB.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_Phi']                  = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_W'  ]                  = xr.DataArray(self.state.EW.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+
+
+            dataset.attrs.update(resolution_params)
+            dataset.attrs.update(model_settings)
+            dataset.attrs.update({'PFAC_matrix':PFAC_matrix.flatten()})
+            dataset['n'] = xr.DataArray(self.state.sh.n, coords = {'i': range(size)}, dims = ['i'], name = 'n')
+            dataset['m'] = xr.DataArray(self.state.sh.m, coords = {'i': range(size)}, dims = ['i'], name = 'm')
+
+            dataset.to_netcdf(self.filename)
+            print('Created {}'.format(self.filename))
+
+
+        else: # adding new coefficients to existing file:
+
+            dataset = xr.load_dataset(self.filename)
+
+            size = self.state.sh.num_coeffs
+            imposed_coeffs = xr.DataArray(self.state.TB.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            induced_coeffs = xr.DataArray(self.state.VB.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            Phi_coeffs     = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            EW_coeffs      = xr.DataArray(self.state.EW.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+
+
+            # make a copy of the dataset but with new coefficients:            
+            new_dataset = dataset.copy(deep = True).drop(['SH_coefficients_imposed', 'SH_coefficients_induced', 'SH_Phi', 'SH_W', 'time'])
+            new_dataset['SH_coefficients_induced'] = induced_coeffs
+            new_dataset['SH_coefficients_imposed'] = imposed_coeffs
+            new_dataset['SH_Phi'                 ] = Phi_coeffs
+            new_dataset['SH_W'                   ] = EW_coeffs 
+
+            # merge the copy with the old_
+            dataset = xr.concat([dataset, new_dataset], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
+
+            dataset.to_netcdf(self.filename)
+
+
+
+    def evolve_to_time(self, t, dt = 5e-4, save_steps = 200, quiet = False):
+        """ Evolve to given time
 
         """
 
-        B0_parameters['hI'] = (RI - RE) * 1e-3 # add ionosphere height in km
+        if self.latest_time == 0:
+            self.save_state(0) # initialize save file
 
-        mainfield = Mainfield(kind = mainfield_kind, **B0_parameters)
-        num_grid = Grid(RI, 90 - csp.arr_theta, csp.arr_phi, mainfield)
+        time = self.latest_time
+        count = 0
+        while self.latest_time < t:
 
-        #self.cs_equations = CSEquations(csp, RI)
+            self.state.evolve_Br(dt)
 
-        # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = ih_constraint_scaling)
+            time  += dt
+            count += 1
+
+            if count % save_steps == 0:
+                self.save_state(time)
+                self.latest_time = time
+                if quiet:
+                    pass
+                else:
+                    print('Saved output at t = {:.2f} s'.format(time), end = '\r')
+
+
+
+
+
 
 
 
@@ -64,7 +219,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(i2d_sh, csp, RI, mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
+    i2d = I2D(fn = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate

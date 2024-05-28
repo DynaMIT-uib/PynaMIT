@@ -11,7 +11,7 @@ class State(object):
 
     """
 
-    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_parameters, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5):
+    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
@@ -20,7 +20,7 @@ class State(object):
         self.basis = sh # SHBasis for now, but can in principle be any basis if we generalize
         self.mainfield = mainfield
         self.num_grid = num_grid
-        self.FAC_integration_parameters = FAC_integration_parameters
+        self.FAC_integration_steps = FAC_integration_steps
 
         self.RI = RI
         self.ignore_PFAC = ignore_PFAC
@@ -54,7 +54,10 @@ class State(object):
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
             self.TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            self.TB_to_VB_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
+            if PFAC_matrix is None:
+                self.TB_to_VB_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
+            else:
+                self.TB_to_VB_PFAC = PFAC_matrix
 
         self.G_TB_to_JS = self.get_G_TB_to_JS(self.basis_evaluator) # matrices that map TB to r x deltaB
         self.G_VB_to_JS = self.get_G_VB_to_JS(self.basis_evaluator) # matrices that map VB to r x deltaB
@@ -123,7 +126,7 @@ class State(object):
         """ """
         # initialize matrix that will map from self.TB to coefficients for poloidal field:
 
-        r_k_steps = self.FAC_integration_parameters['steps']
+        r_k_steps = self.FAC_integration_steps
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
