@@ -916,40 +916,31 @@ class CSProjection(object):
 
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
 
-        x = np.cos(ph) * np.sin(th)
-        y = np.sin(th) * np.sin(ph)
-        z = np.cos(th)
+        # Get xyz coordinates of points
+        xyz = np.vstack((np.cos(ph) * np.sin(th), np.sin(th) * np.sin(ph), np.cos(th)))
 
-        # to avoid division by zero problems
-        x[np.isclose(x, 0)] += 1e-3
-        y[np.isclose(y, 0)] += 1e-3
-        z[np.isclose(z, 0)] += 1e-3
+        # Define face midpoint xyz coordinates
+        face_midpoints = np.array([
+            [1, 0, 0],  # 'I'
+            [0, 1, 0],  # 'II'
+            [-1, 0, 0], # 'III'
+            [0, -1, 0], # 'IV'
+            [0, 0, 1],  # 'V'
+            [0, 0, -1]  # 'VI'
+        ])
 
-        xyz = np.vstack((x, y, z))
-        print("xyz", np.linalg.norm(xyz))
+        # Calculate Euclidean distances to each face midpoint
+        distances = np.empty((6, xyz.shape[1]))
+        for i in range(6):
+            distances[i] = np.linalg.norm(xyz - face_midpoints[i].reshape((3, 1)), axis = 0)
 
-        # calculate how much xyz must be extended to intersect the various surfaces
-        t = {}
-        t[0] =  1 / xyz[0] # 'I'  
-        t[1] =  1 / xyz[1] # 'II' 
-        t[2] = -1 / xyz[0] # 'III'
-        t[3] = -1 / xyz[1] # 'IV' 
-        t[4] =  1 / xyz[2] # 'V'  
-        t[5] = -1 / xyz[2] # 'VI' 
+        # Assign points to the block with the smallest face midpoint distance
+        safety_distance = 1e-10
+        blocks = np.zeros(xyz.shape[1], dtype = int)
+        for i in range(6):
+            blocks[distances[i] < np.choose(blocks, distances) - safety_distance] = i
 
-        norms = {}
-        for key in t.keys():
-            norms[key] = np.linalg.norm(xyz * t[key], axis = 0)
-            norms[key][t[key] < 0] += 10 # increase norm of vectors with negative t
-            print("t", key, np.linalg.norm(t[key]))
-            print("norms", key, np.linalg.norm(norms[key]))
-
-        argmin = np.argmin(np.vstack([norms[i] for i in range(6)]), axis = 0)
-        print("argmin" , argmin)
-        print("argmin norm" , np.linalg.norm(argmin))
-
-        return np.argmin(np.vstack([norms[i] for i in range(6)]), axis = 0)
-
+        return blocks
 
     def geo2cube(self, lon, lat, block = None):
         """

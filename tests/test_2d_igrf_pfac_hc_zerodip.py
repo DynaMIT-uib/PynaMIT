@@ -8,9 +8,9 @@ import numpy as np
 #@pytest.mark.skip(reason="Implementation of hemisphere connection not finalized")
 def test_2d_igrf_pfac_hc_zerodip():
     # Arrange
-    expected_coeff_norm = 2.4927384205395073e-10
-    expected_coeff_max = 8.894982076286544e-12
-    expected_coeff_min = -1.6032440304255397e-11
+    expected_coeff_norm = 2.494450769041719e-10
+    expected_coeff_max = 8.899317063176636e-12
+    expected_coeff_min = -1.6042196020889268e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
