@@ -77,7 +77,7 @@ class I2D(object):
             B0_parameters = {'epoch':self.mainfield_epoch, 'B0':self.mainfield_B0}
             self.latest_time = dataset.time.values[-1]
         else:
-            self.latest_time = 0
+            self.latest_time = np.float64(0)
 
 
 
