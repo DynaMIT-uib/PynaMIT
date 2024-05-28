@@ -13,7 +13,8 @@ latitude_boundary = 35
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-Nmax, Mmax, Ncs = 10, 10, 10
+fn = 'example.ncdf'
+Nmax, Mmax, Ncs = 20, 20, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 5]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -36,7 +37,7 @@ i2d_csp = pynamit.CSProjection(Ncs)
 u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
 u_east_int, u_north_int, u_r_int = u_int
 
-i2d = pynamit.I2D(sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk, 
+i2d = pynamit.I2D(fn = fn, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
                                        zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
