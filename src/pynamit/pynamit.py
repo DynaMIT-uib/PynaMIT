@@ -106,6 +106,7 @@ class I2D(object):
     def save_state(self, time):
         """ save state to file """
 
+        time = np.float64(time)
         self.state.update_Phi()
         self.state.update_EW()
 
