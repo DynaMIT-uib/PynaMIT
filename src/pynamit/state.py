@@ -132,7 +132,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        js_grid_to_basis = np.linalg.pinv(self.get_G_VB_to_JS(_basis_evaluator)) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        JS_grid_to_basis = np.linalg.pinv(self.get_G_VB_to_JS(_basis_evaluator)) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
@@ -155,7 +155,7 @@ class State(object):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # Put it all together
-            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k)))
+            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(JS_grid_to_basis.dot(S_k.dot(G_k)))
 
         return(TB_to_VB_PFAC)
 
