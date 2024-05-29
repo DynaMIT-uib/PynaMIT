@@ -64,7 +64,7 @@ class BGeometry:
     def sinI(self):
         " Sin of the inclination angle."
         if not hasattr(self, '_sinI'):
-            self._sinI = -self.br / np.sqrt(self.btheta**2 + self.bphi**2 + self.br**2)
+            self._sinI = -self.br
         return self._sinI
 
     @property
