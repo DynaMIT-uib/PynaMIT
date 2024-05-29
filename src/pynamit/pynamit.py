@@ -78,6 +78,8 @@ class I2D(object):
             self.latest_time = dataset.time.values[-1]
         else:
             self.latest_time = np.float64(0)
+            if (self.filename is None):
+                self.filename = 'tmp.ncdf'
 
 
 
@@ -110,7 +112,7 @@ class I2D(object):
         self.state.update_Phi()
         self.state.update_EW()
 
-        if (time == 0) & (not os.path.exists(self.filename)): # the file will be initialized
+        if (time == 0) and (not os.path.exists(self.filename)): # the file will be initialized
 
             # resolution parameters:
             resolution_params = {}
