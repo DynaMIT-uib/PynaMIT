@@ -141,7 +141,7 @@ class State(object):
             theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
             mapped_grid = Grid(90 - theta_mapped, phi_mapped)
 
-            # Matrix that gives FAC at RI from toroidal coefficients, scales it to r_k and extracts the horizontal components
+            # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
             shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
             mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
@@ -149,7 +149,7 @@ class State(object):
                                 (-shifted_b_geometry.Bphi  /mapped_b_geometry.Br).reshape((-1, 1)))
             TB_to_JS_shifted = np.vstack(mapped_basis_evaluator.scaled_G(self.TB_to_Jr) * Jr_to_JS_shifted)
 
-            # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k
+            # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
             VB_shifted_to_VB = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
             JS_shifted_to_VB = JS_shifted_to_VB_shifted * VB_shifted_to_VB
 
