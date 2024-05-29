@@ -300,13 +300,15 @@ class State(object):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
+
+        if (u_theta.size != self.num_grid.theta.size) or (u_phi.size != self.num_grid.lon.size):
+            raise Exception('Wind must match dimensions of num_grid')
+
         self.u_theta = u_theta
         self.u_phi   = u_phi
 
-        B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
-
-        self.uxB_theta =  self.u_phi   * B[0]
-        self.uxB_phi   = -self.u_theta * B[0]
+        self.uxB_theta =  self.u_phi   * self.b_geometry.Br
+        self.uxB_phi   = -self.u_theta * self.b_geometry.Br
 
         if self.connect_hemispheres:
             # find wind field at low lat grid points
