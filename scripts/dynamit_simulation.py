@@ -41,14 +41,15 @@ i2d = pynamit.I2D(fn = fn, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind =
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
                                        zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
-csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi, i2d.state.mainfield)
+csp_grid = pynamit.grid.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
 csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
+csp_b_geometry = pynamit.b_field.BGeometry(i2d.state.mainfield, csp_grid, RI)
 
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.Grid(RI, lat, lon)
+plt_grid = pynamit.grid.Grid(lat, lon)
 plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
@@ -62,7 +63,7 @@ mlt = d.mlon2mlt(mlon, date)
 _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = -a.get_upward_current(mlat = mlat, mlt = mlt) / csp_grid.sinI * 1e-6
+jparallel = -a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_geometry.sinI * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)

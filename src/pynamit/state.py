@@ -4,6 +4,7 @@ from pynamit.constants import mu0, RE
 from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.vector import Vector
+from pynamit.b_field.b_geometry import BGeometry
 
 
 class State(object):
@@ -39,16 +40,17 @@ class State(object):
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
+        self.b_geometry = BGeometry(mainfield, num_grid, RI)
 
         # initialize neutral wind
         self.u_theta = None
         self.u_phi = None 
 
         # construct the elements in the matrix in the electric field equation
-        self.b00 = num_grid.bphi**2 + num_grid.br**2
-        self.b01 = -num_grid.btheta * num_grid.bphi
-        self.b10 = -num_grid.btheta * num_grid.bphi
-        self.b11 = num_grid.btheta**2 + num_grid.br**2
+        self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
+        self.b01 = -self.b_geometry.btheta * self.b_geometry.bphi
+        self.b10 = -self.b_geometry.btheta * self.b_geometry.bphi
+        self.b11 = self.b_geometry.btheta**2 + self.b_geometry.br**2
 
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
@@ -78,34 +80,34 @@ class State(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
+            self.ll_grid = Grid(90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
-            self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
             self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
             self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
-            self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.G_VB_to_JS_ll), self.aeH_ll.dot(self.G_VB_to_JS_ll)
-            self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.G_TB_to_JS_ll), self.aeH_ll.dot(self.G_TB_to_JS_ll)
+            self.ll_b_geometry = BGeometry(self.mainfield, self.ll_grid, RI)
+            self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
 
             # ... and for their conjugate points:
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
+            self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
             self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
             self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
-            self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.G_VB_to_JS_cp), self.aeH_cp.dot(self.G_VB_to_JS_cp)
-            self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.G_TB_to_JS_cp), self.aeH_cp.dot(self.G_TB_to_JS_cp)
+            self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, RI)
+            self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
+            self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_grid.sinI.reshape((-1 ,1)))
-            self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_grid.sinI.reshape((-1 ,1)))
+            self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.sinI.reshape((-1 ,1)))
+            self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.sinI.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
                 dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
                 dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
-                self.dip_equator_grid = Grid(RI, 90 - dip_equator_theta, dip_equator_phi)
+                self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
 
                 _equation_scaling = self.ll_grid.size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
@@ -130,85 +132,38 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        js_grid_to_basis = np.linalg.pinv(self.get_G_VB_to_JS(_basis_evaluator)) # matrix to do SHA in Eq (7) in Engels and Olsen (inc. scaling)
+        JS_shifted_to_VB_shifted = np.linalg.pinv(self.get_G_VB_to_JS(_basis_evaluator))
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
-
-            # Create grid at r_k[i]:
-            r_k_grid = Grid(r_k[i], 90 - _grid.theta, _grid.lon, self.mainfield)
-
             # Map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], r_k_grid.theta, r_k_grid.lon)
-            mapped_r_k_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped, self.mainfield)
-            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_r_k_grid)
+            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
+            mapped_grid = Grid(90 - theta_mapped, phi_mapped)
 
-            # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = mapped_basis_evaluator.scaled_G(self.TB_to_Jr / mapped_r_k_grid.sinI.reshape((-1, 1))) 
+            # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
+            shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
+            mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
+            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
+            Jr_to_JS_shifted = ((-shifted_b_geometry.Btheta/mapped_b_geometry.Br).reshape((-1, 1)),
+                                (-shifted_b_geometry.Bphi  /mapped_b_geometry.Br).reshape((-1, 1)))
+            TB_to_JS_shifted = np.vstack(mapped_basis_evaluator.scaled_G(self.TB_to_Jr) * Jr_to_JS_shifted)
 
-            # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
-            ratio = (r_k_grid.B_magnitude / mapped_r_k_grid.B_magnitude).reshape((1, -1))
-            S_k = np.vstack((np.diag(r_k_grid.btheta), np.diag(r_k_grid.bphi))) * ratio
+            # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
+            VB_shifted_to_VB = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
+            JS_shifted_to_VB = JS_shifted_to_VB_shifted * VB_shifted_to_VB
 
-            # matrix that scales the terms by (R/r_k)**(n-1):
-            A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
-
-            # put it all together (crazy)
-            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k)))
+            # Integration step
+            TB_to_VB_PFAC += Delta_k[i] * JS_shifted_to_VB.dot(TB_to_JS_shifted)
 
         return(TB_to_VB_PFAC)
-
-
-    def _get_alpha(self, _grid):
-        """ Calculate alpha
-            
-
-        """
-
-        R, theta, phi = self.RI, _grid.theta, _grid.lon
-
-        br, bt, bp = _grid.br, _grid.btheta, _grid.bphi
-        Br = br * _grid.B_magnitude
-
-        _, _, _, e1, e2, _ = self.mainfield.basevectors(R, theta, phi)
-        e1r, e1t, e1p = e1
-        e2r, e2t, e2p = e2
-
-        # The following lines of code are copied from output from sympy_matrix_algebra.py
-
-        # resistance terms:
-        alpha11_eP = bp**2*e1t - bp*bt*e1p + br**2*e1t - br*bt*e1r
-        alpha12_eP = -bp*br*e1r - bp*bt*e1t + br**2*e1p + bt**2*e1p
-        alpha21_eP = bp**2*e2t - bp*bt*e2p + br**2*e2t - br*bt*e2r
-        alpha22_eP = -bp*br*e2r - bp*bt*e2t + br**2*e2p + bt**2*e2p
-        alpha11_eH = bp*e1r - br*e1p
-        alpha12_eH = br*e1t - bt*e1r
-        alpha21_eH = bp*e2r - br*e2p
-        alpha22_eH = br*e2t - bt*e2r
-
-        # wind terms:
-        alpha13_ut = -Br*bp*e1r/br + Br*e1p
-        alpha23_ut = -Br*bp*e2r/br + Br*e2p
-        alpha13_up = -Br*e1t + Br*bt*e1r/br
-        alpha23_up = -Br*e2t + Br*bt*e2r/br
-
-        # construct matrices
-        aeP = np.vstack((np.hstack((np.diag(alpha11_eP), np.diag(alpha12_eP))), 
-                         np.hstack((np.diag(alpha21_eP), np.diag(alpha22_eP)))))
-        aeH = np.vstack((np.hstack((np.diag(alpha11_eH), np.diag(alpha12_eH))), 
-                         np.hstack((np.diag(alpha21_eH), np.diag(alpha22_eH)))))
-        aut = np.hstack((alpha13_ut, alpha23_ut))
-        aup = np.hstack((alpha13_up, alpha23_up))
-
-        return(aeP, aeH, aut, aup)
 
 
     def update_constraints(self):
         """ update the constraint arrays c and A - should be called when changing u and eta """
 
-        self.cu =  (self.u_theta_cp * self.aut_cp + self.u_phi_cp * self.aup_cp) \
-                  -(self.u_theta_ll * self.aut_ll + self.u_phi_ll * self.aup_ll)
+        self.cu =  (self.u_theta_cp * self.cp_b_geometry.aut + self.u_phi_cp * self.cp_b_geometry.aup) \
+                  -(self.u_theta_ll * self.ll_b_geometry.aut + self.u_phi_ll * self.ll_b_geometry.aup)
         self.AV =  (self.etaP_cp * self.aeP_V_cp + self.etaH_cp * self.aeH_V_cp) \
                   -(self.etaP_ll * self.aeP_V_ll + self.etaH_ll * self.aeH_V_ll)
         self.AT =  (self.etaP_ll * self.aeP_T_ll + self.etaH_ll * self.aeH_T_ll)\
@@ -307,7 +262,7 @@ class State(object):
             raise Exception('FAC must match phi and theta')
 
         # Extract the radial component of the FAC:
-        self.jr = -FAC * self.num_grid.sinI
+        self.jr = -FAC * self.b_geometry.sinI
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
@@ -315,7 +270,7 @@ class State(object):
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
             hl_mask = np.abs(_basis_evaluator.grid.lat) > self.latitude_boundary
-            self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
+            self.hl_grid = Grid(90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
             hl_basis_evaluator = BasisEvaluator(self.basis, self.hl_grid)
 
             self.Gjr = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
@@ -341,13 +296,15 @@ class State(object):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
+
+        if (u_theta.size != self.num_grid.theta.size) or (u_phi.size != self.num_grid.lon.size):
+            raise Exception('Wind must match dimensions of num_grid')
+
         self.u_theta = u_theta
         self.u_phi   = u_phi
 
-        B = np.vstack(self.mainfield.get_B(self.RI, self.num_grid.theta, self.num_grid.lon))
-
-        self.uxB_theta =  self.u_phi   * B[0]
-        self.uxB_phi   = -self.u_theta * B[0]
+        self.uxB_theta =  self.u_phi   * self.b_geometry.Br
+        self.uxB_phi   = -self.u_theta * self.b_geometry.Br
 
         if self.connect_hemispheres:
             # find wind field at low lat grid points
@@ -497,8 +454,8 @@ class State(object):
 
         Jth, Jph = self.get_JS(_basis_evaluator, deg = deg)
 
-        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.num_grid.br * Jph)
-        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.num_grid.br * Jth)
+        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
+        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
 
         return(Eth, Eph)
 
