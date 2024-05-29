@@ -40,16 +40,17 @@ class State(object):
 
         # initialize the basis evaluator
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
+        self.b_geometry = BGeometry(mainfield, num_grid, RI)
 
         # initialize neutral wind
         self.u_theta = None
         self.u_phi = None 
 
         # construct the elements in the matrix in the electric field equation
-        self.b00 = num_grid.b_geometry.bphi**2 + num_grid.b_geometry.br**2
-        self.b01 = -num_grid.b_geometry.btheta * num_grid.b_geometry.bphi
-        self.b10 = -num_grid.b_geometry.btheta * num_grid.b_geometry.bphi
-        self.b11 = num_grid.b_geometry.btheta**2 + num_grid.b_geometry.br**2
+        self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
+        self.b01 = -self.b_geometry.btheta * self.b_geometry.bphi
+        self.b10 = -self.b_geometry.btheta * self.b_geometry.bphi
+        self.b11 = self.b_geometry.btheta**2 + self.b_geometry.br**2
 
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
@@ -99,8 +100,8 @@ class State(object):
             self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_grid.b_geometry.sinI.reshape((-1 ,1)))
-            self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_grid.b_geometry.sinI.reshape((-1 ,1)))
+            self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.sinI.reshape((-1 ,1)))
+            self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.sinI.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
@@ -138,19 +139,21 @@ class State(object):
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
 
             # Create grid at r_k[i]:
-            r_k_grid = Grid(r_k[i], 90 - _grid.theta, _grid.lon, self.mainfield)
+            shifted_grid = Grid(r_k[i], 90 - _grid.theta, _grid.lon, self.mainfield)
+            shifted_b_geometry = BGeometry(self.mainfield, shifted_grid, r_k[i])
 
             # Map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], r_k_grid.theta, r_k_grid.lon)
-            mapped_r_k_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped, self.mainfield)
-            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_r_k_grid)
+            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], shifted_grid.theta, shifted_grid.lon)
+            mapped_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped, self.mainfield)
+            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
+            mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
 
             # Calculate matrix that gives FAC from toroidal coefficients
-            G_k = mapped_basis_evaluator.scaled_G(self.TB_to_Jr / mapped_r_k_grid.b_geometry.sinI.reshape((-1, 1))) 
+            G_k = mapped_basis_evaluator.scaled_G(self.TB_to_Jr / mapped_b_geometry.sinI.reshape((-1, 1)))
 
             # matrix that scales the FAC at RI to r_k and extracts the horizontal components:
-            ratio = (r_k_grid.b_geometry.B_magnitude / mapped_r_k_grid.b_geometry.B_magnitude).reshape((1, -1))
-            S_k = np.vstack((np.diag(r_k_grid.b_geometry.btheta), np.diag(r_k_grid.b_geometry.bphi))) * ratio
+            ratio = (shifted_b_geometry.B_magnitude / mapped_b_geometry.B_magnitude).reshape((1, -1))
+            S_k = np.vstack((np.diag(shifted_b_geometry.btheta), np.diag(shifted_b_geometry.bphi))) * ratio
 
             # matrix that scales the terms by (R/r_k)**(n-1):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
@@ -264,7 +267,7 @@ class State(object):
             raise Exception('FAC must match phi and theta')
 
         # Extract the radial component of the FAC:
-        self.jr = -FAC * self.num_grid.b_geometry.sinI
+        self.jr = -FAC * self.b_geometry.sinI
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
@@ -454,8 +457,8 @@ class State(object):
 
         Jth, Jph = self.get_JS(_basis_evaluator, deg = deg)
 
-        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.num_grid.b_geometry.br * Jph)
-        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.num_grid.b_geometry.br * Jth)
+        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
+        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
 
         return(Eth, Eph)
 
