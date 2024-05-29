@@ -137,27 +137,23 @@ class State(object):
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
-
-            # Matrix that scales the FAC at RI to r_k and extracts the horizontal components:
-            shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
-            S_k = np.vstack((np.diag(shifted_b_geometry.Btheta), np.diag(shifted_b_geometry.Bphi)))
-
-            # matrix that scales the terms by (R/r_k)**(n-1):
-            A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
-
             # Map coordinates from r_k[i] to RI:
             theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
             mapped_grid = Grid(90 - theta_mapped, phi_mapped)
 
             # Matrix that scales the FAC at RI to r_k and extracts the horizontal components:
+            shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
             mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
             S_k = - np.vstack((np.diag(shifted_b_geometry.Btheta/mapped_b_geometry.Br), np.diag(shifted_b_geometry.Bphi/mapped_b_geometry.Br)))
+
+            # Matrix that scales the terms by (R/r_k)**(n-1):
+            A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
 
             # Calculate matrix that gives FAC from toroidal coefficients
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
             G_k = mapped_basis_evaluator.scaled_G(self.TB_to_Jr)
 
-            # put it all together (crazy)
+            # Put it all together
             TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot((S_k).dot(G_k)))
 
         return(TB_to_VB_PFAC)
