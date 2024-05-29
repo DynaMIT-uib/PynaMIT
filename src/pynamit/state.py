@@ -4,6 +4,7 @@ from pynamit.constants import mu0, RE
 from pynamit.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.vector import Vector
+from pynamit.b_field.b_geometry import BGeometry
 
 
 class State(object):
@@ -80,22 +81,22 @@ class State(object):
             # calculate constraint matrices for low latitude points
             self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
-            self.aeP_ll, self.aeH_ll, self.aut_ll, self.aup_ll = self._get_alpha(self.ll_grid)
             self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
             self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
-            self.aeP_V_ll, self.aeH_V_ll = self.aeP_ll.dot(self.G_VB_to_JS_ll), self.aeH_ll.dot(self.G_VB_to_JS_ll)
-            self.aeP_T_ll, self.aeH_T_ll = self.aeP_ll.dot(self.G_TB_to_JS_ll), self.aeH_ll.dot(self.G_TB_to_JS_ll)
+            self.ll_b_geometry = BGeometry(self.mainfield, self.ll_grid, RI)
+            self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
 
             # ... and for their conjugate points:
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
             self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.aeP_cp, self.aeH_cp, self.aut_cp, self.aup_cp = self._get_alpha(self.cp_grid)
             self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
             self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
-            self.aeP_V_cp, self.aeH_V_cp = self.aeP_cp.dot(self.G_VB_to_JS_cp), self.aeH_cp.dot(self.G_VB_to_JS_cp)
-            self.aeP_T_cp, self.aeH_T_cp = self.aeP_cp.dot(self.G_TB_to_JS_cp), self.aeH_cp.dot(self.G_TB_to_JS_cp)
+            self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, RI)
+            self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
+            self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
             self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_grid.b_geometry.sinI.reshape((-1 ,1)))
@@ -160,55 +161,11 @@ class State(object):
         return(TB_to_VB_PFAC)
 
 
-    def _get_alpha(self, _grid):
-        """ Calculate alpha
-            
-
-        """
-
-        R, theta, phi = self.RI, _grid.theta, _grid.lon
-
-        br, bt, bp = _grid.b_geometry.br, _grid.b_geometry.btheta, _grid.b_geometry.bphi
-        Br = br * _grid.b_geometry.B_magnitude
-
-        _, _, _, e1, e2, _ = self.mainfield.basevectors(R, theta, phi)
-        e1r, e1t, e1p = e1
-        e2r, e2t, e2p = e2
-
-        # The following lines of code are copied from output from sympy_matrix_algebra.py
-
-        # resistance terms:
-        alpha11_eP = bp**2*e1t - bp*bt*e1p + br**2*e1t - br*bt*e1r
-        alpha12_eP = -bp*br*e1r - bp*bt*e1t + br**2*e1p + bt**2*e1p
-        alpha21_eP = bp**2*e2t - bp*bt*e2p + br**2*e2t - br*bt*e2r
-        alpha22_eP = -bp*br*e2r - bp*bt*e2t + br**2*e2p + bt**2*e2p
-        alpha11_eH = bp*e1r - br*e1p
-        alpha12_eH = br*e1t - bt*e1r
-        alpha21_eH = bp*e2r - br*e2p
-        alpha22_eH = br*e2t - bt*e2r
-
-        # wind terms:
-        alpha13_ut = -Br*bp*e1r/br + Br*e1p
-        alpha23_ut = -Br*bp*e2r/br + Br*e2p
-        alpha13_up = -Br*e1t + Br*bt*e1r/br
-        alpha23_up = -Br*e2t + Br*bt*e2r/br
-
-        # construct matrices
-        aeP = np.vstack((np.hstack((np.diag(alpha11_eP), np.diag(alpha12_eP))), 
-                         np.hstack((np.diag(alpha21_eP), np.diag(alpha22_eP)))))
-        aeH = np.vstack((np.hstack((np.diag(alpha11_eH), np.diag(alpha12_eH))), 
-                         np.hstack((np.diag(alpha21_eH), np.diag(alpha22_eH)))))
-        aut = np.hstack((alpha13_ut, alpha23_ut))
-        aup = np.hstack((alpha13_up, alpha23_up))
-
-        return(aeP, aeH, aut, aup)
-
-
     def update_constraints(self):
         """ update the constraint arrays c and A - should be called when changing u and eta """
 
-        self.cu =  (self.u_theta_cp * self.aut_cp + self.u_phi_cp * self.aup_cp) \
-                  -(self.u_theta_ll * self.aut_ll + self.u_phi_ll * self.aup_ll)
+        self.cu =  (self.u_theta_cp * self.cp_b_geometry.aut + self.u_phi_cp * self.cp_b_geometry.aup) \
+                  -(self.u_theta_ll * self.ll_b_geometry.aut + self.u_phi_ll * self.ll_b_geometry.aup)
         self.AV =  (self.etaP_cp * self.aeP_V_cp + self.etaH_cp * self.aeH_V_cp) \
                   -(self.etaP_ll * self.aeP_V_ll + self.etaH_ll * self.aeH_V_ll)
         self.AT =  (self.etaP_ll * self.aeP_T_ll + self.etaH_ll * self.aeH_T_ll)\
