@@ -35,7 +35,7 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
-csp_grid = pynamit.grid.Grid(RI, 90 - i2d_csp.arr_theta, i2d_csp.arr_phi, i2d.state.mainfield)
+csp_grid = pynamit.grid.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
 csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
 csp_b_geometry = pynamit.b_field.BGeometry(i2d.state.mainfield, csp_grid, RI)
 
@@ -65,7 +65,7 @@ i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 # make plot grid:
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.Grid(RI, lat, lon)
+plt_grid = pynamit.grid.Grid(lat, lon)
 plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 nnn = plt_grid.lat.flatten() >  50
 sss = plt_grid.lat.flatten() < -50

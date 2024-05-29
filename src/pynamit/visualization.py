@@ -118,7 +118,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## SET UP PLOTTING GRID
     lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     lat, lon = np.meshgrid(lat, lon)
-    plt_grid = pynamit.grid.Grid(i2d.state.RI, lat, lon, i2d.state.mainfield)
+    plt_grid = pynamit.grid.Grid(lat, lon)
     plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
     plt_b_geometry = pynamit.b_field.BGeometry(i2d.state.mainfield, plt_grid, i2d.state.RI)
 
@@ -133,7 +133,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = pynamit.grid.Grid(i2d.state.RI, lat, lon, mainfield = i2d.state.mainfield)
+    plt_grid = pynamit.grid.Grid(lat, lon)
     plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
 
     ## MAP PROJECTION:

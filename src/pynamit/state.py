@@ -80,7 +80,7 @@ class State(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = Grid(RI, 90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask], self.mainfield)
+            self.ll_grid = Grid(90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
             ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
             self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
             self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
@@ -91,7 +91,7 @@ class State(object):
 
             # ... and for their conjugate points:
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
-            self.cp_grid = Grid(RI, 90 - self.cp_theta, self.cp_phi, self.mainfield)
+            self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
             self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
@@ -107,7 +107,7 @@ class State(object):
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
                 dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
                 dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
-                self.dip_equator_grid = Grid(RI, 90 - dip_equator_theta, dip_equator_phi)
+                self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
 
                 _equation_scaling = self.ll_grid.size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
@@ -138,13 +138,12 @@ class State(object):
         for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
 
-            # Create grid at r_k[i]:
-            shifted_grid = Grid(r_k[i], 90 - _grid.theta, _grid.lon, self.mainfield)
-            shifted_b_geometry = BGeometry(self.mainfield, shifted_grid, r_k[i])
+            # Create B geometry at r_k[i]:
+            shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
 
             # Map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], shifted_grid.theta, shifted_grid.lon)
-            mapped_grid = Grid(self.RI, 90 - theta_mapped, phi_mapped, self.mainfield)
+            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
+            mapped_grid = Grid(90 - theta_mapped, phi_mapped)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
             mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
 
@@ -275,7 +274,7 @@ class State(object):
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
             hl_mask = np.abs(_basis_evaluator.grid.lat) > self.latitude_boundary
-            self.hl_grid = Grid(self.RI, 90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
+            self.hl_grid = Grid(90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
             hl_basis_evaluator = BasisEvaluator(self.basis, self.hl_grid)
 
             self.Gjr = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
