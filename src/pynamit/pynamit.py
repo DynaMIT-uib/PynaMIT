@@ -110,7 +110,7 @@ class I2D(object):
         self.state.update_Phi()
         self.state.update_EW()
 
-        if time == 0: # the file will be initialized
+        if (time == 0) & (not os.path.exists(self.filename)): # the file will be initialized
 
             # resolution parameters:
             resolution_params = {}
