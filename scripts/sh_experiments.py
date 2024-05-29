@@ -23,7 +23,7 @@ u_phi   =  hwm14Obj.Uwind
 u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-ugrid = pynamit.grid.Grid(RI, u_lat.flatten(), u_lon.flatten())
+ugrid = pynamit.grid.Grid(u_lat.flatten(), u_lon.flatten())
 
 Gphi, Gtheta = ubasis.get_G(ugrid, derivative = 'phi'), ubasis.get_G(ugrid, derivative = 'theta')
 G_df = np.vstack((-Gphi, Gtheta)) # u_df = r x grad()
