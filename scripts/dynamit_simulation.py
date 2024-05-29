@@ -69,3 +69,10 @@ i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
 i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 
 i2d.evolve_to_time(180)
+
+print('increasing conductance')
+hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, f107 = 200, starlight = 1, dipole = False)
+i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
+
+i2d.evolve_to_time(360)
+
