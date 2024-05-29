@@ -145,8 +145,8 @@ class State(object):
             shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
             mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-            Jr_to_JS_shifted = ((-shifted_b_geometry.Btheta/mapped_b_geometry.Br).reshape((-1, 1)),
-                                (-shifted_b_geometry.Bphi  /mapped_b_geometry.Br).reshape((-1, 1)))
+            Jr_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.Br).reshape((-1, 1)),
+                                (shifted_b_geometry.Bphi   / mapped_b_geometry.Br).reshape((-1, 1)))
             TB_to_JS_shifted = np.vstack(mapped_basis_evaluator.scaled_G(self.TB_to_Jr) * Jr_to_JS_shifted)
 
             # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
@@ -154,7 +154,7 @@ class State(object):
             JS_shifted_to_VB = JS_shifted_to_VB_shifted * VB_shifted_to_VB
 
             # Integration step
-            TB_to_VB_PFAC += Delta_k[i] * JS_shifted_to_VB.dot(TB_to_JS_shifted)
+            TB_to_VB_PFAC -= Delta_k[i] * JS_shifted_to_VB.dot(TB_to_JS_shifted)
 
         return(TB_to_VB_PFAC)
 
