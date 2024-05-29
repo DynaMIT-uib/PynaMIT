@@ -144,7 +144,8 @@ class State(object):
             # Matrix that scales the FAC at RI to r_k and extracts the horizontal components:
             shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
             mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
-            S_k = - np.vstack((np.diag(shifted_b_geometry.Btheta/mapped_b_geometry.Br), np.diag(shifted_b_geometry.Bphi/mapped_b_geometry.Br)))
+            S_k = - np.vstack((np.diag(shifted_b_geometry.Btheta/mapped_b_geometry.Br),
+                               np.diag(shifted_b_geometry.Bphi  /mapped_b_geometry.Br)))
 
             # Matrix that scales the terms by (R/r_k)**(n-1):
             A_k = np.diag((self.RI / r_k[i])**(self.sh.n - 1))
@@ -154,7 +155,7 @@ class State(object):
             G_k = mapped_basis_evaluator.scaled_G(self.TB_to_Jr)
 
             # Put it all together
-            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot((S_k).dot(G_k)))
+            TB_to_VB_PFAC += Delta_k[i] * A_k.dot(js_grid_to_basis.dot(S_k.dot(G_k)))
 
         return(TB_to_VB_PFAC)
 
