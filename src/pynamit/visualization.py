@@ -120,6 +120,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = pynamit.grid.Grid(i2d.state.RI, lat, lon, i2d.state.mainfield)
     plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
+    plt_b_geometry = pynamit.b_field.BGeometry(i2d.state.mainfield, plt_grid, i2d.state.RI)
 
     csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
 
@@ -156,7 +157,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
-    FAC    = -plt_i2d_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr) / plt_grid.b_geometry.sinI
+    FAC    = -plt_i2d_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr) / plt_b_geometry.sinI
     jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.TB.coeffs * i2d.state.TB_to_Jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
