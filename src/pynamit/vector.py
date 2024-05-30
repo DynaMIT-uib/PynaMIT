@@ -1,15 +1,12 @@
 class Vector(object):
 
-    def __init__(self, basis, coeffs = None, basis_evaluator = None, grid_values = None, component = None):
+    def __init__(self, basis, coeffs = None, basis_evaluator = None, grid_values = None):
         self.basis = basis
 
         if coeffs is not None:
             self.coeffs = coeffs
         elif (basis_evaluator is not None) and (grid_values is not None):
-            if component is not None:
-                self.coeffs = basis_evaluator.grid_to_basis(grid_values, component)
-            else:
-                self.coeffs = basis_evaluator.grid_to_basis(grid_values)
+            self.coeffs = basis_evaluator.grid_to_basis(grid_values)
         else:
             raise ValueError("Either coeffs or grid and grid values must be provided.")
  

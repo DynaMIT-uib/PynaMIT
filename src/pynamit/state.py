@@ -347,20 +347,15 @@ class State(object):
                 self.update_constraints()            
 
 
-    def update_EW(self):
-        """ Update the coefficients for the induction electric field.
+    def update_Phi_and_EW(self):
+        """ Update the coefficients for the electric potential and the induction electric field.
 
         """
 
-        self.EW = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='df')
+        E_cf, E_df = self.basis_evaluator.grid_to_basis(self.get_E(self.basis_evaluator), helmholtz = True)
 
-
-    def update_Phi(self):
-        """ Update the coefficients for the electric potential.
-
-        """
-
-        self.Phi = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = np.hstack(self.get_E(self.basis_evaluator)), component='cf')
+        self.Phi = Vector(self.basis, coeffs = E_cf)
+        self.EW = Vector(self.basis, coeffs = E_df)
 
 
     def evolve_Br(self, dt):
@@ -383,7 +378,7 @@ class State(object):
             d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.Gpinv.dot(d))
 
-        self.update_EW()
+        self.update_Phi_and_EW()
         new_Br = self.VB.coeffs * self.VB_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
         self.set_coeffs(Br = new_Br)
 

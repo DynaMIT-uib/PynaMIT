@@ -95,7 +95,7 @@ while True:
 
         W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
 
-        i2d.state.update_Phi()
+        i2d.state.update_Phi_and_EW()
         Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
 
         #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
