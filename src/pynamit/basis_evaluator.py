@@ -27,16 +27,16 @@ class BasisEvaluator(object):
         return self._G
     
     @property
-    def Ginv(self):
+    def G_inv(self):
         """
         Return matrix that transforms grid to coefficients.
 
         """
 
-        if not hasattr(self, '_Ginv'):
-            self._Ginv = np.linalg.pinv(self.G)
+        if not hasattr(self, '_G_inv'):
+            self._G_inv = np.linalg.pinv(self.G)
 
-        return self._Ginv
+        return self._G_inv
 
     @property
     def G_th(self):
@@ -83,51 +83,30 @@ class BasisEvaluator(object):
         return self._GTG
 
     @property
-    def Gcf(self):
+    def G_helmholtz(self):
         """
-        Return the G matrix for the curl-free components of a vector.
+        Return the G matrix for the Helmholtz decomposition into the
+        curl-free and divergence-free components of a vector.
 
         """
 
-        if not hasattr(self, '_Gcf'):
-            self._Gcf = np.vstack((-self.G_th, -self.G_ph))
-        return self._Gcf
+        if not hasattr(self, '_G_helmholtz'):
+            Gcf = np.vstack((-self.G_th, -self.G_ph))
+            Gdf = np.vstack((-self.G_ph, self.G_th))
+            self._G_helmholtz = np.hstack((Gcf, Gdf))
+        return self._G_helmholtz
 
     @property
-    def Gcf_inv(self):
+    def G_helmholtz_inv(self):
         """
-        Return the inverse of the G matrix for the curl-free components of
-        a vector.
-
-        """
-
-        if not hasattr(self, '_Gcf_inv'):
-            self._Gcf_inv = np.linalg.pinv(self.Gcf)
-        return self._Gcf_inv
-
-    @property
-    def Gdf(self):
-        """
-        Return the G matrix for the divergence-free components of a
-        vector.
+        Return the inverse of the G matrix for the Helmholtz decomposition
+        into the curl-free and divergence-free components of a vector.
 
         """
 
-        if not hasattr(self, '_Gdf'):
-            self._Gdf = np.vstack((-self.G_ph, self.G_th))
-        return self._Gdf
-
-    @property
-    def Gdf_inv(self):
-        """
-        Return the inverse of the G matrix for the divergence-free
-        components of a vector.
-
-        """
-
-        if not hasattr(self, '_Gdf_inv'):
-            self._Gdf_inv = np.linalg.pinv(self.Gdf)
-        return self._Gdf_inv
+        if not hasattr(self, '_G_helmholtz_inv'):
+            self._G_helmholtz_inv = np.linalg.pinv(self.G_helmholtz)
+        return self._G_helmholtz_inv
 
     def basis_to_grid(self, coeffs, derivative = None):
         """
@@ -152,7 +131,7 @@ class BasisEvaluator(object):
         else:
             return np.dot(self.G, coeffs)
 
-    def grid_to_basis(self, grid_values, component = None):
+    def grid_to_basis(self, grid_values, helmholtz = False):
         """
         Transform grid values to basis coefficients.
 
@@ -168,12 +147,10 @@ class BasisEvaluator(object):
 
         """
 
-        if component == 'cf':
-            return np.dot(self.Gcf_inv, grid_values)
-        elif component == 'df':
-            return np.dot(self.Gdf_inv, grid_values)
+        if helmholtz:
+            return np.split(np.dot(self.G_helmholtz_inv, np.hstack(grid_values)), 2)
         else:
-            return np.dot(self.Ginv, grid_values)
+            return np.dot(self.G_inv, grid_values)
     
     def to_other_basis(self, this_coeffs, other_coeffs):
         """

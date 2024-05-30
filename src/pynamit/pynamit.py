@@ -109,8 +109,7 @@ class I2D(object):
         """ save state to file """
 
         time = np.float64(time)
-        self.state.update_Phi()
-        self.state.update_EW()
+        self.state.update_Phi_and_EW()
 
         if (time == 0) and (not os.path.exists(self.filename)): # the file will be initialized
 
@@ -434,7 +433,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
                                                levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
                 #W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
 
-                i2d.state.update_Phi()
+                i2d.state.update_Phi_and_EW()
                 Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
 
 
