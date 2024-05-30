@@ -69,14 +69,6 @@ class BGeometry:
         return self._bphi
 
     @property
-    def sinI(self):
-        """ Sin of the inclination angle. """
-
-        if not hasattr(self, '_sinI'):
-            self._sinI = -self.br
-        return self._sinI
-
-    @property
     def basevectors(self):
         """ Base vectors of the magnetic field. """
 

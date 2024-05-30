@@ -100,8 +100,8 @@ class State(object):
             self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll     = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.sinI.reshape((-1 ,1)))
-            self.G_par_cp     = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.sinI.reshape((-1 ,1)))
+            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
+            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
@@ -262,7 +262,7 @@ class State(object):
             raise Exception('FAC must match phi and theta')
 
         # Extract the radial component of the FAC:
-        self.jr = -FAC * self.b_geometry.sinI
+        self.jr = FAC * self.b_geometry.br
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
