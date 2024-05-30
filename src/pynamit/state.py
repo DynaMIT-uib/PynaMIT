@@ -57,7 +57,7 @@ class State(object):
             self.TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
             if PFAC_matrix is None:
-                self.TB_to_VB_PFAC = self._get_PFAC_matrix(num_grid, self.basis_evaluator)
+                self.TB_to_VB_PFAC = self._get_PFAC_matrix()
             else:
                 self.TB_to_VB_PFAC = PFAC_matrix
 
@@ -124,7 +124,7 @@ class State(object):
         self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
         self.set_coeffs(TB = np.zeros(self.basis.num_coeffs))
 
-    def _get_PFAC_matrix(self, _grid, _basis_evaluator):
+    def _get_PFAC_matrix(self):
         """ """
         # initialize matrix that will map from self.TB to coefficients for poloidal field:
 
@@ -132,17 +132,17 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        JS_shifted_to_VB_shifted = np.linalg.pinv(self.get_G_VB_to_JS(_basis_evaluator))
+        JS_shifted_to_VB_shifted = np.linalg.pinv(self.get_G_VB_to_JS(self.basis_evaluator))
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
             print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
             # Map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], _grid.theta, _grid.lon)
+            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
             mapped_grid = Grid(90 - theta_mapped, phi_mapped)
 
             # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
-            shifted_b_geometry = BGeometry(self.mainfield, _grid, r_k[i])
+            shifted_b_geometry = BGeometry(self.mainfield, self.num_grid, r_k[i])
             mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
             Jr_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.Br).reshape((-1, 1)),
