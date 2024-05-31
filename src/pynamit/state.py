@@ -240,10 +240,6 @@ class State(object):
             self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
             self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
 
-            if self.neutral_wind:
-                self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
-                          -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
-
 
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to TB from
@@ -307,6 +303,9 @@ class State(object):
             # find wind field at conjugate grid points
             u_cp = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             self.u_theta_cp, self.u_phi_cp = -u_cp[1], u_cp[0]
+
+            self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
+                      -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
 
 
     def set_conductance(self, Hall, Pedersen, _basis_evaluator):
