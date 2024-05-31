@@ -43,6 +43,7 @@ class State(object):
         self.b_geometry = BGeometry(mainfield, num_grid, RI)
 
         self.neutral_wind = False
+        self.conductance  = False
 
         # construct the elements in the matrix in the electric field equation
         self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
@@ -112,12 +113,10 @@ class State(object):
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
 
-        # Initialize conductances
-        self.set_conductance(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), self.basis_evaluator)
-
         # Initialize the spherical harmonic coefficients
         self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
         self.set_coeffs(TB = np.zeros(self.basis.num_coeffs))
+
 
     def _get_PFAC_matrix(self):
         """ """
@@ -216,31 +215,6 @@ class State(object):
             raise Exception('This should not happen')
 
 
-    def set_initial_condition(self):
-        """ Set initial conditions.
-
-        If this is not called, initial conditions should be zero.
-
-        """
-
-        print('not implemented. inital conditions will be zero')
-
-
-    def update_constraints(self):
-        """ update the constraint arrays c and A - should be called when changing u and eta """
-
-        if self.connect_hemispheres:
-            self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
-                      -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
-
-            self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
-                      -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
-
-            # Combine constraint matrices:
-            self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
-            self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
-
-
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to TB from
         VB if the hemispheres are connected.
@@ -278,8 +252,6 @@ class State(object):
 
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
-
-        self.update_constraints()
         self.impose_constraints()
 
 
@@ -319,6 +291,8 @@ class State(object):
         if Hall.size != Pedersen.size != self.num_grid.theta.size:
             raise Exception('Conductances must match phi and theta')
 
+        self.conductance = True
+
         self.etaP = Pedersen / (Hall**2 + Pedersen**2)
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
@@ -327,6 +301,16 @@ class State(object):
             self.etaP_cp = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             self.etaH_cp = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
+            # Conductance-dependent constraint matrices
+            self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
+                      -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
+
+            self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
+                      -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
+
+            # Combine constraint matrices
+            self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
+            self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
 
 
     def update_Phi_and_EW(self):
@@ -334,7 +318,7 @@ class State(object):
 
         """
 
-        E_cf, E_df = self.basis_evaluator.grid_to_basis(self.get_E(self.basis_evaluator), helmholtz = True)
+        E_cf, E_df = self.basis_evaluator.grid_to_basis(self.get_E(), helmholtz = True)
 
         self.Phi = Vector(self.basis, coeffs = E_cf)
         self.EW = Vector(self.basis, coeffs = E_df)
@@ -345,25 +329,15 @@ class State(object):
 
         """
 
-        #Eth, Eph = self.get_E(self.num_grid)
-        #u1, u2, u3 = self.equations.sph_to_contravariant_cs(np.zeros_like(Eph), Eth, Eph)
-        #curlEr = self.equations.curlr(u1, u2) 
-        #Br = -self.GBr.dot(self.VB) - dt * curlEr
-
-        #self.set_coeffs(Br = self.basis_evaluator.grid_to_basis(-Br))
-
-        #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
-        #self.EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
-
-        self.impose_constraints()
-
         self.update_Phi_and_EW()
 
         new_Br = self.VB.coeffs * self.VB_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
+
         self.set_coeffs(Br = new_Br)
+        self.impose_constraints()
 
 
-    def get_Br(self, _basis_evaluator, deg = False):
+    def get_Br(self, _basis_evaluator):
         """ Calculate ``Br``.
 
         """
@@ -371,7 +345,7 @@ class State(object):
         return(_basis_evaluator.basis_to_grid(self.VB.coeffs * self.VB_to_Br))
 
 
-    def get_JS(self, _basis_evaluator, deg = False):
+    def get_JS(self): # for now, JS is always returned on num_grid!
         """ Calculate ionospheric sheet current.
 
         """
@@ -384,7 +358,7 @@ class State(object):
         return(Jth, Jph)
 
 
-    def get_Jr(self, _basis_evaluator, deg = False):
+    def get_Jr(self, _basis_evaluator):
         """ Calculate radial current.
 
         """
@@ -392,7 +366,7 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_Jr)
 
 
-    def get_Jeq(self, _basis_evaluator, deg = False):
+    def get_Jeq(self, _basis_evaluator):
         """ Calculate equivalent current function.
 
         """
@@ -400,7 +374,7 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.VB.coeffs * self.VB_to_Jeq)
 
 
-    def get_Phi(self, _basis_evaluator, deg = False):
+    def get_Phi(self, _basis_evaluator):
         """ Calculate Phi.
 
         """
@@ -408,7 +382,7 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.Phi.coeffs)
 
 
-    def get_W(self, _basis_evaluator, deg = False):
+    def get_W(self, _basis_evaluator):
         """ Calculate the induction electric field scalar.
 
         """
@@ -416,15 +390,18 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.EW.coeffs)
 
 
-    def get_E(self, _basis_evaluator, deg = False):
+    def get_E(self): # for now, E is always returned on num_grid!
         """ Calculate electric field.
 
         """
 
-        Jth, Jph = self.get_JS(_basis_evaluator, deg = deg)
+        Eth, Eph = np.zeros(self.num_grid.size), np.zeros(self.num_grid.size)
 
-        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
-        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
+        if self.conductance:
+            Jth, Jph = self.get_JS()
+
+            Eth += self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
+            Eph += self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta
