@@ -107,7 +107,7 @@ class State(object):
                 self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
 
-                _equation_scaling = self.num_grid.lon[ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
+                _equation_scaling = self.num_grid.lat[ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
                 self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
