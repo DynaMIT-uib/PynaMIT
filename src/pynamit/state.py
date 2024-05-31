@@ -80,28 +80,25 @@ class State(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.ll_grid = Grid(90 - self.num_grid.theta[ll_mask], self.num_grid.lon[ll_mask])
-            ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
-            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
-            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
-            self.ll_b_geometry = BGeometry(self.mainfield, self.ll_grid, RI)
-            self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
-            self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
+            self.G_TB_to_JS_ll = self.G_TB_to_JS * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
+            self.G_VB_to_JS_ll = self.G_VB_to_JS * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
+            self.aeP_V_ll, self.aeH_V_ll = self.b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.b_geometry.aeH.dot(self.G_VB_to_JS_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
 
             # ... and for their conjugate points:
-            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
+            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.num_grid.theta, self.num_grid.lon)
             self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
             self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, RI)
             self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
-            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
+            self.G_par_ll = self.basis_evaluator.scaled_G(self.TB_to_Jr / self.b_geometry.br.reshape((-1 ,1)))    * ll_mask.reshape((-1, 1))
+            self.G_par_cp = cp_basis_evaluator.scaled_G(  self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1))) * ll_mask.reshape((-1, 1))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
@@ -110,7 +107,7 @@ class State(object):
                 self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
 
-                _equation_scaling = self.ll_grid.size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
+                _equation_scaling = self.num_grid.lon[ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
                 self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
@@ -163,7 +160,7 @@ class State(object):
         """ update the constraint arrays c and A - should be called when changing u and eta """
 
         self.cu =  (self.u_theta_cp * self.cp_b_geometry.aut + self.u_phi_cp * self.cp_b_geometry.aup) \
-                  -(self.u_theta_ll * self.ll_b_geometry.aut + self.u_phi_ll * self.ll_b_geometry.aup)
+                  -(self.u_theta_ll * self.b_geometry.aut + self.u_phi_ll * self.b_geometry.aup)
         self.AV =  (self.etaP_cp * self.aeP_V_cp + self.etaH_cp * self.aeH_V_cp) \
                   -(self.etaP_ll * self.aeP_V_ll + self.etaH_ll * self.aeH_V_ll)
         self.AT =  (self.etaP_ll * self.aeP_T_ll + self.etaH_ll * self.aeH_T_ll)\
@@ -304,7 +301,7 @@ class State(object):
 
         if self.connect_hemispheres:
             # find wind field at low lat grid points
-            u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.ll_grid.theta, self.ll_grid.lon)
+            u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.num_grid.theta, self.num_grid.lon)
             u_ll = np.tile(u_ll, (1, 2)) # duplicate 
             self.u_theta_ll, self.u_phi_ll = -u_ll[1], u_ll[0]
 
@@ -332,8 +329,8 @@ class State(object):
 
         if self.connect_hemispheres:
             # find resistances at low lat grid points
-            self.etaP_ll = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
-            self.etaH_ll = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.ll_grid.theta, self.ll_grid.lon), 2).reshape((-1, 1))
+            self.etaP_ll = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon), 2).reshape((-1, 1))
+            self.etaH_ll = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon), 2).reshape((-1, 1))
 
             # find resistances at conjugate grid points
             self.etaP_cp = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon), 2).reshape((-1, 1))
