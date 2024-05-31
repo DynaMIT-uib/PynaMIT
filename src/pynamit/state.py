@@ -114,8 +114,6 @@ class State(object):
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
 
-            self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
-
         # Initialize neutral wind and conductances
         self.set_u(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size))
         self.set_conductance(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), self.basis_evaluator)
@@ -257,7 +255,7 @@ class State(object):
 
         if self.connect_hemispheres:
             c = self.cu + self.AV.dot(self.VB.coeffs)
-            d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
+            d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
 
 
