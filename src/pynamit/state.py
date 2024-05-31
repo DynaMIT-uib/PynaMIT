@@ -79,12 +79,14 @@ class State(object):
             else:
                 print('this should not happen')
 
+            # mask the jr so that it only applies poleward of self.latitude_boundary
+            self.Gjr_hl = self.basis_evaluator.scaled_G(self.TB_to_Jr) * (1 - ll_mask).reshape((-1, 1))
+
             # calculate constraint matrices for low latitude points
             self.G_TB_to_JS_ll = self.G_TB_to_JS * np.tile(ll_mask, 2).reshape((-1, 1))
             self.G_VB_to_JS_ll = self.G_VB_to_JS * np.tile(ll_mask, 2).reshape((-1, 1))
             self.aeP_V_ll, self.aeH_V_ll = self.b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.b_geometry.aeH.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.b_geometry.aeH.dot(self.G_TB_to_JS_ll)
-
 
             # ... and for their conjugate points:
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.num_grid.theta, self.num_grid.lon)
@@ -111,7 +113,8 @@ class State(object):
                 self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
- 
+
+            self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
 
         # Initialize neutral wind and conductances
         self.set_u(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), update = False)
@@ -242,6 +245,18 @@ class State(object):
         print('not implemented. inital conditions will be zero')
 
 
+    def impose_constraints(self):
+        """ Impose constraints, if any. May lead to a contribution to TB
+        from VB.
+
+        """
+
+        if self.connect_hemispheres:
+            c = self.cu + self.AV.dot(self.VB.coeffs)
+            d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
+            self.set_coeffs(TB = self.Gpinv.dot(d))
+
+
     def set_FAC(self, FAC, _basis_evaluator):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
@@ -262,29 +277,16 @@ class State(object):
 
         # Extract the radial component of the FAC:
         self.jr = FAC * self.b_geometry.br
+
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
         if self.connect_hemispheres:
-
-            # mask the jr so that it only applies poleward of self.latitude_boundary
-            hl_mask = np.abs(_basis_evaluator.grid.lat) > self.latitude_boundary
-            self.Gjr = self.basis_evaluator.scaled_G(self.TB_to_Jr) * hl_mask.reshape((-1, 1))
-
-            # combine matrices:
-            self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling ))
-
-            self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
-
+            # Combine constraint matrices:
+            self.G_TB = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
             self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 0)
 
-            c = self.cu + self.AV.dot(self.VB.coeffs)
-            
-            self.ccc = c
-            d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
-            self.set_coeffs(TB = self.Gpinv.dot(d))
-            self.ggg = self.G_TB
-
+        self.impose_constraints()
 
 
     def set_u(self, u_theta, u_phi, update = True):
@@ -358,12 +360,10 @@ class State(object):
         #GTE = self.Gcf.T.dot(np.hstack( self.get_E(self.num_grid)) )
         #self.EW = self.GTGcf_inv.dot(GTE) # find coefficients for divergence-free / inductive E
 
-        if self.connect_hemispheres:
-            c = self.cu + self.AV.dot(self.VB.coeffs)
-            d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
-            self.set_coeffs(TB = self.Gpinv.dot(d))
+        self.impose_constraints()
 
         self.update_Phi_and_EW()
+
         new_Br = self.VB.coeffs * self.VB_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
         self.set_coeffs(Br = new_Br)
 
