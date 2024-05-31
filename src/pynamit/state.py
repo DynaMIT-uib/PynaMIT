@@ -300,12 +300,13 @@ class State(object):
         self.uxB_phi   = -self.u_theta * self.b_geometry.Br
 
         if self.connect_hemispheres:
-            # find wind field at conjugate grid points
+            # Wind field at conjugate grid points
             u_cp = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta, self.cp_grid.lon)
-            self.u_theta_cp, self.u_phi_cp = -u_cp[1], u_cp[0]
+            u_theta_cp, u_phi_cp = -u_cp[1], u_cp[0]
 
-            self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
-                      -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
+            # Constraint vector contribution from wind
+            self.cu =  (np.tile(u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(u_phi_cp, 2) * self.cp_b_geometry.aup) \
+                      -(np.tile(u_theta,    2) * self.b_geometry.aut    + np.tile(u_phi,    2) * self.b_geometry.aup)
 
 
     def set_conductance(self, Hall, Pedersen, _basis_evaluator):
@@ -322,7 +323,7 @@ class State(object):
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
         if self.connect_hemispheres:
-            # find resistances at conjugate grid points
+            # Resistances at conjugate grid points
             self.etaP_cp = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             self.etaH_cp = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
