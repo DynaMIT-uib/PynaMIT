@@ -161,10 +161,12 @@ class State(object):
 
         self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
                   -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
-        self.AV =  (self.etaP_cp * self.aeP_V_cp + self.etaH_cp * self.aeH_V_cp) \
-                  -(self.etaP_ll * self.aeP_V_ll + self.etaH_ll * self.aeH_V_ll)
-        self.AT =  (self.etaP_ll * self.aeP_T_ll + self.etaH_ll * self.aeH_T_ll)\
-                  -(self.etaP_cp * self.aeP_T_cp + self.etaH_cp * self.aeH_T_cp)
+
+        self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
+                  -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
+
+        self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
+                  -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
 
 
 
@@ -322,13 +324,9 @@ class State(object):
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
         if self.connect_hemispheres:
-            # find resistances at low lat grid points
-            self.etaP_ll = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon), 2).reshape((-1, 1))
-            self.etaH_ll = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon), 2).reshape((-1, 1))
-
             # find resistances at conjugate grid points
-            self.etaP_cp = np.tile(csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon), 2).reshape((-1, 1))
-            self.etaH_cp = np.tile(csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon), 2).reshape((-1, 1))
+            self.etaP_cp = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
+            self.etaH_cp = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
             if update:
                 self.update_constraints()            
