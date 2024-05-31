@@ -51,6 +51,8 @@ class State(object):
         self.b10 = -self.b_geometry.btheta * self.b_geometry.bphi
         self.b11 = self.b_geometry.btheta**2 + self.b_geometry.br**2
 
+        self.G_VB_to_JS = self.get_G_VB_to_JS(self.basis_evaluator) # matrices that map VB to r x deltaB
+
         # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
         if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
             self.TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
@@ -61,7 +63,6 @@ class State(object):
                 self.TB_to_VB_PFAC = PFAC_matrix
 
         self.G_TB_to_JS = self.get_G_TB_to_JS(self.basis_evaluator) # matrices that map TB to r x deltaB
-        self.G_VB_to_JS = self.get_G_VB_to_JS(self.basis_evaluator) # matrices that map VB to r x deltaB
 
         if connect_hemispheres:
             if ignore_PFAC:
@@ -126,7 +127,7 @@ class State(object):
         Delta_k = np.diff(r_k_steps)
         r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-        JS_shifted_to_VB_shifted = np.linalg.pinv(self.get_G_VB_to_JS(self.basis_evaluator))
+        JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_to_JS, rcond = 0)
 
         TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
         for i in range(r_k.size): 
