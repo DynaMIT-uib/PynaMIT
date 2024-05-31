@@ -117,8 +117,8 @@ class State(object):
             self._zeros = np.zeros(self.constraint_Gpar.shape[0] + self.G_jr_dip_equator.shape[0])
 
         # Initialize neutral wind and conductances
-        self.set_u(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), update = False)
-        self.set_conductance(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), self.basis_evaluator, update = True)
+        self.set_u(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size))
+        self.set_conductance(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), self.basis_evaluator)
 
         # Initialize the spherical harmonic coefficients
         self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
@@ -162,14 +162,19 @@ class State(object):
     def update_constraints(self):
         """ update the constraint arrays c and A - should be called when changing u and eta """
 
-        self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
-                  -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
+        if self.connect_hemispheres:
+            self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
+                      -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
 
-        self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
-                  -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
+            self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
+                      -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
 
-        self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
-                  -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
+            self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
+                      -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
+
+            # Combine constraint matrices:
+            self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
+            self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
 
 
 
@@ -254,7 +259,7 @@ class State(object):
         if self.connect_hemispheres:
             c = self.cu + self.AV.dot(self.VB.coeffs)
             d = np.hstack((self.jr, self._zeros, c * self.ih_constraint_scaling ))
-            self.set_coeffs(TB = self.Gpinv.dot(d))
+            self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
 
 
     def set_FAC(self, FAC, _basis_evaluator):
@@ -281,15 +286,11 @@ class State(object):
         # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
         self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
 
-        if self.connect_hemispheres:
-            # Combine constraint matrices:
-            self.G_TB = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
-            self.Gpinv = np.linalg.pinv(self.G_TB, rcond = 0)
-
+        self.update_constraints()
         self.impose_constraints()
 
 
-    def set_u(self, u_theta, u_phi, update = True):
+    def set_u(self, u_theta, u_phi):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
@@ -308,11 +309,8 @@ class State(object):
             u_cp = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             self.u_theta_cp, self.u_phi_cp = -u_cp[1], u_cp[0]
 
-            if update:
-                self.update_constraints()
 
-
-    def set_conductance(self, Hall, Pedersen, _basis_evaluator, update = True):
+    def set_conductance(self, Hall, Pedersen, _basis_evaluator):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
@@ -330,8 +328,6 @@ class State(object):
             self.etaP_cp = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             self.etaH_cp = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
-            if update:
-                self.update_constraints()            
 
 
     def update_Phi_and_EW(self):
