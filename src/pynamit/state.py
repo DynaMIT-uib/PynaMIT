@@ -42,9 +42,7 @@ class State(object):
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.b_geometry = BGeometry(mainfield, num_grid, RI)
 
-        # initialize neutral wind
-        self.u_theta = None
-        self.u_phi = None 
+        self.neutral_wind = False
 
         # construct the elements in the matrix in the electric field equation
         self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
@@ -114,8 +112,7 @@ class State(object):
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
 
-        # Initialize neutral wind and conductances
-        self.set_u(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size))
+        # Initialize conductances
         self.set_conductance(np.zeros(self.num_grid.size), np.zeros(self.num_grid.size), self.basis_evaluator)
 
         # Initialize the spherical harmonic coefficients
@@ -233,9 +230,6 @@ class State(object):
         """ update the constraint arrays c and A - should be called when changing u and eta """
 
         if self.connect_hemispheres:
-            self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
-                      -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
-
             self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
                       -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
 
@@ -246,6 +240,10 @@ class State(object):
             self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
             self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
 
+            if self.neutral_wind:
+                self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
+                          -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
+
 
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to TB from
@@ -254,7 +252,9 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            c = self.cu + self.AV.dot(self.VB.coeffs)
+            c = self.AV.dot(self.VB.coeffs)
+            if self.neutral_wind:
+                c += self.cu
             d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
 
@@ -294,6 +294,8 @@ class State(object):
 
         if (u_theta.size != self.num_grid.theta.size) or (u_phi.size != self.num_grid.lon.size):
             raise Exception('Wind must match dimensions of num_grid')
+
+        self.neutral_wind = True
 
         self.u_theta = u_theta
         self.u_phi   = u_phi
@@ -418,17 +420,15 @@ class State(object):
         """ Calculate electric field.
 
         """
-        if self.u_theta is not None:
-            Eth = -self.uxB_theta
-            Eph = -self.uxB_phi
-        else:
-            Eth = 0
-            Eph = 0
 
         Jth, Jph = self.get_JS(_basis_evaluator, deg = deg)
 
-        Eth = Eth + self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
-        Eph = Eph + self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
+        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
+        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
+
+        if self.neutral_wind:
+            Eth -= self.uxB_theta
+            Eph -= self.uxB_phi
 
         return(Eth, Eph)
 
