@@ -270,11 +270,7 @@ class State(object):
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
             hl_mask = np.abs(_basis_evaluator.grid.lat) > self.latitude_boundary
-            self.hl_grid = Grid(90 - _basis_evaluator.grid.theta[hl_mask], _basis_evaluator.grid.lon[hl_mask])
-            hl_basis_evaluator = BasisEvaluator(self.basis, self.hl_grid)
-
-            self.Gjr = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
-            self.jr = self.jr[hl_mask].flatten()
+            self.Gjr = self.basis_evaluator.scaled_G(self.TB_to_Jr) * hl_mask.reshape((-1, 1))
 
             # combine matrices:
             self.G_TB = np.vstack((self.Gjr, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling ))
