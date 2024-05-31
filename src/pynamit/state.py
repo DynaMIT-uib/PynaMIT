@@ -159,25 +159,6 @@ class State(object):
         return(TB_to_VB_PFAC)
 
 
-    def update_constraints(self):
-        """ update the constraint arrays c and A - should be called when changing u and eta """
-
-        if self.connect_hemispheres:
-            self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
-                      -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
-
-            self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
-                      -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
-
-            self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
-                      -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
-
-            # Combine constraint matrices:
-            self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
-            self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
-
-
-
     def get_G_TB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
 
@@ -250,9 +231,27 @@ class State(object):
         print('not implemented. inital conditions will be zero')
 
 
+    def update_constraints(self):
+        """ update the constraint arrays c and A - should be called when changing u and eta """
+
+        if self.connect_hemispheres:
+            self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
+                      -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
+
+            self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
+                      -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
+
+            self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
+                      -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
+
+            # Combine constraint matrices:
+            self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
+            self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
+
+
     def impose_constraints(self):
-        """ Impose constraints, if any. May lead to a contribution to TB
-        from VB.
+        """ Impose constraints, if any. Leads to a contribution to TB from
+        VB if the hemispheres are connected.
 
         """
 
