@@ -80,8 +80,8 @@ class State(object):
                 print('this should not happen')
 
             # calculate constraint matrices for low latitude points
-            self.G_TB_to_JS_ll = self.G_TB_to_JS * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
-            self.G_VB_to_JS_ll = self.G_VB_to_JS * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
+            self.G_TB_to_JS_ll = self.G_TB_to_JS * np.tile(ll_mask, 2).reshape((-1, 1))
+            self.G_VB_to_JS_ll = self.G_VB_to_JS * np.tile(ll_mask, 2).reshape((-1, 1))
             self.aeP_V_ll, self.aeH_V_ll = self.b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.b_geometry.aeH.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
@@ -90,8 +90,8 @@ class State(object):
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.num_grid.theta, self.num_grid.lon)
             self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * np.vstack((ll_mask.reshape((-1, 1)), ll_mask.reshape((-1, 1))))
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * np.tile(ll_mask, 2).reshape((-1, 1))
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * np.tile(ll_mask, 2).reshape((-1, 1))
             self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, RI)
             self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
@@ -159,8 +159,8 @@ class State(object):
     def update_constraints(self):
         """ update the constraint arrays c and A - should be called when changing u and eta """
 
-        self.cu =  (self.u_theta_cp * self.cp_b_geometry.aut + self.u_phi_cp * self.cp_b_geometry.aup) \
-                  -(self.u_theta_ll * self.b_geometry.aut + self.u_phi_ll * self.b_geometry.aup)
+        self.cu =  (np.tile(self.u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(self.u_phi_cp, 2) * self.cp_b_geometry.aup) \
+                  -(np.tile(self.u_theta,    2) * self.b_geometry.aut    + np.tile(self.u_phi,    2) * self.b_geometry.aup)
         self.AV =  (self.etaP_cp * self.aeP_V_cp + self.etaH_cp * self.aeH_V_cp) \
                   -(self.etaP_ll * self.aeP_V_ll + self.etaH_ll * self.aeH_V_ll)
         self.AT =  (self.etaP_ll * self.aeP_T_ll + self.etaH_ll * self.aeH_T_ll)\
@@ -300,14 +300,8 @@ class State(object):
         self.uxB_phi   = -self.u_theta * self.b_geometry.Br
 
         if self.connect_hemispheres:
-            # find wind field at low lat grid points
-            u_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.num_grid.theta, self.num_grid.lon)
-            u_ll = np.tile(u_ll, (1, 2)) # duplicate 
-            self.u_theta_ll, self.u_phi_ll = -u_ll[1], u_ll[0]
-
             # find wind field at conjugate grid points
             u_cp = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta, self.cp_grid.lon)
-            u_cp = np.tile(u_cp, (1, 2)) # duplicate 
             self.u_theta_cp, self.u_phi_cp = -u_cp[1], u_cp[0]
 
             if update:
