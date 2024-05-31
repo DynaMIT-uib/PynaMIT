@@ -81,20 +81,22 @@ class State(object):
             else:
                 print('this should not happen')
 
-            # mask the jr so that it only applies poleward of self.latitude_boundary
-            self.Gjr_hl = self.basis_evaluator.scaled_G(self.TB_to_Jr) * (1 - self.ll_mask).reshape((-1, 1))
+            # Mask jr so that it only applies poleward of self.latitude_boundary
+            hl_grid = Grid(self.num_grid.lat[self.hl_mask], self.num_grid.lon[self.hl_mask])
+            hl_basis_evaluator = BasisEvaluator(self.basis, hl_grid)
+            self.Gjr_hl = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
 
-            # calculate constraint matrices for low latitude points
-            self.ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
-            ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
+            # Calculate constraint matrices for low latitude points
+            ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
+            ll_basis_evaluator = BasisEvaluator(self.basis, ll_grid)
             self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
             self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
-            self.ll_b_geometry = BGeometry(self.mainfield, self.ll_grid, RI)
+            self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, RI)
             self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
             # ... and for their conjugate points:
-            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
+            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, ll_grid.theta, ll_grid.lon)
             self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
@@ -231,7 +233,7 @@ class State(object):
             c = self.AV.dot(self.VB.coeffs)
             if self.neutral_wind:
                 c += self.cu
-            d = np.hstack((self.jr, np.zeros(self.constraint_Gpar.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            d = np.hstack((self.jr[self.hl_mask], np.zeros(self.constraint_Gpar.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
 
 
