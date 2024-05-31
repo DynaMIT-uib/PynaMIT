@@ -70,37 +70,42 @@ class State(object):
             if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
 
-            # identify the low latitude points
+            # identify the high and low latitude points
             if self.mainfield.kind == 'dipole':
-                ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
+                self.hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
+                self.ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
             elif self.mainfield.kind == 'igrf':
-                mlat, mlon = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.RI - RE)*1e-3)
-                ll_mask = np.abs(mlat) < self.latitude_boundary
+                mlat, _ = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.RI - RE)*1e-3)
+                self.hl_mask = np.abs(mlat) > self.latitude_boundary
+                self.ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
             # mask the jr so that it only applies poleward of self.latitude_boundary
-            self.Gjr_hl = self.basis_evaluator.scaled_G(self.TB_to_Jr) * (1 - ll_mask).reshape((-1, 1))
+            self.Gjr_hl = self.basis_evaluator.scaled_G(self.TB_to_Jr) * (1 - self.ll_mask).reshape((-1, 1))
 
             # calculate constraint matrices for low latitude points
-            self.G_TB_to_JS_ll = self.G_TB_to_JS * np.tile(ll_mask, 2).reshape((-1, 1))
-            self.G_VB_to_JS_ll = self.G_VB_to_JS * np.tile(ll_mask, 2).reshape((-1, 1))
-            self.aeP_V_ll, self.aeH_V_ll = self.b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.b_geometry.aeH.dot(self.G_VB_to_JS_ll)
-            self.aeP_T_ll, self.aeH_T_ll = self.b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.b_geometry.aeH.dot(self.G_TB_to_JS_ll)
+            self.ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
+            ll_basis_evaluator = BasisEvaluator(self.basis, self.ll_grid)
+            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
+            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
+            self.ll_b_geometry = BGeometry(self.mainfield, self.ll_grid, RI)
+            self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
             # ... and for their conjugate points:
-            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.num_grid.theta, self.num_grid.lon)
+            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.ll_grid.theta, self.ll_grid.lon)
             self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
             cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator) * np.tile(ll_mask, 2).reshape((-1, 1))
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator) * np.tile(ll_mask, 2).reshape((-1, 1))
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
             self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, RI)
             self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
 
             # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll = self.basis_evaluator.scaled_G(self.TB_to_Jr / self.b_geometry.br.reshape((-1 ,1)))    * ll_mask.reshape((-1, 1))
-            self.G_par_cp = cp_basis_evaluator.scaled_G(  self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1))) * ll_mask.reshape((-1, 1))
+            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
+            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
@@ -109,7 +114,7 @@ class State(object):
                 self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
 
-                _equation_scaling = self.num_grid.lat[ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
+                _equation_scaling = self.num_grid.lat[self.ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
                 self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
             else: # make zero-row stand-in for the jr matrix:
                 self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
@@ -273,13 +278,15 @@ class State(object):
         self.uxB_phi   = -self.u_theta * self.b_geometry.Br
 
         if self.connect_hemispheres:
+            u_theta_ll = u_theta[self.ll_mask]
+            u_phi_ll   = u_phi[self.ll_mask]
             # Wind field at conjugate grid points
             u_cp = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             u_theta_cp, u_phi_cp = -u_cp[1], u_cp[0]
 
             # Constraint vector contribution from wind
             self.cu =  (np.tile(u_theta_cp, 2) * self.cp_b_geometry.aut + np.tile(u_phi_cp, 2) * self.cp_b_geometry.aup) \
-                      -(np.tile(u_theta,    2) * self.b_geometry.aut    + np.tile(u_phi,    2) * self.b_geometry.aup)
+                      -(np.tile(u_theta_ll, 2) * self.ll_b_geometry.aut + np.tile(u_phi_ll, 2) * self.ll_b_geometry.aup)
 
 
     def set_conductance(self, Hall, Pedersen, _basis_evaluator):
@@ -298,15 +305,17 @@ class State(object):
         self.etaH = Hall     / (Hall**2 + Pedersen**2)
 
         if self.connect_hemispheres:
+            self.etaP_ll = self.etaP[self.ll_mask]
+            self.etaH_ll = self.etaH[self.ll_mask]
             # Resistances at conjugate grid points
             self.etaP_cp = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
             self.etaH_cp = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
             # Conductance-dependent constraint matrices
             self.AV =  (np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_V_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_V_cp) \
-                      -(np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_V_ll)
+                      -(np.tile(self.etaP_ll, 2).reshape((-1, 1)) * self.aeP_V_ll + np.tile(self.etaH_ll, 2).reshape((-1, 1)) * self.aeH_V_ll)
 
-            self.AT =  (np.tile(self.etaP,    2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH,    2).reshape((-1, 1)) * self.aeH_T_ll) \
+            self.AT =  (np.tile(self.etaP_ll, 2).reshape((-1, 1)) * self.aeP_T_ll + np.tile(self.etaH_ll, 2).reshape((-1, 1)) * self.aeH_T_ll) \
                       -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
 
             # Combine constraint matrices
