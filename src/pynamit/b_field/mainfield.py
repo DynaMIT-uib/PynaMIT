@@ -61,10 +61,10 @@ class Mainfield(object):
                 return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
 
         elif self.kind == 'radial':
-            B0 = dipole.Dipole(epoch).B0 * 1e-9 if B0 is None else B0 # use Dipole B0 as default
+            self.B0 = dipole.Dipole(epoch).B0 * 1e-9 if B0 is None else B0 # use Dipole B0 as default
             def _Bfunc(r, theta, phi):
                 r, theta, phi = np.broadcast_arrays(r, theta, phi)
-                return ((RE / r)**2 * B0, r*0, r*0)
+                return ((RE / r)**2 * self.B0, r*0, r*0)
 
         else:
             raise Exception('impossible')
