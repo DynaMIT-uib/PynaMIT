@@ -83,6 +83,32 @@ class BasisEvaluator(object):
         return self._GTG
 
     @property
+    def G_grad(self):
+        """
+        Return the matrix that transforms coefficients to the gradient of the
+        grid values.
+
+        """
+
+        if not hasattr(self, '_G_grad'):
+            self._G_grad = np.vstack((self.G_th, self.G_ph))
+
+        return self._G_grad
+
+    @property
+    def G_rxgrad(self):
+        """
+        Return the matrix that transforms coefficients to the cross product of
+        the gradient of the grid values.
+
+        """
+
+        if not hasattr(self, '_G_rxgrad'):
+            self._G_rxgrad = np.vstack((-self.G_ph, self.G_th))
+
+        return self._G_rxgrad
+
+    @property
     def G_helmholtz(self):
         """
         Return the G matrix for the Helmholtz decomposition into the
@@ -91,9 +117,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz'):
-            Gcf = np.vstack((-self.G_th, -self.G_ph))
-            Gdf = np.vstack((-self.G_ph, self.G_th))
-            self._G_helmholtz = np.hstack((Gcf, Gdf))
+            self._G_helmholtz = np.hstack((-self.G_grad, self.G_rxgrad))
         return self._G_helmholtz
 
     @property
