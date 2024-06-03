@@ -107,9 +107,10 @@ class State(object):
                     shifted_b_geometry = BGeometry(self.mainfield, self.num_grid, r_k[i])
                     mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-                    Jr_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.Br).reshape((-1, 1)),
-                                        (shifted_b_geometry.Bphi   / mapped_b_geometry.Br).reshape((-1, 1)))
-                    TB_to_JS_shifted = np.vstack(mapped_basis_evaluator.scaled_G(self.TB_to_Jr) * Jr_to_JS_shifted)
+                    TB_to_Jpar = mapped_basis_evaluator.scaled_G(self.TB_to_Jr / mapped_b_geometry.br.reshape((-1 ,1)))
+                    Jpar_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.B_magnitude).reshape((-1, 1)),
+                                          (shifted_b_geometry.Bphi   / mapped_b_geometry.B_magnitude).reshape((-1, 1)))
+                    TB_to_JS_shifted = np.vstack(TB_to_Jpar * Jpar_to_JS_shifted)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
                     VB_shifted_to_VB = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
