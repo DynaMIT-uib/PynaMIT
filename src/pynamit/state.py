@@ -64,62 +64,7 @@ class State(object):
 
         self.G_TB_to_JS = self.get_G_TB_to_JS(self.basis_evaluator) # matrices that map TB to r x deltaB
 
-        if connect_hemispheres:
-            if ignore_PFAC:
-                raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
-            if self.mainfield.kind == 'radial':
-                raise ValueError('Hemispheres can not be connected with radial magnetic field')
-
-            # identify the high and low latitude points
-            if self.mainfield.kind == 'dipole':
-                self.hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
-                self.ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
-            elif self.mainfield.kind == 'igrf':
-                mlat, _ = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.RI - RE)*1e-3)
-                self.hl_mask = np.abs(mlat) > self.latitude_boundary
-                self.ll_mask = np.abs(mlat) < self.latitude_boundary
-            else:
-                print('this should not happen')
-
-            # Mask jr so that it only applies poleward of self.latitude_boundary
-            hl_grid = Grid(self.num_grid.lat[self.hl_mask], self.num_grid.lon[self.hl_mask])
-            hl_basis_evaluator = BasisEvaluator(self.basis, hl_grid)
-            self.Gjr_hl = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
-
-            # Calculate constraint matrices for low latitude points
-            ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
-            ll_basis_evaluator = BasisEvaluator(self.basis, ll_grid)
-            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
-            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
-            self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, RI)
-            self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
-            self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
-
-            # ... and for their conjugate points:
-            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, ll_grid.theta, ll_grid.lon)
-            self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
-            cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
-            self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, RI)
-            self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
-            self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
-
-            # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
-            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
-            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
-
-            if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
-                dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
-                dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
-                self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
-                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
-
-                _equation_scaling = self.num_grid.lat[self.ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
-                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
-            else: # make zero-row stand-in for the jr matrix:
-                self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
+        self.initialize_constraints()
 
         # Initialize the spherical harmonic coefficients
         self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
@@ -221,6 +166,69 @@ class State(object):
             self.TB = Vector(self.basis, kwargs['Jr'] / self.TB_to_Jr)
         else:
             raise Exception('This should not happen')
+
+
+    def initialize_constraints(self):
+        """ Initialize constraints.
+
+        """
+
+        if self.connect_hemispheres:
+            if self.ignore_PFAC:
+                raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
+            if self.mainfield.kind == 'radial':
+                raise ValueError('Hemispheres can not be connected with radial magnetic field')
+
+            # identify the high and low latitude points
+            if self.mainfield.kind == 'dipole':
+                self.hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
+                self.ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
+            elif self.mainfield.kind == 'igrf':
+                mlat, _ = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.RI - RE)*1e-3)
+                self.hl_mask = np.abs(mlat) > self.latitude_boundary
+                self.ll_mask = np.abs(mlat) < self.latitude_boundary
+            else:
+                print('this should not happen')
+
+            # Mask jr so that it only applies poleward of self.latitude_boundary
+            hl_grid = Grid(self.num_grid.lat[self.hl_mask], self.num_grid.lon[self.hl_mask])
+            hl_basis_evaluator = BasisEvaluator(self.basis, hl_grid)
+            self.Gjr_hl = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
+
+            # Calculate constraint matrices for low latitude points
+            ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
+            ll_basis_evaluator = BasisEvaluator(self.basis, ll_grid)
+            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
+            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
+            self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, self.RI)
+            self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
+            self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
+
+            # ... and for their conjugate points:
+            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, ll_grid.theta, ll_grid.lon)
+            self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
+            cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
+            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
+            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
+            self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, self.RI)
+            self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
+            self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
+
+            # constraint matrix: FAC out of one hemisphere = FAC into the other
+            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
+            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
+            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
+
+            if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
+                dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
+                dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
+                self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
+                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
+
+                _equation_scaling = self.num_grid.lat[self.ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
+                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
+            else: # make zero-row stand-in for the jr matrix:
+                self.G_jr_dip_equator = np.empty((0, self.sh.n.size))
 
 
     def impose_constraints(self):
