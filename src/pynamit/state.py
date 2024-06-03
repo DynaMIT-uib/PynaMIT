@@ -31,17 +31,21 @@ class State(object):
         self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
 
-        # Conversion factors
-        self.VB_to_Br     = -self.sh.n
-        self.laplacian    = -self.sh.n * (self.sh.n + 1) / RI**2
-        self.TB_to_Jr     = self.laplacian * self.RI / mu0
-        self.EW_to_dBr_dt = -self.laplacian * self.RI
-        self.VB_to_Jeq    = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
+        # Spherical harmonic identities
+        d_dr            = -self.sh.n / self.RI
+        laplacian       = -self.sh.n * (self.sh.n + 1) / self.RI**2
+        V_discontinuity = (2 * self.sh.n + 1) / (self.sh.n + 1)
+
+        # Spherical harmonic conversion factors
+        self.VB_to_Br     = self.RI * d_dr
+        self.TB_to_Jr     = self.RI / mu0 * laplacian
+        self.EW_to_dBr_dt = -self.RI * laplacian
+        self.VB_to_Jeq    = self.RI / mu0 * V_discontinuity
 
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.b_geometry = BGeometry(mainfield, num_grid, RI)
-        self.G_VB_to_JS = self.basis_evaluator.G_rxgrad * (2 * self.sh.n + 1) / (self.sh.n + 1) / mu0
+        self.G_VB_to_JS = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
         self.G_TB_to_JS = -self.basis_evaluator.G_grad / mu0 + self.G_VB_to_JS.dot(self.TB_to_VB_PFAC)
 
         if self.connect_hemispheres:
@@ -50,7 +54,7 @@ class State(object):
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_geometry = BGeometry(mainfield, self.cp_grid, RI)
-            self.G_VB_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * (2 * self.sh.n + 1) / (self.sh.n + 1) / mu0
+            self.G_VB_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
             self.G_TB_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_to_JS_cp.dot(self.TB_to_VB_PFAC)
 
         self.initialize_constraints()
