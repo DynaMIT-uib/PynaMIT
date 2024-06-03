@@ -173,14 +173,14 @@ class State(object):
             else:
                 print('this should not happen')
 
-            # Calculate the matrices that map TB to FAC on num_grid and conjugate grid
+            # Calculate the matrices that convert TB to FAC on num_grid and conjugate grid
             G_Jpar    =    self.basis_evaluator.scaled_G(self.TB_to_Jr /    self.b_geometry.br.reshape((-1 ,1)))
             G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
 
-            # Mask Jpar so that it only applies poleward of self.latitude_boundary
+            # Calculate matrix that ensures high latitude FACs are unaffected by other constraints
             self.G_Jpar_hl = G_Jpar[~self.ll_mask]
 
-            # Constraint matrix: FAC out of one hemisphere = FAC into the other
+            # Calculate matrix that constrains outwards FACs at low latitude points to be equal to inwards FACs at conjugate points
             self.G_Jpar_ll_diff = (G_Jpar[self.ll_mask] - G_Jpar_cp[self.ll_mask])
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
@@ -189,16 +189,17 @@ class State(object):
             self.aeP_V_cp_ll, self.aeH_V_cp_ll = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp)[np.tile(self.ll_mask, 2)], self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeP_T_cp_ll, self.aeH_T_cp_ll = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp)[np.tile(self.ll_mask, 2)], self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)[np.tile(self.ll_mask, 2)]
 
-            if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
-                dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
-                dip_equator_theta = self.mainfield.dip_equator(dip_equator_phi)
-                self.dip_equator_grid = Grid(90 - dip_equator_theta, dip_equator_phi)
-                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, self.dip_equator_grid)
+            if self.zero_jr_at_dip_equator:
+                # Calculate matrix that converts TB to Jr at dip equator
+                n_phi = self.sh.Mmax*2 + 1
+                dip_equator_phi = np.linspace(0, 360, n_phi)
+                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(90 - self.mainfield.dip_equator(dip_equator_phi), dip_equator_phi))
 
-                _equation_scaling = self.num_grid.lat[self.ll_mask].size / (self.sh.Mmax*2 + 1) # scaling to match importance of other equations
+                _equation_scaling = self.num_grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
                 self.G_Jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
-            else: # make zero-row stand-in for the jr matrix:
-                self.G_Jr_dip_equator = np.empty((0, self.sh.n.size))
+            else:
+                # Make zero-row stand-in for the Jr matrix
+                self.G_Jr_dip_equator = np.empty((0, self.sh.num_coeffs))
 
 
     def impose_constraints(self):
@@ -211,8 +212,10 @@ class State(object):
             c = self.AV.dot(self.VB.coeffs)
             if self.neutral_wind:
                 c += self.cu
-            d = np.hstack((self.Jpar[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
-            self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
+
+            constraint_vector = np.hstack((self.Jpar[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+
+            self.set_coeffs(TB = self.G_TB_constraints_inv.dot(constraint_vector))
 
 
     def set_FAC(self, FAC, _basis_evaluator):
