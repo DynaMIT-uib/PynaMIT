@@ -199,6 +199,9 @@ class State(object):
             ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
             ll_basis_evaluator = BasisEvaluator(self.basis, ll_grid)
             self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, self.RI)
+            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, ll_grid.theta, ll_grid.lon)
+            self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
+            cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
             self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
             self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
@@ -210,9 +213,6 @@ class State(object):
             self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
             # ... and for their conjugate points:
-            self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, ll_grid.theta, ll_grid.lon)
-            self.cp_grid = Grid(90 - self.cp_theta, self.cp_phi)
-            cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.G_TB_to_JS_cp = self.get_G_TB_to_JS(cp_basis_evaluator)
             self.G_VB_to_JS_cp = self.get_G_VB_to_JS(cp_basis_evaluator)
             self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, self.RI)
