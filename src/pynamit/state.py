@@ -38,39 +38,20 @@ class State(object):
         self.EW_to_dBr_dt = -self.laplacian * self.RI
         self.VB_to_Jeq    = self.RI / mu0 * (2 * self.sh.n + 1) / (self.sh.n + 1)
 
-        # initialize the basis evaluator
+        # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.b_geometry = BGeometry(mainfield, num_grid, RI)
-
-        self.neutral_wind = False
-        self.conductance  = False
-
-        # construct the elements in the matrix in the electric field equation
-        self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
-        self.b01 = -self.b_geometry.btheta * self.b_geometry.bphi
-        self.b10 = -self.b_geometry.btheta * self.b_geometry.bphi
-        self.b11 = self.b_geometry.btheta**2 + self.b_geometry.br**2
-
-        self.G_VB_to_JS = self.get_G_VB_to_JS(self.basis_evaluator) # matrices that map VB to r x deltaB
-
-        # Pre-calculate the matrix that maps from TB to the boundary magnetic field (Bh+)
-        if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-            self.TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
-        else: # Use the method by Engels and Olsen 1998, Eq. 13 to account for poloidal part of magnetic field for FACs
-            if PFAC_matrix is None:
-                self.TB_to_VB_PFAC = self._get_PFAC_matrix()
-            else:
-                self.TB_to_VB_PFAC = PFAC_matrix
-
-        self.G_TB_to_JS = self.get_G_TB_to_JS(self.basis_evaluator) # matrices that map TB to r x deltaB
+        self.G_VB_to_JS = self.basis_evaluator.G_rxgrad * (2 * self.sh.n + 1) / (self.sh.n + 1) / mu0
+        self.G_TB_to_JS = -self.basis_evaluator.G_grad / mu0 + self.G_VB_to_JS.dot(self.TB_to_VB_PFAC)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.lon)
             self.cp_grid = Grid(90 - cp_theta, cp_phi)
+
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_geometry = BGeometry(mainfield, self.cp_grid, RI)
-            self.G_VB_to_JS_cp = self.get_G_VB_to_JS(self.cp_basis_evaluator) # matrices that map VB to r x deltaB
-            self.G_TB_to_JS_cp = self.get_G_TB_to_JS(self.cp_basis_evaluator) # matrices that map TB to r x deltaB
+            self.G_VB_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * (2 * self.sh.n + 1) / (self.sh.n + 1) / mu0
+            self.G_TB_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_to_JS_cp.dot(self.TB_to_VB_PFAC)
 
         self.initialize_constraints()
 
@@ -78,58 +59,62 @@ class State(object):
         self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
         self.set_coeffs(TB = np.zeros(self.basis.num_coeffs))
 
+        # Neutral wind and conductance should be set after I2D initialization
+        self.neutral_wind = False
+        self.conductance  = False
 
-    def _get_PFAC_matrix(self):
-        """ """
-        # initialize matrix that will map from self.TB to coefficients for poloidal field:
-
-        r_k_steps = self.FAC_integration_steps
-        Delta_k = np.diff(r_k_steps)
-        r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
-
-        JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_to_JS, rcond = 0)
-
-        TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
-        for i in range(r_k.size): 
-            print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
-            # Map coordinates from r_k[i] to RI:
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
-            mapped_grid = Grid(90 - theta_mapped, phi_mapped)
-
-            # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
-            shifted_b_geometry = BGeometry(self.mainfield, self.num_grid, r_k[i])
-            mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
-            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-            Jr_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.Br).reshape((-1, 1)),
-                                (shifted_b_geometry.Bphi   / mapped_b_geometry.Br).reshape((-1, 1)))
-            TB_to_JS_shifted = np.vstack(mapped_basis_evaluator.scaled_G(self.TB_to_Jr) * Jr_to_JS_shifted)
-
-            # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
-            VB_shifted_to_VB = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
-            JS_shifted_to_VB = JS_shifted_to_VB_shifted * VB_shifted_to_VB
-
-            # Integration step
-            TB_to_VB_PFAC -= Delta_k[i] * JS_shifted_to_VB.dot(TB_to_JS_shifted)
-
-        return(TB_to_VB_PFAC)
+        # Construct the matrix elements used to calculate the electric field
+        self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
+        self.b01 = -self.b_geometry.btheta * self.b_geometry.bphi
+        self.b10 = -self.b_geometry.btheta * self.b_geometry.bphi
+        self.b11 = self.b_geometry.btheta**2 + self.b_geometry.br**2
 
 
-    def get_G_TB_to_JS(self, _basis_evaluator):
-        """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
+    @property
+    def TB_to_VB_PFAC(self):
+        """
+        Return  matrix that maps from self.TB to coefficients for poloidal
+        field of FACs. Uses the method by Engels and Olsen 1998, Eq. 13 to
+        account for poloidal part of magnetic field for FACs.
 
-        G_VB_to_JS = self.get_G_VB_to_JS(_basis_evaluator)
+        """
 
-        G_TB_to_JS = -_basis_evaluator.G_grad / mu0 + G_VB_to_JS.dot(self.TB_to_VB_PFAC)
+        if not hasattr(self, '_TB_to_VB_PFAC'):
 
-        return(G_TB_to_JS)
+            if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
+                self._TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
+            else:
+                r_k_steps = self.FAC_integration_steps
+                Delta_k = np.diff(r_k_steps)
+                r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-    def get_G_VB_to_JS(self, _basis_evaluator):
-        """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
+                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_to_JS, rcond = 0)
 
-        G_VB_to_JS = _basis_evaluator.G_rxgrad * (2 * self.sh.n + 1) / (self.sh.n + 1) / mu0
+                self._TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
-        return(G_VB_to_JS)
+                for i in range(r_k.size):
+                    print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
+                    # Map coordinates from r_k[i] to RI:
+                    theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
+                    mapped_grid = Grid(90 - theta_mapped, phi_mapped)
+
+                    # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
+                    shifted_b_geometry = BGeometry(self.mainfield, self.num_grid, r_k[i])
+                    mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
+                    mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
+                    Jr_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.Br).reshape((-1, 1)),
+                                        (shifted_b_geometry.Bphi   / mapped_b_geometry.Br).reshape((-1, 1)))
+                    TB_to_JS_shifted = np.vstack(mapped_basis_evaluator.scaled_G(self.TB_to_Jr) * Jr_to_JS_shifted)
+
+                    # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
+                    VB_shifted_to_VB = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
+                    JS_shifted_to_VB = JS_shifted_to_VB_shifted * VB_shifted_to_VB
+
+                    # Integration step
+                    self._TB_to_VB_PFAC -= Delta_k[i] * JS_shifted_to_VB.dot(TB_to_JS_shifted)
+
+        return(self._TB_to_VB_PFAC)
 
 
     def set_coeffs(self, **kwargs):
