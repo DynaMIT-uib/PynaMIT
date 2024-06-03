@@ -195,12 +195,17 @@ class State(object):
             hl_basis_evaluator = BasisEvaluator(self.basis, hl_grid)
             self.Gjr_hl = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
 
-            # Calculate constraint matrices for low latitude points
+            # constraint matrix: FAC out of one hemisphere = FAC into the other
             ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
             ll_basis_evaluator = BasisEvaluator(self.basis, ll_grid)
+            self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, self.RI)
+            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
+            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
+            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
+
+            # Calculate constraint matrices for low latitude points
             self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
             self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
-            self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, self.RI)
             self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
@@ -213,11 +218,6 @@ class State(object):
             self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, self.RI)
             self.aeP_V_cp, self.aeH_V_cp = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)
             self.aeP_T_cp, self.aeH_T_cp = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp), self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)
-
-            # constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
-            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
-            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
 
             if self.zero_jr_at_dip_equator: # calculate matrix to compute jr at dip equator
                 dip_equator_phi = np.linspace(0, 360, self.sh.Mmax*2 + 1)
