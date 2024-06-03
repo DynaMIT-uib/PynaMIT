@@ -117,13 +117,9 @@ class State(object):
     def get_G_TB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients TB to delta B across ionosphere """
 
-        GrxgradT_theta = -_basis_evaluator.G_th
-        GrxgradT_phi   = -_basis_evaluator.G_ph
-        G_TB0_to_JS = np.vstack((GrxgradT_theta, GrxgradT_phi)) / mu0
-
         G_VB_to_JS = self.get_G_VB_to_JS(_basis_evaluator)
 
-        G_TB_to_JS = G_TB0_to_JS + G_VB_to_JS.dot(self.TB_to_VB_PFAC)
+        G_TB_to_JS = -_basis_evaluator.G_grad / mu0 + G_VB_to_JS.dot(self.TB_to_VB_PFAC)
 
         return(G_TB_to_JS)
 
@@ -131,11 +127,7 @@ class State(object):
     def get_G_VB_to_JS(self, _basis_evaluator):
         """ Calculate matrix that maps the coefficients VB to delta B across ionosphere """
 
-        GVrxdB_theta = -_basis_evaluator.G_ph * (2 * self.sh.n + 1) / (self.sh.n + 1)
-        GVrxdB_phi   =  _basis_evaluator.G_th * (2 * self.sh.n + 1) / (self.sh.n + 1)
-
-
-        G_VB_to_JS = np.vstack((GVrxdB_theta, GVrxdB_phi)) / mu0
+        G_VB_to_JS = _basis_evaluator.G_rxgrad * (2 * self.sh.n + 1) / (self.sh.n + 1) / mu0
 
         return(G_VB_to_JS)
 
