@@ -190,14 +190,13 @@ class State(object):
             else:
                 print('this should not happen')
 
-            # Mask jr so that it only applies poleward of self.latitude_boundary
-            hl_grid = Grid(self.num_grid.lat[self.hl_mask], self.num_grid.lon[self.hl_mask])
-            hl_basis_evaluator = BasisEvaluator(self.basis, hl_grid)
-            self.Gjr_hl = hl_basis_evaluator.scaled_G(self.TB_to_Jr)
+            self.G_par = self.basis_evaluator.scaled_G(self.TB_to_Jr / self.b_geometry.br.reshape((-1 ,1)))
+
+            # Mask Jpar so that it only applies poleward of self.latitude_boundary
+            self.G_Jpar_hl = self.G_par[self.hl_mask]
 
             # Prepare evaluators for low latitude points and their conjugate points
             ll_grid = Grid(self.num_grid.lat[self.ll_mask], self.num_grid.lon[self.ll_mask])
-            ll_basis_evaluator = BasisEvaluator(self.basis, ll_grid)
             self.ll_b_geometry = BGeometry(self.mainfield, ll_grid, self.RI)
 
             self.cp_theta, self.cp_phi = self.mainfield.conjugate_coordinates(self.RI, ll_grid.theta, ll_grid.lon)
@@ -206,13 +205,13 @@ class State(object):
             self.cp_b_geometry = BGeometry(self.mainfield, self.cp_grid, self.RI)
 
             # Constraint matrix: FAC out of one hemisphere = FAC into the other
-            self.G_par_ll = ll_basis_evaluator.scaled_G(self.TB_to_Jr / self.ll_b_geometry.br.reshape((-1 ,1)))
-            self.G_par_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
-            self.constraint_Gpar = (self.G_par_ll - self.G_par_cp) 
+            G_Jpar_ll = self.G_par[self.ll_mask]
+            G_Jpar_cp = cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
+            self.constraint_Gpar = (G_Jpar_ll - G_Jpar_cp)
 
             # Calculate constraint matrices for low latitude points
-            self.G_TB_to_JS_ll = self.get_G_TB_to_JS(ll_basis_evaluator)
-            self.G_VB_to_JS_ll = self.get_G_VB_to_JS(ll_basis_evaluator)
+            self.G_TB_to_JS_ll = self.G_TB_to_JS[np.tile(self.ll_mask, 2)]
+            self.G_VB_to_JS_ll = self.G_VB_to_JS[np.tile(self.ll_mask, 2)]
             self.aeP_V_ll, self.aeH_V_ll = self.ll_b_geometry.aeP.dot(self.G_VB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_VB_to_JS_ll)
             self.aeP_T_ll, self.aeH_T_ll = self.ll_b_geometry.aeP.dot(self.G_TB_to_JS_ll), self.ll_b_geometry.aeH.dot(self.G_TB_to_JS_ll)
 
@@ -244,7 +243,7 @@ class State(object):
             c = self.AV.dot(self.VB.coeffs)
             if self.neutral_wind:
                 c += self.cu
-            d = np.hstack((self.jr[self.hl_mask], np.zeros(self.constraint_Gpar.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            d = np.hstack((self.Jpar[self.hl_mask], np.zeros(self.constraint_Gpar.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
 
 
@@ -265,12 +264,11 @@ class State(object):
 
         if FAC.size != self.num_grid.theta.size:
             raise Exception('FAC must match phi and theta')
+        
+        self.Jpar = FAC
 
-        # Extract the radial component of the FAC:
-        self.jr = FAC * self.b_geometry.br
-
-        # Get the corresponding basis coefficients and propagate to the other coefficients (TB, VB):
-        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.jr))
+        # Extract the radial component of the FAC and set the corresponding basis coefficients
+        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.Jpar * self.b_geometry.br))
         self.impose_constraints()
 
 
@@ -332,7 +330,7 @@ class State(object):
                       -(np.tile(self.etaP_cp, 2).reshape((-1, 1)) * self.aeP_T_cp + np.tile(self.etaH_cp, 2).reshape((-1, 1)) * self.aeH_T_cp)
 
             # Combine constraint matrices
-            self.G_TB_constraints = np.vstack((self.Gjr_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
+            self.G_TB_constraints = np.vstack((self.G_Jpar_hl, self.constraint_Gpar, self.G_jr_dip_equator, self.AT * self.ih_constraint_scaling))
             self.G_TB_constraints_inv = np.linalg.pinv(self.G_TB_constraints, rcond = 0)
 
 
