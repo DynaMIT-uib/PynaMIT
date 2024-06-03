@@ -187,22 +187,21 @@ class State(object):
             if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
 
-            # identify the high and low latitude points
+            # Identify the high and low latitude points
             if self.mainfield.kind == 'dipole':
-                self.hl_mask = np.abs(self.num_grid.lat) > self.latitude_boundary
                 self.ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
             elif self.mainfield.kind == 'igrf':
                 mlat, _ = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.RI - RE)*1e-3)
-                self.hl_mask = np.abs(mlat) > self.latitude_boundary
                 self.ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
-            G_Jpar    = self.basis_evaluator.scaled_G(self.TB_to_Jr / self.b_geometry.br.reshape((-1 ,1)))
+            # Calculate the matrices that map TB to FAC on num_grid and conjugate grid
+            G_Jpar    =    self.basis_evaluator.scaled_G(self.TB_to_Jr /    self.b_geometry.br.reshape((-1 ,1)))
             G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
 
             # Mask Jpar so that it only applies poleward of self.latitude_boundary
-            self.G_Jpar_hl = G_Jpar[self.hl_mask]
+            self.G_Jpar_hl = G_Jpar[~self.ll_mask]
 
             # Constraint matrix: FAC out of one hemisphere = FAC into the other
             self.G_Jpar_ll_diff = (G_Jpar[self.ll_mask] - G_Jpar_cp[self.ll_mask])
@@ -235,7 +234,7 @@ class State(object):
             c = self.AV.dot(self.VB.coeffs)
             if self.neutral_wind:
                 c += self.cu
-            d = np.hstack((self.Jpar[self.hl_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            d = np.hstack((self.Jpar[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
             self.set_coeffs(TB = self.G_TB_constraints_inv.dot(d))
 
 
