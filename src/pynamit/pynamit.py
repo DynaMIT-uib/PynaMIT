@@ -13,7 +13,7 @@ import pynamit
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, fn = 'tmp.ncdf',
+    def __init__(self, result_filename = 'tmp.ncdf',
                        sh = None, csp = None,
                        RI = RE + 110.e3, mainfield_kind = 'dipole',
                        B0_parameters = {'epoch':2020, 'B0':None},
@@ -42,7 +42,7 @@ class I2D(object):
             the poloidal field of FACs
 
         """
-        self.filename = fn
+        self.filename = result_filename
         self.FAC_integration_steps  = FAC_integration_steps
         self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
         self.connect_hemispheres    = connect_hemispheres
@@ -221,7 +221,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(fn = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
+    i2d = I2D(result_filename = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
