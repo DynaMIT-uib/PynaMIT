@@ -5,6 +5,8 @@ import pynamit
 import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import ppigrf
+from pynamit.primitives.grid import Grid
+from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 Nmax, Mmax = 20, 20
 RI = (6371.2 + 110) * 1e3
@@ -23,7 +25,7 @@ u_phi   =  hwm14Obj.Uwind
 u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-ugrid = pynamit.grid.Grid(u_lat.flatten(), u_lon.flatten())
+ugrid = Grid(u_lat.flatten(), u_lon.flatten())
 
 Gphi, Gtheta = ubasis.get_G(ugrid, derivative = 'phi'), ubasis.get_G(ugrid, derivative = 'theta')
 G_df = np.vstack((-Gphi, Gtheta)) # u_df = r x grad()

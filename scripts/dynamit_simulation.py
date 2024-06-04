@@ -6,6 +6,9 @@ import dipole
 import datetime
 import pyamps
 import apexpy
+from pynamit.primitives.grid import Grid
+from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.b_geometry import BGeometry
 
 RE = 6371.2e3
 RI = RE + 110e3
@@ -41,16 +44,16 @@ i2d = pynamit.I2D(fn = fn, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind =
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
                                        zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
-csp_grid = pynamit.grid.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
-csp_b_geometry = pynamit.b_field.BGeometry(i2d.state.mainfield, csp_grid, RI)
+csp_grid = Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, csp_grid)
+csp_b_geometry = BGeometry(i2d.state.mainfield, csp_grid, RI)
 
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
+plt_grid = Grid(lat, lon)
+plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)

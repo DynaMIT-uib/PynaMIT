@@ -1,13 +1,13 @@
 import numpy as np
 import xarray as xr
-from pynamit.b_field.mainfield import Mainfield
+from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
 import os
 from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import CSEquations
-from pynamit.grid import Grid
+from pynamit.primitives.grid import Grid
 from pynamit.state import State
-from pynamit.constants import RE
+from pynamit.primitives.constants import RE
 import pynamit
 
 class I2D(object):
@@ -230,7 +230,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     import dipole
     import datetime
     import polplot
-    from pynamit.basis_evaluator import BasisEvaluator
+    from pynamit.primitives.basis_evaluator import BasisEvaluator
     #import pyhwm2014 # https://github.com/rilma/pyHWM14
 
     compare_AMPS_FAC_and_CF_currents = False # set to True for debugging

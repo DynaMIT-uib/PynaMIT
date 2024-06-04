@@ -10,6 +10,9 @@ import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
 import os
+from pynamit.primitives.grid import Grid
+from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.b_geometry import BGeometry
 
 COMPARE_TO_SECS = True
 SIMULATE_DYNAMIC_RESPONSE = False
@@ -34,15 +37,15 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, ignore_PFAC = False)
 
-csp_grid = pynamit.grid.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, csp_grid)
-csp_b_geometry = pynamit.b_field.BGeometry(i2d.state.mainfield, csp_grid, RI)
+csp_grid = Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, csp_grid)
+csp_b_geometry = BGeometry(i2d.state.mainfield, csp_grid, RI)
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.grid.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.basis_evaluator.BasisEvaluator(i2d.state.basis, plt_grid)
+plt_grid = Grid(lat, lon)
+plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 date = datetime.datetime(2001, 5, 12, 21, 45)
