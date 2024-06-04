@@ -42,7 +42,7 @@ class I2D(object):
             the poloidal field of FACs
 
         """
-        self.filename = result_filename
+        self.result_filename        = result_filename
         self.FAC_integration_steps  = FAC_integration_steps
         self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
         self.connect_hemispheres    = connect_hemispheres
@@ -54,8 +54,8 @@ class I2D(object):
         self.mainfield_epoch        = B0_parameters['epoch']
         self.mainfield_B0           = B0_parameters['B0']
 
-        if (self.filename is not None) and os.path.exists(self.filename): # override input and load parameters from file:
-            dataset = xr.load_dataset(self.filename) 
+        if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
+            dataset = xr.load_dataset(self.result_filename)
 
             self.FAC_integration_steps  = dataset.FAC_integration_steps
             self.zero_jr_at_dip_equator = dataset.zero_jr_at_dip_equator
@@ -78,8 +78,8 @@ class I2D(object):
             self.latest_time = dataset.time.values[-1]
         else:
             self.latest_time = np.float64(0)
-            if (self.filename is None):
-                self.filename = 'tmp.ncdf'
+            if (self.result_filename is None):
+                self.result_filename = 'tmp.ncdf'
 
 
 
@@ -111,7 +111,7 @@ class I2D(object):
         time = np.float64(time)
         self.state.update_Phi_and_EW()
 
-        if (time == 0) and (not os.path.exists(self.filename)): # the file will be initialized
+        if (time == 0) and (not os.path.exists(self.result_filename)): # the file will be initialized
 
             # resolution parameters:
             resolution_params = {}
@@ -149,13 +149,13 @@ class I2D(object):
             dataset['n'] = xr.DataArray(self.state.sh.n, coords = {'i': range(size)}, dims = ['i'], name = 'n')
             dataset['m'] = xr.DataArray(self.state.sh.m, coords = {'i': range(size)}, dims = ['i'], name = 'm')
 
-            dataset.to_netcdf(self.filename)
-            print('Created {}'.format(self.filename))
+            dataset.to_netcdf(self.result_filename)
+            print('Created {}'.format(self.result_filename))
 
 
         else: # adding new coefficients to existing file:
 
-            dataset = xr.load_dataset(self.filename)
+            dataset = xr.load_dataset(self.result_filename)
 
             size = self.state.sh.num_coeffs
             imposed_coeffs = xr.DataArray(self.state.TB_imp.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
@@ -174,7 +174,7 @@ class I2D(object):
             # merge the copy with the old_
             dataset = xr.concat([dataset, new_dataset], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
 
-            dataset.to_netcdf(self.filename)
+            dataset.to_netcdf(self.result_filename)
 
 
 
