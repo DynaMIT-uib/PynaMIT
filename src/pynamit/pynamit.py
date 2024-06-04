@@ -132,13 +132,13 @@ class I2D(object):
             model_settings['mainfield_epoch']        = self.mainfield_epoch
             model_settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
 
-            PFAC_matrix = self.state.TB_imp_to_VB_imp
+            PFAC_matrix = self.state.B_imp_to_B_imp_poloidal
             size = self.state.sh.num_coeffs
 
             dataset = xr.Dataset()
 
-            dataset['SH_coefficients_imposed'] = xr.DataArray(self.state.TB_imp.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
-            dataset['SH_coefficients_induced'] = xr.DataArray(self.state.VB_ind.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_coefficients_imposed'] = xr.DataArray(self.state.B_imp.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            dataset['SH_coefficients_induced'] = xr.DataArray(self.state.B_ind.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
             dataset['SH_Phi']                  = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
             dataset['SH_W'  ]                  = xr.DataArray(self.state.EW.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
 
@@ -158,8 +158,8 @@ class I2D(object):
             dataset = xr.load_dataset(self.result_filename)
 
             size = self.state.sh.num_coeffs
-            imposed_coeffs = xr.DataArray(self.state.TB_imp.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
-            induced_coeffs = xr.DataArray(self.state.VB_ind.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            imposed_coeffs = xr.DataArray(self.state.B_imp.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
+            induced_coeffs = xr.DataArray(self.state.B_ind.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
             Phi_coeffs     = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
             EW_coeffs      = xr.DataArray(self.state.EW.coeffs. reshape((1, size)), coords = {'time':[time], 'i': range(size)}, dims = ['time', 'i'])
 
@@ -419,12 +419,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
             i2d.state.evolve_Br(dt)
             time = time + dt
-            coeffs.append(i2d.state.VB_ind.coeffs)
+            coeffs.append(i2d.state.B_ind.coeffs)
             count += 1
-            #print(count, time, (i2d.state.VB_ind.coeffs * i2d.state.VB_ind_to_Br)[:3])
+            #print(count, time, (i2d.state.B_ind.coeffs * i2d.state.B_ind_to_Br)[:3])
 
             if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, time, (i2d.state.VB_ind.coeffs * i2d.state.VB_ind_to_Br)[:3])
+                print(count, time, (i2d.state.B_ind.coeffs * i2d.state.B_ind_to_Br)[:3])
                 fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
                 filecount +=1
                 title = 't = {:.3} s'.format(time)
