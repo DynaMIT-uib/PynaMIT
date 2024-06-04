@@ -92,7 +92,7 @@ i2d.state.set_u(-u_north_int, u_east_int)
 i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
-Br_I2D = GBr.dot(i2d.state.B_imp_to_B_imp_poloidal.dot(i2d.state.B_imp.coeffs))
+Br_I2D = GBr.dot(i2d.state.B_imp_to_B_imp_pol.dot(i2d.state.B_imp.coeffs))
 
 
 if SIMULATE:

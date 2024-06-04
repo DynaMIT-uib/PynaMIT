@@ -132,7 +132,7 @@ class I2D(object):
             model_settings['mainfield_epoch']        = self.mainfield_epoch
             model_settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
 
-            PFAC_matrix = self.state.B_imp_to_B_imp_poloidal
+            PFAC_matrix = self.state.B_imp_to_B_imp_pol
             size = self.state.sh.num_coeffs
 
             dataset = xr.Dataset()

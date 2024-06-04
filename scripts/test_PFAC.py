@@ -58,7 +58,7 @@ jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 GBr = plt_i2d_evaluator.scaled_G(i2d.state.B_ind_to_Br / i2d.state.RI)
-Br_I2D = GBr.dot(i2d.state.B_imp_to_B_imp_poloidal.dot(i2d.state.B_imp.coeffs))
+Br_I2D = GBr.dot(i2d.state.B_imp_to_B_imp_pol.dot(i2d.state.B_imp.coeffs))
 
 
 if SIMULATE_DYNAMIC_RESPONSE:

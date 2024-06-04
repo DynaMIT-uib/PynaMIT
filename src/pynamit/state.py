@@ -45,9 +45,10 @@ class State(object):
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.b_evaluator = FieldEvaluator(mainfield, num_grid, RI)
-        self.G_B_ind_to_JS = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
-        self.G_B_imp_polodial_to_JS = self.G_B_ind_to_JS
-        self.G_B_imp_to_JS = -self.basis_evaluator.G_grad / mu0 + self.G_B_imp_polodial_to_JS.dot(self.B_imp_to_B_imp_poloidal)
+        self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
+        self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
+        self.G_B_ind_to_JS = self.G_B_pol_to_JS
+        self.G_B_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.B_imp_to_B_imp_pol)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.lon)
@@ -55,9 +56,10 @@ class State(object):
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, RI)
-            self.G_B_ind_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
-            self.G_B_imp_polodial_to_JS_cp = self.G_B_ind_to_JS_cp
-            self.G_B_imp_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_B_imp_polodial_to_JS_cp.dot(self.B_imp_to_B_imp_poloidal)
+            self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
+            self.G_B_tor_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0
+            self.G_B_ind_to_JS_cp = self.G_B_pol_to_JS_cp
+            self.G_B_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.B_imp_to_B_imp_pol)
 
         self.initialize_constraints()
 
@@ -77,7 +79,7 @@ class State(object):
 
 
     @property
-    def B_imp_to_B_imp_poloidal(self):
+    def B_imp_to_B_imp_pol(self):
         """
         Return matrix that maps from self.B_imp to coefficients for
         poloidal field of FACs. Uses the method by Engels and Olsen 1998,
@@ -85,19 +87,19 @@ class State(object):
 
         """
 
-        if not hasattr(self, '_B_imp_to_B_imp_poloidal'):
+        if not hasattr(self, '_B_imp_to_B_imp_pol'):
 
             if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-                self._B_imp_to_B_imp_poloidal = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+                self._B_imp_to_B_imp_pol = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
             else:
                 r_k_steps = self.FAC_integration_steps
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_B_imp_polodial_to_JS, rcond = 0)
+                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_B_pol_to_JS, rcond = 0)
 
-                self._B_imp_to_B_imp_poloidal = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+                self._B_imp_to_B_imp_pol = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
@@ -119,9 +121,9 @@ class State(object):
                     JS_shifted_to_B_imp_polodial = JS_shifted_to_VB_shifted * VB_shifted_to_B_imp_polodial
 
                     # Integration step
-                    self._B_imp_to_B_imp_poloidal -= Delta_k[i] * JS_shifted_to_B_imp_polodial.dot(B_imp_to_JS_shifted) # NB: where does the negative sign come from?
+                    self._B_imp_to_B_imp_pol -= Delta_k[i] * JS_shifted_to_B_imp_polodial.dot(B_imp_to_JS_shifted) # NB: where does the negative sign come from?
 
-        return(self._B_imp_to_B_imp_poloidal)
+        return(self._B_imp_to_B_imp_pol)
 
 
     def set_coeffs(self, **kwargs):
