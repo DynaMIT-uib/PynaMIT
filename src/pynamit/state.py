@@ -97,7 +97,7 @@ class State(object):
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_B_pol_to_JS, rcond = 0)
+                JS_shifted_to_B_shifted_pol = np.linalg.pinv(self.G_B_pol_to_JS, rcond = 0)
 
                 self._B_imp_to_B_imp_pol = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
@@ -117,11 +117,11 @@ class State(object):
                     B_imp_to_JS_shifted = np.vstack(B_imp_to_Jpar * Jpar_to_JS_shifted)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
-                    VB_shifted_to_B_imp_polodial = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
-                    JS_shifted_to_B_imp_polodial = JS_shifted_to_VB_shifted * VB_shifted_to_B_imp_polodial
+                    B_shifted_pol_to_B_imp_pol = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
+                    JS_shifted_to_B_imp_pol = JS_shifted_to_B_shifted_pol * B_shifted_pol_to_B_imp_pol
 
                     # Integration step
-                    self._B_imp_to_B_imp_pol -= Delta_k[i] * JS_shifted_to_B_imp_polodial.dot(B_imp_to_JS_shifted) # NB: where does the negative sign come from?
+                    self._B_imp_to_B_imp_pol -= Delta_k[i] * JS_shifted_to_B_imp_pol.dot(B_imp_to_JS_shifted) # NB: where does the negative sign come from?
 
         return(self._B_imp_to_B_imp_pol)
 
