@@ -46,7 +46,8 @@ class State(object):
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.b_geometry = BGeometry(mainfield, num_grid, RI)
         self.G_VB_ind_to_JS_ind = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
-        self.G_TB_imp_to_JS_imp = -self.basis_evaluator.G_grad / mu0 + self.G_VB_ind_to_JS_ind.dot(self.TB_imp_to_VB_imp)
+        self.G_VB_imp_to_JS_imp = self.G_VB_ind_to_JS_ind
+        self.G_TB_imp_to_JS_imp = -self.basis_evaluator.G_grad / mu0 + self.G_VB_imp_to_JS_imp.dot(self.TB_imp_to_VB_imp)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.lon)
@@ -55,7 +56,8 @@ class State(object):
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_geometry = BGeometry(mainfield, self.cp_grid, RI)
             self.G_VB_ind_to_JS_ind_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
-            self.G_TB_imp_to_JS_imp_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_ind_to_JS_ind_cp.dot(self.TB_imp_to_VB_imp)
+            self.G_VB_imp_to_JS_imp_cp = self.G_VB_ind_to_JS_ind_cp
+            self.G_TB_imp_to_JS_imp_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_imp_to_JS_imp_cp.dot(self.TB_imp_to_VB_imp)
 
         self.initialize_constraints()
 
@@ -93,7 +95,7 @@ class State(object):
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_ind_to_JS_ind, rcond = 0)
+                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_imp_to_JS_imp, rcond = 0)
 
                 self._TB_imp_to_VB_imp = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
@@ -350,10 +352,10 @@ class State(object):
         """ Calculate ionospheric sheet current.
 
         """
-        Js_V, Je_V = np.split(self.G_VB_ind_to_JS_ind.dot(self.VB_ind.coeffs), 2, axis = 0)
-        Js_T, Je_T = np.split(self.G_TB_imp_to_JS_imp.dot(self.TB_imp.coeffs), 2, axis = 0)
+        Js_ind, Je_ind = np.split(self.G_VB_ind_to_JS_ind.dot(self.VB_ind.coeffs), 2, axis = 0)
+        Js_imp, Je_imp = np.split(self.G_TB_imp_to_JS_imp.dot(self.TB_imp.coeffs), 2, axis = 0)
 
-        Jth, Jph = Js_V + Js_T, Je_V + Je_T
+        Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
 
         return(Jth, Jph)
