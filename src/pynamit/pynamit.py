@@ -7,7 +7,7 @@ from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import CSEquations
 from pynamit.primitives.grid import Grid
 from pynamit.state import State
-from pynamit.primitives.constants import RE
+from pynamit.constants import RE
 import pynamit
 
 class I2D(object):

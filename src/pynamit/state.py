@@ -1,6 +1,6 @@
 import numpy as np
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.constants import mu0, RE
+from pynamit.constants import mu0, RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.primitives.vector import Vector

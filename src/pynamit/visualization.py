@@ -4,7 +4,6 @@ import polplot
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from polplot import Polarplot
-import pynamit
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.b_geometry import BGeometry
