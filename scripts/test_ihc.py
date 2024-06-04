@@ -92,7 +92,7 @@ i2d.state.set_u(-u_north_int, u_east_int)
 i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
-Br_I2D = GBr.dot(i2d.state.TB_to_VB_PFAC.dot(i2d.state.TB.coeffs))
+Br_I2D = GBr.dot(i2d.state.TB_imp_to_VB_imp.dot(i2d.state.TB_imp.coeffs))
 
 
 if SIMULATE:
@@ -117,12 +117,12 @@ if SIMULATE:
 
         i2d.state.evolve_Br(dt)
         time = time + dt
-        coeffs.append(i2d.state.VB.coeffs)
+        coeffs.append(i2d.state.VB_ind.coeffs)
         count += 1
-        #print(count, time, (i2d.state.VB.coeffs * i2d.state.VB_to_Br)[:3])
+        #print(count, time, (i2d.state.VB_ind.coeffs * i2d.state.VB_ind_to_Br)[:3])
 
         if count % plotsteps == 0:
-            print(count, time, (i2d.state.VB.coeffs * i2d.state.VB_to_Br)[:3])
+            print(count, time, (i2d.state.VB_ind.coeffs * i2d.state.VB_ind_to_Br)[:3])
             fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
             filecount +=1
             title = 't = {:.3} s'.format(time)

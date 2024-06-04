@@ -37,16 +37,16 @@ class State(object):
         V_discontinuity = (2 * self.sh.n + 1) / (self.sh.n + 1)
 
         # Spherical harmonic conversion factors
-        self.VB_to_Br     = self.RI * d_dr
-        self.TB_to_Jr     = self.RI / mu0 * laplacian
-        self.EW_to_dBr_dt = -self.RI * laplacian
-        self.VB_to_Jeq    = self.RI / mu0 * V_discontinuity
+        self.VB_ind_to_Br  = self.RI * d_dr
+        self.TB_imp_to_Jr  = self.RI / mu0 * laplacian
+        self.EW_to_dBr_dt  = -self.RI * laplacian
+        self.VB_ind_to_Jeq = self.RI / mu0 * V_discontinuity
 
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.b_geometry = BGeometry(mainfield, num_grid, RI)
-        self.G_VB_to_JS = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
-        self.G_TB_to_JS = -self.basis_evaluator.G_grad / mu0 + self.G_VB_to_JS.dot(self.TB_to_VB_PFAC)
+        self.G_VB_ind_to_JS_ind = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
+        self.G_TB_imp_to_JS_imp = -self.basis_evaluator.G_grad / mu0 + self.G_VB_ind_to_JS_ind.dot(self.TB_imp_to_VB_imp)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.lon)
@@ -54,14 +54,14 @@ class State(object):
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_geometry = BGeometry(mainfield, self.cp_grid, RI)
-            self.G_VB_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
-            self.G_TB_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_to_JS_cp.dot(self.TB_to_VB_PFAC)
+            self.G_VB_ind_to_JS_ind_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
+            self.G_TB_imp_to_JS_imp_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_ind_to_JS_ind_cp.dot(self.TB_imp_to_VB_imp)
 
         self.initialize_constraints()
 
         # Initialize the spherical harmonic coefficients
-        self.set_coeffs(VB = np.zeros(self.basis.num_coeffs))
-        self.set_coeffs(TB = np.zeros(self.basis.num_coeffs))
+        self.set_coeffs(VB_ind = np.zeros(self.basis.num_coeffs))
+        self.set_coeffs(TB_imp = np.zeros(self.basis.num_coeffs))
 
         # Neutral wind and conductance should be set after I2D initialization
         self.neutral_wind = False
@@ -75,27 +75,27 @@ class State(object):
 
 
     @property
-    def TB_to_VB_PFAC(self):
+    def TB_imp_to_VB_imp(self):
         """
-        Return  matrix that maps from self.TB to coefficients for poloidal
-        field of FACs. Uses the method by Engels and Olsen 1998, Eq. 13 to
-        account for poloidal part of magnetic field for FACs.
+        Return matrix that maps from self.TB_imp to coefficients for
+        poloidal field of FACs. Uses the method by Engels and Olsen 1998,
+        Eq. 13 to account for poloidal part of magnetic field for FACs.
 
         """
 
-        if not hasattr(self, '_TB_to_VB_PFAC'):
+        if not hasattr(self, '_TB_imp_to_VB_imp'):
 
             if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
-                self._TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+                self._TB_imp_to_VB_imp = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
             else:
                 r_k_steps = self.FAC_integration_steps
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_to_JS, rcond = 0)
+                JS_shifted_to_VB_shifted = np.linalg.pinv(self.G_VB_ind_to_JS_ind, rcond = 0)
 
-                self._TB_to_VB_PFAC = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+                self._TB_imp_to_VB_imp = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
@@ -107,19 +107,19 @@ class State(object):
                     shifted_b_geometry = BGeometry(self.mainfield, self.num_grid, r_k[i])
                     mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-                    TB_to_Jpar = mapped_basis_evaluator.scaled_G(self.TB_to_Jr / mapped_b_geometry.br.reshape((-1 ,1)))
+                    TB_imp_to_Jpar = mapped_basis_evaluator.scaled_G(self.TB_imp_to_Jr / mapped_b_geometry.br.reshape((-1 ,1)))
                     Jpar_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.B_magnitude).reshape((-1, 1)),
                                           (shifted_b_geometry.Bphi   / mapped_b_geometry.B_magnitude).reshape((-1, 1)))
-                    TB_to_JS_shifted = np.vstack(TB_to_Jpar * Jpar_to_JS_shifted)
+                    TB_imp_to_JS_shifted = np.vstack(TB_imp_to_Jpar * Jpar_to_JS_shifted)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
-                    VB_shifted_to_VB = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
-                    JS_shifted_to_VB = JS_shifted_to_VB_shifted * VB_shifted_to_VB
+                    VB_shifted_to_VB_imp = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
+                    JS_shifted_to_VB_imp = JS_shifted_to_VB_shifted * VB_shifted_to_VB_imp
 
                     # Integration step
-                    self._TB_to_VB_PFAC -= Delta_k[i] * JS_shifted_to_VB.dot(TB_to_JS_shifted)
+                    self._TB_imp_to_VB_imp -= Delta_k[i] * JS_shifted_to_VB_imp.dot(TB_imp_to_JS_shifted)
 
-        return(self._TB_to_VB_PFAC)
+        return(self._TB_imp_to_VB_imp)
 
 
     def set_coeffs(self, **kwargs):
@@ -131,14 +131,14 @@ class State(object):
         This function accepts one (and only one) set of coefficients.
         Valid values for kwargs (only one):
 
-        - 'VB' : Coefficients for magnetic field scalar ``V``.
-        - 'TB' : Coefficients for surface current scalar ``T``.
+        - 'VB_ind' : Coefficients for magnetic field scalar ``V``.
+        - 'TB_imp' : Coefficients for surface current scalar ``T``.
         - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
         - 'Jr': Coefficients for radial current scalar.
 
         """
 
-        valid_kws = ['VB', 'TB', 'Br', 'Jr']
+        valid_kws = ['VB_ind', 'TB_imp', 'Br', 'Jr']
 
         if len(kwargs) != 1:
             raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
@@ -146,14 +146,14 @@ class State(object):
         if key not in valid_kws:
             raise Exception('Invalid keyword. See documentation')
 
-        if key == 'VB':
-            self.VB = Vector(self.basis, kwargs['VB'])
-        elif key == 'TB':
-            self.TB = Vector(self.basis, kwargs['TB'])
+        if key == 'VB_ind':
+            self.VB_ind = Vector(self.basis, kwargs['VB_ind'])
+        elif key == 'TB_imp':
+            self.TB_imp = Vector(self.basis, kwargs['TB_imp'])
         elif key == 'Br':
-            self.VB = Vector(self.basis, kwargs['Br'] / self.VB_to_Br)
+            self.VB_ind = Vector(self.basis, kwargs['Br'] / self.VB_ind_to_Br)
         elif key == 'Jr':
-            self.TB = Vector(self.basis, kwargs['Jr'] / self.TB_to_Jr)
+            self.TB_imp = Vector(self.basis, kwargs['Jr'] / self.TB_imp_to_Jr)
         else:
             raise Exception('This should not happen')
 
@@ -178,9 +178,9 @@ class State(object):
             else:
                 print('this should not happen')
 
-            # Calculate the matrices that convert TB to FAC on num_grid and conjugate grid
-            G_Jpar    =    self.basis_evaluator.scaled_G(self.TB_to_Jr /    self.b_geometry.br.reshape((-1 ,1)))
-            G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.TB_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
+            # Calculate the matrices that convert TB_imp to FAC on num_grid and conjugate grid
+            G_Jpar    =    self.basis_evaluator.scaled_G(self.TB_imp_to_Jr /    self.b_geometry.br.reshape((-1 ,1)))
+            G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.TB_imp_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
 
             # Calculate matrix that ensures high latitude FACs are unaffected by other constraints
             self.G_Jpar_hl = G_Jpar[~self.ll_mask]
@@ -189,38 +189,42 @@ class State(object):
             self.G_Jpar_ll_diff = (G_Jpar[self.ll_mask] - G_Jpar_cp[self.ll_mask])
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
-            self.aeP_V_ll,       self.aeH_V_ll =       self.b_geometry.aeP.dot(self.G_VB_to_JS)[np.tile(self.ll_mask, 2)],       self.b_geometry.aeH.dot(self.G_VB_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeP_T_ll,       self.aeH_T_ll =       self.b_geometry.aeP.dot(self.G_TB_to_JS)[np.tile(self.ll_mask, 2)],       self.b_geometry.aeH.dot(self.G_TB_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeP_V_cp_ll, self.aeH_V_cp_ll = self.cp_b_geometry.aeP.dot(self.G_VB_to_JS_cp)[np.tile(self.ll_mask, 2)], self.cp_b_geometry.aeH.dot(self.G_VB_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeP_T_cp_ll, self.aeH_T_cp_ll = self.cp_b_geometry.aeP.dot(self.G_TB_to_JS_cp)[np.tile(self.ll_mask, 2)], self.cp_b_geometry.aeH.dot(self.G_TB_to_JS_cp)[np.tile(self.ll_mask, 2)]
+            self.aeP_V_ll = self.b_geometry.aeP.dot(self.G_VB_ind_to_JS_ind)[np.tile(self.ll_mask, 2)]
+            self.aeH_V_ll = self.b_geometry.aeH.dot(self.G_VB_ind_to_JS_ind)[np.tile(self.ll_mask, 2)]
+            self.aeP_T_ll = self.b_geometry.aeP.dot(self.G_TB_imp_to_JS_imp)[np.tile(self.ll_mask, 2)]
+            self.aeH_T_ll = self.b_geometry.aeH.dot(self.G_TB_imp_to_JS_imp)[np.tile(self.ll_mask, 2)]
+            self.aeP_V_cp_ll = self.cp_b_geometry.aeP.dot(self.G_VB_ind_to_JS_ind_cp)[np.tile(self.ll_mask, 2)]
+            self.aeH_V_cp_ll = self.cp_b_geometry.aeH.dot(self.G_VB_ind_to_JS_ind_cp)[np.tile(self.ll_mask, 2)]
+            self.aeP_T_cp_ll = self.cp_b_geometry.aeP.dot(self.G_TB_imp_to_JS_imp_cp)[np.tile(self.ll_mask, 2)]
+            self.aeH_T_cp_ll = self.cp_b_geometry.aeH.dot(self.G_TB_imp_to_JS_imp_cp)[np.tile(self.ll_mask, 2)]
 
             if self.zero_jr_at_dip_equator:
-                # Calculate matrix that converts TB to Jr at dip equator
+                # Calculate matrix that converts TB_imp to Jr at dip equator
                 n_phi = self.sh.Mmax*2 + 1
                 dip_equator_phi = np.linspace(0, 360, n_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(90 - self.mainfield.dip_equator(dip_equator_phi), dip_equator_phi))
 
                 _equation_scaling = self.num_grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
-                self.G_Jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_to_Jr) * _equation_scaling
+                self.G_Jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.TB_imp_to_Jr) * _equation_scaling
             else:
                 # Make zero-row stand-in for the Jr matrix
                 self.G_Jr_dip_equator = np.empty((0, self.sh.num_coeffs))
 
 
     def impose_constraints(self):
-        """ Impose constraints, if any. Leads to a contribution to TB from
-        VB if the hemispheres are connected.
+        """ Impose constraints, if any. Leads to a contribution to TB_imp from
+        VB_ind if the hemispheres are connected.
 
         """
 
         if self.connect_hemispheres:
-            c = self.AV.dot(self.VB.coeffs)
+            c = self.AV.dot(self.VB_ind.coeffs)
             if self.neutral_wind:
                 c += self.cu
 
             constraint_vector = np.hstack((self.Jpar[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
 
-            self.set_coeffs(TB = self.G_TB_constraints_inv.dot(constraint_vector))
+            self.set_coeffs(TB_imp = self.G_TB_constraints_inv.dot(constraint_vector))
 
 
     def set_FAC(self, FAC, _basis_evaluator):
@@ -328,7 +332,7 @@ class State(object):
 
         self.update_Phi_and_EW()
 
-        new_Br = self.VB.coeffs * self.VB_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
+        new_Br = self.VB_ind.coeffs * self.VB_ind_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
 
         self.set_coeffs(Br = new_Br)
         self.impose_constraints()
@@ -339,15 +343,15 @@ class State(object):
 
         """
 
-        return(_basis_evaluator.basis_to_grid(self.VB.coeffs * self.VB_to_Br))
+        return(_basis_evaluator.basis_to_grid(self.VB_ind.coeffs * self.VB_ind_to_Br))
 
 
     def get_JS(self): # for now, JS is always returned on num_grid!
         """ Calculate ionospheric sheet current.
 
         """
-        Js_V, Je_V = np.split(self.G_VB_to_JS.dot(self.VB.coeffs), 2, axis = 0)
-        Js_T, Je_T = np.split(self.G_TB_to_JS.dot(self.TB.coeffs), 2, axis = 0)
+        Js_V, Je_V = np.split(self.G_VB_ind_to_JS_ind.dot(self.VB_ind.coeffs), 2, axis = 0)
+        Js_T, Je_T = np.split(self.G_TB_imp_to_JS_imp.dot(self.TB_imp.coeffs), 2, axis = 0)
 
         Jth, Jph = Js_V + Js_T, Je_V + Je_T
 
@@ -360,7 +364,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.TB.coeffs * self.TB_to_Jr)
+        return _basis_evaluator.basis_to_grid(self.TB_imp.coeffs * self.TB_imp_to_Jr)
 
 
     def get_Jeq(self, _basis_evaluator):
@@ -368,7 +372,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.VB.coeffs * self.VB_to_Jeq)
+        return _basis_evaluator.basis_to_grid(self.VB_ind.coeffs * self.VB_ind_to_Jeq)
 
 
     def get_Phi(self, _basis_evaluator):
@@ -405,4 +409,3 @@ class State(object):
             Eph -= self.uxB_phi
 
         return(Eth, Eph)
-
