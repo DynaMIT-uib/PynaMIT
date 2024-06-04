@@ -119,7 +119,7 @@ class State(object):
                     JS_shifted_to_VB_imp = JS_shifted_to_VB_shifted * VB_shifted_to_VB_imp
 
                     # Integration step
-                    self._TB_imp_to_VB_imp -= Delta_k[i] * JS_shifted_to_VB_imp.dot(TB_imp_to_JS_shifted)
+                    self._TB_imp_to_VB_imp -= Delta_k[i] * JS_shifted_to_VB_imp.dot(TB_imp_to_JS_shifted) # NB: where does the negative sign come from?
 
         return(self._TB_imp_to_VB_imp)
 
