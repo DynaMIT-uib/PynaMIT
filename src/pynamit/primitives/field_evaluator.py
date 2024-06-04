@@ -2,7 +2,7 @@
 
 import numpy as np
 
-class BGeometry:
+class FieldEvaluator:
     """ B field geometry class. """
 
     def __init__(self, mainfield, grid, r):

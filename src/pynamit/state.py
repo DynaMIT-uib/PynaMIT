@@ -4,7 +4,7 @@ from pynamit.constants import mu0, RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.primitives.vector import Vector
-from pynamit.primitives.b_geometry import BGeometry
+from pynamit.primitives.field_evaluator import FieldEvaluator
 
 
 class State(object):
@@ -44,7 +44,7 @@ class State(object):
 
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
-        self.b_geometry = BGeometry(mainfield, num_grid, RI)
+        self.b_evaluator = FieldEvaluator(mainfield, num_grid, RI)
         self.G_VB_ind_to_JS_ind = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
         self.G_VB_imp_to_JS_imp = self.G_VB_ind_to_JS_ind
         self.G_TB_imp_to_JS_imp = -self.basis_evaluator.G_grad / mu0 + self.G_VB_imp_to_JS_imp.dot(self.TB_imp_to_VB_imp)
@@ -54,7 +54,7 @@ class State(object):
             self.cp_grid = Grid(90 - cp_theta, cp_phi)
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.cp_b_geometry = BGeometry(mainfield, self.cp_grid, RI)
+            self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, RI)
             self.G_VB_ind_to_JS_ind_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
             self.G_VB_imp_to_JS_imp_cp = self.G_VB_ind_to_JS_ind_cp
             self.G_TB_imp_to_JS_imp_cp = -self.cp_basis_evaluator.G_grad / mu0 + self.G_VB_imp_to_JS_imp_cp.dot(self.TB_imp_to_VB_imp)
@@ -70,10 +70,10 @@ class State(object):
         self.conductance  = False
 
         # Construct the matrix elements used to calculate the electric field
-        self.b00 = self.b_geometry.bphi**2 + self.b_geometry.br**2
-        self.b01 = -self.b_geometry.btheta * self.b_geometry.bphi
-        self.b10 = -self.b_geometry.btheta * self.b_geometry.bphi
-        self.b11 = self.b_geometry.btheta**2 + self.b_geometry.br**2
+        self.b00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
+        self.b01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
+        self.b10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
+        self.b11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
 
 
     @property
@@ -106,12 +106,12 @@ class State(object):
                     mapped_grid = Grid(90 - theta_mapped, phi_mapped)
 
                     # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
-                    shifted_b_geometry = BGeometry(self.mainfield, self.num_grid, r_k[i])
-                    mapped_b_geometry = BGeometry(self.mainfield, mapped_grid, self.RI)
+                    shifted_b_evaluator = FieldEvaluator(self.mainfield, self.num_grid, r_k[i])
+                    mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-                    TB_imp_to_Jpar = mapped_basis_evaluator.scaled_G(self.TB_imp_to_Jr / mapped_b_geometry.br.reshape((-1 ,1)))
-                    Jpar_to_JS_shifted = ((shifted_b_geometry.Btheta / mapped_b_geometry.B_magnitude).reshape((-1, 1)),
-                                          (shifted_b_geometry.Bphi   / mapped_b_geometry.B_magnitude).reshape((-1, 1)))
+                    TB_imp_to_Jpar = mapped_basis_evaluator.scaled_G(self.TB_imp_to_Jr / mapped_b_evaluator.br.reshape((-1 ,1)))
+                    Jpar_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.B_magnitude).reshape((-1, 1)),
+                                          (shifted_b_evaluator.Bphi   / mapped_b_evaluator.B_magnitude).reshape((-1, 1)))
                     TB_imp_to_JS_shifted = np.vstack(TB_imp_to_Jpar * Jpar_to_JS_shifted)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
@@ -181,8 +181,8 @@ class State(object):
                 print('this should not happen')
 
             # Calculate the matrices that convert TB_imp to FAC on num_grid and conjugate grid
-            G_Jpar    =    self.basis_evaluator.scaled_G(self.TB_imp_to_Jr /    self.b_geometry.br.reshape((-1 ,1)))
-            G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.TB_imp_to_Jr / self.cp_b_geometry.br.reshape((-1 ,1)))
+            G_Jpar    =    self.basis_evaluator.scaled_G(self.TB_imp_to_Jr /    self.b_evaluator.br.reshape((-1 ,1)))
+            G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.TB_imp_to_Jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
 
             # Calculate matrix that ensures high latitude FACs are unaffected by other constraints
             self.G_Jpar_hl = G_Jpar[~self.ll_mask]
@@ -191,14 +191,14 @@ class State(object):
             self.G_Jpar_ll_diff = (G_Jpar[self.ll_mask] - G_Jpar_cp[self.ll_mask])
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
-            self.aeP_V_ll = self.b_geometry.aeP.dot(self.G_VB_ind_to_JS_ind)[np.tile(self.ll_mask, 2)]
-            self.aeH_V_ll = self.b_geometry.aeH.dot(self.G_VB_ind_to_JS_ind)[np.tile(self.ll_mask, 2)]
-            self.aeP_T_ll = self.b_geometry.aeP.dot(self.G_TB_imp_to_JS_imp)[np.tile(self.ll_mask, 2)]
-            self.aeH_T_ll = self.b_geometry.aeH.dot(self.G_TB_imp_to_JS_imp)[np.tile(self.ll_mask, 2)]
-            self.aeP_V_cp_ll = self.cp_b_geometry.aeP.dot(self.G_VB_ind_to_JS_ind_cp)[np.tile(self.ll_mask, 2)]
-            self.aeH_V_cp_ll = self.cp_b_geometry.aeH.dot(self.G_VB_ind_to_JS_ind_cp)[np.tile(self.ll_mask, 2)]
-            self.aeP_T_cp_ll = self.cp_b_geometry.aeP.dot(self.G_TB_imp_to_JS_imp_cp)[np.tile(self.ll_mask, 2)]
-            self.aeH_T_cp_ll = self.cp_b_geometry.aeH.dot(self.G_TB_imp_to_JS_imp_cp)[np.tile(self.ll_mask, 2)]
+            self.aeP_V_ll = self.b_evaluator.aeP.dot(self.G_VB_ind_to_JS_ind)[np.tile(self.ll_mask, 2)]
+            self.aeH_V_ll = self.b_evaluator.aeH.dot(self.G_VB_ind_to_JS_ind)[np.tile(self.ll_mask, 2)]
+            self.aeP_T_ll = self.b_evaluator.aeP.dot(self.G_TB_imp_to_JS_imp)[np.tile(self.ll_mask, 2)]
+            self.aeH_T_ll = self.b_evaluator.aeH.dot(self.G_TB_imp_to_JS_imp)[np.tile(self.ll_mask, 2)]
+            self.aeP_V_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_VB_ind_to_JS_ind_cp)[np.tile(self.ll_mask, 2)]
+            self.aeH_V_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_VB_ind_to_JS_ind_cp)[np.tile(self.ll_mask, 2)]
+            self.aeP_T_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_TB_imp_to_JS_imp_cp)[np.tile(self.ll_mask, 2)]
+            self.aeH_T_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_TB_imp_to_JS_imp_cp)[np.tile(self.ll_mask, 2)]
 
             if self.zero_jr_at_dip_equator:
                 # Calculate matrix that converts TB_imp to Jr at dip equator
@@ -250,7 +250,7 @@ class State(object):
         self.Jpar = FAC
 
         # Extract the radial component of the FAC and set the corresponding basis coefficients
-        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.Jpar * self.b_geometry.br))
+        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.Jpar * self.b_evaluator.br))
         self.impose_constraints()
 
 
@@ -267,8 +267,8 @@ class State(object):
         self.u_theta = u_theta
         self.u_phi   = u_phi
 
-        self.uxB_theta =  self.u_phi   * self.b_geometry.Br
-        self.uxB_phi   = -self.u_theta * self.b_geometry.Br
+        self.uxB_theta =  self.u_phi   * self.b_evaluator.Br
+        self.uxB_phi   = -self.u_theta * self.b_evaluator.Br
 
         if self.connect_hemispheres:
             u_theta_ll = u_theta[self.ll_mask]
@@ -278,8 +278,8 @@ class State(object):
             u_theta_cp_ll, u_phi_cp_ll = -u_cp_ll[1], u_cp_ll[0]
 
             # Constraint vector contribution from wind
-            self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_geometry.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_geometry.aup[np.tile(self.ll_mask, 2)]) \
-                      -(np.tile(u_theta_ll,    2) *    self.b_geometry.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_geometry.aup[np.tile(self.ll_mask, 2)])
+            self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
+                      -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
 
 
     def set_conductance(self, Hall, Pedersen, _basis_evaluator):
@@ -403,8 +403,8 @@ class State(object):
         if self.conductance:
             Jth, Jph = self.get_JS()
 
-            Eth += self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_geometry.br * Jph)
-            Eph += self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_geometry.br * Jth)
+            Eth += self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
+            Eph += self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta

@@ -6,7 +6,7 @@ from scipy.interpolate import griddata
 from polplot import Polarplot
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.b_geometry import BGeometry
+from pynamit.primitives.field_evaluator import FieldEvaluator
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     """ Interpolate from cubed sphere grid to new points ``lon``, ``lat``.
@@ -122,7 +122,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = Grid(lat, lon)
     plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
-    plt_b_geometry = BGeometry(i2d.state.mainfield, plt_grid, i2d.state.RI)
+    plt_b_evaluator = FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
 
     csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
 
@@ -159,7 +159,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
-    FAC    = plt_i2d_evaluator.G.dot(i2d.state.TB_imp.coeffs * i2d.state.TB_imp_to_Jr) / plt_b_geometry.br
+    FAC    = plt_i2d_evaluator.G.dot(i2d.state.TB_imp.coeffs * i2d.state.TB_imp_to_Jr) / plt_b_evaluator.br
     jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.TB_imp.coeffs * i2d.state.TB_imp_to_Jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 

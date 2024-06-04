@@ -41,7 +41,7 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
 csp_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, csp_grid)
-csp_b_geometry = pynamit.BGeometry(i2d.state.mainfield, csp_grid, RI)
+csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
 
 ## SET UP PLOTTING GRID
@@ -55,7 +55,7 @@ hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, sta
 i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_geometry.br * 1e-6
+jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
@@ -83,7 +83,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat, lon)
     plt_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, plt_grid)
-    plt_b_geometry = pynamit.BGeometry(i2d.state.mainfield, plt_grid, i2d.state.RI)
+    plt_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
 
     ## MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
@@ -106,7 +106,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
-    FAC = (plt_i2d_evaluator.scaled_G(1 / plt_b_geometry.br.reshape((-1, 1)))).dot(i2d.state.TB_imp.coeffs * i2d.state.TB_imp_to_Jr)
+    FAC = (plt_i2d_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(i2d.state.TB_imp.coeffs * i2d.state.TB_imp_to_Jr)
     jr_mod = plt_i2d_evaluator.G.dot(i2d.state.TB_imp.coeffs * i2d.state.TB_imp_to_Jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
