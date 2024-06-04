@@ -1,47 +1,47 @@
-""" B field geometry module. """
+""" Field evaluator module. """
 
 import numpy as np
 
 class FieldEvaluator:
-    """ B field geometry class. """
+    """ Field evaluator class. """
 
-    def __init__(self, mainfield, grid, r):
-        self.mainfield = mainfield
+    def __init__(self, field, grid, r):
+        self.field = field
         self.grid = grid
         self.r = r
 
     @property
-    def B(self):
+    def grid_values(self):
         """ Magnetic field vector. """
 
-        if not hasattr(self, '_B'):
-            self._B = np.vstack(self.mainfield.get_B(self.r, self.grid.theta, self.grid.lon))
-        return self._B
+        if not hasattr(self, '_grid_values'):
+            self._grid_values = np.vstack(self.field.get_B(self.r, self.grid.theta, self.grid.lon))
+        return self._grid_values
 
     @property
     def Br(self):
         """ Radial component of the magnetic field. """
 
-        return self.B[0]
+        return self.grid_values[0]
 
     @property
     def Btheta(self):
         """ Theta component of the magnetic field. """
 
-        return self.B[1]
+        return self.grid_values[1]
 
     @property
     def Bphi(self):
         """ Phi component of the magnetic field. """
 
-        return self.B[2]
+        return self.grid_values[2]
 
     @property
     def B_magnitude(self):
         """ Magnitude of the magnetic field vector. """
 
         if not hasattr(self, '_B_magnitude'):
-            self._B_magnitude = np.linalg.norm(self.B, axis = 0)
+            self._B_magnitude = np.linalg.norm(self.grid_values, axis = 0)
         return self._B_magnitude
 
     @property
@@ -73,7 +73,7 @@ class FieldEvaluator:
         """ Base vectors of the magnetic field. """
 
         if not hasattr(self, '_basevectors'):
-            self._basevectors = self.mainfield.basevectors(self.r, self.grid.theta, self.grid.lon)
+            self._basevectors = self.field.basevectors(self.r, self.grid.theta, self.grid.lon)
         return self._basevectors
 
     @property
