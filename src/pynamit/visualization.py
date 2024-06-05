@@ -159,8 +159,8 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
 
-    FAC    = plt_i2d_evaluator.G.dot(i2d.state.B_imp.coeffs * i2d.state.B_imp_to_Jr) / plt_b_evaluator.br
-    jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.B_imp.coeffs * i2d.state.B_imp_to_Jr)
+    FAC    = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr) / plt_b_evaluator.br
+    jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
     ## GLOBAL PLOTS
@@ -193,8 +193,8 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ax_1.set_xlabel('Input ')
 
     # scatter plot FACs at conjugate points
-    j_par_ll = i2d.state.G_par_ll.dot(i2d.state.B_imp.coeffs)
-    j_par_cp = i2d.state.G_par_cp.dot(i2d.state.B_imp.coeffs)
+    j_par_ll = i2d.state.G_par_ll.dot(i2d.state.m_imp.coeffs)
+    j_par_cp = i2d.state.G_par_cp.dot(i2d.state.m_imp.coeffs)
     j_par_max = np.max(np.abs(j_par_ll))
     ax_2.scatter(j_par_ll, j_par_cp)
     ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], 'k-')
@@ -202,17 +202,17 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     ax_2.set_ylabel(r'$j_\parallel$ [A/m$^2$] at conjugate points')
 
     # scatter plot of Ed1 and Ed2 vs corresponding values at conjugate points
-    cu_cp = i2d.state.u_phi_cp * i2d.state.aup_cp   + i2d.state.u_theta_cp * i2d.state.aut_cp
-    cu_ll = i2d.state.u_phi_ll * i2d.state.aup_ll   + i2d.state.u_theta_ll * i2d.state.aut_ll
-    AT_ll = i2d.state.etaP_ll  * i2d.state.aeP_T_ll + i2d.state.etaH_ll    * i2d.state.aeH_T_ll
-    AT_cp = i2d.state.etaP_cp  * i2d.state.aeP_T_cp + i2d.state.etaH_cp    * i2d.state.aeH_T_cp
-    AV_ll = i2d.state.etaP_ll  * i2d.state.aeP_V_ll + i2d.state.etaH_ll    * i2d.state.aeH_V_ll
-    AV_cp = i2d.state.etaP_cp  * i2d.state.aeP_V_cp + i2d.state.etaH_cp    * i2d.state.aeH_V_cp
+    cu_cp = i2d.state.u_phi_cp    * i2d.state.aup_cp     + i2d.state.u_theta_cp * i2d.state.aut_cp
+    cu_ll = i2d.state.u_phi_ll    * i2d.state.aup_ll     + i2d.state.u_theta_ll * i2d.state.aut_ll
+    A_imp_ll = i2d.state.etaP_ll  * i2d.state.aeP_imp_ll + i2d.state.etaH_ll    * i2d.state.aeH_imp_ll
+    A_imp_cp = i2d.state.etaP_cp  * i2d.state.aeP_imp_cp + i2d.state.etaH_cp    * i2d.state.aeH_imp_cp
+    A_ind_ll = i2d.state.etaP_ll  * i2d.state.aeP_ind_ll + i2d.state.etaH_ll    * i2d.state.aeH_ind_ll
+    A_ind_cp = i2d.state.etaP_cp  * i2d.state.aeP_ind_cp + i2d.state.etaH_cp    * i2d.state.aeH_ind_cp
 
-    c_ll = cu_ll + AV_ll.dot(i2d.state.B_ind.coeffs)
-    c_cp = cu_cp + AV_cp.dot(i2d.state.B_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + AT_ll.dot(i2d.state.B_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + AT_cp.dot(i2d.state.B_imp.coeffs), 2)
+    c_ll = cu_ll + A_ind_ll.dot(i2d.state.m_ind.coeffs)
+    c_cp = cu_cp + A_ind_cp.dot(i2d.state.m_ind.coeffs)
+    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(i2d.state.m_imp.coeffs), 2)
+    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(i2d.state.m_imp.coeffs), 2)
     ax_3.scatter(Ed1_ll, Ed1_cp, label = '$E_{d_1}$')
     ax_3.scatter(Ed2_ll, Ed2_cp, label = '$E_{d_2}$')
     ax_3.set_xlabel('$E_{d_i}$')

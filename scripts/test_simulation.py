@@ -80,12 +80,12 @@ while True:
 
     i2d.state.evolve_Br(dt)
     time = time + dt
-    coeffs.append(i2d.state.B_ind.coeffs)
+    coeffs.append(i2d.state.m_ind.coeffs)
     count += 1
-    #print(count, time, (i2d.state.B_ind.coeffs * i2d.state.B_ind_to_Br)[:3])
+    #print(count, time, (i2d.state.m_ind.coeffs * i2d.state.m_ind_to_Br)[:3])
 
     if count % plotsteps == 0:
-        print(count, time, (i2d.state.B_ind.coeffs * i2d.state.B_ind_to_Br)[:3])
+        print(count, time, (i2d.state.m_ind.coeffs * i2d.state.m_ind_to_Br)[:3])
         fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
         filecount +=1
         title = 't = {:.3} s'.format(time)
