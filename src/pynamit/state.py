@@ -83,10 +83,9 @@ class State(object):
         """
         Return matrix that maps self.m_imp to a poloidal field
         corresponding to a ionospheric current sheet that shields the
-        poloidal field from inclined FACs, negating the field from the
-        FACs under the ionosphere. Uses the method by Engels and Olsen
-        1998, Eq. 13 to account for the poloidal part of magnetic field
-        for FACs.
+        region under the ionosphere from the poloidal field of inclined
+        FACs. Uses the method by Engels and Olsen 1998, Eq. 13 to account
+        for the poloidal part of magnetic field for FACs.
 
         """
 
@@ -124,7 +123,7 @@ class State(object):
                     B_pol_shifted_to_B_pol = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
                     JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
 
-                    # Integration step, negative sign is to create a poloidal contribution that negates the polodial field from FACs under the ionosphere
+                    # Integration step, negative sign is to create a poloidal field that shields the region under the ionosphere from the FAC poloidal field
                     self._m_imp_to_B_pol -= Delta_k[i] * JS_shifted_to_B_pol.dot(m_imp_to_JS_shifted)
 
         return(self._m_imp_to_B_pol)
