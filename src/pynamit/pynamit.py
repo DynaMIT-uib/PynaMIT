@@ -189,7 +189,9 @@ class I2D(object):
         count = 0
         while self.latest_time < t:
 
-            self.update_boundary_conditions()
+            self.update_FAC()
+            self.update_u()
+            self.update_conductance()
 
             self.state.evolve_Br(dt)
 
@@ -220,16 +222,18 @@ class I2D(object):
 
         """
 
-        FAC = np.atleast_2d(FAC)
+        self.FAC = np.atleast_2d(FAC)
+        self.FAC_basis_evaluator = _basis_evaluator
 
         if time is None:
-            if FAC.shape[0] > 1:
+            if self.FAC.shape[0] > 1:
                 raise ValueError('Time has to be specified if FAC is given for multiple times')
             time = self.latest_time
 
         self.FAC_time = np.atleast_1d(time)
 
-        self.state.set_FAC(FAC[0], _basis_evaluator)
+        self.next_FAC = 0
+        self.update_FAC()
 
 
     def set_u(self, u_theta, u_phi, time = None):
@@ -237,17 +241,18 @@ class I2D(object):
             For now, they *have* to be given on grid
         """
 
-        u_theta = np.atleast_2d(u_theta)
-        u_phi = np.atleast_2d(u_phi)
+        self.u_theta = np.atleast_2d(u_theta)
+        self.u_phi = np.atleast_2d(u_phi)
 
         if time is None:
-            if u_theta.shape[0] > 1:
+            if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
                 raise ValueError('Time has to be specified if u is given for multiple times')
             time = self.latest_time
 
         self.u_time = np.atleast_1d(time)
 
-        self.state.set_u(u_theta[0], u_phi[0])
+        self.next_u = 0
+        self.update_u()
 
 
     def set_conductance(self, Hall, Pedersen, _basis_evaluator, time = None):
@@ -257,20 +262,55 @@ class I2D(object):
 
         """
 
-        Hall = np.atleast_2d(Hall)
-        Pedersen = np.atleast_2d(Pedersen)
+        self.Hall = np.atleast_2d(Hall)
+        self.Pedersen = np.atleast_2d(Pedersen)
+        self.conductance_basis_evaluator = _basis_evaluator
 
         if time is None:
-            if Hall.shape[0] > 1:
+            if self.Hall.shape[0] > 1 or self.Pedersen.shape[0] > 1:
                 raise ValueError('Time has to be specified if conductance is given for multiple times')
             time = self.latest_time
 
-        self.state.set_conductance(Hall[0], Pedersen[0], _basis_evaluator)
+        self.conductance_time = np.atleast_1d(time)
 
-    def update_boundary_conditions(self):
-        """ Update boundary conditions """
+        self.next_conductance = 0
+        self.update_conductance()
 
 
+    def update_FAC(self):
+        """ Update FAC """
+
+        if self.next_FAC < self.FAC_time.size:
+            if self.FAC_time[self.next_FAC] >= self.latest_time:
+                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
+                self.next_FAC += 1
+
+            if self.next_FAC == 0:
+                self.state.set_FAC(np.zeros(self.FAC.shape[1]), self.FAC_basis_evaluator)
+
+
+    def update_u(self):
+        """ Update neutral wind """
+
+        if self.next_u < self.u_time.size:
+            if self.u_time[self.next_u] >= self.latest_time:
+                self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u])
+                self.next_u += 1
+
+            if self.next_u == 0:
+                self.state.set_u(np.zeros(self.u_theta.shape[1]), np.zeros(self.u_phi.shape[1]))
+
+
+    def update_conductance(self):
+        """ Update conductance """
+
+        if self.next_conductance < self.conductance_time.size:
+            if self.conductance_time[self.next_conductance] >= self.latest_time:
+                self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
+                self.next_conductance += 1
+
+            if self.next_conductance == 0:
+                self.state.set_conductance(np.zeros(self.Hall.shape[1]), np.zeros(self.Pedersen.shape[1]), self.conductance_basis_evaluator)
 
 
 
