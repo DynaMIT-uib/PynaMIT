@@ -82,8 +82,6 @@ class I2D(object):
                 self.result_filename = 'tmp.ncdf'
 
 
-
-
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
         num_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
@@ -102,11 +100,28 @@ class I2D(object):
                            )
 
 
+        self.updated_FAC = False
+        self.updated_u = False
+        self.updated_conductance = False
+
+
     def save_state(self, time):
         """ save state to file """
 
         time = np.float64(time)
         self.state.update_Phi_and_EW()
+
+        if self.updated_FAC:
+            # Add FAC file writing here
+            self.updated_FAC = False
+
+        if self.updated_u:
+            # Add u file writing here
+            self.updated_u = False
+
+        if self.updated_conductance:
+            # Add conductance file writing here
+            self.updated_conductance = False
 
         if (time == 0) and (not os.path.exists(self.result_filename)): # the file will be initialized
 
@@ -281,6 +296,7 @@ class I2D(object):
             if self.latest_time >= self.FAC_time[self.next_FAC]:
                 self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
                 self.next_FAC += 1
+                self.updated_FAC = True
 
 
     def update_u(self):
@@ -290,6 +306,7 @@ class I2D(object):
             if self.latest_time >= self.u_time[self.next_u]:
                 self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u])
                 self.next_u += 1
+                self.updated_u = True
 
 
     def update_conductance(self):
@@ -299,6 +316,7 @@ class I2D(object):
             if self.latest_time >= self.conductance_time[self.next_conductance]:
                 self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
                 self.next_conductance += 1
+                self.updated_conductance = True
 
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None):
