@@ -257,14 +257,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
     # Define cubed sphere grid
     csp_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
-    csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, csp_grid)
+    csp_i2d_evaluator = BasisEvaluator(i2d_sh, csp_grid)
 
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
     plt_grid = Grid(lat, lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
+    plt_i2d_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
     hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
     i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
@@ -318,10 +318,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
         paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-        m_i2d_evaluator = BasisEvaluator(i2d.state.basis, Grid(mlat, lon))
+        m_i2d_evaluator = BasisEvaluator(i2d_sh, Grid(mlat, lon))
         jr = i2d.get_Jr(m_i2d_evaluator) * 1e6
 
-        mv_i2d_evaluator = BasisEvaluator(i2d.state.basis, Grid(mlatv, lonv))
+        mv_i2d_evaluator = BasisEvaluator(i2d_sh, Grid(mlatv, lonv))
         js, je = i2d.state.get_JS(mv_i2d_evaluator) * 1e3
         jn = -js
 
