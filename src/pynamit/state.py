@@ -264,8 +264,8 @@ class State(object):
             For now, they *have* to be given on grid
         """
 
-        np.atleast_2d(u_theta)
-        np.atleast_2d(u_phi)
+        u_theta = np.atleast_2d(u_theta)
+        u_phi = np.atleast_2d(u_phi)
 
         if (u_theta.shape[1] != self.num_grid.theta.size) or (u_phi.shape[1] != self.num_grid.lon.size):
             raise Exception('Wind must match dimensions of num_grid')
@@ -277,17 +277,17 @@ class State(object):
 
         self.neutral_wind = True
 
-        self.u_theta = u_theta
-        self.u_phi   = u_phi
+        self.u_theta = u_theta[0]
+        self.u_phi   = u_phi[0]
 
         self.uxB_theta =  self.u_phi   * self.b_evaluator.Br
         self.uxB_phi   = -self.u_theta * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            u_theta_ll = u_theta[self.ll_mask]
-            u_phi_ll   = u_phi[self.ll_mask]
+            u_theta_ll = self.u_theta[self.ll_mask]
+            u_phi_ll   = self.u_phi[self.ll_mask]
             # Wind field at conjugate grid points
-            u_cp_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
+            u_cp_ll = csp.interpolate_vector_components(self.u_phi, -self.u_theta, np.ones_like(self.u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
             u_theta_cp_ll, u_phi_cp_ll = -u_cp_ll[1], u_cp_ll[0]
 
             # Constraint vector contribution from wind
@@ -302,8 +302,8 @@ class State(object):
 
         """
 
-        np.atleast_2d(Hall)
-        np.atleast_2d(Pedersen)
+        Hall = np.atleast_2d(Hall)
+        Pedersen = np.atleast_2d(Pedersen)
 
         if Hall.shape[1] != Pedersen.shape[1] != self.num_grid.theta.size:
             raise Exception('Conductances must match phi and theta')
@@ -315,8 +315,8 @@ class State(object):
 
         self.conductance = True
 
-        self.etaP = Pedersen / (Hall**2 + Pedersen**2)
-        self.etaH = Hall     / (Hall**2 + Pedersen**2)
+        self.etaP = Pedersen[0] / (Hall[0]**2 + Pedersen[0]**2)
+        self.etaH = Hall    [0] / (Hall[0]**2 + Pedersen[0]**2)
 
         if self.connect_hemispheres:
             self.etaP_ll = self.etaP[self.ll_mask]
