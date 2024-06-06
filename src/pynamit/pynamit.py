@@ -281,7 +281,7 @@ class I2D(object):
         """ Update FAC """
 
         if self.next_FAC < self.FAC_time.size:
-            if self.FAC_time[self.next_FAC] >= self.latest_time:
+            if self.FAC_time[self.next_FAC] <= self.latest_time:
                 self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
                 self.next_FAC += 1
 
@@ -293,7 +293,7 @@ class I2D(object):
         """ Update neutral wind """
 
         if self.next_u < self.u_time.size:
-            if self.u_time[self.next_u] >= self.latest_time:
+            if self.u_time[self.next_u] <= self.latest_time:
                 self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u])
                 self.next_u += 1
 
@@ -305,7 +305,7 @@ class I2D(object):
         """ Update conductance """
 
         if self.next_conductance < self.conductance_time.size:
-            if self.conductance_time[self.next_conductance] >= self.latest_time:
+            if self.conductance_time[self.next_conductance] <= self.latest_time:
                 self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
                 self.next_conductance += 1
 
