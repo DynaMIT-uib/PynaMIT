@@ -81,15 +81,19 @@ class State(object):
     @property
     def m_imp_to_B_pol(self):
         """
-        Return matrix that maps from self.m_imp to coefficients for
-        poloidal field of FACs. Uses the method by Engels and Olsen 1998,
-        Eq. 13 to account for poloidal part of magnetic field for FACs.
+        Return matrix that maps self.m_imp to a poloidal field
+        corresponding to a ionospheric current sheet that shields the
+        poloidal field from inclined FACs, negating the field from the
+        FACs under the ionosphere. Uses the method by Engels and Olsen
+        1998, Eq. 13 to account for the poloidal part of magnetic field
+        for FACs.
 
         """
 
         if not hasattr(self, '_m_imp_to_B_pol'):
 
-            if self.mainfield.kind == 'radial' or self.ignore_PFAC: # no Poloidal field so get matrix of zeros
+            if self.mainfield.kind == 'radial' or self.ignore_PFAC:
+                 # No polodial field from FACs
                 self._m_imp_to_B_pol = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
             else:
@@ -120,8 +124,8 @@ class State(object):
                     B_pol_shifted_to_B_pol = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
                     JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
 
-                    # Integration step
-                    self._m_imp_to_B_pol -= Delta_k[i] * JS_shifted_to_B_pol.dot(m_imp_to_JS_shifted) # NB: where does the negative sign come from?
+                    # Integration step, negative sign is to create a poloidal contribution that negates the polodial field from FACs under the ionosphere
+                    self._m_imp_to_B_pol -= Delta_k[i] * JS_shifted_to_B_pol.dot(m_imp_to_JS_shifted)
 
         return(self._m_imp_to_B_pol)
 
