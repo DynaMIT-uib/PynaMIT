@@ -403,13 +403,13 @@ class State(object):
 
         """
 
-        Eth, Eph = np.zeros(self.num_grid.size), np.zeros(self.num_grid.size)
+        if not self.conductance:
+            raise ValueError('Conductance must be set before calculating electric field')
 
-        if self.conductance:
-            Jth, Jph = self.get_JS()
+        Jth, Jph = self.get_JS()
 
-            Eth += self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
-            Eph += self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
+        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
+        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta

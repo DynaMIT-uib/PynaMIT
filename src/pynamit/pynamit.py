@@ -101,9 +101,6 @@ class I2D(object):
                            PFAC_matrix = PFAC_matrix
                            )
 
-        if self.latest_time == 0: # ensure that the save file is created
-            self.evolve_to_time(0)  
-
 
     def save_state(self, time):
         """ save state to file """
@@ -281,37 +278,27 @@ class I2D(object):
         """ Update FAC """
 
         if self.next_FAC < self.FAC_time.size:
-            if self.FAC_time[self.next_FAC] <= self.latest_time:
+            if self.latest_time >= self.FAC_time[self.next_FAC]:
                 self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
                 self.next_FAC += 1
-
-            if self.next_FAC == 0:
-                self.state.set_FAC(np.zeros(self.FAC.shape[1]), self.FAC_basis_evaluator)
 
 
     def update_u(self):
         """ Update neutral wind """
 
         if self.next_u < self.u_time.size:
-            if self.u_time[self.next_u] <= self.latest_time:
+            if self.latest_time >= self.u_time[self.next_u]:
                 self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u])
                 self.next_u += 1
-
-            if self.next_u == 0:
-                self.state.set_u(np.zeros(self.u_theta.shape[1]), np.zeros(self.u_phi.shape[1]))
 
 
     def update_conductance(self):
         """ Update conductance """
 
         if self.next_conductance < self.conductance_time.size:
-            if self.conductance_time[self.next_conductance] <= self.latest_time:
+            if self.latest_time >= self.conductance_time[self.next_conductance]:
                 self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
                 self.next_conductance += 1
-
-            if self.next_conductance == 0:
-                self.state.set_conductance(np.zeros(self.Hall.shape[1]), np.zeros(self.Pedersen.shape[1]), self.conductance_basis_evaluator)
-
 
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None):
