@@ -82,8 +82,6 @@ class I2D(object):
                 self.result_filename = 'tmp.ncdf'
 
 
-
-
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
         num_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
@@ -101,8 +99,10 @@ class I2D(object):
                            PFAC_matrix = PFAC_matrix
                            )
 
-        if self.latest_time == 0: # ensure that the save file is created
-            self.evolve_to_time(0)  
+
+        self.updated_FAC = False
+        self.updated_u = False
+        self.updated_conductance = False
 
 
     def save_state(self, time):
@@ -110,6 +110,18 @@ class I2D(object):
 
         time = np.float64(time)
         self.state.update_Phi_and_EW()
+
+        if self.updated_FAC:
+            # Add FAC file writing here
+            self.updated_FAC = False
+
+        if self.updated_u:
+            # Add u file writing here
+            self.updated_u = False
+
+        if self.updated_conductance:
+            # Add conductance file writing here
+            self.updated_conductance = False
 
         if (time == 0) and (not os.path.exists(self.result_filename)): # the file will be initialized
 
@@ -177,7 +189,6 @@ class I2D(object):
             dataset.to_netcdf(self.result_filename)
 
 
-
     def evolve_to_time(self, t, dt = 5e-4, save_steps = 200, quiet = False):
         """ Evolve to given time
 
@@ -189,6 +200,10 @@ class I2D(object):
         time = self.latest_time
         count = 0
         while self.latest_time < t:
+
+            self.update_FAC()
+            self.update_u()
+            self.update_conductance()
 
             self.state.evolve_Br(dt)
 
@@ -204,10 +219,104 @@ class I2D(object):
                     print('Saved output at t = {:.2f} s'.format(time), end = '\r')
 
 
+    def set_FAC(self, FAC, _basis_evaluator, time = None):
+        """
+        Specify field-aligned current at ``self.num_grid.theta``,
+        ``self.num_grid.lon``.
+
+            Parameters
+            ----------
+            FAC: array
+                The field-aligned current, in A/m^2, at
+                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
+                ``RI``. The values in the array have to match the
+                corresponding coordinates.
+
+        """
+
+        self.FAC = np.atleast_2d(FAC)
+        self.FAC_basis_evaluator = _basis_evaluator
+
+        if time is None:
+            if self.FAC.shape[0] > 1:
+                raise ValueError('Time has to be specified if FAC is given for multiple times')
+            time = self.latest_time
+
+        self.FAC_time = np.atleast_1d(time)
+
+        self.next_FAC = 0
+        self.update_FAC()
 
 
+    def set_u(self, u_theta, u_phi, time = None):
+        """ set neutral wind theta and phi components 
+            For now, they *have* to be given on grid
+        """
+
+        self.u_theta = np.atleast_2d(u_theta)
+        self.u_phi = np.atleast_2d(u_phi)
+
+        if time is None:
+            if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
+                raise ValueError('Time has to be specified if u is given for multiple times')
+            time = self.latest_time
+
+        self.u_time = np.atleast_1d(time)
+
+        self.next_u = 0
+        self.update_u()
 
 
+    def set_conductance(self, Hall, Pedersen, _basis_evaluator, time = None):
+        """
+        Specify Hall and Pedersen conductance at
+        ``self.num_grid.theta``, ``self.num_grid.lon``.
+
+        """
+
+        self.Hall = np.atleast_2d(Hall)
+        self.Pedersen = np.atleast_2d(Pedersen)
+        self.conductance_basis_evaluator = _basis_evaluator
+
+        if time is None:
+            if self.Hall.shape[0] > 1 or self.Pedersen.shape[0] > 1:
+                raise ValueError('Time has to be specified if conductance is given for multiple times')
+            time = self.latest_time
+
+        self.conductance_time = np.atleast_1d(time)
+
+        self.next_conductance = 0
+        self.update_conductance()
+
+
+    def update_FAC(self):
+        """ Update FAC """
+
+        if self.next_FAC < self.FAC_time.size:
+            if self.latest_time >= self.FAC_time[self.next_FAC]:
+                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
+                self.next_FAC += 1
+                self.updated_FAC = True
+
+
+    def update_u(self):
+        """ Update neutral wind """
+
+        if self.next_u < self.u_time.size:
+            if self.latest_time >= self.u_time[self.next_u]:
+                self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u])
+                self.next_u += 1
+                self.updated_u = True
+
+
+    def update_conductance(self):
+        """ Update conductance """
+
+        if self.next_conductance < self.conductance_time.size:
+            if self.latest_time >= self.conductance_time[self.next_conductance]:
+                self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
+                self.next_conductance += 1
+                self.updated_conductance = True
 
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None):
@@ -267,7 +376,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     plt_i2d_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
     hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
+    i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     ju = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) * 1e-6
@@ -287,9 +396,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         u_int = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, csp.arr_theta, csp.arr_phi)
         u_east_int, u_north_int, u_r_int = u_int
-        i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
+        i2d.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
 
-    i2d.state.set_FAC(ju, csp_i2d_evaluator)
+    i2d.set_FAC(ju, csp_i2d_evaluator)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:

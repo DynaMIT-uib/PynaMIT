@@ -251,7 +251,7 @@ class State(object):
 
         if FAC.size != self.num_grid.theta.size:
             raise Exception('FAC must match phi and theta')
-        
+
         self.Jpar = FAC
 
         # Extract the radial component of the FAC and set the corresponding basis coefficients
@@ -276,10 +276,10 @@ class State(object):
         self.uxB_phi   = -self.u_theta * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            u_theta_ll = u_theta[self.ll_mask]
-            u_phi_ll   = u_phi[self.ll_mask]
+            u_theta_ll = self.u_theta[self.ll_mask]
+            u_phi_ll   = self.u_phi[self.ll_mask]
             # Wind field at conjugate grid points
-            u_cp_ll = csp.interpolate_vector_components(u_phi, -u_theta, np.ones_like(u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
+            u_cp_ll = csp.interpolate_vector_components(self.u_phi, -self.u_theta, np.ones_like(self.u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
             u_theta_cp_ll, u_phi_cp_ll = -u_cp_ll[1], u_cp_ll[0]
 
             # Constraint vector contribution from wind
@@ -403,13 +403,13 @@ class State(object):
 
         """
 
-        Eth, Eph = np.zeros(self.num_grid.size), np.zeros(self.num_grid.size)
+        if not self.conductance:
+            raise ValueError('Conductance must be set before calculating electric field')
 
-        if self.conductance:
-            Jth, Jph = self.get_JS()
+        Jth, Jph = self.get_JS()
 
-            Eth += self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
-            Eph += self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
+        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
+        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta
