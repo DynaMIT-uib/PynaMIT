@@ -259,13 +259,21 @@ class State(object):
         self.impose_constraints()
 
 
-    def set_u(self, u_theta, u_phi):
+    def set_u(self, u_theta, u_phi, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
-        if (u_theta.size != self.num_grid.theta.size) or (u_phi.size != self.num_grid.lon.size):
+        np.atleast_2d(u_theta)
+        np.atleast_2d(u_phi)
+
+        if (u_theta.shape[1] != self.num_grid.theta.size) or (u_phi.shape[1] != self.num_grid.lon.size):
             raise Exception('Wind must match dimensions of num_grid')
+
+        if time is not None:
+            self.u_time = time
+        else:
+            self.u_time = None
 
         self.neutral_wind = True
 
@@ -287,15 +295,23 @@ class State(object):
                       -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
 
 
-    def set_conductance(self, Hall, Pedersen, _basis_evaluator):
+    def set_conductance(self, Hall, Pedersen, _basis_evaluator, time = None):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
 
-        if Hall.size != Pedersen.size != self.num_grid.theta.size:
+        np.atleast_2d(Hall)
+        np.atleast_2d(Pedersen)
+
+        if Hall.shape[1] != Pedersen.shape[1] != self.num_grid.theta.size:
             raise Exception('Conductances must match phi and theta')
+
+        if time is not None:
+            self.conductance_time = time
+        else:
+            self.conductance_time = None
 
         self.conductance = True
 
