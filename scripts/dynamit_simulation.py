@@ -42,7 +42,7 @@ i2d = pynamit.I2D(result_filename = result_filename, sh = i2d_sh, csp = i2d_csp,
                                        zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, csp_grid)
+csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
 
@@ -50,7 +50,7 @@ csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, plt_grid)
+plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)

@@ -40,7 +40,7 @@ i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integratio
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, csp_grid)
+csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
 
@@ -48,7 +48,7 @@ csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, plt_grid)
+plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
@@ -69,7 +69,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     plt_grid = pynamit.Grid(lat, lon)
-    plt_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, plt_grid)
+    plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-50, 50, 22) * 1e-9, 'extend':'both'}
@@ -82,7 +82,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat, lon)
-    plt_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, plt_grid)
+    plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
     plt_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
 
     ## MAP PROJECTION:
