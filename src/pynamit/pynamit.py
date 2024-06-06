@@ -189,6 +189,8 @@ class I2D(object):
         count = 0
         while self.latest_time < t:
 
+            self.update_boundary_conditions()
+
             self.state.evolve_Br(dt)
 
             time  += dt
@@ -220,10 +222,12 @@ class I2D(object):
 
         FAC = np.atleast_2d(FAC)
 
-        if time is not None:
-            self.FAC_time = time
-        else:
-            self.FAC_time = None
+        if time is None:
+            if FAC.shape[0] > 1:
+                raise ValueError('Time has to be specified if FAC is given for multiple times')
+            time = self.latest_time
+
+        self.FAC_time = np.atleast_1d(time)
 
         self.state.set_FAC(FAC[0], _basis_evaluator)
 
@@ -236,10 +240,12 @@ class I2D(object):
         u_theta = np.atleast_2d(u_theta)
         u_phi = np.atleast_2d(u_phi)
 
-        if time is not None:
-            self.u_time = time
-        else:
-            self.u_time = None
+        if time is None:
+            if u_theta.shape[0] > 1:
+                raise ValueError('Time has to be specified if u is given for multiple times')
+            time = self.latest_time
+
+        self.u_time = np.atleast_1d(time)
 
         self.state.set_u(u_theta[0], u_phi[0])
 
@@ -254,12 +260,17 @@ class I2D(object):
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        if time is not None:
-            self.conductance_time = time
-        else:
-            self.conductance_time = None
+        if time is None:
+            if Hall.shape[0] > 1:
+                raise ValueError('Time has to be specified if conductance is given for multiple times')
+            time = self.latest_time
 
         self.state.set_conductance(Hall[0], Pedersen[0], _basis_evaluator)
+
+    def update_boundary_conditions(self):
+        """ Update boundary conditions """
+
+
 
 
 
