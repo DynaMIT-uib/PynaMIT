@@ -36,7 +36,7 @@ i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, csp_grid)
+csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
 ## CONDUCTANCE AND FAC INPUT:
@@ -66,7 +66,7 @@ i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.BasisEvaluator(i2d.state.basis, plt_grid)
+plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 nnn = plt_grid.lat.flatten() >  50
 sss = plt_grid.lat.flatten() < -50
 
