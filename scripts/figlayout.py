@@ -52,14 +52,14 @@ plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.state.set_conductance(hall, pedersen, csp_i2d_evaluator)
+i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.state.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
-i2d.state.set_FAC(jparallel, csp_i2d_evaluator)
+i2d.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
+i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 
 #### MODEL OBJECT DONE
