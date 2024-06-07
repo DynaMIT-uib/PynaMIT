@@ -7,7 +7,7 @@ from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import CSEquations
 from pynamit.grid import Grid
 from pynamit.state import State
-from pynamit.constants import RE
+from pynamit.constants import RE, mu0
 import pynamit
 
 class I2D(object):
@@ -86,11 +86,11 @@ class I2D(object):
 
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
-        num_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
-
+        self.num_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
+        self.sh = sh
 
         # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, num_grid, 
+        self.state = State(self.sh, mainfield, self.num_grid, 
                            RI = self.RI, 
                            ignore_PFAC = self.ignore_PFAC, 
                            FAC_integration_steps = self.FAC_integration_steps, 
@@ -202,6 +202,53 @@ class I2D(object):
                     pass
                 else:
                     print('Saved output at t = {:.2f} s'.format(time), end = '\r')
+
+    def get_analytical(self, time, Sigma_P, Sigma_H, grid = None, parameter = 'Br', B0 = None):
+        """
+
+        Calculate the analytical solution for radial magnetic field and uniform conductance.
+        The FAC input is used...
+
+        Parameters
+        ----------
+        time: float
+            simulation time in seconds
+        Sigma_P: float or array
+            Pedersen conductance. If array, it represents a time series that must match FAC times
+        Sigma_H: float or array
+            Hall conductance. If array, it represents a time series that must match FAC times
+        grid: grid, optional
+            Grid on which to calculate analytical solution. Default is self.num_grid
+        parameter: string, optional
+            Which parameter to calculate. Must be 'Br', 'JS', 'Phi', 'W', 'EW', 'Ephi'...  
+        B0: float, optional
+            Magnetic field strength in T, default value is reference magnetic field B0
+        """
+
+        if B0 is None:
+            B0 = Mainfield(kind = 'radial').B0
+        R = self.RI
+
+        decay = np.exp(-eta_P * (2 * n + 1) / (R * mu0))
+
+        eta_P = Sigma_P / (Sigma_P**2 + Sigma_H**2)
+
+        n = self.sh.n
+
+        nsteps = len(self.FACtimes)
+        for i in range(nsteps):
+            # Find FAC coefficients:
+
+
+
+            # Calculate coefficients for induced field
+            t = self.FACtimes[i]
+            induced_coeffs[t + 1] = np.sign(B0) * Sigma_H/Sigma_P * (n + 1) / (2 * n + 1) * (1 - decay) * fac_coeffs \
+                                    + decay * induced_coeffs[t]   
+
+        # Return the chosen derived parameter
+
+        # 
 
 
 
