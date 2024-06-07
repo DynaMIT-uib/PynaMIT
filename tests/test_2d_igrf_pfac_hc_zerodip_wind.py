@@ -8,9 +8,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_zerodip_wind():
     # Arrange
-    expected_coeff_norm = 3.117733867895214e-10
-    expected_coeff_max = 1.9300122823843885e-11
-    expected_coeff_min = -1.3707274261084318e-11
+    expected_coeff_norm = 3.713676582517327e-10
+    expected_coeff_max = 2.1585222147566095e-11
+    expected_coeff_min = -1.571662314434669e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")

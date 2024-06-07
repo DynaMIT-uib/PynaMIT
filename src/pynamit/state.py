@@ -291,19 +291,17 @@ class State(object):
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
+        from pynamit.cubedsphere.cubedsphere import csp
 
         self.conductance = True
 
-        self.etaP = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = Pedersen / (Hall**2 + Pedersen**2))
-        self.etaH = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = Hall     / (Hall**2 + Pedersen**2))
-
-        self.etaP_on_grid = self.etaP.to_grid(self.basis_evaluator)
-        self.etaH_on_grid = self.etaH.to_grid(self.basis_evaluator)
+        self.etaP_on_grid = Pedersen / (Hall**2 + Pedersen**2)
+        self.etaH_on_grid = Hall     / (Hall**2 + Pedersen**2)
 
         if self.connect_hemispheres:
             # Resistances at conjugate grid points
-            etaP_on_cp_grid = self.etaP.to_grid(self.cp_basis_evaluator)
-            etaH_on_cp_grid = self.etaH.to_grid(self.cp_basis_evaluator)
+            etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
+            etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]
