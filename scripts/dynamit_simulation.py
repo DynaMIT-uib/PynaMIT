@@ -31,11 +31,10 @@ noon_mlon = d.mlt2mlon(12, date) # noon longitude
 #u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
+u_grid = pynamit.Grid(u_lat, u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
-u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
-u_east_int, u_north_int, u_r_int = u_int
 
 i2d = pynamit.I2D(result_filename = result_filename, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk,
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
@@ -66,7 +65,9 @@ a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
+u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
+i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_basis_evaluator)
+
 i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 i2d.evolve_to_time(180)

@@ -248,13 +248,14 @@ class I2D(object):
         self.update_FAC()
 
 
-    def set_u(self, u_theta, u_phi, time = None):
+    def set_u(self, u_theta, u_phi, _basis_evaluator, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
         self.u_theta = np.atleast_2d(u_theta)
         self.u_phi = np.atleast_2d(u_phi)
+        self.u_basis_evaluator = _basis_evaluator
 
         if time is None:
             if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
@@ -304,7 +305,7 @@ class I2D(object):
 
         if self.next_u < self.u_time.size:
             if self.latest_time >= self.u_time[self.next_u]:
-                self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u])
+                self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u], self.u_basis_evaluator)
                 self.next_u += 1
                 self.updated_u = True
 
@@ -393,10 +394,10 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
 
         u_lat, u_lon, u_phi, u_theta = np.load(os.path.join(wind_directory, 'ulat.npy')), np.load(os.path.join(wind_directory, 'ulon.npy')), np.load(os.path.join(wind_directory, 'uphi.npy')), np.load(os.path.join(wind_directory, 'utheta.npy'))
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
+        u_grid = Grid(u_lat, u_lon)
 
-        u_int = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, csp.arr_theta, csp.arr_phi)
-        u_east_int, u_north_int, u_r_int = u_int
-        i2d.set_u(-u_north_int * WIND_FACTOR, u_east_int * WIND_FACTOR)
+        u_basis_evaluator = BasisEvaluator(i2d_sh, u_grid)
+        i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_basis_evaluator)
 
     i2d.set_FAC(ju, csp_i2d_evaluator)
 

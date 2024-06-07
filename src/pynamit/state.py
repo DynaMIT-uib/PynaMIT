@@ -258,28 +258,28 @@ class State(object):
         self.impose_constraints()
 
 
-    def set_u(self, u_theta, u_phi):
+    def set_u(self, u_theta, u_phi, _basis_evaluator):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
-        if (u_theta.size != self.num_grid.theta.size) or (u_phi.size != self.num_grid.lon.size):
-            raise Exception('Wind must match dimensions of num_grid')
-
         self.neutral_wind = True
 
-        self.u_theta = u_theta
-        self.u_phi   = u_phi
+        self.u_theta = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = u_theta)
+        self.u_phi   = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = u_phi)
 
-        self.uxB_theta =  self.u_phi   * self.b_evaluator.Br
-        self.uxB_phi   = -self.u_theta * self.b_evaluator.Br
+        self.u_theta_on_grid = self.u_theta.to_grid(self.basis_evaluator)
+        self.u_phi_on_grid   = self.u_phi.to_grid(self.basis_evaluator)
+
+        self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
+        self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            u_theta_ll = self.u_theta[self.ll_mask]
-            u_phi_ll   = self.u_phi[self.ll_mask]
-            # Wind field at conjugate grid points
-            u_cp_ll = csp.interpolate_vector_components(self.u_phi, -self.u_theta, np.ones_like(self.u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
-            u_theta_cp_ll, u_phi_cp_ll = -u_cp_ll[1], u_cp_ll[0]
+            # Wind field at low latitude grid points and at their conjugate points
+            u_theta_ll    = self.u_theta.to_grid(self.basis_evaluator)[self.ll_mask]
+            u_phi_ll      = self.u_phi.to_grid(self.basis_evaluator)[self.ll_mask]
+            u_theta_cp_ll = self.u_theta.to_grid(self.cp_basis_evaluator)[self.ll_mask]
+            u_phi_cp_ll   = self.u_phi.to_grid(self.cp_basis_evaluator)[self.ll_mask]
 
             # Constraint vector contribution from wind
             self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
