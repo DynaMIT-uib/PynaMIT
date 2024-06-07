@@ -234,7 +234,7 @@ class State(object):
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
 
 
-    def set_FAC(self, FAC, _basis_evaluator):
+    def set_FAC(self, FAC, _basis_evaluator, _b_evaluator):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -249,12 +249,11 @@ class State(object):
 
         """
 
-        self.Jpar = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = FAC)
-
-        self.Jpar_on_grid = self.Jpar.to_grid(self.basis_evaluator)
-
         # Extract the radial component of the FAC and set the corresponding basis coefficients
-        self.set_coeffs(Jr = self.basis_evaluator.grid_to_basis(self.Jpar_on_grid * self.b_evaluator.br))
+        self.Jr = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = FAC * _b_evaluator.br)
+        self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+
+        self.set_coeffs(Jr = self.Jr.coeffs)
         self.impose_constraints()
 
 

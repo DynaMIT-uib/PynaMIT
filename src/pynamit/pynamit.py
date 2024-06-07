@@ -219,7 +219,7 @@ class I2D(object):
                     print('Saved output at t = {:.2f} s'.format(time), end = '\r')
 
 
-    def set_FAC(self, FAC, _basis_evaluator, time = None):
+    def set_FAC(self, FAC, _basis_evaluator, _field_evaluator, time = None):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -236,6 +236,7 @@ class I2D(object):
 
         self.FAC = np.atleast_2d(FAC)
         self.FAC_basis_evaluator = _basis_evaluator
+        self.FAC_field_evaluator = _field_evaluator
 
         if time is None:
             if self.FAC.shape[0] > 1:
@@ -295,7 +296,7 @@ class I2D(object):
 
         if self.next_FAC < self.FAC_time.size:
             if self.latest_time >= self.FAC_time[self.next_FAC]:
-                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
+                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator, self.FAC_field_evaluator)
                 self.next_FAC += 1
                 self.updated_FAC = True
 
@@ -341,6 +342,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     import datetime
     import polplot
     from pynamit.primitives.basis_evaluator import BasisEvaluator
+    from pynamit.primitives.field_evaluator import FieldEvaluator
     #import pyhwm2014 # https://github.com/rilma/pyHWM14
 
     compare_AMPS_FAC_and_CF_currents = False # set to True for debugging
@@ -368,6 +370,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     # Define cubed sphere grid
     csp_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
     csp_i2d_evaluator = BasisEvaluator(i2d_sh, csp_grid)
+    csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
     # Define grid used for plotting
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -380,10 +383,8 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    ju = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) * 1e-6
-    ju[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
-
-    ju[csp_grid.theta < 90] = -ju[csp_grid.theta < 90] # we need the current to refer to magnetic field direction, so changing sign in the north since the field there points down 
+    jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date))  / csp_b_evaluator.br * 1e-6
+    jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
     if (wind_directory is not None) and os.path.exists(wind_directory):
         #hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3.,
@@ -399,7 +400,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
         u_basis_evaluator = BasisEvaluator(i2d_sh, u_grid)
         i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_basis_evaluator)
 
-    i2d.set_FAC(ju, csp_i2d_evaluator)
+    i2d.set_FAC(jparallel, csp_i2d_evaluator, csp_b_evaluator)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
