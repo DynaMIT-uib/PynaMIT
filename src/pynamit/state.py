@@ -229,7 +229,7 @@ class State(object):
             if self.neutral_wind:
                 c += self.cu
 
-            constraint_vector = np.hstack((self.Jpar[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
 
@@ -249,13 +249,12 @@ class State(object):
 
         """
 
-        if FAC.size != self.num_grid.theta.size:
-            raise Exception('FAC must match phi and theta')
+        self.Jpar = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = FAC)
 
-        self.Jpar = FAC
+        self.Jpar_on_grid = self.Jpar.to_grid(self.basis_evaluator)
 
         # Extract the radial component of the FAC and set the corresponding basis coefficients
-        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.Jpar * self.b_evaluator.br))
+        self.set_coeffs(Jr = self.basis_evaluator.grid_to_basis(self.Jpar_on_grid * self.b_evaluator.br))
         self.impose_constraints()
 
 
@@ -294,27 +293,27 @@ class State(object):
 
         """
 
-        if Hall.size != Pedersen.size != self.num_grid.theta.size:
-            raise Exception('Conductances must match phi and theta')
-
         self.conductance = True
 
-        self.etaP = Pedersen / (Hall**2 + Pedersen**2)
-        self.etaH = Hall     / (Hall**2 + Pedersen**2)
+        self.etaP = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = Pedersen / (Hall**2 + Pedersen**2))
+        self.etaH = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = Hall     / (Hall**2 + Pedersen**2))
+
+        self.etaP_on_grid = self.etaP.to_grid(self.basis_evaluator)
+        self.etaH_on_grid = self.etaH.to_grid(self.basis_evaluator)
 
         if self.connect_hemispheres:
-            self.etaP_ll = self.etaP[self.ll_mask]
-            self.etaH_ll = self.etaH[self.ll_mask]
-            # Resistances at conjugate grid points
-            self.etaP_cp_ll = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
-            self.etaH_cp_ll = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
+            # Resistances at low latitude grid points and at their conjugate points
+            etaP_ll    = self.etaP.to_grid(self.basis_evaluator)[self.ll_mask]
+            etaH_ll    = self.etaH.to_grid(self.basis_evaluator)[self.ll_mask]
+            etaP_cp_ll = self.etaP.to_grid(self.cp_basis_evaluator)[self.ll_mask]
+            etaH_cp_ll = self.etaH.to_grid(self.cp_basis_evaluator)[self.ll_mask]
 
             # Conductance-dependent constraint matrices
-            self.A_ind =  (np.tile(self.etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(self.etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
-                         -(np.tile(self.etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(self.etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
+            self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
+                         -(np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
 
-            self.A_imp =  (np.tile(self.etaP_ll,    2).reshape((-1, 1)) * self.aeP_imp_ll    + np.tile(self.etaH_ll,    2).reshape((-1, 1)) * self.aeH_imp_ll) \
-                         -(np.tile(self.etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(self.etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
+            self.A_imp =  (np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_imp_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_imp_ll) \
+                         -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_Jpar_hl, self.G_Jpar_ll_diff, self.G_Jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
@@ -408,8 +407,8 @@ class State(object):
 
         Jth, Jph = self.get_JS()
 
-        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
-        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
+        Eth = self.etaP_on_grid * (self.b00 * Jth + self.b01 * Jph) + self.etaH_on_grid * ( self.b_evaluator.br * Jph)
+        Eph = self.etaP_on_grid * (self.b10 * Jth + self.b11 * Jph) + self.etaH_on_grid * (-self.b_evaluator.br * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta
