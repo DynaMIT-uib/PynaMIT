@@ -295,8 +295,19 @@ class State(object):
 
         self.conductance = True
 
-        self.etaP_on_grid = Pedersen / (Hall**2 + Pedersen**2)
-        self.etaH_on_grid = Hall     / (Hall**2 + Pedersen**2)
+        Pedersen_on_grid = Pedersen
+        Hall_on_grid     = Hall
+
+        # Going back and forth between grid and basis affects the results substantially
+        #Pedersen_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Pedersen_on_grid))
+        #Hall_on_grid     = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Hall_on_grid))
+
+        self.etaP_on_grid = Pedersen_on_grid / (Hall_on_grid**2 + Pedersen_on_grid**2)
+        self.etaH_on_grid = Hall_on_grid     / (Hall_on_grid**2 + Pedersen_on_grid**2)
+
+        # Going back and forth between grid and basis affects the results substantially
+        #self.etaP_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(self.etaP_on_grid))
+        #self.etaH_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(self.etaH_on_grid))
 
         if self.connect_hemispheres:
             # Resistances at conjugate grid points
