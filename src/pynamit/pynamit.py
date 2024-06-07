@@ -383,7 +383,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax
     i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date))  / csp_b_evaluator.br * 1e-6
+    jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
     jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
     if (wind_directory is not None) and os.path.exists(wind_directory):

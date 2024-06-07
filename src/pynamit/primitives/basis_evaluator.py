@@ -132,7 +132,7 @@ class BasisEvaluator(object):
             self._G_helmholtz_inv = np.linalg.pinv(self.G_helmholtz)
         return self._G_helmholtz_inv
 
-    def basis_to_grid(self, coeffs, derivative = None):
+    def basis_to_grid(self, coeffs, derivative = None, helmholtz = False):
         """
         Transform basis coefficients to grid values.
 
@@ -152,6 +152,8 @@ class BasisEvaluator(object):
             return np.dot(self.G_th, coeffs)
         elif derivative == 'phi':
             return np.dot(self.G_ph, coeffs)
+        elif helmholtz:
+            return np.split(np.dot(self.G_helmholtz, np.hstack(coeffs)), 2)
         else:
             return np.dot(self.G, coeffs)
 

@@ -258,27 +258,28 @@ class State(object):
 
 
     def set_u(self, u_theta, u_phi, _basis_evaluator):
-        """ set neutral wind theta and phi components 
-            For now, they *have* to be given on grid
+        """ Set neutral wind theta and phi components.
+
         """
 
         self.neutral_wind = True
 
-        self.u_theta = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = u_theta)
-        self.u_phi   = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = u_phi)
+        u_cf, u_df = _basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True)
 
-        self.u_theta_on_grid = self.u_theta.to_grid(self.basis_evaluator)
-        self.u_phi_on_grid   = self.u_phi.to_grid(self.basis_evaluator)
+        self.u_theta_on_grid, self.u_phi_on_grid = self.basis_evaluator.basis_to_grid((u_cf, u_df), helmholtz = True)
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
         self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            # Wind field at low latitude grid points and at their conjugate points
-            u_theta_ll    = self.u_theta.to_grid(self.basis_evaluator)[self.ll_mask]
-            u_phi_ll      = self.u_phi.to_grid(self.basis_evaluator)[self.ll_mask]
-            u_theta_cp_ll = self.u_theta.to_grid(self.cp_basis_evaluator)[self.ll_mask]
-            u_phi_cp_ll   = self.u_phi.to_grid(self.cp_basis_evaluator)[self.ll_mask]
+            # Neutral wind at conjugate grid points
+            u_theta_on_cp_grid, u_phi_on_cp_grid = self.cp_basis_evaluator.basis_to_grid((u_cf, u_df), helmholtz = True)
+
+            # Neutral wind at low latitude grid points and at their conjugate points
+            u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
+            u_phi_ll      = self.u_phi_on_grid[self.ll_mask]
+            u_theta_cp_ll = u_theta_on_cp_grid[self.ll_mask]
+            u_phi_cp_ll   = u_phi_on_cp_grid[self.ll_mask]
 
             # Constraint vector contribution from wind
             self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
@@ -301,11 +302,15 @@ class State(object):
         self.etaH_on_grid = self.etaH.to_grid(self.basis_evaluator)
 
         if self.connect_hemispheres:
+            # Resistances at conjugate grid points
+            etaP_on_cp_grid = self.etaP.to_grid(self.cp_basis_evaluator)
+            etaH_on_cp_grid = self.etaH.to_grid(self.cp_basis_evaluator)
+
             # Resistances at low latitude grid points and at their conjugate points
-            etaP_ll    = self.etaP.to_grid(self.basis_evaluator)[self.ll_mask]
-            etaH_ll    = self.etaH.to_grid(self.basis_evaluator)[self.ll_mask]
-            etaP_cp_ll = self.etaP.to_grid(self.cp_basis_evaluator)[self.ll_mask]
-            etaH_cp_ll = self.etaH.to_grid(self.cp_basis_evaluator)[self.ll_mask]
+            etaP_ll    = self.etaP_on_grid[self.ll_mask]
+            etaH_ll    = self.etaH_on_grid[self.ll_mask]
+            etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
+            etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
 
             # Conductance-dependent constraint matrices
             self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
