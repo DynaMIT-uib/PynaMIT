@@ -7,8 +7,8 @@ import datetime
 import pyamps
 import apexpy
 
-result_filename = 'ss_test.ncdf'
-Nmax, Mmax, Ncs = 15, 15, 40
+result_filename = 'ss_test3.ncdf'
+Nmax, Mmax, Ncs = 30, 30, 30
 latitude_boundary = 40
 RE = 6371.2e3
 RI = RE + 110e3
@@ -68,39 +68,40 @@ i2d.set_u(-u_north_int, u_east_int)
 i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 
-i2d.evolve_to_time(10)
+i2d.evolve_to_time(0)
+
+m_ind_ss = i2d.steady_state_m_ind()
 
 # numerical curl:
-Dc = i2d.get_finite_difference_curl_matrices()
-E = np.atleast_2d(np.hstack((i2d.state.get_E()))).T
-curl_E_num = Dc.dot(E)
+#Dc = i2d.get_finite_difference_curl_matrix()
+#E = np.atleast_2d(np.hstack((i2d.state.get_E()))).T
+#curl_E_num = Dc.dot(E)
 
 # SH curl
-i2d.state.update_Phi_and_EW()
-curlE_SH_coeffs = -i2d.state.EW.coeffs * i2d.state.EW_to_dBr_dt
-curl_E_SH = csp_i2d_evaluator.basis_to_grid(curlE_SH_coeffs)
+#i2d.state.update_Phi_and_EW()
+#curlE_SH_coeffs = -i2d.state.EW.coeffs * i2d.state.EW_to_dBr_dt
+#curl_E_SH = csp_i2d_evaluator.basis_to_grid(curlE_SH_coeffs)
 
-GVJ = i2d.state.G_m_ind_to_JS
-GTJ = i2d.state.G_m_imp_to_JS
+#GVJ = i2d.state.G_m_ind_to_JS
+#GTJ = i2d.state.G_m_imp_to_JS
 
-import scipy.sparse as sp
-br, bt, bp = i2d.state.b_evaluator.br, i2d.state.b_evaluator.btheta, i2d.state.b_evaluator.bphi
+#import scipy.sparse as sp
+#br, bt, bp = i2d.state.b_evaluator.br, i2d.state.b_evaluator.btheta, i2d.state.b_evaluator.bphi
 eP, eH = i2d.state.etaP, i2d.state.etaH
-C00 = sp.diags(eP * (bp**2 + br**2))
-C01 = sp.diags(eP * (-bt * bp) + eH * br)
-C10 = sp.diags(eP * (-bt * bp) - eH * br)
-C11 = sp.diags(eP * (bt**2 + br**2))
-C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
-
-uxb = np.hstack((i2d.state.uxB_theta, i2d.state.uxB_phi))
-
-GcCGVJ = Dc.dot(C).dot(GVJ)
-GcCGTJ = Dc.dot(C).dot(GTJ)
-
-import xarray as xr
-m_imp = xr.load_dataset(result_filename).SH_coefficients_imposed.values[0]
-m_ind_ss = np.linalg.pinv(GcCGVJ).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
-
+#C00 = sp.diags(eP * (bp**2 + br**2))
+#C01 = sp.diags(eP * (-bt * bp) + eH * br)
+#C10 = sp.diags(eP * (-bt * bp) - eH * br)
+#C11 = sp.diags(eP * (bt**2 + br**2))
+#C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
+#
+#uxb = np.hstack((i2d.state.uxB_theta, i2d.state.uxB_phi))
+#
+#GcCGVJ = Dc.dot(C).dot(GVJ)
+#GcCGTJ = Dc.dot(C).dot(GTJ)
+#
+#import xarray as xr
+#m_imp = xr.load_dataset(result_filename).SH_coefficients_imposed.values[0]
+#m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
 
 # calculate electric field with steady-state coefficients:
 Js_ind, Je_ind = np.split(i2d.state.G_m_ind_to_JS.dot(m_ind_ss), 2, axis = 0)
@@ -115,10 +116,10 @@ E_cf_coeff, E_df_coeff = i2d.state.basis_evaluator.grid_to_basis((Eth, Eph), hel
 
 
 
-import matplotlib.pyplot as plt
-fig, axes = plt.subplots(nrows = 2)
-axes[0].scatter(csp_grid.lon, csp_grid.lat, c = curl_E_num)
-axes[1].scatter(csp_grid.lon, csp_grid.lat, c = curl_E_SH)
-plt.show()
-
+#import matplotlib.pyplot as plt
+#fig, axes = plt.subplots(nrows = 2)
+#axes[0].scatter(csp_grid.lon, csp_grid.lat, c = curl_E_num)
+#axes[1].scatter(csp_grid.lon, csp_grid.lat, c = curl_E_SH)
+#plt.show()
+#
 
