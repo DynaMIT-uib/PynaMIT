@@ -96,7 +96,7 @@ jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.set_u(u_theta.flatten(), u_phi.flatten(), u_basis_evaluator)
-i2d.set_FAC(jparallel, csp_i2d_evaluator, csp_b_evaluator)
+i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))

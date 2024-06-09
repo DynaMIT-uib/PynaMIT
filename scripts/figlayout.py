@@ -61,7 +61,7 @@ jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
 i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_basis_evaluator)
 
-i2d.set_FAC(jparallel, csp_i2d_evaluator, csp_b_evaluator)
+i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 
 #### MODEL OBJECT DONE

@@ -233,7 +233,7 @@ class State(object):
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
 
 
-    def set_FAC(self, FAC, _basis_evaluator, _b_evaluator):
+    def set_FAC(self, FAC, _basis_evaluator):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.

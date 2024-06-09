@@ -400,7 +400,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
         u_basis_evaluator = BasisEvaluator(i2d_sh, u_grid)
         i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_basis_evaluator)
 
-    i2d.set_FAC(jparallel, csp_i2d_evaluator, csp_b_evaluator)
+    i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
