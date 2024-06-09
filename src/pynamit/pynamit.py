@@ -9,6 +9,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.state import State
 from pynamit.constants import RE
 import pynamit
+import scipy.sparse as sp
 
 class I2D(object):
     """ 2D ionosphere. """
@@ -319,48 +320,80 @@ class I2D(object):
                 self.next_conductance += 1
                 self.updated_conductance = True
 
-
-    def get_finite_difference_curl_matrices(self):
+    @property
+    def fd_curl_matrix(self):
         """ Calculate matrix that returns the radial curl, using finite differences 
             when operated on a column vector of (theta, phi) vector components. 
             The function also returns the pseudo-inverse of the matrix. 
         """
 
-        import scipy.sparse as sp  
+        if not hasattr(self, '_fd_curl_matrix'):
+            
+            Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = 2, Ni = 4, order = 1)
+            sqrtg = np.sqrt(self.csp.detg)
+            g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
+            g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
+            g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
+
+            # matrix that operates on column vector of u1, u2 and produces radial curl
+            D_curlr_u1u2 = sp.hstack(((Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
+                                      (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled))))
+
+            # matrix that transforms theta, phi to u1, u2:
+            Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
+            # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
+            # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
+            rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.num_grid.lat)) # normalization factors
+            Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
+            Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
+            Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 
+            Ps11 = sp.diags( Ps_dense[:, 1, 0] / rrcosl)
+            # stack:
+            Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
+
+            # combine:
+            self._fd_curl_matrix = D_curlr_u1u2.dot(Ps)
+
+        return(self._fd_curl_matrix)
+
+    def steady_state_m_ind(self, m_imp = None):
+        """ Calculate coefficients for induced field in steady state 
+            
+            Parameters:
+            -----------
+            m_imp: array, optional
+                the coefficient vector for the imposed magnetic field. If None, the
+                vector for the current state will be used
+
+            Returns:
+            --------
+            m_ind_ss: array
+                array of coefficients for the induced magnetic field in steady state
+
+        """
         
-        Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = 1, Ni = 4, order = 1)
-        sqrtg = np.sqrt(self.csp.detg)
-        g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
-        g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
-        g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
+        GVJ = self.state.G_m_ind_to_JS
+        GTJ = self.state.G_m_imp_to_JS
 
-        # matrix that operates on column vector of u1, u2 and produces radial curl
-        D_curlr_u1u2 = sp.hstack(((Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
-                                  (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled))))
+        br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
+        eP, eH = self.state.etaP, self.state.etaH
+        C00 = sp.diags(eP * (bp**2 + br**2))
+        C01 = sp.diags(eP * (-bt * bp) + eH * br)
+        C10 = sp.diags(eP * (-bt * bp) - eH * br)
+        C11 = sp.diags(eP * (bt**2 + br**2))
+        C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
 
-        #1/self.sqrtg * ( self.Dxi .dot(self.g12 * u1 + self.g22 * u2) - 
-        #                 self.Deta.dot(self.g11 * u1 + self.g12 * u2) ) )
+        uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
-        # matrix that transforms theta, phi to u1, u2:
-        Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
-        # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
-        # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
-        rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.num_grid.lat)) # normalization factors
-        Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
-        Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
-        Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 
-        Ps11 = sp.diags( Ps_dense[:, 1, 0] / rrcosl)
-        # stack:
-        Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
+        GcCGVJ = self.fd_curl_matrix.dot(C).dot(GVJ)
+        GcCGTJ = self.fd_curl_matrix.dot(C).dot(GTJ)
 
-        # combine:
-        D_curlr = D_curlr_u1u2.dot(Ps)
+        if m_imp is None:
+            m_imp = self.state.m_imp.coeffs
 
+        m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.fd_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
 
-        # inverse:
-        #D_curlr_pinv = sp.linalg.pinv(D_curlr)
-
-        return(D_curlr)#, D_curlr_pinv)
+        return(m_ind_ss)
 
 
 
