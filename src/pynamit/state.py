@@ -31,6 +31,10 @@ class State(object):
         self.connect_hemispheres = connect_hemispheres
         self.latitude_boundary = latitude_boundary
 
+        if PFAC_matrix is not None:
+            nn = int(np.sqrt(PFAC_matrix.size))
+            self._m_imp_to_B_pol = PFAC_matrix.reshape((nn, nn))
+
         # Spherical harmonic identities
         d_dr            = -self.sh.n / self.RI
         laplacian       = -self.sh.n * (self.sh.n + 1) / self.RI**2
