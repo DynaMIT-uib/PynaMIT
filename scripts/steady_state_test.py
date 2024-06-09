@@ -92,12 +92,14 @@ C10 = sp.diags(eP * (-bt * bp) - eH * br)
 C11 = sp.diags(eP * (bt**2 + br**2))
 C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
 
-uxb = np.hstack((i2d.state.uxB_theta, i2d.state.uxB_theta))
+uxb = np.hstack((i2d.state.uxB_theta, i2d.state.uxB_phi))
 
 GcCGVJ = Dc.dot(C).dot(GVJ)
-GcCGVT = Dc.dot(C).dot(GTJ)
+GcCGTJ = Dc.dot(C).dot(GTJ)
 
-m_ind_ss = np.linalg.pinv(GcCGVJ).dot(Dc.dot(uxb) - GcCGVT.dot(i2d.state.m_imp.coeffs))
+import xarray as xr
+m_imp = xr.load_dataset(result_filename).SH_coefficients_imposed.values[0]
+m_ind_ss = np.linalg.pinv(GcCGVJ).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
 
 
 # calculate electric field with steady-state coefficients:
@@ -109,10 +111,7 @@ Eph = eP * (i2d.state.b10 * Jth + i2d.state.b11 * Jph) + eH * (-i2d.state.b_eval
 Eth -= i2d.state.uxB_theta
 Eph -= i2d.state.uxB_phi
 
-E_cf, E_df = i2d.state.basis_evaluator.grid_to_basis((Eth, Eph), helmholtz = True)
-
-self.Phi = Vector(self.basis, coeffs = E_cf)
-self.EW = Vector(self.basis, coeffs = E_df)
+E_cf_coeff, E_df_coeff = i2d.state.basis_evaluator.grid_to_basis((Eth, Eph), helmholtz = True)
 
 
 
