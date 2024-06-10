@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_dipole_pfac():
     # Arrange
-    expected_coeff_norm = 6.744704986582642e-10
-    expected_coeff_max = 2.303706051714423e-11
-    expected_coeff_min = -4.378315477735019e-11
+    expected_coeff_norm = 6.885109841764015e-10
+    expected_coeff_max = 2.4006515852155804e-11
+    expected_coeff_min = -4.37633199749257e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")

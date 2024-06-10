@@ -9,6 +9,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.state import State
 from pynamit.constants import RE
 import pynamit
+import scipy.sparse as sp
 
 class I2D(object):
     """ 2D ionosphere. """
@@ -53,6 +54,7 @@ class I2D(object):
         self.mainfield_kind         = mainfield_kind
         self.mainfield_epoch        = B0_parameters['epoch']
         self.mainfield_B0           = B0_parameters['B0']
+        self.csp                    = csp
 
         if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.result_filename)
@@ -72,7 +74,7 @@ class I2D(object):
             PFAC_matrix                 = dataset.PFAC_matrix.reshape( shape )
 
             sh  = pynamit.SHBasis(dataset.N, dataset.M)
-            csp = pynamit.CSProjection(dataset.Ncs)
+            self.csp = pynamit.CSProjection(dataset.Ncs)
 
             B0_parameters = {'epoch':self.mainfield_epoch, 'B0':self.mainfield_B0}
             self.latest_time = dataset.time.values[-1]
@@ -84,11 +86,11 @@ class I2D(object):
 
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
-        num_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
+        self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
 
 
         # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, num_grid, 
+        self.state = State(sh, mainfield, self.num_grid, 
                            RI = self.RI, 
                            ignore_PFAC = self.ignore_PFAC, 
                            FAC_integration_steps = self.FAC_integration_steps, 
@@ -127,7 +129,7 @@ class I2D(object):
 
             # resolution parameters:
             resolution_params = {}
-            resolution_params['Ncs'] = int(np.sqrt(self.state.num_grid.size / 6) + 1)
+            resolution_params['Ncs'] = int(np.sqrt(self.state.num_grid.size / 6))
             resolution_params['N']   = self.state.sh.Nmax
             resolution_params['M']   = self.state.sh.Mmax
             resolution_params['FAC_integration_steps'] = self.FAC_integration_steps
@@ -317,6 +319,84 @@ class I2D(object):
                 self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
                 self.next_conductance += 1
                 self.updated_conductance = True
+
+    @property
+    def fd_curl_matrix(self):
+        """ Calculate matrix that returns the radial curl, using finite differences 
+            when operated on a column vector of (theta, phi) vector components. 
+            The function also returns the pseudo-inverse of the matrix. 
+        """
+
+        if not hasattr(self, '_fd_curl_matrix'):
+            
+            Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = 2, Ni = 4, order = 1)
+            sqrtg = np.sqrt(self.csp.detg)
+            g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
+            g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
+            g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
+
+            # matrix that operates on column vector of u1, u2 and produces radial curl
+            D_curlr_u1u2 = sp.hstack(((Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
+                                      (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled))))
+
+            # matrix that transforms theta, phi to u1, u2:
+            Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
+            # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
+            # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
+            rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.num_grid.lat)) # normalization factors
+            Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
+            Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
+            Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 
+            Ps11 = sp.diags( Ps_dense[:, 1, 0] / rrcosl)
+            # stack:
+            Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
+
+            # combine:
+            self._fd_curl_matrix = D_curlr_u1u2.dot(Ps)
+
+        return(self._fd_curl_matrix)
+
+    def steady_state_m_ind(self, m_imp = None):
+        """ Calculate coefficients for induced field in steady state 
+            
+            Parameters:
+            -----------
+            m_imp: array, optional
+                the coefficient vector for the imposed magnetic field. If None, the
+                vector for the current state will be used
+
+            Returns:
+            --------
+            m_ind_ss: array
+                array of coefficients for the induced magnetic field in steady state
+
+        """
+        
+        GVJ = self.state.G_m_ind_to_JS
+        GTJ = self.state.G_m_imp_to_JS
+
+        br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
+        eP, eH = self.state.etaP, self.state.etaH
+        C00 = sp.diags(eP * (bp**2 + br**2))
+        C01 = sp.diags(eP * (-bt * bp) + eH * br)
+        C10 = sp.diags(eP * (-bt * bp) - eH * br)
+        C11 = sp.diags(eP * (bt**2 + br**2))
+        C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
+
+        uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
+
+        GcCGVJ = self.fd_curl_matrix.dot(C).dot(GVJ)
+        GcCGTJ = self.fd_curl_matrix.dot(C).dot(GTJ)
+
+        if m_imp is None:
+            m_imp = self.state.m_imp.coeffs
+
+        m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.fd_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
+
+        return(m_ind_ss)
+
+
+
 
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 45, Mmax = 3, Ncs = 60, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None):
