@@ -257,10 +257,10 @@ class State(object):
         self.Jpar_on_grid = csp.interpolate_scalar(FAC, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
 
         # Extract the radial component of the FAC and set the corresponding basis coefficients
-        self.Jr = Vector(self.basis, basis_evaluator = _basis_evaluator, grid_values = self.Jpar_on_grid * self.b_evaluator.br)
+        self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = self.Jpar_on_grid * self.b_evaluator.br)
 
         # Represent as expansion in spherical harmonics
-        #self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+        self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
 
         self.set_coeffs(Jr = self.Jr.coeffs)
         self.impose_constraints()
@@ -312,35 +312,25 @@ class State(object):
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
-        from pynamit.cubedsphere.cubedsphere import csp
 
         self.conductance = True
 
-        # Represent as values on num_grid
-        Pedersen_on_grid = csp.interpolate_scalar(Pedersen, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
-        Hall_on_grid     = csp.interpolate_scalar(Hall,     _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+        # Transform to conductivities
+        etaP = Pedersen / (Hall**2 + Pedersen**2)
+        etaH = Hall     / (Hall**2 + Pedersen**2)
 
         # Represent as expansion in spherical harmonics
-        #Pedersen_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Pedersen))
-        #Hall_on_grid     = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Hall))
+        etaP_sh = _basis_evaluator.grid_to_basis(etaP)
+        etaH_sh = _basis_evaluator.grid_to_basis(etaH)
 
         # Represent as values on num_grid
-        #self.etaP_on_grid = Pedersen_on_grid / (Hall_on_grid**2 + Pedersen_on_grid**2)
-        #self.etaH_on_grid = Hall_on_grid     / (Hall_on_grid**2 + Pedersen_on_grid**2)
-
-        # Represent as expansion in spherical harmonics
-        self.etaP_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Pedersen_on_grid / (Hall_on_grid**2 + Pedersen_on_grid**2)))
-        self.etaH_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Hall_on_grid     / (Hall_on_grid**2 + Pedersen_on_grid**2)))
+        self.etaP_on_grid = self.basis_evaluator.basis_to_grid(etaP_sh)
+        self.etaH_on_grid = self.basis_evaluator.basis_to_grid(etaH_sh)
 
         if self.connect_hemispheres:
-            # Resistances at conjugate grid points
             # Represent as values on cp_grid
-            #etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
-            #etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
-
-            # Represent as expansion in spherical harmonics
-            etaP_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Pedersen_on_grid / (Hall_on_grid**2 + Pedersen_on_grid**2)))
-            etaH_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(Hall_on_grid     / (Hall_on_grid**2 + Pedersen_on_grid**2)))
+            etaP_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(etaP_sh)
+            etaH_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(etaH_sh)
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]
