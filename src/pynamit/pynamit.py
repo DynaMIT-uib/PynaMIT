@@ -219,7 +219,7 @@ class I2D(object):
                     print('Saved output at t = {:.2f} s'.format(time), end = '\r')
 
 
-    def set_FAC(self, FAC, _basis_evaluator, _field_evaluator, time = None):
+    def set_FAC(self, FAC, _basis_evaluator, time = None):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -236,7 +236,6 @@ class I2D(object):
 
         self.FAC = np.atleast_2d(FAC)
         self.FAC_basis_evaluator = _basis_evaluator
-        self.FAC_field_evaluator = _field_evaluator
 
         if time is None:
             if self.FAC.shape[0] > 1:
@@ -296,7 +295,7 @@ class I2D(object):
 
         if self.next_FAC < self.FAC_time.size:
             if self.latest_time >= self.FAC_time[self.next_FAC]:
-                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator, self.FAC_field_evaluator)
+                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
                 self.next_FAC += 1
                 self.updated_FAC = True
 

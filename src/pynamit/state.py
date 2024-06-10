@@ -269,22 +269,24 @@ class State(object):
 
         self.neutral_wind = True
 
-        self.u_theta_on_grid = csp.interpolate_scalar(u_theta, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
-        self.u_phi_on_grid   = csp.interpolate_scalar(u_phi,   _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+        u_on_grid = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+        self.u_theta_on_grid = -u_on_grid[1]
+        self.u_phi_on_grid   = u_on_grid[0]
 
         # Represent as expansion in spherical harmonics
-        #self.u_theta_on_grid, self.u_phi_on_grid = self.basis_evaluator.basis_to_grid( _basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True), helmholtz = True)
+        #self.u_theta_on_grid, self.u_phi_on_grid = self.basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True), helmholtz = True)
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
         self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
         if self.connect_hemispheres:
             # Neutral wind at conjugate grid points
-            u_theta_on_cp_grid = csp.interpolate_scalar(u_theta, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
-            u_phi_on_cp_grid   = csp.interpolate_scalar(u_phi,   _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
+            u_on_cp_grid = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
+            u_theta_on_cp_grid = -u_on_cp_grid[1]
+            u_phi_on_cp_grid   = u_on_cp_grid[0]
 
             # Represent as expansion in spherical harmonics
-            #self.u_theta_on_cp_grid, self.u_phi_on_cp_grid = self.cp_basis_evaluator.basis_to_grid( _basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True), helmholtz = True)
+            #self.u_theta_on_cp_grid, self.u_phi_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True), helmholtz = True)
 
             # Neutral wind at low latitude grid points and at their conjugate points
             u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
