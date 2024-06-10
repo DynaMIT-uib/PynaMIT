@@ -339,7 +339,8 @@ class State(object):
             etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta, self.cp_grid.lon)
 
             # Represent as expansion in spherical harmonics
-            #etaP_on_cp_grid, etaH_on_cp_grid = self.cp_basis_evaluator.basis_to_grid( _basis_evaluator.grid_to_basis((self.etaP_on_grid, self.etaH_on_grid), helmholtz = True), helmholtz = True)
+            #etaP_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(self.etaP_on_grid))
+            #etaH_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis(self.etaH_on_grid))
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]
