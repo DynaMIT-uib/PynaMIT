@@ -293,7 +293,7 @@ class State(object):
             u_phi_on_cp_grid   = u_on_cp_grid[0]
 
             # Represent as expansion in spherical harmonics
-            #self.u_theta_on_cp_grid, self.u_phi_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True), helmholtz = True)
+            #u_theta_on_cp_grid, u_phi_on_cp_grid = self.cp_basis_evaluator.basis_to_grid(_basis_evaluator.grid_to_basis((u_theta, u_phi), helmholtz = True), helmholtz = True)
 
             # Neutral wind at low latitude grid points and at their conjugate points
             u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
