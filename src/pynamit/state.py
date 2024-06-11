@@ -2,7 +2,6 @@ import numpy as np
 from pynamit.primitives.grid import Grid
 from pynamit.constants import mu0, RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.cubedsphere.cubedsphere import csp
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.field_evaluator import FieldEvaluator
 
@@ -233,12 +232,12 @@ class State(object):
             if self.neutral_wind:
                 c += self.cu
 
-            constraint_vector = np.hstack((self.Jpar[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
 
 
-    def set_FAC(self, FAC, _basis_evaluator):
+    def set_FAC(self, Jr):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -253,72 +252,78 @@ class State(object):
 
         """
 
-        if FAC.size != self.num_grid.theta.size:
-            raise Exception('FAC must match phi and theta')
+        self.Jr = Jr
 
-        self.Jpar = FAC
+        # Represent as expansion in spherical harmonics
+        self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
 
-        # Extract the radial component of the FAC and set the corresponding basis coefficients
-        self.set_coeffs(Jr = _basis_evaluator.grid_to_basis(self.Jpar * self.b_evaluator.br))
+        self.set_coeffs(Jr = self.Jr.coeffs)
         self.impose_constraints()
 
 
-    def set_u(self, u_theta, u_phi):
-        """ set neutral wind theta and phi components 
-            For now, they *have* to be given on grid
-        """
+    def set_u(self, u):
+        """ Set neutral wind theta and phi components.
 
-        if (u_theta.size != self.num_grid.theta.size) or (u_phi.size != self.num_grid.lon.size):
-            raise Exception('Wind must match dimensions of num_grid')
+        """
 
         self.neutral_wind = True
 
-        self.u_theta = u_theta
-        self.u_phi   = u_phi
+        self.u = u
 
-        self.uxB_theta =  self.u_phi   * self.b_evaluator.Br
-        self.uxB_phi   = -self.u_theta * self.b_evaluator.Br
+        # Represent as values on num_grid
+        self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.basis_evaluator)
+
+        self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
+        self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            u_theta_ll = self.u_theta[self.ll_mask]
-            u_phi_ll   = self.u_phi[self.ll_mask]
-            # Wind field at conjugate grid points
-            u_cp_ll = csp.interpolate_vector_components(self.u_phi, -self.u_theta, np.ones_like(self.u_phi), self.num_grid.theta, self.num_grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
-            u_theta_cp_ll, u_phi_cp_ll = -u_cp_ll[1], u_cp_ll[0]
+            # Represent as values on cp_grid
+            u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
+
+            # Neutral wind at low latitude grid points and at their conjugate points
+            u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
+            u_phi_ll      = self.u_phi_on_grid[self.ll_mask]
+            u_theta_cp_ll = u_theta_on_cp_grid[self.ll_mask]
+            u_phi_cp_ll   = u_phi_on_cp_grid[self.ll_mask]
 
             # Constraint vector contribution from wind
             self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
                       -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
 
 
-    def set_conductance(self, Hall, Pedersen, _basis_evaluator):
+    def set_conductance(self, etaP, etaH):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
 
-        if Hall.size != Pedersen.size != self.num_grid.theta.size:
-            raise Exception('Conductances must match phi and theta')
-
         self.conductance = True
 
-        self.etaP = Pedersen / (Hall**2 + Pedersen**2)
-        self.etaH = Hall     / (Hall**2 + Pedersen**2)
+        self.etaP = etaP
+        self.etaH = etaH
+
+        # Represent as values on num_grid
+        self.etaP_on_grid = etaP.to_grid(self.basis_evaluator)
+        self.etaH_on_grid = etaH.to_grid(self.basis_evaluator)
 
         if self.connect_hemispheres:
-            self.etaP_ll = self.etaP[self.ll_mask]
-            self.etaH_ll = self.etaH[self.ll_mask]
-            # Resistances at conjugate grid points
-            self.etaP_cp_ll = csp.interpolate_scalar(self.etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
-            self.etaH_cp_ll = csp.interpolate_scalar(self.etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.cp_grid.theta[self.ll_mask], self.cp_grid.lon[self.ll_mask])
+            # Represent as values on cp_grid
+            etaP_on_cp_grid = etaP.to_grid(self.cp_basis_evaluator)
+            etaH_on_cp_grid = etaH.to_grid(self.cp_basis_evaluator)
+
+            # Resistances at low latitude grid points and at their conjugate points
+            etaP_ll    = self.etaP_on_grid[self.ll_mask]
+            etaH_ll    = self.etaH_on_grid[self.ll_mask]
+            etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
+            etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
 
             # Conductance-dependent constraint matrices
-            self.A_ind =  (np.tile(self.etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(self.etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
-                         -(np.tile(self.etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(self.etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
+            self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
+                         -(np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
 
-            self.A_imp =  (np.tile(self.etaP_ll,    2).reshape((-1, 1)) * self.aeP_imp_ll    + np.tile(self.etaH_ll,    2).reshape((-1, 1)) * self.aeH_imp_ll) \
-                         -(np.tile(self.etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(self.etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
+            self.A_imp =  (np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_imp_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_imp_ll) \
+                         -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_Jpar_hl, self.G_Jpar_ll_diff, self.G_Jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
@@ -412,8 +417,8 @@ class State(object):
 
         Jth, Jph = self.get_JS()
 
-        Eth = self.etaP * (self.b00 * Jth + self.b01 * Jph) + self.etaH * ( self.b_evaluator.br * Jph)
-        Eph = self.etaP * (self.b10 * Jth + self.b11 * Jph) + self.etaH * (-self.b_evaluator.br * Jth)
+        Eth = self.etaP_on_grid * (self.b00 * Jth + self.b01 * Jph) + self.etaH_on_grid * ( self.b_evaluator.br * Jph)
+        Eph = self.etaP_on_grid * (self.b10 * Jth + self.b11 * Jph) + self.etaH_on_grid * (-self.b_evaluator.br * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta

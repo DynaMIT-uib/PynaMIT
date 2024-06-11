@@ -42,19 +42,28 @@ hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp
 u_phi   =  hwm14Obj.Uwind
 u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+u_grid = pynamit.Grid(u_lat, u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
-u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
-u_east_int, u_north_int, u_r_int = u_int
+csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
+
+u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
 
 if PLOT_WIND:
+    u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_theta.flatten())
+    u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_phi.flatten())
+
+    u_theta_int = u_theta_sh.to_grid(csp_i2d_evaluator)
+    u_phi_int   = u_phi_sh.to_grid(csp_i2d_evaluator)
+
     fig, ax = plt.subplots(figsize=(10, 7),
                            subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
     ax.coastlines()
     Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
-    ax.quiver(i2d_csp.arr_phi, 90 - i2d_csp.arr_theta, u_east_int, u_north_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
+    ax.quiver(csp_grid.lon, csp_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
 ## PLOT PARAMETERS
@@ -70,9 +79,6 @@ Philevels = np.r_[-212.5:212.5:5]
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
-csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
-csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -85,10 +91,11 @@ hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, sta
 i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
+csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_u(-u_north_int, u_east_int)
+i2d.set_u(u_theta.flatten(), u_phi.flatten(), u_basis_evaluator)
 i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
