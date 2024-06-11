@@ -322,7 +322,7 @@ class I2D(object):
                 self.updated_conductance = True
 
     @property
-    def fd_curl_matrix(self):
+    def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
         """ Calculate matrix that returns the radial curl, using finite differences 
             when operated on a column vector of (theta, phi) vector components. 
             The function also returns the pseudo-inverse of the matrix. 
@@ -330,7 +330,7 @@ class I2D(object):
 
         if not hasattr(self, '_fd_curl_matrix'):
             
-            Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = 2, Ni = 4, order = 1)
+            Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = stencil_size, Ni = interpolation_points, order = 1)
             sqrtg = np.sqrt(self.csp.detg)
             g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
             g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)

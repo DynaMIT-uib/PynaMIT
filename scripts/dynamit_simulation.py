@@ -2,35 +2,35 @@ import numpy as np
 import pynamit
 from lompe import conductance
 import dipole
-#import pyhwm2014 # https://github.com/rilma/pyHWM14
+import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import pyamps
 import apexpy
 
 RE = 6371.2e3
 RI = RE + 110e3
-latitude_boundary = 35
+latitude_boundary = 40
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-result_filename = 'flareish.ncdf'
-Nmax, Mmax, Ncs = 50, 50, 70
+result_filename = 'tst.ncdf'
+Nmax, Mmax, Ncs = 50, 50, 60
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
-date = datetime.datetime(2001, 5, 12, 21, 0)
+date = datetime.datetime(2001, 5, 12, 17, 0)
 Kp   = 5
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
-#hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
-#                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
+hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
+                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
-#u_phi   =  hwm14Obj.Uwind
-#u_theta = -hwm14Obj.Vwind
-#u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
-u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
-u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
+u_phi   =  hwm14Obj.Uwind
+u_theta = -hwm14Obj.Vwind
+u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+#u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
+#u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
 u_grid = pynamit.Grid(u_lat, u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
@@ -72,9 +72,9 @@ i2d.set_FAC(jparallel, csp_i2d_evaluator)
 
 i2d.evolve_to_time(180)
 
-print('increasing conductance')
-hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, F107 = 300, starlight = 1, dipole = False)
-i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
-
-i2d.evolve_to_time(360)
+#print('increasing conductance')
+#hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, F107 = 300, starlight = 1, dipole = False)
+#i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
+#
+#i2d.evolve_to_time(360)
 
