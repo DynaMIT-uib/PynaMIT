@@ -2,6 +2,10 @@ import numpy as np
 import xarray as xr
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
+from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.cubedsphere.cubedsphere import csp
+from pynamit.primitives.vector import Vector
 import os
 from pynamit.cubedsphere import cubedsphere
 #from pynamit.cs_equations import CSEquations
@@ -87,7 +91,9 @@ class I2D(object):
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
         self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
-
+        self.basis = sh
+        self.basis_evaluator = BasisEvaluator(self.basis, self.num_grid)
+        self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
 
         # Initialize the state of the ionosphere
         self.state = State(sh, mainfield, self.num_grid, 
@@ -297,7 +303,14 @@ class I2D(object):
 
         if self.next_FAC < self.FAC_time.size:
             if self.latest_time >= self.FAC_time[self.next_FAC]:
-                self.state.set_FAC(self.FAC[self.next_FAC], self.FAC_basis_evaluator)
+                # Represent as values on num_grid
+                Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_basis_evaluator.grid.theta, self.FAC_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+
+                # Extract the radial component of the FAC and set the corresponding basis coefficients
+                Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
+
+                self.state.set_FAC(Jr)
+
                 self.next_FAC += 1
                 self.updated_FAC = True
 
@@ -307,7 +320,15 @@ class I2D(object):
 
         if self.next_u < self.u_time.size:
             if self.latest_time >= self.u_time[self.next_u]:
-                self.state.set_u(self.u_theta[self.next_u], self.u_phi[self.next_u], self.u_basis_evaluator)
+                # Represent as values on num_grid
+                u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+                u_int_theta, u_int_phi = -u_int[1], u_int[0]
+
+                # Represent as expansion in spherical harmonics
+                u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+
+                self.state.set_u(u)
+
                 self.next_u += 1
                 self.updated_u = True
 
@@ -317,7 +338,20 @@ class I2D(object):
 
         if self.next_conductance < self.conductance_time.size:
             if self.latest_time >= self.conductance_time[self.next_conductance]:
-                self.state.set_conductance(self.Hall[self.next_conductance], self.Pedersen[self.next_conductance], self.conductance_basis_evaluator)
+                # Transform to resistivities
+                etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+                etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+
+                # Represent as values on num_grid
+                etaP_int = csp.interpolate_scalar(etaP, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+                etaH_int = csp.interpolate_scalar(etaH, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+
+                # Represent as expansion in spherical harmonics
+                etaP = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaP_int)
+                etaH = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaH_int)
+
+                self.state.set_conductance(etaP, etaH)
+
                 self.next_conductance += 1
                 self.updated_conductance = True
 
