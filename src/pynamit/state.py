@@ -254,10 +254,10 @@ class State(object):
         from pynamit.cubedsphere.cubedsphere import csp
 
         # Represent as values on num_grid
-        self.Jpar_on_grid = csp.interpolate_scalar(FAC, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+        Jpar_int = csp.interpolate_scalar(FAC, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
 
         # Extract the radial component of the FAC and set the corresponding basis coefficients
-        self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = self.Jpar_on_grid * self.b_evaluator.br)
+        self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
 
         # Represent as expansion in spherical harmonics
         self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
@@ -275,12 +275,11 @@ class State(object):
         self.neutral_wind = True
 
         # Represent as values on num_grid
-        u_on_grid = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
-        self.u_theta_on_grid = -u_on_grid[1]
-        self.u_phi_on_grid   = u_on_grid[0]
+        u_int = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+        u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
         # Represent as expansion in spherical harmonics
-        u_sh = self.basis_evaluator.grid_to_basis((self.u_theta_on_grid, self.u_phi_on_grid), helmholtz = True)
+        u_sh = self.basis_evaluator.grid_to_basis((u_int_theta, u_int_phi), helmholtz = True)
 
         # Represent as values on num_grid
         self.u_theta_on_grid, self.u_phi_on_grid = self.basis_evaluator.basis_to_grid(u_sh, helmholtz = True)
@@ -310,15 +309,21 @@ class State(object):
 
         """
 
+        from pynamit.cubedsphere.cubedsphere import csp
+
         self.conductance = True
 
         # Transform to conductivities
         etaP = Pedersen / (Hall**2 + Pedersen**2)
         etaH = Hall     / (Hall**2 + Pedersen**2)
 
+        # Represent as values on num_grid
+        etaP_int = csp.interpolate_scalar(etaP, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+        etaH_int = csp.interpolate_scalar(etaH, _basis_evaluator.grid.theta, _basis_evaluator.grid.lon, self.num_grid.theta, self.num_grid.lon)
+
         # Represent as expansion in spherical harmonics
-        etaP_sh = _basis_evaluator.grid_to_basis(etaP)
-        etaH_sh = _basis_evaluator.grid_to_basis(etaH)
+        etaP_sh = _basis_evaluator.grid_to_basis(etaP_int)
+        etaH_sh = _basis_evaluator.grid_to_basis(etaH_int)
 
         # Represent as values on num_grid
         self.etaP_on_grid = self.basis_evaluator.basis_to_grid(etaP_sh)
