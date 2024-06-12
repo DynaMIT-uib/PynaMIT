@@ -239,6 +239,8 @@ class State(object):
             constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
+        else:
+            self.set_coeffs(Jr = self.Jr.coeffs)
 
 
     def set_FAC(self, Jr):
@@ -257,14 +259,17 @@ class State(object):
         """
 
         if self.sh_FAC:
-            self.Jr = Jr
             # Represent as expansion in spherical harmonics
-            self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+            if self.connect_hemispheres:
+                self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+            else:
+                self.Jr = Jr
         else:
-            self.Jpar_on_grid = Jr / self.b_evaluator.br
-            self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
+            if self.connect_hemispheres:
+                self.Jpar_on_grid = Jr / self.b_evaluator.br
+            else:
+                self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
 
-        self.set_coeffs(Jr = self.Jr.coeffs)
         self.impose_constraints()
 
 
