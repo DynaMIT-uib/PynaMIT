@@ -2,6 +2,7 @@ import numpy as np
 import xarray as xr
 from pynamit.mainfield import Mainfield
 from pynamit.sha.sh_basis import SHBasis
+from pynamit.primitives.grid_basis import GridBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.cubedsphere.cubedsphere import csp
@@ -322,7 +323,7 @@ class I2D(object):
                 if self.sh_FAC:
                     Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
                 else:
-                    Jr = Jpar_int * self.b_evaluator.br
+                    Jr = Vector(GridBasis(self.num_grid), coeffs = Jpar_int * self.b_evaluator.br)
 
                 self.state.set_FAC(Jr)
 
