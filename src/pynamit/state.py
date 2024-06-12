@@ -259,7 +259,6 @@ class State(object):
 
         """
 
-        # Represent as expansion in spherical harmonics
         if self.sh_FAC:
             # Represent as expansion in spherical harmonics
             if self.connect_hemispheres:
