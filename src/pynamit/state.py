@@ -241,7 +241,7 @@ class State(object):
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
         else:
-            self.set_coeffs(Jr = self.Jr_sh.coeffs)
+            self.set_coeffs(Jr = self.Jr.coeffs)
 
 
     def set_FAC(self, Jr):
@@ -260,14 +260,17 @@ class State(object):
         """
 
         # Represent as expansion in spherical harmonics
-        if self.connect_hemispheres:
-            self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
-        else:
-            if not self.sh_FAC:
-                basis_evaluator = BasisEvaluator(GridBasis(self.num_grid), self.num_grid)
-                self.Jr_sh = Vector(self.basis, basis_evaluator = basis_evaluator, grid_values = Jr.to_grid(basis_evaluator))
+        if self.sh_FAC:
+            # Represent as expansion in spherical harmonics
+            if self.connect_hemispheres:
+                self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
             else:
-                self.Jr_sh = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr.to_grid(self.basis_evaluator))
+                self.Jr = Jr
+        else:
+            if self.connect_hemispheres:
+                self.Jpar_on_grid = Jr.coeffs / self.b_evaluator.br
+            else:
+                self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr.coeffs)
 
         self.impose_constraints()
 
