@@ -11,7 +11,7 @@ class State(object):
 
     """
 
-    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None):
+    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None, sh_FAC = False, sh_conductance = False, sh_u = False):
         """ Initialize the state of the ionosphere.
     
         """
@@ -33,6 +33,10 @@ class State(object):
         if PFAC_matrix is not None:
             nn = int(np.sqrt(PFAC_matrix.size))
             self._m_imp_to_B_pol = PFAC_matrix.reshape((nn, nn))
+
+        self.sh_FAC = sh_FAC
+        self.sh_conductance = sh_conductance
+        self.sh_u = sh_u
 
         # Spherical harmonic identities
         d_dr            = -self.sh.n / self.RI
@@ -252,10 +256,13 @@ class State(object):
 
         """
 
-        self.Jr = Jr
-
-        # Represent as expansion in spherical harmonics
-        self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+        if self.sh_FAC:
+            self.Jr = Jr
+            # Represent as expansion in spherical harmonics
+            self.Jpar_on_grid = self.Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+        else:
+            self.Jpar_on_grid = Jr / self.b_evaluator.br
+            self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
 
         self.set_coeffs(Jr = self.Jr.coeffs)
         self.impose_constraints()
@@ -265,20 +272,29 @@ class State(object):
         """ Set neutral wind theta and phi components.
 
         """
+        from pynamit.cubedsphere.cubedsphere import csp
 
         self.neutral_wind = True
 
-        self.u = u
+        if self.sh_u:
+            self.u = u
 
-        # Represent as values on num_grid
-        self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.basis_evaluator)
+            # Represent as values on num_grid
+            self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.basis_evaluator)
+
+        else:
+            self.u_theta_on_grid, self.u_phi_on_grid = u
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
         self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            # Represent as values on cp_grid
-            u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
+            if self.sh_u:
+                # Represent as values on cp_grid
+                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
+            else:
+                u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
+                u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
 
             # Neutral wind at low latitude grid points and at their conjugate points
             u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
@@ -297,20 +313,30 @@ class State(object):
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
+        from pynamit.cubedsphere.cubedsphere import csp
 
         self.conductance = True
 
-        self.etaP = etaP
-        self.etaH = etaH
+        if self.sh_conductance:
+            self.etaP = etaP
+            self.etaH = etaH
 
-        # Represent as values on num_grid
-        self.etaP_on_grid = etaP.to_grid(self.basis_evaluator)**2
-        self.etaH_on_grid = etaH.to_grid(self.basis_evaluator)**2
+            # Represent as values on num_grid
+            self.etaP_on_grid = etaP.to_grid(self.basis_evaluator)**2
+            self.etaH_on_grid = etaH.to_grid(self.basis_evaluator)**2
+
+        else:
+            self.etaP_on_grid = etaP
+            self.etaH_on_grid = etaH
 
         if self.connect_hemispheres:
-            # Represent as values on cp_grid
-            etaP_on_cp_grid = etaP.to_grid(self.cp_basis_evaluator)**2
-            etaH_on_cp_grid = etaH.to_grid(self.cp_basis_evaluator)**2
+            if self.sh_conductance:
+                # Represent as values on cp_grid
+                etaP_on_cp_grid = etaP.to_grid(self.cp_basis_evaluator)**2
+                etaH_on_cp_grid = etaH.to_grid(self.cp_basis_evaluator)**2
+            else:
+                etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
+                etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]

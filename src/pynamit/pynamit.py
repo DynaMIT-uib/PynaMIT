@@ -28,7 +28,10 @@ class I2D(object):
                        latitude_boundary = 50,
                        zero_jr_at_dip_equator = False,
                        ih_constraint_scaling = 1e-5,
-                       PFAC_matrix = None):
+                       PFAC_matrix = None, 
+                       sh_FAC = False,
+                       sh_conductance = False,
+                       sh_u = False):
         """
 
         Parameters
@@ -59,6 +62,12 @@ class I2D(object):
         self.mainfield_epoch        = B0_parameters['epoch']
         self.mainfield_B0           = B0_parameters['B0']
         self.csp                    = csp
+        self.sh_FAC                 = sh_FAC
+        self.sh_conductance         = sh_conductance
+        self.sh_u                   = sh_u
+        #self.sh_FAC                  = True
+        #self.sh_conductance          = True
+        #self.sh_u                    = True
 
         if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.result_filename)
@@ -104,7 +113,10 @@ class I2D(object):
                            latitude_boundary = self.latitude_boundary, 
                            zero_jr_at_dip_equator = self.zero_jr_at_dip_equator, 
                            ih_constraint_scaling = self.ih_constraint_scaling,
-                           PFAC_matrix = PFAC_matrix
+                           PFAC_matrix = PFAC_matrix,
+                           sh_FAC = self.sh_FAC,
+                           sh_conductance = self.sh_conductance,
+                           sh_u = self.sh_u
                            )
 
 
@@ -307,7 +319,10 @@ class I2D(object):
                 Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_basis_evaluator.grid.theta, self.FAC_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
 
                 # Extract the radial component of the FAC and set the corresponding basis coefficients
-                Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
+                if self.sh_FAC:
+                    Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
+                else:
+                    Jr = Jpar_int * self.b_evaluator.br
 
                 self.state.set_FAC(Jr)
 
@@ -324,8 +339,11 @@ class I2D(object):
                 u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
                 u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
-                # Represent as expansion in spherical harmonics
-                u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+                if self.sh_u:
+                    # Represent as expansion in spherical harmonics
+                    u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+                else:
+                    u = (u_int_theta, u_int_phi)
 
                 self.state.set_u(u)
 
@@ -341,17 +359,25 @@ class I2D(object):
                 # Check if Pedersen and Hall conductances are positive
                 if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
                     raise ValueError('Conductances have to be positive')
+
                 # Transform to resistivities
-                etaP = np.sqrt(self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2))
-                etaH = np.sqrt(self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2))
+                etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+                etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
 
                 # Represent as values on num_grid
                 etaP_int = csp.interpolate_scalar(etaP, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
                 etaH_int = csp.interpolate_scalar(etaH, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
 
-                # Represent as expansion in spherical harmonics
-                etaP = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaP_int)
-                etaH = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaH_int)
+                if self.sh_conductance:
+                    etaP_int = np.sqrt(etaP_int)
+                    etaH_int = np.sqrt(etaH_int)
+
+                    # Represent as expansion in spherical harmonics
+                    etaP = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaP_int)
+                    etaH = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaH_int)
+                else:
+                    etaP = etaP_int
+                    etaH = etaH_int
 
                 self.state.set_conductance(etaP, etaH)
 
