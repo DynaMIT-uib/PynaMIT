@@ -304,13 +304,13 @@ class State(object):
         self.etaH = etaH
 
         # Represent as values on num_grid
-        self.etaP_on_grid = etaP.to_grid(self.basis_evaluator)
-        self.etaH_on_grid = etaH.to_grid(self.basis_evaluator)
+        self.etaP_on_grid = etaP.to_grid(self.basis_evaluator)**2
+        self.etaH_on_grid = etaH.to_grid(self.basis_evaluator)**2
 
         if self.connect_hemispheres:
             # Represent as values on cp_grid
-            etaP_on_cp_grid = etaP.to_grid(self.cp_basis_evaluator)
-            etaH_on_cp_grid = etaH.to_grid(self.cp_basis_evaluator)
+            etaP_on_cp_grid = etaP.to_grid(self.cp_basis_evaluator)**2
+            etaH_on_cp_grid = etaH.to_grid(self.cp_basis_evaluator)**2
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]

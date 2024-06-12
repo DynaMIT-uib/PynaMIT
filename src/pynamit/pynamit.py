@@ -338,9 +338,12 @@ class I2D(object):
 
         if self.next_conductance < self.conductance_time.size:
             if self.latest_time >= self.conductance_time[self.next_conductance]:
+                # Check if Pedersen and Hall conductances are positive
+                if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
+                    raise ValueError('Conductances have to be positive')
                 # Transform to resistivities
-                etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
-                etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+                etaP = np.sqrt(self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2))
+                etaH = np.sqrt(self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2))
 
                 # Represent as values on num_grid
                 etaP_int = csp.interpolate_scalar(etaP, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
