@@ -65,9 +65,9 @@ class I2D(object):
         self.sh_FAC                 = sh_FAC
         self.sh_conductance         = sh_conductance
         self.sh_u                   = sh_u
-        #self.sh_FAC                  = True
-        #self.sh_conductance          = True
-        #self.sh_u                    = True
+        self.sh_FAC                 = True
+        self.sh_conductance         = True
+        self.sh_u                   = True
 
         if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.result_filename)
@@ -369,9 +369,6 @@ class I2D(object):
                 etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
 
                 if self.sh_conductance:
-                    etaP_int = np.sqrt(etaP_int)
-                    etaH_int = np.sqrt(etaH_int)
-
                     # Represent as expansion in spherical harmonics
                     conductance_basis_evaluator = BasisEvaluator(SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0), self.num_grid)
                     etaP = Vector(self.basis, basis_evaluator = conductance_basis_evaluator, grid_values = etaP_int)

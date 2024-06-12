@@ -330,8 +330,8 @@ class State(object):
             self.etaH = etaH
 
             # Represent as values on num_grid
-            self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)**2
-            self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)**2
+            self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
+            self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
             self.etaP_on_grid = etaP
@@ -340,8 +340,8 @@ class State(object):
         if self.connect_hemispheres:
             if self.sh_conductance:
                 # Represent as values on cp_grid
-                etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)**2
-                etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)**2
+                etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)
+                etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)
             else:
                 etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
                 etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
