@@ -48,7 +48,6 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
 
 u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
 
@@ -56,6 +55,7 @@ if PLOT_WIND:
     u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_theta.flatten())
     u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_phi.flatten())
 
+    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
     u_theta_int = u_theta_sh.to_grid(csp_i2d_evaluator)
     u_phi_int   = u_phi_sh.to_grid(csp_i2d_evaluator)
 
@@ -88,15 +88,15 @@ plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
+i2d.set_conductance(hall, pedersen, csp_grid)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_u(u_theta.flatten(), u_phi.flatten(), u_basis_evaluator)
-i2d.set_FAC(jparallel, csp_i2d_evaluator)
+i2d.set_u(u_theta.flatten(), u_phi.flatten(), u_grid)
+i2d.set_FAC(jparallel, csp_grid)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))

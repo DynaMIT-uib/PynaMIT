@@ -4,6 +4,7 @@ from pynamit.constants import mu0, RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.sha.sh_basis import SHBasis
 
 
 class State(object):
@@ -51,6 +52,7 @@ class State(object):
 
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
+        self.conductance_basis_evaluator = BasisEvaluator(SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0), num_grid)
         self.b_evaluator = FieldEvaluator(mainfield, num_grid, RI)
         self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
@@ -62,6 +64,7 @@ class State(object):
             self.cp_grid = Grid(90 - cp_theta, cp_phi)
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
+            self.conductance_cp_basis_evaluator = BasisEvaluator(SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0), self.cp_grid)
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, RI)
             self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
             self.G_B_tor_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0
@@ -327,8 +330,8 @@ class State(object):
             self.etaH = etaH
 
             # Represent as values on num_grid
-            self.etaP_on_grid = etaP.to_grid(self.basis_evaluator)**2
-            self.etaH_on_grid = etaH.to_grid(self.basis_evaluator)**2
+            self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)**2
+            self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)**2
 
         else:
             self.etaP_on_grid = etaP
@@ -337,8 +340,8 @@ class State(object):
         if self.connect_hemispheres:
             if self.sh_conductance:
                 # Represent as values on cp_grid
-                etaP_on_cp_grid = etaP.to_grid(self.cp_basis_evaluator)**2
-                etaH_on_cp_grid = etaH.to_grid(self.cp_basis_evaluator)**2
+                etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)**2
+                etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)**2
             else:
                 etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
                 etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)

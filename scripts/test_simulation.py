@@ -36,7 +36,6 @@ i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(i2d_sh, i2d_csp, RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
 ## CONDUCTANCE AND FAC INPUT:
@@ -45,12 +44,12 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 hall, pedersen = conductance.hardy_EUV(i2d_csp.arr_phi, 90 - i2d_csp.arr_theta, Kp, date, starlight = 1, dipole = True)
-i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
+i2d.set_conductance(hall, pedersen, csp_grid)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = a.get_upward_current(mlat = 90 - i2d_csp.arr_theta, mlt = d.mlon2mlt(i2d_csp.arr_phi, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(90 - i2d_csp.arr_theta) < 50] = 0 # filter low latitude FACs
-i2d.set_FAC(jparallel, csp_i2d_evaluator)
+i2d.set_FAC(jparallel, csp_grid)
 
 
 # make an integration matrix

@@ -27,6 +27,7 @@ noon_mlon = d.mlt2mlon(12, date) # noon longitude
 #u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
+u_grid = pynamit.Grid(u_lat, u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
@@ -52,7 +53,7 @@ plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)
-i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
+i2d.set_conductance(hall, pedersen, csp_grid)
 
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(csp_grid.lat, csp_grid.lon, (RI - RE) * 1e-3)
@@ -64,8 +65,8 @@ a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_u(-u_north_int, u_east_int)
-i2d.set_FAC(jparallel, csp_i2d_evaluator)
+i2d.set_u(-u_north_int, u_east_int, u_grid)
+i2d.set_FAC(jparallel, csp_grid)
 
 
 i2d.evolve_to_time(0)

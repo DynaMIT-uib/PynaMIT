@@ -17,13 +17,13 @@ class SHBasis(object):
 
     """
 
-    def __init__(self, Nmax, Mmax):
+    def __init__(self, Nmax, Mmax, Nmin = 1):
         self.Nmax = Nmax
         self.Mmax = Mmax
 
         # make separate sets of spherical harmonic keys for cos and sin terms:
-        self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(1).MleN()
-        self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(1).MleN().Mge(1)
+        self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN()
+        self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN().Mge(1)
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))

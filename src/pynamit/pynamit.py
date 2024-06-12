@@ -239,7 +239,7 @@ class I2D(object):
                     print('Saved output at t = {:.2f} s'.format(time), end = '\r')
 
 
-    def set_FAC(self, FAC, _basis_evaluator, time = None):
+    def set_FAC(self, FAC, FAC_grid, time = None):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -255,7 +255,7 @@ class I2D(object):
         """
 
         self.FAC = np.atleast_2d(FAC)
-        self.FAC_basis_evaluator = _basis_evaluator
+        self.FAC_grid = FAC_grid
 
         if time is None:
             if self.FAC.shape[0] > 1:
@@ -268,14 +268,14 @@ class I2D(object):
         self.update_FAC()
 
 
-    def set_u(self, u_theta, u_phi, _basis_evaluator, time = None):
+    def set_u(self, u_theta, u_phi, u_grid, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
         self.u_theta = np.atleast_2d(u_theta)
         self.u_phi = np.atleast_2d(u_phi)
-        self.u_basis_evaluator = _basis_evaluator
+        self.u_grid = u_grid
 
         if time is None:
             if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
@@ -288,7 +288,7 @@ class I2D(object):
         self.update_u()
 
 
-    def set_conductance(self, Hall, Pedersen, _basis_evaluator, time = None):
+    def set_conductance(self, Hall, Pedersen, conductance_grid, time = None):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
@@ -297,7 +297,7 @@ class I2D(object):
 
         self.Hall = np.atleast_2d(Hall)
         self.Pedersen = np.atleast_2d(Pedersen)
-        self.conductance_basis_evaluator = _basis_evaluator
+        self.conductance_grid = conductance_grid
 
         if time is None:
             if self.Hall.shape[0] > 1 or self.Pedersen.shape[0] > 1:
@@ -316,7 +316,7 @@ class I2D(object):
         if self.next_FAC < self.FAC_time.size:
             if self.latest_time >= self.FAC_time[self.next_FAC]:
                 # Represent as values on num_grid
-                Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_basis_evaluator.grid.theta, self.FAC_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+                Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.lon, self.num_grid.theta, self.num_grid.lon)
 
                 # Extract the radial component of the FAC and set the corresponding basis coefficients
                 if self.sh_FAC:
@@ -336,7 +336,7 @@ class I2D(object):
         if self.next_u < self.u_time.size:
             if self.latest_time >= self.u_time[self.next_u]:
                 # Represent as values on num_grid
-                u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+                u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.lon, self.num_grid.theta, self.num_grid.lon)
                 u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
                 if self.sh_u:
@@ -365,16 +365,17 @@ class I2D(object):
                 etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
 
                 # Represent as values on num_grid
-                etaP_int = csp.interpolate_scalar(etaP, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
-                etaH_int = csp.interpolate_scalar(etaH, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon)
+                etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
+                etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
 
                 if self.sh_conductance:
                     etaP_int = np.sqrt(etaP_int)
                     etaH_int = np.sqrt(etaH_int)
 
                     # Represent as expansion in spherical harmonics
-                    etaP = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaP_int)
-                    etaH = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = etaH_int)
+                    conductance_basis_evaluator = BasisEvaluator(SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0), self.num_grid)
+                    etaP = Vector(self.basis, basis_evaluator = conductance_basis_evaluator, grid_values = etaP_int)
+                    etaH = Vector(self.basis, basis_evaluator = conductance_basis_evaluator, grid_values = etaH_int)
                 else:
                     etaP = etaP_int
                     etaH = etaH_int
@@ -511,7 +512,6 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
     # Define cubed sphere grid
     csp_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
-    csp_i2d_evaluator = BasisEvaluator(i2d_sh, csp_grid)
     csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 
     # Define grid used for plotting
@@ -522,7 +522,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
     plt_i2d_evaluator = BasisEvaluator(i2d_sh, plt_grid)
 
     hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.set_conductance(hall, pedersen, csp_i2d_evaluator)
+    i2d.set_conductance(hall, pedersen, csp_grid)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
@@ -539,10 +539,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
         u_grid = Grid(u_lat, u_lon)
 
-        u_basis_evaluator = BasisEvaluator(i2d_sh, u_grid)
-        i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_basis_evaluator)
+        i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid)
 
-    i2d.set_FAC(jparallel, csp_i2d_evaluator)
+    i2d.set_FAC(jparallel, csp_grid)
 
     if compare_AMPS_FAC_and_CF_currents:
         # compare FACs and curl-free currents:
