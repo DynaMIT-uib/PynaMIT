@@ -29,9 +29,9 @@ class I2D(object):
                        zero_jr_at_dip_equator = False,
                        ih_constraint_scaling = 1e-5,
                        PFAC_matrix = None, 
-                       sh_FAC = False,
-                       sh_conductance = False,
-                       sh_u = False):
+                       sh_FAC = True,
+                       sh_conductance = True,
+                       sh_u = True):
         """
 
         Parameters
@@ -65,9 +65,6 @@ class I2D(object):
         self.sh_FAC                 = sh_FAC
         self.sh_conductance         = sh_conductance
         self.sh_u                   = sh_u
-        self.sh_FAC                 = True
-        self.sh_conductance         = True
-        self.sh_u                   = True
 
         if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.result_filename)
@@ -461,7 +458,7 @@ class I2D(object):
 
 
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, sh_FAC = True, sh_conductance = True, sh_u = True):
 
     # Set up the spherical harmonic basis object
     i2d_sh = SHBasis(Nmax, Mmax)
@@ -472,7 +469,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(result_filename = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator)
+    i2d = I2D(result_filename = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator, sh_FAC = sh_FAC, sh_conductance = sh_conductance, sh_u = sh_u)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate

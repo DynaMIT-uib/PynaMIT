@@ -12,7 +12,7 @@ class State(object):
 
     """
 
-    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None, sh_FAC = False, sh_conductance = False, sh_u = False):
+    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None, sh_FAC = True, sh_conductance = True, sh_u = True):
         """ Initialize the state of the ionosphere.
     
         """
@@ -35,9 +35,9 @@ class State(object):
             nn = int(np.sqrt(PFAC_matrix.size))
             self._m_imp_to_B_pol = PFAC_matrix.reshape((nn, nn))
 
-        self.sh_FAC = sh_FAC
+        self.sh_FAC         = sh_FAC
         self.sh_conductance = sh_conductance
-        self.sh_u = sh_u
+        self.sh_u           = sh_u
 
         # Spherical harmonic identities
         d_dr            = -self.sh.n / self.RI
