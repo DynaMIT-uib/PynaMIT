@@ -66,6 +66,11 @@ class I2D(object):
         self.sh_conductance         = sh_conductance
         self.sh_u                   = sh_u
 
+        self.saved_state_basis       = False
+        self.saved_FAC_basis         = False
+        self.saved_conductance_basis = False
+        self.saved_u_basis           = False
+
         if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
             dataset = xr.load_dataset(self.result_filename)
 
@@ -155,97 +160,79 @@ class I2D(object):
         self.dataset.to_netcdf(self.result_filename)
         print('Created {}'.format(self.result_filename))
 
-        self.dims = ['time', 'i']
-
 
     def save_state(self):
         """ Save state to file """
 
-        size = self.state.sh.num_coeffs
-        time_coords = {'time': [np.float64(self.latest_time)], 'i': range(size)}
-
-        if not hasattr(self, 'state_dataset'):
-            self.state_dataset = xr.Dataset(coords = time_coords)
-            self.state_dataset['SH_m_imp_n'] = self.state.sh.n
-            self.state_dataset['SH_m_imp_m'] = self.state.sh.m
-            self.state_dataset['SH_m_ind_n'] = self.state.sh.n
-            self.state_dataset['SH_m_ind_m'] = self.state.sh.m
-            self.state_dataset['SH_Phi_n'] = self.state.sh.n
-            self.state_dataset['SH_Phi_m'] = self.state.sh.m
-            self.state_dataset['SH_W_n'] = self.state.sh.n
-            self.state_dataset['SH_W_m'] = self.state.sh.m
-
         self.state.update_Phi_and_EW()
 
-        current_state = xr.Dataset(coords = time_coords)
+        dataset = xr.Dataset()
 
-        current_state['SH_m_imp_coeffs'] = xr.DataArray(self.state.m_imp.coeffs.reshape((1, size)), coords = time_coords, dims = self.dims)
-        current_state['SH_m_ind_coeffs'] = xr.DataArray(self.state.m_ind.coeffs.reshape((1, size)), coords = time_coords, dims = self.dims)
-        current_state['SH_Phi_coeffs']   = xr.DataArray(self.state.Phi.coeffs.reshape((1, size)),   coords = time_coords, dims = self.dims)
-        current_state['SH_W_coeffs']     = xr.DataArray(self.state.EW.coeffs.reshape((1, size)),    coords = time_coords, dims = self.dims)
+        if not self.saved_state_basis:
+            dataset['SH_m_imp_n'] = xr.DataArray(self.state.m_imp.basis.n, coords = {'i': range(self.state.m_imp.basis.num_coeffs)})
+            dataset['SH_m_imp_m'] = xr.DataArray(self.state.m_imp.basis.m, coords = {'i': range(self.state.m_imp.basis.num_coeffs)})
+            dataset['SH_m_ind_n'] = xr.DataArray(self.state.m_ind.basis.n, coords = {'i': range(self.state.m_ind.basis.num_coeffs)})
+            dataset['SH_m_ind_m'] = xr.DataArray(self.state.m_ind.basis.m, coords = {'i': range(self.state.m_ind.basis.num_coeffs)})
+            dataset['SH_Phi_n']   = xr.DataArray(self.state.Phi.basis.n,   coords = {'i': range(self.state.Phi.basis.num_coeffs)})
+            dataset['SH_Phi_m']   = xr.DataArray(self.state.Phi.basis.m,   coords = {'i': range(self.state.Phi.basis.num_coeffs)})
+            dataset['SH_W_n']     = xr.DataArray(self.state.EW.basis.n,    coords = {'i': range(self.state.EW.basis.num_coeffs)})
+            dataset['SH_W_m']     = xr.DataArray(self.state.EW.basis.m,    coords = {'i': range(self.state.EW.basis.num_coeffs)})
+            self.saved_state_basis = True
 
-        self.state_dataset = xr.concat([self.state_dataset, current_state], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
-        self.state_dataset.to_netcdf(self.result_filename, mode = 'a')
+        dataset['SH_m_imp_coeffs'] = xr.DataArray(self.state.m_imp.coeffs.reshape((1, self.state.m_imp.basis.num_coeffs)), coords = {'time': [np.float64(self.latest_time)], 'i': range(self.state.m_imp.basis.num_coeffs)})
+        dataset['SH_m_ind_coeffs'] = xr.DataArray(self.state.m_ind.coeffs.reshape((1, self.state.m_ind.basis.num_coeffs)), coords = {'time': [np.float64(self.latest_time)], 'i': range(self.state.m_ind.basis.num_coeffs)})
+        dataset['SH_Phi_coeffs']   = xr.DataArray(self.state.Phi.coeffs.reshape((1, self.state.Phi.basis.num_coeffs)),     coords = {'time': [np.float64(self.latest_time)], 'i': range(self.state.Phi.basis.num_coeffs)})
+        dataset['SH_W_coeffs']     = xr.DataArray(self.state.EW.coeffs.reshape((1, self.state.EW.basis.num_coeffs)),       coords = {'time': [np.float64(self.latest_time)], 'i': range(self.state.EW.basis.num_coeffs)})
+
+        dataset.to_netcdf(self.result_filename, mode = 'a')
 
 
     def save_FAC(self):
         """ Save FAC to file """
 
-        size = self.state.Jr_sh.basis.num_coeffs
-        time_coords = {'time': [np.float64(self.latest_time)], 'i': range(size)}
+        dataset = xr.Dataset()
 
-        if not hasattr(self, 'FAC_dataset'):
-            self.FAC_dataset = xr.Dataset(coords = time_coords)
-            self.FAC_dataset['SH_Jr_n'] = self.state.Jr_sh.basis.n
-            self.FAC_dataset['SH_Jr_m'] = self.state.Jr_sh.basis.m
+        if not self.saved_FAC_basis:
+            dataset['SH_Jr_n'] = xr.DataArray(self.state.Jr_sh.basis.n, coords = {'i': range(self.state.Jr_sh.basis.num_coeffs)})
+            dataset['SH_Jr_m'] = xr.DataArray(self.state.Jr_sh.basis.m, coords = {'i': range(self.state.Jr_sh.basis.num_coeffs)})
+            self.saved_FAC_basis = True
 
-        current_FAC = xr.Dataset(coords = time_coords)
+        dataset["SH_Jr_coeffs"] = xr.DataArray(self.state.Jr_sh.coeffs.reshape((1, self.state.Jr_sh.basis.num_coeffs)), coords = {'time': [np.float64(self.latest_time)], 'i': range(self.state.Jr_sh.basis.num_coeffs)})
 
-        current_FAC["SH_Jr_coeffs"] = xr.DataArray(self.state.Jr_sh.coeffs.reshape((1, size)), coords = time_coords, dims = self.dims)
-
-        self.FAC_dataset = xr.concat([self.FAC_dataset, current_FAC], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
-        self.FAC_dataset.to_netcdf(self.result_filename, mode = 'a')
+        dataset.to_netcdf(self.result_filename, mode = 'a')
 
 
     def save_conductance(self):
         "Save conductance to file"
 
-        size = self.etaP_sh.basis.num_coeffs
-        time_coords = {'time': [np.float64(self.latest_time)], 'i': range(size)}
+        dataset = xr.Dataset()
 
-        if not hasattr(self, 'conductance_dataset'):
-            self.conductance_dataset = xr.Dataset(coords = time_coords)
-            self.conductance_dataset['SH_etaP_n'] = self.etaP_sh.basis.n
-            self.conductance_dataset['SH_etaP_m'] = self.etaP_sh.basis.m
-            self.conductance_dataset['SH_etaH_n'] = self.etaH_sh.basis.n
-            self.conductance_dataset['SH_etaH_m'] = self.etaH_sh.basis.m
+        if not self.saved_conductance_basis:
+            dataset['SH_etaP_n'] = xr.DataArray(self.etaP_sh.basis.n, coords = {'i': range(self.etaP_sh.basis.num_coeffs)})
+            dataset['SH_etaP_m'] = xr.DataArray(self.etaP_sh.basis.m, coords = {'i': range(self.etaP_sh.basis.num_coeffs)})
+            dataset['SH_etaH_n'] = xr.DataArray(self.etaH_sh.basis.n, coords = {'i': range(self.etaH_sh.basis.num_coeffs)})
+            dataset['SH_etaH_m'] = xr.DataArray(self.etaH_sh.basis.m, coords = {'i': range(self.etaH_sh.basis.num_coeffs)})
+            self.saved_conductance_basis = True
 
-        current_conductance = xr.Dataset(coords = time_coords)
+        dataset["SH_etaP_coeffs"] = xr.DataArray(self.state.etaP_sh.coeffs.reshape((1, self.etaP_sh.basis.num_coeffs)), coords = {'time': [np.float64(self.latest_time)], 'i': range(self.etaP_sh.basis.num_coeffs)})
+        dataset["SH_etaH_coeffs"] = xr.DataArray(self.state.etaH_sh.coeffs.reshape((1, self.etaH_sh.basis.num_coeffs)), coords = {'time': [np.float64(self.latest_time)], 'i': range(self.etaH_sh.basis.num_coeffs)})
 
-        current_conductance["SH_etaP_coeffs"] = xr.DataArray(self.state.etaP_sh.coeffs.reshape((1, size)), coords = time_coords, dims = self.dims)
-        current_conductance["SH_etaH_coeffs"] = xr.DataArray(self.state.etaH_sh.coeffs.reshape((1, size)), coords = time_coords, dims = self.dims)
-
-        self.conductance_dataset = xr.concat([self.conductance_dataset, current_conductance], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
-        self.conductance_dataset.to_netcdf(self.result_filename, mode = 'a')
+        dataset.to_netcdf(self.result_filename, mode = 'a')
 
 
     def save_u(self):
         """ Save u to file """
 
-        size = self.u_sh.basis.num_coeffs
-        time_coords = {'time': [np.float64(self.latest_time)], 'i': range(size)}
+        dataset = xr.Dataset()
 
-        if not hasattr(self, 'u_dataset'):
-            self.u_dataset = xr.Dataset(coords = {'time': [np.float64(self.latest_time)], 'i': range(self.u.basis.num_coeffs)})
-            self.u_dataset['SH_u_n'] = self.u_sh.basis.n
-            self.u_dataset['SH_u_m'] = self.u_sh.basis.m
+        if not self.saved_u_basis:
+            dataset['SH_u_n'] = xr.DataArray(self.u_sh.basis.n, coords = {'i': range(self.u_sh.basis.num_coeffs)})
+            dataset['SH_u_m'] = xr.DataArray(self.u_sh.basis.m, coords = {'i': range(self.u_sh.basis.num_coeffs)})
+            self.saved_u_basis = True
 
-        current_u = xr.Dataset(coords = time_coords)
+        dataset["SH_u_coeffs"] = xr.DataArray(self.u_sh.coeffs.reshape((1, self.u_sh.basis.num_coeffs)), coords = {'time': [np.float64(self.latest_time)], 'i': range(self.u_sh.basis.num_coeffs)})
 
-        current_u["SH_u_coeffs"] = xr.DataArray(self.state.u_sh.coeffs.reshape((1, size)), coords = time_coords, dims = self.dims)
-
-        self.u_dataset = xr.concat([self.u_dataset, current_u], dim = 'time', data_vars = 'minimal', combine_attrs = 'identical')
-        self.u_dataset.to_netcdf(self.result_filename, mode = 'a')
+        dataset.to_netcdf(self.result_filename, mode = 'a')
 
 
     def evolve_to_time(self, t, dt = 5e-4, save_steps = 200, quiet = False):
