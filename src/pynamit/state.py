@@ -243,7 +243,7 @@ class State(object):
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
         else:
-            self.set_coeffs(Jr = self.Jr.coeffs)
+            self.set_coeffs(Jr = self.Jr_sh.coeffs)
 
 
     def set_FAC(self, Jr):
@@ -262,16 +262,16 @@ class State(object):
         """
 
         if self.sh_FAC:
-            # Represent as expansion in spherical harmonics
+            self.Jr_sh = Jr
+
             if self.connect_hemispheres:
                 self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
-            else:
-                self.Jr = Jr
+
         else:
+            self.Jr_sh = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
+
             if self.connect_hemispheres:
                 self.Jpar_on_grid = Jr / self.b_evaluator.br
-            else:
-                self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
 
         self.impose_constraints()
 
@@ -285,12 +285,11 @@ class State(object):
         self.neutral_wind = True
 
         if self.sh_u:
-            self.u = u
-
-            # Represent as values on num_grid
-            self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.basis_evaluator)
+            self.u_sh = u
+            self.u_theta_on_grid, self.u_phi_on_grid = self.u_sh.to_grid(self.basis_evaluator)
 
         else:
+            self.u_sh = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = u, helmholtz = True)
             self.u_theta_on_grid, self.u_phi_on_grid = u
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
@@ -299,7 +298,7 @@ class State(object):
         if self.connect_hemispheres:
             if self.sh_u:
                 # Represent as values on cp_grid
-                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
+                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u_sh.to_grid(self.cp_basis_evaluator)
             else:
                 u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
@@ -326,14 +325,17 @@ class State(object):
         self.conductance = True
 
         if self.sh_conductance:
-            self.etaP = etaP
-            self.etaH = etaH
+            self.etaP_sh = etaP
+            self.etaH_sh = etaH
 
             # Represent as values on num_grid
             self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
             self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
+            self.etaP_sh = Vector(self.basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP)
+            self.etaH_sh = Vector(self.basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH)
+
             self.etaP_on_grid = etaP
             self.etaH_on_grid = etaH
 
