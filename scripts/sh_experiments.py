@@ -22,7 +22,7 @@ date = datetime.datetime(2000, 5, 12, 21, 45)
 assert date.year % 5 == 0  # since I'm grabbing IGRF coefficients without interpolation... (fix this if used by something different)
 
 ### CONDUCTANCE EXPERIMENT
-cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax)
+cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, Nmin = 0)
 
 i2d_csp = pynamit.CSProjection(Ncs)
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
