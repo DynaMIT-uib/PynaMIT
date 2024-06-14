@@ -71,7 +71,11 @@ class I2D(object):
         self.saved_conductance_basis = False
         self.saved_u_basis           = False
 
-        if (self.result_filename is not None) and os.path.exists(self.result_filename): # override input and load parameters from file:
+        self.latest_time = np.float64(0)
+
+        file_loading = (self.result_filename is not None) and os.path.exists(self.result_filename)
+
+        if file_loading: # override input and load parameters from file:
             dataset = xr.load_dataset(self.result_filename)
 
             self.FAC_integration_steps  = dataset.FAC_integration_steps
@@ -93,13 +97,6 @@ class I2D(object):
 
             B0_parameters = {'epoch':self.mainfield_epoch, 'B0':self.mainfield_B0}
             self.latest_time = dataset.time.values[-1]
-            overwrite_save_file = False
-        else:
-            self.latest_time = np.float64(0)
-            if (self.result_filename is None):
-                self.result_filename = 'tmp.ncdf'
-            overwrite_save_file = True
-
 
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
@@ -123,7 +120,10 @@ class I2D(object):
                            sh_u = self.sh_u
                            )
 
-        if overwrite_save_file:
+        if not file_loading:
+            if self.result_filename is None:
+                self.result_filename = 'tmp.ncdf'
+
             self.initialize_save_file()
 
 
