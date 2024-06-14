@@ -184,14 +184,14 @@ class I2D(object):
             self.m_ind_history    = np.array(self.state.m_ind.coeffs, dtype = np.float64).reshape((1, -1))
             self.Phi_history      = np.array(self.state.Phi.coeffs, dtype = np.float64).reshape((1, -1))
             self.W_history        = np.array(self.state.EW.coeffs, dtype = np.float64).reshape((1, -1))
-            self.state_save_times = np.array([self.latest_time], dtype = np.float64)
+            self.state_save_times = [self.latest_time]
 
         else:
             self.m_imp_history    = np.vstack((self.m_imp_history, self.state.m_imp.coeffs))
             self.m_ind_history    = np.vstack((self.m_ind_history, self.state.m_ind.coeffs))
             self.Phi_history      = np.vstack((self.Phi_history, self.state.Phi.coeffs))
             self.W_history        = np.vstack((self.W_history, self.state.EW.coeffs))
-            self.state_save_times = np.hstack((self.state_save_times, self.latest_time))
+            self.state_save_times.append(self.latest_time)
 
         self.dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history, coords = {'time': self.state_save_times, 'i': range(self.state.m_imp.basis.num_coeffs)})
         self.dataset['SH_m_ind_coeffs'] = xr.DataArray(self.m_ind_history, coords = {'time': self.state_save_times, 'i': range(self.state.m_ind.basis.num_coeffs)})
@@ -210,11 +210,11 @@ class I2D(object):
             self.saved_FAC_basis = True
 
             self.Jr_history = np.array(self.state.Jr_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.Jr_save_times = np.array([self.latest_time], dtype = np.float64)
+            self.Jr_save_times = [self.latest_time]
 
         else:
             self.Jr_history = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
-            self.Jr_save_times = np.hstack((self.Jr_save_times, self.latest_time))
+            self.Jr_save_times.append(self.latest_time)
 
         self.dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history, coords = {'time': self.Jr_save_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
 
@@ -233,12 +233,12 @@ class I2D(object):
 
             self.etaP_history = np.array(self.state.etaP_sh.coeffs, dtype = np.float64).reshape((1, -1))
             self.etaH_history = np.array(self.state.etaH_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.conductance_save_times = np.array([self.latest_time], dtype = np.float64)
+            self.conductance_save_times = [self.latest_time]
 
         else:
             self.etaP_history = np.vstack((self.etaP_history, self.state.etaP_sh.coeffs))
             self.etaH_history = np.vstack((self.etaH_history, self.state.etaH_sh.coeffs))
-            self.conductance_save_times = np.hstack((self.conductance_save_times, self.latest_time))
+            self.conductance_save_times.append(self.latest_time)
 
         self.dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history, coords = {'time': self.conductance_save_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
         self.dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history, coords = {'time': self.conductance_save_times, 'i': range(self.state.etaH_sh.basis.num_coeffs)})
@@ -258,12 +258,12 @@ class I2D(object):
 
             self.u_cf_history = np.array(self.state.u_sh.coeffs[0], dtype = np.float64).reshape((1, -1))
             self.u_df_history = np.array(self.state.u_sh.coeffs[1], dtype = np.float64).reshape((1, -1))
-            self.u_save_times = np.array([self.latest_time], dtype = np.float64)
+            self.u_save_times = [self.latest_time]
 
         else:
             self.u_cf_history = np.vstack((self.u_cf_history, self.state.u_sh.coeffs[0]))
             self.u_df_history = np.vstack((self.u_df_history, self.state.u_sh.coeffs[1]))
-            self.u_save_times = np.hstack((self.u_save_times, self.latest_time))
+            self.u_save_times.append(self.latest_time)
 
         self.dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history, coords = {'time': self.u_save_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
         self.dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history, coords = {'time': self.u_save_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
