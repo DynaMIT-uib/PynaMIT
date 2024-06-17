@@ -247,8 +247,8 @@ class I2D(object):
         self.save_u_history = True
 
 
-    def save_results(self):
-        """ Store all results """
+    def save_histories(self):
+        """ Store the histories """
 
         if self.save_state_history:
             state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.state.sh.num_coeffs)})
@@ -302,7 +302,7 @@ class I2D(object):
             self.save_u_history = False
 
 
-    def evolve_to_time(self, t, dt = np.float64(5e-4), save_steps = 200, quiet = False):
+    def evolve_to_time(self, t, dt = np.float64(5e-4), history_update_interval = 200, history_save_interval = 10, quiet = False):
         """ Evolve to given time
 
         """
@@ -314,13 +314,14 @@ class I2D(object):
             self.update_conductance()
             self.update_u()
 
-            if count % save_steps == 0:
+            if count % history_update_interval == 0:
                 self.update_state_history()
-                self.save_results()
-                if quiet:
-                    pass
-                else:
-                    print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
+                if (count % (history_update_interval * history_save_interval) == 0):
+                    self.save_histories()
+                    if quiet:
+                        pass
+                    else:
+                        print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
 
             next_time = self.latest_time + dt
 
