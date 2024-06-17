@@ -240,9 +240,9 @@ class State(object):
             if self.neutral_wind:
                 c += self.cu
 
-            constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            self.constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
 
-            self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(constraint_vector))
+            self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
         else:
             self.set_coeffs(Jr = self.Jr_sh.coeffs)
 
