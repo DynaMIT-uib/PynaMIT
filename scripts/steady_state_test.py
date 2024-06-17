@@ -7,7 +7,7 @@ import datetime
 import pyamps
 import apexpy
 
-result_filename = 'ss_test3.ncdf'
+result_filename_prefix = 'ss_test3'
 Nmax, Mmax, Ncs = 30, 30, 30
 latitude_boundary = 40
 RE = 6371.2e3
@@ -34,7 +34,7 @@ i2d_csp = pynamit.CSProjection(Ncs)
 u_int = i2d_csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), 90 - u_lat, u_lon, i2d_csp.arr_theta, i2d_csp.arr_phi)
 u_east_int, u_north_int, u_r_int = u_int
 
-i2d = pynamit.I2D(result_filename = result_filename, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk,
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk,
                                     ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
                                     zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 print('made i2d object')
@@ -101,7 +101,7 @@ eP, eH = i2d.state.etaP, i2d.state.etaH
 #GcCGTJ = Dc.dot(C).dot(GTJ)
 #
 #import xarray as xr
-#m_imp = xr.load_dataset(result_filename).SH_coefficients_imposed.values[0]
+#m_imp = xr.load_dataset(result_filename_prefix).SH_coefficients_imposed.values[0]
 #m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
 
 # calculate electric field with steady-state coefficients:
