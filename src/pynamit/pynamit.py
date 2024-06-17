@@ -66,10 +66,10 @@ class I2D(object):
         self.sh_conductance         = sh_conductance
         self.sh_u                   = sh_u
 
-        self.saved_state_basis       = False
-        self.saved_FAC_basis         = False
-        self.saved_conductance_basis = False
-        self.saved_u_basis           = False
+        self.state_history_exists       = False
+        self.FAC_history_exists         = False
+        self.conductance_history_exists = False
+        self.u_history_exists           = False
 
         self.latest_time = np.float64(0)
 
@@ -169,21 +169,22 @@ class I2D(object):
 
         self.state.update_Phi_and_EW()
 
-        if not self.saved_state_basis:
-            self.state_save_times = [self.latest_time]
-            self.m_imp_history    = np.array(self.state.m_imp.coeffs, dtype = np.float64).reshape((1, -1))
-            self.m_ind_history    = np.array(self.state.m_ind.coeffs, dtype = np.float64).reshape((1, -1))
-            self.Phi_history      = np.array(self.state.Phi.coeffs, dtype = np.float64).reshape((1, -1))
-            self.W_history        = np.array(self.state.EW.coeffs, dtype = np.float64).reshape((1, -1))
-            self.saved_state_basis = True
-        else:
-            self.state_save_times.append(self.latest_time)
-            self.m_imp_history    = np.vstack((self.m_imp_history, self.state.m_imp.coeffs))
-            self.m_ind_history    = np.vstack((self.m_ind_history, self.state.m_ind.coeffs))
-            self.Phi_history      = np.vstack((self.Phi_history, self.state.Phi.coeffs))
-            self.W_history        = np.vstack((self.W_history, self.state.EW.coeffs))
+        if not self.state_history_exists:
+            self.state_history_times = np.array([self.latest_time])
+            self.m_imp_history       = np.array(self.state.m_imp.coeffs, dtype = np.float64).reshape((1, -1))
+            self.m_ind_history       = np.array(self.state.m_ind.coeffs, dtype = np.float64).reshape((1, -1))
+            self.Phi_history         = np.array(self.state.Phi.coeffs, dtype = np.float64).reshape((1, -1))
+            self.W_history           = np.array(self.state.EW.coeffs, dtype = np.float64).reshape((1, -1))
 
-        state_dataset = xr.Dataset(coords = {'time': self.state_save_times, 'i': range(self.state.sh.num_coeffs)})
+            self.state_history_exists = True
+        else:
+            self.state_history_times = np.append(self.state_history_times, self.latest_time)
+            self.m_imp_history       = np.vstack((self.m_imp_history, self.state.m_imp.coeffs))
+            self.m_ind_history       = np.vstack((self.m_ind_history, self.state.m_ind.coeffs))
+            self.Phi_history         = np.vstack((self.Phi_history, self.state.Phi.coeffs))
+            self.W_history           = np.vstack((self.W_history, self.state.EW.coeffs))
+
+        state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.state.sh.num_coeffs)})
 
         state_dataset['SH_m_imp_n'] = xr.DataArray(self.state.m_imp.basis.n, dims = ['i'])
         state_dataset['SH_m_imp_m'] = xr.DataArray(self.state.m_imp.basis.m, dims = ['i'])
@@ -205,15 +206,16 @@ class I2D(object):
     def save_FAC(self):
         """ Save FAC to file """
 
-        if not self.saved_FAC_basis:
-            self.Jr_save_times = [self.latest_time]
-            self.Jr_history = np.array(self.state.Jr_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.saved_FAC_basis = True
-        else:
-            self.Jr_save_times.append(self.latest_time)
-            self.Jr_history = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
+        if not self.FAC_history_exists:
+            self.Jr_history_times = np.array([self.latest_time])
+            self.Jr_history       = np.array(self.state.Jr_sh.coeffs, dtype = np.float64).reshape((1, -1))
 
-        FAC_dataset = xr.Dataset(coords = {'time': self.Jr_save_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
+            self.FAC_history_exists = True
+        else:
+            self.Jr_history_times = np.append(self.Jr_history_times, self.latest_time)
+            self.Jr_history       = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
+
+        FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
 
         FAC_dataset['SH_Jr_n'] = xr.DataArray(self.state.Jr_sh.basis.n, dims = ['i'])
         FAC_dataset['SH_Jr_m'] = xr.DataArray(self.state.Jr_sh.basis.m, dims = ['i'])
@@ -226,17 +228,18 @@ class I2D(object):
     def save_conductance(self):
         "Save conductance to file"
 
-        if not self.saved_conductance_basis:
-            self.conductance_save_times = [self.latest_time]
-            self.etaP_history = np.array(self.state.etaP_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.etaH_history = np.array(self.state.etaH_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.saved_conductance_basis = True
-        else:
-            self.conductance_save_times.append(self.latest_time)
-            self.etaP_history = np.vstack((self.etaP_history, self.state.etaP_sh.coeffs))
-            self.etaH_history = np.vstack((self.etaH_history, self.state.etaH_sh.coeffs))
+        if not self.conductance_history_exists:
+            self.conductance_history_times = np.array([self.latest_time])
+            self.etaP_history              = np.array(self.state.etaP_sh.coeffs, dtype = np.float64).reshape((1, -1))
+            self.etaH_history              = np.array(self.state.etaH_sh.coeffs, dtype = np.float64).reshape((1, -1))
 
-        conductance_dataset = xr.Dataset(coords = {'time': self.conductance_save_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
+            self.conductance_history_exists = True
+        else:
+            self.conductance_history_times = np.append(self.conductance_history_times, self.latest_time)
+            self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP_sh.coeffs))
+            self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH_sh.coeffs))
+
+        conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
 
         conductance_dataset['SH_etaP_n'] = xr.DataArray(self.state.etaP_sh.basis.n, dims = ['i'])
         conductance_dataset['SH_etaP_m'] = xr.DataArray(self.state.etaP_sh.basis.m, dims = ['i'])
@@ -252,17 +255,18 @@ class I2D(object):
     def save_u(self):
         """ Save u to file """
 
-        if not self.saved_u_basis:
-            self.u_save_times = [self.latest_time]
-            self.u_cf_history = np.array(self.state.u_sh.coeffs[0], dtype = np.float64).reshape((1, -1))
-            self.u_df_history = np.array(self.state.u_sh.coeffs[1], dtype = np.float64).reshape((1, -1))
-            self.saved_u_basis = True
-        else:
-            self.u_save_times.append(self.latest_time)
-            self.u_cf_history = np.vstack((self.u_cf_history, self.state.u_sh.coeffs[0]))
-            self.u_df_history = np.vstack((self.u_df_history, self.state.u_sh.coeffs[1]))
+        if not self.u_history_exists:
+            self.u_history_times = np.array([self.latest_time])
+            self.u_cf_history    = np.array(self.state.u_sh.coeffs[0], dtype = np.float64).reshape((1, -1))
+            self.u_df_history    = np.array(self.state.u_sh.coeffs[1], dtype = np.float64).reshape((1, -1))
 
-        u_dataset = xr.Dataset(coords = {'time': self.u_save_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
+            self.u_history_exists = True
+        else:
+            self.u_history_times = np.append(self.u_history_times, self.latest_time)
+            self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u_sh.coeffs[0]))
+            self.u_df_history    = np.vstack((self.u_df_history, self.state.u_sh.coeffs[1]))
+
+        u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
 
         u_dataset['SH_u_cf_n'] = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
         u_dataset['SH_u_cf_m'] = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
