@@ -164,8 +164,8 @@ class I2D(object):
         print('Created {}'.format(self.result_filename_prefix))
 
 
-    def save_state(self):
-        """ Save state to file """
+    def update_state_history(self):
+        """ Add current state to state history """
 
         self.state.update_Phi_and_EW()
 
@@ -203,8 +203,8 @@ class I2D(object):
         state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
 
-    def save_FAC(self):
-        """ Save FAC to file """
+    def update_FAC_history(self):
+        """ Add current FAC to FAC history """
 
         if not self.FAC_history_exists:
             self.Jr_history_times = np.array([self.latest_time])
@@ -225,8 +225,8 @@ class I2D(object):
         FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
 
-    def save_conductance(self):
-        "Save conductance to file"
+    def update_conductance_history(self):
+        """ Add current conductance to conductance history """
 
         if not self.conductance_history_exists:
             self.conductance_history_times = np.array([self.latest_time])
@@ -252,8 +252,8 @@ class I2D(object):
         conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
 
-    def save_u(self):
-        """ Save u to file """
+    def update_u_history(self):
+        """ Add current neutral wind to neutral wind history """
 
         if not self.u_history_exists:
             self.u_history_times = np.array([self.latest_time])
@@ -284,7 +284,7 @@ class I2D(object):
 
         """
 
-        self.save_state()
+        self.update_state_history()
 
         count = 0
         while self.latest_time < t:
@@ -299,7 +299,7 @@ class I2D(object):
             count += 1
 
             if count % save_steps == 0:
-                self.save_state()
+                self.update_state_history()
                 if quiet:
                     pass
                 else:
@@ -394,7 +394,7 @@ class I2D(object):
                     Jr = Jpar_int * self.b_evaluator.br
 
                 self.state.set_FAC(Jr)
-                self.save_FAC()
+                self.update_FAC_history()
 
                 self.next_FAC += 1
 
@@ -415,7 +415,7 @@ class I2D(object):
                     u = (u_int_theta, u_int_phi)
 
                 self.state.set_u(u)
-                self.save_u()
+                self.update_u_history()
 
                 self.next_u += 1
 
@@ -448,7 +448,7 @@ class I2D(object):
                     etaH = etaH_int
 
                 self.state.set_conductance(etaP, etaH)
-                self.save_conductance()
+                self.update_conductance_history()
 
                 self.next_conductance += 1
 
