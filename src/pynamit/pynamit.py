@@ -18,7 +18,7 @@ import scipy.sparse as sp
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, result_filename = 'tmp.ncdf',
+    def __init__(self, result_filename_prefix = 'tmp',
                        sh = None, csp = None,
                        RI = RE + 110.e3, mainfield_kind = 'dipole',
                        B0_parameters = {'epoch':2020, 'B0':None},
@@ -50,7 +50,7 @@ class I2D(object):
             the poloidal field of FACs
 
         """
-        self.result_filename        = result_filename
+        self.result_filename_prefix = result_filename_prefix
         self.FAC_integration_steps  = FAC_integration_steps
         self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
         self.connect_hemispheres    = connect_hemispheres
@@ -73,10 +73,10 @@ class I2D(object):
 
         self.latest_time = np.float64(0)
 
-        file_loading = (self.result_filename is not None) and os.path.exists(self.result_filename)
+        file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
 
         if file_loading: # override input and load parameters from file:
-            self.dataset = xr.load_dataset(self.result_filename)
+            self.dataset = xr.load_dataset(self.result_filename_prefix + '.ncdf')
 
             self.FAC_integration_steps  = self.dataset.FAC_integration_steps
             self.zero_jr_at_dip_equator = self.dataset.zero_jr_at_dip_equator
@@ -121,8 +121,8 @@ class I2D(object):
                            )
 
         if not file_loading:
-            if self.result_filename is None:
-                self.result_filename = 'tmp.ncdf'
+            if self.result_filename_prefix is None:
+                self.result_filename_prefix = 'tmp'
 
             self.initialize_save_file()
 
@@ -160,8 +160,8 @@ class I2D(object):
         self.dataset['n'] = xr.DataArray(self.state.sh.n, coords = {'i': range(self.state.sh.num_coeffs)}, dims = ['i'], name = 'n')
         self.dataset['m'] = xr.DataArray(self.state.sh.m, coords = {'i': range(self.state.sh.num_coeffs)}, dims = ['i'], name = 'm')
 
-        self.dataset.to_netcdf(self.result_filename)
-        print('Created {}'.format(self.result_filename))
+        self.dataset.to_netcdf(self.result_filename_prefix + '.ncdf')
+        print('Created {}'.format(self.result_filename_prefix))
 
 
     def save_state(self):
@@ -170,105 +170,109 @@ class I2D(object):
         self.state.update_Phi_and_EW()
 
         if not self.saved_state_basis:
-            self.dataset['SH_m_imp_n'] = xr.DataArray(self.state.m_imp.basis.n, coords = {'i': range(self.state.m_imp.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_m_imp_m'] = xr.DataArray(self.state.m_imp.basis.m, coords = {'i': range(self.state.m_imp.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_m_ind_n'] = xr.DataArray(self.state.m_ind.basis.n, coords = {'i': range(self.state.m_ind.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_m_ind_m'] = xr.DataArray(self.state.m_ind.basis.m, coords = {'i': range(self.state.m_ind.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_Phi_n']   = xr.DataArray(self.state.Phi.basis.n,   coords = {'i': range(self.state.Phi.basis.num_coeffs)},   dims = ['i'])
-            self.dataset['SH_Phi_m']   = xr.DataArray(self.state.Phi.basis.m,   coords = {'i': range(self.state.Phi.basis.num_coeffs)},   dims = ['i'])
-            self.dataset['SH_W_n']     = xr.DataArray(self.state.EW.basis.n,    coords = {'i': range(self.state.EW.basis.num_coeffs)},    dims = ['i'])
-            self.dataset['SH_W_m']     = xr.DataArray(self.state.EW.basis.m,    coords = {'i': range(self.state.EW.basis.num_coeffs)},    dims = ['i'])
-            self.saved_state_basis = True
-
+            self.state_save_times = [self.latest_time]
             self.m_imp_history    = np.array(self.state.m_imp.coeffs, dtype = np.float64).reshape((1, -1))
             self.m_ind_history    = np.array(self.state.m_ind.coeffs, dtype = np.float64).reshape((1, -1))
             self.Phi_history      = np.array(self.state.Phi.coeffs, dtype = np.float64).reshape((1, -1))
             self.W_history        = np.array(self.state.EW.coeffs, dtype = np.float64).reshape((1, -1))
-            self.state_save_times = [self.latest_time]
-
+            self.saved_state_basis = True
         else:
+            self.state_save_times.append(self.latest_time)
             self.m_imp_history    = np.vstack((self.m_imp_history, self.state.m_imp.coeffs))
             self.m_ind_history    = np.vstack((self.m_ind_history, self.state.m_ind.coeffs))
             self.Phi_history      = np.vstack((self.Phi_history, self.state.Phi.coeffs))
             self.W_history        = np.vstack((self.W_history, self.state.EW.coeffs))
-            self.state_save_times.append(self.latest_time)
 
-        self.dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history, coords = {'time': self.state_save_times, 'i': range(self.state.m_imp.basis.num_coeffs)}, dims = ['time', 'i'])
-        self.dataset['SH_m_ind_coeffs'] = xr.DataArray(self.m_ind_history, coords = {'time': self.state_save_times, 'i': range(self.state.m_ind.basis.num_coeffs)}, dims = ['time', 'i'])
-        self.dataset['SH_Phi_coeffs']   = xr.DataArray(self.Phi_history,   coords = {'time': self.state_save_times, 'i': range(self.state.Phi.basis.num_coeffs)},   dims = ['time', 'i'])
-        self.dataset['SH_W_coeffs']     = xr.DataArray(self.W_history,     coords = {'time': self.state_save_times, 'i': range(self.state.EW.basis.num_coeffs)},    dims = ['time', 'i'])
+        state_dataset = xr.Dataset(coords = {'time': self.state_save_times, 'i': range(self.state.sh.num_coeffs)})
 
-        self.dataset.to_netcdf(self.result_filename)
+        state_dataset['SH_m_imp_n'] = xr.DataArray(self.state.m_imp.basis.n, dims = ['i'])
+        state_dataset['SH_m_imp_m'] = xr.DataArray(self.state.m_imp.basis.m, dims = ['i'])
+        state_dataset['SH_m_ind_n'] = xr.DataArray(self.state.m_ind.basis.n, dims = ['i'])
+        state_dataset['SH_m_ind_m'] = xr.DataArray(self.state.m_ind.basis.m, dims = ['i'])
+        state_dataset['SH_Phi_n']   = xr.DataArray(self.state.Phi.basis.n,   dims = ['i'])
+        state_dataset['SH_Phi_m']   = xr.DataArray(self.state.Phi.basis.m,   dims = ['i'])
+        state_dataset['SH_W_n']     = xr.DataArray(self.state.EW.basis.n,    dims = ['i'])
+        state_dataset['SH_W_m']     = xr.DataArray(self.state.EW.basis.m,    dims = ['i'])
+
+        state_dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history, dims = ['time', 'i'])
+        state_dataset['SH_m_ind_coeffs'] = xr.DataArray(self.m_ind_history, dims = ['time', 'i'])
+        state_dataset['SH_Phi_coeffs']   = xr.DataArray(self.Phi_history,   dims = ['time', 'i'])
+        state_dataset['SH_W_coeffs']     = xr.DataArray(self.W_history,     dims = ['time', 'i'])
+
+        state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
 
     def save_FAC(self):
         """ Save FAC to file """
 
         if not self.saved_FAC_basis:
-            self.dataset['SH_Jr_n'] = xr.DataArray(self.state.Jr_sh.basis.n, coords = {'i': range(self.state.Jr_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_Jr_m'] = xr.DataArray(self.state.Jr_sh.basis.m, coords = {'i': range(self.state.Jr_sh.basis.num_coeffs)}, dims = ['i'])
-            self.saved_FAC_basis = True
-
-            self.Jr_history = np.array(self.state.Jr_sh.coeffs, dtype = np.float64).reshape((1, -1))
             self.Jr_save_times = [self.latest_time]
-
+            self.Jr_history = np.array(self.state.Jr_sh.coeffs, dtype = np.float64).reshape((1, -1))
+            self.saved_FAC_basis = True
         else:
-            self.Jr_history = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
             self.Jr_save_times.append(self.latest_time)
+            self.Jr_history = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
 
-        self.dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history, coords = {'time': self.Jr_save_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)}, dims = ['time', 'i'])
+        FAC_dataset = xr.Dataset(coords = {'time': self.Jr_save_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
 
-        self.dataset.to_netcdf(self.result_filename)
+        FAC_dataset['SH_Jr_n'] = xr.DataArray(self.state.Jr_sh.basis.n, dims = ['i'])
+        FAC_dataset['SH_Jr_m'] = xr.DataArray(self.state.Jr_sh.basis.m, dims = ['i'])
+
+        FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history, dims = ['time', 'i'])
+
+        FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
 
     def save_conductance(self):
         "Save conductance to file"
 
         if not self.saved_conductance_basis:
-            self.dataset['SH_etaP_n'] = xr.DataArray(self.state.etaP_sh.basis.n, coords = {'i': range(self.state.etaP_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_etaP_m'] = xr.DataArray(self.state.etaP_sh.basis.m, coords = {'i': range(self.state.etaP_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_etaH_n'] = xr.DataArray(self.state.etaH_sh.basis.n, coords = {'i': range(self.state.etaH_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_etaH_m'] = xr.DataArray(self.state.etaH_sh.basis.m, coords = {'i': range(self.state.etaH_sh.basis.num_coeffs)}, dims = ['i'])
-            self.saved_conductance_basis = True
-
+            self.conductance_save_times = [self.latest_time]
             self.etaP_history = np.array(self.state.etaP_sh.coeffs, dtype = np.float64).reshape((1, -1))
             self.etaH_history = np.array(self.state.etaH_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.conductance_save_times = [self.latest_time]
-
+            self.saved_conductance_basis = True
         else:
+            self.conductance_save_times.append(self.latest_time)
             self.etaP_history = np.vstack((self.etaP_history, self.state.etaP_sh.coeffs))
             self.etaH_history = np.vstack((self.etaH_history, self.state.etaH_sh.coeffs))
-            self.conductance_save_times.append(self.latest_time)
 
-        self.dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history, coords = {'time': self.conductance_save_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)}, dims = ['time', 'i'])
-        self.dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history, coords = {'time': self.conductance_save_times, 'i': range(self.state.etaH_sh.basis.num_coeffs)}, dims = ['time', 'i'])
+        conductance_dataset = xr.Dataset(coords = {'time': self.conductance_save_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
 
-        self.dataset.to_netcdf(self.result_filename)
+        conductance_dataset['SH_etaP_n'] = xr.DataArray(self.state.etaP_sh.basis.n, dims = ['i'])
+        conductance_dataset['SH_etaP_m'] = xr.DataArray(self.state.etaP_sh.basis.m, dims = ['i'])
+        conductance_dataset['SH_etaH_n'] = xr.DataArray(self.state.etaH_sh.basis.n, dims = ['i'])
+        conductance_dataset['SH_etaH_m'] = xr.DataArray(self.state.etaH_sh.basis.m, dims = ['i'])
+
+        conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history, dims = ['time', 'i'])
+        conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history, dims = ['time', 'i'])
+
+        conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
 
     def save_u(self):
         """ Save u to file """
 
         if not self.saved_u_basis:
-            self.dataset['SH_u_cf_n'] = xr.DataArray(self.state.u_sh.basis.n, coords = {'i': range(self.state.u_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_u_cf_m'] = xr.DataArray(self.state.u_sh.basis.m, coords = {'i': range(self.state.u_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_u_df_n'] = xr.DataArray(self.state.u_sh.basis.n, coords = {'i': range(self.state.u_sh.basis.num_coeffs)}, dims = ['i'])
-            self.dataset['SH_u_df_m'] = xr.DataArray(self.state.u_sh.basis.m, coords = {'i': range(self.state.u_sh.basis.num_coeffs)}, dims = ['i'])
-            self.saved_u_basis = True
-
+            self.u_save_times = [self.latest_time]
             self.u_cf_history = np.array(self.state.u_sh.coeffs[0], dtype = np.float64).reshape((1, -1))
             self.u_df_history = np.array(self.state.u_sh.coeffs[1], dtype = np.float64).reshape((1, -1))
-            self.u_save_times = [self.latest_time]
-
+            self.saved_u_basis = True
         else:
+            self.u_save_times.append(self.latest_time)
             self.u_cf_history = np.vstack((self.u_cf_history, self.state.u_sh.coeffs[0]))
             self.u_df_history = np.vstack((self.u_df_history, self.state.u_sh.coeffs[1]))
-            self.u_save_times.append(self.latest_time)
 
-        self.dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history, coords = {'time': self.u_save_times, 'i': range(self.state.u_sh.basis.num_coeffs)}, dims = ['time', 'i'])
-        self.dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history, coords = {'time': self.u_save_times, 'i': range(self.state.u_sh.basis.num_coeffs)}, dims = ['time', 'i'])
+        u_dataset = xr.Dataset(coords = {'time': self.u_save_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
 
-        self.dataset.to_netcdf(self.result_filename)
+        u_dataset['SH_u_cf_n'] = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
+        u_dataset['SH_u_cf_m'] = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+        u_dataset['SH_u_df_n'] = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
+        u_dataset['SH_u_df_m'] = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+
+        u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history, dims = ['time', 'i'])
+        u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history, dims = ['time', 'i'])
+
+        u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), save_steps = 200, quiet = False):
@@ -534,7 +538,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(result_filename = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator, sh_FAC = sh_FAC, sh_conductance = sh_conductance, sh_u = sh_u)
+    i2d = I2D(result_filename_prefix = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator, sh_FAC = sh_FAC, sh_conductance = sh_conductance, sh_u = sh_u)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate

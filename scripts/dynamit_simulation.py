@@ -13,7 +13,7 @@ latitude_boundary = 40
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-result_filename = 'tst.ncdf'
+result_filename_prefix = 'tst'
 Nmax, Mmax, Ncs = 50, 50, 60
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -36,7 +36,7 @@ u_grid = pynamit.Grid(u_lat, u_lon)
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
-i2d = pynamit.I2D(result_filename = result_filename, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk,
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix, sh = i2d_sh, csp = i2d_csp, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk,
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
                                        zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
 
