@@ -71,6 +71,12 @@ class I2D(object):
         self.conductance_history_exists = False
         self.u_history_exists           = False
 
+        # Will be set to True when the corresponding history is different from the one saved on disk
+        self.save_state_history       = False
+        self.save_FAC_history         = False
+        self.save_conductance_history = False
+        self.save_u_history           = False
+
         self.latest_time = np.float64(0)
 
         file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
@@ -100,10 +106,15 @@ class I2D(object):
 
         B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
         mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
+
         self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
+
         self.basis = sh
         self.basis_evaluator = BasisEvaluator(self.basis, self.num_grid)
         self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
+
+        self.conductance_basis = SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0)
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
 
         # Initialize the state of the ionosphere
         self.state = State(sh, mainfield, self.num_grid, 
@@ -184,23 +195,7 @@ class I2D(object):
             self.Phi_history         = np.vstack((self.Phi_history, self.state.Phi.coeffs))
             self.W_history           = np.vstack((self.W_history, self.state.EW.coeffs))
 
-        state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.state.sh.num_coeffs)})
-
-        state_dataset['SH_m_imp_n'] = xr.DataArray(self.state.m_imp.basis.n, dims = ['i'])
-        state_dataset['SH_m_imp_m'] = xr.DataArray(self.state.m_imp.basis.m, dims = ['i'])
-        state_dataset['SH_m_ind_n'] = xr.DataArray(self.state.m_ind.basis.n, dims = ['i'])
-        state_dataset['SH_m_ind_m'] = xr.DataArray(self.state.m_ind.basis.m, dims = ['i'])
-        state_dataset['SH_Phi_n']   = xr.DataArray(self.state.Phi.basis.n,   dims = ['i'])
-        state_dataset['SH_Phi_m']   = xr.DataArray(self.state.Phi.basis.m,   dims = ['i'])
-        state_dataset['SH_W_n']     = xr.DataArray(self.state.EW.basis.n,    dims = ['i'])
-        state_dataset['SH_W_m']     = xr.DataArray(self.state.EW.basis.m,    dims = ['i'])
-
-        state_dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history, dims = ['time', 'i'])
-        state_dataset['SH_m_ind_coeffs'] = xr.DataArray(self.m_ind_history, dims = ['time', 'i'])
-        state_dataset['SH_Phi_coeffs']   = xr.DataArray(self.Phi_history,   dims = ['time', 'i'])
-        state_dataset['SH_W_coeffs']     = xr.DataArray(self.W_history,     dims = ['time', 'i'])
-
-        state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
+        self.save_state_history = True
 
 
     def update_FAC_history(self):
@@ -215,14 +210,7 @@ class I2D(object):
             self.Jr_history_times = np.append(self.Jr_history_times, self.latest_time)
             self.Jr_history       = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
 
-        FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
-
-        FAC_dataset['SH_Jr_n'] = xr.DataArray(self.state.Jr_sh.basis.n, dims = ['i'])
-        FAC_dataset['SH_Jr_m'] = xr.DataArray(self.state.Jr_sh.basis.m, dims = ['i'])
-
-        FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history, dims = ['time', 'i'])
-
-        FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
+        self.save_FAC_history = True
 
 
     def update_conductance_history(self):
@@ -239,17 +227,7 @@ class I2D(object):
             self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP_sh.coeffs))
             self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH_sh.coeffs))
 
-        conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
-
-        conductance_dataset['SH_etaP_n'] = xr.DataArray(self.state.etaP_sh.basis.n, dims = ['i'])
-        conductance_dataset['SH_etaP_m'] = xr.DataArray(self.state.etaP_sh.basis.m, dims = ['i'])
-        conductance_dataset['SH_etaH_n'] = xr.DataArray(self.state.etaH_sh.basis.n, dims = ['i'])
-        conductance_dataset['SH_etaH_m'] = xr.DataArray(self.state.etaH_sh.basis.m, dims = ['i'])
-
-        conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history, dims = ['time', 'i'])
-        conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history, dims = ['time', 'i'])
-
-        conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
+        self.save_conductance_history = True
 
 
     def update_u_history(self):
@@ -265,18 +243,63 @@ class I2D(object):
             self.u_history_times = np.append(self.u_history_times, self.latest_time)
             self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u_sh.coeffs[0]))
             self.u_df_history    = np.vstack((self.u_df_history, self.state.u_sh.coeffs[1]))
+        
+        self.save_u_history = True
 
-        u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
 
-        u_dataset['SH_u_cf_n'] = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
-        u_dataset['SH_u_cf_m'] = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
-        u_dataset['SH_u_df_n'] = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
-        u_dataset['SH_u_df_m'] = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+    def save_results(self):
+        """ Store all results """
 
-        u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history, dims = ['time', 'i'])
-        u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history, dims = ['time', 'i'])
+        if self.save_state_history:
+            state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.state.sh.num_coeffs)})
+            state_dataset['SH_m_imp_m']      = xr.DataArray(self.state.m_imp.basis.m, dims = ['i'])
+            state_dataset['SH_m_imp_n']      = xr.DataArray(self.state.m_imp.basis.n, dims = ['i'])
+            state_dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history,       dims = ['time', 'i'])
+            state_dataset['SH_m_ind_m']      = xr.DataArray(self.state.m_ind.basis.m, dims = ['i'])
+            state_dataset['SH_m_ind_n']      = xr.DataArray(self.state.m_ind.basis.n, dims = ['i'])
+            state_dataset['SH_m_ind_coeffs'] = xr.DataArray(self.m_ind_history,       dims = ['time', 'i'])
+            state_dataset['SH_Phi_m']        = xr.DataArray(self.state.Phi.basis.m,   dims = ['i'])
+            state_dataset['SH_Phi_n']        = xr.DataArray(self.state.Phi.basis.n,   dims = ['i'])
+            state_dataset['SH_Phi_coeffs']   = xr.DataArray(self.Phi_history,         dims = ['time', 'i'])
+            state_dataset['SH_W_m']          = xr.DataArray(self.state.EW.basis.m,    dims = ['i'])
+            state_dataset['SH_W_n']          = xr.DataArray(self.state.EW.basis.n,    dims = ['i'])
+            state_dataset['SH_W_coeffs']     = xr.DataArray(self.W_history,           dims = ['time', 'i'])
+            state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
-        u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
+            self.save_state_history = False
+
+        if self.save_FAC_history:
+            FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
+            FAC_dataset['SH_Jr_n']      = xr.DataArray(self.state.Jr_sh.basis.n, dims = ['i'])
+            FAC_dataset['SH_Jr_m']      = xr.DataArray(self.state.Jr_sh.basis.m, dims = ['i'])
+            FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history,          dims = ['time', 'i'])
+            FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
+
+            self.save_FAC_history = False
+
+        if self.save_conductance_history:
+            conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
+            conductance_dataset['SH_etaP_m']      = xr.DataArray(self.state.etaP_sh.basis.m, dims = ['i'])
+            conductance_dataset['SH_etaP_n']      = xr.DataArray(self.state.etaP_sh.basis.n, dims = ['i'])
+            conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history,          dims = ['time', 'i'])
+            conductance_dataset['SH_etaH_n']      = xr.DataArray(self.state.etaH_sh.basis.n, dims = ['i'])
+            conductance_dataset['SH_etaH_m']      = xr.DataArray(self.state.etaH_sh.basis.m, dims = ['i'])
+            conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history,          dims = ['time', 'i'])
+            conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
+
+            self.save_conductance_history = False
+
+        if self.save_u_history:
+            u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
+            u_dataset['SH_u_cf_n']      = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
+            u_dataset['SH_u_cf_m']      = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+            u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history,       dims = ['time', 'i'])
+            u_dataset['SH_u_df_n']      = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
+            u_dataset['SH_u_df_m']      = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+            u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history,       dims = ['time', 'i'])
+            u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
+
+            self.save_u_history = False
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), save_steps = 200, quiet = False):
@@ -284,28 +307,30 @@ class I2D(object):
 
         """
 
-        self.update_state_history()
-
         count = 0
-        while self.latest_time < t:
+        while True:
 
             self.update_FAC()
-            self.update_u()
             self.update_conductance()
-
-            self.state.evolve_Br(dt)
-
-            time = self.latest_time + dt
-            count += 1
+            self.update_u()
 
             if count % save_steps == 0:
                 self.update_state_history()
+                self.save_results()
                 if quiet:
                     pass
                 else:
-                    print('Saved output at t = {:.2f} s'.format(time), end = '\r')
+                    print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
 
-            self.latest_time = time
+            next_time = self.latest_time + dt
+
+            if next_time > t:
+                break
+
+            self.state.evolve_Br(dt)
+            self.latest_time = next_time
+
+            count += 1
 
 
     def set_FAC(self, FAC, FAC_grid, time = None):
@@ -337,26 +362,6 @@ class I2D(object):
         self.update_FAC()
 
 
-    def set_u(self, u_theta, u_phi, u_grid, time = None):
-        """ set neutral wind theta and phi components 
-            For now, they *have* to be given on grid
-        """
-
-        self.u_theta = np.atleast_2d(u_theta)
-        self.u_phi = np.atleast_2d(u_phi)
-        self.u_grid = u_grid
-
-        if time is None:
-            if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
-                raise ValueError('Time has to be specified if u is given for multiple times')
-            time = self.latest_time
-
-        self.u_time = np.atleast_1d(time)
-
-        self.next_u = 0
-        self.update_u()
-
-
     def set_conductance(self, Hall, Pedersen, conductance_grid, time = None):
         """
         Specify Hall and Pedersen conductance at
@@ -379,6 +384,26 @@ class I2D(object):
         self.update_conductance()
 
 
+    def set_u(self, u_theta, u_phi, u_grid, time = None):
+        """ set neutral wind theta and phi components 
+            For now, they *have* to be given on grid
+        """
+
+        self.u_theta = np.atleast_2d(u_theta)
+        self.u_phi = np.atleast_2d(u_phi)
+        self.u_grid = u_grid
+
+        if time is None:
+            if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
+                raise ValueError('Time has to be specified if u is given for multiple times')
+            time = self.latest_time
+
+        self.u_time = np.atleast_1d(time)
+
+        self.next_u = 0
+        self.update_u()
+
+
     def update_FAC(self):
         """ Update FAC """
 
@@ -397,6 +422,37 @@ class I2D(object):
                 self.update_FAC_history()
 
                 self.next_FAC += 1
+
+
+    def update_conductance(self):
+        """ Update conductance """
+
+        if self.next_conductance < self.conductance_time.size:
+            if self.latest_time >= self.conductance_time[self.next_conductance]:
+                # Check if Pedersen and Hall conductances are positive
+                if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
+                    raise ValueError('Conductances have to be positive')
+
+                # Transform to resistivities
+                etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+                etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+
+                # Represent as values on num_grid
+                etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
+                etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
+
+                if self.sh_conductance:
+                    # Represent as expansion in spherical harmonics
+                    etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
+                    etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
+                else:
+                    etaP = etaP_int
+                    etaH = etaH_int
+
+                self.state.set_conductance(etaP, etaH)
+                self.update_conductance_history()
+
+                self.next_conductance += 1
 
 
     def update_u(self):
@@ -419,38 +475,6 @@ class I2D(object):
 
                 self.next_u += 1
 
-
-    def update_conductance(self):
-        """ Update conductance """
-
-        if self.next_conductance < self.conductance_time.size:
-            if self.latest_time >= self.conductance_time[self.next_conductance]:
-                # Check if Pedersen and Hall conductances are positive
-                if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
-                    raise ValueError('Conductances have to be positive')
-
-                # Transform to resistivities
-                etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
-                etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
-
-                # Represent as values on num_grid
-                etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
-                etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
-
-                if self.sh_conductance:
-                    # Represent as expansion in spherical harmonics
-                    conductance_basis = SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0)
-                    conductance_basis_evaluator = BasisEvaluator(conductance_basis, self.num_grid)
-                    etaP = Vector(conductance_basis, basis_evaluator = conductance_basis_evaluator, grid_values = etaP_int)
-                    etaH = Vector(conductance_basis, basis_evaluator = conductance_basis_evaluator, grid_values = etaH_int)
-                else:
-                    etaP = etaP_int
-                    etaH = etaH_int
-
-                self.state.set_conductance(etaP, etaH)
-                self.update_conductance_history()
-
-                self.next_conductance += 1
 
     @property
     def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
@@ -487,6 +511,7 @@ class I2D(object):
             self._fd_curl_matrix = D_curlr_u1u2.dot(Ps)
 
         return(self._fd_curl_matrix)
+
 
     def steady_state_m_ind(self, m_imp = None):
         """ Calculate coefficients for induced field in steady state 
