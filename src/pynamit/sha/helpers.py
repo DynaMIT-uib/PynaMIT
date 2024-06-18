@@ -216,9 +216,9 @@ def legendre(Nmax, Mmax, theta, schmidt_normalization = False, keys = None):
                 dP[:, nm] -= Knm * dP[:, compound_indices.index((n - 2, m))]
 
     if schmidt_normalization:
-        schmidt_normalization_vector = schmidt_normalization_factors(compound_indices)
-        P *= schmidt_normalization_vector
-        dP *= schmidt_normalization_vector
+        schmidt_factors = schmidt_normalization_factors(compound_indices)
+        P *= schmidt_factors
+        dP *= schmidt_factors
 
     if keys is None:
         return P, dP
@@ -240,7 +240,7 @@ def schmidt_normalization_factors(compound_indices):
     Returns
     -------
     S : vector
-        Vector of Schmidt normalization values for the given spherical
+        Vector of Schmidt normalization factors for the given spherical
         harmonic indices.
 
     """
