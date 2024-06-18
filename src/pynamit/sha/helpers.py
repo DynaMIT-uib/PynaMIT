@@ -234,7 +234,7 @@ def schmidt_normalization_factors(compound_indices):
 
     Parameters
     ----------
-    Compound_indices : list
+    compound_indices : list
         List of tuples of spherical harmonic indices.
 
     Returns
