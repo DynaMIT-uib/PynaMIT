@@ -132,7 +132,7 @@ def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
            len(SHKeys(NVi, MVi).setNmin(1).MleN().Mge(1))
 
 
-def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
+def legendre(Nmax, Mmax, theta, schmidt_normalization = False, keys = None):
     """
     Calculate associated Legendre function ``P`` and its derivative.
 
@@ -149,8 +149,8 @@ def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
         Highest spherical harmonic order.
     theta : array, float
         Colatitude in degrees (shape is not preserved).
-    schmidtnormalize : bool, optional, default = True
-        ``True`` if Schmidth seminormalization is wanted, ``False``
+    schmidt_normalization : bool, optional, default = False
+        ``True`` if Schmidth semi-normalization is wanted, ``False``
         otherwise.
     keys : SHKeys, optional
         If this parameter is set, an array will be returned instead of
@@ -195,11 +195,12 @@ def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
         for m in range(0, min([n + 1, Mmax + 1])):
             compound_indices.append((n, m))
 
-    P  = np.zeros((theta.size, len(compound_indices)), dtype = np.float64)
-    dP = np.zeros((theta.size, len(compound_indices)), dtype = np.float64)
+    P  = np.empty((theta.size, len(compound_indices)), dtype = np.float64)
+    dP = np.empty((theta.size, len(compound_indices)), dtype = np.float64)
 
     # Calculate the Legendre functions and their derivatives
-    P[:, 0] = np.ones_like(theta, dtype = np.float64)
+    P[:, 0]  = np.ones_like(theta, dtype = np.float64)
+    dP[:, 0] = np.zeros_like(theta, dtype = np.float64)
     for nm in range(1, len(compound_indices)):
         n, m = compound_indices[nm]
         if n == m:
@@ -216,21 +217,22 @@ def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
                 P[:, nm] -= Knm * P[:, compound_indices.index((n - 2, m))]
                 dP[:, nm] -= Knm * dP[:, compound_indices.index((n - 2, m))]
 
-    if schmidtnormalize:
-        vector = schmidt_vector(compound_indices)
-        P *= vector
-        dP *= vector
+    if schmidt_normalization:
+        schmidt_normalization_vector = schmidt_normalization_factors(compound_indices)
+        P *= schmidt_normalization_vector
+        dP *= schmidt_normalization_vector
 
     if keys is None:
-        return np.hstack((P, dP))
+        return P, dP
     else:
         filter = [(key in keys) for key in compound_indices]
-        return np.hstack((P[:, filter], dP[:, filter]))
+        return P[:, filter], dP[:, filter]
 
 
-def schmidt_vector(compound_indices):
+def schmidt_normalization_factors(compound_indices):
     """
-    Return Schmidt normalization vector.
+    Return vector of Schmidt semi-normalization factors for spherical
+    harmonic terms with given indices.
 
     Parameters
     ----------
@@ -246,8 +248,9 @@ def schmidt_vector(compound_indices):
     """
 
     S = np.empty(len(compound_indices), dtype = np.float64)
-    S[0] = 1.
 
+    # Calculate the Schmidt normalization factors
+    S[0] = 1.
     for nm in range(1, len(compound_indices)):
         n, m = compound_indices[nm]
         if m == 0:

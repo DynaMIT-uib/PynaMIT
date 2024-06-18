@@ -6,7 +6,7 @@ This module contains the ``SHBasis`` class.
 """
 
 import numpy as np
-from pynamit.sha.helpers import SHKeys, legendre
+from pynamit.sha.helpers import SHKeys, legendre, schmidt_normalization_factors
 from scipy.special import lpmv
 
 class SHBasis(object):
@@ -25,6 +25,10 @@ class SHBasis(object):
         # make separate sets of spherical harmonic keys for cos and sin terms:
         self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN()
         self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN().Mge(1)
+
+        # Make a list of the Schmidt semi-normalization factors for each term:
+        cnm_list = list(self.cnm.keys)
+        self.schmidt_normalization_factors = schmidt_normalization_factors(cnm_list)
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
@@ -65,8 +69,9 @@ class SHBasis(object):
         ph, th = np.deg2rad(grid.lon).reshape((-1, 1)), np.deg2rad(90 - grid.lat).reshape((-1, 1))
 
         # generate Legendre matrices - first get dicts of arrays, and then stack them in the appropriate fashion
-        PdP = legendre(self.Nmax, self.Mmax, grid.theta, keys = self.cnm)
-        Pc, dPc = np.split(PdP, 2, axis = 1)
+        Pc, dPc = legendre(self.Nmax, self.Mmax, grid.theta, keys = self.cnm)
+        Pc *= self.schmidt_normalization_factors
+        dPc *= self.schmidt_normalization_factors
         Ps      =  Pc[: , self.cnm.m.flatten() != 0]
         dPs     = dPc[: , self.cnm.m.flatten() != 0]
 
