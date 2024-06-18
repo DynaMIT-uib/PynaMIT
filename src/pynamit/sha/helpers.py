@@ -150,7 +150,7 @@ def legendre(Nmax, Mmax, theta, schmidt_normalization = False, keys = None):
     theta : array, float
         Colatitude in degrees (shape is not preserved).
     schmidt_normalization : bool, optional, default = False
-        ``True`` if Schmidth semi-normalization is wanted, ``False``
+        ``True`` if Schmidt semi-normalization is wanted, ``False``
         otherwise.
     keys : SHKeys, optional
         If this parameter is set, an array will be returned instead of
