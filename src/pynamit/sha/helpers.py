@@ -184,62 +184,75 @@ def legendre(Nmax, Mmax, theta, schmidtnormalize = True, keys = None):
 
     """
 
-    theta = theta.flatten()[:, np.newaxis]
+    theta = theta.flatten()
 
-    P = {}
-    dP = {}
     sinth = np.sin(np.deg2rad(theta))
     costh = np.cos(np.deg2rad(theta))
 
-    if schmidtnormalize:
-        S = {}
-        S[0, 0] = 1.
-
-    # initialize the functions:
-    for n in range(Nmax +1):
-        for m in range(Nmax + 1):
-            P[n, m] = np.zeros_like(theta, dtype = np.float64)
-            dP[n, m] = np.zeros_like(theta, dtype = np.float64)
-
-    P[0, 0] = np.ones_like(theta, dtype = np.float64)
-    for n in range(1, Nmax +1):
+    # Create index array
+    compound_indices = []
+    for n in range(0, Nmax + 1):
         for m in range(0, min([n + 1, Mmax + 1])):
-            # do the legendre functions and derivatives
-            if n == m:
-                P[n, n]  = sinth * P[n - 1, m - 1]
-                dP[n, n] = sinth * dP[n - 1, m - 1] + costh * P[n - 1, n - 1]
+            compound_indices.append((n, m))
 
-            else:
-                if n == 1:
-                    Knm = 0.
-                    P[n, m]  = costh * P[n -1, m]
-                    dP[n, m] = costh * dP[n - 1, m] - sinth * P[n - 1, m]
+    P  = np.zeros((theta.size, len(compound_indices)), dtype = np.float64)
+    dP = np.zeros((theta.size, len(compound_indices)), dtype = np.float64)
 
-                elif n > 1:
-                    Knm = ((n - 1)**2 - m**2) / ((2*n - 1)*(2*n - 3))
-                    P[n, m]  = costh * P[n -1, m] - Knm*P[n - 2, m]
-                    dP[n, m] = costh * dP[n - 1, m] - sinth * P[n - 1, m] - Knm * dP[n - 2, m]
+    # Calculate the Legendre functions and their derivatives
+    P[:, 0] = np.ones_like(theta, dtype = np.float64)
+    for nm in range(1, len(compound_indices)):
+        n, m = compound_indices[nm]
+        if n == m:
+            P[:, nm]  = sinth * P[:, compound_indices.index((n - 1, m - 1))]
+            dP[:, nm] = sinth * dP[:, compound_indices.index((n - 1, m - 1))] + costh * P[:, compound_indices.index((n - 1, m - 1))]
 
-            if schmidtnormalize:
-                # compute Schmidt normalization
-                if m == 0:
-                    S[n, 0] = S[n - 1, 0] * (2.*n - 1)/n
-                else:
-                    S[n, m] = S[n, m - 1] * np.sqrt((n - m + 1)*(int(m == 1) + 1.)/(n + m))
+        else:
+            if n > m:
+                P[:, nm]  = costh * P[:, compound_indices.index((n - 1, m))]
+                dP[:, nm] = costh * dP[:, compound_indices.index((n - 1, m))] - sinth * P[:, compound_indices.index((n - 1, m))]
 
+            if n > m + 1:
+                Knm = ((n - 1)**2 - m**2) / ((2 * n - 1) * (2 * n - 3))
+                P[:, nm] -= Knm * P[:, compound_indices.index((n - 2, m))]
+                dP[:, nm] -= Knm * dP[:, compound_indices.index((n - 2, m))]
 
     if schmidtnormalize:
-        # now apply Schmidt normalization
-        for n in range(1, Nmax + 1):
-            for m in range(0, min([n + 1, Mmax + 1])):
-                P[n, m]  *= S[n, m]
-                dP[n, m] *= S[n, m]
-
+        vector = schmidt_vector(compound_indices)
+        P *= vector
+        dP *= vector
 
     if keys is None:
-        return P, dP
+        return np.hstack((P, dP))
     else:
-        Pmat  = np.hstack(tuple(P[key] for key in keys))
-        dPmat = np.hstack(tuple(dP[key] for key in keys)) 
+        filter = [(key in keys) for key in compound_indices]
+        return np.hstack((P[:, filter], dP[:, filter]))
 
-        return np.hstack((Pmat, dPmat))
+
+def schmidt_vector(compound_indices):
+    """
+    Return Schmidt normalization vector.
+
+    Parameters
+    ----------
+    Compound_indices : list
+        List of tuples of spherical harmonic indices.
+
+    Returns
+    -------
+    S : vector
+        Vector of Schmidt normalization values for the given spherical
+        harmonic indices.
+
+    """
+
+    S = np.empty(len(compound_indices), dtype = np.float64)
+    S[0] = 1.
+
+    for nm in range(1, len(compound_indices)):
+        n, m = compound_indices[nm]
+        if m == 0:
+            S[nm] = S[compound_indices.index((n - 1, 0))] * (2. * n - 1) / n
+        else:
+            S[nm] = S[compound_indices.index((n, m - 1))] * np.sqrt((n - m + 1) * (int(m == 1) + 1.) / (n + m))
+
+    return S

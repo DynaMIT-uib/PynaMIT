@@ -7,6 +7,7 @@ This module contains the ``SHBasis`` class.
 
 import numpy as np
 from pynamit.sha.helpers import SHKeys, legendre
+from scipy.special import lpmv
 
 class SHBasis(object):
     """ Spherical harmonic basis.
