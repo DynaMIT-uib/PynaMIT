@@ -184,8 +184,6 @@ def legendre(Nmax, Mmax, theta, schmidt_normalization = False, keys = None):
 
     """
 
-    theta = theta.flatten()
-
     sinth = np.sin(np.deg2rad(theta))
     costh = np.cos(np.deg2rad(theta))
 

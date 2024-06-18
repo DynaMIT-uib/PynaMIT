@@ -22,13 +22,12 @@ class SHBasis(object):
         self.Nmax = Nmax
         self.Mmax = Mmax
 
-        # make separate sets of spherical harmonic keys for cos and sin terms:
+        # Make separate sets of spherical harmonic keys for cos and sin terms
         self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN()
         self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN().Mge(1)
 
-        # Make a list of the Schmidt semi-normalization factors for each term:
-        cnm_list = list(self.cnm.keys)
-        self.schmidt_normalization_factors = schmidt_normalization_factors(cnm_list)
+        # Make the Schmidt normalization factors for all terms
+        self.schmidt_normalization_factors = schmidt_normalization_factors(list(self.cnm.keys))
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
@@ -65,25 +64,25 @@ class SHBasis(object):
         
         """
 
-        # convert grid angular coordinates to radians and convert to (N, 1) arrays:
-        ph, th = np.deg2rad(grid.lon).reshape((-1, 1)), np.deg2rad(90 - grid.lat).reshape((-1, 1))
-
-        # generate Legendre matrices - first get dicts of arrays, and then stack them in the appropriate fashion
+        # Get the Legendre functions and their derivatives
         Pc, dPc = legendre(self.Nmax, self.Mmax, grid.theta, keys = self.cnm)
-        Pc *= self.schmidt_normalization_factors
+        Pc  *= self.schmidt_normalization_factors
         dPc *= self.schmidt_normalization_factors
-        Ps      =  Pc[: , self.cnm.m.flatten() != 0]
-        dPs     = dPc[: , self.cnm.m.flatten() != 0]
 
+        Ps  =  Pc[: , self.cnm.m.flatten() != 0]
+        dPs = dPc[: , self.cnm.m.flatten() != 0]
+
+        phi_rad = np.deg2rad(grid.lon).reshape((-1, 1))
         if derivative is None:
-            Gc = Pc * np.cos(ph * self.cnm.m)
-            Gs = Ps * np.sin(ph * self.snm.m)
+            Gc = Pc * np.cos(phi_rad * self.cnm.m)
+            Gs = Ps * np.sin(phi_rad * self.snm.m)
         elif derivative == 'phi':
-            Gc = -Pc * self.cnm.m * np.sin(ph * self.cnm.m) / np.sin(th)
-            Gs =  Ps * self.snm.m * np.cos(ph * self.snm.m) / np.sin(th)
+            theta_rad = np.deg2rad(grid.theta).reshape((-1, 1))
+            Gc = -Pc * self.cnm.m * np.sin(phi_rad * self.cnm.m) / np.sin(theta_rad)
+            Gs =  Ps * self.snm.m * np.cos(phi_rad * self.snm.m) / np.sin(theta_rad)
         elif derivative == 'theta':
-            Gc = dPc * np.cos(ph * self.cnm.m)
-            Gs = dPs * np.sin(ph * self.snm.m)
+            Gc = dPc * np.cos(phi_rad * self.cnm.m)
+            Gs = dPs * np.sin(phi_rad * self.snm.m)
         else:
             raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
