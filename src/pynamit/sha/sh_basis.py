@@ -76,13 +76,14 @@ class SHBasis(object):
         
         """
 
-        phi_rad = np.deg2rad(grid.lon)
-        theta_rad = np.deg2rad(grid.theta)
+        # Convert the grid coordinates to radians
+        phi = np.deg2rad(grid.lon)
+        theta = np.deg2rad(grid.theta)
 
         # Get the Legendre functions and their derivatives
-        P = self.legendre(theta_rad)
+        P = self.legendre(theta)
         if derivative == 'theta':
-            dP = self.legendre_derivative(theta_rad, P = P)
+            dP = self.legendre_derivative(theta, P = P)
 
         if self.schmidt_normalization:
             P *= self.schmidt_factors
@@ -90,18 +91,19 @@ class SHBasis(object):
                 dP *= self.schmidt_factors
 
         if derivative is None:
-            Gc = P[:, self.cnm_filter] * np.cos(phi_rad.reshape((-1, 1)) * self.cnm.m)
-            Gs = P[:, self.snm_filter] * np.sin(phi_rad.reshape((-1, 1)) * self.snm.m)
+            Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
+            Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         elif derivative == 'phi':
-            Gc = -P[:, self.cnm_filter] * self.cnm.m * np.sin(phi_rad.reshape((-1, 1)) * self.cnm.m) / np.sin(theta_rad.reshape((-1, 1)))
-            Gs =  P[:, self.snm_filter] * self.snm.m * np.cos(phi_rad.reshape((-1, 1)) * self.snm.m) / np.sin(theta_rad.reshape((-1, 1)))
+            Gc = -P[:, self.cnm_filter] * self.cnm.m * np.sin(phi.reshape((-1, 1)) * self.cnm.m) / np.sin(theta.reshape((-1, 1)))
+            Gs =  P[:, self.snm_filter] * self.snm.m * np.cos(phi.reshape((-1, 1)) * self.snm.m) / np.sin(theta.reshape((-1, 1)))
         elif derivative == 'theta':
-            Gc = dP[:, self.cnm_filter] * np.cos(phi_rad.reshape((-1, 1)) * self.cnm.m)
-            Gs = dP[:, self.snm_filter] * np.sin(phi_rad.reshape((-1, 1)) * self.snm.m)
+            Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
+            Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         else:
             raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
         return np.hstack((Gc, Gs))
+
 
     def legendre(self, theta):
         """
@@ -144,6 +146,7 @@ class SHBasis(object):
                     P[:, nm] -= Knm * P[:, self.nm_tuples.index((n - 2, m))]
 
         return P
+
 
     def legendre_derivative(self, theta, P = None):
         """
