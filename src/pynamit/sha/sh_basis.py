@@ -44,8 +44,10 @@ class SHBasis(object):
         # Number of spherical harmonic coefficients
         self.num_coeffs = len(self.cnm.keys) + len(self.snm.keys)
 
+        self.caching = True
 
-    def get_G(self, grid, derivative = None):
+
+    def get_G(self, grid, derivative = None, cache_in = None, cache_out = False):
         """
         Calculate matrix that evaluates surface spherical harmonics at
         unit radius and the latitudes and longitudes of the given `grid`,
@@ -81,14 +83,18 @@ class SHBasis(object):
         theta = np.deg2rad(grid.theta)
 
         # Get the Legendre functions and their derivatives
-        P = self.legendre(theta)
+        if cache_in is not None:
+            P_unnormalized = cache_in
+        else:
+            P_unnormalized = self.legendre(theta)
+
         if derivative == 'theta':
-            dP = self.legendre_derivative(theta, P = P)
+            dP_unnormalized = self.legendre_derivative(theta, P = P_unnormalized)
 
         if self.schmidt_normalization:
-            P *= self.schmidt_factors
+            P = P_unnormalized * self.schmidt_factors
             if derivative == 'theta':
-                dP *= self.schmidt_factors
+                dP = dP_unnormalized * self.schmidt_factors
 
         if derivative is None:
             Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
@@ -102,7 +108,10 @@ class SHBasis(object):
         else:
             raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
-        return np.hstack((Gc, Gs))
+        if cache_out:
+            return np.hstack((Gc, Gs)), P_unnormalized
+        else:
+            return np.hstack((Gc, Gs))
 
 
     def legendre(self, theta):
