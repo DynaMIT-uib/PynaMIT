@@ -82,13 +82,13 @@ if False:
     _n, _m = np.array([k for k in g.columns]).T # n and m
     g , h  = g.loc[igrf_date, :].values, h.loc[igrf_date, :].values # gauss coefficients
 
-    #igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
+    igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
 
     igrf_keys = pynamit.sha.helpers.SHKeys(_n.max(), _m.max()).setNmin(1).MleN()
 
     # Calculate u x B numerically on grid (we just evaluate on the ground...):
     ph = np.deg2rad(u_lon).reshape((-1, 1))
-    P, dP  = np.split(pynamit.sha.helpers.legendre(_n.max(), _m.max(), 90 - u_lat, keys = igrf_keys), 2, axis = 1)
+    P, dP  = np.split(igrf_basis.legendre(_n.max(), _m.max(), 90 - u_lat, keys = igrf_keys), 2, axis = 1)
     GBr = np.hstack(((igrf_keys.n + 1) * P * np.cos(igrf_keys.m * ph), (igrf_keys.n + 1) * P * np.sin(igrf_keys.m * ph)))
     Br = GBr.dot(np.hstack((g, h))) * 1e-9
 
