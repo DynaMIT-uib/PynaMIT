@@ -17,18 +17,24 @@ class SHBasis(object):
 
     """
 
-    def __init__(self, Nmax, Mmax, Nmin = 1):
+    def __init__(self, Nmax, Mmax, Nmin = 1, schmidt_normalization = True):
         self.Nmax = Nmax
         self.Mmax = Mmax
 
         # Make separate sets of spherical harmonic keys for cos and sin terms
-        all_cnm = SHKeys(self.Nmax, self.Mmax)
-        self.all_cnm_list = list(all_cnm)
-        self.cnm = all_cnm.setNmin(Nmin).MleN()
+        all_keys = SHKeys(self.Nmax, self.Mmax)
+        self.all_keys_list = list(all_keys)
+
+        self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN()
         self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN().Mge(1)
 
-        # Make the Schmidt normalization factors for all terms
-        self.schmidt_normalization_factors = schmidt_normalization_factors(list(self.cnm.keys))
+        self.cnm_filter = [(key in self.cnm) for key in self.all_keys_list]
+        self.snm_filter = [(key in self.snm) for key in self.all_keys_list]
+
+        # Make the Schmidt normalization factors for the spherical harmonics
+        self.schmidt_normalization = schmidt_normalization
+        if self.schmidt_normalization:
+            self.schmidt_normalization_factors = schmidt_normalization_factors(self.all_keys_list)
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
@@ -42,6 +48,8 @@ class SHBasis(object):
         Calculate matrix that evaluates surface spherical harmonics at
         unit radius and the latitudes and longitudes of the given `grid`,
         using the terms contained in the ``SHKeys`` of the ``SHBasis`` object.
+
+        Optional Schmidt semi-normalization.
 
         Parameters
         ----------
@@ -66,79 +74,51 @@ class SHBasis(object):
         """
 
         # Get the Legendre functions and their derivatives
-        Pc, dPc = self.legendre(self.Nmax, self.Mmax, grid.theta, keys = self.cnm)
-        Pc  *= self.schmidt_normalization_factors
-        dPc *= self.schmidt_normalization_factors
+        P = self.legendre(grid.theta)
+        if derivative == 'theta':
+            dP = self.legendre_derivative(grid.theta, P = P)
 
-        Ps  =  Pc[: , self.cnm.m.flatten() != 0]
-        dPs = dPc[: , self.cnm.m.flatten() != 0]
+        if self.schmidt_normalization:
+            P *= self.schmidt_normalization_factors
+            if derivative == 'theta':
+                dP *= self.schmidt_normalization_factors
 
         phi_rad = np.deg2rad(grid.lon).reshape((-1, 1))
         if derivative is None:
-            Gc = Pc * np.cos(phi_rad * self.cnm.m)
-            Gs = Ps * np.sin(phi_rad * self.snm.m)
+            Gc = P[:, self.cnm_filter] * np.cos(phi_rad * self.cnm.m)
+            Gs = P[:, self.snm_filter] * np.sin(phi_rad * self.snm.m)
         elif derivative == 'phi':
             theta_rad = np.deg2rad(grid.theta).reshape((-1, 1))
-            Gc = -Pc * self.cnm.m * np.sin(phi_rad * self.cnm.m) / np.sin(theta_rad)
-            Gs =  Ps * self.snm.m * np.cos(phi_rad * self.snm.m) / np.sin(theta_rad)
+            Gc = -P[:, self.cnm_filter] * self.cnm.m * np.sin(phi_rad * self.cnm.m) / np.sin(theta_rad)
+            Gs =  P[:, self.snm_filter] * self.snm.m * np.cos(phi_rad * self.snm.m) / np.sin(theta_rad)
         elif derivative == 'theta':
-            Gc = dPc * np.cos(phi_rad * self.cnm.m)
-            Gs = dPs * np.sin(phi_rad * self.snm.m)
+            Gc = dP[:, self.cnm_filter] * np.cos(phi_rad * self.cnm.m)
+            Gs = dP[:, self.snm_filter] * np.sin(phi_rad * self.snm.m)
         else:
             raise Exception(f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.')
 
         return np.hstack((Gc, Gs))
 
-
-    def legendre(self, Nmax, Mmax, theta, schmidt_normalization = False, keys = None):
+    def legendre(self, theta):
         """
         Calculate associated Legendre function ``P`` and its derivative.
-
-        Optional Schmidt semi-normalization.
 
         Algorithm from "Spacecraft Attitude Determination and Control" by
         James Richard Wertz.
 
         Parameters
         ----------
-        nmax : int
-            Highest spherical harmonic degree.
-        mmax : int
-            Highest spherical harmonic order.
         theta : array, float
             Colatitude in degrees (shape is not preserved).
-        schmidt_normalization : bool, optional, default = False
-            ``True`` if Schmidt semi-normalization is wanted, ``False``
-            otherwise.
-        keys : SHKeys, optional
-            If this parameter is set, an array will be returned instead of
-            a dict. The array will be ``(N, 2M)``, where ``N`` is the
-            number of elements in `theta`, and ``M`` is the number of
-            keys. The first ``M`` columns represents a matrix of ``P``
-            values, and the last ``M`` columns represent values of
-            ``dP/dtheta``.
-
+        
         Returns
         -------
-        P : dict
-            If ``keys is None``, the dictionary of Legendre function
-            evalulated at `theta` is returned. Dictionary keys are
-            spherical harmonic wave number tuples ``(n, m)``, and values
-            will have shape ``(N, 1)``, where ``N`` is the number of
-            elements in `theta`. 
-        dP : dict
-            If ``keys is None``, the dictionary of Legendre function
-            derivatives evaluated at `theta` is returned. Dictionary keys
-            are spherical harmonic wave number tuples ``(n, m)``, and
-            values will have shape ``(N, 1)``, where ``N`` is number of
-            elements in theta.
-        PdP : array
-            If ``keys is not None``, ``PdP`` is returned instead of `P`
-            and `dP`. `PdP` is an ``(N, 2M)`` array, where ``N`` is the
-            number of elements in `theta`, and ``M`` is the number of
-            keys. The first ``M`` columns represent a matrix of ``P``
-            values, and the last ``M`` columns represent values of
-            ``dP/dtheta``.
+        P : array, float
+            Legendre functions for all terms in the ``SHKeys`` of the
+            ``SHBasis`` object, evaluated at `theta`. Shape is
+            ``(n_theta, n_sh)``, where ``n_theta`` is the number of
+            elements in `theta` and ``n_sh`` is the number of spherical
+            harmonics.
 
         """
 
@@ -146,46 +126,63 @@ class SHBasis(object):
         costh = np.cos(np.deg2rad(theta))
 
         # Calculate the Legendre functions
-        P  = np.empty((theta.size, len(self.all_cnm_list)), dtype = np.float64)
+        P  = np.empty((theta.size, len(self.all_keys_list)), dtype = np.float64)
         P[:, 0]  = np.ones_like(theta, dtype = np.float64)
-        for nm in range(1, len(self.all_cnm_list)):
-            n, m = self.all_cnm_list[nm]
+        for nm in range(1, len(self.all_keys_list)):
+            n, m = self.all_keys_list[nm]
             if n == m:
-                P[:, nm]  = sinth * P[:, self.all_cnm_list.index((n - 1, m - 1))]
+                P[:, nm]  = sinth * P[:, self.all_keys_list.index((n - 1, m - 1))]
             else:
                 if n > m:
-                    P[:, nm]  = costh * P[:, self.all_cnm_list.index((n - 1, m))]
-
+                    P[:, nm]  = costh * P[:, self.all_keys_list.index((n - 1, m))]
                 if n > m + 1:
                     Knm = ((n - 1)**2 - m**2) / ((2 * n - 1) * (2 * n - 3))
-                    P[:, nm] -= Knm * P[:, self.all_cnm_list.index((n - 2, m))]
+                    P[:, nm] -= Knm * P[:, self.all_keys_list.index((n - 2, m))]
 
-        if schmidt_normalization:
-            schmidt_factors = schmidt_normalization_factors(self.all_cnm_list)
-            P *= schmidt_factors
+        return P
+
+    def legendre_derivative(self, theta, P = None):
+        """
+        Calculate the derivative of the associated Legendre function ``P``
+        with respect to colatitude.
+
+        Algorithm from "Spacecraft Attitude Determination and Control" by
+        James Richard Wertz.
+
+        Parameters
+        ----------
+        theta : array, float
+            Colatitude in degrees (shape is not preserved).
+
+        Returns
+        -------
+        dP : array, float
+            Derivatives of the Legendre functions for all terms in the
+            ``SHKeys`` of the ``SHBasis`` object, evaluated at `theta`.
+            Shape is ``(n_theta, n_sh)``, where ``n_theta`` is the number
+            of elements in `theta` and ``n_sh`` is the number of spherical
+            harmonics.
+
+        """
+
+        sinth = np.sin(np.deg2rad(theta))
+        costh = np.cos(np.deg2rad(theta))
+
+        if P is None:
+            P = self.legendre(theta)
 
         # Calculate the derivatives of the Legendre functions
-        dP = np.empty((theta.size, len(self.all_cnm_list)), dtype = np.float64)
+        dP = np.empty((theta.size, len(self.all_keys_list)), dtype = np.float64)
         dP[:, 0] = np.zeros_like(theta, dtype = np.float64)
-        for nm in range(1, len(self.all_cnm_list)):
-            n, m = self.all_cnm_list[nm]
+        for nm in range(1, len(self.all_keys_list)):
+            n, m = self.all_keys_list[nm]
             if n == m:
-                dP[:, nm] = sinth * dP[:, self.all_cnm_list.index((n - 1, m - 1))] + costh * P[:, self.all_cnm_list.index((n - 1, m - 1))]
-
+                dP[:, nm] = sinth * dP[:, self.all_keys_list.index((n - 1, m - 1))] + costh * P[:, self.all_keys_list.index((n - 1, m - 1))]
             else:
                 if n > m:
-                    dP[:, nm] = costh * dP[:, self.all_cnm_list.index((n - 1, m))] - sinth * P[:, self.all_cnm_list.index((n - 1, m))]
-
+                    dP[:, nm] = costh * dP[:, self.all_keys_list.index((n - 1, m))] - sinth * P[:, self.all_keys_list.index((n - 1, m))]
                 if n > m + 1:
                     Knm = ((n - 1)**2 - m**2) / ((2 * n - 1) * (2 * n - 3))
-                    dP[:, nm] -= Knm * dP[:, self.all_cnm_list.index((n - 2, m))]
+                    dP[:, nm] -= Knm * dP[:, self.all_keys_list.index((n - 2, m))]
 
-        if schmidt_normalization:
-            schmidt_factors = schmidt_normalization_factors(self.all_cnm_list)
-            dP *= schmidt_factors
-
-        if keys is None:
-            return P, dP
-        else:
-            filter = [(key in keys) for key in self.all_cnm_list]
-            return P[:, filter], dP[:, filter]
+        return dP
