@@ -22,12 +22,12 @@ class SHBasis(object):
         self.Mmax = Mmax
 
         # Make a set of all spherical harmonic keys up to Nmax, Mmax
-        all_keys = SHKeys(self.Nmax, self.Mmax).MleN()
+        all_keys = SHKeys(self.Nmax, self.Mmax)
 
-        # Make separate sets of spherical harmonic keys for cos and sin terms,
-        # and remove the n < Nmin terms and the m = 0 sin terms
-        self.cnm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN()
-        self.snm = SHKeys(self.Nmax, self.Mmax).setNmin(Nmin).MleN().Mge(1)
+        # Make separate sets of spherical harmonic keys for cos and sin
+        # terms, and remove n < Nmin terms and m = 0 sin terms
+        self.cnm = SHKeys(self.Nmax, self.Mmax).set_Nmin(Nmin)
+        self.snm = SHKeys(self.Nmax, self.Mmax).set_Nmin(Nmin).set_Mmin(1)
 
         self.cnm_filter = [(key in self.cnm) for key in all_keys]
         self.snm_filter = [(key in self.snm) for key in all_keys]

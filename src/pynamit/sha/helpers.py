@@ -28,7 +28,7 @@ class SHKeys(object):
     def __init__(self, Nmax, Mmax):
         keys = []
         for n in range(Nmax + 1):
-            for m in range(Mmax + 1):
+            for m in range(min(Mmax, n) + 1):
                 keys.append((n, m))
 
         self.keys = tuple(keys)
@@ -55,21 +55,21 @@ class SHKeys(object):
     def __str__(self):
         return ''.join(['n, m\n'] + [str(key)[1:-1] + '\n' for key in self.keys])[:-1]
 
-    def setNmin(self, nmin):
+    def set_Nmin(self, Nmin):
         """ set minimum n """
-        self.keys = tuple([key for key in self.keys if key[0] >= nmin])
+        self.keys = tuple([key for key in self.keys if key[0] >= Nmin])
+        self.make_arrays()
+        return self
+
+    def set_Mmin(self, Mmin):
+        """ set minimum |m|  """
+        self.keys = tuple([key for key in self.keys if abs(key[1]) >= Mmin])
         self.make_arrays()
         return self
 
     def MleN(self):
-        """ set m <= n """
+        """ set |m| <= n """
         self.keys = tuple([key for key in self.keys if abs(key[1]) <= key[0]])
-        self.make_arrays()
-        return self
-
-    def Mge(self, limit):
-        """ set m >= limit  """
-        self.keys = tuple([key for key in self.keys if abs(key[1]) >= limit])
         self.make_arrays()
         return self
 
@@ -98,38 +98,18 @@ class SHKeys(object):
         
         return self
 
-
     def make_arrays(self):
-        """ prepare arrays with shape ( 1, len(keys) )
-            these are used when making G matrices
+        """
+        Prepare array of n and m indices with shape ( 1, len(keys) ).
+
         """
 
         if len(self) > 0:
-            self.m = np.array(self)[:, 1][np.newaxis, :]
-            self.n = np.array(self)[:, 0][np.newaxis, :]
+            self.n = np.array(self)[:, 0].reshape(1, -1)
+            self.m = np.array(self)[:, 1].reshape(1, -1)
         else:
-            self.m = np.array([])[np.newaxis, :]
-            self.n = np.array([])[np.newaxis, :]
-
-
-def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
-    """
-    Return number of coefficients in an expansion in real spherical
-    harmonics.
-    
-    Toroidal magnetic potential is truncated at `NT`, `MT`.
-
-    Poloidal magnetic potential is truncated at `NVi`, `MVi` for internal
-    sources, and at `NVe`, `MVe` for external sources.
-
-    """
-
-    return len(SHKeys(NT , MT ).setNmin(1).MleN().Mge(0)) + \
-           len(SHKeys(NT , MT ).setNmin(1).MleN().Mge(1)) + \
-           len(SHKeys(NVe, MVe).setNmin(1).MleN().Mge(0)) + \
-           len(SHKeys(NVe, MVe).setNmin(1).MleN().Mge(1)) + \
-           len(SHKeys(NVi, MVi).setNmin(1).MleN().Mge(0)) + \
-           len(SHKeys(NVi, MVi).setNmin(1).MleN().Mge(1))
+            self.n = np.array([]).reshape(1, -1)
+            self.m = np.array([]).reshape(1, -1)
 
 
 def schmidt_normalization_factors(nm_tuples):
