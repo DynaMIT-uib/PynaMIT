@@ -132,14 +132,14 @@ def nterms(NT = 0, MT = 0, NVi = 0, MVi = 0, NVe = 0, MVe = 0):
            len(SHKeys(NVi, MVi).setNmin(1).MleN().Mge(1))
 
 
-def schmidt_normalization_factors(compound_indices):
+def schmidt_normalization_factors(nm_tuples):
     """
     Return vector of Schmidt semi-normalization factors for spherical
     harmonic terms with given indices.
 
     Parameters
     ----------
-    compound_indices : list
+    nm_tuples : list
         List of tuples of spherical harmonic indices.
 
     Returns
@@ -150,15 +150,15 @@ def schmidt_normalization_factors(compound_indices):
 
     """
 
-    S = np.empty(len(compound_indices), dtype = np.float64)
+    S = np.empty(len(nm_tuples), dtype = np.float64)
 
     # Calculate the Schmidt normalization factors
     S[0] = 1.
-    for nm in range(1, len(compound_indices)):
-        n, m = compound_indices[nm]
+    for nm in range(1, len(nm_tuples)):
+        n, m = nm_tuples[nm]
         if m == 0:
-            S[nm] = S[compound_indices.index((n - 1, 0))] * (2. * n - 1) / n
+            S[nm] = S[nm_tuples.index((n - 1, 0))] * (2. * n - 1.) / n
         else:
-            S[nm] = S[compound_indices.index((n, m - 1))] * np.sqrt((n - m + 1) * (int(m == 1) + 1.) / (n + m))
-
+            factor = np.sqrt((n - m + 1.) * (int(m == 1) + 1.) / (n + m))
+            S[nm] = S[nm_tuples.index((n, m - 1))] * factor
     return S

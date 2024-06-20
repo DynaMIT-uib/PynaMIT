@@ -22,7 +22,7 @@ class SHBasis(object):
         self.Mmax = Mmax
 
         # Make a set of all spherical harmonic keys up to Nmax, Mmax
-        all_keys = SHKeys(self.Nmax, self.Mmax)
+        all_keys = SHKeys(self.Nmax, self.Mmax).MleN()
 
         # Make separate sets of spherical harmonic keys for cos and sin terms,
         # and remove the n < Nmin terms and the m = 0 sin terms
