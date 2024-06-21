@@ -1,5 +1,4 @@
 from pynamit.cubed_sphere import cubed_sphere
-from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.simulation.ionosphere_evolution import I2D
 from pynamit.primitives.grid import Grid
 from pynamit.various.constants import RE
