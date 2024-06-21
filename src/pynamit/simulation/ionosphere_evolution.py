@@ -10,6 +10,7 @@ import os
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.ionosphere_state import State
 from pynamit.various.constants import RE
+from pynamit.simulation.save_load import SaveLoad
 import pynamit
 import scipy.sparse as sp
 
@@ -64,6 +65,19 @@ class I2D(object):
         self.vector_conductance     = vector_conductance
         self.vector_u               = vector_u
 
+        # model settings:
+        settings = {}
+        settings['RI']                     = self.RI
+        settings['latitude_boundary']      = self.latitude_boundary
+        settings['ignore_PFAC']            = int(self.ignore_PFAC)
+        settings['connect_hemispheres']    = int(self.connect_hemispheres)
+        settings['zero_jr_at_dip_equator'] = int(self.zero_jr_at_dip_equator)
+        settings['FAC_integration_steps']  = self.FAC_integration_steps
+        settings['ih_constraint_scaling']  = self.ih_constraint_scaling
+        settings['mainfield_kind']         = self.mainfield_kind
+        settings['mainfield_epoch']        = self.mainfield_epoch
+        settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
+
         self.state_history_exists       = False
         self.FAC_history_exists         = False
         self.conductance_history_exists = False
@@ -77,24 +91,26 @@ class I2D(object):
 
         self.latest_time = np.float64(0)
 
+        self.save_load = SaveLoad()
+
         file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
 
         if file_loading: # override input and load parameters from file:
             self.dataset = xr.load_dataset(self.result_filename_prefix + '.ncdf')
 
-            self.FAC_integration_steps  = self.dataset.FAC_integration_steps
-            self.zero_jr_at_dip_equator = self.dataset.zero_jr_at_dip_equator
-            self.connect_hemispheres    = self.dataset.connect_hemispheres
-            self.ignore_PFAC            = self.dataset.ignore_PFAC
-            self.latitude_boundary      = self.dataset.latitude_boundary
-            self.ih_constraint_scaling  = self.dataset.ih_constraint_scaling
-            self.RI                     = self.dataset.RI
-            self.mainfield_kind         = self.dataset.mainfield_kind
-            self.mainfield_epoch        = self.dataset.mainfield_epoch
-            self.mainfield_B0           = self.dataset.mainfield_B0
+            settings['FAC_integration_steps']  = self.dataset.FAC_integration_steps
+            settings['zero_jr_at_dip_equator'] = self.dataset.zero_jr_at_dip_equator
+            settings['connect_hemispheres']    = self.dataset.connect_hemispheres
+            settings['ignore_PFAC']            = self.dataset.ignore_PFAC
+            settings['latitude_boundary']      = self.dataset.latitude_boundary
+            settings['ih_constraint_scaling']  = self.dataset.ih_constraint_scaling
+            settings['RI']                     = self.dataset.RI
+            settings['mainfield_kind']         = self.dataset.mainfield_kind
+            settings['mainfield_epoch']        = self.dataset.mainfield_epoch
+            settings['mainfield_B0']           = self.dataset.mainfield_B0
 
             shape = (self.dataset.i.size, self.dataset.i.size)
-            PFAC_matrix                 = self.dataset.PFAC_matrix.reshape( shape )
+            PFAC_matrix = self.dataset.PFAC_matrix.reshape( shape )
 
             sh  = pynamit.SHBasis(self.dataset.N, self.dataset.M)
             self.csp = pynamit.CSProjection(self.dataset.Ncs)
@@ -117,58 +133,13 @@ class I2D(object):
 
         # Initialize the state of the ionosphere
         self.state = State(self.basis, self.conductance_basis, mainfield, self.num_grid, 
-                           RI = self.RI, 
-                           ignore_PFAC = self.ignore_PFAC, 
-                           FAC_integration_steps = self.FAC_integration_steps, 
-                           connect_hemispheres = self.connect_hemispheres, 
-                           latitude_boundary = self.latitude_boundary, 
-                           zero_jr_at_dip_equator = self.zero_jr_at_dip_equator, 
-                           ih_constraint_scaling = self.ih_constraint_scaling,
-                           PFAC_matrix = PFAC_matrix,
-                           )
+                           settings, PFAC_matrix = PFAC_matrix)
 
         if not file_loading:
             if self.result_filename_prefix is None:
                 self.result_filename_prefix = 'tmp'
 
-            self.initialize_save_file()
-
-
-    def initialize_save_file(self):
-        """ Initialize save file """
-
-        # resolution parameters:
-        resolution_params = {}
-        resolution_params['Ncs'] = int(np.sqrt(self.state.num_grid.size / 6))
-        resolution_params['N']   = self.basis.Nmax
-        resolution_params['M']   = self.basis.Mmax
-        resolution_params['FAC_integration_steps'] = self.FAC_integration_steps
-
-        # model settings:
-        model_settings = {}
-        model_settings['RI']                     = self.RI
-        model_settings['ih_constraint_scaling']  = self.ih_constraint_scaling
-        model_settings['latitude_boundary']      = self.latitude_boundary
-        model_settings['zero_jr_at_dip_equator'] = int(self.zero_jr_at_dip_equator)
-        model_settings['connect_hemispheres']    = int(self.connect_hemispheres   )
-        model_settings['ignore_PFAC']            = int(self.ignore_PFAC           )
-        model_settings['mainfield_kind']         = self.mainfield_kind
-        model_settings['mainfield_epoch']        = self.mainfield_epoch
-        model_settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
-
-        PFAC_matrix = self.state.m_imp_to_B_pol
-
-        self.dataset = xr.Dataset()
-
-        self.dataset.attrs.update(resolution_params)
-        self.dataset.attrs.update(model_settings)
-        self.dataset.attrs.update({'PFAC_matrix':PFAC_matrix.flatten()})
-
-        self.dataset['n'] = xr.DataArray(self.basis.n, coords = {'i': range(self.basis.num_coeffs)}, dims = ['i'], name = 'n')
-        self.dataset['m'] = xr.DataArray(self.basis.m, coords = {'i': range(self.basis.num_coeffs)}, dims = ['i'], name = 'm')
-
-        self.dataset.to_netcdf(self.result_filename_prefix + '.ncdf')
-        print('Created {}'.format(self.result_filename_prefix))
+            self.save_load.initialize_save_file(settings, self.state, result_filename_prefix = self.result_filename_prefix)
 
 
     def update_state_history(self):

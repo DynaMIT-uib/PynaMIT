@@ -11,7 +11,7 @@ class State(object):
 
     """
 
-    def __init__(self, basis, conductance_basis, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None):
+    def __init__(self, basis, conductance_basis, mainfield, num_grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
@@ -20,15 +20,14 @@ class State(object):
         self.conductance_basis = conductance_basis
         self.mainfield = mainfield
         self.num_grid = num_grid
-        self.FAC_integration_steps = FAC_integration_steps
 
-        self.RI = RI
-        self.ignore_PFAC = ignore_PFAC
-        self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
-        self.ih_constraint_scaling = ih_constraint_scaling
-
-        self.connect_hemispheres = connect_hemispheres
-        self.latitude_boundary = latitude_boundary
+        self.RI                     = settings['RI']
+        self.latitude_boundary      = settings['latitude_boundary']
+        self.ignore_PFAC            = bool(settings['ignore_PFAC'])
+        self.connect_hemispheres    = bool(settings['connect_hemispheres'])
+        self.zero_jr_at_dip_equator = bool(settings['zero_jr_at_dip_equator'])
+        self.FAC_integration_steps  = settings['FAC_integration_steps']
+        self.ih_constraint_scaling  = settings['ih_constraint_scaling']
 
         if PFAC_matrix is not None:
             nn = int(np.sqrt(PFAC_matrix.size))
@@ -43,7 +42,7 @@ class State(object):
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, num_grid)
-        self.b_evaluator = FieldEvaluator(mainfield, num_grid, RI)
+        self.b_evaluator = FieldEvaluator(mainfield, num_grid, self.RI)
         self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
@@ -55,7 +54,7 @@ class State(object):
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid)
-            self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, RI)
+            self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
             self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
             self.G_B_tor_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
