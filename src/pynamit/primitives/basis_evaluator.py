@@ -22,7 +22,13 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G'):
-            self._G = self.basis.get_G(self.grid)
+            if self.basis.caching:
+                if not hasattr(self, '_cache'):
+                    self._G, self._cache = self.basis.get_G(self.grid, cache_out = True)
+                else:
+                    self._G = self.basis.get_G(self.grid, cache_in = self._cache)
+            else:
+                self._G = self.basis.get_G(self.grid)
 
         return self._G
     
@@ -47,7 +53,13 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_th'):
-            self._G_th = self.basis.get_G(self.grid, derivative = 'theta')
+            if self.basis.caching:
+                if not hasattr(self, '_cache'):
+                    self._G_th, self._cache = self.basis.get_G(self.grid, derivative = 'theta', cache_out = True)
+                else:
+                    self._G_th = self.basis.get_G(self.grid, derivative = 'theta', cache_in = self._cache)
+            else:
+                self._G_th = self.basis.get_G(self.grid, derivative = 'theta')
 
         return self._G_th
 
@@ -60,7 +72,13 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_ph'):
-            self._G_ph = self.basis.get_G(self.grid, derivative = 'phi')
+            if self.basis.caching:
+                if not hasattr(self, '_cache'):
+                    self._G_ph, self._cache = self.basis.get_G(self.grid, derivative = 'phi', cache_out = True)
+                else:
+                    self._G_ph = self.basis.get_G(self.grid, derivative = 'phi', cache_in = self._cache)
+            else:
+                self._G_ph = self.basis.get_G(self.grid, derivative = 'phi')
 
         return self._G_ph
 

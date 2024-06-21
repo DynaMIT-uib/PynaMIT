@@ -10,6 +10,16 @@ class Basis(ABC):
 
     """
 
+    @property
+    @abstractmethod
+    def num_coeffs(self):
+        pass
+
+    @property
+    @abstractmethod
+    def caching(self):
+        pass
+
     @abstractmethod
     def get_G(self, coeffs, grid, derivative = None):
         pass
