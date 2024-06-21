@@ -10,13 +10,13 @@ Testing of the cubedsphere CSProjection class
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pynamit.cubedsphere import cubedsphere
-from pynamit.cubedsphere.testutils import Geocentric_to_PlateCarree_vector_components
+from pynamit.cubed_sphere import cubed_sphere
+from pynamit.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
 from importlib import reload
 import cartopy.crs as ccrs
-reload(cubedsphere)
+reload(cubed_sphere)
 
-p = cubedsphere.CSProjection()
+p = cubed_sphere.CSProjection()
 
 def test_projection():
 

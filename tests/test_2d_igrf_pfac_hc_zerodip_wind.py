@@ -3,7 +3,7 @@ import tempfile
 import pytest
 import shutil
 
-from pynamit.pynamit import run_pynamit
+from pynamit.default_run import run_pynamit
 import numpy as np
 
 def test_2d_igrf_pfac_hc_zerodip_wind():

@@ -1,5 +1,5 @@
 import numpy as np
-from pynamit.constants import mu0, RE
+from pynamit.various.constants import mu0, RE
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
@@ -270,7 +270,7 @@ class State(object):
         """ Set neutral wind theta and phi components.
 
         """
-        from pynamit.cubedsphere.cubedsphere import csp
+        from pynamit.cubed_sphere.cubed_sphere import csp
 
         self.neutral_wind = True
 
@@ -310,7 +310,7 @@ class State(object):
         ``self.num_grid.theta``, ``self.num_grid.lon``.
 
         """
-        from pynamit.cubedsphere.cubedsphere import csp
+        from pynamit.cubed_sphere.cubed_sphere import csp
 
         self.conductance = True
 

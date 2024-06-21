@@ -6,7 +6,7 @@ This module contains the ``SHBasis`` class.
 """
 
 import numpy as np
-from pynamit.sha.helpers import SHKeys, schmidt_normalization_factors
+from pynamit.spherical_harmonics.helpers import SHKeys, schmidt_normalization_factors
 
 class SHBasis(object):
     """ Spherical harmonic basis.

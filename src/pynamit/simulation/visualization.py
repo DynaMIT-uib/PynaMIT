@@ -238,8 +238,8 @@ if __name__ == "__main__":
     import sys
     cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
     sys.path.insert(0, cs_path)
-    import cubedsphere
-    csp = cubedsphere.CSProjection() # cubed sphere projection object
+    import cubed_sphere
+    csp = cubed_sphere.CSProjection() # cubed sphere projection object
 
     Ncs = 30
     k, i, j = csp.get_gridpoints(Ncs)
