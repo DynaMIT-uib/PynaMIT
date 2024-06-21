@@ -239,9 +239,8 @@ if __name__ == "__main__":
     cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
     sys.path.insert(0, cs_path)
     import cubed_sphere
-    csp = cubed_sphere.CSProjection() # cubed sphere projection object
-
     Ncs = 30
+    csp = cubed_sphere.CSProjection(Ncs) # cubed sphere projection object
     k, i, j = csp.get_gridpoints(Ncs)
     xi, eta = csp.xi(i, Ncs), csp.eta(j, Ncs)
     _, theta, phi = csp.cube2spherical(xi, eta, k, deg = True)

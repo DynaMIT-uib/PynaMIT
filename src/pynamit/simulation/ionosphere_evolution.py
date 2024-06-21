@@ -5,6 +5,7 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.cubed_sphere.cubed_sphere import csp
+from pynamit.cubed_sphere.cubed_sphere import CSProjection
 from pynamit.primitives.vector import Vector
 import os
 from pynamit.primitives.grid import Grid
@@ -17,20 +18,24 @@ import scipy.sparse as sp
 class I2D(object):
     """ 2D ionosphere. """
 
-    def __init__(self, result_filename_prefix = 'tmp',
-                       sh = None, csp = None,
-                       RI = RE + 110.e3, mainfield_kind = 'dipole',
-                       B0_parameters = {'epoch':2020, 'B0':None},
-                       FAC_integration_steps = np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11),
-                       ignore_PFAC = False,
-                       connect_hemispheres = False,
-                       latitude_boundary = 50,
-                       zero_jr_at_dip_equator = False,
-                       ih_constraint_scaling = 1e-5,
-                       PFAC_matrix = None, 
-                       vector_FAC = True,
-                       vector_conductance = True,
-                       vector_u = True):
+    def __init__(self,
+                 result_filename_prefix = 'tmp',
+                 Nmax = 20,
+                 Mmax = 20,
+                 Ncs = 30,
+                 RI = RE + 110.e3,
+                 mainfield_kind = 'dipole',
+                 B0_parameters = {'epoch':2020, 'B0':None},
+                 FAC_integration_steps = np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11),
+                 ignore_PFAC = False,
+                 connect_hemispheres = False,
+                 latitude_boundary = 50,
+                 zero_jr_at_dip_equator = False,
+                 ih_constraint_scaling = 1e-5,
+                 PFAC_matrix = None,
+                 vector_FAC = True,
+                 vector_conductance = True,
+                 vector_u = True):
         """
 
         Parameters
@@ -49,34 +54,27 @@ class I2D(object):
             the poloidal field of FACs
 
         """
-        self.result_filename_prefix = result_filename_prefix
-        self.FAC_integration_steps  = FAC_integration_steps
-        self.zero_jr_at_dip_equator = zero_jr_at_dip_equator
-        self.connect_hemispheres    = connect_hemispheres
-        self.ignore_PFAC            = ignore_PFAC
-        self.latitude_boundary      = latitude_boundary
-        self.ih_constraint_scaling  = ih_constraint_scaling
-        self.RI                     = RI
-        self.mainfield_kind         = mainfield_kind
-        self.mainfield_epoch        = B0_parameters['epoch']
-        self.mainfield_B0           = B0_parameters['B0']
-        self.csp                    = csp
-        self.vector_FAC             = vector_FAC
-        self.vector_conductance     = vector_conductance
-        self.vector_u               = vector_u
 
-        # model settings:
+        self.result_filename_prefix = result_filename_prefix
+
+        # Store settings in dictionary
         settings = {}
-        settings['RI']                     = self.RI
-        settings['latitude_boundary']      = self.latitude_boundary
-        settings['ignore_PFAC']            = int(self.ignore_PFAC)
-        settings['connect_hemispheres']    = int(self.connect_hemispheres)
-        settings['zero_jr_at_dip_equator'] = int(self.zero_jr_at_dip_equator)
-        settings['FAC_integration_steps']  = self.FAC_integration_steps
-        settings['ih_constraint_scaling']  = self.ih_constraint_scaling
-        settings['mainfield_kind']         = self.mainfield_kind
-        settings['mainfield_epoch']        = self.mainfield_epoch
-        settings['mainfield_B0']           = 0 if self.mainfield_B0 is None else self.mainfield_B0
+        settings['Nmax']                   = Nmax
+        settings['Mmax']                   = Mmax
+        settings['Ncs']                    = Ncs
+        settings['RI']                     = RI
+        settings['latitude_boundary']      = latitude_boundary
+        settings['ignore_PFAC']            = int(ignore_PFAC)
+        settings['connect_hemispheres']    = int(connect_hemispheres)
+        settings['zero_jr_at_dip_equator'] = int(zero_jr_at_dip_equator)
+        settings['FAC_integration_steps']  = FAC_integration_steps
+        settings['ih_constraint_scaling']  = ih_constraint_scaling
+        settings['mainfield_kind']         = mainfield_kind
+        settings['mainfield_epoch']        = B0_parameters['epoch']
+        settings['mainfield_B0']           = 0 if B0_parameters['B0'] is None else B0_parameters['B0']
+        settings['vector_FAC']             = int(vector_FAC)
+        settings['vector_conductance']     = int(vector_conductance)
+        settings['vector_u']               = int(vector_u)
 
         self.state_history_exists       = False
         self.FAC_history_exists         = False
@@ -98,6 +96,9 @@ class I2D(object):
         if file_loading: # override input and load parameters from file:
             self.dataset = xr.load_dataset(self.result_filename_prefix + '.ncdf')
 
+            settings['Ncs']                    = self.dataset.Ncs
+            settings['Nmax']                   = self.dataset.Nmax
+            settings['Mmax']                   = self.dataset.Mmax
             settings['FAC_integration_steps']  = self.dataset.FAC_integration_steps
             settings['zero_jr_at_dip_equator'] = self.dataset.zero_jr_at_dip_equator
             settings['connect_hemispheres']    = self.dataset.connect_hemispheres
@@ -108,32 +109,41 @@ class I2D(object):
             settings['mainfield_kind']         = self.dataset.mainfield_kind
             settings['mainfield_epoch']        = self.dataset.mainfield_epoch
             settings['mainfield_B0']           = self.dataset.mainfield_B0
+            settings['vector_FAC']             = self.dataset.vector_FAC
+            settings['vector_conductance']     = self.dataset.vector_conductance
+            settings['vector_u']               = self.dataset.vector_u
 
             shape = (self.dataset.i.size, self.dataset.i.size)
             PFAC_matrix = self.dataset.PFAC_matrix.reshape( shape )
 
-            sh  = pynamit.SHBasis(self.dataset.N, self.dataset.M)
-            self.csp = pynamit.CSProjection(self.dataset.Ncs)
-
-            B0_parameters = {'epoch':self.mainfield_epoch, 'B0':self.mainfield_B0}
+            B0_parameters = {'epoch': self.mainfield_epoch, 'B0': self.mainfield_B0}
             self.latest_time = self.dataset.time.values[-1]
 
-        B0_parameters['hI'] = (self.RI - RE) * 1e-3 # add ionosphere height in km
-        mainfield = Mainfield(kind = self.mainfield_kind, **B0_parameters)
+        B0_parameters['hI'] = (settings['RI'] - RE) * 1e-3 # add ionosphere height in km
+        mainfield = Mainfield(kind = settings['mainfield_kind'], **B0_parameters)
 
+        self.csp = CSProjection(settings['Ncs'])
         self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
 
-        self.basis = sh
-        self.conductance_basis = SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0)
+        self.basis             = SHBasis(settings['Nmax'], settings['Mmax'])
+        self.conductance_basis = SHBasis(settings['Nmax'], settings['Mmax'], Nmin = 0)
 
         self.basis_evaluator = BasisEvaluator(self.basis, self.num_grid)
-        self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
-
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
 
+        self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
+
+        self.vector_FAC = bool(settings['vector_FAC'])
+        self.vector_conductance = bool(settings['vector_conductance'])
+        self.vector_u = bool(settings['vector_u'])
+
         # Initialize the state of the ionosphere
-        self.state = State(self.basis, self.conductance_basis, mainfield, self.num_grid, 
-                           settings, PFAC_matrix = PFAC_matrix)
+        self.state = State(self.basis,
+                           self.conductance_basis,
+                           mainfield,
+                           self.num_grid, 
+                           settings,
+                           PFAC_matrix = PFAC_matrix)
 
         if not file_loading:
             if self.result_filename_prefix is None:

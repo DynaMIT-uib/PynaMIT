@@ -17,7 +17,19 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(result_filename_prefix = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator, vector_FAC = vector_FAC, vector_conductance = vector_conductance, vector_u = vector_u)
+    i2d = I2D(result_filename_prefix = None,
+              Nmax = Nmax,
+              Mmax = Mmax,
+              Ncs = Ncs,
+              RI = RI,
+              mainfield_kind = mainfield_kind,
+              ignore_PFAC = ignore_PFAC,
+              connect_hemispheres = connect_hemispheres,
+              latitude_boundary = latitude_boundary,
+              zero_jr_at_dip_equator = zero_jr_at_dip_equator,
+              vector_FAC = vector_FAC,
+              vector_conductance = vector_conductance,
+              vector_u = vector_u)
 
     import pyamps
     from pynamit.simulation.visualization import globalplot, cs_interpolate
