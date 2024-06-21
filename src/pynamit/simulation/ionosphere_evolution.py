@@ -116,11 +116,17 @@ class I2D(object):
             shape = (self.dataset.i.size, self.dataset.i.size)
             PFAC_matrix = self.dataset.PFAC_matrix.reshape( shape )
 
-            B0_parameters = {'epoch': self.mainfield_epoch, 'B0': self.mainfield_B0}
             self.latest_time = self.dataset.time.values[-1]
 
-        B0_parameters['hI'] = (settings['RI'] - RE) * 1e-3 # add ionosphere height in km
+        B0_parameters = {'epoch': settings['mainfield_epoch'],
+                         'B0': settings['mainfield_B0'],
+                         'hI': (settings['RI'] - RE) * 1e-3}
+
         mainfield = Mainfield(kind = settings['mainfield_kind'], **B0_parameters)
+
+        self.vector_FAC         = bool(settings['vector_FAC'])
+        self.vector_conductance = bool(settings['vector_conductance'])
+        self.vector_u           = bool(settings['vector_u'])
 
         self.csp = CSProjection(settings['Ncs'])
         self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
@@ -132,10 +138,6 @@ class I2D(object):
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
 
         self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
-
-        self.vector_FAC = bool(settings['vector_FAC'])
-        self.vector_conductance = bool(settings['vector_conductance'])
-        self.vector_u = bool(settings['vector_u'])
 
         # Initialize the state of the ionosphere
         self.state = State(self.basis,
