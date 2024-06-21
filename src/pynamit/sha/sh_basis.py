@@ -202,3 +202,58 @@ class SHBasis(object):
                     dP[:, nm] -= Knm * dP[:, self.nm_tuples.index((n - 2, m))]
 
         return dP
+
+
+    def d_dr(self, r = 1.0):
+        """
+        Calculate the vector that represents the radial derivative of the
+        spherical harmonics.
+
+        """
+
+        return -self.n / r
+
+
+    def laplacian(self, r = 1.0):
+        """
+        Calculate the vector that represents the Laplacian of the
+        spherical harmonics
+
+        """
+
+        return -self.n * (self.n + 1) / r**2
+
+
+    @property
+    def surface_discontinuity(self):
+        """
+        Calculate the discontinuity across the surface where the spherical
+        harmonics are evaluated, assuming that the first-order radial
+        derivative is continuous across the surface.
+
+        """
+
+        if not hasattr(self, '_surface_discontinuity'):
+            self._surface_discontinuity = (2 * self.n + 1) / (self.n + 1)
+
+        return self._surface_discontinuity
+
+
+    def radial_shift(self, start, end):
+        """
+        Calculate the vector that represents a radial shift of the
+        spherical harmonics.
+
+        """
+
+        return (end / start)**(self.n - 1)
+
+
+    def minimum_phi_sampling(self):
+        """
+        Calculate the minimum sampling in longitude required to fully
+        resolve the spherical harmonics.
+
+        """
+
+        return 2 * self.Mmax + 1

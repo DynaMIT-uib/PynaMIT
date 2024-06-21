@@ -1,10 +1,9 @@
 import numpy as np
-from pynamit.primitives.grid import Grid
 from pynamit.constants import mu0, RE
-from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
+from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.sha.sh_basis import SHBasis
 
 
 class State(object):
@@ -12,13 +11,13 @@ class State(object):
 
     """
 
-    def __init__(self, sh, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None, sh_FAC = True, sh_conductance = True, sh_u = True):
+    def __init__(self, basis, conductance_basis, mainfield, num_grid, RI, ignore_PFAC, FAC_integration_steps, connect_hemispheres, latitude_boundary, zero_jr_at_dip_equator, ih_constraint_scaling = 1e-5, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
 
-        self.sh = sh
-        self.basis = sh # SHBasis for now, but can in principle be any basis if we generalize
+        self.basis = basis
+        self.conductance_basis = conductance_basis
         self.mainfield = mainfield
         self.num_grid = num_grid
         self.FAC_integration_steps = FAC_integration_steps
@@ -35,27 +34,17 @@ class State(object):
             nn = int(np.sqrt(PFAC_matrix.size))
             self._m_imp_to_B_pol = PFAC_matrix.reshape((nn, nn))
 
-        self.sh_FAC         = sh_FAC
-        self.sh_conductance = sh_conductance
-        self.sh_u           = sh_u
-
-        # Spherical harmonic identities
-        d_dr            = -self.sh.n / self.RI
-        laplacian       = -self.sh.n * (self.sh.n + 1) / self.RI**2
-        V_discontinuity = (2 * self.sh.n + 1) / (self.sh.n + 1)
-
         # Spherical harmonic conversion factors
-        self.m_ind_to_Br  = self.RI * d_dr
-        self.m_imp_to_Jr  = self.RI / mu0 * laplacian
-        self.EW_to_dBr_dt = -self.RI * laplacian
-        self.m_ind_to_Jeq = self.RI / mu0 * V_discontinuity
+        self.m_ind_to_Br  = self.RI * self.basis.d_dr(self.RI)
+        self.m_imp_to_Jr  = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.EW_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
+        self.m_ind_to_Jeq = self.RI / mu0 * self.basis.surface_discontinuity
 
         # Initialize grid-related objects
         self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
-        self.conductance_basis = SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, num_grid)
         self.b_evaluator = FieldEvaluator(mainfield, num_grid, RI)
-        self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * V_discontinuity / mu0
+        self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol)
@@ -67,7 +56,7 @@ class State(object):
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid)
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, RI)
-            self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * V_discontinuity / mu0
+            self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
             self.G_B_tor_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol)
@@ -131,7 +120,7 @@ class State(object):
                     m_imp_to_JS_shifted = np.vstack(m_imp_to_Jpar * Jpar_to_JS_shifted)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
-                    B_pol_shifted_to_B_pol = (self.RI / r_k[i])**(self.sh.n - 1).reshape((-1, 1))
+                    B_pol_shifted_to_B_pol = self.basis.radial_shift(r_k[i], self.RI).reshape((-1, 1))
                     JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
 
                     # Integration step, negative sign is to create a poloidal field that shields the region under the ionosphere from the FAC poloidal field
@@ -218,7 +207,7 @@ class State(object):
 
             if self.zero_jr_at_dip_equator:
                 # Calculate matrix that converts m_imp to Jr at dip equator
-                n_phi = self.sh.Mmax*2 + 1
+                n_phi = self.basis.minimum_phi_sampling()
                 dip_equator_phi = np.linspace(0, 360, n_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(90 - self.mainfield.dip_equator(dip_equator_phi), dip_equator_phi))
 
@@ -226,7 +215,7 @@ class State(object):
                 self.G_Jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.m_imp_to_Jr) * _equation_scaling
             else:
                 # Make zero-row stand-in for the Jr matrix
-                self.G_Jr_dip_equator = np.empty((0, self.sh.num_coeffs))
+                self.G_Jr_dip_equator = np.empty((0, self.basis.num_coeffs))
 
 
     def impose_constraints(self):
@@ -244,10 +233,10 @@ class State(object):
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
         else:
-            self.set_coeffs(Jr = self.Jr_sh.coeffs)
+            self.set_coeffs(Jr = self.Jr.coeffs)
 
 
-    def set_FAC(self, Jr):
+    def set_FAC(self, Jr, vector_FAC = True):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -262,14 +251,14 @@ class State(object):
 
         """
 
-        if self.sh_FAC:
-            self.Jr_sh = Jr
+        if vector_FAC:
+            self.Jr = Jr
 
             if self.connect_hemispheres:
                 self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
 
         else:
-            self.Jr_sh = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
+            self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
 
             if self.connect_hemispheres:
                 self.Jpar_on_grid = Jr / self.b_evaluator.br
@@ -277,7 +266,7 @@ class State(object):
         self.impose_constraints()
 
 
-    def set_u(self, u):
+    def set_u(self, u, vector_u = True):
         """ Set neutral wind theta and phi components.
 
         """
@@ -285,21 +274,21 @@ class State(object):
 
         self.neutral_wind = True
 
-        if self.sh_u:
-            self.u_sh = u
-            self.u_theta_on_grid, self.u_phi_on_grid = self.u_sh.to_grid(self.basis_evaluator)
+        if vector_u:
+            self.u = u
+            self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.basis_evaluator)
 
         else:
-            self.u_sh = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = u, helmholtz = True)
+            self.u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = u, helmholtz = True)
             self.u_theta_on_grid, self.u_phi_on_grid = u
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
         self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
         if self.connect_hemispheres:
-            if self.sh_u:
+            if vector_u:
                 # Represent as values on cp_grid
-                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u_sh.to_grid(self.cp_basis_evaluator)
+                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
             else:
                 u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
@@ -315,7 +304,7 @@ class State(object):
                       -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
 
 
-    def set_conductance(self, etaP, etaH):
+    def set_conductance(self, etaP, etaH, vector_conductance = True):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
@@ -325,23 +314,23 @@ class State(object):
 
         self.conductance = True
 
-        if self.sh_conductance:
-            self.etaP_sh = etaP
-            self.etaH_sh = etaH
+        if vector_conductance:
+            self.etaP = etaP
+            self.etaH = etaH
 
             # Represent as values on num_grid
             self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
             self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
-            self.etaP_sh = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP)
-            self.etaH_sh = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH)
+            self.etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP)
+            self.etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH)
 
             self.etaP_on_grid = etaP
             self.etaH_on_grid = etaH
 
         if self.connect_hemispheres:
-            if self.sh_conductance:
+            if vector_conductance:
                 # Represent as values on cp_grid
                 etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)
                 etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)

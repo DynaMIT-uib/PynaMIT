@@ -29,9 +29,9 @@ class I2D(object):
                        zero_jr_at_dip_equator = False,
                        ih_constraint_scaling = 1e-5,
                        PFAC_matrix = None, 
-                       sh_FAC = True,
-                       sh_conductance = True,
-                       sh_u = True):
+                       vector_FAC = True,
+                       vector_conductance = True,
+                       vector_u = True):
         """
 
         Parameters
@@ -62,9 +62,9 @@ class I2D(object):
         self.mainfield_epoch        = B0_parameters['epoch']
         self.mainfield_B0           = B0_parameters['B0']
         self.csp                    = csp
-        self.sh_FAC                 = sh_FAC
-        self.sh_conductance         = sh_conductance
-        self.sh_u                   = sh_u
+        self.vector_FAC             = vector_FAC
+        self.vector_conductance     = vector_conductance
+        self.vector_u               = vector_u
 
         self.state_history_exists       = False
         self.FAC_history_exists         = False
@@ -110,14 +110,15 @@ class I2D(object):
         self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
 
         self.basis = sh
+        self.conductance_basis = SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0)
+
         self.basis_evaluator = BasisEvaluator(self.basis, self.num_grid)
         self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
 
-        self.conductance_basis = SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin = 0)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
 
         # Initialize the state of the ionosphere
-        self.state = State(sh, mainfield, self.num_grid, 
+        self.state = State(self.basis, self.conductance_basis, mainfield, self.num_grid, 
                            RI = self.RI, 
                            ignore_PFAC = self.ignore_PFAC, 
                            FAC_integration_steps = self.FAC_integration_steps, 
@@ -126,9 +127,6 @@ class I2D(object):
                            zero_jr_at_dip_equator = self.zero_jr_at_dip_equator, 
                            ih_constraint_scaling = self.ih_constraint_scaling,
                            PFAC_matrix = PFAC_matrix,
-                           sh_FAC = self.sh_FAC,
-                           sh_conductance = self.sh_conductance,
-                           sh_u = self.sh_u
                            )
 
         if not file_loading:
@@ -144,8 +142,8 @@ class I2D(object):
         # resolution parameters:
         resolution_params = {}
         resolution_params['Ncs'] = int(np.sqrt(self.state.num_grid.size / 6))
-        resolution_params['N']   = self.state.sh.Nmax
-        resolution_params['M']   = self.state.sh.Mmax
+        resolution_params['N']   = self.basis.Nmax
+        resolution_params['M']   = self.basis.Mmax
         resolution_params['FAC_integration_steps'] = self.FAC_integration_steps
 
         # model settings:
@@ -168,8 +166,8 @@ class I2D(object):
         self.dataset.attrs.update(model_settings)
         self.dataset.attrs.update({'PFAC_matrix':PFAC_matrix.flatten()})
 
-        self.dataset['n'] = xr.DataArray(self.state.sh.n, coords = {'i': range(self.state.sh.num_coeffs)}, dims = ['i'], name = 'n')
-        self.dataset['m'] = xr.DataArray(self.state.sh.m, coords = {'i': range(self.state.sh.num_coeffs)}, dims = ['i'], name = 'm')
+        self.dataset['n'] = xr.DataArray(self.basis.n, coords = {'i': range(self.basis.num_coeffs)}, dims = ['i'], name = 'n')
+        self.dataset['m'] = xr.DataArray(self.basis.m, coords = {'i': range(self.basis.num_coeffs)}, dims = ['i'], name = 'm')
 
         self.dataset.to_netcdf(self.result_filename_prefix + '.ncdf')
         print('Created {}'.format(self.result_filename_prefix))
@@ -203,12 +201,12 @@ class I2D(object):
 
         if not self.FAC_history_exists:
             self.Jr_history_times = np.array([self.latest_time])
-            self.Jr_history       = np.array(self.state.Jr_sh.coeffs, dtype = np.float64).reshape((1, -1))
+            self.Jr_history       = np.array(self.state.Jr.coeffs, dtype = np.float64).reshape((1, -1))
 
             self.FAC_history_exists = True
         else:
             self.Jr_history_times = np.append(self.Jr_history_times, self.latest_time)
-            self.Jr_history       = np.vstack((self.Jr_history, self.state.Jr_sh.coeffs))
+            self.Jr_history       = np.vstack((self.Jr_history, self.state.Jr.coeffs))
 
         self.save_FAC_history = True
 
@@ -218,14 +216,14 @@ class I2D(object):
 
         if not self.conductance_history_exists:
             self.conductance_history_times = np.array([self.latest_time])
-            self.etaP_history              = np.array(self.state.etaP_sh.coeffs, dtype = np.float64).reshape((1, -1))
-            self.etaH_history              = np.array(self.state.etaH_sh.coeffs, dtype = np.float64).reshape((1, -1))
+            self.etaP_history              = np.array(self.state.etaP.coeffs, dtype = np.float64).reshape((1, -1))
+            self.etaH_history              = np.array(self.state.etaH.coeffs, dtype = np.float64).reshape((1, -1))
 
             self.conductance_history_exists = True
         else:
             self.conductance_history_times = np.append(self.conductance_history_times, self.latest_time)
-            self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP_sh.coeffs))
-            self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH_sh.coeffs))
+            self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP.coeffs))
+            self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH.coeffs))
 
         self.save_conductance_history = True
 
@@ -235,14 +233,14 @@ class I2D(object):
 
         if not self.u_history_exists:
             self.u_history_times = np.array([self.latest_time])
-            self.u_cf_history    = np.array(self.state.u_sh.coeffs[0], dtype = np.float64).reshape((1, -1))
-            self.u_df_history    = np.array(self.state.u_sh.coeffs[1], dtype = np.float64).reshape((1, -1))
+            self.u_cf_history    = np.array(self.state.u.coeffs[0], dtype = np.float64).reshape((1, -1))
+            self.u_df_history    = np.array(self.state.u.coeffs[1], dtype = np.float64).reshape((1, -1))
 
             self.u_history_exists = True
         else:
             self.u_history_times = np.append(self.u_history_times, self.latest_time)
-            self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u_sh.coeffs[0]))
-            self.u_df_history    = np.vstack((self.u_df_history, self.state.u_sh.coeffs[1]))
+            self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u.coeffs[0]))
+            self.u_df_history    = np.vstack((self.u_df_history, self.state.u.coeffs[1]))
         
         self.save_u_history = True
 
@@ -251,7 +249,7 @@ class I2D(object):
         """ Store the histories """
 
         if self.save_state_history:
-            state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.state.sh.num_coeffs)})
+            state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.basis.num_coeffs)})
             state_dataset['SH_m_imp_m']      = xr.DataArray(self.state.m_imp.basis.m, dims = ['i'])
             state_dataset['SH_m_imp_n']      = xr.DataArray(self.state.m_imp.basis.n, dims = ['i'])
             state_dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history,       dims = ['time', 'i'])
@@ -269,33 +267,33 @@ class I2D(object):
             self.save_state_history = False
 
         if self.save_FAC_history:
-            FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr_sh.basis.num_coeffs)})
-            FAC_dataset['SH_Jr_n']      = xr.DataArray(self.state.Jr_sh.basis.n, dims = ['i'])
-            FAC_dataset['SH_Jr_m']      = xr.DataArray(self.state.Jr_sh.basis.m, dims = ['i'])
+            FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr.basis.num_coeffs)})
+            FAC_dataset['SH_Jr_n']      = xr.DataArray(self.state.Jr.basis.n, dims = ['i'])
+            FAC_dataset['SH_Jr_m']      = xr.DataArray(self.state.Jr.basis.m, dims = ['i'])
             FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history,          dims = ['time', 'i'])
             FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
             self.save_FAC_history = False
 
         if self.save_conductance_history:
-            conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP_sh.basis.num_coeffs)})
-            conductance_dataset['SH_etaP_m']      = xr.DataArray(self.state.etaP_sh.basis.m, dims = ['i'])
-            conductance_dataset['SH_etaP_n']      = xr.DataArray(self.state.etaP_sh.basis.n, dims = ['i'])
+            conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP.basis.num_coeffs)})
+            conductance_dataset['SH_etaP_m']      = xr.DataArray(self.state.etaP.basis.m, dims = ['i'])
+            conductance_dataset['SH_etaP_n']      = xr.DataArray(self.state.etaP.basis.n, dims = ['i'])
             conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history,          dims = ['time', 'i'])
-            conductance_dataset['SH_etaH_n']      = xr.DataArray(self.state.etaH_sh.basis.n, dims = ['i'])
-            conductance_dataset['SH_etaH_m']      = xr.DataArray(self.state.etaH_sh.basis.m, dims = ['i'])
+            conductance_dataset['SH_etaH_n']      = xr.DataArray(self.state.etaH.basis.n, dims = ['i'])
+            conductance_dataset['SH_etaH_m']      = xr.DataArray(self.state.etaH.basis.m, dims = ['i'])
             conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history,          dims = ['time', 'i'])
             conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
             self.save_conductance_history = False
 
         if self.save_u_history:
-            u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u_sh.basis.num_coeffs)})
-            u_dataset['SH_u_cf_n']      = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
-            u_dataset['SH_u_cf_m']      = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+            u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u.basis.num_coeffs)})
+            u_dataset['SH_u_cf_n']      = xr.DataArray(self.state.u.basis.n, dims = ['i'])
+            u_dataset['SH_u_cf_m']      = xr.DataArray(self.state.u.basis.m, dims = ['i'])
             u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history,       dims = ['time', 'i'])
-            u_dataset['SH_u_df_n']      = xr.DataArray(self.state.u_sh.basis.n, dims = ['i'])
-            u_dataset['SH_u_df_m']      = xr.DataArray(self.state.u_sh.basis.m, dims = ['i'])
+            u_dataset['SH_u_df_n']      = xr.DataArray(self.state.u.basis.n, dims = ['i'])
+            u_dataset['SH_u_df_m']      = xr.DataArray(self.state.u.basis.m, dims = ['i'])
             u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history,       dims = ['time', 'i'])
             u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
@@ -414,12 +412,12 @@ class I2D(object):
                 Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.lon, self.num_grid.theta, self.num_grid.lon)
 
                 # Extract the radial component of the FAC and set the corresponding basis coefficients
-                if self.sh_FAC:
+                if self.vector_FAC:
                     Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
                 else:
                     Jr = Jpar_int * self.b_evaluator.br
 
-                self.state.set_FAC(Jr)
+                self.state.set_FAC(Jr, self.vector_FAC)
                 self.update_FAC_history()
 
                 self.next_FAC += 1
@@ -442,7 +440,7 @@ class I2D(object):
                 etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
                 etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
 
-                if self.sh_conductance:
+                if self.vector_conductance:
                     # Represent as expansion in spherical harmonics
                     etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
                     etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
@@ -450,7 +448,7 @@ class I2D(object):
                     etaP = etaP_int
                     etaH = etaH_int
 
-                self.state.set_conductance(etaP, etaH)
+                self.state.set_conductance(etaP, etaH, self.vector_conductance)
                 self.update_conductance_history()
 
                 self.next_conductance += 1
@@ -465,13 +463,13 @@ class I2D(object):
                 u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.lon, self.num_grid.theta, self.num_grid.lon)
                 u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
-                if self.sh_u:
+                if self.vector_u:
                     # Represent as expansion in spherical harmonics
                     u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
                 else:
                     u = (u_int_theta, u_int_phi)
 
-                self.state.set_u(u)
+                self.state.set_u(u, self.vector_u)
                 self.update_u_history()
 
                 self.next_u += 1
@@ -557,7 +555,7 @@ class I2D(object):
 
 
 
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, sh_FAC = True, sh_conductance = True, sh_u = True):
+def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, vector_FAC = True, vector_conductance = True, vector_u = True):
 
     # Set up the spherical harmonic basis object
     i2d_sh = SHBasis(Nmax, Mmax)
@@ -568,7 +566,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(result_filename_prefix = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator, sh_FAC = sh_FAC, sh_conductance = sh_conductance, sh_u = sh_u)
+    i2d = I2D(result_filename_prefix = None, sh = i2d_sh, csp = csp, RI = RI, mainfield_kind = mainfield_kind, ignore_PFAC = ignore_PFAC, connect_hemispheres = connect_hemispheres, latitude_boundary = latitude_boundary, zero_jr_at_dip_equator = zero_jr_at_dip_equator, vector_FAC = vector_FAC, vector_conductance = vector_conductance, vector_u = vector_u)
 
     import pyamps
     from pynamit.visualization import globalplot, cs_interpolate
