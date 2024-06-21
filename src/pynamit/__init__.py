@@ -1,4 +1,4 @@
-from .simulation.dynamical_ionosphere import I2D
+from .simulation.ionosphere_evolution import I2D
 from .simulation.visualization import globalplot, debugplot
 from .cubed_sphere.cubed_sphere import CSProjection
 from .spherical_harmonics.sh_basis import SHBasis

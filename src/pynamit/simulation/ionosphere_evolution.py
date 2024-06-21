@@ -8,7 +8,7 @@ from pynamit.cubed_sphere.cubed_sphere import csp
 from pynamit.primitives.vector import Vector
 import os
 from pynamit.primitives.grid import Grid
-from pynamit.simulation.state import State
+from pynamit.simulation.ionosphere_state import State
 from pynamit.various.constants import RE
 import pynamit
 import scipy.sparse as sp
