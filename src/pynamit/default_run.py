@@ -8,9 +8,6 @@ import os
 
 def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, vector_FAC = True, vector_conductance = True, vector_u = True):
 
-    # Set up the spherical harmonic basis object
-    i2d_sh = SHBasis(Nmax, Mmax)
-
     # Define CS grid used for SH analysis and gradient calculations
     # Each cube block with have ``(Ncs-1)*(Ncs-1)`` cells.
     csp = cubed_sphere.CSProjection(Ncs) # cubed sphere projection object
@@ -32,12 +29,9 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
               vector_u = vector_u)
 
     import pyamps
-    from pynamit.simulation.visualization import globalplot, cs_interpolate
-    import matplotlib.pyplot as plt
     from lompe import conductance
     import dipole
     import datetime
-    import polplot
     from pynamit.primitives.basis_evaluator import BasisEvaluator
     from pynamit.primitives.field_evaluator import FieldEvaluator
     from pynamit.simulation.visualization import time_dependent_plot
