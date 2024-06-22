@@ -2,7 +2,7 @@ import os
 import tempfile
 import pytest
 
-from pynamit.pynamit import run_pynamit
+from pynamit.default_run import run_pynamit
 import numpy as np
 
 def test_2d_dipole_pfac():

@@ -35,8 +35,8 @@ Cube block indices:
 
 
 import numpy as np
-from pynamit.cubedsphere import diffutils
-from pynamit.cubedsphere import arrayutils
+from pynamit.cubed_sphere import diffutils
+from pynamit.cubed_sphere import arrayutils
 import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix

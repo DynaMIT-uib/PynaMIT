@@ -238,10 +238,9 @@ if __name__ == "__main__":
     import sys
     cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
     sys.path.insert(0, cs_path)
-    import cubedsphere
-    csp = cubedsphere.CSProjection() # cubed sphere projection object
-
+    import cubed_sphere
     Ncs = 30
+    csp = cubed_sphere.CSProjection(Ncs) # cubed sphere projection object
     k, i, j = csp.get_gridpoints(Ncs)
     xi, eta = csp.xi(i, Ncs), csp.eta(j, Ncs)
     _, theta, phi = csp.cube2spherical(xi, eta, k, deg = True)
@@ -267,3 +266,160 @@ if __name__ == "__main__":
     pede_plt = cs_interpolate(csp, 90 - theta, phi, pedersen, lat, lon)
 
     globalplot(lon, lat, hall_plt, noon_longitude = lon0, levels = np.linspace(0, 20, 100))
+
+
+def compare_AMPS_FAC_and_CF_currents(i2d, a, d, date, lon0):
+    # compare FACs and curl-free currents:
+    _, axes = plt.subplots(ncols = 2, nrows = 2)
+    SCALE = 1e3
+    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+
+    # Define grid used for plotting
+    Ncs = 30
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.meshgrid(lat, lon)
+    pltshape = lat.shape
+
+    paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
+
+    ju_amps = a.get_upward_current()
+    je_amps, jn_amps = a.get_curl_free_current()
+
+    mlat  , mlt   = a.scalargrid
+    mlatv , mltv  = a.vectorgrid
+    mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
+    mlatnv, mltnv = np.split(mlatv, 2)[0], np.split(mltv, 2)[0]
+
+    lon  = d.mlt2mlon(mlt , date)
+    lonv = d.mlt2mlon(mltv, date)
+
+    mn_grid = Grid(mlatn, mltn)
+    mnv_grid = Grid(mlatnv, mltnv)
+
+    paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
+    paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
+    paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
+    paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
+
+    m_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(mlat, lon))
+    jr = i2d.get_Jr(m_i2d_evaluator) * 1e6
+
+    mv_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(mlatv, lonv))
+    js, je = i2d.state.get_JS(mv_i2d_evaluator) * 1e3
+    jn = -js
+
+    jrn, jrs = np.split(jr, 2) 
+    paxes[2].contourf(mn_grid.lat,  mn_grid.lon,   jrn, levels = levels, cmap = plt.cm.bwr)
+    paxes[2].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn, 2)[0], np.split(je, 2)[0], scale = SCALE, color = 'black')
+    paxes[3].contourf(mn_grid.lat,  mn_grid.lon,   jrs, levels = levels, cmap = plt.cm.bwr)
+    paxes[3].quiver(  mnv_grid.lat, mnv_grid.lon,  -np.split(jn, 2)[1], np.split(je, 2)[1], scale = SCALE, color = 'black')
+
+    plt.show()
+    plt.close()
+
+    plt_grid = Grid(lat, lon)
+    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
+    jr = i2d.get_Jr(plt_i2d_evaluator)
+
+    globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
+
+
+def plot_AMPS_Br(a):
+    Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
+    _, axes = plt.subplots(ncols = 2, figsize = (10, 5))
+    paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
+
+    if not compare_AMPS_FAC_and_CF_currents:
+        mlat  , mlt   = a.scalargrid
+        mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
+        mn_grid = Grid(mlatn, mltn)
+
+    Bu = a.get_ground_Buqd(height = a.height)
+    paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+    paxes[1].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[1], levels = Blevels * 1e9, cmap = plt.cm.bwr)
+
+    plt.show()
+    plt.close()
+
+
+def show_FAC_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
+    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+    c_levels = np.linspace(0, 20, 100) # color levels for conductance
+
+    # Define grid used for plotting
+    Ncs = 30
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.meshgrid(lat, lon)
+    pltshape = lat.shape
+
+    plt_grid = Grid(lat, lon)
+    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
+    hall_plt = cs_interpolate(csp, conductance_grid.lat, conductance_grid.lon, hall, plt_grid.lat, plt_grid.lon)
+    pede_plt = cs_interpolate(csp, conductance_grid.lat, conductance_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
+
+    globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), hall_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'hall.png')
+    globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), pede_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'pede.png')
+
+    jr = i2d.state.get_Jr(plt_i2d_evaluator)
+    globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
+
+
+def make_colorbars():
+    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+    c_levels = np.linspace(0, 20, 100) # color levels for conductance
+    Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
+
+    # conductance:
+    _, axc = plt.subplots(figsize = (1, 10))
+    cz, co = np.zeros_like(c_levels), np.ones_like(c_levels)
+    axc.contourf(np.vstack((cz, co)).T, np.vstack((c_levels, c_levels)).T, np.vstack((c_levels, c_levels)).T, levels = c_levels)
+    axc.set_ylabel('mho', size = 16)
+    axc.set_xticks([])
+    plt.subplots_adjust(left = .7)
+    plt.savefig('conductance_colorbar.png')
+    plt.close()
+
+    # FAC and Br:
+    _, axf = plt.subplots(figsize = (2, 10))
+    fz, fo = np.zeros_like(levels), np.ones_like(levels)
+    axf.contourf(np.vstack((fz, fo)).T, np.vstack((levels, levels)).T, np.vstack((levels, levels)).T, levels = levels, cmap = plt.cm.bwr)
+    axf.set_ylabel(r'$\mu$A/m$^2$', size = 16)
+    axf.set_xticks([])
+
+    axB = axf.twinx()
+    Bz, Bo = np.zeros_like(Blevels), np.ones_like(Blevels)
+    axB.contourf(np.vstack((Bz, Bo)).T, np.vstack((Blevels, Blevels)).T * 1e9, np.vstack((Blevels, Blevels)).T, levels = Blevels, cmap = plt.cm.bwr)
+    axB.set_ylabel(r'nT', size = 16)
+    axB.set_xticks([])
+
+    plt.subplots_adjust(left = .45, right = .6)
+    plt.savefig('mag_colorbar.png')
+    plt.close()
+
+
+def time_dependent_plot(i2d, fig_directory, filecount, lon0, plt_grid, pltshape, plt_i2d_evaluator):
+    import os
+    Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
+    Philevels = np.r_[-212.5:212.5:5] # color levels for Phi
+
+    fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
+    title = 't = {:.3} s'.format(i2d.latest_time)
+
+    Br = i2d.state.get_Br(plt_i2d_evaluator)
+
+    _, paxn, paxs, _ =  globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), Br.reshape(pltshape) , title = title, returnplot = True,
+                                   levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
+
+
+    i2d.state.update_Phi_and_EW()
+    Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
+
+    #W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
+    nnn = plt_grid.lat.flatten() >  50
+    sss = plt_grid.lat.flatten() < -50
+    #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+    #paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+    paxn.contour(plt_grid.lat[nnn], (plt_grid.lon - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
+    paxs.contour(plt_grid.lat[sss], (plt_grid.lon - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
+    plt.savefig(fn)
+    plt.close()
