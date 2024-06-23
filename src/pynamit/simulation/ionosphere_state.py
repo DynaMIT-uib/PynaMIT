@@ -224,11 +224,11 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            c = self.A_ind.dot(self.m_ind.coeffs)
+            self.c = self.A_ind.dot(self.m_ind.coeffs)
             if self.neutral_wind:
-                c += self.cu
+                self.c += self.cu
 
-            self.constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), c * self.ih_constraint_scaling ))
+            self.constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), self.c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
         else:
