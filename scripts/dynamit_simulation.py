@@ -14,7 +14,7 @@ latitude_boundary = 40
 WIND_FACTOR = 1 # scale wind by this factor
 
 result_filename_prefix = 'tst'
-Nmax, Mmax, Ncs = 50, 50, 60
+Nmax, Mmax, Ncs = 20, 20, 20
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -47,7 +47,8 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   connect_hemispheres = True,
                   latitude_boundary = latitude_boundary,
                   zero_jr_at_dip_equator = True,
-                  ih_constraint_scaling = 1e-5)
+                  ih_constraint_scaling = 1e-5,
+                  t0 = str(date))
 
 csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)

@@ -33,7 +33,8 @@ class I2D(object):
                  PFAC_matrix = None,
                  vector_FAC = True,
                  vector_conductance = True,
-                 vector_u = True):
+                 vector_u = True,
+                 t0 = '2020-01-01 00:00:00'):
         """
 
         Parameters
@@ -50,7 +51,10 @@ class I2D(object):
         FAC_integration_steps: array-like
             Use this to specify the radii used in the integral to calculate
             the poloidal field of FACs
-
+        t0: str, optional
+            string representaion of UT of t = 0. This is optional, and not used in the 
+            simulation. It can be used to retrieve local time if the simulations are 
+            performed in lon/lat
         """
 
         self.result_filename_prefix = result_filename_prefix
@@ -73,6 +77,7 @@ class I2D(object):
         settings['vector_FAC']             = int(vector_FAC)
         settings['vector_conductance']     = int(vector_conductance)
         settings['vector_u']               = int(vector_u)
+        settings['t0']                     = t0
 
         self.state_history_exists       = False
         self.FAC_history_exists         = False
