@@ -331,8 +331,8 @@ class Mainfield(object):
         return(d1, d2, d3, e1, e2, e3)
 
 
-    def dip_equator(self, phi):
-        """ Calculate the co-latitude of the dip equator at given phi """
+    def dip_equator(self, phi, theta = 90):
+        """ Calculate the co-latitude of the dip equator (or another magnetic latitude) at given phi """
 
         phi = np.array(phi) % 360
 
@@ -341,11 +341,11 @@ class Mainfield(object):
             return np.full_like(phi, np.nan)
 
         if self.kind == 'dipole':
-            return np.zeros_like(phi) + 90
+            return np.zeros_like(phi) + theta
 
         if self.kind == 'igrf':
             mlon = np.linspace(0, 360, 360)
-            lat, lon, _ = self.apx.apex2geo(0, mlon, self.apx.refh) # lat of evenly spaced points
+            lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh) # lat of evenly spaced points
             # interpolate to phi:
             return( np.interp(phi.flatten(), lon % 360, 90 - lat, period = 360)).reshape(phi.shape) 
 
