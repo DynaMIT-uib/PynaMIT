@@ -199,7 +199,7 @@ class PynamEye(object):
 
         # populate kwargs with default values if not specificed in function call:
         for key in self.Br_defaults:
-            if not key in kwargs.keys():
+            if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
         Br = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Br)
@@ -224,7 +224,7 @@ class PynamEye(object):
 
         # populate kwargs with default values if not specificed in function call:
         for key in self.eqJ_defaults:
-            if not key in kwargs.keys():
+            if key not in kwargs.keys():
                 kwargs[key] = self.eqJ_defaults[key]
 
         Jeq = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Jeq)
@@ -249,7 +249,7 @@ class PynamEye(object):
 
         # populate kwargs with default values if not specificed in function call:
         for key in self.FAC_defaults:
-            if not key in kwargs.keys():
+            if key not in kwargs.keys():
                 kwargs[key] = self.FAC_defaults[key]
 
         jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_Jr)
@@ -274,7 +274,7 @@ class PynamEye(object):
 
         # populate kwargs with default values if not specificed in function call:
         for key in self.Phi_defaults:
-            if not key in kwargs.keys():
+            if key not in kwargs.keys():
                 kwargs[key] = self.Phi_defaults[key]
 
         Phi = self.evaluator[region].basis_to_grid(self.m_Phi)
@@ -299,7 +299,7 @@ class PynamEye(object):
 
         # populate kwargs with default values if not specificed in function call:
         for key in self.EW_defaults:
-            if not key in kwargs.keys():
+            if key not in kwargs.keys():
                 kwargs[key] = self.EW_defaults[key]
 
         W = self.evaluator[region].basis_to_grid(self.m_W)
