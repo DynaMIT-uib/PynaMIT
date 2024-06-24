@@ -13,8 +13,8 @@ latitude_boundary = 40
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-result_filename_prefix = 'tst'
-Nmax, Mmax, Ncs = 20, 20, 20
+result_filename_prefix = 'hdtest'
+Nmax, Mmax, Ncs = 60, 60, 70
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -78,7 +78,7 @@ i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid
 
 i2d.set_FAC(jparallel, csp_grid)
 
-i2d.evolve_to_time(180)
+i2d.evolve_to_time(240)
 
 #print('increasing conductance')
 #hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, F107 = 300, starlight = 1, dipole = False)
