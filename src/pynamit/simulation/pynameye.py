@@ -1,5 +1,6 @@
 """ pynamit visualization class """
 import os
+import warnings
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
@@ -149,9 +150,11 @@ class PynamEye(object):
         lbn = 90 - self.mainfield.dip_equator(ll, theta = 90 - a.datasets['settings'].latitude_boundary)
         lbs = 90 - self.mainfield.dip_equator(ll, theta = 90 + a.datasets['settings'].latitude_boundary)
 
-        ax.plot(ll, dip_lat, color = 'blue', linestyle = '--', linewidth = 1)
-        ax.plot(ll, lbn, color = 'blue', linestyle = '--', linewidth = 0.5)
-        ax.plot(ll, lbs, color = 'blue', linestyle = '--', linewidth = 0.5)
+
+
+        ax.plot(ll, dip_lat, color = 'blue', linestyle = '--', linewidth = 1  , transform = ccrs.PlateCarree())
+        ax.plot(ll, lbn    , color = 'blue', linestyle = '--', linewidth = 0.5, transform = ccrs.PlateCarree())
+        ax.plot(ll, lbs    , color = 'blue', linestyle = '--', linewidth = 0.5, transform = ccrs.PlateCarree())
 
     def _plot_contour(self, values, ax, region = 'global', **kwargs):
         """ plot contour """
@@ -159,10 +162,14 @@ class PynamEye(object):
             assert isinstance(ax, Polarplot)
             mlt = self.dp.mlon2mlt(self.mlon, self.time) # magnetic local time
             xx, yy = ax._latlt2xy(self.mlat, mlt)      
-            return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
+                return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == 'global':
             assert ax.projection == self.get_global_projection()
-            return ax.contour(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
+                return ax.contour(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
         else:
             raise ValueError('region must be either global, north, or south')
 
@@ -174,10 +181,14 @@ class PynamEye(object):
             assert isinstance(ax, Polarplot)
             mlt = self.dp.mlon2mlt(self.mlon, self.time) # magnetic local time
             xx, yy = ax._latlt2xy(self.mlat, mlt)      
-            return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
+                return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == 'global':
             assert ax.projection == self.get_global_projection()
-            return ax.contourf(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
+                return ax.contourf(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
         else:
             raise ValueError('region must be either global, north, or south')
 
@@ -353,8 +364,8 @@ class PynamEye(object):
 
 
 if __name__ == '__main__':
-    fn = "/".join(os.path.abspath(__file__).split("/")[:-1]) + '/../../../scripts/tst'
-    a = PynamEye(fn).set_time(1.92)
+    fn = "/".join(os.path.abspath(__file__).split("/")[:-1]) + '/../../../scripts/hdtest'
+    a = PynamEye(fn).set_time(14.92)
 
     a.make_multipanel_output_figure()
 
