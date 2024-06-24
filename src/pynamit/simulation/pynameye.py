@@ -322,7 +322,8 @@ class PynamEye(object):
         paxs2 = Polarplot(fig.add_subplot(335))
         paxs3 = Polarplot(fig.add_subplot(338))
 
-        for ax in [gax1, gax2, gax3]: a.jazz_global_plot(ax)
+        for ax in [gax1, gax2, gax3]: 
+            a.jazz_global_plot(ax)
 
         self.plot_Br(                            gax1, region = 'global')
         self.plot_equivalent_current(            gax1, region = 'global')
