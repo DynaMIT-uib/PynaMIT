@@ -588,7 +588,7 @@ class I2D(object):
         GTJ = self.state.G_m_imp_to_JS
 
         br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
-        eP, eH = self.state.etaP, self.state.etaH
+        eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
         C00 = sp.diags(eP * (bp**2 + br**2))
         C01 = sp.diags(eP * (-bt * bp) + eH * br)
         C10 = sp.diags(eP * (-bt * bp) - eH * br)
