@@ -80,6 +80,8 @@ i2d.set_FAC(jparallel, csp_grid)
 
 i2d.evolve_to_time(240)
 
+mv_ss = i2d.steady_state_m_ind()
+
 #print('increasing conductance')
 #hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, F107 = 300, starlight = 1, dipole = False)
 #i2d.set_conductance(hall, pedersen, csp_grid)
