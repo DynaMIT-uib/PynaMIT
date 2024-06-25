@@ -501,17 +501,9 @@ class I2D(object):
 
         # electromagnetic state variables:
         state_dataset = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
-        self.state.m_imp.basis.m = state_dataset['SH_m_imp_m']     .values
-        self.state.m_imp.basis.n = state_dataset['SH_m_imp_n']     .values
         self.m_imp_history       = state_dataset['SH_m_imp_coeffs'].values
-        self.state.m_ind.basis.m = state_dataset['SH_m_ind_m']     .values
-        self.state.m_ind.basis.n = state_dataset['SH_m_ind_n']     .values
         self.m_ind_history       = state_dataset['SH_m_ind_coeffs'].values
-        self.state.Phi.basis.m   = state_dataset['SH_Phi_m']       .values
-        self.state.Phi.basis.n   = state_dataset['SH_Phi_n']       .values
         self.Phi_history         = state_dataset['SH_Phi_coeffs']  .values
-        self.state.EW.basis.m    = state_dataset['SH_W_m']         .values
-        self.state.EW.basis.n    = state_dataset['SH_W_n']         .values
         self.W_history           = state_dataset['SH_W_coeffs']    .values
 
         self.latest_time = state_dataset.time.values[-1]
@@ -519,8 +511,6 @@ class I2D(object):
 
         # FAC
         FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
-        self.state.Jr.basis.n = FAC_dataset['SH_Jr_n']     .values
-        self.state.Jr.basis.m = FAC_dataset['SH_Jr_m']     .values
         self.Jr_history       = FAC_dataset['SH_Jr_coeffs'].values
 
         self.FAC_time = FAC_dataset.time.values[-1]
@@ -528,22 +518,14 @@ class I2D(object):
 
         # Conductance:
         conductance_dataset = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
-        self.state.etaP.basis.m = conductance_dataset['SH_etaP_m']     .values
-        self.state.etaP.basis.n = conductance_dataset['SH_etaP_n']     .values
         self.etaP_history       = conductance_dataset['SH_etaP_coeffs'].values
-        self.state.etaH.basis.n = conductance_dataset['SH_etaH_n']     .values
-        self.state.etaH.basis.m = conductance_dataset['SH_etaH_m']     .values
         self.etaH_history       = conductance_dataset['SH_etaH_coeffs'].values
 
         self.conductance_time = conductance_dataset.time.values[-1]
 
         # neutral wind
         u_dataset = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
-        self.state.u.basis.n = u_dataset['SH_u_cf_n']     .values 
-        self.state.u.basis.m = u_dataset['SH_u_cf_m']     .values 
         self.u_cf_history    = u_dataset['SH_u_cf_coeffs'].values 
-        self.state.u.basis.n = u_dataset['SH_u_df_n']     .values 
-        self.state.u.basis.m = u_dataset['SH_u_df_m']     .values 
         self.u_df_history    = u_dataset['SH_u_df_coeffs'].values 
 
         self.u_time = u_dataset.time.values[-1]
