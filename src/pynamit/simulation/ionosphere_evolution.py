@@ -95,7 +95,7 @@ class I2D(object):
         file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
 
         if file_loading: # override input and load parameters from file:
-            self.load_save_file(settings, PFAC_matrix)
+            settings, PFAC_matrix = self.load_save_file()
 
         B0_parameters = {'epoch': settings['mainfield_epoch'],
                          'B0': settings['mainfield_B0'],
