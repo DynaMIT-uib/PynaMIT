@@ -144,8 +144,8 @@ class I2D(object):
             Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
 
             self.state.set_u(u, vector_u = True)
-            self.state.set_FAC(Jr, vector_FAC = True)
             self.state.set_conductance(etaP, etaH, vector_conductance = True)
+            self.state.set_FAC(Jr, vector_FAC = True)
             self.state.set_coeffs(m_ind = self.m_ind_history[-1])
             self.state.set_coeffs(m_imp = self.m_imp_history[-1])
 
