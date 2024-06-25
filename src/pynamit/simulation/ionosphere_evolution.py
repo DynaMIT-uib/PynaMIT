@@ -97,6 +97,8 @@ class I2D(object):
         if file_loading: # override input and load parameters from file:
             settings, PFAC_matrix = self.load_save_file()
 
+        self.RI = settings['RI']
+
         B0_parameters = {'epoch': settings['mainfield_epoch'],
                          'B0': settings['mainfield_B0'],
                          'hI': (settings['RI'] - RE) * 1e-3}
