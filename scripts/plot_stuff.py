@@ -20,6 +20,8 @@ a.m_ind = m_ss
 a.derive_E_from_B()
 #a.derive_E_from_B()
 
+a.m_Phi = a.RI * a.m_Phi
+a.m_W = a.RI * a.m_W
 a.make_multipanel_output_figure()
 
 plt.savefig('fig_ss.png')
