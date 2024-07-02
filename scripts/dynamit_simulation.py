@@ -66,6 +66,7 @@ hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
 hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)
 i2d.set_conductance(hall_EUV, pedersen_EUV, csp_grid)
+print('updated_conductance at t=0')
 
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(csp_grid.lat, csp_grid.lon, (RI - RE) * 1e-3)
@@ -82,21 +83,23 @@ i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid
 i2d.set_FAC(jparallel, csp_grid)
 
 STEP = 1 # number of seconds between each conductance update
-i2d.evolve_to_time(STEP)
+#i2d.evolve_to_time(STEP)
 
 for t in np.arange(STEP, 480, STEP):
-    print('updating conductance')
-    new_date = date + datetime.timedelta(seconds = t)
-    if t <= 240:
+    i2d.evolve_to_time(t)
+
+    new_date = date + datetime.timedelta(seconds = int(t))
+    if (t <= 240) & (t > STEP/2):
         sza = conductance.sunlight.sza(csp_grid.lat, csp_grid.lon, new_date, degrees=True)
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
         hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
         i2d.set_conductance(hall_EUV, pedersen_EUV, csp_grid)
-    else:
+        print('updated conductance at t = ', i2d.latest_time, flush = True)
+    elif t > 240:
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, csp_grid)
+        print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
 
-    i2d.evolve_to_time(t)
 
 
 
