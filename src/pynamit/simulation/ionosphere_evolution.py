@@ -165,7 +165,8 @@ class I2D(object):
             self.update_u()
 
             if count % history_update_interval == 0:
-                self.update_state_history()
+                if not ((count == 0) & (t > 0)):
+                    self.update_state_history()
                 if (count % (history_update_interval * history_save_interval) == 0):
                     self.save_histories()
                     if quiet:
