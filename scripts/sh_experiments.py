@@ -25,7 +25,7 @@ assert date.year % 5 == 0  # since I'm grabbing IGRF coefficients without interp
 cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, Nmin = 0)
 
 i2d_csp = pynamit.CSProjection(Ncs)
-csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
+csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
@@ -63,7 +63,7 @@ if False:
     u_theta = -hwm14Obj.Vwind
     u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-    ugrid = pynamit.Grid(u_lat.flatten(), u_lon.flatten())
+    ugrid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 
     Gphi, Gtheta = ubasis.get_G(ugrid, derivative = 'phi'), ubasis.get_G(ugrid, derivative = 'theta')
     G_df = np.vstack((-Gphi, Gtheta)) # u_df = r x grad()

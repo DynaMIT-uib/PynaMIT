@@ -31,7 +31,7 @@ u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 #u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 #u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-u_grid = pynamit.Grid(u_lat, u_lon)
+u_grid = pynamit.Grid(lat = u_lat, lon = u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
@@ -50,22 +50,20 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   ih_constraint_scaling = 1e-5,
                   t0 = str(date))
 
-csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
+csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
 
 
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
+plt_grid = pynamit.Grid(lat = lat, lon = lon)
 
 ## CONDUCTANCE AND FAC INPUT:
 sza = conductance.sunlight.sza(csp_grid.lat, csp_grid.lon, date, degrees=True)
 hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
 hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)
-i2d.set_conductance(hall_EUV, pedersen_EUV, csp_grid)
+i2d.set_conductance(hall_EUV, pedersen_EUV, csp_grid.theta, csp_grid.phi)
 print('updated_conductance at t=0')
 
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
@@ -75,12 +73,13 @@ mlt = d.mlon2mlt(mlon, date)
 _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
+csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid)
+i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid.theta, u_grid.phi)
 
-i2d.set_FAC(jparallel, csp_grid)
+i2d.set_FAC(jparallel, csp_grid.theta, csp_grid.phi)
 
 STEP = 1 # number of seconds between each conductance update
 #i2d.evolve_to_time(STEP)
@@ -93,11 +92,11 @@ for t in np.arange(STEP, 480, STEP):
         sza = conductance.sunlight.sza(csp_grid.lat, csp_grid.lon, new_date, degrees=True)
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
         hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
-        i2d.set_conductance(hall_EUV, pedersen_EUV, csp_grid)
+        i2d.set_conductance(hall_EUV, pedersen_EUV, csp_grid.theta, csp_grid.phi)
         print('updated conductance at t = ', i2d.latest_time, flush = True)
     elif t > 240:
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, csp_grid)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, csp_grid.theta, csp_grid.phi)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
 
 
@@ -106,7 +105,7 @@ for t in np.arange(STEP, 480, STEP):
 
 #print('increasing conductance')
 #hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, F107 = 300, starlight = 1, dipole = False)
-#i2d.set_conductance(hall, pedersen, csp_grid)
+#i2d.set_conductance(hall, pedersen, csp_grid.theta, csp_grid.phi)
 #
 #i2d.evolve_to_time(360)
 

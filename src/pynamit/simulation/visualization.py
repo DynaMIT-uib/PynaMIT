@@ -117,15 +117,6 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
 
 def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
-    ## SET UP PLOTTING GRID
-    lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
-    lat, lon = np.meshgrid(lat, lon)
-    plt_grid = Grid(lat, lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
-    plt_b_evaluator = FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
-
-    csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
-
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
     FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/2 * 1e-6, 'extend':'both'}
@@ -135,8 +126,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = Grid(lat, lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
+    plt_grid = Grid(lat = lat, lon = lon)
 
     ## MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
@@ -157,11 +147,14 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
         ax.coastlines(zorder = 2, color = 'grey')
 
     ## CALCULATE VALUES TO PLOT
+    plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
-
-    FAC    = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr) / plt_b_evaluator.br
-    jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
+    plt_b_evaluator = FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
+    FAC = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr) / plt_b_evaluator.br
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
+
+    csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
+    jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
@@ -293,18 +286,18 @@ def compare_AMPS_FAC_and_CF_currents(i2d, a, d, date, lon0):
     lon  = d.mlt2mlon(mlt , date)
     lonv = d.mlt2mlon(mltv, date)
 
-    mn_grid = Grid(mlatn, mltn)
-    mnv_grid = Grid(mlatnv, mltnv)
+    mn_grid = Grid(lat = mlatn, lon = mltn)
+    mnv_grid = Grid(lat = mlatnv, lon = mltnv)
 
     paxes[0].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[0], levels = levels, cmap = plt.cm.bwr)
     paxes[0].quiver(  mnv_grid.lat, mnv_grid.lon,  np.split(jn_amps, 2)[0], np.split(je_amps, 2)[0], scale = SCALE, color = 'black')
     paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
     paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-    m_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(mlat, lon))
+    m_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(lat = mlat, lon = lon))
     jr = i2d.get_Jr(m_i2d_evaluator) * 1e6
 
-    mv_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(mlatv, lonv))
+    mv_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(lat = mlatv, lon = lonv))
     js, je = i2d.state.get_JS(mv_i2d_evaluator) * 1e3
     jn = -js
 
@@ -317,7 +310,7 @@ def compare_AMPS_FAC_and_CF_currents(i2d, a, d, date, lon0):
     plt.show()
     plt.close()
 
-    plt_grid = Grid(lat, lon)
+    plt_grid = Grid(lat = lat, lon = lon)
     plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
     jr = i2d.get_Jr(plt_i2d_evaluator)
 
@@ -332,7 +325,7 @@ def plot_AMPS_Br(a):
     if not compare_AMPS_FAC_and_CF_currents:
         mlat  , mlt   = a.scalargrid
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
-        mn_grid = Grid(mlatn, mltn)
+        mn_grid = Grid(lat = mlatn, lon = mltn)
 
     Bu = a.get_ground_Buqd(height = a.height)
     paxes[0].contourf(mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels = Blevels * 1e9, cmap = plt.cm.bwr)
@@ -352,14 +345,14 @@ def show_FAC_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
 
-    plt_grid = Grid(lat, lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
+    plt_grid = Grid(lat = lat, lon = lon)
     hall_plt = cs_interpolate(csp, conductance_grid.lat, conductance_grid.lon, hall, plt_grid.lat, plt_grid.lon)
     pede_plt = cs_interpolate(csp, conductance_grid.lat, conductance_grid.lon, pedersen, plt_grid.lat, plt_grid.lon)
 
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), hall_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'hall.png')
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), pede_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
+    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
     jr = i2d.state.get_Jr(plt_i2d_evaluator)
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 

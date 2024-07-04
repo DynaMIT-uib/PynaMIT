@@ -50,7 +50,7 @@ class State(object):
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.lon)
-            self.cp_grid = Grid(90 - cp_theta, cp_phi)
+            self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid)
@@ -107,7 +107,7 @@ class State(object):
                     print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                     # Map coordinates from r_k[i] to RI:
                     theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
-                    mapped_grid = Grid(90 - theta_mapped, phi_mapped)
+                    mapped_grid = Grid(theta = theta_mapped, phi = phi_mapped)
 
                     # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
                     shifted_b_evaluator = FieldEvaluator(self.mainfield, self.num_grid, r_k[i])
@@ -208,7 +208,7 @@ class State(object):
                 # Calculate matrix that converts m_imp to Jr at dip equator
                 n_phi = self.basis.minimum_phi_sampling()
                 dip_equator_phi = np.linspace(0, 360, n_phi)
-                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(90 - self.mainfield.dip_equator(dip_equator_phi), dip_equator_phi))
+                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
 
                 _equation_scaling = self.num_grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
                 self.G_Jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.m_imp_to_Jr) * _equation_scaling
