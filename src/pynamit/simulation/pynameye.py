@@ -66,7 +66,7 @@ class PynamEye(object):
         self.conductance_evaluator = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
-        self.global_grid = Grid(self.lat, self.lon)
+        self.global_grid = Grid(lat = self.lat, lon = self.lon)
         self.evaluator['global'] = BasisEvaluator(self.basis, self.global_grid)
         self.conductance_evaluator['global'] = BasisEvaluator(self.conductance_basis, self.global_grid)
 
@@ -76,14 +76,14 @@ class PynamEye(object):
             self.apx = apexpy.Apex(self.t0.year, refh = (settings.RI - RE) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo( self.mlat, self.mlon, (settings.RI - RE) * 1e-3)
             self.lat_s, self.lon_s, _ = self.apx.apex2geo(-self.mlat, self.mlon, (settings.RI - RE) * 1e-3)
-            self.polar_grid_n = Grid(self.lat_n, self.lon_n)
-            self.polar_grid_s = Grid(self.lat_s, self.lon_s)
+            self.polar_grid_n = Grid(lat = self.lat_n, lon = self.lon_n)
+            self.polar_grid_s = Grid(lat = self.lat_s, lon = self.lon_s)
             self.evaluator['north'] = BasisEvaluator(self.basis, self.polar_grid_n)
             self.evaluator['south'] = BasisEvaluator(self.basis, self.polar_grid_s)
             self.conductance_evaluator['north'] = BasisEvaluator(self.conductance_basis, self.polar_grid_n)
             self.conductance_evaluator['south'] = BasisEvaluator(self.conductance_basis, self.polar_grid_s)
         else: # assume simulations are done in magnetic coordinates:
-            self.polar_grid = Grid(self.mlat, self.mlon)
+            self.polar_grid = Grid(lat = self.mlat, lon = self.mlon)
             self.evaluator['north'] = BasisEvaluator(self.basis, self.polar_grid)
             self.evaluator['south'] = self.evaluator['north']
             self.conductance_evaluator['north'] = BasisEvaluator(self.conductance_basis, self.polar_grid)
@@ -116,7 +116,7 @@ class PynamEye(object):
 
             # reproduce numerical grid used in the simulation
             self.csp = CSProjection(self.datasets['settings'].Ncs)
-            self.num_grid = Grid(90 - self.csp.arr_theta, self.csp.arr_phi)
+            self.num_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
             self.evaluator['num'] = BasisEvaluator(self.basis, self.num_grid)
             self.conductance_evaluator['num'] = BasisEvaluator(self.conductance_basis, self.num_grid)

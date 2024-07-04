@@ -48,13 +48,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
     lon0 = d.mlt2mlon(12, date)
 
     # Define cubed sphere grid
-    csp_grid = Grid(90 - csp.arr_theta, csp.arr_phi)
-    csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
+    csp_grid = Grid(theta = csp.arr_theta, phi = csp.arr_phi)
 
     hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.set_conductance(hall, pedersen, csp_grid)
+    i2d.set_conductance(hall, pedersen, csp_grid.theta, csp_grid.phi)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
+    csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
     jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
     jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
@@ -67,25 +67,25 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
         u_lat, u_lon, u_phi, u_theta = np.load(os.path.join(wind_directory, 'ulat.npy')), np.load(os.path.join(wind_directory, 'ulon.npy')), np.load(os.path.join(wind_directory, 'uphi.npy')), np.load(os.path.join(wind_directory, 'utheta.npy'))
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-        u_grid = Grid(u_lat, u_lon)
+        u_grid = Grid(lat = u_lat, lon = u_lon)
 
-        i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid)
+        i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid.theta, u_grid.phi)
 
-    i2d.set_FAC(jparallel, csp_grid)
-
-    fig_directory_writeable = os.access(fig_directory, os.W_OK)
-
-    if not fig_directory_writeable:
-        print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
-    # Define grid used for plotting
-    Ncs = 30
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-    lat, lon = np.meshgrid(lat, lon)
-    pltshape = lat.shape
-    plt_grid = Grid(lat, lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
+    i2d.set_FAC(jparallel, csp_grid.theta, csp_grid.phi)
 
     if SIMULATE:
+
+        fig_directory_writeable = os.access(fig_directory, os.W_OK)
+
+        if not fig_directory_writeable:
+            print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
+        # Define grid used for plotting
+        Ncs = 30
+        lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+        lat, lon = np.meshgrid(lat, lon)
+        pltshape = lat.shape
+        plt_grid = Grid(lat = lat, lon = lon)
+        plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
 
         coeffs = []
         count = 0

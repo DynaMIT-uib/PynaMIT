@@ -42,16 +42,15 @@ hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp
 u_phi   =  hwm14Obj.Uwind
 u_theta = -hwm14Obj.Vwind
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
-u_grid = pynamit.Grid(u_lat, u_lon)
+u_grid = pynamit.Grid(lat = u_lat, lon = u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
-csp_grid = pynamit.Grid(90 - i2d_csp.arr_theta, i2d_csp.arr_phi)
-
-u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
+csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
 
 if PLOT_WIND:
+    u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
     u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_theta.flatten())
     u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_phi.flatten())
 
@@ -83,21 +82,21 @@ i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind =
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat, lon)
-plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
+plt_grid = pynamit.Grid(lat = lat, lon = lon)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.set_conductance(hall, pedersen, csp_grid)
+i2d.set_conductance(hall, pedersen, csp_grid.theta, csp_grid.phi)
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
 jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_u(u_theta.flatten(), u_phi.flatten(), u_grid)
-i2d.set_FAC(jparallel, csp_grid)
+i2d.set_u(u_theta.flatten(), u_phi.flatten(), u_grid.theta, u_grid.phi)
+i2d.set_FAC(jparallel, csp_grid.theta, csp_grid.phi)
 
+plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))
 
