@@ -50,7 +50,7 @@ plt_grid = pynamit.Grid(lat = lat, lon = lon)
 
 ## CONDUCTANCE AND FAC INPUT:
 hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)
-i2d.set_conductance(hall, pedersen, theta = csp_grid.theta, phi = csp_grid.phi)
+i2d.set_conductance(hall, pedersen, lat = csp_grid.lat, lon = csp_grid.lon)
 
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(csp_grid.lat, csp_grid.lon, (RI - RE) * 1e-3)
@@ -64,7 +64,7 @@ jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_evaluator.br * 
 jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.set_u(-u_north_int, u_east_int, theta = u_grid.theta, phi = u_grid.phi)
-i2d.set_FAC(jparallel, theta = csp_grid.theta, phi = csp_grid.phi)
+i2d.set_FAC(jparallel, lat = csp_grid.lat, lon = csp_grid.lon)
 
 
 i2d.evolve_to_time(0)

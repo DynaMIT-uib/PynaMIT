@@ -63,7 +63,7 @@ sza = conductance.sunlight.sza(csp_grid.lat, csp_grid.lon, date, degrees=True)
 hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
 hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = False)
-i2d.set_conductance(hall_EUV, pedersen_EUV, theta = csp_grid.theta, phi = csp_grid.phi)
+i2d.set_conductance(hall_EUV, pedersen_EUV, lat = csp_grid.lat, lon = csp_grid.lon)
 print('updated_conductance at t=0')
 
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
@@ -79,7 +79,7 @@ jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
 
 i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, theta = u_grid.theta, phi = u_grid.phi)
 
-i2d.set_FAC(jparallel, theta = csp_grid.theta, phi = csp_grid.phi)
+i2d.set_FAC(jparallel, lat = csp_grid.lat, lon = csp_grid.lon)
 
 STEP = 2 # number of seconds between each conductance update
 i2d.evolve_to_time(STEP)
@@ -90,42 +90,42 @@ for t in np.arange(STEP, 600, STEP):
     if t <= 120:
         Kp = 1
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 120) & (t <= 180):
         Kp = 2
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 180) & (t <= 240):
         Kp = 3
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 240) & (t <= 360):
         Kp = 4
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 360) & (t <= 420):
         Kp = 5
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 420) & (t <= 480):
         Kp = 6
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 480) & (t <= 540):
         Kp = 5
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
     elif (t > 540) & (t <= 600):
         Kp = 3
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, theta = csp_grid.theta, phi = csp_grid.phi)
+        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = csp_grid.lat, lon = csp_grid.lon)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
 
     i2d.evolve_to_time(t)

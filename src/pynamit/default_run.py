@@ -51,7 +51,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
     csp_grid = Grid(theta = csp.arr_theta, phi = csp.arr_phi)
 
     hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.set_conductance(hall, pedersen, theta = csp_grid.theta, phi = csp_grid.phi)
+    i2d.set_conductance(hall, pedersen, lat = csp_grid.lat, lon = csp_grid.lon)
 
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
@@ -71,7 +71,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
         i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, theta = u_grid.theta, phi = u_grid.phi)
 
-    i2d.set_FAC(jparallel, theta = csp_grid.theta, phi = csp_grid.phi)
+    i2d.set_FAC(jparallel, lat = csp_grid.lat, lon = csp_grid.lon)
 
     if SIMULATE:
 
