@@ -83,10 +83,11 @@ i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, u_grid
 i2d.set_FAC(jparallel, csp_grid)
 
 STEP = 2 # number of seconds between each conductance update
+i2d.evolve_to_time(STEP)
 
 for t in np.arange(STEP, 600, STEP):
     #print('updating conductance')
-    new_date = date + datetime.timedelta(seconds = t)
+    new_date = date + datetime.timedelta(seconds = int(t))
     if t <= 120:
         Kp = 1
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
@@ -127,4 +128,6 @@ for t in np.arange(STEP, 600, STEP):
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, csp_grid)
         print('updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
+
+    i2d.evolve_to_time(t)
 
