@@ -107,7 +107,7 @@ if PLOT_WIND:
     fig, ax = plt.subplots(figsize=(10, 7),
                            subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
     ax.coastlines()
-    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
+    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u[1].flatten(), -u[0].flatten(), color='blue', transform=ccrs.PlateCarree())
     ax.quiver(csp_grid.lon, csp_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
