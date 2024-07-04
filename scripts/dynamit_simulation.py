@@ -23,15 +23,6 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
-hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
-                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
-
-u_phi   =  hwm14Obj.Uwind
-u_theta = -hwm14Obj.Vwind
-u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
-#u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
-#u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-u_grid = pynamit.Grid(lat = u_lat, lon = u_lon)
 
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
@@ -81,7 +72,15 @@ jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_evaluator.br * 
 jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
 i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 
-i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, theta = u_grid.theta, phi = u_grid.phi)
+## WIND INPUT
+hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
+                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
+
+u = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
+u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+#u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
+#u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
+i2d.set_u(u, lat = u_lat, lon = u_lon)
 
 STEP = 2 # number of seconds between each conductance update
 i2d.evolve_to_time(STEP)

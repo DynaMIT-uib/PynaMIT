@@ -37,31 +37,8 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 
-hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
-                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour, day = date.timetuple().tm_yday)
-u_phi   =  hwm14Obj.Uwind
-u_theta = -hwm14Obj.Vwind
-u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
-u_grid = pynamit.Grid(lat = u_lat, lon = u_lon)
-
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
-
-if PLOT_WIND:
-    u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, u_grid)
-    u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_theta.flatten())
-    u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u_phi.flatten())
-
-    csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
-    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
-    u_theta_int = u_theta_sh.to_grid(csp_i2d_evaluator)
-    u_phi_int   = u_phi_sh.to_grid(csp_i2d_evaluator)
-
-    fig, ax = plt.subplots(figsize=(10, 7),
-                           subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-    ax.coastlines()
-    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
-    ax.quiver(csp_grid.lon, csp_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
 ## PLOT PARAMETERS
@@ -98,7 +75,13 @@ jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)
 jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
 i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 
-i2d.set_u(u_theta.flatten(), u_phi.flatten(), theta = u_grid.theta, phi = u_grid.phi)
+## WIND INPUT
+hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
+                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour, day = date.timetuple().tm_yday)
+
+u = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
+u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+i2d.set_u(u, lat = u_lat, lon = u_lon)
 
 i2d.update_conductance()
 i2d.update_u()
@@ -108,6 +91,24 @@ i2d.state.impose_constraints()
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))
+
+
+if PLOT_WIND:
+    u_basis_evaluator = pynamit.BasisEvaluator(i2d_sh, pynamit.Grid(lat = u_lat, lon = u_lon))
+
+    u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u[0])
+    u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u[1])
+
+    csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
+    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
+    u_theta_int = u_theta_sh.to_grid(csp_i2d_evaluator)
+    u_phi_int   = u_phi_sh.to_grid(csp_i2d_evaluator)
+
+    fig, ax = plt.subplots(figsize=(10, 7),
+                           subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+    ax.coastlines()
+    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
+    ax.quiver(csp_grid.lon, csp_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
 if SIMULATE:

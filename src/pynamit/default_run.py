@@ -68,13 +68,14 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
         #                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
         #u_phi   =  hwm14Obj.Uwind
         #u_theta = -hwm14Obj.Vwind
+        #u = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
         #u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
         u_lat, u_lon, u_phi, u_theta = np.load(os.path.join(wind_directory, 'ulat.npy')), np.load(os.path.join(wind_directory, 'ulon.npy')), np.load(os.path.join(wind_directory, 'uphi.npy')), np.load(os.path.join(wind_directory, 'utheta.npy'))
+        u = (u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR)
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-        u_grid = Grid(lat = u_lat, lon = u_lon)
 
-        i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, theta = u_grid.theta, phi = u_grid.phi)
+        i2d.set_u(u, lat = u_lat, lon = u_lon)
 
     i2d.update_conductance()
     i2d.update_FAC()

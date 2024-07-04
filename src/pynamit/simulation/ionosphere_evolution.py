@@ -242,13 +242,13 @@ class I2D(object):
         self.next_conductance = 0
 
 
-    def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
-        self.u_theta = np.atleast_2d(u_theta)
-        self.u_phi = np.atleast_2d(u_phi)
+        self.u_theta = np.atleast_2d(u[0])
+        self.u_phi = np.atleast_2d(u[1])
 
         self.u_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
