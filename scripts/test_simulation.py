@@ -69,7 +69,7 @@ i2d.state.impose_constraints()
 #Ginv = i2d.Gnum.T * np.vstack((cS, sS)) * i2d.csp.unit_area
 #gg = Ginv.dot(i2d.Gnum)
 
-# make plot grid:
+## SET UP PLOTTING GRID AND EVALUATORS
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat = lat, lon = lon)

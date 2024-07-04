@@ -54,12 +54,6 @@ Philevels = np.r_[-212.5:212.5:5]
 i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
-
-## SET UP PLOTTING GRID
-lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat = lat, lon = lon)
-
 ## CONDUCTANCE INPUT
 conductance_lat = 90 - i2d_csp.arr_theta
 conductance_lon = i2d_csp.arr_phi
@@ -88,7 +82,12 @@ i2d.update_u()
 i2d.update_FAC()
 i2d.state.impose_constraints()
 
+## SET UP PLOTTING GRID AND EVALUATORS
+lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+lat, lon = np.meshgrid(lat, lon)
+plt_grid = pynamit.Grid(lat = lat, lon = lon)
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
+
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))
 

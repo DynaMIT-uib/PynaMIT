@@ -41,12 +41,6 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   ih_constraint_scaling = 1e-5,
                   t0 = str(date))
 
-
-## SET UP PLOTTING GRID
-lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat = lat, lon = lon)
-
 ## CONDUCTANCE INPUT
 conductance_lat = 90 - i2d_csp.arr_theta
 conductance_lon = i2d_csp.arr_phi

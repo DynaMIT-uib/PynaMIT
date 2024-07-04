@@ -34,11 +34,6 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, ignore_PFAC = False)
 
-## SET UP PLOTTING GRID
-lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat = lat, lon = lon)
-
 ## CONDUCTANCE INPUT
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp   = 5
@@ -63,8 +58,12 @@ i2d.update_conductance()
 i2d.update_FAC()
 i2d.state.impose_constraints()
 
-
+## SET UP PLOTTING GRID AND EVALUATORS
+lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+lat, lon = np.meshgrid(lat, lon)
+plt_grid = pynamit.Grid(lat = lat, lon = lon)
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
+
 GBr = plt_i2d_evaluator.scaled_G(i2d.state.m_ind_to_Br / i2d.state.RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))
 

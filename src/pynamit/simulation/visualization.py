@@ -121,13 +121,6 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
     FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/2 * 1e-6, 'extend':'both'}
 
-
-    ## SET UP PLOTTING GRID AND BASIS EVALUATOR
-    NLA, NLO = 50, 90
-    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
-    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = Grid(lat = lat, lon = lon)
-
     ## MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
 
@@ -146,10 +139,17 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     for ax in [gax_B, gax_j]: 
         ax.coastlines(zorder = 2, color = 'grey')
 
-    ## CALCULATE VALUES TO PLOT
+
+    ## SET UP PLOTTING GRID AND EVALUATORS
+    NLA, NLO = 50, 90
+    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
+    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
+    plt_grid = Grid(lat = lat, lon = lon)
     plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
-    Br  = i2d.state.get_Br(plt_i2d_evaluator)
     plt_b_evaluator = FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
+
+    ## CALCULATE VALUES TO PLOT
+    Br  = i2d.state.get_Br(plt_i2d_evaluator)
     FAC = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr) / plt_b_evaluator.br
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 

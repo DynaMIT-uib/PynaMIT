@@ -33,12 +33,6 @@ i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
                                        ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
 
-
-## SET UP PLOTTING GRID
-lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat = lat, lon = lon)
-
 ## CONDUCTANCE INPUT
 conductance_lat = 90 - i2d_csp.arr_theta
 conductance_lon = i2d_csp.arr_phi
@@ -73,13 +67,6 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
     FAC_kwargs = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
 
-
-    ## SET UP PLOTTING GRID AND BASIS EVALUATOR
-    NLA, NLO = 50, 90
-    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
-    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = pynamit.Grid(lat = lat, lon = lon)
-
     ## MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude = noon_longitude)
 
@@ -98,11 +85,16 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     for ax in [gax_B, gax_j]: 
         ax.coastlines(zorder = 2, color = 'grey')
 
-    ## CALCULATE VALUES TO PLOT
+    ## SET UP PLOTTING GRID AND EVALUATORS
+    NLA, NLO = 50, 90
+    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
+    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
+    plt_grid = pynamit.Grid(lat = lat, lon = lon)
     plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
-    Br  = i2d.state.get_Br(plt_i2d_evaluator)
-
     plt_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
+
+    ## CALCULATE VALUES TO PLOT
+    Br  = i2d.state.get_Br(plt_i2d_evaluator)
     FAC = (plt_i2d_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
     jr_mod = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
