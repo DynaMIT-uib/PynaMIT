@@ -185,7 +185,7 @@ class I2D(object):
             count += 1
 
 
-    def set_FAC(self, FAC, theta, phi, time = None):
+    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.lon``.
@@ -203,7 +203,7 @@ class I2D(object):
         self.FAC = np.atleast_2d(FAC)
 
         if not hasattr(self, 'FAC_grid') or not np.allclose(theta, self.FAC_grid.theta) or not np.allclose(phi, self.FAC_grid.lon):
-            self.FAC_grid = Grid(theta = theta, phi = phi)
+            self.FAC_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
             if self.FAC.shape[0] > 1:
@@ -216,7 +216,7 @@ class I2D(object):
         self.update_FAC()
 
 
-    def set_conductance(self, Hall, Pedersen, theta, phi, time = None):
+    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify Hall and Pedersen conductance at
         ``self.num_grid.theta``, ``self.num_grid.lon``.
@@ -227,7 +227,7 @@ class I2D(object):
         self.Pedersen = np.atleast_2d(Pedersen)
 
         if not hasattr(self, 'conductance_grid') or not np.allclose(theta, self.conductance_grid.theta) or not np.allclose(phi, self.conductance_grid.lon):
-            self.conductance_grid = Grid(theta = theta, phi = phi)
+            self.conductance_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
             if self.Hall.shape[0] > 1 or self.Pedersen.shape[0] > 1:
@@ -240,7 +240,7 @@ class I2D(object):
         self.update_conductance()
 
 
-    def set_u(self, u_theta, u_phi, theta, phi, time = None):
+    def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
@@ -249,7 +249,7 @@ class I2D(object):
         self.u_phi = np.atleast_2d(u_phi)
 
         if not hasattr(self, 'u_grid') or not np.allclose(theta, self.u_grid.theta) or not np.allclose(phi, self.u_grid.lon):
-            self.u_grid = Grid(theta = theta, phi = phi)
+            self.u_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
             if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
