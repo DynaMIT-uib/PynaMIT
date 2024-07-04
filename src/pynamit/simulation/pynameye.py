@@ -196,7 +196,7 @@ class PynamEye(object):
         self.m_etaH = self.datasets['conductance'].SH_etaH_coeffs .sel(time = self.t, method='nearest').values
 
         if np.any(np.isnan(self.m_ind)):
-            raise ValueError('induced magnetic field coefficients at t = {:.2f} s are nans'.format(t))
+            print('induced magnetic field coefficients at t = {:.2f} s are nans'.format(t))
 
         return(self)
 
