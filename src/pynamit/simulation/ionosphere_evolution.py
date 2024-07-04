@@ -188,13 +188,13 @@ class I2D(object):
     def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
-        ``self.num_grid.lon``.
+        ``self.num_grid.phi``.
 
             Parameters
             ----------
             FAC: array
                 The field-aligned current, in A/m^2, at
-                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
+                ``self.num_grid.theta`` and ``self.num_grid.phi``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
@@ -202,7 +202,7 @@ class I2D(object):
 
         self.FAC = np.atleast_2d(FAC)
 
-        if not hasattr(self, 'FAC_grid') or not np.allclose(theta, self.FAC_grid.theta) or not np.allclose(phi, self.FAC_grid.lon):
+        if not hasattr(self, 'FAC_grid') or not np.allclose(theta, self.FAC_grid.theta) or not np.allclose(phi, self.FAC_grid.phi):
             self.FAC_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
@@ -219,14 +219,14 @@ class I2D(object):
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify Hall and Pedersen conductance at
-        ``self.num_grid.theta``, ``self.num_grid.lon``.
+        ``self.num_grid.theta``, ``self.num_grid.phi``.
 
         """
 
         self.Hall = np.atleast_2d(Hall)
         self.Pedersen = np.atleast_2d(Pedersen)
 
-        if not hasattr(self, 'conductance_grid') or not np.allclose(theta, self.conductance_grid.theta) or not np.allclose(phi, self.conductance_grid.lon):
+        if not hasattr(self, 'conductance_grid') or not np.allclose(theta, self.conductance_grid.theta) or not np.allclose(phi, self.conductance_grid.phi):
             self.conductance_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
@@ -248,7 +248,7 @@ class I2D(object):
         self.u_theta = np.atleast_2d(u_theta)
         self.u_phi = np.atleast_2d(u_phi)
 
-        if not hasattr(self, 'u_grid') or not np.allclose(theta, self.u_grid.theta) or not np.allclose(phi, self.u_grid.lon):
+        if not hasattr(self, 'u_grid') or not np.allclose(theta, self.u_grid.theta) or not np.allclose(phi, self.u_grid.phi):
             self.u_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
@@ -268,7 +268,7 @@ class I2D(object):
         if self.next_FAC < self.FAC_time.size:
             if self.latest_time >= self.FAC_time[self.next_FAC]:
                 # Represent as values on num_grid
-                Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.lon, self.num_grid.theta, self.num_grid.lon)
+                Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
 
                 # Extract the radial component of the FAC and set the corresponding basis coefficients
                 if self.vector_FAC:
@@ -296,8 +296,8 @@ class I2D(object):
                 etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
 
                 # Represent as values on num_grid
-                etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
-                etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.lon, self.num_grid.theta, self.num_grid.lon)
+                etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
+                etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
 
                 if self.vector_conductance:
                     # Represent as expansion in spherical harmonics
@@ -319,7 +319,7 @@ class I2D(object):
         if self.next_u < self.u_time.size:
             if self.latest_time >= self.u_time[self.next_u]:
                 # Represent as values on num_grid
-                u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.lon, self.num_grid.theta, self.num_grid.lon)
+                u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
                 u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
                 if self.vector_u:

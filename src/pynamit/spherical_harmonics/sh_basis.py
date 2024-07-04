@@ -79,7 +79,7 @@ class SHBasis(object):
         """
 
         # Convert the grid coordinates to radians
-        phi = np.deg2rad(grid.lon)
+        phi = np.deg2rad(grid.phi)
         theta = np.deg2rad(grid.theta)
 
         # Get the Legendre functions and their derivatives

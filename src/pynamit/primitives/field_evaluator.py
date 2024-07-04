@@ -15,7 +15,7 @@ class FieldEvaluator:
         """ Magnetic field vector. """
 
         if not hasattr(self, '_grid_values'):
-            self._grid_values = np.vstack(self.field.get_B(self.r, self.grid.theta, self.grid.lon))
+            self._grid_values = np.vstack(self.field.get_B(self.r, self.grid.theta, self.grid.phi))
         return self._grid_values
 
     @property
@@ -73,7 +73,7 @@ class FieldEvaluator:
         """ Base vectors of the magnetic field. """
 
         if not hasattr(self, '_basevectors'):
-            self._basevectors = self.field.basevectors(self.r, self.grid.theta, self.grid.lon)
+            self._basevectors = self.field.basevectors(self.r, self.grid.theta, self.grid.phi)
         return self._basevectors
 
     @property

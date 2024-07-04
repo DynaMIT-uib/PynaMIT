@@ -49,7 +49,7 @@ class State(object):
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol)
 
         if self.connect_hemispheres:
-            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.lon)
+            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
@@ -106,7 +106,7 @@ class State(object):
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                     # Map coordinates from r_k[i] to RI:
-                    theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.lon)
+                    theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.phi)
                     mapped_grid = Grid(theta = theta_mapped, phi = phi_mapped)
 
                     # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
@@ -238,13 +238,13 @@ class State(object):
     def set_FAC(self, Jr, vector_FAC = True):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
-        ``self.num_grid.lon``.
+        ``self.num_grid.phi``.
 
             Parameters
             ----------
             FAC: array
                 The field-aligned current, in A/m^2, at
-                ``self.num_grid.theta`` and ``self.num_grid.lon``, at
+                ``self.num_grid.theta`` and ``self.num_grid.phi``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
@@ -289,7 +289,7 @@ class State(object):
                 # Represent as values on cp_grid
                 u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
             else:
-                u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.basis_evaluator.grid.theta, self.basis_evaluator.grid.lon, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.lon)
+                u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.basis_evaluator.grid.theta, self.basis_evaluator.grid.phi, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
 
             # Neutral wind at low latitude grid points and at their conjugate points
@@ -306,7 +306,7 @@ class State(object):
     def set_conductance(self, etaP, etaH, vector_conductance = True):
         """
         Specify Hall and Pedersen conductance at
-        ``self.num_grid.theta``, ``self.num_grid.lon``.
+        ``self.num_grid.theta``, ``self.num_grid.phi``.
 
         """
         from pynamit.cubed_sphere.cubed_sphere import csp
@@ -334,8 +334,8 @@ class State(object):
                 etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)
                 etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)
             else:
-                etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.conductance_cp_basis_evaluator.grid.theta, self.conductance_cp_basis_evaluator.grid.lon)
-                etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.lon, self.conductance_cp_basis_evaluator.grid.theta, self.conductance_cp_basis_evaluator.grid.lon)
+                etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.phi, self.conductance_cp_basis_evaluator.grid.theta, self.conductance_cp_basis_evaluator.grid.phi)
+                etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.phi, self.conductance_cp_basis_evaluator.grid.theta, self.conductance_cp_basis_evaluator.grid.phi)
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]
