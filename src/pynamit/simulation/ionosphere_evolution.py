@@ -90,6 +90,8 @@ class I2D(object):
         self.save_conductance_history = False
         self.save_u_history           = False
 
+        self.constraints_required = False
+
         self.latest_time = np.float64(0)
 
         file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
@@ -164,6 +166,10 @@ class I2D(object):
             self.update_conductance()
             self.update_u()
 
+            if self.constraints_required:
+                self.state.impose_constraints()
+                self.constraints_required = False
+
             if count % history_update_interval == 0:
                 if not ((count == 0) & (t > 0)):
                     self.update_state_history()
@@ -212,7 +218,6 @@ class I2D(object):
         self.FAC_time = np.atleast_1d(time)
 
         self.next_FAC = 0
-        self.update_FAC()
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -235,7 +240,6 @@ class I2D(object):
         self.conductance_time = np.atleast_1d(time)
 
         self.next_conductance = 0
-        self.update_conductance()
 
 
     def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -256,7 +260,6 @@ class I2D(object):
         self.u_time = np.atleast_1d(time)
 
         self.next_u = 0
-        self.update_u()
 
 
     def update_FAC(self):
@@ -277,6 +280,8 @@ class I2D(object):
                 self.update_FAC_history()
 
                 self.next_FAC += 1
+
+                self.constraints_required = True
 
 
     def update_conductance(self):
@@ -309,6 +314,8 @@ class I2D(object):
 
                 self.next_conductance += 1
 
+                self.constraints_required = True
+
 
     def update_u(self):
         """ Update neutral wind """
@@ -329,6 +336,8 @@ class I2D(object):
                 self.update_u_history()
 
                 self.next_u += 1
+
+                self.constraints_required = True
 
 
     def update_state_history(self):

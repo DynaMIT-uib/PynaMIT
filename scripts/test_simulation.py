@@ -55,6 +55,10 @@ jparallel = a.get_upward_current(mlat = 90 - i2d_csp.arr_theta, mlt = d.mlon2mlt
 jparallel[np.abs(90 - i2d_csp.arr_theta) < 50] = 0 # filter low latitude FACs
 i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 
+i2d.update_conductance()
+i2d.update_FAC()
+i2d.state.impose_constraints()
+
 
 # make an integration matrix
 

@@ -60,6 +60,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
     csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, Grid(lat = FAC_lat, lon = FAC_lon), RI)
     jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
     jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
+    i2d.set_FAC(jparallel, lat = conductance_lat, lon = conductance_lon)
 
     # Wind input
     if (wind_directory is not None) and os.path.exists(wind_directory):
@@ -75,7 +76,12 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
         i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, theta = u_grid.theta, phi = u_grid.phi)
 
-    i2d.set_FAC(jparallel, lat = conductance_lat, lon = conductance_lon)
+    i2d.update_conductance()
+    i2d.update_FAC()
+    if (wind_directory is not None) and os.path.exists(wind_directory):
+        i2d.update_u()
+
+    i2d.state.impose_constraints()
 
     if SIMULATE:
         fig_directory_writeable = os.access(fig_directory, os.W_OK)
@@ -93,6 +99,7 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
         coeffs = []
         count = 0
         filecount = 1
+
         while True:
 
             i2d.state.evolve_Br(dt)

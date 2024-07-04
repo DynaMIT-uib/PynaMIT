@@ -57,8 +57,13 @@ a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
 jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
 jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
-
 i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
+
+i2d.update_conductance()
+i2d.update_FAC()
+i2d.state.impose_constraints()
+
+
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 GBr = plt_i2d_evaluator.scaled_G(i2d.state.m_ind_to_Br / i2d.state.RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))

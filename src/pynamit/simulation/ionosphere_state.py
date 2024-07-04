@@ -262,8 +262,6 @@ class State(object):
             if self.connect_hemispheres:
                 self.Jpar_on_grid = Jr / self.b_evaluator.br
 
-        self.impose_constraints()
-
 
     def set_u(self, u, vector_u = True):
         """ Set neutral wind theta and phi components.
