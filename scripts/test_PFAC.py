@@ -34,27 +34,31 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, ignore_PFAC = False)
 
-csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
-
 ## SET UP PLOTTING GRID
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat = lat, lon = lon)
 
-## CONDUCTANCE AND FAC INPUT:
+## CONDUCTANCE INPUT
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
-hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-i2d.set_conductance(hall, pedersen, lat = csp_grid.lat, lon = csp_grid.lon)
 
+conductance_lat = 90 - i2d_csp.arr_theta
+conductance_lon = i2d_csp.arr_phi
+hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
+i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
+
+## FAC INPUT
+FAC_lat = 90 - i2d_csp.arr_theta
+FAC_lon = i2d_csp.arr_phi
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
-jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
-jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
+csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
+jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
+jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
 
-i2d.set_FAC(jparallel, lat = csp_grid.lat, lon = csp_grid.lon)
+i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 GBr = plt_i2d_evaluator.scaled_G(i2d.state.m_ind_to_Br / i2d.state.RI)
 Br_I2D = GBr.dot(i2d.state.m_imp_to_B_pol.dot(i2d.state.m_imp.coeffs))
@@ -69,8 +73,8 @@ if SIMULATE_DYNAMIC_RESPONSE:
     plt.close()
 
 
-    # manipulate GTB to remove the r x grad(T) part:
-    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
+    # manipulate GTB to remove the r x grad(T) part:@
+    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi))
     GrxgradT = -csp_i2d_evaluator.Gdf * RI
     i2d.state.GTB = i2d.state.GTB - GrxgradT # subtract GrxgradT off
 
@@ -123,7 +127,7 @@ if COMPARE_TO_SECS:
     secsI = -jparallel * csp_b_evaluator.br * i2d_csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
-    lat_secs, lon_secs = csp_grid.lat, csp_grid.lon
+    lat_secs, lon_secs = 90 - i2d_csp.arr_theta, i2d_csp.arr_phi
     Be, Bn, Br = csp_b_evaluator.bphi, - csp_b_evaluator.btheta, csp_b_evaluator.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)
 

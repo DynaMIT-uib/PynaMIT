@@ -47,17 +47,21 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
     # noon longitude
     lon0 = d.mlt2mlon(12, date)
 
-    # Define cubed sphere grid
-    csp_grid = Grid(theta = csp.arr_theta, phi = csp.arr_phi)
+    # Conductance input
+    conductance_lat = 90 - csp.arr_theta
+    conductance_lon = csp.arr_phi
+    hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
+    i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
-    hall, pedersen = conductance.hardy_EUV(csp_grid.lon, csp_grid.lat, Kp, date, starlight = 1, dipole = True)
-    i2d.set_conductance(hall, pedersen, lat = csp_grid.lat, lon = csp_grid.lon)
-
+    # FAC input
+    FAC_lat = 90 - csp.arr_theta
+    FAC_lon = csp.arr_phi
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, csp_grid, RI)
-    jparallel = a.get_upward_current(mlat = csp_grid.lat, mlt = d.mlon2mlt(csp_grid.lon, date)) / csp_b_evaluator.br * 1e-6
-    jparallel[np.abs(csp_grid.lat) < 50] = 0 # filter low latitude FACs
+    csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, Grid(lat = FAC_lat, lon = FAC_lon), RI)
+    jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
+    jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
 
+    # Wind input
     if (wind_directory is not None) and os.path.exists(wind_directory):
         #hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3.,
         #                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
@@ -71,14 +75,13 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
         i2d.set_u(u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR, theta = u_grid.theta, phi = u_grid.phi)
 
-    i2d.set_FAC(jparallel, lat = csp_grid.lat, lon = csp_grid.lon)
+    i2d.set_FAC(jparallel, lat = conductance_lat, lon = conductance_lon)
 
     if SIMULATE:
-
         fig_directory_writeable = os.access(fig_directory, os.W_OK)
-
         if not fig_directory_writeable:
             print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
+
         # Define grid used for plotting
         Ncs = 30
         lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
