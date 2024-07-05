@@ -374,7 +374,6 @@ class State(object):
         new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
 
         self.set_coeffs(Br = new_Br)
-        self.impose_constraints()
 
 
     def get_Br(self, _basis_evaluator):

@@ -77,43 +77,40 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
         i2d.set_u(u, lat = u_lat, lon = u_lon)
 
-    i2d.update_conductance()
-    i2d.update_FAC()
-    if (wind_directory is not None) and os.path.exists(wind_directory):
-        i2d.update_u()
+    i2d.evolve_to_time(t = (totalsteps + 2) * dt, dt = dt, history_update_interval = 1)
 
-    i2d.state.impose_constraints()
+    return i2d
 
-    if SIMULATE:
-        fig_directory_writeable = os.access(fig_directory, os.W_OK)
-        if not fig_directory_writeable:
-            print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
-
-        # Define grid used for plotting
-        Ncs = 30
-        lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-        lat, lon = np.meshgrid(lat, lon)
-        pltshape = lat.shape
-        plt_grid = Grid(lat = lat, lon = lon)
-        plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
-
-        coeffs = []
-        count = 0
-        filecount = 1
-
-        while True:
-
-            i2d.state.evolve_Br(dt)
-            i2d.latest_time += i2d.latest_time + dt
-            coeffs.append(i2d.state.m_ind.coeffs)
-            count += 1
-
-            if (count % plotsteps == 0) and fig_directory_writeable:
-                print(count, i2d.latest_time, (i2d.state.m_ind.coeffs * i2d.state.m_ind_to_Br)[:3])
-                time_dependent_plot(i2d, fig_directory, filecount, lon0, plt_grid, pltshape, plt_i2d_evaluator)
-                filecount += 1
-
-
-            if count > totalsteps:
-                break
-    return coeffs
+#    if SIMULATE:
+#        fig_directory_writeable = os.access(fig_directory, os.W_OK)
+#        if not fig_directory_writeable:
+#            print('Figure directory {} is not writeable, proceeding without figure generation. For figures, rerun after ensuring that the directory exists and is writeable.'.format(fig_directory))
+#
+#        # Define grid used for plotting
+#        Ncs = 30
+#        lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+#        lat, lon = np.meshgrid(lat, lon)
+#        pltshape = lat.shape
+#        plt_grid = Grid(lat = lat, lon = lon)
+#        plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
+#
+#        coeffs = []
+#        count = 0
+#        filecount = 1
+#
+#        while True:
+#
+#            i2d.state.evolve_Br(dt)
+#            i2d.latest_time += i2d.latest_time + dt
+#            coeffs.append(i2d.state.m_ind.coeffs)
+#            count += 1
+#
+#            if (count % plotsteps == 0) and fig_directory_writeable:
+#                print(count, i2d.latest_time, (i2d.state.m_ind.coeffs * i2d.state.m_ind_to_Br)[:3])
+#                time_dependent_plot(i2d, fig_directory, filecount, lon0, plt_grid, pltshape, plt_i2d_evaluator)
+#                filecount += 1
+#
+#
+#            if count > totalsteps:
+#                break
+#    return coeffs

@@ -90,8 +90,6 @@ class I2D(object):
         self.save_conductance_history = False
         self.save_u_history           = False
 
-        self.constraints_required = False
-
         self.latest_time = np.float64(0)
 
         file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
@@ -166,9 +164,7 @@ class I2D(object):
             self.update_conductance()
             self.update_u()
 
-            if self.constraints_required:
-                self.state.impose_constraints()
-                self.constraints_required = False
+            self.state.impose_constraints()
 
             if count % history_update_interval == 0:
                 if not ((count == 0) & (t > 0)):
@@ -265,7 +261,7 @@ class I2D(object):
     def update_FAC(self):
         """ Update FAC """
 
-        if self.next_FAC < self.FAC_time.size:
+        if hasattr(self, 'FAC_time') and self.next_FAC < self.FAC_time.size:
             if self.latest_time >= self.FAC_time[self.next_FAC]:
                 # Represent as values on num_grid
                 Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
@@ -281,13 +277,11 @@ class I2D(object):
 
                 self.next_FAC += 1
 
-                self.constraints_required = True
-
 
     def update_conductance(self):
         """ Update conductance """
 
-        if self.next_conductance < self.conductance_time.size:
+        if hasattr(self, 'conductance_time') and self.next_conductance < self.conductance_time.size:
             if self.latest_time >= self.conductance_time[self.next_conductance]:
                 # Check if Pedersen and Hall conductances are positive
                 if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
@@ -314,13 +308,11 @@ class I2D(object):
 
                 self.next_conductance += 1
 
-                self.constraints_required = True
-
 
     def update_u(self):
         """ Update neutral wind """
 
-        if self.next_u < self.u_time.size:
+        if hasattr(self, 'u_time') and self.next_u < self.u_time.size:
             if self.latest_time >= self.u_time[self.next_u]:
                 # Represent as values on num_grid
                 u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
@@ -336,8 +328,6 @@ class I2D(object):
                 self.update_u_history()
 
                 self.next_u += 1
-
-                self.constraints_required = True
 
 
     def update_state_history(self):

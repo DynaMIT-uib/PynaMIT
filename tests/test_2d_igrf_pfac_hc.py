@@ -18,7 +18,8 @@ def test_2d_igrf_pfac_hc():
         os.mkdir(temp_dir)  
 
     # Act
-    coeffs = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50)
+    i2d = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50)
+    coeffs = i2d.m_ind_history
 
     # Assert
     coeff_array = np.array(coeffs)
