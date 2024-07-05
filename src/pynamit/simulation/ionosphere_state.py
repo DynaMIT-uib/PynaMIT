@@ -11,13 +11,14 @@ class State(object):
 
     """
 
-    def __init__(self, basis, conductance_basis, mainfield, num_grid, settings, PFAC_matrix = None):
+    def __init__(self, basis, conductance_basis, u_basis, mainfield, num_grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
 
         self.basis = basis
         self.conductance_basis = conductance_basis
+        self.u_basis = u_basis
         self.mainfield = mainfield
         self.num_grid = num_grid
 
@@ -40,9 +41,12 @@ class State(object):
         self.m_ind_to_Jeq = self.RI / mu0 * self.basis.surface_discontinuity
 
         # Initialize grid-related objects
-        self.basis_evaluator = BasisEvaluator(self.basis, num_grid)
+        self.basis_evaluator             = BasisEvaluator(self.basis,             num_grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, num_grid)
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           num_grid)
+
         self.b_evaluator = FieldEvaluator(mainfield, num_grid, self.RI)
+
         self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
@@ -52,9 +56,12 @@ class State(object):
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
-            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
+            self.cp_basis_evaluator             = BasisEvaluator(self.basis,             self.cp_grid)
             self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid)
+            self.u_cp_basis_evaluator           = BasisEvaluator(self.u_basis,           self.cp_grid)
+
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
+
             self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
             self.G_B_tor_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
@@ -257,7 +264,7 @@ class State(object):
                 self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
 
         else:
-            self.Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
+            self.Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
 
             if self.connect_hemispheres:
                 self.Jpar_on_grid = Jr / self.b_evaluator.br
@@ -273,10 +280,10 @@ class State(object):
 
         if vector_u:
             self.u = u
-            self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.basis_evaluator)
+            self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.u_basis_evaluator)
 
         else:
-            self.u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = u, helmholtz = True)
+            self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, helmholtz = True)
             self.u_theta_on_grid, self.u_phi_on_grid = u
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
@@ -285,9 +292,9 @@ class State(object):
         if self.connect_hemispheres:
             if vector_u:
                 # Represent as values on cp_grid
-                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.cp_basis_evaluator)
+                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.u_cp_basis_evaluator)
             else:
-                u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.basis_evaluator.grid.theta, self.basis_evaluator.grid.phi, self.cp_basis_evaluator.grid.theta, self.cp_basis_evaluator.grid.phi)
+                u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.phi, self.u_cp_basis_evaluator.grid.theta, self.u_cp_basis_evaluator.grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
 
             # Neutral wind at low latitude grid points and at their conjugate points
@@ -320,8 +327,8 @@ class State(object):
             self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
-            self.etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP)
-            self.etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH)
+            self.etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP)
+            self.etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH)
 
             self.etaP_on_grid = etaP
             self.etaH_on_grid = etaH

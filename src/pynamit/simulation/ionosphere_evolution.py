@@ -114,15 +114,18 @@ class I2D(object):
 
         self.basis             = SHBasis(settings['Nmax'], settings['Mmax'])
         self.conductance_basis = SHBasis(settings['Nmax'], settings['Mmax'], Nmin = 0)
+        self.u_basis           = SHBasis(settings['Nmax'], settings['Mmax'], Nmin = 0)
 
-        self.basis_evaluator = BasisEvaluator(self.basis, self.num_grid)
+        self.basis_evaluator             = BasisEvaluator(self.basis,             self.num_grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.num_grid)
 
         self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
 
         # Initialize the state of the ionosphere
         self.state = State(self.basis,
                            self.conductance_basis,
+                           self.u_basis,
                            mainfield,
                            self.num_grid, 
                            settings,
@@ -137,17 +140,17 @@ class I2D(object):
         else: # load 
             self.load_histories()
 
+            Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
+
             etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaP_history[-1])
             etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaH_history[-1])
 
-            u_coeffs = np.hstack((self.u_cf_history[-1], self.u_df_history[-1]))
-            u = Vector(self.basis, basis_evaluator = self.basis_evaluator, coeffs = u_coeffs, helmholtz = True)
+            u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_cf_history[-1], self.u_df_history[-1])), helmholtz = True)
 
-            Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
-
-            self.state.set_u(u, vector_u = True)
-            self.state.set_conductance(etaP, etaH, vector_conductance = True)
             self.state.set_FAC(Jr, vector_FAC = True)
+            self.state.set_conductance(etaP, etaH, vector_conductance = True)
+            self.state.set_u(u, vector_u = True)
+
             self.state.set_coeffs(m_ind = self.m_ind_history[-1])
             self.state.set_coeffs(m_imp = self.m_imp_history[-1])
 
@@ -323,7 +326,7 @@ class I2D(object):
 
                 if self.vector_u:
                     # Represent as expansion in spherical harmonics
-                    u = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+                    u = Vector(self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
                 else:
                     u = (u_int_theta, u_int_phi)
 
