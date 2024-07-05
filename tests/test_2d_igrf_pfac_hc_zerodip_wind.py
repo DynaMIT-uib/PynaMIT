@@ -23,16 +23,26 @@ def test_2d_igrf_pfac_hc_zerodip_wind():
         shutil.copyfile(os.path.join(input_dir, file), os.path.join(temp_dir, file))        
 
     # Act
-    i2d = run_pynamit(final_time = 0.1, dt=5e-4, Nmax=5, Mmax=3, Ncs=18, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False, connect_hemispheres=True, latitude_boundary=50, zero_jr_at_dip_equator = True, wind_directory = temp_dir)
-    coeffs = i2d.m_ind_history
+    i2d = run_pynamit(final_time = 0.1,
+                      dt = 5e-4,
+                      Nmax = 5,
+                      Mmax = 3,
+                      Ncs = 18,
+                      mainfield_kind = 'dipole',
+                      fig_directory = temp_dir,
+                      ignore_PFAC = False,
+                      connect_hemispheres = True,
+                      latitude_boundary = 50,
+                      zero_jr_at_dip_equator = True,
+                      wind_directory = temp_dir)
 
     # Assert
-    coeff_array = np.array(coeffs)
+    coeff_array = i2d.m_ind_history
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
-    actual_n_coeffs = len(coeffs)
+    actual_n_coeffs = coeff_array.shape[0]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)
