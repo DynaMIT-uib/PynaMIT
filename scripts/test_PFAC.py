@@ -18,6 +18,8 @@ reload(pynamit)
 RE = 6371.2e3
 RI = RE + 110e3
 
+result_filename_prefix = 'PFAC_test'
+
 # MODEL PARAMETERS
 Nmax, Mmax, Ncs = 25, 20, 30
 
@@ -32,7 +34,14 @@ Philevels = np.r_[-212.5:212.5:5]
 ## SET UP SIMULATION OBJECT
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
-i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = {'steps':np.logspace(np.log10(RI), np.log10(7 * RE), 11)}, ignore_PFAC = False)
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
+                  Nmax = Nmax,
+                  Mmax = Mmax,
+                  Ncs = Ncs,
+                  RI = RI,
+                  mainfield_kind = 'dipole',
+                  FAC_integration_steps = np.logspace(np.log10(RI), np.log10(7 * RE), 11),
+                  ignore_PFAC = False)
 
 ## CONDUCTANCE INPUT
 date = datetime.datetime(2001, 5, 12, 21, 45)

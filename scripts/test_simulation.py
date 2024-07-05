@@ -21,6 +21,8 @@ RI = (6371.2 + 110)*1e3
 dt = 5e-4
 totalsteps = 20001
 
+result_filename_prefix = 'simulation_test'
+
 ## PLOT PARAMETERS
 plotsteps = 200
 fig_directory = 'figs/'
@@ -33,7 +35,14 @@ Philevels = np.r_[-212.5:212.5:2.5]
 ## SET UP SIMULATION OBJECT
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
-i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', ignore_PFAC = IGNORE_PFAC, connect_hemispheres = CONNECT_HEMISPHERES)
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
+                  Nmax = Nmax,
+                  Mmax = Mmax,
+                  Ncs = Ncs,
+                  RI = RI,
+                  mainfield_kind = 'dipole',
+                  ignore_PFAC = IGNORE_PFAC,
+                  connect_hemispheres = CONNECT_HEMISPHERES)
 
 ## CONDUCTANCE INPUT
 date = datetime.datetime(2001, 5, 12, 21, 45)

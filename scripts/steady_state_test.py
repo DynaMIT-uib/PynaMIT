@@ -24,9 +24,19 @@ i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
 
-i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix, Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'igrf', FAC_integration_steps = rk,
-                                    ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary,
-                                    zero_jr_at_dip_equator = True, ih_constraint_scaling = 1e-5)
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
+                  Nmax = Nmax,
+                  Mmax = Mmax,
+                  Ncs = Ncs,
+                  RI = RI,
+                  mainfield_kind = 'igrf',
+                  FAC_integration_steps = rk,
+                  ignore_PFAC = False,
+                  connect_hemispheres = True,
+                  latitude_boundary = latitude_boundary,
+                  zero_jr_at_dip_equator = True,
+                  ih_constraint_scaling = 1e-5)
+
 print('made i2d object')
 
 ## CONDUCTANCE INPUT

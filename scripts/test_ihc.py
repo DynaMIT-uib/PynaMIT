@@ -20,6 +20,8 @@ RE = 6371.2e3
 RI = RE + 110e3
 latitude_boundary = 40
 
+result_filename_prefix = 'ihc_test'
+
 # MODEL PARAMETERS
 Nmax, Mmax, Ncs = 25, 15, 50
 print('we need a check that the poloidal field calculation is high enough resoultion compared ot SH ')
@@ -27,8 +29,6 @@ print('we need a check that the poloidal field calculation is high enough resoul
 
 rk = RI / np.cos(np.deg2rad(np.linspace(0, 70, int(360 / (Nmax  + .5)) + 1))) ** 2
 #rk = np.hstack((rk, np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)[5:] / RE))
-
-rk = {'steps':rk}
 
 
 # PARAMETERS FOR EMPIRICAL MODELS:
@@ -51,8 +51,16 @@ Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
 
-i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
-                                       ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
+                  Nmax = Nmax,
+                  Mmax = Mmax,
+                  Ncs = Ncs,
+                  RI = RI,
+                  mainfield_kind = 'dipole',
+                  FAC_integration_steps = rk,
+                  ignore_PFAC = False,
+                  connect_hemispheres = True,
+                  latitude_boundary = latitude_boundary)
 
 ## CONDUCTANCE INPUT
 conductance_lat = 90 - i2d_csp.arr_theta

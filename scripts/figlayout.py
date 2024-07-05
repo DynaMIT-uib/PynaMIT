@@ -18,10 +18,11 @@ latitude_boundary = 35
 
 WIND_FACTOR = 1 # scale wind by this factor
 
+result_filename_prefix = 'figlayout'
+
 Nmax, Mmax, Ncs = 14, 14, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0: 80: int(80 / Nmax)])) ** 2
 print(len(rk))
-rk = {'steps':rk}
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp   = 5
 d = dipole.Dipole(date.year)
@@ -30,8 +31,16 @@ noon_longitude = d.mlt2mlon(12, date) # noon longitude
 i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
-i2d = pynamit.I2D(Nmax = Nmax, Mmax = Mmax, Ncs = Ncs, RI = RI, mainfield_kind = 'dipole', FAC_integration_parameters = rk, 
-                                       ignore_PFAC = False, connect_hemispheres = True, latitude_boundary = latitude_boundary)
+i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
+                  Nmax = Nmax,
+                  Mmax = Mmax,
+                  Ncs = Ncs,
+                  RI = RI,
+                  mainfield_kind = 'dipole',
+                  FAC_integration_steps = rk,
+                  ignore_PFAC = False,
+                  connect_hemispheres = True,
+                  latitude_boundary = latitude_boundary)
 
 ## CONDUCTANCE INPUT
 conductance_lat = 90 - i2d_csp.arr_theta
