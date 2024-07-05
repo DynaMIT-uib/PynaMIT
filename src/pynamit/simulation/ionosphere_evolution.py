@@ -167,8 +167,7 @@ class I2D(object):
             self.state.impose_constraints()
 
             if count % history_update_interval == 0:
-                if not ((count == 0) & (t > 0)):
-                    self.update_state_history()
+                self.update_state_history()
                 if (count % (history_update_interval * history_save_interval) == 0):
                     self.save_histories()
                     if quiet:

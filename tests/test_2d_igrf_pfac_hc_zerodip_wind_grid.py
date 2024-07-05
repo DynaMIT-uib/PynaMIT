@@ -40,7 +40,7 @@ def test_2d_igrf_pfac_hc_zerodip_wind_grid():
                       vector_u = False)
 
     # Assert
-    coeff_array = i2d.m_ind_history
+    coeff_array = i2d.m_ind_history[1:]
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

@@ -26,7 +26,7 @@ def test_2d_dipole():
                       fig_directory = temp_dir)
 
     # Assert
-    coeff_array = i2d.m_ind_history
+    coeff_array = i2d.m_ind_history[1:]
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
