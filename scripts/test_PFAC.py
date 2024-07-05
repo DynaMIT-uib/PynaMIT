@@ -32,7 +32,6 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   Nmax = Nmax,
@@ -71,6 +70,7 @@ i2d.state.impose_constraints()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat = lat, lon = lon)
+i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d.state.m_ind_to_Br / i2d.state.RI)

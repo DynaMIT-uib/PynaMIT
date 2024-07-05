@@ -37,7 +37,6 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 
-i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
 
@@ -94,6 +93,7 @@ i2d.state.impose_constraints()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat = lat, lon = lon)
+i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
 
 GBr = plt_i2d_evaluator.scaled_G(i2d_sh.n / RI)

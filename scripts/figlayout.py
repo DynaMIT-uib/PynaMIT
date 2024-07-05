@@ -28,7 +28,6 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 
-i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
@@ -99,7 +98,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat = lat, lon = lon)
-    plt_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, plt_grid)
+    plt_i2d_evaluator = pynamit.BasisEvaluator(pynamit.SHBasis(Nmax, Mmax), plt_grid)
     plt_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
 
     ## CALCULATE VALUES TO PLOT

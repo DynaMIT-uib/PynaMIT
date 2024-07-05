@@ -20,7 +20,6 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
-i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
 
@@ -86,7 +85,7 @@ m_ind_ss = i2d.steady_state_m_ind()
 #curlE_SH_coeffs = -i2d.state.EW.coeffs * i2d.state.EW_to_dBr_dt
 
 #csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
-#csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
+#csp_i2d_evaluator = pynamit.BasisEvaluator(pynamit.SHBasis(Nmax, Mmax), csp_grid)
 #curl_E_SH = csp_i2d_evaluator.basis_to_grid(curlE_SH_coeffs)
 
 #GVJ = i2d.state.G_m_ind_to_JS

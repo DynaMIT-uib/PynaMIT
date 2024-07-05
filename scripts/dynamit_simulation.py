@@ -24,7 +24,6 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
-i2d_sh = pynamit.SHBasis(Nmax, Mmax)
 i2d_csp = pynamit.CSProjection(Ncs)
 
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
