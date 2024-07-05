@@ -85,9 +85,8 @@ if SIMULATE_DYNAMIC_RESPONSE:
     plt.close()
 
 
-    # manipulate GTB to remove the r x grad(T) part:@
-    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, i2d.num_grid)
-    GrxgradT = -csp_i2d_evaluator.Gdf * RI
+    # manipulate GTB to remove the r x grad(T) part:
+    GrxgradT = -i2d.basis_evaluator.Gdf * RI
     i2d.state.GTB = i2d.state.GTB - GrxgradT # subtract GrxgradT off
 
 

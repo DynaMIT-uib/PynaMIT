@@ -82,8 +82,7 @@ m_ind_ss = i2d.steady_state_m_ind()
 #i2d.state.update_Phi_and_EW()
 #curlE_SH_coeffs = -i2d.state.EW.coeffs * i2d.state.EW_to_dBr_dt
 
-#csp_i2d_evaluator = pynamit.BasisEvaluator(pynamit.SHBasis(Nmax, Mmax), i2d.num_grid)
-#curl_E_SH = csp_i2d_evaluator.basis_to_grid(curlE_SH_coeffs)
+#curl_E_SH = i2d.basis_evaluator.basis_to_grid(curlE_SH_coeffs)
 
 #GVJ = i2d.state.G_m_ind_to_JS
 #GTJ = i2d.state.G_m_imp_to_JS

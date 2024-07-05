@@ -103,9 +103,8 @@ if PLOT_WIND:
     u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u[0])
     u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u[1])
 
-    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, i2d.num_grid)
-    u_theta_int = u_theta_sh.to_grid(csp_i2d_evaluator)
-    u_phi_int   = u_phi_sh.to_grid(csp_i2d_evaluator)
+    u_theta_int = u_theta_sh.to_grid(i2d.basis_evaluator)
+    u_phi_int   = u_phi_sh.to_grid(i2d.basis_evaluator)
 
     fig, ax = plt.subplots(figsize=(10, 7),
                            subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})

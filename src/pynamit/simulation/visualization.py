@@ -153,8 +153,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     FAC = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr) / plt_b_evaluator.br
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
-    csp_i2d_evaluator = BasisEvaluator(i2d.state.basis, i2d.state.num_grid)
-    jr_mod =  csp_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
+    jr_mod =  i2d.basis_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
