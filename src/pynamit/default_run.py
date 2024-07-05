@@ -1,4 +1,4 @@
-def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, vector_FAC = True, vector_conductance = True, vector_u = True):
+def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, vector_FAC = True, vector_conductance = True, vector_u = True):
     """ Run the pynamit simulation with the given parameters. """
 
     import os
@@ -71,6 +71,6 @@ def run_pynamit(totalsteps = 200000, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax
 
         i2d.set_u(u, lat = u_lat, lon = u_lon)
 
-    i2d.evolve_to_time(t = (totalsteps + 2) * dt, dt = dt, history_update_interval = 1, history_save_interval = plotsteps)
+    i2d.evolve_to_time(t = final_time + 2 * dt, dt = dt, history_update_interval = 1, history_save_interval = plotsteps)
 
     return i2d

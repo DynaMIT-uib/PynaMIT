@@ -17,7 +17,7 @@ def test_2d_dipole_pfac():
         os.mkdir(temp_dir)  
 
     # Act
-    i2d = run_pynamit(totalsteps=200, dt=5e-4, Nmax=5, Mmax=3, Ncs=30, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False)
+    i2d = run_pynamit(final_time = 0.1, dt=5e-4, Nmax=5, Mmax=3, Ncs=30, mainfield_kind='dipole', fig_directory=temp_dir, ignore_PFAC=False)
     coeffs = i2d.m_ind_history
 
     # Assert
