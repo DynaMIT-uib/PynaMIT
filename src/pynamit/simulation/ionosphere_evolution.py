@@ -364,13 +364,13 @@ class I2D(object):
         """ Add current FAC to FAC history """
 
         if not self.FAC_history_exists:
-            self.Jr_history_times = np.array([self.latest_time])
-            self.Jr_history       = np.array(self.state.Jr.coeffs, dtype = np.float64).reshape((1, -1))
+            self.FAC_history_times = np.array([self.latest_time])
+            self.Jr_history        = np.array(self.state.Jr.coeffs, dtype = np.float64).reshape((1, -1))
 
             self.FAC_history_exists = True
         else:
-            self.Jr_history_times = np.append(self.Jr_history_times, self.latest_time)
-            self.Jr_history       = np.vstack((self.Jr_history, self.state.Jr.coeffs))
+            self.FAC_history_times = np.append(self.FAC_history_times, self.latest_time)
+            self.Jr_history        = np.vstack((self.Jr_history, self.state.Jr.coeffs))
 
         self.save_FAC_history = True
 
@@ -431,7 +431,7 @@ class I2D(object):
             self.save_state_history = False
 
         if self.save_FAC_history:
-            FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr.basis.num_coeffs)})
+            FAC_dataset = xr.Dataset(coords = {'time': self.FAC_history_times, 'i': range(self.state.Jr.basis.num_coeffs)})
             FAC_dataset['SH_Jr_n']      = xr.DataArray(self.state.Jr.basis.n, dims = ['i'])
             FAC_dataset['SH_Jr_m']      = xr.DataArray(self.state.Jr.basis.m, dims = ['i'])
             FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history,       dims = ['time', 'i'])
@@ -486,9 +486,9 @@ class I2D(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
             FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
             self.Jr_history        = FAC_dataset['SH_Jr_coeffs'].values
-            self.Jr_history_times = FAC_dataset.time.values
+            self.FAC_history_times = FAC_dataset.time.values
 
-            self.FAC_time = self.Jr_history_times[-1]
+            self.FAC_time = self.FAC_history_times[-1]
             self.FAC_history_exists = True
 
             Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
