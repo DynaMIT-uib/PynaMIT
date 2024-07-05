@@ -96,7 +96,7 @@ class I2D(object):
         # Overwrite settings with any settings existing on file
         settings_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_settings.ncdf')
         if settings_on_file:
-            settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf')
+            settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf').attrs
 
         # Load PFAC matrix if it exists on file
         PFAC_matrix_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_PFAC_matrix.ncdf')
