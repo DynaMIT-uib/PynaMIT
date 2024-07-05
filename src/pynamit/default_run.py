@@ -10,7 +10,6 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     import pyamps
     #import pyhwm2014 # https://github.com/rilma/pyHWM14
 
-    from pynamit.cubed_sphere import cubed_sphere
     from pynamit.simulation.ionosphere_evolution import I2D
     from pynamit.primitives.grid import Grid
     from pynamit.primitives.field_evaluator import FieldEvaluator
