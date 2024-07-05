@@ -157,23 +157,27 @@ class I2D(object):
 
         """
 
+        # Skip the first update if the state has been evolved before (previous endpoint has been accounted for)
+        skip_first_update = (self.latest_time > np.float64(0))
+ 
         count = 0
         while True:
+            if not (count == 0 and skip_first_update):
+                self.update_FAC()
+                self.update_conductance()
+                self.update_u()
 
-            self.update_FAC()
-            self.update_conductance()
-            self.update_u()
+                self.state.impose_constraints()
 
-            self.state.impose_constraints()
-
-            if count % history_update_interval == 0:
-                self.update_state_history()
-                if (count % (history_update_interval * history_save_interval) == 0):
-                    self.save_histories()
-                    if quiet:
-                        pass
-                    else:
-                        print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
+                # Update state history and save if appropriate
+                if count % history_update_interval == 0:
+                    self.update_state_history()
+                    if (count % (history_update_interval * history_save_interval) == 0):
+                        self.save_histories()
+                        if quiet:
+                            pass
+                        else:
+                            print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
 
             next_time = self.latest_time + dt
 

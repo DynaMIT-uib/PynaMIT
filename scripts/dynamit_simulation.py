@@ -14,7 +14,7 @@ latitude_boundary = 40
 WIND_FACTOR = 1 # scale wind by this factor
 
 result_filename_prefix = 'aurora2'
-Nmax, Mmax, Ncs = 60, 60, 70
+Nmax, Mmax, Ncs = 10, 10, 10
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
