@@ -96,7 +96,8 @@ class I2D(object):
         file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
 
         if file_loading: # override input and load parameters from file:
-            settings, PFAC_matrix = self.load_save_file()
+            settings = self.load_settings()
+            PFAC_matrix = self.load_PFAC_matrix()
 
         self.RI = settings['RI']
 
@@ -136,7 +137,9 @@ class I2D(object):
             if self.result_filename_prefix is None:
                 self.result_filename_prefix = 'tmp'
 
-            self.create_save_file(settings, self.state, result_filename_prefix = self.result_filename_prefix)
+            self.save_settings(settings, result_filename_prefix = self.result_filename_prefix)
+            self.save_PFAC_matrix(self.state, result_filename_prefix = self.result_filename_prefix)
+
         else: # load 
             self.load_histories()
 
@@ -408,48 +411,40 @@ class I2D(object):
         self.save_u_history = True
 
 
-    def create_save_file(self, settings, state, result_filename_prefix):
-        """ Initialize save file """
+    def save_settings(self, settings, result_filename_prefix):
+        """ Save settings to file """
 
         self.dataset = xr.Dataset()
         self.dataset.attrs.update(settings)
+        self.dataset.to_netcdf(result_filename_prefix + '_settings.ncdf')
 
-        PFAC_matrix = state.m_imp_to_B_pol
-
-        self.dataset.attrs.update({'PFAC_matrix':PFAC_matrix.flatten()})
-
-        self.dataset['n'] = xr.DataArray(state.basis.n, coords = {'i': range(state.basis.num_coeffs)}, dims = ['i'], name = 'n')
-        self.dataset['m'] = xr.DataArray(state.basis.m, coords = {'i': range(state.basis.num_coeffs)}, dims = ['i'], name = 'm')
-
-        self.dataset.to_netcdf(result_filename_prefix + '.ncdf')
-        print('Created {}'.format(result_filename_prefix))
+        print('Saved settings to {}_settings.ncdf'.format(result_filename_prefix))
 
 
-    def load_save_file(self):
-        self.dataset = xr.load_dataset(self.result_filename_prefix + '.ncdf')
+    def save_PFAC_matrix(self, state, result_filename_prefix):
+        """ Save PFAC matrix to file """
 
-        settings = {}
-        settings['Ncs']                    = self.dataset.Ncs
-        settings['Nmax']                   = self.dataset.Nmax
-        settings['Mmax']                   = self.dataset.Mmax
-        settings['FAC_integration_steps']  = self.dataset.FAC_integration_steps
-        settings['zero_jr_at_dip_equator'] = self.dataset.zero_jr_at_dip_equator
-        settings['connect_hemispheres']    = self.dataset.connect_hemispheres
-        settings['ignore_PFAC']            = self.dataset.ignore_PFAC
-        settings['latitude_boundary']      = self.dataset.latitude_boundary
-        settings['ih_constraint_scaling']  = self.dataset.ih_constraint_scaling
-        settings['RI']                     = self.dataset.RI
-        settings['mainfield_kind']         = self.dataset.mainfield_kind
-        settings['mainfield_epoch']        = self.dataset.mainfield_epoch
-        settings['mainfield_B0']           = self.dataset.mainfield_B0
-        settings['vector_FAC']             = self.dataset.vector_FAC
-        settings['vector_conductance']     = self.dataset.vector_conductance
-        settings['vector_u']               = self.dataset.vector_u
+        self.dataset = xr.Dataset(coords = {'i': range(state.m_imp_to_B_pol.shape[0]), 'j': range(state.m_imp_to_B_pol.shape[1])})
+        self.dataset['PFAC_matrix'] = xr.DataArray(state.m_imp_to_B_pol, dims = ['i', 'j'])
+        self.dataset.to_netcdf(result_filename_prefix + '_PFAC_matrix.ncdf')
 
-        shape = (self.dataset.i.size, self.dataset.i.size)
-        PFAC_matrix = self.dataset.PFAC_matrix.reshape( shape )
+        print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(result_filename_prefix))
 
-        return settings, PFAC_matrix
+
+    def load_settings(self):
+        """ Load settings from file """
+
+        settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf')
+        return settings
+
+
+    def load_PFAC_matrix(self):
+        """ Load PFAC matrix from file """
+
+        self.dataset = xr.load_dataset(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+        PFAC_matrix = self.dataset.PFAC_matrix.values
+
+        return PFAC_matrix
 
 
     def save_histories(self):

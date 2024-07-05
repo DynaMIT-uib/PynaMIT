@@ -102,7 +102,7 @@ eP, eH = i2d.state.etaP, i2d.state.etaH
 #GcCGTJ = Dc.dot(C).dot(GTJ)
 #
 #import xarray as xr
-#m_imp = xr.load_dataset(result_filename_prefix).SH_coefficients_imposed.values[0]
+#m_imp = xr.load_dataset(result_filename_prefix).SH_m_imp.values[0]
 #m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
 
 # calculate electric field with steady-state coefficients:

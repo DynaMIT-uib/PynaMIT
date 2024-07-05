@@ -34,7 +34,7 @@ class PynamEye(object):
         """
 
         keys = ['settings', 'FAC', 'conductance', 'state', 'u']
-        filename_suffix = dict(zip(keys, ['', '_FAC', '_conductance', '_state', '_u']))
+        filename_suffix = dict(zip(keys, ['_settings', '_FAC', '_conductance', '_state', '_u']))
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -93,7 +93,7 @@ class PynamEye(object):
         self.B_parameters_calculated = False
 
         # conversion factors for electromagnetic quantities:
-        n = settings.n.values
+        n = self.basis.n
         self.m_ind_to_Br  = -n
         self.laplacian    = -n * (n + 1) / self.RI**2
         self.m_imp_to_Jr  =  self.laplacian * self.RI / mu0
