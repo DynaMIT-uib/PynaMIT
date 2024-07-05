@@ -177,7 +177,7 @@ class I2D(object):
 
             next_time = self.latest_time + dt
 
-            if next_time > t:
+            if next_time > t + dt / 2: # with safety margin to avoid floating point errors
                 break
 
             self.state.evolve_Br(dt)
