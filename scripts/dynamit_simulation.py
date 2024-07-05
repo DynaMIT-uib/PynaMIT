@@ -59,8 +59,8 @@ mlt = d.mlon2mlt(mlon, date)
 _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
 
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
-jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / csp_b_evaluator.br * 1e-6
+FAC_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
+jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / FAC_b_evaluator.br * 1e-6
 jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
 i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 

@@ -56,8 +56,8 @@ i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon
 FAC_lat = i2d.num_grid.lat
 FAC_lon = i2d.num_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
-jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
+FAC_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
+jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / FAC_b_evaluator.br * 1e-6
 jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
 i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 
@@ -136,11 +136,11 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 if COMPARE_TO_SECS:
     print('Building SECS matrices. This takes some time (and memory) because of global grids...')
-    secsI = -jparallel * csp_b_evaluator.br * i2d.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
+    secsI = -jparallel * FAC_b_evaluator.br * i2d.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = i2d.num_grid.lat, i2d.num_grid.lon
-    Be, Bn, Br = csp_b_evaluator.bphi, - csp_b_evaluator.btheta, csp_b_evaluator.br
+    Be, Bn, Br = FAC_b_evaluator.bphi, - FAC_b_evaluator.btheta, FAC_b_evaluator.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)
 
 

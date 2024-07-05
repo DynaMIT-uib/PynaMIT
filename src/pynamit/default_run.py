@@ -48,8 +48,8 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     FAC_lon = i2d.num_grid.lon
     d = dipole.Dipole(date.year)
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-    csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, Grid(lat = FAC_lat, lon = FAC_lon), RI)
-    jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
+    FAC_b_evaluator = FieldEvaluator(i2d.state.mainfield, Grid(lat = FAC_lat, lon = FAC_lon), RI)
+    jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / FAC_b_evaluator.br * 1e-6
     jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
     i2d.set_FAC(jparallel, lat = conductance_lat, lon = conductance_lon)
 
