@@ -51,8 +51,9 @@ class PynamEye(object):
         self.RI = settings.RI
 
         # Define mainfield:
-        B0_params = {'epoch':settings.mainfield_epoch, 'hI':(settings.RI - RE) * 1e-3}
-        self.mainfield = Mainfield(kind = settings.mainfield_kind, **B0_params)
+        self.mainfield = Mainfield(kind = settings.mainfield_kind,
+                                   epoch = settings.mainfield_epoch,
+                                   hI = (settings.RI - RE) * 1e-3)
 
         # Define t0 and set up dipole objct
         self.t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")

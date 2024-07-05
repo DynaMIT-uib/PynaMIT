@@ -23,7 +23,8 @@ class I2D(object):
                  Ncs = 30,
                  RI = RE + 110.e3,
                  mainfield_kind = 'dipole',
-                 B0_parameters = {'epoch':2020, 'B0':None},
+                 mainfield_epoch = 2020,
+                 mainfield_B0 = None,
                  FAC_integration_steps = np.logspace(np.log10(RE + 110.e3), np.log10(4 * RE), 11),
                  ignore_PFAC = False,
                  connect_hemispheres = False,
@@ -72,8 +73,8 @@ class I2D(object):
         settings['FAC_integration_steps']  = FAC_integration_steps
         settings['ih_constraint_scaling']  = ih_constraint_scaling
         settings['mainfield_kind']         = mainfield_kind
-        settings['mainfield_epoch']        = B0_parameters['epoch']
-        settings['mainfield_B0']           = 0 if B0_parameters['B0'] is None else B0_parameters['B0']
+        settings['mainfield_epoch']        = mainfield_epoch
+        settings['mainfield_B0']           = 0 if mainfield_B0 is None else mainfield_B0
         settings['vector_FAC']             = int(vector_FAC)
         settings['vector_conductance']     = int(vector_conductance)
         settings['vector_u']               = int(vector_u)
@@ -99,11 +100,10 @@ class I2D(object):
 
         self.RI = settings['RI']
 
-        B0_parameters = {'epoch': settings['mainfield_epoch'],
-                         'B0': settings['mainfield_B0'],
-                         'hI': (settings['RI'] - RE) * 1e-3}
-
-        mainfield = Mainfield(kind = settings['mainfield_kind'], **B0_parameters)
+        mainfield = Mainfield(kind = settings['mainfield_kind'],
+                              epoch = settings['mainfield_epoch'],
+                              hI = (settings['RI'] - RE) * 1e-3,
+                              B0 = None if settings['mainfield_B0'] == 0 else settings['mainfield_B0'])
 
         self.vector_FAC         = bool(settings['vector_FAC'])
         self.vector_conductance = bool(settings['vector_conductance'])
