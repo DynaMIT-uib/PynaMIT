@@ -144,8 +144,7 @@ class I2D(object):
 
         # Save settings if they do not exist on file
         if not settings_on_file:
-            settings_dataset = xr.Dataset()
-            settings_dataset.attrs.update(settings)
+            settings_dataset = xr.Dataset(attrs = settings)
             settings_dataset.to_netcdf(self.result_filename_prefix + '_settings.ncdf')
             print('Saved settings to {}_settings.ncdf'.format(self.result_filename_prefix))
 
