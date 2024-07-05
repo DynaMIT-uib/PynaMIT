@@ -485,10 +485,10 @@ class I2D(object):
         # Load FAC history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
             FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
+
             self.Jr_history        = FAC_dataset['SH_Jr_coeffs'].values
             self.FAC_history_times = FAC_dataset.time.values
 
-            self.FAC_time = self.FAC_history_times[-1]
             self.FAC_history_exists = True
 
             Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
@@ -497,11 +497,11 @@ class I2D(object):
         # Load conductance history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
             conductance_dataset = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
+
             self.etaP_history              = conductance_dataset['SH_etaP_coeffs'].values
             self.etaH_history              = conductance_dataset['SH_etaH_coeffs'].values
             self.conductance_history_times = conductance_dataset.time.values
 
-            self.conductance_time = self.conductance_history_times[-1]
             self.conductance_history_exists = True
 
             etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaP_history[-1])
@@ -511,11 +511,11 @@ class I2D(object):
         # Load neutral wind history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
             u_dataset = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
-            self.u_cf_history     = u_dataset['SH_u_cf_coeffs'].values
-            self.u_df_history     = u_dataset['SH_u_df_coeffs'].values
+
+            self.u_cf_history    = u_dataset['SH_u_cf_coeffs'].values
+            self.u_df_history    = u_dataset['SH_u_df_coeffs'].values
             self.u_history_times = u_dataset.time.values
 
-            self.u_time = self.u_history_times[-1]
             self.u_history_exists = True
 
             u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_cf_history[-1], self.u_df_history[-1])), helmholtz = True)
