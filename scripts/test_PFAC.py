@@ -32,7 +32,6 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-i2d_csp = pynamit.CSProjection(Ncs)
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   Nmax = Nmax,
                   Mmax = Mmax,
@@ -48,14 +47,14 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 
-conductance_lat = 90 - i2d_csp.arr_theta
-conductance_lon = i2d_csp.arr_phi
+conductance_lat = i2d.num_grid.lat
+conductance_lon = i2d.num_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
 i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## FAC INPUT
-FAC_lat = 90 - i2d_csp.arr_theta
-FAC_lon = i2d_csp.arr_phi
+FAC_lat = i2d.num_grid.lat
+FAC_lon = i2d.num_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
 jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
@@ -87,7 +86,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 
     # manipulate GTB to remove the r x grad(T) part:@
-    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi))
+    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, i2d.num_grid)
     GrxgradT = -csp_i2d_evaluator.Gdf * RI
     i2d.state.GTB = i2d.state.GTB - GrxgradT # subtract GrxgradT off
 
@@ -137,10 +136,10 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 if COMPARE_TO_SECS:
     print('Building SECS matrices. This takes some time (and memory) because of global grids...')
-    secsI = -jparallel * csp_b_evaluator.br * i2d_csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
+    secsI = -jparallel * csp_b_evaluator.br * i2d.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
-    lat_secs, lon_secs = 90 - i2d_csp.arr_theta, i2d_csp.arr_phi
+    lat_secs, lon_secs = i2d.num_grid.lat, i2d.num_grid.lon
     Be, Bn, Br = csp_b_evaluator.bphi, - csp_b_evaluator.btheta, csp_b_evaluator.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)
 

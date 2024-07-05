@@ -24,8 +24,7 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
-i2d_csp = pynamit.CSProjection(Ncs)
-
+## SET UP SIMULATION OBJECT
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   Nmax = Nmax,
                   Mmax = Mmax,
@@ -41,8 +40,8 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   t0 = str(date))
 
 ## CONDUCTANCE INPUT
-conductance_lat = 90 - i2d_csp.arr_theta
-conductance_lon = i2d_csp.arr_phi
+conductance_lat = i2d.num_grid.lat
+conductance_lon = i2d.num_grid.lon
 sza = conductance.sunlight.sza(conductance_lat, conductance_lon, date, degrees=True)
 hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
 hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
@@ -51,8 +50,8 @@ i2d.set_conductance(hall_EUV, pedersen_EUV, lat = conductance_lat, lon = conduct
 print('updated_conductance at t=0')
 
 ## FAC INPUT
-FAC_lat = 90 - i2d_csp.arr_theta
-FAC_lon = i2d_csp.arr_phi
+FAC_lat = i2d.num_grid.lat
+FAC_lon = i2d.num_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(FAC_lat, FAC_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)

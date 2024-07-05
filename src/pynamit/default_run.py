@@ -36,19 +36,16 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
 
-    # Define CS grid used for conductance and FAC input
-    csp = cubed_sphere.CSProjection(Ncs) # cubed sphere projection object
-
     ## CONDUCTANCE INPUT
-    conductance_lat = 90 - csp.arr_theta
-    conductance_lon = csp.arr_phi
+    conductance_lat = i2d.num_grid.lat
+    conductance_lon = i2d.num_grid.lon
     Kp = 5
     hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
     i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
     ## FAC INPUT
-    FAC_lat = 90 - csp.arr_theta
-    FAC_lon = csp.arr_phi
+    FAC_lat = i2d.num_grid.lat
+    FAC_lon = i2d.num_grid.lon
     d = dipole.Dipole(date.year)
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     csp_b_evaluator = FieldEvaluator(i2d.state.mainfield, Grid(lat = FAC_lat, lon = FAC_lon), RI)

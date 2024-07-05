@@ -37,8 +37,6 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 
-i2d_csp = pynamit.CSProjection(Ncs)
-
 
 ## PLOT PARAMETERS
 fig_directory = 'figs/'
@@ -49,7 +47,6 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   Nmax = Nmax,
                   Mmax = Mmax,
@@ -62,14 +59,14 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   latitude_boundary = latitude_boundary)
 
 ## CONDUCTANCE INPUT
-conductance_lat = 90 - i2d_csp.arr_theta
-conductance_lon = i2d_csp.arr_phi
+conductance_lat = i2d.num_grid.lat
+conductance_lon = i2d.num_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
 i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## FAC INPUT
-FAC_lat = 90 - i2d_csp.arr_theta
-FAC_lon = i2d_csp.arr_phi
+FAC_lat = i2d.num_grid.lat
+FAC_lon = i2d.num_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
 jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6
@@ -106,8 +103,7 @@ if PLOT_WIND:
     u_theta_sh = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u[0])
     u_phi_sh   = pynamit.Vector(i2d_sh, basis_evaluator = u_basis_evaluator, grid_values = u[1])
 
-    csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
-    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, csp_grid)
+    csp_i2d_evaluator = pynamit.BasisEvaluator(i2d_sh, i2d.num_grid)
     u_theta_int = u_theta_sh.to_grid(csp_i2d_evaluator)
     u_phi_int   = u_phi_sh.to_grid(csp_i2d_evaluator)
 
@@ -115,7 +111,7 @@ if PLOT_WIND:
                            subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
     ax.coastlines()
     Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u[1].flatten(), -u[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-    ax.quiver(csp_grid.lon, csp_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
+    ax.quiver(i2d.num_grid.lon, i2d.num_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
 if SIMULATE:

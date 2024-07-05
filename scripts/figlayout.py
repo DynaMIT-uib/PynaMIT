@@ -28,8 +28,7 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 
-i2d_csp = pynamit.CSProjection(Ncs)
-
+## SET UP SIMULATION OBJECT
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   Nmax = Nmax,
                   Mmax = Mmax,
@@ -42,14 +41,14 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   latitude_boundary = latitude_boundary)
 
 ## CONDUCTANCE INPUT
-conductance_lat = 90 - i2d_csp.arr_theta
-conductance_lon = i2d_csp.arr_phi
+conductance_lat = i2d.num_grid.lat
+conductance_lon = i2d.num_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
 i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## FAC INPUT
-FAC_lat = 90 - i2d_csp.arr_theta
-FAC_lon = i2d_csp.arr_phi
+FAC_lat = i2d.num_grid.lat
+FAC_lon = i2d.num_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 csp_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
 jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / csp_b_evaluator.br * 1e-6

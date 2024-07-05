@@ -20,9 +20,7 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
-i2d_csp = pynamit.CSProjection(Ncs)
-
-
+## SET UP SIMULATION OBJECT
 i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   Nmax = Nmax,
                   Mmax = Mmax,
@@ -39,14 +37,14 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
 print('made i2d object')
 
 ## CONDUCTANCE INPUT
-conductance_lat = 90 - i2d_csp.arr_theta
-conductance_lon = i2d_csp.arr_phi
+conductance_lat = i2d.num_grid.lat
+conductance_lon = i2d.num_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = False)
 i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## FAC INPUT
-FAC_lat = 90 - i2d_csp.arr_theta
-FAC_lon = i2d_csp.arr_phi
+FAC_lat = i2d.num_grid.lat
+FAC_lon = i2d.num_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(FAC_lat, FAC_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
@@ -84,8 +82,7 @@ m_ind_ss = i2d.steady_state_m_ind()
 #i2d.state.update_Phi_and_EW()
 #curlE_SH_coeffs = -i2d.state.EW.coeffs * i2d.state.EW_to_dBr_dt
 
-#csp_grid = pynamit.Grid(theta = i2d_csp.arr_theta, phi = i2d_csp.arr_phi)
-#csp_i2d_evaluator = pynamit.BasisEvaluator(pynamit.SHBasis(Nmax, Mmax), csp_grid)
+#csp_i2d_evaluator = pynamit.BasisEvaluator(pynamit.SHBasis(Nmax, Mmax), i2d.num_grid)
 #curl_E_SH = csp_i2d_evaluator.basis_to_grid(curlE_SH_coeffs)
 
 #GVJ = i2d.state.G_m_ind_to_JS
@@ -124,8 +121,8 @@ E_cf_coeff, E_df_coeff = i2d.state.basis_evaluator.grid_to_basis((Eth, Eph), hel
 
 #import matplotlib.pyplot as plt
 #fig, axes = plt.subplots(nrows = 2)
-#axes[0].scatter(csp_grid.lon, csp_grid.lat, c = curl_E_num)
-#axes[1].scatter(csp_grid.lon, csp_grid.lat, c = curl_E_SH)
+#axes[0].scatter(i2d.num_grid.lon, i2d.num_grid.lat, c = curl_E_num)
+#axes[1].scatter(i2d.num_grid.lon, i2d.num_grid.lat, c = curl_E_SH)
 #plt.show()
 #
 
