@@ -268,73 +268,70 @@ class I2D(object):
     def update_FAC(self):
         """ Update FAC """
 
-        if hasattr(self, 'FAC_time') and self.next_FAC < self.FAC_time.size:
-            if self.latest_time >= self.FAC_time[self.next_FAC]:
-                # Represent as values on num_grid
-                Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
+        if hasattr(self, 'next_FAC') and self.next_FAC < self.FAC_time.size and self.latest_time >= self.FAC_time[self.next_FAC]:
+            # Represent as values on num_grid
+            Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
 
-                # Extract the radial component of the FAC and set the corresponding basis coefficients
-                if self.vector_FAC:
-                    Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
-                else:
-                    Jr = Jpar_int * self.b_evaluator.br
+            # Extract the radial component of the FAC and set the corresponding basis coefficients
+            if self.vector_FAC:
+                Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
+            else:
+                Jr = Jpar_int * self.b_evaluator.br
 
-                self.state.set_FAC(Jr, self.vector_FAC)
-                self.update_FAC_history()
+            self.state.set_FAC(Jr, self.vector_FAC)
+            self.update_FAC_history()
 
-                self.next_FAC += 1
+            self.next_FAC += 1
 
 
     def update_conductance(self):
         """ Update conductance """
 
-        if hasattr(self, 'conductance_time') and self.next_conductance < self.conductance_time.size:
-            if self.latest_time >= self.conductance_time[self.next_conductance]:
-                # Check if Pedersen and Hall conductances are positive
-                if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
-                    raise ValueError('Conductances have to be positive')
+        if hasattr(self, 'next_conductance') and self.next_conductance < self.conductance_time.size and self.latest_time >= self.conductance_time[self.next_conductance]:
+            # Check if Pedersen and Hall conductances are positive
+            if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
+                raise ValueError('Conductances have to be positive')
 
-                # Transform to resistivities
-                etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
-                etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+            # Transform to resistivities
+            etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
+            etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
 
-                # Represent as values on num_grid
-                etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
-                etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            # Represent as values on num_grid
+            etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
 
-                if self.vector_conductance:
-                    # Represent as expansion in spherical harmonics
-                    etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
-                    etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
-                else:
-                    etaP = etaP_int
-                    etaH = etaH_int
+            if self.vector_conductance:
+                # Represent as expansion in spherical harmonics
+                etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
+                etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
+            else:
+                etaP = etaP_int
+                etaH = etaH_int
 
-                self.state.set_conductance(etaP, etaH, self.vector_conductance)
-                self.update_conductance_history()
+            self.state.set_conductance(etaP, etaH, self.vector_conductance)
+            self.update_conductance_history()
 
-                self.next_conductance += 1
+            self.next_conductance += 1
 
 
     def update_u(self):
         """ Update neutral wind """
 
-        if hasattr(self, 'u_time') and self.next_u < self.u_time.size:
-            if self.latest_time >= self.u_time[self.next_u]:
-                # Represent as values on num_grid
-                u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
-                u_int_theta, u_int_phi = -u_int[1], u_int[0]
+        if hasattr(self, 'next_u') and self.next_u < self.u_time.size and self.latest_time >= self.u_time[self.next_u]:
+            # Represent as values on num_grid
+            u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
-                if self.vector_u:
-                    # Represent as expansion in spherical harmonics
-                    u = Vector(self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
-                else:
-                    u = (u_int_theta, u_int_phi)
+            if self.vector_u:
+                # Represent as expansion in spherical harmonics
+                u = Vector(self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+            else:
+                u = (u_int_theta, u_int_phi)
 
-                self.state.set_u(u, self.vector_u)
-                self.update_u_history()
+            self.state.set_u(u, self.vector_u)
+            self.update_u_history()
 
-                self.next_u += 1
+            self.next_u += 1
 
 
     def update_state_history(self):
@@ -476,9 +473,9 @@ class I2D(object):
             self.W_history           = state_dataset['SH_W_coeffs']    .values
             self.state_history_times = state_dataset.time.values
 
-            self.latest_time = self.state_history_times[-1]
             self.state_history_exists = True
 
+            self.latest_time = self.state_history_times[-1]
             self.state.set_coeffs(m_ind = self.m_ind_history[-1])
             self.state.set_coeffs(m_imp = self.m_imp_history[-1])
 
