@@ -93,11 +93,16 @@ class I2D(object):
 
         self.latest_time = np.float64(0)
 
-        file_loading = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '.ncdf')
+        # Overwrite settings with any settings existing on file
+        settings_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_settings.ncdf')
+        if settings_on_file:
+            settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf')
 
-        if file_loading: # override input and load parameters from file:
-            settings = self.load_settings()
-            PFAC_matrix = self.load_PFAC_matrix()
+        # Load PFAC matrix if it exists on file
+        PFAC_matrix_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+        if PFAC_matrix_on_file:
+            PFAC_matrix_dataset = xr.load_dataset(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+            PFAC_matrix = PFAC_matrix_dataset.PFAC_matrix.values
 
         self.RI = settings['RI']
 
@@ -132,30 +137,24 @@ class I2D(object):
                            settings,
                            PFAC_matrix = PFAC_matrix)
 
+        self.load_histories()
 
-        if not file_loading:
-            if self.result_filename_prefix is None:
-                self.result_filename_prefix = 'tmp'
+        if self.result_filename_prefix is None:
+            self.result_filename_prefix = 'tmp'
 
-            self.save_settings(settings, result_filename_prefix = self.result_filename_prefix)
-            self.save_PFAC_matrix(self.state, result_filename_prefix = self.result_filename_prefix)
+        # Save settings if they do not exist on file
+        if not settings_on_file:
+            settings_dataset = xr.Dataset()
+            settings_dataset.attrs.update(settings)
+            settings_dataset.to_netcdf(self.result_filename_prefix + '_settings.ncdf')
+            print('Saved settings to {}_settings.ncdf'.format(self.result_filename_prefix))
 
-        else: # load 
-            self.load_histories()
-
-            Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
-
-            etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaP_history[-1])
-            etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaH_history[-1])
-
-            u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_cf_history[-1], self.u_df_history[-1])), helmholtz = True)
-
-            self.state.set_FAC(Jr, vector_FAC = True)
-            self.state.set_conductance(etaP, etaH, vector_conductance = True)
-            self.state.set_u(u, vector_u = True)
-
-            self.state.set_coeffs(m_ind = self.m_ind_history[-1])
-            self.state.set_coeffs(m_imp = self.m_imp_history[-1])
+        # Save PFAC matrix if it does not exist on file
+        if not PFAC_matrix_on_file:
+            PFAC_matrix_dataset = xr.Dataset(coords = {'i': range(self.state.m_imp_to_B_pol.shape[0]), 'j': range(self.state.m_imp_to_B_pol.shape[1])})
+            PFAC_matrix_dataset['PFAC_matrix'] = xr.DataArray(self.state.m_imp_to_B_pol, dims = ['i', 'j'])
+            PFAC_matrix_dataset.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+            print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), history_update_interval = 200, history_save_interval = 10, quiet = False):
@@ -411,42 +410,6 @@ class I2D(object):
         self.save_u_history = True
 
 
-    def save_settings(self, settings, result_filename_prefix):
-        """ Save settings to file """
-
-        self.dataset = xr.Dataset()
-        self.dataset.attrs.update(settings)
-        self.dataset.to_netcdf(result_filename_prefix + '_settings.ncdf')
-
-        print('Saved settings to {}_settings.ncdf'.format(result_filename_prefix))
-
-
-    def save_PFAC_matrix(self, state, result_filename_prefix):
-        """ Save PFAC matrix to file """
-
-        self.dataset = xr.Dataset(coords = {'i': range(state.m_imp_to_B_pol.shape[0]), 'j': range(state.m_imp_to_B_pol.shape[1])})
-        self.dataset['PFAC_matrix'] = xr.DataArray(state.m_imp_to_B_pol, dims = ['i', 'j'])
-        self.dataset.to_netcdf(result_filename_prefix + '_PFAC_matrix.ncdf')
-
-        print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(result_filename_prefix))
-
-
-    def load_settings(self):
-        """ Load settings from file """
-
-        settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf')
-        return settings
-
-
-    def load_PFAC_matrix(self):
-        """ Load PFAC matrix from file """
-
-        self.dataset = xr.load_dataset(self.result_filename_prefix + '_PFAC_matrix.ncdf')
-        PFAC_matrix = self.dataset.PFAC_matrix.values
-
-        return PFAC_matrix
-
-
     def save_histories(self):
         """ Store the histories """
 
@@ -472,7 +435,7 @@ class I2D(object):
             FAC_dataset = xr.Dataset(coords = {'time': self.Jr_history_times, 'i': range(self.state.Jr.basis.num_coeffs)})
             FAC_dataset['SH_Jr_n']      = xr.DataArray(self.state.Jr.basis.n, dims = ['i'])
             FAC_dataset['SH_Jr_m']      = xr.DataArray(self.state.Jr.basis.m, dims = ['i'])
-            FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history,          dims = ['time', 'i'])
+            FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history,       dims = ['time', 'i'])
             FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
             self.save_FAC_history = False
@@ -481,10 +444,10 @@ class I2D(object):
             conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP.basis.num_coeffs)})
             conductance_dataset['SH_etaP_m']      = xr.DataArray(self.state.etaP.basis.m, dims = ['i'])
             conductance_dataset['SH_etaP_n']      = xr.DataArray(self.state.etaP.basis.n, dims = ['i'])
-            conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history,          dims = ['time', 'i'])
+            conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history,       dims = ['time', 'i'])
             conductance_dataset['SH_etaH_n']      = xr.DataArray(self.state.etaH.basis.n, dims = ['i'])
             conductance_dataset['SH_etaH_m']      = xr.DataArray(self.state.etaH.basis.m, dims = ['i'])
-            conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history,          dims = ['time', 'i'])
+            conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history,       dims = ['time', 'i'])
             conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
             self.save_conductance_history = False
@@ -493,48 +456,71 @@ class I2D(object):
             u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u.basis.num_coeffs)})
             u_dataset['SH_u_cf_n']      = xr.DataArray(self.state.u.basis.n, dims = ['i'])
             u_dataset['SH_u_cf_m']      = xr.DataArray(self.state.u.basis.m, dims = ['i'])
-            u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history,       dims = ['time', 'i'])
+            u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history,    dims = ['time', 'i'])
             u_dataset['SH_u_df_n']      = xr.DataArray(self.state.u.basis.n, dims = ['i'])
             u_dataset['SH_u_df_m']      = xr.DataArray(self.state.u.basis.m, dims = ['i'])
-            u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history,       dims = ['time', 'i'])
+            u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history,    dims = ['time', 'i'])
             u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
             self.save_u_history = False
 
 
     def load_histories(self):
-        """ load histories from file """
+        """ Load histories from file """
 
-        # electromagnetic state variables:
-        state_dataset = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
-        self.m_imp_history       = state_dataset['SH_m_imp_coeffs'].values
-        self.m_ind_history       = state_dataset['SH_m_ind_coeffs'].values
-        self.Phi_history         = state_dataset['SH_Phi_coeffs']  .values
-        self.W_history           = state_dataset['SH_W_coeffs']    .values
+        # Load state history if it exists on file
+        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_state.ncdf'):
+            state_dataset = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
+            self.m_imp_history       = state_dataset['SH_m_imp_coeffs'].values
+            self.m_ind_history       = state_dataset['SH_m_ind_coeffs'].values
+            self.Phi_history         = state_dataset['SH_Phi_coeffs']  .values
+            self.W_history           = state_dataset['SH_W_coeffs']    .values
+            self.state_history_times = state_dataset.time.values
 
-        self.latest_time = state_dataset.time.values[-1]
+            self.latest_time = self.state_history_times[-1]
+            self.state_history_exists = True
 
+            self.state.set_coeffs(m_ind = self.m_ind_history[-1])
+            self.state.set_coeffs(m_imp = self.m_imp_history[-1])
 
-        # FAC
-        FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
-        self.Jr_history       = FAC_dataset['SH_Jr_coeffs'].values
+        # Load FAC history if it exists on file
+        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
+            FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
+            self.Jr_history        = FAC_dataset['SH_Jr_coeffs'].values
+            self.FAC_history_times = FAC_dataset.time.values
 
-        self.FAC_time = FAC_dataset.time.values[-1]
+            self.FAC_time = self.FAC_history_times[-1]
+            self.FAC_history_exists = True
 
+            Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
+            self.state.set_FAC(Jr, vector_FAC = True)
 
-        # Conductance:
-        conductance_dataset = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
-        self.etaP_history       = conductance_dataset['SH_etaP_coeffs'].values
-        self.etaH_history       = conductance_dataset['SH_etaH_coeffs'].values
+        # Load conductance history if it exists on file
+        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
+            conductance_dataset = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
+            self.etaP_history              = conductance_dataset['SH_etaP_coeffs'].values
+            self.etaH_history              = conductance_dataset['SH_etaH_coeffs'].values
+            self.conductance_history_times = conductance_dataset.time.values
 
-        self.conductance_time = conductance_dataset.time.values[-1]
+            self.conductance_time = self.conductance_history_times[-1]
+            self.conductance_history_exists = True
 
-        # neutral wind
-        u_dataset = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
-        self.u_cf_history    = u_dataset['SH_u_cf_coeffs'].values 
-        self.u_df_history    = u_dataset['SH_u_df_coeffs'].values 
+            etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaP_history[-1])
+            etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaH_history[-1])
+            self.state.set_conductance(etaP, etaH, vector_conductance = True)
 
-        self.u_time = u_dataset.time.values[-1]
+        # Load neutral wind history if it exists on file
+        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
+            u_dataset = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
+            self.u_cf_history     = u_dataset['SH_u_cf_coeffs'].values
+            self.u_df_history     = u_dataset['SH_u_df_coeffs'].values
+            self.u_history_times = u_dataset.time.values
+
+            self.u_time = self.u_history_times[-1]
+            self.u_history_exists = True
+
+            u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_cf_history[-1], self.u_df_history[-1])), helmholtz = True)
+            self.state.set_u(u, vector_u = True)
 
 
     @property
