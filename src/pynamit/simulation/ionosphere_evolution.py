@@ -486,9 +486,9 @@ class I2D(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
             FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
             self.Jr_history        = FAC_dataset['SH_Jr_coeffs'].values
-            self.FAC_history_times = FAC_dataset.time.values
+            self.Jr_history_times = FAC_dataset.time.values
 
-            self.FAC_time = self.FAC_history_times[-1]
+            self.FAC_time = self.Jr_history_times[-1]
             self.FAC_history_exists = True
 
             Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
