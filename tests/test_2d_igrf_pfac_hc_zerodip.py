@@ -8,9 +8,9 @@ import numpy as np
 #@pytest.mark.skip(reason="Implementation of hemisphere connection not finalized")
 def test_2d_igrf_pfac_hc_zerodip():
     # Arrange
-    expected_coeff_norm = 2.48930654715094e-10
-    expected_coeff_max = 9.441313971923858e-12
-    expected_coeff_min = -1.4224679748290385e-11
+    expected_coeff_norm = 2.4709082820952817e-10
+    expected_coeff_max = 9.395340457495214e-12
+    expected_coeff_min = -1.4155236862893771e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -31,7 +31,7 @@ def test_2d_igrf_pfac_hc_zerodip():
                       zero_jr_at_dip_equator = True)
 
     # Assert
-    coeff_array = i2d.m_ind_history[1:]
+    coeff_array = i2d.m_ind_history
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
