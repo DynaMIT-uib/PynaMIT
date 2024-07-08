@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+import pandas as pd
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
@@ -407,83 +408,54 @@ class I2D(object):
         """ Store the histories """
 
         if self.save_state_history:
+            
             state_dataset = xr.Dataset(
                 data_vars =
                 {
-                    'SH_m_imp_m':      (['i'], self.state.m_imp.basis.m),
-                    'SH_m_imp_n':      (['i'], self.state.m_imp.basis.n),
-                    'SH_m_ind_m':      (['i'], self.state.m_ind.basis.m),
-                    'SH_m_ind_n':      (['i'], self.state.m_ind.basis.n),
-                    'SH_Phi_m':        (['i'], self.state.Phi.basis.m),
-                    'SH_Phi_n':        (['i'], self.state.Phi.basis.n),
-                    'SH_W_m':          (['i'], self.state.EW.basis.m),
-                    'SH_W_n':          (['i'], self.state.EW.basis.n),
-                    'SH_m_imp_coeffs': (['time', 'i'], self.m_imp_history),
-                    'SH_m_ind_coeffs': (['time', 'i'], self.m_ind_history),
-                    'SH_Phi_coeffs':   (['time', 'i'], self.Phi_history),
-                    'SH_W_coeffs':     (['time', 'i'], self.W_history),
+                    'SH_m_imp': (['time', 'i'], self.m_imp_history),
+                    'SH_m_ind': (['time', 'i'], self.m_ind_history),
+                    'SH_Phi':   (['time', 'i'], self.Phi_history),
+                    'SH_W':     (['time', 'i'], self.W_history),
                 },
-                coords = {
-                    'time': self.state_history_times,
-                    'i': range(self.basis.num_coeffs),
-                }
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.state_history_times})
             )
-            state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
+            state_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
             self.save_state_history = False
 
         if self.save_FAC_history:
             FAC_dataset = xr.Dataset(
                 data_vars = {
-                    'SH_Jr_m':      (['i'], self.state.Jr.basis.m),
-                    'SH_Jr_n':      (['i'], self.state.Jr.basis.n),
-                    'SH_Jr_coeffs': (['time', 'i'], self.Jr_history),
+                    'SH_Jr': (['time', 'i'], self.Jr_history),
                 },
-                coords = {
-                    'time': self.FAC_history_times,
-                    'i': range(self.state.Jr.basis.num_coeffs),
-                }
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.FAC_history_times})
             )
             
-            FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
+            FAC_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
             self.save_FAC_history = False
 
         if self.save_conductance_history:
             conductance_dataset = xr.Dataset(
                 data_vars = {
-                    'SH_etaP_n':      (['i'], self.state.etaP.basis.n),
-                    'SH_etaP_m':      (['i'], self.state.etaP.basis.m),
-                    'SH_etaH_n':      (['i'], self.state.etaH.basis.n),
-                    'SH_etaH_m':      (['i'], self.state.etaH.basis.m),
-                    'SH_etaP_coeffs': (['time', 'i'], self.etaP_history),
-                    'SH_etaH_coeffs': (['time', 'i'], self.etaH_history),
+                    'SH_etaP': (['time', 'i'], self.etaP_history),
+                    'SH_etaH': (['time', 'i'], self.etaH_history),
                 },
-                coords = {
-                    'time': self.conductance_history_times,
-                    'i': range(self.state.etaP.basis.num_coeffs),
-                }
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_basis.n, self.conductance_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.conductance_history_times})
             )
-            conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
+            conductance_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
             self.save_conductance_history = False
 
         if self.save_u_history:
             u_dataset = xr.Dataset(
                 data_vars = {
-                    'SH_u_cf_n':      (['i'], self.state.u.basis.n),
-                    'SH_u_cf_m':      (['i'], self.state.u.basis.m),
-                    'SH_u_df_n':      (['i'], self.state.u.basis.n),
-                    'SH_u_df_m':      (['i'], self.state.u.basis.m),
-                    'SH_u_cf_coeffs': (['time', 'i'], self.u_cf_history),
-                    'SH_u_df_coeffs': (['time', 'i'], self.u_df_history),
+                    'SH_u_cf': (['time', 'i'], self.u_cf_history),
+                    'SH_u_df': (['time', 'i'], self.u_df_history),
                 },
-                coords = {
-                    'time': self.u_history_times,
-                    'i': range(self.state.u.basis.num_coeffs),
-                }
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_basis.n, self.u_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.u_history_times})
             )
-            u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
+            u_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
             self.save_u_history = False
 
@@ -494,10 +466,10 @@ class I2D(object):
         # Load state history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_state.ncdf'):
             state_dataset = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
-            self.m_imp_history       = state_dataset['SH_m_imp_coeffs'].values
-            self.m_ind_history       = state_dataset['SH_m_ind_coeffs'].values
-            self.Phi_history         = state_dataset['SH_Phi_coeffs'].values
-            self.W_history           = state_dataset['SH_W_coeffs'].values
+            self.m_imp_history       = state_dataset['SH_m_imp'].values
+            self.m_ind_history       = state_dataset['SH_m_ind'].values
+            self.Phi_history         = state_dataset['SH_Phi'].values
+            self.W_history           = state_dataset['SH_W'].values
             self.state_history_times = state_dataset.time.values
 
             self.state_history_exists = True
@@ -510,7 +482,7 @@ class I2D(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
             FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
 
-            self.Jr_history        = FAC_dataset['SH_Jr_coeffs'].values
+            self.Jr_history        = FAC_dataset['SH_Jr'].values
             self.FAC_history_times = FAC_dataset.time.values
 
             self.FAC_history_exists = True
@@ -522,8 +494,8 @@ class I2D(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
             conductance_dataset = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
 
-            self.etaP_history              = conductance_dataset['SH_etaP_coeffs'].values
-            self.etaH_history              = conductance_dataset['SH_etaH_coeffs'].values
+            self.etaP_history              = conductance_dataset['SH_etaP'].values
+            self.etaH_history              = conductance_dataset['SH_etaH'].values
             self.conductance_history_times = conductance_dataset.time.values
 
             self.conductance_history_exists = True
@@ -536,8 +508,8 @@ class I2D(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
             u_dataset = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
 
-            self.u_cf_history    = u_dataset['SH_u_cf_coeffs'].values
-            self.u_df_history    = u_dataset['SH_u_df_coeffs'].values
+            self.u_cf_history    = u_dataset['SH_u_cf'].values
+            self.u_df_history    = u_dataset['SH_u_df'].values
             self.u_history_times = u_dataset.time.values
 
             self.u_history_exists = True
