@@ -22,13 +22,13 @@ class State(object):
         self.mainfield = mainfield
         self.num_grid = num_grid
 
-        self.RI                     = settings['RI']
-        self.latitude_boundary      = settings['latitude_boundary']
-        self.ignore_PFAC            = bool(settings['ignore_PFAC'])
-        self.connect_hemispheres    = bool(settings['connect_hemispheres'])
-        self.zero_jr_at_dip_equator = bool(settings['zero_jr_at_dip_equator'])
-        self.FAC_integration_steps  = settings['FAC_integration_steps']
-        self.ih_constraint_scaling  = settings['ih_constraint_scaling']
+        self.RI                     = settings.RI
+        self.latitude_boundary      = settings.latitude_boundary
+        self.ignore_PFAC            = bool(settings.ignore_PFAC)
+        self.connect_hemispheres    = bool(settings.connect_hemispheres)
+        self.zero_jr_at_dip_equator = bool(settings.zero_jr_at_dip_equator)
+        self.FAC_integration_steps  = settings.FAC_integration_steps
+        self.ih_constraint_scaling  = settings.ih_constraint_scaling
 
         if PFAC_matrix is not None:
             nn = int(np.sqrt(PFAC_matrix.size))

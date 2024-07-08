@@ -60,8 +60,8 @@ class I2D(object):
 
         self.result_filename_prefix = result_filename_prefix
 
-        # Store settings in dictionary
-        settings = {
+        # Store setting arguments in xarray dataset
+        settings = xr.Dataset(attrs = {
             'Nmax':                   Nmax,
             'Mmax':                   Mmax,
             'Ncs':                    Ncs,
@@ -79,7 +79,7 @@ class I2D(object):
             'vector_conductance':     int(vector_conductance),
             'vector_u':               int(vector_u),
             't0':                     t0,
-        }
+        })
 
         self.state_history_exists       = False
         self.FAC_history_exists         = False
@@ -97,7 +97,7 @@ class I2D(object):
         # Overwrite settings with any settings existing on file
         settings_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_settings.ncdf')
         if settings_on_file:
-            settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf').attrs
+            settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf')
 
         # Load PFAC matrix if it exists on file
         PFAC_matrix_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_PFAC_matrix.ncdf')
@@ -105,23 +105,23 @@ class I2D(object):
             PFAC_matrix_dataset = xr.load_dataset(self.result_filename_prefix + '_PFAC_matrix.ncdf')
             PFAC_matrix = PFAC_matrix_dataset.PFAC_matrix.values
 
-        self.RI = settings['RI']
+        self.RI = settings.RI
 
-        mainfield = Mainfield(kind = settings['mainfield_kind'],
-                              epoch = settings['mainfield_epoch'],
-                              hI = (settings['RI'] - RE) * 1e-3,
-                              B0 = None if settings['mainfield_B0'] == 0 else settings['mainfield_B0'])
+        mainfield = Mainfield(kind = settings.mainfield_kind,
+                              epoch = settings.mainfield_epoch,
+                              hI = (settings.RI - RE) * 1e-3,
+                              B0 = None if settings.mainfield_B0 == 0 else settings.mainfield_B0)
 
-        self.vector_FAC         = bool(settings['vector_FAC'])
-        self.vector_conductance = bool(settings['vector_conductance'])
-        self.vector_u           = bool(settings['vector_u'])
+        self.vector_FAC         = bool(settings.vector_FAC)
+        self.vector_conductance = bool(settings.vector_conductance)
+        self.vector_u           = bool(settings.vector_u)
 
-        self.csp = CSProjection(settings['Ncs'])
+        self.csp = CSProjection(settings.Ncs)
         self.num_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
-        self.basis             = SHBasis(settings['Nmax'], settings['Mmax'])
-        self.conductance_basis = SHBasis(settings['Nmax'], settings['Mmax'], Nmin = 0)
-        self.u_basis           = SHBasis(settings['Nmax'], settings['Mmax'], Nmin = 0)
+        self.basis             = SHBasis(settings.Nmax, settings.Mmax)
+        self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
+        self.u_basis           = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
 
         self.basis_evaluator             = BasisEvaluator(self.basis,             self.num_grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
@@ -145,8 +145,7 @@ class I2D(object):
 
         # Save settings if they do not exist on file
         if not settings_on_file:
-            settings_dataset = xr.Dataset(attrs = settings)
-            settings_dataset.to_netcdf(self.result_filename_prefix + '_settings.ncdf')
+            settings.to_netcdf(self.result_filename_prefix + '_settings.ncdf')
             print('Saved settings to {}_settings.ncdf'.format(self.result_filename_prefix))
 
         # Save PFAC matrix if it does not exist on file
@@ -430,11 +429,11 @@ class I2D(object):
                     'SH_m_imp_coeffs': (['time', 'i'], self.m_imp_history),
                     'SH_m_ind_coeffs': (['time', 'i'], self.m_ind_history),
                     'SH_Phi_coeffs':   (['time', 'i'], self.Phi_history),
-                    'SH_W_coeffs':     (['time', 'i'], self.W_history)
+                    'SH_W_coeffs':     (['time', 'i'], self.W_history),
                 },
                 coords = {
                     'time': self.state_history_times,
-                    'i': range(self.basis.num_coeffs)
+                    'i': range(self.basis.num_coeffs),
                 }
             )
             state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
@@ -446,11 +445,11 @@ class I2D(object):
                 data_vars = {
                     'SH_Jr_m':      (['i'], self.state.Jr.basis.m),
                     'SH_Jr_n':      (['i'], self.state.Jr.basis.n),
-                    'SH_Jr_coeffs': (['time', 'i'], self.Jr_history)
+                    'SH_Jr_coeffs': (['time', 'i'], self.Jr_history),
                 },
                 coords = {
                     'time': self.FAC_history_times,
-                    'i': range(self.state.Jr.basis.num_coeffs)
+                    'i': range(self.state.Jr.basis.num_coeffs),
                 }
             )
             
@@ -466,11 +465,11 @@ class I2D(object):
                     'SH_etaH_n':      (['i'], self.state.etaH.basis.n),
                     'SH_etaH_m':      (['i'], self.state.etaH.basis.m),
                     'SH_etaP_coeffs': (['time', 'i'], self.etaP_history),
-                    'SH_etaH_coeffs': (['time', 'i'], self.etaH_history)
+                    'SH_etaH_coeffs': (['time', 'i'], self.etaH_history),
                 },
                 coords = {
                     'time': self.conductance_history_times,
-                    'i': range(self.state.etaP.basis.num_coeffs)
+                    'i': range(self.state.etaP.basis.num_coeffs),
                 }
             )
             conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
@@ -485,11 +484,11 @@ class I2D(object):
                     'SH_u_df_n':      (['i'], self.state.u.basis.n),
                     'SH_u_df_m':      (['i'], self.state.u.basis.m),
                     'SH_u_cf_coeffs': (['time', 'i'], self.u_cf_history),
-                    'SH_u_df_coeffs': (['time', 'i'], self.u_df_history)
+                    'SH_u_df_coeffs': (['time', 'i'], self.u_df_history),
                 },
                 coords = {
                     'time': self.u_history_times,
-                    'i': range(self.state.u.basis.num_coeffs)
+                    'i': range(self.state.u.basis.num_coeffs),
                 }
             )
             u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
