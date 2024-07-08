@@ -61,24 +61,25 @@ class I2D(object):
         self.result_filename_prefix = result_filename_prefix
 
         # Store settings in dictionary
-        settings = {}
-        settings['Nmax']                   = Nmax
-        settings['Mmax']                   = Mmax
-        settings['Ncs']                    = Ncs
-        settings['RI']                     = RI
-        settings['latitude_boundary']      = latitude_boundary
-        settings['ignore_PFAC']            = int(ignore_PFAC)
-        settings['connect_hemispheres']    = int(connect_hemispheres)
-        settings['zero_jr_at_dip_equator'] = int(zero_jr_at_dip_equator)
-        settings['FAC_integration_steps']  = FAC_integration_steps
-        settings['ih_constraint_scaling']  = ih_constraint_scaling
-        settings['mainfield_kind']         = mainfield_kind
-        settings['mainfield_epoch']        = mainfield_epoch
-        settings['mainfield_B0']           = 0 if mainfield_B0 is None else mainfield_B0
-        settings['vector_FAC']             = int(vector_FAC)
-        settings['vector_conductance']     = int(vector_conductance)
-        settings['vector_u']               = int(vector_u)
-        settings['t0']                     = t0
+        settings = {
+            'Nmax':                   Nmax,
+            'Mmax':                   Mmax,
+            'Ncs':                    Ncs,
+            'RI':                     RI,
+            'latitude_boundary':      latitude_boundary,
+            'ignore_PFAC':            int(ignore_PFAC),
+            'connect_hemispheres':    int(connect_hemispheres),
+            'zero_jr_at_dip_equator': int(zero_jr_at_dip_equator),
+            'FAC_integration_steps':  FAC_integration_steps,
+            'ih_constraint_scaling':  ih_constraint_scaling,
+            'mainfield_kind':         mainfield_kind,
+            'mainfield_epoch':        mainfield_epoch,
+            'mainfield_B0':           0 if mainfield_B0 is None else mainfield_B0,
+            'vector_FAC':             int(vector_FAC),
+            'vector_conductance':     int(vector_conductance),
+            'vector_u':               int(vector_u),
+            't0':                     t0,
+        }
 
         self.state_history_exists       = False
         self.FAC_history_exists         = False
@@ -150,8 +151,13 @@ class I2D(object):
 
         # Save PFAC matrix if it does not exist on file
         if not PFAC_matrix_on_file:
-            PFAC_matrix_dataset = xr.Dataset(coords = {'i': range(self.state.m_imp_to_B_pol.shape[0]), 'j': range(self.state.m_imp_to_B_pol.shape[1])})
-            PFAC_matrix_dataset['PFAC_matrix'] = xr.DataArray(self.state.m_imp_to_B_pol, dims = ['i', 'j'])
+            PFAC_matrix_dataset = xr.Dataset(
+                data_vars = {'PFAC_matrix': (['i', 'j'], self.state.m_imp_to_B_pol)},
+                coords = {
+                    'i': range(self.state.m_imp_to_B_pol.shape[0]),
+                    'j': range(self.state.m_imp_to_B_pol.shape[1])
+                }
+            )
             PFAC_matrix_dataset.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
@@ -410,52 +416,82 @@ class I2D(object):
         """ Store the histories """
 
         if self.save_state_history:
-            state_dataset = xr.Dataset(coords = {'time': self.state_history_times, 'i': range(self.basis.num_coeffs)})
-            state_dataset['SH_m_imp_m']      = xr.DataArray(self.state.m_imp.basis.m, dims = ['i'])
-            state_dataset['SH_m_imp_n']      = xr.DataArray(self.state.m_imp.basis.n, dims = ['i'])
-            state_dataset['SH_m_imp_coeffs'] = xr.DataArray(self.m_imp_history,       dims = ['time', 'i'])
-            state_dataset['SH_m_ind_m']      = xr.DataArray(self.state.m_ind.basis.m, dims = ['i'])
-            state_dataset['SH_m_ind_n']      = xr.DataArray(self.state.m_ind.basis.n, dims = ['i'])
-            state_dataset['SH_m_ind_coeffs'] = xr.DataArray(self.m_ind_history,       dims = ['time', 'i'])
-            state_dataset['SH_Phi_m']        = xr.DataArray(self.state.Phi.basis.m,   dims = ['i'])
-            state_dataset['SH_Phi_n']        = xr.DataArray(self.state.Phi.basis.n,   dims = ['i'])
-            state_dataset['SH_Phi_coeffs']   = xr.DataArray(self.Phi_history,         dims = ['time', 'i'])
-            state_dataset['SH_W_m']          = xr.DataArray(self.state.EW.basis.m,    dims = ['i'])
-            state_dataset['SH_W_n']          = xr.DataArray(self.state.EW.basis.n,    dims = ['i'])
-            state_dataset['SH_W_coeffs']     = xr.DataArray(self.W_history,           dims = ['time', 'i'])
+            state_dataset = xr.Dataset(
+                data_vars =
+                {
+                    'SH_m_imp_m':      (['i'], self.state.m_imp.basis.m),
+                    'SH_m_imp_n':      (['i'], self.state.m_imp.basis.n),
+                    'SH_m_ind_m':      (['i'], self.state.m_ind.basis.m),
+                    'SH_m_ind_n':      (['i'], self.state.m_ind.basis.n),
+                    'SH_Phi_m':        (['i'], self.state.Phi.basis.m),
+                    'SH_Phi_n':        (['i'], self.state.Phi.basis.n),
+                    'SH_W_m':          (['i'], self.state.EW.basis.m),
+                    'SH_W_n':          (['i'], self.state.EW.basis.n),
+                    'SH_m_imp_coeffs': (['time', 'i'], self.m_imp_history),
+                    'SH_m_ind_coeffs': (['time', 'i'], self.m_ind_history),
+                    'SH_Phi_coeffs':   (['time', 'i'], self.Phi_history),
+                    'SH_W_coeffs':     (['time', 'i'], self.W_history)
+                },
+                coords = {
+                    'time': self.state_history_times,
+                    'i': range(self.basis.num_coeffs)
+                }
+            )
             state_dataset.to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
             self.save_state_history = False
 
         if self.save_FAC_history:
-            FAC_dataset = xr.Dataset(coords = {'time': self.FAC_history_times, 'i': range(self.state.Jr.basis.num_coeffs)})
-            FAC_dataset['SH_Jr_n']      = xr.DataArray(self.state.Jr.basis.n, dims = ['i'])
-            FAC_dataset['SH_Jr_m']      = xr.DataArray(self.state.Jr.basis.m, dims = ['i'])
-            FAC_dataset['SH_Jr_coeffs'] = xr.DataArray(self.Jr_history,       dims = ['time', 'i'])
+            FAC_dataset = xr.Dataset(
+                data_vars = {
+                    'SH_Jr_m':      (['i'], self.state.Jr.basis.m),
+                    'SH_Jr_n':      (['i'], self.state.Jr.basis.n),
+                    'SH_Jr_coeffs': (['time', 'i'], self.Jr_history)
+                },
+                coords = {
+                    'time': self.FAC_history_times,
+                    'i': range(self.state.Jr.basis.num_coeffs)
+                }
+            )
+            
             FAC_dataset.to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
             self.save_FAC_history = False
 
         if self.save_conductance_history:
-            conductance_dataset = xr.Dataset(coords = {'time': self.conductance_history_times, 'i': range(self.state.etaP.basis.num_coeffs)})
-            conductance_dataset['SH_etaP_m']      = xr.DataArray(self.state.etaP.basis.m, dims = ['i'])
-            conductance_dataset['SH_etaP_n']      = xr.DataArray(self.state.etaP.basis.n, dims = ['i'])
-            conductance_dataset['SH_etaP_coeffs'] = xr.DataArray(self.etaP_history,       dims = ['time', 'i'])
-            conductance_dataset['SH_etaH_n']      = xr.DataArray(self.state.etaH.basis.n, dims = ['i'])
-            conductance_dataset['SH_etaH_m']      = xr.DataArray(self.state.etaH.basis.m, dims = ['i'])
-            conductance_dataset['SH_etaH_coeffs'] = xr.DataArray(self.etaH_history,       dims = ['time', 'i'])
+            conductance_dataset = xr.Dataset(
+                data_vars = {
+                    'SH_etaP_n':      (['i'], self.state.etaP.basis.n),
+                    'SH_etaP_m':      (['i'], self.state.etaP.basis.m),
+                    'SH_etaH_n':      (['i'], self.state.etaH.basis.n),
+                    'SH_etaH_m':      (['i'], self.state.etaH.basis.m),
+                    'SH_etaP_coeffs': (['time', 'i'], self.etaP_history),
+                    'SH_etaH_coeffs': (['time', 'i'], self.etaH_history)
+                },
+                coords = {
+                    'time': self.conductance_history_times,
+                    'i': range(self.state.etaP.basis.num_coeffs)
+                }
+            )
             conductance_dataset.to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
             self.save_conductance_history = False
 
         if self.save_u_history:
-            u_dataset = xr.Dataset(coords = {'time': self.u_history_times, 'i': range(self.state.u.basis.num_coeffs)})
-            u_dataset['SH_u_cf_n']      = xr.DataArray(self.state.u.basis.n, dims = ['i'])
-            u_dataset['SH_u_cf_m']      = xr.DataArray(self.state.u.basis.m, dims = ['i'])
-            u_dataset['SH_u_cf_coeffs'] = xr.DataArray(self.u_cf_history,    dims = ['time', 'i'])
-            u_dataset['SH_u_df_n']      = xr.DataArray(self.state.u.basis.n, dims = ['i'])
-            u_dataset['SH_u_df_m']      = xr.DataArray(self.state.u.basis.m, dims = ['i'])
-            u_dataset['SH_u_df_coeffs'] = xr.DataArray(self.u_df_history,    dims = ['time', 'i'])
+            u_dataset = xr.Dataset(
+                data_vars = {
+                    'SH_u_cf_n':      (['i'], self.state.u.basis.n),
+                    'SH_u_cf_m':      (['i'], self.state.u.basis.m),
+                    'SH_u_df_n':      (['i'], self.state.u.basis.n),
+                    'SH_u_df_m':      (['i'], self.state.u.basis.m),
+                    'SH_u_cf_coeffs': (['time', 'i'], self.u_cf_history),
+                    'SH_u_df_coeffs': (['time', 'i'], self.u_df_history)
+                },
+                coords = {
+                    'time': self.u_history_times,
+                    'i': range(self.state.u.basis.num_coeffs)
+                }
+            )
             u_dataset.to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
             self.save_u_history = False
@@ -469,8 +505,8 @@ class I2D(object):
             state_dataset = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
             self.m_imp_history       = state_dataset['SH_m_imp_coeffs'].values
             self.m_ind_history       = state_dataset['SH_m_ind_coeffs'].values
-            self.Phi_history         = state_dataset['SH_Phi_coeffs']  .values
-            self.W_history           = state_dataset['SH_W_coeffs']    .values
+            self.Phi_history         = state_dataset['SH_Phi_coeffs'].values
+            self.W_history           = state_dataset['SH_W_coeffs'].values
             self.state_history_times = state_dataset.time.values
 
             self.state_history_exists = True
