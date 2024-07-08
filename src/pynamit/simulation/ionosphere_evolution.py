@@ -102,8 +102,7 @@ class I2D(object):
         # Load PFAC matrix if it exists on file
         PFAC_matrix_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_PFAC_matrix.ncdf')
         if PFAC_matrix_on_file:
-            PFAC_matrix_dataset = xr.load_dataset(self.result_filename_prefix + '_PFAC_matrix.ncdf')
-            PFAC_matrix = PFAC_matrix_dataset.PFAC_matrix.values
+            PFAC_matrix = xr.load_dataarray(self.result_filename_prefix + '_PFAC_matrix.ncdf')
 
         self.RI = settings.RI
 
@@ -150,14 +149,7 @@ class I2D(object):
 
         # Save PFAC matrix if it does not exist on file
         if not PFAC_matrix_on_file:
-            PFAC_matrix_dataset = xr.Dataset(
-                data_vars = {'PFAC_matrix': (['i', 'j'], self.state.m_imp_to_B_pol)},
-                coords = {
-                    'i': range(self.state.m_imp_to_B_pol.shape[0]),
-                    'j': range(self.state.m_imp_to_B_pol.shape[1])
-                }
-            )
-            PFAC_matrix_dataset.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+            self.state.m_imp_to_B_pol.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
 

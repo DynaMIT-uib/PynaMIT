@@ -1,4 +1,5 @@
 import numpy as np
+import xarray as xr
 from pynamit.various.constants import mu0, RE
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
@@ -31,8 +32,7 @@ class State(object):
         self.ih_constraint_scaling  = settings.ih_constraint_scaling
 
         if PFAC_matrix is not None:
-            nn = int(np.sqrt(PFAC_matrix.size))
-            self._m_imp_to_B_pol = PFAC_matrix.reshape((nn, nn))
+            self._m_imp_to_B_pol = PFAC_matrix
 
         # Spherical harmonic conversion factors
         self.m_ind_to_Br  = self.RI * self.basis.d_dr(self.RI)
@@ -50,7 +50,7 @@ class State(object):
         self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
-        self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol)
+        self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol.values)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.phi)
@@ -65,7 +65,7 @@ class State(object):
             self.G_B_pol_to_JS_cp = self.cp_basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
             self.G_B_tor_to_JS_cp = -self.cp_basis_evaluator.G_grad / mu0
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
-            self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol)
+            self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
         self.initialize_constraints()
 
@@ -97,18 +97,21 @@ class State(object):
 
         if not hasattr(self, '_m_imp_to_B_pol'):
 
-            if self.mainfield.kind == 'radial' or self.ignore_PFAC:
-                 # No polodial field from FACs
-                self._m_imp_to_B_pol = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
+            self._m_imp_to_B_pol = xr.DataArray(
+                data = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs)),
+                coords = {
+                    'i': np.arange(self.basis.num_coeffs),
+                    'j': np.arange(self.basis.num_coeffs),
+                },
+                dims = ['i', 'j']
+            )
 
-            else:
+            if not (self.mainfield.kind == 'radial' or self.ignore_PFAC):
                 r_k_steps = self.FAC_integration_steps
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
                 JS_shifted_to_B_pol_shifted = np.linalg.pinv(self.G_B_pol_to_JS, rcond = 0)
-
-                self._m_imp_to_B_pol = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs))
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
