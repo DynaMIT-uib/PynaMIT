@@ -403,7 +403,6 @@ def time_dependent_plot(i2d, fig_directory, filecount, lon0, plt_grid, pltshape,
                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
 
-    i2d.state.update_Phi_and_EW()
     Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
 
     #W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3

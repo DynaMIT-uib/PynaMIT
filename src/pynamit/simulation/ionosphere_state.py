@@ -379,8 +379,6 @@ class State(object):
 
         """
 
-        self.update_Phi_and_EW()
-
         new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
 
         self.set_coeffs(Br = new_Br)

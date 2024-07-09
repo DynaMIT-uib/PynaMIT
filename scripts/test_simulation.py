@@ -65,6 +65,7 @@ i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
 i2d.update_conductance()
 i2d.update_FAC()
 i2d.state.impose_constraints()
+i2d.state.update_Phi_and_EW()
 
 
 # make an integration matrix

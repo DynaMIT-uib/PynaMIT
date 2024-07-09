@@ -170,6 +170,7 @@ class I2D(object):
                 self.update_u()
 
                 self.state.impose_constraints()
+                self.state.update_Phi_and_EW()
 
                 # Update state history and save if appropriate
                 if count % history_update_interval == 0:
@@ -334,8 +335,6 @@ class I2D(object):
 
     def update_state_history(self):
         """ Add current state to state history """
-
-        self.state.update_Phi_and_EW()
 
         if not self.state_history_exists:
             self.state_history_times = np.array([self.latest_time])
