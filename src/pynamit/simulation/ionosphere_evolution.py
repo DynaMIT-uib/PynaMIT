@@ -87,12 +87,6 @@ class I2D(object):
         self.conductance_history_exists = False
         self.u_history_exists           = False
 
-        # Will be set to True when the corresponding history is different from the one saved on disk
-        self.save_state_history       = False
-        self.save_FAC_history         = False
-        self.save_conductance_history = False
-        self.save_u_history           = False
-
         self.latest_time = np.float64(0)
 
         # Overwrite settings with any settings existing on file
@@ -161,6 +155,11 @@ class I2D(object):
 
         # Skip the first update if the state has been evolved before (previous endpoint has been accounted for)
         skip_first_update = (self.latest_time > np.float64(0))
+
+        # Will be set to True when the corresponding history is different from the one saved on disk
+        self.save_FAC         = False
+        self.save_conductance = False
+        self.save_u           = False
  
         count = 0
         while True:
@@ -267,6 +266,7 @@ class I2D(object):
     def update_FAC(self):
         """ Update FAC """
 
+        # Ensure that new FAC values are available and should be used yet
         if hasattr(self, 'next_FAC') and self.next_FAC < self.FAC_time.size and self.latest_time >= self.FAC_time[self.next_FAC]:
             # Represent as values on num_grid
             Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
@@ -278,7 +278,17 @@ class I2D(object):
                 Jr = Jpar_int * self.b_evaluator.br
 
             self.state.set_FAC(Jr, self.vector_FAC)
-            self.update_FAC_history()
+
+            # Add current FAC to FAC history
+            if not self.FAC_history_exists:
+                self.FAC_history_times = np.array([self.latest_time])
+                self.Jr_history        = np.array(self.state.Jr.coeffs, dtype = np.float64).reshape((1, -1))
+                self.FAC_history_exists = True
+            else:
+                self.FAC_history_times = np.append(self.FAC_history_times, self.latest_time)
+                self.Jr_history        = np.vstack((self.Jr_history, self.state.Jr.coeffs))
+
+            self.save_FAC = True
 
             self.next_FAC += 1
 
@@ -286,6 +296,7 @@ class I2D(object):
     def update_conductance(self):
         """ Update conductance """
 
+        # Ensure that new conductance values are available and should be used yet
         if hasattr(self, 'next_conductance') and self.next_conductance < self.conductance_time.size and self.latest_time >= self.conductance_time[self.next_conductance]:
             # Check if Pedersen and Hall conductances are positive
             if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
@@ -308,7 +319,19 @@ class I2D(object):
                 etaH = etaH_int
 
             self.state.set_conductance(etaP, etaH, self.vector_conductance)
-            self.update_conductance_history()
+
+            # Add current conductance to conductance history
+            if not self.conductance_history_exists:
+                self.conductance_history_times = np.array([self.latest_time])
+                self.etaP_history              = np.array(self.state.etaP.coeffs, dtype = np.float64).reshape((1, -1))
+                self.etaH_history              = np.array(self.state.etaH.coeffs, dtype = np.float64).reshape((1, -1))
+                self.conductance_history_exists = True
+            else:
+                self.conductance_history_times = np.append(self.conductance_history_times, self.latest_time)
+                self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP.coeffs))
+                self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH.coeffs))
+
+            self.save_conductance = True
 
             self.next_conductance += 1
 
@@ -316,6 +339,7 @@ class I2D(object):
     def update_u(self):
         """ Update neutral wind """
 
+        # Ensure that new neutral wind values are available and should be used yet
         if hasattr(self, 'next_u') and self.next_u < self.u_time.size and self.latest_time >= self.u_time[self.next_u]:
             # Represent as values on num_grid
             u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
@@ -328,7 +352,19 @@ class I2D(object):
                 u = (u_int_theta, u_int_phi)
 
             self.state.set_u(u, self.vector_u)
-            self.update_u_history()
+
+            # Add current neutral wind to neutral wind history
+            if not self.u_history_exists:
+                self.u_history_times = np.array([self.latest_time])
+                self.u_cf_history    = np.array(self.state.u.coeffs[0], dtype = np.float64).reshape((1, -1))
+                self.u_df_history    = np.array(self.state.u.coeffs[1], dtype = np.float64).reshape((1, -1))
+                self.u_history_exists = True
+            else:
+                self.u_history_times = np.append(self.u_history_times, self.latest_time)
+                self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u.coeffs[0]))
+                self.u_df_history    = np.vstack((self.u_df_history, self.state.u.coeffs[1]))
+
+            self.save_u = True
 
             self.next_u += 1
 
@@ -351,78 +387,23 @@ class I2D(object):
             self.Phi_history         = np.vstack((self.Phi_history,   self.state.Phi.coeffs))
             self.W_history           = np.vstack((self.W_history,     self.state.W.coeffs))
 
-        self.save_state_history = True
-
-
-    def update_FAC_history(self):
-        """ Add current FAC to FAC history """
-
-        if not self.FAC_history_exists:
-            self.FAC_history_times = np.array([self.latest_time])
-            self.Jr_history        = np.array(self.state.Jr.coeffs, dtype = np.float64).reshape((1, -1))
-
-            self.FAC_history_exists = True
-        else:
-            self.FAC_history_times = np.append(self.FAC_history_times, self.latest_time)
-            self.Jr_history        = np.vstack((self.Jr_history, self.state.Jr.coeffs))
-
-        self.save_FAC_history = True
-
-
-    def update_conductance_history(self):
-        """ Add current conductance to conductance history """
-
-        if not self.conductance_history_exists:
-            self.conductance_history_times = np.array([self.latest_time])
-            self.etaP_history              = np.array(self.state.etaP.coeffs, dtype = np.float64).reshape((1, -1))
-            self.etaH_history              = np.array(self.state.etaH.coeffs, dtype = np.float64).reshape((1, -1))
-
-            self.conductance_history_exists = True
-        else:
-            self.conductance_history_times = np.append(self.conductance_history_times, self.latest_time)
-            self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP.coeffs))
-            self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH.coeffs))
-
-        self.save_conductance_history = True
-
-
-    def update_u_history(self):
-        """ Add current neutral wind to neutral wind history """
-
-        if not self.u_history_exists:
-            self.u_history_times = np.array([self.latest_time])
-            self.u_cf_history    = np.array(self.state.u.coeffs[0], dtype = np.float64).reshape((1, -1))
-            self.u_df_history    = np.array(self.state.u.coeffs[1], dtype = np.float64).reshape((1, -1))
-
-            self.u_history_exists = True
-        else:
-            self.u_history_times = np.append(self.u_history_times, self.latest_time)
-            self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u.coeffs[0]))
-            self.u_df_history    = np.vstack((self.u_df_history, self.state.u.coeffs[1]))
-        
-        self.save_u_history = True
-
 
     def save_histories(self):
         """ Store the histories """
 
-        if self.save_state_history:
-            
-            state_dataset = xr.Dataset(
-                data_vars =
-                {
-                    'SH_m_imp': (['time', 'i'], self.m_imp_history),
-                    'SH_m_ind': (['time', 'i'], self.m_ind_history),
-                    'SH_Phi':   (['time', 'i'], self.Phi_history),
-                    'SH_W':     (['time', 'i'], self.W_history),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.state_history_times})
-            )
-            state_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
+        state_dataset = xr.Dataset(
+            data_vars =
+            {
+                'SH_m_imp': (['time', 'i'], self.m_imp_history),
+                'SH_m_ind': (['time', 'i'], self.m_ind_history),
+                'SH_Phi':   (['time', 'i'], self.Phi_history),
+                'SH_W':     (['time', 'i'], self.W_history),
+            },
+            coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.state_history_times})
+        )
+        state_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
-            self.save_state_history = False
-
-        if self.save_FAC_history:
+        if self.save_FAC:
             FAC_dataset = xr.Dataset(
                 data_vars = {
                     'SH_Jr': (['time', 'i'], self.Jr_history),
@@ -432,9 +413,9 @@ class I2D(object):
             
             FAC_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
-            self.save_FAC_history = False
+            self.save_FAC = False
 
-        if self.save_conductance_history:
+        if self.save_conductance:
             conductance_dataset = xr.Dataset(
                 data_vars = {
                     'SH_etaP': (['time', 'i'], self.etaP_history),
@@ -444,9 +425,9 @@ class I2D(object):
             )
             conductance_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
-            self.save_conductance_history = False
+            self.save_conductance = False
 
-        if self.save_u_history:
+        if self.save_u:
             u_dataset = xr.Dataset(
                 data_vars = {
                     'SH_u_cf': (['time', 'i'], self.u_cf_history),
@@ -456,7 +437,7 @@ class I2D(object):
             )
             u_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
-            self.save_u_history = False
+            self.save_u = False
 
 
     def load_histories(self):
