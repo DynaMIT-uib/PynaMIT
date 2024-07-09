@@ -85,7 +85,7 @@ i2d.update_conductance()
 i2d.update_u()
 i2d.update_FAC()
 i2d.state.impose_constraints()
-i2d.state.update_Phi_and_EW()
+i2d.state.update_Phi_and_W()
 
 ## SET UP PLOTTING GRID AND EVALUATORS
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -151,7 +151,7 @@ if SIMULATE:
 
             W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
 
-            i2d.state.update_Phi_and_EW()
+            i2d.state.update_Phi_and_W()
             Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
 
             #paxn.contour(i2d.lat.flatten()[nnn], (i2d.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)

@@ -97,7 +97,7 @@ class PynamEye(object):
         self.m_ind_to_Br  = -n
         self.laplacian    = -n * (n + 1) / self.RI**2
         self.m_imp_to_Jr  =  self.laplacian * self.RI / mu0
-        self.EW_to_dBr_dt = -self.laplacian * self.RI
+        self.W_to_dBr_dt = -self.laplacian * self.RI
         self.m_ind_to_Jeq =  self.RI / mu0 * (2 * n + 1) / (n + 1)
 
         self._define_defaults()
@@ -169,10 +169,10 @@ class PynamEye(object):
     def _define_defaults(self):
         """ Define default settings for various plots """
         self.Br_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
-        self.eqJ_defaults = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
+        self.eqJ_defaults = {'colors':'black',  'levels':np.r_[-210:220:20] * 1e3}
         self.FAC_defaults = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/6 * 1e-6, 'extend':'both'}
-        self.Phi_defaults = {'colors':'black', 'levels':np.r_[-212.5:220:5] * 1e3}
-        self.EW_defaults  = {'colors':'orange', 'levels':self.Phi_defaults['levels']}
+        self.Phi_defaults = {'colors':'black',  'levels':np.r_[-212.5:220:5] * 1e3}
+        self.W_defaults   = {'colors':'orange', 'levels':self.Phi_defaults['levels']}
 
 
     def set_time(self, t):
@@ -385,9 +385,9 @@ class PynamEye(object):
         """
 
         # populate kwargs with default values if not specificed in function call:
-        for key in self.EW_defaults:
+        for key in self.W_defaults:
             if key not in kwargs.keys():
-                kwargs[key] = self.EW_defaults[key]
+                kwargs[key] = self.W_defaults[key]
 
         W = self.evaluator[region].basis_to_grid(self.m_W)
 

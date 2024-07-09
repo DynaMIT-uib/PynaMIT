@@ -37,7 +37,7 @@ class State(object):
         # Spherical harmonic conversion factors
         self.m_ind_to_Br  = self.RI * self.basis.d_dr(self.RI)
         self.m_imp_to_Jr  = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.EW_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
+        self.W_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
         self.m_ind_to_Jeq = self.RI / mu0 * self.basis.surface_discontinuity
 
         # Initialize grid-related objects
@@ -154,7 +154,7 @@ class State(object):
 
         """
 
-        valid_kws = ['m_ind', 'm_imp', 'Br', 'Jr']
+        valid_kws = ['m_ind', 'm_imp', 'Phi', 'W', 'Br', 'Jr']
 
         if len(kwargs) != 1:
             raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
@@ -166,6 +166,10 @@ class State(object):
             self.m_ind = Vector(self.basis, kwargs['m_ind'])
         elif key == 'm_imp':
             self.m_imp = Vector(self.basis, kwargs['m_imp'])
+        elif key == 'Phi':
+            self.Phi = Vector(self.basis, kwargs['Phi'])
+        elif key == 'W':
+            self.W = Vector(self.basis, kwargs['W'])
         elif key == 'Br':
             self.m_ind = Vector(self.basis, kwargs['Br'] / self.m_ind_to_Br)
         elif key == 'Jr':
@@ -363,7 +367,7 @@ class State(object):
             self.G_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints, rcond = 0)
 
 
-    def update_Phi_and_EW(self):
+    def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
 
         """
@@ -371,7 +375,7 @@ class State(object):
         E_cf, E_df = self.basis_evaluator.grid_to_basis(self.get_E(), helmholtz = True)
 
         self.Phi = Vector(self.basis, coeffs = E_cf)
-        self.EW = Vector(self.basis, coeffs = E_df)
+        self.W = Vector(self.basis, coeffs = E_df)
 
 
     def evolve_Br(self, dt):
@@ -379,7 +383,7 @@ class State(object):
 
         """
 
-        new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.EW.coeffs * self.EW_to_dBr_dt * dt
+        new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.W.coeffs * self.W_to_dBr_dt * dt
 
         self.set_coeffs(Br = new_Br)
 
@@ -434,7 +438,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.EW.coeffs)
+        return _basis_evaluator.basis_to_grid(self.W.coeffs)
 
 
     def get_E(self): # for now, E is always returned on num_grid!

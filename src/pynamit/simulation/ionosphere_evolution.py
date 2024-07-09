@@ -170,7 +170,7 @@ class I2D(object):
                 self.update_u()
 
                 self.state.impose_constraints()
-                self.state.update_Phi_and_EW()
+                self.state.update_Phi_and_W()
 
                 # Update state history and save if appropriate
                 if count % history_update_interval == 0:
@@ -340,16 +340,16 @@ class I2D(object):
             self.state_history_times = np.array([self.latest_time])
             self.m_imp_history       = np.array(self.state.m_imp.coeffs, dtype = np.float64).reshape((1, -1))
             self.m_ind_history       = np.array(self.state.m_ind.coeffs, dtype = np.float64).reshape((1, -1))
-            self.Phi_history         = np.array(self.state.Phi.coeffs, dtype = np.float64).reshape((1, -1))
-            self.W_history           = np.array(self.state.EW.coeffs, dtype = np.float64).reshape((1, -1))
+            self.Phi_history         = np.array(self.state.Phi.coeffs,   dtype = np.float64).reshape((1, -1))
+            self.W_history           = np.array(self.state.W.coeffs,     dtype = np.float64).reshape((1, -1))
 
             self.state_history_exists = True
         else:
             self.state_history_times = np.append(self.state_history_times, self.latest_time)
             self.m_imp_history       = np.vstack((self.m_imp_history, self.state.m_imp.coeffs))
             self.m_ind_history       = np.vstack((self.m_ind_history, self.state.m_ind.coeffs))
-            self.Phi_history         = np.vstack((self.Phi_history, self.state.Phi.coeffs))
-            self.W_history           = np.vstack((self.W_history, self.state.EW.coeffs))
+            self.Phi_history         = np.vstack((self.Phi_history,   self.state.Phi.coeffs))
+            self.W_history           = np.vstack((self.W_history,     self.state.W.coeffs))
 
         self.save_state_history = True
 
@@ -476,6 +476,8 @@ class I2D(object):
             self.latest_time = self.state_history_times[-1]
             self.state.set_coeffs(m_ind = self.m_ind_history[-1])
             self.state.set_coeffs(m_imp = self.m_imp_history[-1])
+            self.state.set_coeffs(Phi   = self.Phi_history[-1])
+            self.state.set_coeffs(W     = self.W_history[-1])
 
         # Load FAC history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):

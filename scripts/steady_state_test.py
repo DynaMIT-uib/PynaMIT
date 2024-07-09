@@ -79,7 +79,7 @@ m_ind_ss = i2d.steady_state_m_ind()
 #curl_E_num = Dc.dot(E)
 
 # SH curl
-#curlE_SH_coeffs = -i2d.state.EW.coeffs * i2d.state.EW_to_dBr_dt
+#curlE_SH_coeffs = -i2d.state.W.coeffs * i2d.state.W_to_dBr_dt
 
 #curl_E_SH = i2d.basis_evaluator.basis_to_grid(curlE_SH_coeffs)
 
