@@ -82,11 +82,6 @@ class I2D(object):
             't0':                     t0,
         })
 
-        self.state_history_exists       = False
-        self.FAC_history_exists         = False
-        self.conductance_history_exists = False
-        self.u_history_exists           = False
-
         self.latest_time = np.float64(0)
 
         # Overwrite settings with any settings existing on file
@@ -171,9 +166,24 @@ class I2D(object):
                 self.state.impose_constraints()
                 self.state.update_Phi_and_W()
 
-                # Update state history and save if appropriate
                 if count % history_update_interval == 0:
-                    self.update_state_history()
+                    # Add current state to state history
+                    current_state = xr.Dataset(
+                        data_vars = {
+                            'SH_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
+                            'SH_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
+                            'SH_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
+                            'SH_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
+                        },
+                        coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+                    )
+
+                    if not hasattr(self, 'state_history'):
+                        self.state_history = current_state
+                    else:
+                        self.state_history = xr.concat([self.state_history, current_state], dim = 'time')
+
+                    # Save output if requested
                     if (count % (history_update_interval * history_save_interval) == 0):
                         self.save_histories()
                         if quiet:
@@ -280,13 +290,17 @@ class I2D(object):
             self.state.set_FAC(Jr, self.vector_FAC)
 
             # Add current FAC to FAC history
-            if not self.FAC_history_exists:
-                self.FAC_history_times = np.array([self.latest_time])
-                self.Jr_history        = np.array(self.state.Jr.coeffs, dtype = np.float64).reshape((1, -1))
-                self.FAC_history_exists = True
+            current_FAC = xr.Dataset(
+                data_vars = {
+                    'SH_Jr': (['time', 'i'], self.state.Jr.coeffs.reshape((1, -1))),
+                },
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+            )
+
+            if not hasattr(self, 'FAC_history'):
+                self.FAC_history = current_FAC
             else:
-                self.FAC_history_times = np.append(self.FAC_history_times, self.latest_time)
-                self.Jr_history        = np.vstack((self.Jr_history, self.state.Jr.coeffs))
+                self.FAC_history = xr.concat([self.FAC_history, current_FAC], dim = 'time')
 
             self.save_FAC = True
 
@@ -321,15 +335,18 @@ class I2D(object):
             self.state.set_conductance(etaP, etaH, self.vector_conductance)
 
             # Add current conductance to conductance history
-            if not self.conductance_history_exists:
-                self.conductance_history_times = np.array([self.latest_time])
-                self.etaP_history              = np.array(self.state.etaP.coeffs, dtype = np.float64).reshape((1, -1))
-                self.etaH_history              = np.array(self.state.etaH.coeffs, dtype = np.float64).reshape((1, -1))
-                self.conductance_history_exists = True
+            current_conductance = xr.Dataset(
+                data_vars = {
+                    'SH_etaP': (['time', 'i'], self.state.etaP.coeffs.reshape((1, -1))),
+                    'SH_etaH': (['time', 'i'], self.state.etaP.coeffs.reshape((1, -1))),
+                },
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_basis.n, self.conductance_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+            )
+
+            if not hasattr(self, 'conductance_history'):
+                self.conductance_history = current_conductance
             else:
-                self.conductance_history_times = np.append(self.conductance_history_times, self.latest_time)
-                self.etaP_history              = np.vstack((self.etaP_history, self.state.etaP.coeffs))
-                self.etaH_history              = np.vstack((self.etaH_history, self.state.etaH.coeffs))
+                self.conductance_history = xr.concat([self.conductance_history, current_conductance], dim = 'time')
 
             self.save_conductance = True
 
@@ -354,89 +371,39 @@ class I2D(object):
             self.state.set_u(u, self.vector_u)
 
             # Add current neutral wind to neutral wind history
-            if not self.u_history_exists:
-                self.u_history_times = np.array([self.latest_time])
-                self.u_cf_history    = np.array(self.state.u.coeffs[0], dtype = np.float64).reshape((1, -1))
-                self.u_df_history    = np.array(self.state.u.coeffs[1], dtype = np.float64).reshape((1, -1))
-                self.u_history_exists = True
+            current_u = xr.Dataset(
+                data_vars = {
+                    'SH_u_cf': (['time', 'i'], self.state.u.coeffs[0].reshape((1, -1))),
+                    'SH_u_df': (['time', 'i'], self.state.u.coeffs[1].reshape((1, -1))),
+                },
+                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_basis.n, self.u_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+            )
+
+            if not hasattr(self, 'u_history'):
+                self.u_history = current_u
             else:
-                self.u_history_times = np.append(self.u_history_times, self.latest_time)
-                self.u_cf_history    = np.vstack((self.u_cf_history, self.state.u.coeffs[0]))
-                self.u_df_history    = np.vstack((self.u_df_history, self.state.u.coeffs[1]))
+                self.u_history = xr.concat([self.u_history, current_u], dim = 'time')
 
             self.save_u = True
 
             self.next_u += 1
 
 
-    def update_state_history(self):
-        """ Add current state to state history """
-
-        if not self.state_history_exists:
-            self.state_history_times = np.array([self.latest_time])
-            self.m_imp_history       = np.array(self.state.m_imp.coeffs, dtype = np.float64).reshape((1, -1))
-            self.m_ind_history       = np.array(self.state.m_ind.coeffs, dtype = np.float64).reshape((1, -1))
-            self.Phi_history         = np.array(self.state.Phi.coeffs,   dtype = np.float64).reshape((1, -1))
-            self.W_history           = np.array(self.state.W.coeffs,     dtype = np.float64).reshape((1, -1))
-
-            self.state_history_exists = True
-        else:
-            self.state_history_times = np.append(self.state_history_times, self.latest_time)
-            self.m_imp_history       = np.vstack((self.m_imp_history, self.state.m_imp.coeffs))
-            self.m_ind_history       = np.vstack((self.m_ind_history, self.state.m_ind.coeffs))
-            self.Phi_history         = np.vstack((self.Phi_history,   self.state.Phi.coeffs))
-            self.W_history           = np.vstack((self.W_history,     self.state.W.coeffs))
-
-
     def save_histories(self):
         """ Store the histories """
 
-        state_dataset = xr.Dataset(
-            data_vars =
-            {
-                'SH_m_imp': (['time', 'i'], self.m_imp_history),
-                'SH_m_ind': (['time', 'i'], self.m_ind_history),
-                'SH_Phi':   (['time', 'i'], self.Phi_history),
-                'SH_W':     (['time', 'i'], self.W_history),
-            },
-            coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.state_history_times})
-        )
-        state_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
+        self.state_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
 
         if self.save_FAC:
-            FAC_dataset = xr.Dataset(
-                data_vars = {
-                    'SH_Jr': (['time', 'i'], self.Jr_history),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.FAC_history_times})
-            )
-            
-            FAC_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
-
+            self.FAC_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
             self.save_FAC = False
 
         if self.save_conductance:
-            conductance_dataset = xr.Dataset(
-                data_vars = {
-                    'SH_etaP': (['time', 'i'], self.etaP_history),
-                    'SH_etaH': (['time', 'i'], self.etaH_history),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_basis.n, self.conductance_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.conductance_history_times})
-            )
-            conductance_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
-
+            self.conductance_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
             self.save_conductance = False
 
         if self.save_u:
-            u_dataset = xr.Dataset(
-                data_vars = {
-                    'SH_u_cf': (['time', 'i'], self.u_cf_history),
-                    'SH_u_df': (['time', 'i'], self.u_df_history),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_basis.n, self.u_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': self.u_history_times})
-            )
-            u_dataset.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
-
+            self.u_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
             self.save_u = False
 
 
@@ -445,58 +412,54 @@ class I2D(object):
 
         # Load state history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_state.ncdf'):
-            state_dataset = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
-            self.m_imp_history       = state_dataset['SH_m_imp'].values
-            self.m_ind_history       = state_dataset['SH_m_ind'].values
-            self.Phi_history         = state_dataset['SH_Phi'].values
-            self.W_history           = state_dataset['SH_W'].values
-            self.state_history_times = state_dataset.time.values
+            self.state_history = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
 
-            self.state_history_exists = True
+            # Convert i to a MultiIndex of n and m
+            state_index = pd.MultiIndex.from_arrays([self.state_history['n'].values, self.state_history['m'].values], names = ['n', 'm'])
+            del self.state_history['n'], self.state_history['m']
+            self.state_history.coords['i'] = state_index
 
-            self.latest_time = self.state_history_times[-1]
-            self.state.set_coeffs(m_ind = self.m_ind_history[-1])
-            self.state.set_coeffs(m_imp = self.m_imp_history[-1])
-            self.state.set_coeffs(Phi   = self.Phi_history[-1])
-            self.state.set_coeffs(W     = self.W_history[-1])
+            self.latest_time = self.state_history.time.values[-1]
+            self.state.set_coeffs(m_ind = self.state_history['SH_m_imp'].values[-1])
+            self.state.set_coeffs(m_imp = self.state_history['SH_m_ind'].values[-1])
+            self.state.set_coeffs(Phi   = self.state_history['SH_Phi'].values[-1])
+            self.state.set_coeffs(W     = self.state_history['SH_W'].values[-1])
 
         # Load FAC history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
-            FAC_dataset = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
+            self.FAC_history = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
 
-            self.Jr_history        = FAC_dataset['SH_Jr'].values
-            self.FAC_history_times = FAC_dataset.time.values
+            # Convert i to a MultiIndex of n and m
+            FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['n'].values, self.FAC_history['m'].values], names = ['n', 'm'])
+            del self.FAC_history['n'], self.FAC_history['m']
+            self.FAC_history.coords['i'] = FAC_index
 
-            self.FAC_history_exists = True
-
-            Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.Jr_history[-1])
+            Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_Jr'].values[-1])
             self.state.set_FAC(Jr, vector_FAC = True)
 
         # Load conductance history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
-            conductance_dataset = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
+            self.conductance_history = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
 
-            self.etaP_history              = conductance_dataset['SH_etaP'].values
-            self.etaH_history              = conductance_dataset['SH_etaH'].values
-            self.conductance_history_times = conductance_dataset.time.values
+            # Convert i to a MultiIndex of n and m
+            conductance_index = pd.MultiIndex.from_arrays([self.conductance_history['n'].values, self.conductance_history['m'].values], names = ['n', 'm'])
+            del self.conductance_history['n'], self.conductance_history['m']
+            self.conductance_history.coords['i'] = conductance_index
 
-            self.conductance_history_exists = True
-
-            etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaP_history[-1])
-            etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.etaH_history[-1])
+            etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaP'].values[-1])
+            etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaH'].values[-1])
             self.state.set_conductance(etaP, etaH, vector_conductance = True)
 
         # Load neutral wind history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
-            u_dataset = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
+            self.u_history = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
 
-            self.u_cf_history    = u_dataset['SH_u_cf'].values
-            self.u_df_history    = u_dataset['SH_u_df'].values
-            self.u_history_times = u_dataset.time.values
+            # Convert i to a MultiIndex of n and m
+            u_index = pd.MultiIndex.from_arrays([self.u_history['n'].values, self.u_history['m'].values], names = ['n', 'm'])
+            del self.u_history['n'], self.u_history['m']
+            self.u_history.coords['i'] = u_index
 
-            self.u_history_exists = True
-
-            u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_cf_history[-1], self.u_df_history[-1])), helmholtz = True)
+            u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_history['SH_u_cf'].values[-1], self.u_history['SH_u_df'].values[-1])), helmholtz = True)
             self.state.set_u(u, vector_u = True)
 
 
