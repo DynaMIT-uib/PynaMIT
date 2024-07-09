@@ -68,11 +68,11 @@ conductance_lat = i2d.num_grid.lat
 conductance_lon = i2d.num_grid.lon
 
 STEP = 2 # number of seconds between each conductance update
-margin = 1e-6 # Floating point safety margin
+margin = 1e-6 # floating point safety margin
 
 while True:
-    #print('updating conductance')
     new_date = date + datetime.timedelta(seconds = int(i2d.latest_time))
+
     if i2d.latest_time < STEP - margin:
         sza = conductance.sunlight.sza(conductance_lat, conductance_lon, new_date, degrees=True)
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)

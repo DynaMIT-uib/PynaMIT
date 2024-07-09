@@ -144,12 +144,13 @@ class I2D(object):
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), history_update_interval = 200, history_save_interval = 10, quiet = False):
-        """ Evolve to given time
+        """
+        Evolve to the given time `t`. Will overwrite the values
+        corresponding to the start time, to account for any changes in
+        FAC, conductance or neutral wind since the end of the last call
+        to `evolve_to_time`.
 
         """
-
-        # Skip the first update if the state has been evolved before (previous endpoint has been accounted for)
-        skip_first_update = (self.latest_time > np.float64(0))
 
         # Will be set to True when the corresponding history is different from the one saved on disk
         self.save_FAC         = False
@@ -158,38 +159,37 @@ class I2D(object):
  
         count = 0
         while True:
-            if not (count == 0 and skip_first_update):
-                self.update_FAC()
-                self.update_conductance()
-                self.update_u()
+            self.update_FAC()
+            self.update_conductance()
+            self.update_u()
 
-                self.state.impose_constraints()
-                self.state.update_Phi_and_W()
+            self.state.impose_constraints()
+            self.state.update_Phi_and_W()
 
-                if count % history_update_interval == 0:
-                    # Add current state to state history
-                    current_state = xr.Dataset(
-                        data_vars = {
-                            'SH_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
-                            'SH_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                            'SH_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
-                            'SH_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
-                        },
-                        coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
-                    )
+            if count % history_update_interval == 0:
+                # Add current state to state history
+                current_state = xr.Dataset(
+                    data_vars = {
+                        'SH_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
+                        'SH_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
+                        'SH_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
+                        'SH_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+                )
 
-                    if not hasattr(self, 'state_history'):
-                        self.state_history = current_state
+                if not hasattr(self, 'state_history'):
+                    self.state_history = current_state
+                else:
+                    self.state_history = xr.concat([self.state_history, current_state], dim = 'time')
+
+                # Save output if requested
+                if (count % (history_update_interval * history_save_interval) == 0):
+                    self.save_histories()
+                    if quiet:
+                        pass
                     else:
-                        self.state_history = xr.concat([self.state_history, current_state], dim = 'time')
-
-                    # Save output if requested
-                    if (count % (history_update_interval * history_save_interval) == 0):
-                        self.save_histories()
-                        if quiet:
-                            pass
-                        else:
-                            print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
+                        print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
 
             next_time = self.latest_time + dt
 
