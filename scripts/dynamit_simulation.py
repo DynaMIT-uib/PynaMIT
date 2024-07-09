@@ -12,6 +12,7 @@ RI = RE + 110e3
 latitude_boundary = 40
 
 WIND_FACTOR = 1 # scale wind by this factor
+FLOAT_ERROR_MARGIN = 1e-6
 
 result_filename_prefix = 'aurora2'
 Nmax, Mmax, Ncs = 10, 10, 10
@@ -68,53 +69,53 @@ conductance_lat = i2d.num_grid.lat
 conductance_lon = i2d.num_grid.lon
 
 STEP = 2 # number of seconds between each conductance update
-margin = 1e-6 # floating point safety margin
+
 
 while True:
     new_date = date + datetime.timedelta(seconds = int(i2d.latest_time))
 
-    if i2d.latest_time < STEP - margin:
+    if i2d.latest_time < STEP - FLOAT_ERROR_MARGIN:
         sza = conductance.sunlight.sza(conductance_lat, conductance_lon, new_date, degrees=True)
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
         hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
         i2d.set_conductance(hall_EUV, pedersen_EUV, lat = conductance_lat, lon = conductance_lon)
         print('Updated_conductance (without aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 120 - margin:
+    elif i2d.latest_time < 120 - FLOAT_ERROR_MARGIN:
         Kp = 1
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 180 - margin:
+    elif i2d.latest_time < 180 - FLOAT_ERROR_MARGIN:
         Kp = 2
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 240 - margin:
+    elif i2d.latest_time < 240 - FLOAT_ERROR_MARGIN:
         Kp = 3
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 360 - margin:
+    elif i2d.latest_time < 360 - FLOAT_ERROR_MARGIN:
         Kp = 4
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 420 - margin:
+    elif i2d.latest_time < 420 - FLOAT_ERROR_MARGIN:
         Kp = 5
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 480 - margin:
+    elif i2d.latest_time < 480 - FLOAT_ERROR_MARGIN:
         Kp = 6
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 540 - margin:
+    elif i2d.latest_time < 540 - FLOAT_ERROR_MARGIN:
         Kp = 5
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
         print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 600 - margin:
+    elif i2d.latest_time < 600 - FLOAT_ERROR_MARGIN:
         Kp = 3
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
         i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)

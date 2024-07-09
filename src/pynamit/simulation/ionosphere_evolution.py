@@ -14,6 +14,8 @@ from pynamit.simulation.ionosphere_state import State
 from pynamit.various.constants import RE
 import scipy.sparse as sp
 
+FLOAT_ERROR_MARGIN = 1e-6 # safety margin for floating point errors
+
 class I2D(object):
     """ 2D ionosphere. """
 
@@ -193,7 +195,7 @@ class I2D(object):
 
             next_time = self.latest_time + dt
 
-            if next_time > t + dt / 2: # with safety margin to avoid floating point errors
+            if next_time > t + FLOAT_ERROR_MARGIN:
                 break
 
             self.state.evolve_Br(dt)
@@ -277,7 +279,7 @@ class I2D(object):
         """ Update FAC """
 
         # Ensure that new FAC values are available and should be used yet
-        if hasattr(self, 'next_FAC') and self.next_FAC < self.FAC_time.size and self.latest_time >= self.FAC_time[self.next_FAC]:
+        if hasattr(self, 'next_FAC') and self.next_FAC < self.FAC_time.size and self.latest_time >= self.FAC_time[self.next_FAC] - FLOAT_ERROR_MARGIN:
             # Represent as values on num_grid
             Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
 
@@ -311,7 +313,7 @@ class I2D(object):
         """ Update conductance """
 
         # Ensure that new conductance values are available and should be used yet
-        if hasattr(self, 'next_conductance') and self.next_conductance < self.conductance_time.size and self.latest_time >= self.conductance_time[self.next_conductance]:
+        if hasattr(self, 'next_conductance') and self.next_conductance < self.conductance_time.size and self.latest_time >= self.conductance_time[self.next_conductance] - FLOAT_ERROR_MARGIN:
             # Check if Pedersen and Hall conductances are positive
             if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
                 raise ValueError('Conductances have to be positive')
@@ -357,7 +359,7 @@ class I2D(object):
         """ Update neutral wind """
 
         # Ensure that new neutral wind values are available and should be used yet
-        if hasattr(self, 'next_u') and self.next_u < self.u_time.size and self.latest_time >= self.u_time[self.next_u]:
+        if hasattr(self, 'next_u') and self.next_u < self.u_time.size and self.latest_time >= self.u_time[self.next_u] - FLOAT_ERROR_MARGIN:
             # Represent as values on num_grid
             u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
             u_int_theta, u_int_phi = -u_int[1], u_int[0]
