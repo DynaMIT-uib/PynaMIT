@@ -112,7 +112,7 @@ class I2D(object):
 
         self.basis             = SHBasis(settings.Nmax, settings.Mmax)
         self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
-        self.u_basis           = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
+        self.u_basis           = SHBasis(settings.Nmax, settings.Mmax)
 
         self.basis_evaluator             = BasisEvaluator(self.basis,             self.num_grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
