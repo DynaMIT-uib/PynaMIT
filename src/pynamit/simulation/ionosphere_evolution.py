@@ -187,7 +187,7 @@ class I2D(object):
 
                 # Save output if requested
                 if (count % (history_update_interval * history_save_interval) == 0):
-                    self.save_histories()
+                    self.state_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
                     if quiet:
                         pass
                     else:
@@ -219,18 +219,51 @@ class I2D(object):
 
         """
 
-        self.FAC = np.atleast_2d(FAC)
+        FAC = np.atleast_2d(FAC)
 
-        self.FAC_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        FAC_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if self.FAC.shape[0] > 1:
+            if FAC.shape[0] > 1:
                 raise ValueError('Time has to be specified if FAC is given for multiple times')
             time = self.latest_time
 
-        self.FAC_time = np.atleast_1d(time)
+        time = np.atleast_1d(time)
 
-        self.next_FAC = 0
+        for i in range(time.size):
+            # Interpolate to num_grid
+            Jpar_int = csp.interpolate_scalar(FAC[i], FAC_grid.theta, FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            
+            # Extract the radial component of the FAC and set the corresponding basis coefficients
+            if self.vector_FAC:
+                # Represent as expansion in spherical harmonics
+                Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
+
+                current_FAC = xr.Dataset(
+                    data_vars = {
+                        'SH_Jr': (['time', 'i'], Jr.coeffs.reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                )
+            else:
+                # Represent as values on num_grid
+                Jr = Jpar_int * self.b_evaluator.br
+
+                current_FAC = xr.Dataset(
+                    data_vars = {
+                        'GRID_Jr': (['time', 'i'], Jr.reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                )
+
+            # Add to the FAC history
+            if not hasattr(self, 'FAC_history'):
+                self.FAC_history = current_FAC
+            else:
+                self.FAC_history = xr.concat([self.FAC_history, current_FAC], dim = 'time')
+
+        # Save the FAC history
+        self.FAC_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -240,19 +273,60 @@ class I2D(object):
 
         """
 
-        self.Hall = np.atleast_2d(Hall)
-        self.Pedersen = np.atleast_2d(Pedersen)
+        Hall = np.atleast_2d(Hall)
+        Pedersen = np.atleast_2d(Pedersen)
 
-        self.conductance_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        conductance_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if self.Hall.shape[0] > 1 or self.Pedersen.shape[0] > 1:
+            if Hall.shape[0] > 1 or Pedersen.shape[0] > 1:
                 raise ValueError('Time has to be specified if conductance is given for multiple times')
             time = self.latest_time
 
-        self.conductance_time = np.atleast_1d(time)
+        time = np.atleast_1d(time)
 
-        self.next_conductance = 0
+        for i in range(time.size):
+            # Transform to resistivities
+            etaP = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
+            etaH = Hall[i]     / (Hall[i]**2 + Pedersen[i]**2)
+
+            # Interpolate to num_grid
+            etaP_int = csp.interpolate_scalar(etaP, conductance_grid.theta, conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            etaH_int = csp.interpolate_scalar(etaH, conductance_grid.theta, conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
+
+            if self.vector_conductance:
+                # Represent as expansion in spherical harmonics
+                etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
+                etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
+
+                current_conductance = xr.Dataset(
+                    data_vars = {
+                        'SH_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
+                        'SH_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_basis.n, self.conductance_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                )
+            else:
+                # Represent as values on num_grid
+                etaP = etaP_int
+                etaH = etaH_int
+
+                current_conductance = xr.Dataset(
+                    data_vars = {
+                        'GRID_etaP': (['time', 'i'], etaP.reshape((1, -1))),
+                        'GRID_etaH': (['time', 'i'], etaH.reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                )
+
+            # Add to the conductance history
+            if not hasattr(self, 'conductance_history'):
+                self.conductance_history = current_conductance
+            else:
+                self.conductance_history = xr.concat([self.conductance_history, current_conductance], dim = 'time')
+
+        # Save the conductance history
+        self.conductance_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
 
     def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -260,153 +334,103 @@ class I2D(object):
             For now, they *have* to be given on grid
         """
 
-        self.u_theta = np.atleast_2d(u[0])
-        self.u_phi = np.atleast_2d(u[1])
+        u_theta = np.atleast_2d(u[0])
+        u_phi = np.atleast_2d(u[1])
 
-        self.u_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        u_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if self.u_theta.shape[0] > 1 or self.u_phi.shape[0] > 1:
+            if u_theta.shape[0] > 1 or u_phi.shape[0] > 1:
                 raise ValueError('Time has to be specified if u is given for multiple times')
             time = self.latest_time
 
-        self.u_time = np.atleast_1d(time)
+        time = np.atleast_1d(time)
 
-        self.next_u = 0
-
-
-    def update_FAC(self):
-        """ Update FAC """
-
-        # Ensure that new FAC values are available and should be used yet
-        if hasattr(self, 'next_FAC') and self.next_FAC < self.FAC_time.size and self.latest_time >= self.FAC_time[self.next_FAC] - FLOAT_ERROR_MARGIN:
-            # Represent as values on num_grid
-            Jpar_int = csp.interpolate_scalar(self.FAC[self.next_FAC], self.FAC_grid.theta, self.FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
-
-            # Extract the radial component of the FAC and set the corresponding basis coefficients
-            if self.vector_FAC:
-                Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
-            else:
-                Jr = Jpar_int * self.b_evaluator.br
-
-            self.state.set_FAC(Jr, self.vector_FAC)
-
-            # Add current FAC to FAC history
-            current_FAC = xr.Dataset(
-                data_vars = {
-                    'SH_Jr': (['time', 'i'], self.state.Jr.coeffs.reshape((1, -1))),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
-            )
-
-            if not hasattr(self, 'FAC_history'):
-                self.FAC_history = current_FAC
-            else:
-                self.FAC_history = xr.concat([self.FAC_history, current_FAC], dim = 'time')
-
-            self.save_FAC = True
-
-            self.next_FAC += 1
-
-
-    def update_conductance(self):
-        """ Update conductance """
-
-        # Ensure that new conductance values are available and should be used yet
-        if hasattr(self, 'next_conductance') and self.next_conductance < self.conductance_time.size and self.latest_time >= self.conductance_time[self.next_conductance] - FLOAT_ERROR_MARGIN:
-            # Check if Pedersen and Hall conductances are positive
-            if np.any(self.Hall[self.next_conductance] < 0) or np.any(self.Pedersen[self.next_conductance] < 0):
-                raise ValueError('Conductances have to be positive')
-
-            # Transform to resistivities
-            etaP = self.Pedersen[self.next_conductance] / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
-            etaH = self.Hall[self.next_conductance]     / (self.Hall[self.next_conductance]**2 + self.Pedersen[self.next_conductance]**2)
-
-            # Represent as values on num_grid
-            etaP_int = csp.interpolate_scalar(etaP, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
-            etaH_int = csp.interpolate_scalar(etaH, self.conductance_grid.theta, self.conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
-
-            if self.vector_conductance:
-                # Represent as expansion in spherical harmonics
-                etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
-                etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
-            else:
-                etaP = etaP_int
-                etaH = etaH_int
-
-            self.state.set_conductance(etaP, etaH, self.vector_conductance)
-
-            # Add current conductance to conductance history
-            current_conductance = xr.Dataset(
-                data_vars = {
-                    'SH_etaP': (['time', 'i'], self.state.etaP.coeffs.reshape((1, -1))),
-                    'SH_etaH': (['time', 'i'], self.state.etaP.coeffs.reshape((1, -1))),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_basis.n, self.conductance_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
-            )
-
-            if not hasattr(self, 'conductance_history'):
-                self.conductance_history = current_conductance
-            else:
-                self.conductance_history = xr.concat([self.conductance_history, current_conductance], dim = 'time')
-
-            self.save_conductance = True
-
-            self.next_conductance += 1
-
-
-    def update_u(self):
-        """ Update neutral wind """
-
-        # Ensure that new neutral wind values are available and should be used yet
-        if hasattr(self, 'next_u') and self.next_u < self.u_time.size and self.latest_time >= self.u_time[self.next_u] - FLOAT_ERROR_MARGIN:
-            # Represent as values on num_grid
-            u_int = csp.interpolate_vector_components(self.u_phi[self.next_u], -self.u_theta[self.next_u], np.zeros_like(self.u_phi[self.next_u]), self.u_grid.theta, self.u_grid.phi, self.num_grid.theta, self.num_grid.phi)
+        for i in range(time.size):
+            # Interpolate to num_grid
+            u_int = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.num_grid.theta, self.num_grid.phi)
             u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
             if self.vector_u:
                 # Represent as expansion in spherical harmonics
                 u = Vector(self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+
+                current_u = xr.Dataset(
+                    data_vars = {
+                        'SH_u_cf': (['time', 'i'], u.coeffs[0].reshape((1, -1))),
+                        'SH_u_df': (['time', 'i'], u.coeffs[1].reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_basis.n, self.u_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                )
             else:
-                u = (u_int_theta, u_int_phi)
+                # Represent as values on num_grid
+                current_u = xr.Dataset(
+                    data_vars = {
+                        'GRID_u_theta': (['time', 'i'], u_int_theta.reshape((1, -1))),
+                        'GRID_u_phi':   (['time', 'i'], u_int_phi.reshape((1, -1))),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                )
 
-            self.state.set_u(u, self.vector_u)
-
-            # Add current neutral wind to neutral wind history
-            current_u = xr.Dataset(
-                data_vars = {
-                    'SH_u_cf': (['time', 'i'], self.state.u.coeffs[0].reshape((1, -1))),
-                    'SH_u_df': (['time', 'i'], self.state.u.coeffs[1].reshape((1, -1))),
-                },
-                coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_basis.n, self.u_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
-            )
-
+            # Add to the neutral wind history
             if not hasattr(self, 'u_history'):
                 self.u_history = current_u
             else:
                 self.u_history = xr.concat([self.u_history, current_u], dim = 'time')
 
-            self.save_u = True
+        # Save the neutral wind history
+        self.u_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
-            self.next_u += 1
+
+    def update_FAC(self):
+        """ Update FAC """
+
+        if hasattr(self, 'FAC_history'):
+            # Use xarray sel with padding to get the FAC values at the current time
+            if self.vector_FAC:
+                self.current_Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_Jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+            else:
+                self.current_Jr = self.FAC_history['GRID_Jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+
+            # Check if current Jr is different from the one used in the last call to update_FAC
+            if not hasattr(self, 'last_Jr') or (self.vector_FAC and not np.allclose(self.current_Jr.coeffs, self.last_Jr.coeffs)) or (not self.vector_FAC and not np.allclose(self.current_Jr, self.last_Jr)):
+                self.state.set_FAC(self.current_Jr, self.vector_FAC)
+                self.last_Jr = self.current_Jr
 
 
-    def save_histories(self):
-        """ Store the histories """
+    def update_conductance(self):
+        """ Update conductance """
 
-        self.state_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
+        if hasattr(self, 'conductance_history'):
+            # Use xarray sel with padding to get the conductance values at the current time
+            if self.vector_conductance:
+                self.current_etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+            else:
+                self.current_etaP = self.conductance_history['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_etaH = self.conductance_history['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
-        if self.save_FAC:
-            self.FAC_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
-            self.save_FAC = False
+            # Check if current etaP or etaH are different from the ones used in the last call to update_conductance
+            if not (hasattr(self, 'last_etaP') and hasattr(self, 'last_etaH')) or (self.vector_conductance and (not np.allclose(self.current_etaP.coeffs, self.last_etaP.coeffs) or not np.allclose(self.current_etaH.coeffs, self.last_etaH.coeffs))) or (not self.vector_conductance and (not np.allclose(self.current_etaP, self.last_etaP) or not np.allclose(self.current_etaH, self.last_etaH))):
+                self.state.set_conductance(self.current_etaP, self.current_etaH, self.vector_conductance)
+                self.last_etaP = self.current_etaP
+                self.last_etaH = self.current_etaH
 
-        if self.save_conductance:
-            self.conductance_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
-            self.save_conductance = False
 
-        if self.save_u:
-            self.u_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
-            self.save_u = False
+    def update_u(self):
+        """ Update neutral wind """
+
+        if hasattr(self, 'u_history'):
+            # Use xarray sel with padding to get the neutral wind values at the current time
+            if self.vector_u:
+                self.current_u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_history['SH_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_history['SH_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
+            else:
+                self.current_u = (self.u_history['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_history['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+
+            # Check if current u is different from the one used in the last call to update_u
+            if not hasattr(self, 'last_u') or (self.vector_u and not np.allclose(self.current_u.coeffs, self.last_u.coeffs)) or (not self.vector_u and not np.allclose(self.current_u[0], self.last_u[0]) and not np.allclose(self.current_u[1], self.last_u[1])):
+                self.state.set_u(self.current_u, self.vector_u)
+                self.last_u = self.current_u
 
 
     def load_histories(self):
@@ -431,38 +455,60 @@ class I2D(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
             self.FAC_history = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
 
-            # Convert i to a MultiIndex of n and m
-            FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['n'].values, self.FAC_history['m'].values], names = ['n', 'm'])
-            del self.FAC_history['n'], self.FAC_history['m']
-            self.FAC_history.coords['i'] = FAC_index
+            if self.vector_FAC:
+                # Convert i to a MultiIndex of n and m
+                FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['n'].values, self.FAC_history['m'].values], names = ['n', 'm'])
+                del self.FAC_history['n'], self.FAC_history['m']
+                self.FAC_history.coords['i'] = FAC_index
+                Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_Jr'].values[-1])
+            else:
+                # Convert i to a MultiIndex of theta and phi
+                FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['theta'].values, self.FAC_history['phi'].values], names = ['theta', 'phi'])
+                del self.FAC_history['theta'], self.FAC_history['phi']
+                self.FAC_history.coords['i'] = FAC_index
+                Jr = self.FAC_history['GRID_Jr'].values[-1]
 
-            Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_Jr'].values[-1])
-            self.state.set_FAC(Jr, vector_FAC = True)
+            self.state.set_FAC(Jr, vector_FAC = self.vector_FAC)
 
         # Load conductance history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
             self.conductance_history = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
 
-            # Convert i to a MultiIndex of n and m
-            conductance_index = pd.MultiIndex.from_arrays([self.conductance_history['n'].values, self.conductance_history['m'].values], names = ['n', 'm'])
-            del self.conductance_history['n'], self.conductance_history['m']
-            self.conductance_history.coords['i'] = conductance_index
+            if self.vector_conductance:
+                # Convert i to a MultiIndex of n and m
+                conductance_index = pd.MultiIndex.from_arrays([self.conductance_history['n'].values, self.conductance_history['m'].values], names = ['n', 'm'])
+                del self.conductance_history['n'], self.conductance_history['m']
+                self.conductance_history.coords['i'] = conductance_index
+                etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaP'].values[-1])
+                etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaH'].values[-1])
+            else:
+                # Convert i to a MultiIndex of theta and phi
+                conductance_index = pd.MultiIndex.from_arrays([self.conductance_history['theta'].values, self.conductance_history['phi'].values], names = ['theta', 'phi'])
+                del self.conductance_history['theta'], self.conductance_history['phi']
+                self.conductance_history.coords['i'] = conductance_index
+                etaP = self.conductance_history['GRID_etaP'].values[-1]
+                etaH = self.conductance_history['GRID_etaH'].values[-1]
 
-            etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaP'].values[-1])
-            etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaH'].values[-1])
-            self.state.set_conductance(etaP, etaH, vector_conductance = True)
+            self.state.set_conductance(etaP, etaH, vector_conductance = self.vector_conductance)
 
         # Load neutral wind history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
             self.u_history = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
 
-            # Convert i to a MultiIndex of n and m
-            u_index = pd.MultiIndex.from_arrays([self.u_history['n'].values, self.u_history['m'].values], names = ['n', 'm'])
-            del self.u_history['n'], self.u_history['m']
-            self.u_history.coords['i'] = u_index
+            if self.vector_u:
+                # Convert i to a MultiIndex of n and m
+                u_index = pd.MultiIndex.from_arrays([self.u_history['n'].values, self.u_history['m'].values], names = ['n', 'm'])
+                del self.u_history['n'], self.u_history['m']
+                self.u_history.coords['i'] = u_index
+                u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_history['SH_u_cf'].values[-1], self.u_history['SH_u_df'].values[-1])), helmholtz = True)
+            else:
+                # Convert i to a MultiIndex of theta and phi
+                u_index = pd.MultiIndex.from_arrays([self.u_history['theta'].values, self.u_history['phi'].values], names = ['theta', 'phi'])
+                del self.u_history['theta'], self.u_history['phi']
+                self.u_history.coords['i'] = u_index
+                u = (self.u_history['GRID_u_cf'].values[-1], self.u_history['GRID_u_df'].values[-1])
 
-            u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_history['SH_u_cf'].values[-1], self.u_history['SH_u_df'].values[-1])), helmholtz = True)
-            self.state.set_u(u, vector_u = True)
+            self.state.set_u(u, vector_u = self.vector_u)
 
 
     @property
