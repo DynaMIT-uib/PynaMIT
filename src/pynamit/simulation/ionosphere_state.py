@@ -36,8 +36,8 @@ class State(object):
 
         # Spherical harmonic conversion factors
         self.m_ind_to_Br  = self.RI * self.basis.d_dr(self.RI)
-        self.m_imp_to_Jr  = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.W_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
+        self.m_imp_to_jr  = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.W_to_dBr_dt  = -self.RI * self.basis.laplacian(self.RI)
         self.m_ind_to_Jeq = self.RI / mu0 * self.basis.surface_discontinuity
 
         # Initialize grid-related objects
@@ -123,10 +123,10 @@ class State(object):
                     shifted_b_evaluator = FieldEvaluator(self.mainfield, self.num_grid, r_k[i])
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-                    m_imp_to_Jpar = mapped_basis_evaluator.scaled_G(self.m_imp_to_Jr / mapped_b_evaluator.br.reshape((-1 ,1)))
-                    Jpar_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.B_magnitude).reshape((-1, 1)),
+                    m_imp_to_jpar = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr / mapped_b_evaluator.br.reshape((-1 ,1)))
+                    jpar_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.B_magnitude).reshape((-1, 1)),
                                           (shifted_b_evaluator.Bphi   / mapped_b_evaluator.B_magnitude).reshape((-1, 1)))
-                    m_imp_to_JS_shifted = np.vstack(m_imp_to_Jpar * Jpar_to_JS_shifted)
+                    m_imp_to_JS_shifted = np.vstack(m_imp_to_jpar * jpar_to_JS_shifted)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
                     B_pol_shifted_to_B_pol = self.basis.radial_shift(r_k[i], self.RI).reshape((-1, 1))
@@ -150,11 +150,11 @@ class State(object):
         - 'm_ind' : Coefficients for induced part of magnetic field.
         - 'm_imp' : Coefficients for imposed part of magnetic field.
         - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
-        - 'Jr': Coefficients for radial current scalar.
+        - 'jr': Coefficients for radial current scalar.
 
         """
 
-        valid_kws = ['m_ind', 'm_imp', 'Phi', 'W', 'Br', 'Jr']
+        valid_kws = ['m_ind', 'm_imp', 'Phi', 'W', 'Br', 'jr']
 
         if len(kwargs) != 1:
             raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
@@ -172,8 +172,8 @@ class State(object):
             self.W = Vector(self.basis, kwargs['W'])
         elif key == 'Br':
             self.m_ind = Vector(self.basis, kwargs['Br'] / self.m_ind_to_Br)
-        elif key == 'Jr':
-            self.m_imp = Vector(self.basis, kwargs['Jr'] / self.m_imp_to_Jr)
+        elif key == 'jr':
+            self.m_imp = Vector(self.basis, kwargs['jr'] / self.m_imp_to_jr)
         else:
             raise Exception('This should not happen')
 
@@ -199,14 +199,14 @@ class State(object):
                 print('this should not happen')
 
             # Calculate the matrices that convert m_imp to FAC on num_grid and conjugate grid
-            G_Jpar    =    self.basis_evaluator.scaled_G(self.m_imp_to_Jr /    self.b_evaluator.br.reshape((-1 ,1)))
-            G_Jpar_cp = self.cp_basis_evaluator.scaled_G(self.m_imp_to_Jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
+            G_jpar    =    self.basis_evaluator.scaled_G(self.m_imp_to_jr /    self.b_evaluator.br.reshape((-1 ,1)))
+            G_jpar_cp = self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
 
             # Calculate matrix that ensures high latitude FACs are unaffected by other constraints
-            self.G_Jpar_hl = G_Jpar[~self.ll_mask]
+            self.G_jpar_hl = G_jpar[~self.ll_mask]
 
             # Calculate matrix that constrains outwards FACs at low latitude points to be equal to inwards FACs at conjugate points
-            self.G_Jpar_ll_diff = (G_Jpar[self.ll_mask] - G_Jpar_cp[self.ll_mask])
+            self.G_jpar_ll_diff = (G_jpar[self.ll_mask] - G_jpar_cp[self.ll_mask])
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
@@ -219,16 +219,16 @@ class State(object):
             self.aeH_imp_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
 
             if self.zero_jr_at_dip_equator:
-                # Calculate matrix that converts m_imp to Jr at dip equator
+                # Calculate matrix that converts m_imp to jr at dip equator
                 n_phi = self.basis.minimum_phi_sampling()
                 dip_equator_phi = np.linspace(0, 360, n_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
 
                 _equation_scaling = self.num_grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
-                self.G_Jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.m_imp_to_Jr) * _equation_scaling
+                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
             else:
-                # Make zero-row stand-in for the Jr matrix
-                self.G_Jr_dip_equator = np.empty((0, self.basis.num_coeffs))
+                # Make zero-row stand-in for the jr matrix
+                self.G_jr_dip_equator = np.empty((0, self.basis.num_coeffs))
 
 
     def impose_constraints(self):
@@ -242,14 +242,14 @@ class State(object):
             if self.neutral_wind:
                 self.c += self.cu
 
-            self.constraint_vector = np.hstack((self.Jpar_on_grid[~self.ll_mask], np.zeros(self.G_Jpar_ll_diff.shape[0]), np.zeros(self.G_Jr_dip_equator.shape[0]), self.c * self.ih_constraint_scaling ))
+            self.constraint_vector = np.hstack((self.jpar_on_grid[~self.ll_mask], np.zeros(self.G_jpar_ll_diff.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), self.c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
         else:
-            self.set_coeffs(Jr = self.Jr.coeffs)
+            self.set_coeffs(jr = self.jr.coeffs)
 
 
-    def set_FAC(self, Jr, vector_FAC = True):
+    def set_FAC(self, jr, vector_FAC = True):
         """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.phi``.
@@ -265,16 +265,16 @@ class State(object):
         """
 
         if vector_FAC:
-            self.Jr = Jr
+            self.jr = jr
 
             if self.connect_hemispheres:
-                self.Jpar_on_grid = Jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+                self.jpar_on_grid = jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
 
         else:
-            self.Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jr)
+            self.jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, grid_values = jr)
 
             if self.connect_hemispheres:
-                self.Jpar_on_grid = Jr / self.b_evaluator.br
+                self.jpar_on_grid = jr / self.b_evaluator.br
 
 
     def set_u(self, u, vector_u = True):
@@ -363,7 +363,7 @@ class State(object):
                          -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
 
             # Combine constraint matrices
-            self.G_m_imp_constraints = np.vstack((self.G_Jpar_hl, self.G_Jpar_ll_diff, self.G_Jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
+            self.G_m_imp_constraints = np.vstack((self.G_jpar_hl, self.G_jpar_ll_diff, self.G_jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
             self.G_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints, rcond = 0)
 
 
@@ -409,12 +409,12 @@ class State(object):
         return(Jth, Jph)
 
 
-    def get_Jr(self, _basis_evaluator):
+    def get_jr(self, _basis_evaluator):
         """ Calculate radial current.
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.m_imp.coeffs * self.m_imp_to_Jr)
+        return _basis_evaluator.basis_to_grid(self.m_imp.coeffs * self.m_imp_to_jr)
 
 
     def get_Jeq(self, _basis_evaluator):

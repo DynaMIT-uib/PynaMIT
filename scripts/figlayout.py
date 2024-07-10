@@ -102,8 +102,8 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
-    FAC = (plt_i2d_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
-    jr_mod = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
+    FAC = (plt_i2d_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_jr)
+    jr_mod = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_jr)
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
     ## GLOBAL PLOTS

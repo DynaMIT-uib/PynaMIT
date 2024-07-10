@@ -96,8 +96,8 @@ class PynamEye(object):
         n = self.basis.n
         self.m_ind_to_Br  = -n
         self.laplacian    = -n * (n + 1) / self.RI**2
-        self.m_imp_to_Jr  =  self.laplacian * self.RI / mu0
-        self.W_to_dBr_dt = -self.laplacian * self.RI
+        self.m_imp_to_jr  =  self.laplacian * self.RI / mu0
+        self.W_to_dBr_dt  = -self.laplacian * self.RI
         self.m_ind_to_Jeq =  self.RI / mu0 * (2 * n + 1) / (n + 1)
 
         self._define_defaults()
@@ -337,7 +337,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.FAC_defaults[key]
 
-        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_Jr)
+        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 

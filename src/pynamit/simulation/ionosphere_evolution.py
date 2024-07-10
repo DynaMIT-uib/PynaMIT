@@ -232,26 +232,26 @@ class I2D(object):
 
         for i in range(time.size):
             # Interpolate to num_grid
-            Jpar_int = csp.interpolate_scalar(FAC[i], FAC_grid.theta, FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            jpar_int = csp.interpolate_scalar(FAC[i], FAC_grid.theta, FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
             
             # Extract the radial component of the FAC and set the corresponding basis coefficients
             if self.vector_FAC:
                 # Represent as expansion in spherical harmonics
-                Jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = Jpar_int * self.b_evaluator.br)
+                jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = jpar_int * self.b_evaluator.br)
 
                 current_FAC = xr.Dataset(
                     data_vars = {
-                        'SH_Jr': (['time', 'i'], Jr.coeffs.reshape((1, -1))),
+                        'SH_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on num_grid
-                Jr = Jpar_int * self.b_evaluator.br
+                jr = jpar_int * self.b_evaluator.br
 
                 current_FAC = xr.Dataset(
                     data_vars = {
-                        'GRID_Jr': (['time', 'i'], Jr.reshape((1, -1))),
+                        'GRID_jr': (['time', 'i'], jr.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
@@ -388,14 +388,14 @@ class I2D(object):
         if hasattr(self, 'FAC_history'):
             # Use xarray sel with padding to get the FAC values at the current time
             if self.vector_FAC:
-                self.current_Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_Jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
-                self.current_Jr = self.FAC_history['GRID_Jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_jr = self.FAC_history['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
-            # Check if current Jr is different from the one used in the last call to update_FAC
-            if not hasattr(self, 'last_Jr') or (self.vector_FAC and not np.allclose(self.current_Jr.coeffs, self.last_Jr.coeffs)) or (not self.vector_FAC and not np.allclose(self.current_Jr, self.last_Jr)):
-                self.state.set_FAC(self.current_Jr, self.vector_FAC)
-                self.last_Jr = self.current_Jr
+            # Check if current jr is different from the one used in the last call to update_FAC
+            if not hasattr(self, 'last_jr') or (self.vector_FAC and not np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)) or (not self.vector_FAC and not np.allclose(self.current_jr, self.last_jr)):
+                self.state.set_FAC(self.current_jr, self.vector_FAC)
+                self.last_jr = self.current_jr
 
 
     def update_conductance(self):
@@ -460,15 +460,15 @@ class I2D(object):
                 FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['n'].values, self.FAC_history['m'].values], names = ['n', 'm'])
                 del self.FAC_history['n'], self.FAC_history['m']
                 self.FAC_history.coords['i'] = FAC_index
-                Jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_Jr'].values[-1])
+                jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_jr'].values[-1])
             else:
                 # Convert i to a MultiIndex of theta and phi
                 FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['theta'].values, self.FAC_history['phi'].values], names = ['theta', 'phi'])
                 del self.FAC_history['theta'], self.FAC_history['phi']
                 self.FAC_history.coords['i'] = FAC_index
-                Jr = self.FAC_history['GRID_Jr'].values[-1]
+                jr = self.FAC_history['GRID_jr'].values[-1]
 
-            self.state.set_FAC(Jr, vector_FAC = self.vector_FAC)
+            self.state.set_FAC(jr, vector_FAC = self.vector_FAC)
 
         # Load conductance history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):

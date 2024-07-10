@@ -150,10 +150,10 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
     ## CALCULATE VALUES TO PLOT
     Br  = i2d.state.get_Br(plt_i2d_evaluator)
-    FAC = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr) / plt_b_evaluator.br
+    FAC = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_jr) / plt_b_evaluator.br
     eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
 
-    jr_mod =  i2d.basis_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_Jr)
+    jr_mod =  i2d.basis_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_jr)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
@@ -294,7 +294,7 @@ def compare_AMPS_FAC_and_CF_currents(i2d, a, d, date, lon0):
     paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
     m_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(lat = mlat, lon = lon))
-    jr = i2d.get_Jr(m_i2d_evaluator) * 1e6
+    jr = i2d.get_jr(m_i2d_evaluator) * 1e6
 
     mv_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(lat = mlatv, lon = lonv))
     js, je = i2d.state.get_JS(mv_i2d_evaluator) * 1e3
@@ -311,7 +311,7 @@ def compare_AMPS_FAC_and_CF_currents(i2d, a, d, date, lon0):
 
     plt_grid = Grid(lat = lat, lon = lon)
     plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
-    jr = i2d.get_Jr(plt_i2d_evaluator)
+    jr = i2d.get_jr(plt_i2d_evaluator)
 
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
@@ -352,7 +352,7 @@ def show_FAC_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), pede_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
     plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
-    jr = i2d.state.get_Jr(plt_i2d_evaluator)
+    jr = i2d.state.get_jr(plt_i2d_evaluator)
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
 
