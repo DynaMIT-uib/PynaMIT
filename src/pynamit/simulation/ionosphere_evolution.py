@@ -181,7 +181,7 @@ class I2D(object):
                 if not hasattr(self, 'state_history'):
                     self.state_history = current_state
                 else:
-                    self.state_history = xr.concat([self.state_history, current_state], dim = 'time')
+                    self.state_history = xr.concat([self.state_history.drop_sel(time = self.latest_time, errors = 'ignore'), current_state], dim = 'time')
 
                 # Save output if requested
                 if (count % (history_update_interval * history_save_interval) == 0):
@@ -266,7 +266,7 @@ class I2D(object):
             if not hasattr(self, 'jr_history'):
                 self.jr_history = current_jr
             else:
-                self.jr_history = xr.concat([self.jr_history, current_jr], dim = 'time')
+                self.jr_history = xr.concat([self.jr_history.drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
 
         # Save the jr history
         self.jr_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
@@ -329,7 +329,7 @@ class I2D(object):
             if not hasattr(self, 'conductance_history'):
                 self.conductance_history = current_conductance
             else:
-                self.conductance_history = xr.concat([self.conductance_history, current_conductance], dim = 'time')
+                self.conductance_history = xr.concat([self.conductance_history.drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
 
         # Save the conductance history
         self.conductance_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
@@ -382,7 +382,7 @@ class I2D(object):
             if not hasattr(self, 'u_history'):
                 self.u_history = current_u
             else:
-                self.u_history = xr.concat([self.u_history, current_u], dim = 'time')
+                self.u_history = xr.concat([self.u_history.drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
 
         # Save the neutral wind history
         self.u_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
