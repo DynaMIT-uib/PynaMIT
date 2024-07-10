@@ -35,7 +35,7 @@ def test_2d_igrf_pfac_hc_zerodip_wind_grid():
                       latitude_boundary = 50,
                       zero_jr_at_dip_equator = True,
                       wind_directory = temp_dir,
-                      vector_FAC = False,
+                      vector_jr = False,
                       vector_conductance = False,
                       vector_u = False)
 

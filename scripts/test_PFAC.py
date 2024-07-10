@@ -52,17 +52,16 @@ conductance_lon = i2d.num_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
 i2d.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
-## FAC INPUT
-FAC_lat = i2d.num_grid.lat
-FAC_lon = i2d.num_grid.lon
+## jr INPUT
+jr_lat = i2d.num_grid.lat
+jr_lon = i2d.num_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-FAC_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
-jparallel = a.get_upward_current(mlat = FAC_lat, mlt = d.mlon2mlt(FAC_lon, date)) / FAC_b_evaluator.br * 1e-6
-jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
-i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
+jr = a.get_upward_current(mlat = jr_lat, mlt = d.mlon2mlt(jr_lon, date)) * 1e-6
+jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
+i2d.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
 i2d.update_conductance()
-i2d.update_FAC()
+i2d.update_jr()
 i2d.state.impose_constraints()
 i2d.state.update_Phi_and_W()
 
@@ -136,11 +135,12 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 if COMPARE_TO_SECS:
     print('Building SECS matrices. This takes some time (and memory) because of global grids...')
-    secsI = -jparallel * FAC_b_evaluator.br * i2d.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
+    secsI = -jr * i2d.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = i2d.num_grid.lat, i2d.num_grid.lon
-    Be, Bn, Br = FAC_b_evaluator.bphi, - FAC_b_evaluator.btheta, FAC_b_evaluator.br
+    b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = lat_secs, lon = lon_secs), RI)
+    Be, Bn, Br = b_evaluator.bphi, - b_evaluator.btheta, b_evaluator.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)
 
 

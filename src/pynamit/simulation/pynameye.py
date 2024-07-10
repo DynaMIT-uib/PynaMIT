@@ -33,8 +33,8 @@ class PynamEye(object):
             visualziation. Default is 100.
         """
 
-        keys = ['settings', 'FAC', 'conductance', 'state', 'u']
-        filename_suffix = dict(zip(keys, ['_settings', '_FAC', '_conductance', '_state', '_u']))
+        keys = ['settings', 'jr', 'conductance', 'state', 'u']
+        filename_suffix = dict(zip(keys, ['_settings', '_jr', '_conductance', '_state', '_u']))
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -170,7 +170,7 @@ class PynamEye(object):
         """ Define default settings for various plots """
         self.Br_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
         self.eqJ_defaults = {'colors':'black',  'levels':np.r_[-210:220:20] * 1e3}
-        self.FAC_defaults = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/6 * 1e-6, 'extend':'both'}
+        self.jr_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/6 * 1e-6, 'extend':'both'}
         self.Phi_defaults = {'colors':'black',  'levels':np.r_[-212.5:220:5] * 1e3}
         self.W_defaults   = {'colors':'orange', 'levels':self.Phi_defaults['levels']}
 
@@ -333,9 +333,9 @@ class PynamEye(object):
         """
 
         # populate kwargs with default values if not specificed in function call:
-        for key in self.FAC_defaults:
+        for key in self.jr_defaults:
             if key not in kwargs.keys():
-                kwargs[key] = self.FAC_defaults[key]
+                kwargs[key] = self.jr_defaults[key]
 
         jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
 

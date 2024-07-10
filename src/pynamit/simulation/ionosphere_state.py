@@ -249,22 +249,22 @@ class State(object):
             self.set_coeffs(jr = self.jr.coeffs)
 
 
-    def set_FAC(self, jr, vector_FAC = True):
+    def set_jr(self, jr, vector_jr = True):
         """
-        Specify field-aligned current at ``self.num_grid.theta``,
+        Specify radial current at ``self.num_grid.theta``,
         ``self.num_grid.phi``.
 
             Parameters
             ----------
-            FAC: array
-                The field-aligned current, in A/m^2, at
+            jr: array
+                The radial current, in A/m^2, at
                 ``self.num_grid.theta`` and ``self.num_grid.phi``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
         """
 
-        if vector_FAC:
+        if vector_jr:
             self.jr = jr
 
             if self.connect_hemispheres:

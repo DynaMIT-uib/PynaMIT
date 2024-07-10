@@ -14,10 +14,10 @@ class Mainfield(object):
 
         - 'dipole': Dipole magnetic field, using IGRF coefficients to
           determine dipole moment. The functions will refer to *dipole
-          coordinates*. Other parameters (FAC, conductanace, ...) must be
+          coordinates*. Other parameters (jr, conductance, ...) must be
           given in the same coordinate system.
         - 'igrf': International Geomagentic Reference Field, described
-          in *geocentric*  coordinates. Other parameters (FAC,
+          in *geocentric*  coordinates. Other parameters (jr,
           conductance, ...) must be given in the same coordinate system.
           NOTE: Conversion between geodetic and geocentric is ignored.
           Geodetic height is calculated as ``h = r - RE``.

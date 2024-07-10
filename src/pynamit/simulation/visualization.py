@@ -177,7 +177,7 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
 
-    # scatter plot high latitude FACs
+    # scatter plot high latitude jr
     iii = np.abs(i2d.state.num_grid.lat) > i2d.state.latitude_boundary
     jrmax = np.max(np.abs(i2d.state.jr))
     ax_1.scatter(i2d.state.jr, jr_mod[iii])
@@ -260,11 +260,11 @@ if __name__ == "__main__":
     globalplot(lon, lat, hall_plt, noon_longitude = lon0, levels = np.linspace(0, 20, 100))
 
 
-def compare_AMPS_FAC_and_CF_currents(i2d, a, d, date, lon0):
-    # compare FACs and curl-free currents:
+def compare_AMPS_jr_and_CF_currents(i2d, a, d, date, lon0):
+    # compare jr and curl-free currents:
     _, axes = plt.subplots(ncols = 2, nrows = 2)
     SCALE = 1e3
-    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+    levels = np.linspace(-.9, .9, 22) # color levels for jr muA/m^2
 
     # Define grid used for plotting
     Ncs = 30
@@ -321,7 +321,7 @@ def plot_AMPS_Br(a):
     _, axes = plt.subplots(ncols = 2, figsize = (10, 5))
     paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
 
-    if not compare_AMPS_FAC_and_CF_currents:
+    if not compare_AMPS_jr_and_CF_currents:
         mlat  , mlt   = a.scalargrid
         mlatn , mltn  = np.split(mlat , 2)[0], np.split(mlt , 2)[0]
         mn_grid = Grid(lat = mlatn, lon = mltn)
@@ -334,8 +334,8 @@ def plot_AMPS_Br(a):
     plt.close()
 
 
-def show_FAC_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
-    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+def show_jr_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
+    levels = np.linspace(-.9, .9, 22) # color levels for jr muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
 
     # Define grid used for plotting
@@ -357,7 +357,7 @@ def show_FAC_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
 
 
 def make_colorbars():
-    levels = np.linspace(-.9, .9, 22) # color levels for FAC muA/m^2
+    levels = np.linspace(-.9, .9, 22) # color levels for jr muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
     Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
 
@@ -371,7 +371,7 @@ def make_colorbars():
     plt.savefig('conductance_colorbar.png')
     plt.close()
 
-    # FAC and Br:
+    # jr and Br:
     _, axf = plt.subplots(figsize = (2, 10))
     fz, fo = np.zeros_like(levels), np.ones_like(levels)
     axf.contourf(np.vstack((fz, fo)).T, np.vstack((levels, levels)).T, np.vstack((levels, levels)).T, levels = levels, cmap = plt.cm.bwr)

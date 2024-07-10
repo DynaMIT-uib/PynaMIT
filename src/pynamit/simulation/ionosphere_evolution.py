@@ -35,7 +35,7 @@ class I2D(object):
                  zero_jr_at_dip_equator = False,
                  ih_constraint_scaling = 1e-5,
                  PFAC_matrix = None,
-                 vector_FAC = True,
+                 vector_jr = True,
                  vector_conductance = True,
                  vector_u = True,
                  t0 = '2020-01-01 00:00:00'):
@@ -78,7 +78,7 @@ class I2D(object):
             'mainfield_kind':         mainfield_kind,
             'mainfield_epoch':        mainfield_epoch,
             'mainfield_B0':           0 if mainfield_B0 is None else mainfield_B0,
-            'vector_FAC':             int(vector_FAC),
+            'vector_jr':              int(vector_jr),
             'vector_conductance':     int(vector_conductance),
             'vector_u':               int(vector_u),
             't0':                     t0,
@@ -98,12 +98,12 @@ class I2D(object):
 
         self.RI = settings.RI
 
-        mainfield = Mainfield(kind = settings.mainfield_kind,
-                              epoch = settings.mainfield_epoch,
-                              hI = (settings.RI - RE) * 1e-3,
-                              B0 = None if settings.mainfield_B0 == 0 else settings.mainfield_B0)
+        self.mainfield = Mainfield(kind = settings.mainfield_kind,
+                                   epoch = settings.mainfield_epoch,
+                                   hI = (settings.RI - RE) * 1e-3,
+                                   B0 = None if settings.mainfield_B0 == 0 else settings.mainfield_B0)
 
-        self.vector_FAC         = bool(settings.vector_FAC)
+        self.vector_jr          = bool(settings.vector_jr)
         self.vector_conductance = bool(settings.vector_conductance)
         self.vector_u           = bool(settings.vector_u)
 
@@ -118,13 +118,11 @@ class I2D(object):
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
         self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.num_grid)
 
-        self.b_evaluator = FieldEvaluator(mainfield, self.num_grid, RI)
-
         # Initialize the state of the ionosphere
         self.state = State(self.basis,
                            self.conductance_basis,
                            self.u_basis,
-                           mainfield,
+                           self.mainfield,
                            self.num_grid, 
                            settings,
                            PFAC_matrix = PFAC_matrix)
@@ -149,19 +147,19 @@ class I2D(object):
         """
         Evolve to the given time `t`. Will overwrite the values
         corresponding to the start time, to account for any changes in
-        FAC, conductance or neutral wind since the end of the last call
+        jr, conductance or neutral wind since the end of the last call
         to `evolve_to_time`.
 
         """
 
         # Will be set to True when the corresponding history is different from the one saved on disk
-        self.save_FAC         = False
+        self.save_jr         = False
         self.save_conductance = False
         self.save_u           = False
  
         count = 0
         while True:
-            self.update_FAC()
+            self.update_jr()
             self.update_conductance()
             self.update_u()
 
@@ -206,12 +204,22 @@ class I2D(object):
 
     def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None):
         """
+        Set the field-aligned current at the given coordinate points.
+        """
+
+        FAC_b_evaluator = FieldEvaluator(self.mainfield, Grid(lat = lat, lon = lon, theta = theta, phi = phi), self.RI)
+
+        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
+
+
+    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None):
+        """
         Specify field-aligned current at ``self.num_grid.theta``,
         ``self.num_grid.phi``.
 
             Parameters
             ----------
-            FAC: array
+            jr: array
                 The field-aligned current, in A/m^2, at
                 ``self.num_grid.theta`` and ``self.num_grid.phi``, at
                 ``RI``. The values in the array have to match the
@@ -219,27 +227,27 @@ class I2D(object):
 
         """
 
-        FAC = np.atleast_2d(FAC)
+        jr = np.atleast_2d(jr)
 
-        FAC_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        jr_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if FAC.shape[0] > 1:
-                raise ValueError('Time has to be specified if FAC is given for multiple times')
+            if jr.shape[0] > 1:
+                raise ValueError('Time has to be specified if jr is given for multiple times')
             time = self.latest_time
 
         time = np.atleast_1d(time)
 
         for i in range(time.size):
             # Interpolate to num_grid
-            jpar_int = csp.interpolate_scalar(FAC[i], FAC_grid.theta, FAC_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            jr_int = csp.interpolate_scalar(jr[i], jr_grid.theta, jr_grid.phi, self.num_grid.theta, self.num_grid.phi)
             
-            # Extract the radial component of the FAC and set the corresponding basis coefficients
-            if self.vector_FAC:
+            # Extract the radial component of the jr and set the corresponding basis coefficients
+            if self.vector_jr:
                 # Represent as expansion in spherical harmonics
-                jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = jpar_int * self.b_evaluator.br)
+                jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = jr_int)
 
-                current_FAC = xr.Dataset(
+                current_jr = xr.Dataset(
                     data_vars = {
                         'SH_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
                     },
@@ -247,23 +255,21 @@ class I2D(object):
                 )
             else:
                 # Represent as values on num_grid
-                jr = jpar_int * self.b_evaluator.br
-
-                current_FAC = xr.Dataset(
+                current_jr = xr.Dataset(
                     data_vars = {
-                        'GRID_jr': (['time', 'i'], jr.reshape((1, -1))),
+                        'GRID_jr': (['time', 'i'], jr_int.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
-            # Add to the FAC history
-            if not hasattr(self, 'FAC_history'):
-                self.FAC_history = current_FAC
+            # Add to the jr history
+            if not hasattr(self, 'jr_history'):
+                self.jr_history = current_jr
             else:
-                self.FAC_history = xr.concat([self.FAC_history, current_FAC], dim = 'time')
+                self.jr_history = xr.concat([self.jr_history, current_jr], dim = 'time')
 
-        # Save the FAC history
-        self.FAC_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_FAC.ncdf')
+        # Save the jr history
+        self.jr_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -382,19 +388,19 @@ class I2D(object):
         self.u_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
 
-    def update_FAC(self):
-        """ Update FAC """
+    def update_jr(self):
+        """ Update jr """
 
-        if hasattr(self, 'FAC_history'):
-            # Use xarray sel with padding to get the FAC values at the current time
-            if self.vector_FAC:
-                self.current_jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+        if hasattr(self, 'jr_history'):
+            # Use xarray sel with padding to get the jr values at the current time
+            if self.vector_jr:
+                self.current_jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.jr_history['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
-                self.current_jr = self.FAC_history['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_jr = self.jr_history['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
-            # Check if current jr is different from the one used in the last call to update_FAC
-            if not hasattr(self, 'last_jr') or (self.vector_FAC and not np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)) or (not self.vector_FAC and not np.allclose(self.current_jr, self.last_jr)):
-                self.state.set_FAC(self.current_jr, self.vector_FAC)
+            # Check if current jr is different from the one used in the last call to update_jr
+            if not hasattr(self, 'last_jr') or (self.vector_jr and not np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)) or (not self.vector_jr and not np.allclose(self.current_jr, self.last_jr)):
+                self.state.set_jr(self.current_jr, self.vector_jr)
                 self.last_jr = self.current_jr
 
 
@@ -451,24 +457,24 @@ class I2D(object):
             self.state.set_coeffs(Phi   = self.state_history['SH_Phi'].values[-1])
             self.state.set_coeffs(W     = self.state_history['SH_W'].values[-1])
 
-        # Load FAC history if it exists on file
-        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_FAC.ncdf'):
-            self.FAC_history = xr.load_dataset(self.result_filename_prefix + '_FAC.ncdf')
+        # Load jr history if it exists on file
+        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_jr.ncdf'):
+            self.jr_history = xr.load_dataset(self.result_filename_prefix + '_jr.ncdf')
 
-            if self.vector_FAC:
+            if self.vector_jr:
                 # Convert i to a MultiIndex of n and m
-                FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['n'].values, self.FAC_history['m'].values], names = ['n', 'm'])
-                del self.FAC_history['n'], self.FAC_history['m']
-                self.FAC_history.coords['i'] = FAC_index
-                jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.FAC_history['SH_jr'].values[-1])
+                jr_index = pd.MultiIndex.from_arrays([self.jr_history['n'].values, self.jr_history['m'].values], names = ['n', 'm'])
+                del self.jr_history['n'], self.jr_history['m']
+                self.jr_history.coords['i'] = jr_index
+                jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.jr_history['SH_jr'].values[-1])
             else:
                 # Convert i to a MultiIndex of theta and phi
-                FAC_index = pd.MultiIndex.from_arrays([self.FAC_history['theta'].values, self.FAC_history['phi'].values], names = ['theta', 'phi'])
-                del self.FAC_history['theta'], self.FAC_history['phi']
-                self.FAC_history.coords['i'] = FAC_index
-                jr = self.FAC_history['GRID_jr'].values[-1]
+                jr_index = pd.MultiIndex.from_arrays([self.jr_history['theta'].values, self.jr_history['phi'].values], names = ['theta', 'phi'])
+                del self.jr_history['theta'], self.jr_history['phi']
+                self.jr_history.coords['i'] = jr_index
+                jr = self.jr_history['GRID_jr'].values[-1]
 
-            self.state.set_FAC(jr, vector_FAC = self.vector_FAC)
+            self.state.set_jr(jr, vector_jr = self.vector_jr)
 
         # Load conductance history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):

@@ -39,20 +39,17 @@ i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
                   ih_constraint_scaling = 1e-5,
                   t0 = str(date))
 
-## FAC INPUT
-FAC_lat = i2d.num_grid.lat
-FAC_lon = i2d.num_grid.lon
+## jr INPUT
+jr_lat = i2d.num_grid.lat
+jr_lon = i2d.num_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
-mlat, mlon = apx.geo2apex(FAC_lat, FAC_lon, (RI - RE) * 1e-3)
+mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
-
 _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
-
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
-FAC_b_evaluator = pynamit.FieldEvaluator(i2d.state.mainfield, pynamit.Grid(lat = FAC_lat, lon = FAC_lon), RI)
-jparallel = a.get_upward_current(mlat = mlat, mlt = mlt) / FAC_b_evaluator.br * 1e-6
-jparallel[np.abs(FAC_lat) < 50] = 0 # filter low latitude FACs
-i2d.set_FAC(jparallel, lat = FAC_lat, lon = FAC_lon)
+jr = a.get_upward_current(mlat = mlat, mlt = mlt) * 1e-6
+jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
+i2d.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
 ## WIND INPUT
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
