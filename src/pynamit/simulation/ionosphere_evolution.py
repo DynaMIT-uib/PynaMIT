@@ -447,9 +447,8 @@ class I2D(object):
             self.state_history = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
 
             # Convert i to a MultiIndex of n and m
-            state_index = pd.MultiIndex.from_arrays([self.state_history['n'].values, self.state_history['m'].values], names = ['n', 'm'])
-            del self.state_history['n'], self.state_history['m']
-            self.state_history.coords['i'] = state_index
+            state_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_history['n'].values, self.state_history['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': self.state_history.time.values})
+            self.state_history = self.state_history.drop_vars(['m', 'n']).assign_coords(state_coords)
 
             self.latest_time = self.state_history.time.values[-1]
             self.state.set_coeffs(m_ind = self.state_history['SH_m_imp'].values[-1])
@@ -463,18 +462,12 @@ class I2D(object):
 
             if self.vector_jr:
                 # Convert i to a MultiIndex of n and m
-                jr_index = pd.MultiIndex.from_arrays([self.jr_history['n'].values, self.jr_history['m'].values], names = ['n', 'm'])
-                del self.jr_history['n'], self.jr_history['m']
-                self.jr_history.coords['i'] = jr_index
-                jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.jr_history['SH_jr'].values[-1])
+                jr_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.jr_history['n'].values, self.jr_history['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': self.jr_history.time.values})
+                self.jr_history = self.jr_history.drop_vars(['m', 'n']).assign_coords(jr_coords)
             else:
                 # Convert i to a MultiIndex of theta and phi
-                jr_index = pd.MultiIndex.from_arrays([self.jr_history['theta'].values, self.jr_history['phi'].values], names = ['theta', 'phi'])
-                del self.jr_history['theta'], self.jr_history['phi']
-                self.jr_history.coords['i'] = jr_index
-                jr = self.jr_history['GRID_jr'].values[-1]
-
-            self.state.set_jr(jr, vector_jr = self.vector_jr)
+                jr_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.jr_history['theta'].values, self.jr_history['phi'].values], names = ['theta', 'phi']), dim = 'i').merge({'time': self.jr_history.time.values})
+                self.jr_history = self.jr_history.drop_vars(['theta', 'phi']).assign_coords(jr_coords)
 
         # Load conductance history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
@@ -482,20 +475,12 @@ class I2D(object):
 
             if self.vector_conductance:
                 # Convert i to a MultiIndex of n and m
-                conductance_index = pd.MultiIndex.from_arrays([self.conductance_history['n'].values, self.conductance_history['m'].values], names = ['n', 'm'])
-                del self.conductance_history['n'], self.conductance_history['m']
-                self.conductance_history.coords['i'] = conductance_index
-                etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaP'].values[-1])
-                etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaH'].values[-1])
+                conductance_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_history['n'].values, self.conductance_history['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': self.conductance_history.time.values})
+                self.conductance_history = self.conductance_history.drop_vars(['m', 'n']).assign_coords(conductance_coords)
             else:
                 # Convert i to a MultiIndex of theta and phi
-                conductance_index = pd.MultiIndex.from_arrays([self.conductance_history['theta'].values, self.conductance_history['phi'].values], names = ['theta', 'phi'])
-                del self.conductance_history['theta'], self.conductance_history['phi']
-                self.conductance_history.coords['i'] = conductance_index
-                etaP = self.conductance_history['GRID_etaP'].values[-1]
-                etaH = self.conductance_history['GRID_etaH'].values[-1]
-
-            self.state.set_conductance(etaP, etaH, vector_conductance = self.vector_conductance)
+                conductance_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_history['theta'].values, self.conductance_history['phi'].values], names = ['theta', 'phi']), dim = 'i').merge({'time': self.conductance_history.time.values})
+                self.conductance_history = self.conductance_history.drop_vars(['theta', 'phi']).assign_coords(conductance_coords)
 
         # Load neutral wind history if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
@@ -503,19 +488,12 @@ class I2D(object):
 
             if self.vector_u:
                 # Convert i to a MultiIndex of n and m
-                u_index = pd.MultiIndex.from_arrays([self.u_history['n'].values, self.u_history['m'].values], names = ['n', 'm'])
-                del self.u_history['n'], self.u_history['m']
-                self.u_history.coords['i'] = u_index
-                u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_history['SH_u_cf'].values[-1], self.u_history['SH_u_df'].values[-1])), helmholtz = True)
+                u_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_history['n'].values, self.u_history['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': self.u_history.time.values})
+                self.u_history = self.u_history.drop_vars(['m', 'n']).assign_coords(u_coords)
             else:
                 # Convert i to a MultiIndex of theta and phi
-                u_index = pd.MultiIndex.from_arrays([self.u_history['theta'].values, self.u_history['phi'].values], names = ['theta', 'phi'])
-                del self.u_history['theta'], self.u_history['phi']
-                self.u_history.coords['i'] = u_index
-                u = (self.u_history['GRID_u_cf'].values[-1], self.u_history['GRID_u_df'].values[-1])
-
-            self.state.set_u(u, vector_u = self.vector_u)
-
+                u_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_history['theta'].values, self.u_history['phi'].values], names = ['theta', 'phi']), dim = 'i').merge({'time': self.u_history.time.values})
+                self.u_history = self.u_history.drop_vars(['theta', 'phi']).assign_coords(u_coords)
 
     @property
     def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
