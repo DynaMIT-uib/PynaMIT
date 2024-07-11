@@ -101,28 +101,30 @@ class Dynamics(object):
                                    hI = (settings.RI - RE) * 1e-3,
                                    B0 = None if settings.mainfield_B0 == 0 else settings.mainfield_B0)
 
-        self.vector_jr          = bool(settings.vector_jr)
-        self.vector_conductance = bool(settings.vector_conductance)
-        self.vector_u           = bool(settings.vector_u)
+        self.vector_input = {
+            'jr':          bool(settings.vector_jr),
+            'conductance': bool(settings.vector_conductance),
+            'u':           bool(settings.vector_u),
+        }
 
         self.csp = CSProjection(settings.Ncs)
         self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
         self.state_basis       = SHBasis(settings.Nmax, settings.Mmax)
-        self.jr_basis          = SHBasis(settings.Nmax, settings.Mmax)
-        self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
-        self.u_basis           = SHBasis(settings.Nmax, settings.Mmax)
+        self.input_bases = {
+            'jr':          SHBasis(settings.Nmax, settings.Mmax),
+            'conductance': SHBasis(settings.Nmax, settings.Mmax, Nmin = 0),
+            'u':           SHBasis(settings.Nmax, settings.Mmax),
+        }
 
-        self.state_basis_evaluator       = BasisEvaluator(self.state_basis,       self.state_grid)
-        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.state_grid)
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.state_grid)
-        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.state_grid)
+        self.state_basis_evaluator = BasisEvaluator(self.state_basis, self.state_grid)
+        self.input_basis_evaluators = dict([(key, BasisEvaluator(self.input_bases[key], self.state_grid)) for key in self.input_bases.keys()])
 
         # Initialize the state of the ionosphere
         self.state = State(self.state_basis,
-                           self.jr_basis,
-                           self.conductance_basis,
-                           self.u_basis,
+                           self.input_bases['jr'],
+                           self.input_bases['conductance'],
+                           self.input_bases['u'],
                            self.mainfield,
                            self.state_grid,
                            settings,
@@ -241,6 +243,8 @@ class Dynamics(object):
 
         """
 
+        key = 'jr'
+
         jr = np.atleast_2d(jr)
 
         jr_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
@@ -257,15 +261,15 @@ class Dynamics(object):
             jr_int = csp.interpolate_scalar(jr[i], jr_grid.theta, jr_grid.phi, self.state_grid.theta, self.state_grid.phi)
             
             # Extract the radial component of the jr and set the corresponding basis coefficients
-            if self.vector_jr:
+            if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                jr = Vector(self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr_int)
+                jr = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = jr_int)
 
                 current_jr = xr.Dataset(
                     data_vars = {
-                        self.jr_basis.short_name + '_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.jr_basis.index, dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
@@ -277,13 +281,13 @@ class Dynamics(object):
                 )
 
             # Add to the jr time series
-            if not 'jr' in self.input_timeseries.keys():
-                self.input_timeseries['jr'] = current_jr
+            if not key in self.input_timeseries.keys():
+                self.input_timeseries[key] = current_jr
             else:
-                self.input_timeseries['jr'] = xr.concat([self.input_timeseries['jr'].drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
+                self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
 
         # Save the jr time series
-        self.input_timeseries['jr'].reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
+        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -292,6 +296,8 @@ class Dynamics(object):
         ``self.state_grid.theta``, ``self.state_grid.phi``.
 
         """
+
+        key = 'conductance'
 
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
@@ -314,17 +320,17 @@ class Dynamics(object):
             etaP_int = csp.interpolate_scalar(etaP, conductance_grid.theta, conductance_grid.phi, self.state_grid.theta, self.state_grid.phi)
             etaH_int = csp.interpolate_scalar(etaH, conductance_grid.theta, conductance_grid.phi, self.state_grid.theta, self.state_grid.phi)
 
-            if self.vector_conductance:
+            if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                etaP = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP_int)
-                etaH = Vector(self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH_int)
+                etaP = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = etaP_int)
+                etaH = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = etaH_int)
 
                 current_conductance = xr.Dataset(
                     data_vars = {
-                        self.conductance_basis.short_name + '_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
-                        self.conductance_basis.short_name + '_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.conductance_basis.index, dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
@@ -340,19 +346,21 @@ class Dynamics(object):
                 )
 
             # Add to the conductance time series
-            if not 'conductance' in self.input_timeseries.keys():
-                self.input_timeseries['conductance'] = current_conductance
+            if not key in self.input_timeseries.keys():
+                self.input_timeseries[key] = current_conductance
             else:
-                self.input_timeseries['conductance'] = xr.concat([self.input_timeseries['conductance'].drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
+                self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
 
         # Save the conductance time series
-        self.input_timeseries['conductance'].reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
+        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
 
     def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
+
+        key = 'u'
 
         u_theta = np.atleast_2d(u[0])
         u_phi = np.atleast_2d(u[1])
@@ -371,16 +379,16 @@ class Dynamics(object):
             u_int = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.state_grid.theta, self.state_grid.phi)
             u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
-            if self.vector_u:
+            if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                u = Vector(self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+                u = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = (u_int_theta, u_int_phi), helmholtz = True)
 
                 current_u = xr.Dataset(
                     data_vars = {
-                        self.u_basis.short_name + '_u_cf': (['time', 'i'], u.coeffs[0].reshape((1, -1))),
-                        self.u_basis.short_name + '_u_df': (['time', 'i'], u.coeffs[1].reshape((1, -1))),
+                        self.input_bases[key].short_name + '_u_cf': (['time', 'i'], u.coeffs[0].reshape((1, -1))),
+                        self.input_bases[key].short_name + '_u_df': (['time', 'i'], u.coeffs[1].reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.u_basis.index, dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
@@ -393,46 +401,56 @@ class Dynamics(object):
                 )
 
             # Add to the neutral wind time series
-            if not 'u' in self.input_timeseries.keys():
-                self.input_timeseries['u'] = current_u
+            if not key in self.input_timeseries.keys():
+                self.input_timeseries[key] = current_u
             else:
-                self.input_timeseries['u'] = xr.concat([self.input_timeseries['u'].drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
+                self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
 
         # Save the neutral wind timeseries
-        self.input_timeseries['u'].reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
+        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
 
     def update_jr(self):
         """ Update jr """
 
-        if 'jr' in self.input_timeseries.keys():
+        key = 'jr'
+        if key in self.input_timeseries.keys():
             # Use xarray sel with padding to get the jr values at the current time
-            if self.vector_jr:
-                self.current_jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, coeffs = self.input_timeseries['jr'][self.jr_basis.short_name + '_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+            if self.vector_input[key]:
+                self.current_jr = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = self.input_timeseries[key][self.input_bases[key].short_name + '_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                if hasattr(self, 'last_jr'):
+                    close_to_last = np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)
             else:
-                self.current_jr = self.input_timeseries['jr']['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_jr = self.input_timeseries[key]['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                if hasattr(self, 'last_jr'):
+                    close_to_last = np.allclose(self.current_jr, self.last_jr)
 
             # Check if current jr is different from the one used in the last call to update_jr
-            if not hasattr(self, 'last_jr') or (self.vector_jr and not np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)) or (not self.vector_jr and not np.allclose(self.current_jr, self.last_jr)):
-                self.state.set_jr(self.current_jr, self.vector_jr)
+            if not hasattr(self, 'last_jr') or not close_to_last:
+                self.state.set_jr(self.current_jr, self.vector_input[key])
                 self.last_jr = self.current_jr
 
 
     def update_conductance(self):
         """ Update conductance """
 
-        if 'conductance' in self.input_timeseries.keys():
+        key = 'conductance'
+        if key in self.input_timeseries.keys():
+            last_exists = hasattr(self, 'last_etaP') and hasattr(self, 'last_etaH')
             # Use xarray sel with padding to get the conductance values at the current time
-            if self.vector_conductance:
-                self.current_etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.input_timeseries['conductance'][self.conductance_basis.short_name + '_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                self.current_etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.input_timeseries['conductance'][self.conductance_basis.short_name + '_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+            if self.vector_input[key]:
+                self.current_etaP = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = self.input_timeseries[key][self.input_bases[key].short_name + '_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_etaH = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = self.input_timeseries[key][self.input_bases[key].short_name + '_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                if last_exists:
+                    close_to_last = np.allclose(self.current_etaP.coeffs, self.last_etaP.coeffs) and np.allclose(self.current_etaH.coeffs, self.last_etaH.coeffs)
             else:
-                self.current_etaP = self.input_timeseries['conductance']['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
-                self.current_etaH = self.input_timeseries['conductance']['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_etaP = self.input_timeseries[key]['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_etaH = self.input_timeseries[key]['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                if last_exists:
+                    close_to_last = np.allclose(self.current_etaP, self.last_etaP) and np.allclose(self.current_etaH, self.last_etaH)
 
-            # Check if current etaP or etaH are different from the ones used in the last call to update_conductance
-            if not (hasattr(self, 'last_etaP') and hasattr(self, 'last_etaH')) or (self.vector_conductance and (not np.allclose(self.current_etaP.coeffs, self.last_etaP.coeffs) or not np.allclose(self.current_etaH.coeffs, self.last_etaH.coeffs))) or (not self.vector_conductance and (not np.allclose(self.current_etaP, self.last_etaP) or not np.allclose(self.current_etaH, self.last_etaH))):
-                self.state.set_conductance(self.current_etaP, self.current_etaH, self.vector_conductance)
+            if not last_exists or not close_to_last:
+                self.state.set_conductance(self.current_etaP, self.current_etaH, self.vector_input[key])
                 self.last_etaP = self.current_etaP
                 self.last_etaH = self.current_etaH
 
@@ -440,69 +458,49 @@ class Dynamics(object):
     def update_u(self):
         """ Update neutral wind """
 
-        if 'u' in self.input_timeseries.keys():
+        key = 'u'
+        if key in self.input_timeseries.keys():
+            last_exists = hasattr(self, 'last_u')
             # Use xarray sel with padding to get the neutral wind values at the current time
-            if self.vector_u:
-                self.current_u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.input_timeseries['u'][self.u_basis.short_name + '_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.input_timeseries['u'][self.u_basis.short_name + '_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
+            if self.vector_input[key]:
+                self.current_u = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((self.input_timeseries[key][self.input_bases[key].short_name + '_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.input_timeseries[key][self.input_bases[key].short_name + '_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
+                if last_exists:
+                    close_to_last = np.allclose(self.current_u.coeffs, self.last_u.coeffs)
             else:
-                self.current_u = (self.input_timeseries['u']['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.input_timeseries['u']['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_u = (self.input_timeseries[key]['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.input_timeseries[key]['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                if last_exists:
+                    close_to_last = np.allclose(self.current_u[0], self.last_u[0]) and np.allclose(self.current_u[1], self.last_u[1])
 
-            # Check if current u is different from the one used in the last call to update_u
-            if not hasattr(self, 'last_u') or (self.vector_u and not np.allclose(self.current_u.coeffs, self.last_u.coeffs)) or (not self.vector_u and not np.allclose(self.current_u[0], self.last_u[0]) and not np.allclose(self.current_u[1], self.last_u[1])):
-                self.state.set_u(self.current_u, self.vector_u)
+            if not last_exists or not close_to_last:
+                self.state.set_u(self.current_u, self.vector_input[key])
                 self.last_u = self.current_u
 
 
     def load_timeseries(self):
         """ Load time series from file """
 
-        # Load state time series if it exists on file
-        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_state.ncdf'):
-            state_timeseries = xr.load_timeseries(self.result_filename_prefix + '_state.ncdf')
+        if (self.result_filename_prefix is not None):
+            # Load state time series if it exists on file
+            if os.path.exists(self.result_filename_prefix + '_state.ncdf'):
+                state_timeseries = xr.load_timeseries(self.result_filename_prefix + '_state.ncdf')
 
-            state_basis_index = pd.MultiIndex.from_arrays([state_timeseries[self.state_basis.index_labels[i]].values for i in range(len(self.state_basis.index_labels))], names = self.state_basis.index_labels)
-            state_coords = xr.Coordinates.from_pandas_multiindex(state_basis_index, dim = 'i').merge({'time': state_timeseries.time.values})
-            self.state_timeseries = state_timeseries.drop_vars(['m', 'n']).assign_coords(state_coords)
+                state_basis_index = pd.MultiIndex.from_arrays([state_timeseries[self.state_basis.index_labels[i]].values for i in range(len(self.state_basis.index_labels))], names = self.state_basis.index_labels)
+                state_coords = xr.Coordinates.from_pandas_multiindex(state_basis_index, dim = 'i').merge({'time': state_timeseries.time.values})
+                self.state_timeseries = state_timeseries.drop_vars(['m', 'n']).assign_coords(state_coords)
 
-        # Load jr time series if it exists on file
-        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_jr.ncdf'):
-            self.input_timeseries['jr'] = xr.load_timeseries(self.result_filename_prefix + '_jr.ncdf')
+            # Load input time series if they exist on file
+            for key in self.input_bases.keys():
+                if os.path.exists(self.result_filename_prefix + '_' + key + '.ncdf'):
+                    self.input_timeseries[key] = xr.load_timeseries(self.result_filename_prefix + '_' + key + '.ncdf')
 
-            if self.vector_jr:
-                basis_labels = self.jr_basis.index_labels
-            else:
-                basis_labels = ['theta', 'phi']
+                    if self.vector_input[key]:
+                        basis_labels = self.input_bases[key].index_labels
+                    else:
+                        basis_labels = ['theta', 'phi']
 
-            basis_index = pd.MultiIndex.from_arrays([self.input_timeseries['jr'][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
-            coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.input_timeseries['jr'].time.values})
-            self.input_timeseries['jr'] = self.input_timeseries['jr'].drop_vars(basis_labels).assign_coords(coords)
-
-        # Load conductance time series if it exists on file
-        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
-            self.input_timeseries['conductance'] = xr.load_timeseries(self.result_filename_prefix + '_conductance.ncdf')
-
-            if self.vector_conductance:
-                basis_labels = self.conductance_basis.index_labels
-            else:
-                basis_labels = ['theta', 'phi']
-
-            basis_index = pd.MultiIndex.from_arrays([self.input_timeseries['conductance'][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
-            coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.input_timeseries['conductance'].time.values})
-            self.input_timeseries['conductance'] = self.input_timeseries['conductance'].drop_vars(basis_labels).assign_coords(coords)
-
-        # Load neutral wind time series if it exists on file
-        if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
-            self.input_timeseries['u'] = xr.load_timeseries(self.result_filename_prefix + '_u.ncdf')
-
-            if self.vector_u:
-                basis_labels = self.u_basis.index_labels
-            else:
-                basis_labels = ['theta', 'phi']
-
-            basis_index = pd.MultiIndex.from_arrays([self.input_timeseries['u'][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
-            coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.input_timeseries['u'].time.values})
-            self.input_timeseries['u'] = self.input_timeseries['u'].drop_vars(basis_labels).assign_coords(coords)
-
+                    basis_index = pd.MultiIndex.from_arrays([self.input_timeseries[key][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
+                    coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.input_timeseries[key].time.values})
+                    self.input_timeseries[key] = self.input_timeseries[key].drop_vars(basis_labels).assign_coords(coords)
 
     @property
     def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
