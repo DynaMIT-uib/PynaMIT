@@ -12,7 +12,7 @@ class State(object):
 
     """
 
-    def __init__(self, basis, conductance_basis, u_basis, mainfield, num_grid, settings, PFAC_matrix = None):
+    def __init__(self, basis, conductance_basis, u_basis, mainfield, grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
@@ -21,7 +21,6 @@ class State(object):
         self.conductance_basis = conductance_basis
         self.u_basis = u_basis
         self.mainfield = mainfield
-        self.num_grid = num_grid
 
         self.RI                     = settings.RI
         self.latitude_boundary      = settings.latitude_boundary
@@ -34,18 +33,19 @@ class State(object):
         if PFAC_matrix is not None:
             self._m_imp_to_B_pol = PFAC_matrix
 
+        # Initialize grid-related objects
+        self.grid = grid
+        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid)
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid)
+
+        self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
+
         # Spherical harmonic conversion factors
         self.m_ind_to_Br  = self.RI * self.basis.d_dr(self.RI)
         self.m_imp_to_jr  = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.W_to_dBr_dt  = -self.RI * self.basis.laplacian(self.RI)
         self.m_ind_to_Jeq = self.RI / mu0 * self.basis.surface_discontinuity
-
-        # Initialize grid-related objects
-        self.basis_evaluator             = BasisEvaluator(self.basis,             num_grid)
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, num_grid)
-        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           num_grid)
-
-        self.b_evaluator = FieldEvaluator(mainfield, num_grid, self.RI)
 
         self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * self.basis.surface_discontinuity / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
@@ -53,7 +53,7 @@ class State(object):
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol.values)
 
         if self.connect_hemispheres:
-            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, num_grid.theta, num_grid.phi)
+            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
             self.cp_basis_evaluator             = BasisEvaluator(self.basis,             self.cp_grid)
@@ -116,11 +116,11 @@ class State(object):
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                     # Map coordinates from r_k[i] to RI:
-                    theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.num_grid.theta, self.num_grid.phi)
+                    theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.grid.theta, self.grid.phi)
                     mapped_grid = Grid(theta = theta_mapped, phi = phi_mapped)
 
                     # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
-                    shifted_b_evaluator = FieldEvaluator(self.mainfield, self.num_grid, r_k[i])
+                    shifted_b_evaluator = FieldEvaluator(self.mainfield, self.grid, r_k[i])
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
                     m_imp_to_jpar = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr / mapped_b_evaluator.br.reshape((-1 ,1)))
@@ -191,14 +191,14 @@ class State(object):
 
             # Identify the high and low latitude points
             if self.mainfield.kind == 'dipole':
-                self.ll_mask = np.abs(self.num_grid.lat) < self.latitude_boundary
+                self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
             elif self.mainfield.kind == 'igrf':
-                mlat, _ = self.mainfield.apx.geo2apex(self.num_grid.lat, self.num_grid.lon, (self.RI - RE)*1e-3)
+                mlat, _ = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.RI - RE)*1e-3)
                 self.ll_mask = np.abs(mlat) < self.latitude_boundary
             else:
                 print('this should not happen')
 
-            # Calculate the matrices that convert m_imp to FAC on num_grid and conjugate grid
+            # Calculate the matrices that convert m_imp to FAC on grid and conjugate grid
             G_jpar    =    self.basis_evaluator.scaled_G(self.m_imp_to_jr /    self.b_evaluator.br.reshape((-1 ,1)))
             G_jpar_cp = self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
 
@@ -224,7 +224,7 @@ class State(object):
                 dip_equator_phi = np.linspace(0, 360, n_phi)
                 self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
 
-                _equation_scaling = self.num_grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
+                _equation_scaling = self.grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
                 self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
             else:
                 # Make zero-row stand-in for the jr matrix
@@ -251,14 +251,14 @@ class State(object):
 
     def set_jr(self, jr, vector_jr = True):
         """
-        Specify radial current at ``self.num_grid.theta``,
-        ``self.num_grid.phi``.
+        Specify radial current at ``self.grid.theta``,
+        ``self.grid.phi``.
 
             Parameters
             ----------
             jr: array
                 The radial current, in A/m^2, at
-                ``self.num_grid.theta`` and ``self.num_grid.phi``, at
+                ``self.grid.theta`` and ``self.grid.phi``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
@@ -318,7 +318,7 @@ class State(object):
     def set_conductance(self, etaP, etaH, vector_conductance = True):
         """
         Specify Hall and Pedersen conductance at
-        ``self.num_grid.theta``, ``self.num_grid.phi``.
+        ``self.grid.theta``, ``self.grid.phi``.
 
         """
         from pynamit.cubed_sphere.cubed_sphere import csp
@@ -329,7 +329,7 @@ class State(object):
             self.etaP = etaP
             self.etaH = etaH
 
-            # Represent as values on num_grid
+            # Represent as values on grid
             self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
             self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
@@ -396,7 +396,7 @@ class State(object):
         return(_basis_evaluator.basis_to_grid(self.m_ind.coeffs * self.m_ind_to_Br))
 
 
-    def get_JS(self): # for now, JS is always returned on num_grid!
+    def get_JS(self): # for now, JS is always returned on self.grid!
         """ Calculate ionospheric sheet current.
 
         """
@@ -441,7 +441,7 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.W.coeffs)
 
 
-    def get_E(self): # for now, E is always returned on num_grid!
+    def get_E(self): # for now, E is always returned on self.grid!
         """ Calculate electric field.
 
         """
