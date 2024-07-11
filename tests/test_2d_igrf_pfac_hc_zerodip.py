@@ -18,20 +18,20 @@ def test_2d_igrf_pfac_hc_zerodip():
         os.mkdir(temp_dir)
 
     # Act
-    i2d = run_pynamit(final_time = 0.1,
-                      dt = 5e-4,
-                      Nmax = 5,
-                      Mmax = 3,
-                      Ncs = 18,
-                      mainfield_kind = 'dipole',
-                      fig_directory = temp_dir,
-                      ignore_PFAC = False,
-                      connect_hemispheres = True,
-                      latitude_boundary = 50,
-                      zero_jr_at_dip_equator = True)
+    dynamics = run_pynamit(final_time = 0.1,
+                           dt = 5e-4,
+                           Nmax = 5,
+                           Mmax = 3,
+                           Ncs = 18,
+                           mainfield_kind = 'dipole',
+                           fig_directory = temp_dir,
+                           ignore_PFAC = False,
+                           connect_hemispheres = True,
+                           latitude_boundary = 50,
+                           zero_jr_at_dip_equator = True)
 
     # Assert
-    coeff_array = i2d.state_timeseries['SH_m_ind'].values
+    coeff_array = dynamics.state_timeseries['SH_m_ind'].values
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

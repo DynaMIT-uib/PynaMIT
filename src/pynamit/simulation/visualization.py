@@ -115,7 +115,7 @@ def globalplot(lon, lat, data, noon_longitude = 0, scatter = False, **kwargs):
     plt.close()
 
 
-def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
+def debugplot(dynamics, title = None, filename = None, noon_longitude = 0):
 
     B_kwargs   = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
     eqJ_kwargs = {'colors':'black', 'levels':np.r_[-210:220:20] * 1e3}
@@ -145,15 +145,15 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat = lat, lon = lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.state.basis, plt_grid)
-    plt_b_evaluator = FieldEvaluator(i2d.state.mainfield, plt_grid, i2d.state.RI)
+    plt_state_evaluator = BasisEvaluator(dynamics.state.basis, plt_grid)
+    plt_b_evaluator = FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
 
     ## CALCULATE VALUES TO PLOT
-    Br  = i2d.state.get_Br(plt_i2d_evaluator)
-    FAC = plt_i2d_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_jr) / plt_b_evaluator.br
-    eq_current_function = i2d.state.get_Jeq(plt_i2d_evaluator)
+    Br  = dynamics.state.get_Br(plt_state_evaluator)
+    FAC = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr) / plt_b_evaluator.br
+    eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
-    jr_mod =  i2d.basis_evaluator.G.dot(i2d.state.m_imp.coeffs * i2d.state.m_imp_to_jr)
+    jr_mod =  dynamics.basis_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
@@ -178,33 +178,33 @@ def debugplot(i2d, title = None, filename = None, noon_longitude = 0):
 
 
     # scatter plot high latitude jr
-    iii = np.abs(i2d.state.num_grid.lat) > i2d.state.latitude_boundary
-    jrmax = np.max(np.abs(i2d.state.jr))
-    ax_1.scatter(i2d.state.jr, jr_mod[iii])
+    iii = np.abs(dynamics.state.num_grid.lat) > dynamics.state.latitude_boundary
+    jrmax = np.max(np.abs(dynamics.state.jr))
+    ax_1.scatter(dynamics.state.jr, jr_mod[iii])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], 'k-')
     ax_1.set_xlabel('Input ')
 
     # scatter plot FACs at conjugate points
-    j_par_ll = i2d.state.G_par_ll.dot(i2d.state.m_imp.coeffs)
-    j_par_cp = i2d.state.G_par_cp.dot(i2d.state.m_imp.coeffs)
+    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
+    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
     j_par_max = np.max(np.abs(j_par_ll))
     ax_2.scatter(j_par_ll, j_par_cp)
     ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], 'k-')
-    ax_2.set_xlabel(r'$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$'.format(i2d.state.latitude_boundary))
+    ax_2.set_xlabel(r'$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$'.format(dynamics.state.latitude_boundary))
     ax_2.set_ylabel(r'$j_\parallel$ [A/m$^2$] at conjugate points')
 
     # scatter plot of Ed1 and Ed2 vs corresponding values at conjugate points
-    cu_cp = i2d.state.u_phi_cp    * i2d.state.aup_cp     + i2d.state.u_theta_cp * i2d.state.aut_cp
-    cu_ll = i2d.state.u_phi_ll    * i2d.state.aup_ll     + i2d.state.u_theta_ll * i2d.state.aut_ll
-    A_imp_ll = i2d.state.etaP_ll  * i2d.state.aeP_imp_ll + i2d.state.etaH_ll    * i2d.state.aeH_imp_ll
-    A_imp_cp = i2d.state.etaP_cp  * i2d.state.aeP_imp_cp + i2d.state.etaH_cp    * i2d.state.aeH_imp_cp
-    A_ind_ll = i2d.state.etaP_ll  * i2d.state.aeP_ind_ll + i2d.state.etaH_ll    * i2d.state.aeH_ind_ll
-    A_ind_cp = i2d.state.etaP_cp  * i2d.state.aeP_ind_cp + i2d.state.etaH_cp    * i2d.state.aeH_ind_cp
+    cu_cp = dynamics.state.u_phi_cp    * dynamics.state.aup_cp     + dynamics.state.u_theta_cp * dynamics.state.aut_cp
+    cu_ll = dynamics.state.u_phi_ll    * dynamics.state.aup_ll     + dynamics.state.u_theta_ll * dynamics.state.aut_ll
+    A_imp_ll = dynamics.state.etaP_ll  * dynamics.state.aeP_imp_ll + dynamics.state.etaH_ll    * dynamics.state.aeH_imp_ll
+    A_imp_cp = dynamics.state.etaP_cp  * dynamics.state.aeP_imp_cp + dynamics.state.etaH_cp    * dynamics.state.aeH_imp_cp
+    A_ind_ll = dynamics.state.etaP_ll  * dynamics.state.aeP_ind_ll + dynamics.state.etaH_ll    * dynamics.state.aeH_ind_ll
+    A_ind_cp = dynamics.state.etaP_cp  * dynamics.state.aeP_ind_cp + dynamics.state.etaH_cp    * dynamics.state.aeH_ind_cp
 
-    c_ll = cu_ll + A_ind_ll.dot(i2d.state.m_ind.coeffs)
-    c_cp = cu_cp + A_ind_cp.dot(i2d.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(i2d.state.m_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(i2d.state.m_imp.coeffs), 2)
+    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
+    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
+    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
+    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
     ax_3.scatter(Ed1_ll, Ed1_cp, label = '$E_{d_1}$')
     ax_3.scatter(Ed2_ll, Ed2_cp, label = '$E_{d_2}$')
     ax_3.set_xlabel('$E_{d_i}$')
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     globalplot(lon, lat, hall_plt, noon_longitude = lon0, levels = np.linspace(0, 20, 100))
 
 
-def compare_AMPS_jr_and_CF_currents(i2d, a, d, date, lon0):
+def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     # compare jr and curl-free currents:
     _, axes = plt.subplots(ncols = 2, nrows = 2)
     SCALE = 1e3
@@ -293,11 +293,11 @@ def compare_AMPS_jr_and_CF_currents(i2d, a, d, date, lon0):
     paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
     paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-    m_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(lat = mlat, lon = lon))
-    jr = i2d.get_jr(m_i2d_evaluator) * 1e6
+    m_state_evaluator = BasisEvaluator(dynamics.basis, Grid(lat = mlat, lon = lon))
+    jr = dynamics.get_jr(m_state_evaluator) * 1e6
 
-    mv_i2d_evaluator = BasisEvaluator(i2d.basis, Grid(lat = mlatv, lon = lonv))
-    js, je = i2d.state.get_JS(mv_i2d_evaluator) * 1e3
+    mv_state_evaluator = BasisEvaluator(dynamics.basis, Grid(lat = mlatv, lon = lonv))
+    js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
     jn = -js
 
     jrn, jrs = np.split(jr, 2) 
@@ -310,8 +310,8 @@ def compare_AMPS_jr_and_CF_currents(i2d, a, d, date, lon0):
     plt.close()
 
     plt_grid = Grid(lat = lat, lon = lon)
-    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
-    jr = i2d.get_jr(plt_i2d_evaluator)
+    plt_state_evaluator = BasisEvaluator(dynamics.basis, plt_grid)
+    jr = dynamics.get_jr(plt_state_evaluator)
 
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
 
@@ -334,7 +334,7 @@ def plot_AMPS_Br(a):
     plt.close()
 
 
-def show_jr_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
+def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
     levels = np.linspace(-.9, .9, 22) # color levels for jr muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
 
@@ -351,8 +351,8 @@ def show_jr_and_conductance(i2d, conductance_grid, hall, pedersen, lon0):
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), hall_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'hall.png')
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), pede_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-    plt_i2d_evaluator = BasisEvaluator(i2d.basis, plt_grid)
-    jr = i2d.state.get_jr(plt_i2d_evaluator)
+    plt_state_evaluator = BasisEvaluator(dynamics.basis, plt_grid)
+    jr = dynamics.state.get_jr(plt_state_evaluator)
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 
 
@@ -389,23 +389,23 @@ def make_colorbars():
     plt.close()
 
 
-def time_dependent_plot(i2d, fig_directory, filecount, lon0, plt_grid, pltshape, plt_i2d_evaluator):
+def time_dependent_plot(dynamics, fig_directory, filecount, lon0, plt_grid, pltshape, plt_state_evaluator):
     import os
     Blevels = np.linspace(-300, 300, 22) * 1e-9 # color levels for Br
     Philevels = np.r_[-212.5:212.5:5] # color levels for Phi
 
     fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
-    title = 't = {:.3} s'.format(i2d.latest_time)
+    title = 't = {:.3} s'.format(dynamics.latest_time)
 
-    Br = i2d.state.get_Br(plt_i2d_evaluator)
+    Br = dynamics.state.get_Br(plt_state_evaluator)
 
     _, paxn, paxs, _ =  globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), Br.reshape(pltshape) , title = title, returnplot = True,
                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
 
-    Phi = i2d.state.get_Phi(plt_i2d_evaluator) * 1e-3
+    Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
 
-    #W = i2d.state.get_W(plt_i2d_evaluator) * 1e-3
+    #W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
     nnn = plt_grid.lat.flatten() >  50
     sss = plt_grid.lat.flatten() < -50
     #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)

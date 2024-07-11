@@ -90,8 +90,8 @@ if False:
     # Calculate u x B numerically on grid (we just evaluate on the ground...):
     ph = np.deg2rad(u_lon).reshape((-1, 1))
     P, dP  = np.split(igrf_basis.legendre(_n.max(), _m.max(), 90 - u_lat, keys = igrf_keys), 2, axis = 1)
-    GBr = np.hstack(((igrf_keys.n + 1) * P * np.cos(igrf_keys.m * ph), (igrf_keys.n + 1) * P * np.sin(igrf_keys.m * ph)))
-    Br = GBr.dot(np.hstack((g, h))) * 1e-9
+    G_Br = np.hstack(((igrf_keys.n + 1) * P * np.cos(igrf_keys.m * ph), (igrf_keys.n + 1) * P * np.sin(igrf_keys.m * ph)))
+    Br = G_Br.dot(np.hstack((g, h))) * 1e-9
 
     uxB_theta =  Br * u_phi.flatten()
     uxB_phi   = -Br * u_theta.flatten()

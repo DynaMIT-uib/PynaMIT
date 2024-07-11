@@ -25,23 +25,23 @@ noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
-                       Nmax = Nmax,
-                       Mmax = Mmax,
-                       Ncs = Ncs,
-                       RI = RI,
-                       mainfield_kind = 'igrf',
-                       FAC_integration_steps = rk,
-                       ignore_PFAC = False,
-                       connect_hemispheres = True,
-                       latitude_boundary = latitude_boundary,
-                       zero_jr_at_dip_equator = True,
-                       ih_constraint_scaling = 1e-5,
-                       t0 = str(date))
+dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+                            Nmax = Nmax,
+                            Mmax = Mmax,
+                            Ncs = Ncs,
+                            RI = RI,
+                            mainfield_kind = 'igrf',
+                            FAC_integration_steps = rk,
+                            ignore_PFAC = False,
+                            connect_hemispheres = True,
+                            latitude_boundary = latitude_boundary,
+                            zero_jr_at_dip_equator = True,
+                            ih_constraint_scaling = 1e-5,
+                            t0 = str(date))
 
 ## jr INPUT
-jr_lat = i2d.num_grid.lat
-jr_lon = i2d.num_grid.lon
+jr_lat = dynamics.num_grid.lat
+jr_lon = dynamics.num_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
@@ -49,7 +49,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI-RE)*1e-3) # fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jr = a.get_upward_current(mlat = mlat, mlt = mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
-i2d.set_jr(jr, lat = jr_lat, lon = jr_lon)
+dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
 ## WIND INPUT
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
@@ -59,68 +59,68 @@ u = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FA
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 #u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 #u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-i2d.set_u(u, lat = u_lat, lon = u_lon)
+dynamics.set_u(u, lat = u_lat, lon = u_lon)
 
 ## CONDUCTANCE GRID
-conductance_lat = i2d.num_grid.lat
-conductance_lon = i2d.num_grid.lon
+conductance_lat = dynamics.num_grid.lat
+conductance_lon = dynamics.num_grid.lon
 
 STEP = 2 # number of seconds between each conductance update
 
 
 while True:
-    new_date = date + datetime.timedelta(seconds = int(i2d.latest_time))
+    new_date = date + datetime.timedelta(seconds = int(dynamics.latest_time))
 
-    if i2d.latest_time < STEP - FLOAT_ERROR_MARGIN:
+    if dynamics.latest_time < STEP - FLOAT_ERROR_MARGIN:
         sza = conductance.sunlight.sza(conductance_lat, conductance_lon, new_date, degrees=True)
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
         hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
-        i2d.set_conductance(hall_EUV, pedersen_EUV, lat = conductance_lat, lon = conductance_lon)
-        print('Updated_conductance (without aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 120 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_EUV, pedersen_EUV, lat = conductance_lat, lon = conductance_lon)
+        print('Updated_conductance (without aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 120 - FLOAT_ERROR_MARGIN:
         Kp = 1
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 180 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 180 - FLOAT_ERROR_MARGIN:
         Kp = 2
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 240 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 240 - FLOAT_ERROR_MARGIN:
         Kp = 3
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 360 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 360 - FLOAT_ERROR_MARGIN:
         Kp = 4
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 420 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 420 - FLOAT_ERROR_MARGIN:
         Kp = 5
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 480 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 480 - FLOAT_ERROR_MARGIN:
         Kp = 6
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 540 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 540 - FLOAT_ERROR_MARGIN:
         Kp = 5
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
-    elif i2d.latest_time < 600 - FLOAT_ERROR_MARGIN:
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+    elif dynamics.latest_time < 600 - FLOAT_ERROR_MARGIN:
         Kp = 3
         hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
-        i2d.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', i2d.latest_time, flush = True)
+        dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
+        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
     else:
-        print('Simulation finished at t =', i2d.latest_time, flush = True)
+        print('Simulation finished at t =', dynamics.latest_time, flush = True)
         break
 
-    next_time = i2d.latest_time + STEP
+    next_time = dynamics.latest_time + STEP
 
-    i2d.evolve_to_time(next_time)
+    dynamics.evolve_to_time(next_time)
