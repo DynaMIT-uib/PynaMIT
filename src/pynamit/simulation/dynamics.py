@@ -281,7 +281,7 @@ class Dynamics(object):
                 )
 
             # Add to the jr time series
-            if not key in self.input_timeseries.keys():
+            if key not in self.input_timeseries.keys():
                 self.input_timeseries[key] = current_jr
             else:
                 self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
@@ -346,7 +346,7 @@ class Dynamics(object):
                 )
 
             # Add to the conductance time series
-            if not key in self.input_timeseries.keys():
+            if key not in self.input_timeseries.keys():
                 self.input_timeseries[key] = current_conductance
             else:
                 self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
@@ -401,7 +401,7 @@ class Dynamics(object):
                 )
 
             # Add to the neutral wind time series
-            if not key in self.input_timeseries.keys():
+            if key not in self.input_timeseries.keys():
                 self.input_timeseries[key] = current_u
             else:
                 self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
