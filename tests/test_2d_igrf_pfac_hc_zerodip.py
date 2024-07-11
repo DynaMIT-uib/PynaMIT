@@ -31,7 +31,7 @@ def test_2d_igrf_pfac_hc_zerodip():
                       zero_jr_at_dip_equator = True)
 
     # Assert
-    coeff_array = i2d.state_history['SH_m_ind'].values
+    coeff_array = i2d.state_timeseries['SH_m_ind'].values
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

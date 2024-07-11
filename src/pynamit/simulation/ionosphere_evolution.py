@@ -127,7 +127,7 @@ class I2D(object):
                            settings,
                            PFAC_matrix = PFAC_matrix)
 
-        self.load_histories()
+        self.load_timeseries()
 
         if self.result_filename_prefix is None:
             self.result_filename_prefix = 'tmp'
@@ -143,7 +143,7 @@ class I2D(object):
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
 
-    def evolve_to_time(self, t, dt = np.float64(5e-4), history_update_interval = 200, history_save_interval = 10, quiet = False):
+    def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
         """
         Evolve to the given time `t`. Will overwrite the values
         corresponding to the start time, to account for any changes in
@@ -152,7 +152,7 @@ class I2D(object):
 
         """
 
-        # Will be set to True when the corresponding history is different from the one saved on disk
+        # Will be set to True when the corresponding time series is different from the one saved on disk
         self.save_jr         = False
         self.save_conductance = False
         self.save_u           = False
@@ -166,8 +166,8 @@ class I2D(object):
             self.state.impose_constraints()
             self.state.update_Phi_and_W()
 
-            if count % history_update_interval == 0:
-                # Add current state to state history
+            if count % sampling_step_interval == 0:
+                # Add current state to state time series
                 current_state = xr.Dataset(
                     data_vars = {
                         'SH_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
@@ -178,14 +178,14 @@ class I2D(object):
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
                 )
 
-                if not hasattr(self, 'state_history'):
-                    self.state_history = current_state
+                if not hasattr(self, 'state_timeseries'):
+                    self.state_timeseries = current_state
                 else:
-                    self.state_history = xr.concat([self.state_history.drop_sel(time = self.latest_time, errors = 'ignore'), current_state], dim = 'time')
+                    self.state_timeseries = xr.concat([self.state_timeseries.drop_sel(time = self.latest_time, errors = 'ignore'), current_state], dim = 'time')
 
                 # Save output if requested
-                if (count % (history_update_interval * history_save_interval) == 0):
-                    self.state_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
+                if (count % (sampling_step_interval * saving_sample_interval) == 0):
+                    self.state_timeseries.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
                     if quiet:
                         pass
                     else:
@@ -262,14 +262,14 @@ class I2D(object):
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
-            # Add to the jr history
-            if not hasattr(self, 'jr_history'):
-                self.jr_history = current_jr
+            # Add to the jr time series
+            if not hasattr(self, 'jr_timeseries'):
+                self.jr_timeseries = current_jr
             else:
-                self.jr_history = xr.concat([self.jr_history.drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
+                self.jr_timeseries = xr.concat([self.jr_timeseries.drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
 
-        # Save the jr history
-        self.jr_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
+        # Save the jr time series
+        self.jr_timeseries.reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -325,14 +325,14 @@ class I2D(object):
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
-            # Add to the conductance history
-            if not hasattr(self, 'conductance_history'):
-                self.conductance_history = current_conductance
+            # Add to the conductance time series
+            if not hasattr(self, 'conductance_timeseries'):
+                self.conductance_timeseries = current_conductance
             else:
-                self.conductance_history = xr.concat([self.conductance_history.drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
+                self.conductance_timeseries = xr.concat([self.conductance_timeseries.drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
 
-        # Save the conductance history
-        self.conductance_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
+        # Save the conductance time series
+        self.conductance_timeseries.reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
 
 
     def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -378,25 +378,25 @@ class I2D(object):
                     coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
-            # Add to the neutral wind history
-            if not hasattr(self, 'u_history'):
-                self.u_history = current_u
+            # Add to the neutral wind time series
+            if not hasattr(self, 'u_timeseries'):
+                self.u_timeseries = current_u
             else:
-                self.u_history = xr.concat([self.u_history.drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
+                self.u_timeseries = xr.concat([self.u_timeseries.drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
 
-        # Save the neutral wind history
-        self.u_history.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
+        # Save the neutral wind timeseries
+        self.u_timeseries.reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
 
     def update_jr(self):
         """ Update jr """
 
-        if hasattr(self, 'jr_history'):
+        if hasattr(self, 'jr_timeseries'):
             # Use xarray sel with padding to get the jr values at the current time
             if self.vector_jr:
-                self.current_jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.jr_history['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.jr_timeseries['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
-                self.current_jr = self.jr_history['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_jr = self.jr_timeseries['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
             # Check if current jr is different from the one used in the last call to update_jr
             if not hasattr(self, 'last_jr') or (self.vector_jr and not np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)) or (not self.vector_jr and not np.allclose(self.current_jr, self.last_jr)):
@@ -407,14 +407,14 @@ class I2D(object):
     def update_conductance(self):
         """ Update conductance """
 
-        if hasattr(self, 'conductance_history'):
+        if hasattr(self, 'conductance_timeseries'):
             # Use xarray sel with padding to get the conductance values at the current time
             if self.vector_conductance:
-                self.current_etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                self.current_etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_history['SH_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_timeseries['SH_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_timeseries['SH_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
-                self.current_etaP = self.conductance_history['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
-                self.current_etaH = self.conductance_history['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_etaP = self.conductance_timeseries['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
+                self.current_etaH = self.conductance_timeseries['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
             # Check if current etaP or etaH are different from the ones used in the last call to update_conductance
             if not (hasattr(self, 'last_etaP') and hasattr(self, 'last_etaH')) or (self.vector_conductance and (not np.allclose(self.current_etaP.coeffs, self.last_etaP.coeffs) or not np.allclose(self.current_etaH.coeffs, self.last_etaH.coeffs))) or (not self.vector_conductance and (not np.allclose(self.current_etaP, self.last_etaP) or not np.allclose(self.current_etaH, self.last_etaH))):
@@ -426,12 +426,12 @@ class I2D(object):
     def update_u(self):
         """ Update neutral wind """
 
-        if hasattr(self, 'u_history'):
+        if hasattr(self, 'u_timeseries'):
             # Use xarray sel with padding to get the neutral wind values at the current time
             if self.vector_u:
-                self.current_u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_history['SH_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_history['SH_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
+                self.current_u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_timeseries['SH_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_timeseries['SH_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
             else:
-                self.current_u = (self.u_history['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_history['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_u = (self.u_timeseries['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_timeseries['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
 
             # Check if current u is different from the one used in the last call to update_u
             if not hasattr(self, 'last_u') or (self.vector_u and not np.allclose(self.current_u.coeffs, self.last_u.coeffs)) or (not self.vector_u and not np.allclose(self.current_u[0], self.last_u[0]) and not np.allclose(self.current_u[1], self.last_u[1])):
@@ -439,58 +439,57 @@ class I2D(object):
                 self.last_u = self.current_u
 
 
-    def load_histories(self):
-        """ Load histories from file """
+    def load_timeseries(self):
+        """ Load time series from file """
 
-        # Load state history if it exists on file
+        # Load state time series if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_state.ncdf'):
-            state_history = xr.load_dataset(self.result_filename_prefix + '_state.ncdf')
+            state_timeseries = xr.load_timeseries(self.result_filename_prefix + '_state.ncdf')
 
-            # Convert i to a MultiIndex of n and m
-            state_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([state_history['n'].values, state_history['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': state_history.time.values})
-            self.state_history = state_history.drop_vars(['m', 'n']).assign_coords(state_coords)
+            state_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([state_timeseries['n'].values, state_timeseries['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': state_timeseries.time.values})
+            self.state_timeseries = state_timeseries.drop_vars(['m', 'n']).assign_coords(state_coords)
 
-            self.latest_time = np.max(self.state_history.time.values)
-            self.state.set_coeffs(m_ind = self.state_history['SH_m_ind'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(m_imp = self.state_history['SH_m_imp'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(Phi   = self.state_history['SH_Phi'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(W     = self.state_history['SH_W'].sel(time = self.latest_time).values)
+            self.latest_time = np.max(self.state_timeseries.time.values)
+            self.state.set_coeffs(m_ind = self.state_timeseries['SH_m_ind'].sel(time = self.latest_time).values)
+            self.state.set_coeffs(m_imp = self.state_timeseries['SH_m_imp'].sel(time = self.latest_time).values)
+            self.state.set_coeffs(Phi   = self.state_timeseries['SH_Phi'].sel(time = self.latest_time).values)
+            self.state.set_coeffs(W     = self.state_timeseries['SH_W'].sel(time = self.latest_time).values)
 
-        # Load jr history if it exists on file
+        # Load jr time series if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_jr.ncdf'):
-            jr_history = xr.load_dataset(self.result_filename_prefix + '_jr.ncdf')
+            jr_timeseries = xr.load_timeseries(self.result_filename_prefix + '_jr.ncdf')
 
             if self.vector_jr:
                 jr_basis_labels = ['n', 'm']
             else:
                 jr_basis_labels = ['theta', 'phi']
 
-            jr_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([jr_history[jr_basis_labels[0]].values, jr_history[jr_basis_labels[1]].values], names = jr_basis_labels), dim = 'i').merge({'time': jr_history.time.values})
-            self.jr_history = jr_history.drop_vars(jr_basis_labels).assign_coords(jr_coords)
+            jr_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([jr_timeseries[jr_basis_labels[0]].values, jr_timeseries[jr_basis_labels[1]].values], names = jr_basis_labels), dim = 'i').merge({'time': jr_timeseries.time.values})
+            self.jr_timeseries = jr_timeseries.drop_vars(jr_basis_labels).assign_coords(jr_coords)
 
-        # Load conductance history if it exists on file
+        # Load conductance time series if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_conductance.ncdf'):
-            conductance_history = xr.load_dataset(self.result_filename_prefix + '_conductance.ncdf')
+            conductance_timeseries = xr.load_timeseries(self.result_filename_prefix + '_conductance.ncdf')
 
             if self.vector_conductance:
                 conductance_basis_labels = ['n', 'm']
             else:
                 conductance_basis_labels = ['theta', 'phi']
 
-            conductance_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([conductance_history[conductance_basis_labels[0]].values, conductance_history[conductance_basis_labels[1]].values], names = conductance_basis_labels), dim = 'i').merge({'time': conductance_history.time.values})
-            self.conductance_history = conductance_history.drop_vars(conductance_basis_labels).assign_coords(conductance_coords)
+            conductance_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([conductance_timeseries[conductance_basis_labels[0]].values, conductance_timeseries[conductance_basis_labels[1]].values], names = conductance_basis_labels), dim = 'i').merge({'time': conductance_timeseries.time.values})
+            self.conductance_timeseries = conductance_timeseries.drop_vars(conductance_basis_labels).assign_coords(conductance_coords)
 
-        # Load neutral wind history if it exists on file
+        # Load neutral wind time series if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_u.ncdf'):
-            u_history = xr.load_dataset(self.result_filename_prefix + '_u.ncdf')
+            u_timeseries = xr.load_timeseries(self.result_filename_prefix + '_u.ncdf')
 
             if self.vector_u:
                 u_basis_labels = ['n', 'm']
             else:
                 u_basis_labels = ['theta', 'phi']
 
-            u_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([u_history[u_basis_labels[0]].values, u_history[u_basis_labels[1]].values], names = u_basis_labels), dim = 'i').merge({'time': u_history.time.values})
-            self.u_history = u_history.drop_vars(u_basis_labels).assign_coords(u_coords)
+            u_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([u_timeseries[u_basis_labels[0]].values, u_timeseries[u_basis_labels[1]].values], names = u_basis_labels), dim = 'i').merge({'time': u_timeseries.time.values})
+            self.u_timeseries = u_timeseries.drop_vars(u_basis_labels).assign_coords(u_coords)
 
 
     @property
