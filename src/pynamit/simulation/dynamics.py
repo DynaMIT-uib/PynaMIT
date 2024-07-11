@@ -84,8 +84,6 @@ class Dynamics(object):
             't0':                     t0,
         })
 
-        self.latest_time = np.float64(0)
-
         # Overwrite settings with any settings existing on file
         settings_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_settings.ncdf')
         if settings_on_file:
@@ -132,6 +130,18 @@ class Dynamics(object):
 
         self.load_timeseries()
 
+        if hasattr(self, 'state_timeseries'):
+            if not self.state_timeseries.coords['i'].equals(self.state_basis.index):
+                raise ValueError('The index of the state time series does not match the index of the state basis')
+            self.latest_time = np.max(self.state_timeseries.time.values)
+            self.state.set_coeffs(m_ind = self.state_timeseries[self.state_basis.short_name + '_m_ind'].sel(time = self.latest_time).values)
+            self.state.set_coeffs(m_imp = self.state_timeseries[self.state_basis.short_name + '_m_imp'].sel(time = self.latest_time).values)
+            self.state.set_coeffs(Phi   = self.state_timeseries[self.state_basis.short_name + '_Phi'].sel(time = self.latest_time).values)
+            self.state.set_coeffs(W     = self.state_timeseries[self.state_basis.short_name + '_W'].sel(time = self.latest_time).values)
+        else:
+            self.latest_time = np.float64(0)
+            self.state.set_coeffs(m_ind = np.zeros(len(self.state_basis.index)))
+
         if self.result_filename_prefix is None:
             self.result_filename_prefix = 'tmp'
 
@@ -173,12 +183,12 @@ class Dynamics(object):
                 # Add current state to state time series
                 current_state = xr.Dataset(
                     data_vars = {
-                        'SH_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
-                        'SH_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        'SH_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
-                        'SH_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
+                        self.state_basis.short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
+                        self.state_basis.short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
+                        self.state_basis.short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
+                        self.state_basis.short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_basis.n, self.state_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.state_basis.index, dim = 'i').merge({'time': [self.latest_time]})
                 )
 
                 if not hasattr(self, 'state_timeseries'):
@@ -217,13 +227,13 @@ class Dynamics(object):
 
     def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None):
         """
-        Specify field-aligned current at ``self.num_grid.theta``,
+        Specify radial current at ``self.num_grid.theta``,
         ``self.num_grid.phi``.
 
             Parameters
             ----------
             jr: array
-                The field-aligned current, in A/m^2, at
+                The radial current, in A/m^2, at
                 ``self.num_grid.theta`` and ``self.num_grid.phi``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
@@ -252,9 +262,9 @@ class Dynamics(object):
 
                 current_jr = xr.Dataset(
                     data_vars = {
-                        'SH_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
+                        self.jr_basis.short_name + '_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.jr_basis.n, self.jr_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.jr_basis.index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on num_grid
@@ -310,10 +320,10 @@ class Dynamics(object):
 
                 current_conductance = xr.Dataset(
                     data_vars = {
-                        'SH_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
-                        'SH_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
+                        self.conductance_basis.short_name + '_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
+                        self.conductance_basis.short_name + '_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.conductance_basis.n, self.conductance_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.conductance_basis.index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on num_grid
@@ -366,10 +376,10 @@ class Dynamics(object):
 
                 current_u = xr.Dataset(
                     data_vars = {
-                        'SH_u_cf': (['time', 'i'], u.coeffs[0].reshape((1, -1))),
-                        'SH_u_df': (['time', 'i'], u.coeffs[1].reshape((1, -1))),
+                        self.u_basis.short_name + '_u_cf': (['time', 'i'], u.coeffs[0].reshape((1, -1))),
+                        self.u_basis.short_name + '_u_df': (['time', 'i'], u.coeffs[1].reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.u_basis.n, self.u_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.u_basis.index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on num_grid
@@ -397,7 +407,7 @@ class Dynamics(object):
         if hasattr(self, 'jr_timeseries'):
             # Use xarray sel with padding to get the jr values at the current time
             if self.vector_jr:
-                self.current_jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, coeffs = self.jr_timeseries['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, coeffs = self.jr_timeseries[self.jr_basis.short_name + '_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
                 self.current_jr = self.jr_timeseries['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
@@ -413,8 +423,8 @@ class Dynamics(object):
         if hasattr(self, 'conductance_timeseries'):
             # Use xarray sel with padding to get the conductance values at the current time
             if self.vector_conductance:
-                self.current_etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_timeseries['SH_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                self.current_etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_timeseries['SH_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_timeseries[self.conductance_basis.short_name + '_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, coeffs = self.conductance_timeseries[self.conductance_basis.short_name + '_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
                 self.current_etaP = self.conductance_timeseries['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
                 self.current_etaH = self.conductance_timeseries['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
@@ -432,7 +442,7 @@ class Dynamics(object):
         if hasattr(self, 'u_timeseries'):
             # Use xarray sel with padding to get the neutral wind values at the current time
             if self.vector_u:
-                self.current_u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_timeseries['SH_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_timeseries['SH_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
+                self.current_u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, coeffs = np.hstack((self.u_timeseries[self.u_basis.short_name + '_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_timeseries[self.u_basis.short_name + '_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
             else:
                 self.current_u = (self.u_timeseries['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.u_timeseries['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
 
@@ -449,25 +459,21 @@ class Dynamics(object):
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_state.ncdf'):
             state_timeseries = xr.load_timeseries(self.result_filename_prefix + '_state.ncdf')
 
-            state_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([state_timeseries['n'].values, state_timeseries['m'].values], names = ['n', 'm']), dim = 'i').merge({'time': state_timeseries.time.values})
+            state_basis_index = pd.MultiIndex.from_arrays([state_timeseries[self.state_basis.index_labels[i]].values for i in range(len(self.state_basis.index_labels))], names = self.state_basis.index_labels)
+            state_coords = xr.Coordinates.from_pandas_multiindex(state_basis_index, dim = 'i').merge({'time': state_timeseries.time.values})
             self.state_timeseries = state_timeseries.drop_vars(['m', 'n']).assign_coords(state_coords)
-
-            self.latest_time = np.max(self.state_timeseries.time.values)
-            self.state.set_coeffs(m_ind = self.state_timeseries['SH_m_ind'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(m_imp = self.state_timeseries['SH_m_imp'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(Phi   = self.state_timeseries['SH_Phi'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(W     = self.state_timeseries['SH_W'].sel(time = self.latest_time).values)
 
         # Load jr time series if it exists on file
         if (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_jr.ncdf'):
             jr_timeseries = xr.load_timeseries(self.result_filename_prefix + '_jr.ncdf')
 
             if self.vector_jr:
-                jr_basis_labels = ['n', 'm']
+                jr_basis_labels = self.jr_basis.index_labels
             else:
                 jr_basis_labels = ['theta', 'phi']
 
-            jr_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([jr_timeseries[jr_basis_labels[0]].values, jr_timeseries[jr_basis_labels[1]].values], names = jr_basis_labels), dim = 'i').merge({'time': jr_timeseries.time.values})
+            jr_basis_index = pd.MultiIndex.from_arrays([jr_timeseries[jr_basis_labels[i]].values for i in range(len(jr_basis_labels))], names = jr_basis_labels)
+            jr_coords = xr.Coordinates.from_pandas_multiindex(jr_basis_index, dim = 'i').merge({'time': jr_timeseries.time.values})
             self.jr_timeseries = jr_timeseries.drop_vars(jr_basis_labels).assign_coords(jr_coords)
 
         # Load conductance time series if it exists on file
@@ -475,11 +481,12 @@ class Dynamics(object):
             conductance_timeseries = xr.load_timeseries(self.result_filename_prefix + '_conductance.ncdf')
 
             if self.vector_conductance:
-                conductance_basis_labels = ['n', 'm']
+                conductance_basis_labels = self.conductance_basis.index_labels
             else:
                 conductance_basis_labels = ['theta', 'phi']
 
-            conductance_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([conductance_timeseries[conductance_basis_labels[0]].values, conductance_timeseries[conductance_basis_labels[1]].values], names = conductance_basis_labels), dim = 'i').merge({'time': conductance_timeseries.time.values})
+            conductance_basis_index = pd.MultiIndex.from_arrays([conductance_timeseries[conductance_basis_labels[i]].values for i in range(len(conductance_basis_labels))], names = conductance_basis_labels)
+            conductance_coords = xr.Coordinates.from_pandas_multiindex(conductance_basis_index, dim = 'i').merge({'time': conductance_timeseries.time.values})
             self.conductance_timeseries = conductance_timeseries.drop_vars(conductance_basis_labels).assign_coords(conductance_coords)
 
         # Load neutral wind time series if it exists on file
@@ -487,11 +494,12 @@ class Dynamics(object):
             u_timeseries = xr.load_timeseries(self.result_filename_prefix + '_u.ncdf')
 
             if self.vector_u:
-                u_basis_labels = ['n', 'm']
+                u_basis_labels = self.u_basis.index_labels
             else:
                 u_basis_labels = ['theta', 'phi']
 
-            u_coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([u_timeseries[u_basis_labels[0]].values, u_timeseries[u_basis_labels[1]].values], names = u_basis_labels), dim = 'i').merge({'time': u_timeseries.time.values})
+            u_basis_index = pd.MultiIndex.from_arrays([u_timeseries[u_basis_labels[i]].values for i in range(len(u_basis_labels))], names = u_basis_labels)
+            u_coords = xr.Coordinates.from_pandas_multiindex(u_basis_index, dim = 'i').merge({'time': u_timeseries.time.values})
             self.u_timeseries = u_timeseries.drop_vars(u_basis_labels).assign_coords(u_coords)
 
 

@@ -12,7 +12,22 @@ class Basis(ABC):
 
     @property
     @abstractmethod
-    def num_coeffs(self):
+    def short_name(self):
+        pass
+
+    @property
+    @abstractmethod
+    def index_labels(self):
+        pass
+
+    @property
+    @abstractmethod
+    def index(self):
+        pass
+
+    @property
+    @abstractmethod
+    def minimum_phi_sampling(self):
         pass
 
     @property

@@ -6,6 +6,7 @@ This module contains the ``SHBasis`` class.
 """
 
 import numpy as np
+import pandas as pd
 from pynamit.spherical_harmonics.helpers import SHKeys, schmidt_normalization_factors
 
 class SHBasis(object):
@@ -18,16 +19,13 @@ class SHBasis(object):
     """
 
     def __init__(self, Nmax, Mmax, Nmin = 1, schmidt_normalization = True):
-        self.Nmax = Nmax
-        self.Mmax = Mmax
-
         # Make a set of all spherical harmonic keys up to Nmax, Mmax
-        all_keys = SHKeys(self.Nmax, self.Mmax)
+        all_keys = SHKeys(Nmax, Mmax)
 
         # Make separate sets of spherical harmonic keys for cos and sin
         # terms, and remove n < Nmin terms and m = 0 sin terms
-        self.cnm = SHKeys(self.Nmax, self.Mmax).set_Nmin(Nmin)
-        self.snm = SHKeys(self.Nmax, self.Mmax).set_Nmin(Nmin).set_Mmin(1)
+        self.cnm = SHKeys(Nmax, Mmax).set_Nmin(Nmin)
+        self.snm = SHKeys(Nmax, Mmax).set_Nmin(Nmin).set_Mmin(1)
 
         self.cnm_filter = [(key in self.cnm) for key in all_keys]
         self.snm_filter = [(key in self.snm) for key in all_keys]
@@ -41,8 +39,13 @@ class SHBasis(object):
         if self.schmidt_normalization:
             self.schmidt_factors = schmidt_normalization_factors(self.nm_tuples)
 
-        # Number of spherical harmonic coefficients
-        self.num_coeffs = len(self.cnm.keys) + len(self.snm.keys)
+        # Set the general properties of the basis
+        self.short_name = 'SH'
+
+        self.index_labels = ['n', 'm']
+        self.index = pd.MultiIndex.from_arrays([self.n, self.m], names = self.index_labels)
+
+        self.minimum_phi_sampling = 2 * Mmax + 1
 
         self.caching = True
 
@@ -247,13 +250,3 @@ class SHBasis(object):
         """
 
         return (end / start)**(self.n - 1)
-
-
-    def minimum_phi_sampling(self):
-        """
-        Calculate the minimum sampling in longitude required to fully
-        resolve the spherical harmonics.
-
-        """
-
-        return 2 * self.Mmax + 1

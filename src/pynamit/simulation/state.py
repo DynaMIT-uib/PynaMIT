@@ -37,6 +37,7 @@ class State(object):
 
         # Initialize grid-related objects
         self.grid = grid
+
         self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid)
         self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
@@ -71,12 +72,6 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
-        self.initialize_constraints()
-
-        # Initialize the spherical harmonic coefficients
-        self.set_coeffs(m_ind = np.zeros(self.basis.num_coeffs))
-        self.set_coeffs(m_imp = np.zeros(self.basis.num_coeffs))
-
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
         self.conductance  = False
@@ -87,6 +82,7 @@ class State(object):
         self.b10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
         self.b11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
 
+        self.initialize_constraints()
 
     @property
     def m_imp_to_B_pol(self):
@@ -102,10 +98,10 @@ class State(object):
         if not hasattr(self, '_m_imp_to_B_pol'):
 
             self._m_imp_to_B_pol = xr.DataArray(
-                data = np.zeros((self.basis.num_coeffs, self.basis.num_coeffs)),
+                data = np.zeros((len(self.basis.index), len(self.basis.index))),
                 coords = {
-                    'i': np.arange(self.basis.num_coeffs),
-                    'j': np.arange(self.basis.num_coeffs),
+                    'i': np.arange(len(self.basis.index)),
+                    'j': np.arange(len(self.basis.index)),
                 },
                 dims = ['i', 'j']
             )
@@ -225,7 +221,7 @@ class State(object):
 
             if self.zero_jr_at_dip_equator:
                 # Calculate matrix that converts m_imp to jr at dip equator
-                n_phi = self.jr_basis.minimum_phi_sampling()
+                n_phi = self.jr_basis.minimum_phi_sampling
                 dip_equator_phi = np.linspace(0, 360, n_phi)
                 self.jr_dip_equator_basis_evaluator = BasisEvaluator(self.jr_basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
 
@@ -233,7 +229,7 @@ class State(object):
                 self.G_jr_dip_equator = self.jr_dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
             else:
                 # Make zero-row stand-in for the jr matrix
-                self.G_jr_dip_equator = np.empty((0, self.jr_basis.num_coeffs))
+                self.G_jr_dip_equator = np.empty((0, len(self.jr_basis.index)))
 
 
     def impose_constraints(self):
