@@ -73,7 +73,7 @@ class State(object):
         self.set_coeffs(m_ind = np.zeros(self.basis.num_coeffs))
         self.set_coeffs(m_imp = np.zeros(self.basis.num_coeffs))
 
-        # Neutral wind and conductance should be set after I2D initialization
+        # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
         self.conductance  = False
 

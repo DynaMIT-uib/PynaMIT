@@ -10,26 +10,26 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     import pyamps
     #import pyhwm2014 # https://github.com/rilma/pyHWM14
 
-    from pynamit.simulation.ionosphere_evolution import I2D
+    from pynamit.simulation.dynamics import Dynamics
     from pynamit.various.constants import RE
 
     WIND_FACTOR = 1
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    i2d = I2D(result_filename_prefix = None,
-              Nmax = Nmax,
-              Mmax = Mmax,
-              Ncs = Ncs,
-              RI = RI,
-              mainfield_kind = mainfield_kind,
-              ignore_PFAC = ignore_PFAC,
-              connect_hemispheres = connect_hemispheres,
-              latitude_boundary = latitude_boundary,
-              zero_jr_at_dip_equator = zero_jr_at_dip_equator,
-              vector_jr = vector_jr,
-              vector_conductance = vector_conductance,
-              vector_u = vector_u)
+    i2d = Dynamics(result_filename_prefix = None,
+                   Nmax = Nmax,
+                   Mmax = Mmax,
+                   Ncs = Ncs,
+                   RI = RI,
+                   mainfield_kind = mainfield_kind,
+                   ignore_PFAC = ignore_PFAC,
+                   connect_hemispheres = connect_hemispheres,
+                   latitude_boundary = latitude_boundary,
+                   zero_jr_at_dip_equator = zero_jr_at_dip_equator,
+                   vector_jr = vector_jr,
+                   vector_conductance = vector_conductance,
+                   vector_u = vector_u)
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
 

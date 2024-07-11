@@ -10,13 +10,13 @@ from pynamit.cubed_sphere.cubed_sphere import CSProjection
 from pynamit.primitives.vector import Vector
 import os
 from pynamit.primitives.grid import Grid
-from pynamit.simulation.ionosphere_state import State
+from pynamit.simulation.state import State
 from pynamit.various.constants import RE
 import scipy.sparse as sp
 
 FLOAT_ERROR_MARGIN = 1e-6 # safety margin for floating point errors
 
-class I2D(object):
+class Dynamics(object):
     """ 2D ionosphere. """
 
     def __init__(self,

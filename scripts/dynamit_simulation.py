@@ -25,19 +25,19 @@ noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
-                  Nmax = Nmax,
-                  Mmax = Mmax,
-                  Ncs = Ncs,
-                  RI = RI,
-                  mainfield_kind = 'igrf',
-                  FAC_integration_steps = rk,
-                  ignore_PFAC = False,
-                  connect_hemispheres = True,
-                  latitude_boundary = latitude_boundary,
-                  zero_jr_at_dip_equator = True,
-                  ih_constraint_scaling = 1e-5,
-                  t0 = str(date))
+i2d = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+                       Nmax = Nmax,
+                       Mmax = Mmax,
+                       Ncs = Ncs,
+                       RI = RI,
+                       mainfield_kind = 'igrf',
+                       FAC_integration_steps = rk,
+                       ignore_PFAC = False,
+                       connect_hemispheres = True,
+                       latitude_boundary = latitude_boundary,
+                       zero_jr_at_dip_equator = True,
+                       ih_constraint_scaling = 1e-5,
+                       t0 = str(date))
 
 ## jr INPUT
 jr_lat = i2d.num_grid.lat

@@ -33,14 +33,14 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:2.5]
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
-                  Nmax = Nmax,
-                  Mmax = Mmax,
-                  Ncs = Ncs,
-                  RI = RI,
-                  mainfield_kind = 'dipole',
-                  ignore_PFAC = IGNORE_PFAC,
-                  connect_hemispheres = CONNECT_HEMISPHERES)
+i2d = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+                       Nmax = Nmax,
+                       Mmax = Mmax,
+                       Ncs = Ncs,
+                       RI = RI,
+                       mainfield_kind = 'dipole',
+                       ignore_PFAC = IGNORE_PFAC,
+                       connect_hemispheres = CONNECT_HEMISPHERES)
 
 ## CONDUCTANCE INPUT
 date = datetime.datetime(2001, 5, 12, 21, 45)

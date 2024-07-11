@@ -47,16 +47,16 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-i2d = pynamit.I2D(result_filename_prefix = result_filename_prefix,
-                  Nmax = Nmax,
-                  Mmax = Mmax,
-                  Ncs = Ncs,
-                  RI = RI,
-                  mainfield_kind = 'dipole',
-                  FAC_integration_steps = rk,
-                  ignore_PFAC = False,
-                  connect_hemispheres = True,
-                  latitude_boundary = latitude_boundary)
+i2d = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+                       Nmax = Nmax,
+                       Mmax = Mmax,
+                       Ncs = Ncs,
+                       RI = RI,
+                       mainfield_kind = 'dipole',
+                       FAC_integration_steps = rk,
+                       ignore_PFAC = False,
+                       connect_hemispheres = True,
+                       latitude_boundary = latitude_boundary)
 
 ## CONDUCTANCE INPUT
 conductance_lat = i2d.num_grid.lat

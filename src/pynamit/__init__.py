@@ -1,4 +1,4 @@
-from .simulation.ionosphere_evolution import I2D
+from .simulation.dynamics import Dynamics
 from .simulation.visualization import globalplot, debugplot
 from .simulation.pynameye import PynamEye
 from .cubed_sphere.cubed_sphere import CSProjection
