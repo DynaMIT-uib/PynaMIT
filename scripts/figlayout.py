@@ -41,14 +41,14 @@ dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
                             latitude_boundary = latitude_boundary)
 
 ## CONDUCTANCE INPUT
-conductance_lat = dynamics.num_grid.lat
-conductance_lon = dynamics.num_grid.lon
+conductance_lat = dynamics.state_grid.lat
+conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
 dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## jr INPUT
-jr_lat = dynamics.num_grid.lat
-jr_lon = dynamics.num_grid.lon
+jr_lat = dynamics.state_grid.lat
+jr_lon = dynamics.state_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jr = a.get_upward_current(mlat = jr_lat, mlt = d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
@@ -128,7 +128,7 @@ def debugplot(dynamics, title = None, filename = None, noon_longitude = 0):
 
 
     # scatter plot high latitude jr
-    iii = np.abs(dynamics.num_grid.lat) > dynamics.state.latitude_boundary
+    iii = np.abs(dynamics.state_grid.lat) > dynamics.state.latitude_boundary
     jrmax = np.max(np.abs(dynamics.state.jr))
     ax_1.scatter(dynamics.state.jr, jr_mod[iii])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], 'k-')

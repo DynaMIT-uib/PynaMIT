@@ -34,15 +34,15 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     date = datetime.datetime(2001, 5, 12, 21, 45)
 
     ## CONDUCTANCE INPUT
-    conductance_lat = dynamics.num_grid.lat
-    conductance_lon = dynamics.num_grid.lon
+    conductance_lat = dynamics.state_grid.lat
+    conductance_lon = dynamics.state_grid.lon
     Kp = 5
     hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
     dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
     ## jr INPUT
-    jr_lat = dynamics.num_grid.lat
-    jr_lon = dynamics.num_grid.lon
+    jr_lat = dynamics.state_grid.lat
+    jr_lon = dynamics.state_grid.lon
     d = dipole.Dipole(date.year)
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
     jr = a.get_upward_current(mlat = jr_lat, mlt = d.mlon2mlt(jr_lon, date)) * 1e-6

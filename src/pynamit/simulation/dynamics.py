@@ -106,17 +106,17 @@ class Dynamics(object):
         self.vector_u           = bool(settings.vector_u)
 
         self.csp = CSProjection(settings.Ncs)
-        self.num_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
+        self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
         self.state_basis       = SHBasis(settings.Nmax, settings.Mmax)
         self.jr_basis          = SHBasis(settings.Nmax, settings.Mmax)
         self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
         self.u_basis           = SHBasis(settings.Nmax, settings.Mmax)
 
-        self.state_basis_evaluator       = BasisEvaluator(self.state_basis,       self.num_grid)
-        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.num_grid)
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
-        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.num_grid)
+        self.state_basis_evaluator       = BasisEvaluator(self.state_basis,       self.state_grid)
+        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.state_grid)
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.state_grid)
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.state_grid)
 
         # Initialize the state of the ionosphere
         self.state = State(self.state_basis,
@@ -124,7 +124,7 @@ class Dynamics(object):
                            self.conductance_basis,
                            self.u_basis,
                            self.mainfield,
-                           self.num_grid, 
+                           self.state_grid,
                            settings,
                            PFAC_matrix = PFAC_matrix)
 
@@ -227,14 +227,14 @@ class Dynamics(object):
 
     def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None):
         """
-        Specify radial current at ``self.num_grid.theta``,
-        ``self.num_grid.phi``.
+        Specify radial current at ``self.state_grid.theta``,
+        ``self.state_grid.phi``.
 
             Parameters
             ----------
             jr: array
                 The radial current, in A/m^2, at
-                ``self.num_grid.theta`` and ``self.num_grid.phi``, at
+                ``self.state_grid.theta`` and ``self.state_grid.phi``, at
                 ``RI``. The values in the array have to match the
                 corresponding coordinates.
 
@@ -252,8 +252,8 @@ class Dynamics(object):
         time = np.atleast_1d(time)
 
         for i in range(time.size):
-            # Interpolate to num_grid
-            jr_int = csp.interpolate_scalar(jr[i], jr_grid.theta, jr_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            # Interpolate to state_grid
+            jr_int = csp.interpolate_scalar(jr[i], jr_grid.theta, jr_grid.phi, self.state_grid.theta, self.state_grid.phi)
             
             # Extract the radial component of the jr and set the corresponding basis coefficients
             if self.vector_jr:
@@ -267,12 +267,12 @@ class Dynamics(object):
                     coords = xr.Coordinates.from_pandas_multiindex(self.jr_basis.index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
-                # Represent as values on num_grid
+                # Represent as values on state_grid
                 current_jr = xr.Dataset(
                     data_vars = {
                         'GRID_jr': (['time', 'i'], jr_int.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_grid.theta, self.state_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
             # Add to the jr time series
@@ -288,7 +288,7 @@ class Dynamics(object):
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify Hall and Pedersen conductance at
-        ``self.num_grid.theta``, ``self.num_grid.phi``.
+        ``self.state_grid.theta``, ``self.state_grid.phi``.
 
         """
 
@@ -309,9 +309,9 @@ class Dynamics(object):
             etaP = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
             etaH = Hall[i]     / (Hall[i]**2 + Pedersen[i]**2)
 
-            # Interpolate to num_grid
-            etaP_int = csp.interpolate_scalar(etaP, conductance_grid.theta, conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
-            etaH_int = csp.interpolate_scalar(etaH, conductance_grid.theta, conductance_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            # Interpolate to state_grid
+            etaP_int = csp.interpolate_scalar(etaP, conductance_grid.theta, conductance_grid.phi, self.state_grid.theta, self.state_grid.phi)
+            etaH_int = csp.interpolate_scalar(etaH, conductance_grid.theta, conductance_grid.phi, self.state_grid.theta, self.state_grid.phi)
 
             if self.vector_conductance:
                 # Represent as expansion in spherical harmonics
@@ -326,7 +326,7 @@ class Dynamics(object):
                     coords = xr.Coordinates.from_pandas_multiindex(self.conductance_basis.index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
-                # Represent as values on num_grid
+                # Represent as values on state_grid
                 etaP = etaP_int
                 etaH = etaH_int
 
@@ -335,7 +335,7 @@ class Dynamics(object):
                         'GRID_etaP': (['time', 'i'], etaP.reshape((1, -1))),
                         'GRID_etaH': (['time', 'i'], etaH.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_grid.theta, self.state_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
             # Add to the conductance time series
@@ -366,8 +366,8 @@ class Dynamics(object):
         time = np.atleast_1d(time)
 
         for i in range(time.size):
-            # Interpolate to num_grid
-            u_int = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.num_grid.theta, self.num_grid.phi)
+            # Interpolate to state_grid
+            u_int = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.state_grid.theta, self.state_grid.phi)
             u_int_theta, u_int_phi = -u_int[1], u_int[0]
 
             if self.vector_u:
@@ -382,13 +382,13 @@ class Dynamics(object):
                     coords = xr.Coordinates.from_pandas_multiindex(self.u_basis.index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
-                # Represent as values on num_grid
+                # Represent as values on state_grid
                 current_u = xr.Dataset(
                     data_vars = {
                         'GRID_u_theta': (['time', 'i'], u_int_theta.reshape((1, -1))),
                         'GRID_u_phi':   (['time', 'i'], u_int_phi.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.num_grid.theta, self.num_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_grid.theta, self.state_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
                 )
 
             # Add to the neutral wind time series
@@ -526,7 +526,7 @@ class Dynamics(object):
             Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
             # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
             # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
-            rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.num_grid.lat)) # normalization factors
+            rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.state_grid.lat)) # normalization factors
             Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
             Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
             Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 

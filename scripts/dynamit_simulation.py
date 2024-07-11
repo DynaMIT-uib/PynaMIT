@@ -40,8 +40,8 @@ dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
                             t0 = str(date))
 
 ## jr INPUT
-jr_lat = dynamics.num_grid.lat
-jr_lon = dynamics.num_grid.lon
+jr_lat = dynamics.state_grid.lat
+jr_lon = dynamics.state_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
@@ -62,8 +62,8 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij'
 dynamics.set_u(u, lat = u_lat, lon = u_lon)
 
 ## CONDUCTANCE GRID
-conductance_lat = dynamics.num_grid.lat
-conductance_lon = dynamics.num_grid.lon
+conductance_lat = dynamics.state_grid.lat
+conductance_lon = dynamics.state_grid.lon
 
 STEP = 2 # number of seconds between each conductance update
 

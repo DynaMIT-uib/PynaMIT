@@ -37,14 +37,14 @@ dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
 print('made dynamics object')
 
 ## CONDUCTANCE INPUT
-conductance_lat = dynamics.num_grid.lat
-conductance_lon = dynamics.num_grid.lon
+conductance_lat = dynamics.state_grid.lat
+conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = False)
 dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## jr INPUT
-jr_lat = dynamics.num_grid.lat
-jr_lon = dynamics.num_grid.lon
+jr_lat = dynamics.state_grid.lat
+jr_lon = dynamics.state_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
@@ -116,8 +116,8 @@ E_cf_coeff, E_df_coeff = dynamics.state.basis_evaluator.grid_to_basis((Eth, Eph)
 
 #import matplotlib.pyplot as plt
 #fig, axes = plt.subplots(nrows = 2)
-#axes[0].scatter(dynamics.num_grid.lon, dynamics.num_grid.lat, c = curl_E_num)
-#axes[1].scatter(dynamics.num_grid.lon, dynamics.num_grid.lat, c = curl_E_SH)
+#axes[0].scatter(dynamics.state_grid.lon, dynamics.state_grid.lat, c = curl_E_num)
+#axes[1].scatter(dynamics.state_grid.lon, dynamics.state_grid.lat, c = curl_E_SH)
 #plt.show()
 #
 

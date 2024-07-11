@@ -178,7 +178,7 @@ def debugplot(dynamics, title = None, filename = None, noon_longitude = 0):
 
 
     # scatter plot high latitude jr
-    iii = np.abs(dynamics.num_grid.lat) > dynamics.state.latitude_boundary
+    iii = np.abs(dynamics.state_grid.lat) > dynamics.state.latitude_boundary
     jrmax = np.max(np.abs(dynamics.state.jr))
     ax_1.scatter(dynamics.state.jr, jr_mod[iii])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], 'k-')

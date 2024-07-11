@@ -47,14 +47,14 @@ Kp   = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date) # noon longitude
 
-conductance_lat = dynamics.num_grid.lat
-conductance_lon = dynamics.num_grid.lon
+conductance_lat = dynamics.state_grid.lat
+conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = True)
 dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
 
 ## jr INPUT
-jr_lat = dynamics.num_grid.lat
-jr_lon = dynamics.num_grid.lon
+jr_lat = dynamics.state_grid.lat
+jr_lon = dynamics.state_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jr = a.get_upward_current(mlat = jr_lat, mlt = d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
@@ -120,8 +120,8 @@ if SIMULATE_DYNAMIC_RESPONSE:
             dynamics.state.update_Phi_and_W()
             Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
 
-            #paxn.contour(dynamics.num_grid.lat.flatten()[nnn], (dynamics.num_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
-            #paxs.contour(dynamics.num_grid.lat.flatten()[sss], (dynamics.num_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+            #paxn.contour(dynamics.state_grid.lat.flatten()[nnn], (dynamics.state_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
+            #paxs.contour(dynamics.state_grid.lat.flatten()[sss], (dynamics.state_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
             #paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, Phi[nnn], colors = 'black', levels = Philevels, linewidths = .5)
             #paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, Phi[sss], colors = 'black', levels = Philevels, linewidths = .5)
             plt.savefig(fn)
@@ -137,7 +137,7 @@ if COMPARE_TO_SECS:
     secsI = -jr * dynamics.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
-    lat_secs, lon_secs = dynamics.num_grid.lat, dynamics.num_grid.lon
+    lat_secs, lon_secs = dynamics.state_grid.lat, dynamics.state_grid.lon
     b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, pynamit.Grid(lat = lat_secs, lon = lon_secs), RI)
     Be, Bn, Br = b_evaluator.bphi, - b_evaluator.btheta, b_evaluator.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI = RI)

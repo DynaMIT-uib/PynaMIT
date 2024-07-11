@@ -117,13 +117,13 @@ class PynamEye(object):
 
             # reproduce numerical grid used in the simulation
             self.csp = CSProjection(self.datasets['settings'].Ncs)
-            self.num_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
+            self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
-            self.evaluator['num'] = BasisEvaluator(self.basis, self.num_grid)
-            self.conductance_evaluator['num'] = BasisEvaluator(self.conductance_basis, self.num_grid)
+            self.evaluator['num'] = BasisEvaluator(self.basis, self.state_grid)
+            self.conductance_evaluator['num'] = BasisEvaluator(self.conductance_basis, self.state_grid)
 
             # evaluate elelctric field on that grid
-            self.b_evaluator = FieldEvaluator(self.mainfield, self.num_grid, self.RI)
+            self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
             self.b00 =  self.b_evaluator.bphi**2 + self.b_evaluator.br**2
             self.b01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
             self.b10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
@@ -137,7 +137,7 @@ class PynamEye(object):
 
             self.B_parameters_calculated = True
 
-        # calculate electric field values on num_grid:
+        # calculate electric field values on state_grid:
         Js_ind, Je_ind = np.split(self.G_m_ind_to_JS.dot(self.m_ind), 2, axis = 0)
         Js_imp, Je_imp = np.split(self.G_m_imp_to_JS.dot(self.m_imp), 2, axis = 0)
 
