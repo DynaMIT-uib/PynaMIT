@@ -153,7 +153,7 @@ def debugplot(dynamics, title = None, filename = None, noon_longitude = 0):
     FAC = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr) / plt_b_evaluator.br
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
-    jr_mod =  dynamics.basis_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
+    jr_mod =  dynamics.state_basis_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
 
     ## GLOBAL PLOTS
     gax_B.contourf(lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), Br.reshape((NLO, NLA)), transform = ccrs.PlateCarree(), **B_kwargs)
@@ -293,10 +293,10 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     paxes[1].contourf(mn_grid.lat , mn_grid.lon ,  np.split(ju_amps, 2)[1], levels = levels, cmap = plt.cm.bwr)
     paxes[1].quiver(  mnv_grid.lat, mnv_grid.lon, -np.split(jn_amps, 2)[1], np.split(je_amps, 2)[1], scale = SCALE, color = 'black')
 
-    m_state_evaluator = BasisEvaluator(dynamics.basis, Grid(lat = mlat, lon = lon))
+    m_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat = mlat, lon = lon))
     jr = dynamics.get_jr(m_state_evaluator) * 1e6
 
-    mv_state_evaluator = BasisEvaluator(dynamics.basis, Grid(lat = mlatv, lon = lonv))
+    mv_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat = mlatv, lon = lonv))
     js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
     jn = -js
 
@@ -310,7 +310,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     plt.close()
 
     plt_grid = Grid(lat = lat, lon = lon)
-    plt_state_evaluator = BasisEvaluator(dynamics.basis, plt_grid)
+    plt_state_evaluator = BasisEvaluator(dynamics.state_basis, plt_grid)
     jr = dynamics.get_jr(plt_state_evaluator)
 
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape) * 1e6, noon_longitude = lon0, cmap = plt.cm.bwr, levels = levels)
@@ -351,7 +351,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), hall_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'hall.png')
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), pede_plt.reshape(pltshape), noon_longitude = lon0, levels = c_levels, save = 'pede.png')
 
-    plt_state_evaluator = BasisEvaluator(dynamics.basis, plt_grid)
+    plt_state_evaluator = BasisEvaluator(dynamics.state_basis, plt_grid)
     jr = dynamics.state.get_jr(plt_state_evaluator)
     globalplot(plt_grid.lon.reshape(pltshape), plt_grid.lat.reshape(pltshape), jr.reshape(pltshape), noon_longitude = lon0, levels = levels * 1e-6, save = 'jr.png', cmap = plt.cm.bwr)
 

@@ -78,7 +78,7 @@ m_ind_ss = dynamics.steady_state_m_ind()
 # SH curl
 #curlE_SH_coeffs = -dynamics.state.W.coeffs * dynamics.state.W_to_dBr_dt
 
-#curl_E_SH = dynamics.basis_evaluator.basis_to_grid(curlE_SH_coeffs)
+#curl_E_SH = dynamics.state_basis_evaluator.basis_to_grid(curlE_SH_coeffs)
 
 #GVJ = dynamics.state.G_m_ind_to_JS
 #GTJ = dynamics.state.G_m_imp_to_JS

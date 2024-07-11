@@ -69,7 +69,7 @@ dynamics.state.update_Phi_and_W()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat = lat, lon = lon)
-plt_state_evaluator = pynamit.BasisEvaluator(dynamics.basis, plt_grid)
+plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
 
 G_Br = plt_state_evaluator.scaled_G(dynamics.state.m_ind_to_Br / dynamics.state.RI)
 Br = G_Br.dot(dynamics.state.m_imp_to_B_pol.dot(dynamics.state.m_imp.coeffs))
@@ -85,7 +85,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 
     # manipulate GTB to remove the r x grad(T) part:
-    GrxgradT = -dynamics.basis_evaluator.Gdf * RI
+    GrxgradT = -dynamics.state_basis_evaluator.Gdf * RI
     dynamics.state.GTB = dynamics.state.GTB - GrxgradT # subtract GrxgradT off
 
 
