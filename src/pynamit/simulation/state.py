@@ -12,14 +12,16 @@ class State(object):
 
     """
 
-    def __init__(self, basis, conductance_basis, u_basis, mainfield, grid, settings, PFAC_matrix = None):
+    def __init__(self, basis, jr_basis, conductance_basis, u_basis, mainfield, grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
 
-        self.basis = basis
+        self.basis             = basis
+        self.jr_basis          = jr_basis
         self.conductance_basis = conductance_basis
-        self.u_basis = u_basis
+        self.u_basis           = u_basis
+
         self.mainfield = mainfield
 
         self.RI                     = settings.RI
@@ -36,6 +38,7 @@ class State(object):
         # Initialize grid-related objects
         self.grid = grid
         self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid)
+        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
         self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid)
 
@@ -57,6 +60,7 @@ class State(object):
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
             self.cp_basis_evaluator             = BasisEvaluator(self.basis,             self.cp_grid)
+            self.jr_cp_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.cp_grid)
             self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid)
             self.u_cp_basis_evaluator           = BasisEvaluator(self.u_basis,           self.cp_grid)
 
@@ -122,7 +126,7 @@ class State(object):
                     # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
                     shifted_b_evaluator = FieldEvaluator(self.mainfield, self.grid, r_k[i])
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
-                    mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
+                    mapped_basis_evaluator = BasisEvaluator(self.jr_basis, mapped_grid)
                     m_imp_to_jpar = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr / mapped_b_evaluator.br.reshape((-1 ,1)))
                     jpar_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.B_magnitude).reshape((-1, 1)),
                                           (shifted_b_evaluator.Bphi   / mapped_b_evaluator.B_magnitude).reshape((-1, 1)))
@@ -199,8 +203,8 @@ class State(object):
                 print('this should not happen')
 
             # Calculate the matrices that convert m_imp to FAC on grid and conjugate grid
-            G_jpar    =    self.basis_evaluator.scaled_G(self.m_imp_to_jr /    self.b_evaluator.br.reshape((-1 ,1)))
-            G_jpar_cp = self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
+            G_jpar    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr / self.b_evaluator.br.reshape((-1 ,1)))
+            G_jpar_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
 
             # Calculate matrix that ensures high latitude FACs are unaffected by other constraints
             self.G_jpar_hl = G_jpar[~self.ll_mask]
@@ -213,6 +217,7 @@ class State(object):
             self.aeH_ind_ll = self.b_evaluator.aeH.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
             self.aeP_imp_ll = self.b_evaluator.aeP.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
             self.aeH_imp_ll = self.b_evaluator.aeH.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
+
             self.aeP_ind_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeH_ind_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeP_imp_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
@@ -220,15 +225,15 @@ class State(object):
 
             if self.zero_jr_at_dip_equator:
                 # Calculate matrix that converts m_imp to jr at dip equator
-                n_phi = self.basis.minimum_phi_sampling()
+                n_phi = self.jr_basis.minimum_phi_sampling()
                 dip_equator_phi = np.linspace(0, 360, n_phi)
-                self.dip_equator_basis_evaluator = BasisEvaluator(self.basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
+                self.jr_dip_equator_basis_evaluator = BasisEvaluator(self.jr_basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
 
                 _equation_scaling = self.grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
-                self.G_jr_dip_equator = self.dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
+                self.G_jr_dip_equator = self.jr_dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
             else:
                 # Make zero-row stand-in for the jr matrix
-                self.G_jr_dip_equator = np.empty((0, self.basis.num_coeffs))
+                self.G_jr_dip_equator = np.empty((0, self.jr_basis.num_coeffs))
 
 
     def impose_constraints(self):
@@ -268,10 +273,10 @@ class State(object):
             self.jr = jr
 
             if self.connect_hemispheres:
-                self.jpar_on_grid = jr.to_grid(self.basis_evaluator) / self.b_evaluator.br
+                self.jpar_on_grid = jr.to_grid(self.jr_basis_evaluator) / self.b_evaluator.br
 
         else:
-            self.jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, grid_values = jr)
+            self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr)
 
             if self.connect_hemispheres:
                 self.jpar_on_grid = jr / self.b_evaluator.br

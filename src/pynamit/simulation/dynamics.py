@@ -110,16 +110,19 @@ class Dynamics(object):
         self.csp = CSProjection(settings.Ncs)
         self.num_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
-        self.basis             = SHBasis(settings.Nmax, settings.Mmax)
+        self.state_basis       = SHBasis(settings.Nmax, settings.Mmax)
+        self.jr_basis          = SHBasis(settings.Nmax, settings.Mmax)
         self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
         self.u_basis           = SHBasis(settings.Nmax, settings.Mmax)
 
-        self.basis_evaluator             = BasisEvaluator(self.basis,             self.num_grid)
+        self.state_basis_evaluator       = BasisEvaluator(self.state_basis,       self.num_grid)
+        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.num_grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.num_grid)
         self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.num_grid)
 
         # Initialize the state of the ionosphere
-        self.state = State(self.basis,
+        self.state = State(self.state_basis,
+                           self.jr_basis,
                            self.conductance_basis,
                            self.u_basis,
                            self.mainfield,
@@ -175,7 +178,7 @@ class Dynamics(object):
                         'SH_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
                         'SH_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_basis.n, self.state_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [self.latest_time]})
                 )
 
                 if not hasattr(self, 'state_timeseries'):
@@ -245,13 +248,13 @@ class Dynamics(object):
             # Extract the radial component of the jr and set the corresponding basis coefficients
             if self.vector_jr:
                 # Represent as expansion in spherical harmonics
-                jr = Vector(self.basis, basis_evaluator = self.basis_evaluator, grid_values = jr_int)
+                jr = Vector(self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr_int)
 
                 current_jr = xr.Dataset(
                     data_vars = {
                         'SH_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.basis.n, self.basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.jr_basis.n, self.jr_basis.m], names = ['n', 'm']), dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on num_grid
@@ -394,7 +397,7 @@ class Dynamics(object):
         if hasattr(self, 'jr_timeseries'):
             # Use xarray sel with padding to get the jr values at the current time
             if self.vector_jr:
-                self.current_jr = Vector(basis = self.basis, basis_evaluator = self.basis_evaluator, coeffs = self.jr_timeseries['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
+                self.current_jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, coeffs = self.jr_timeseries['SH_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
             else:
                 self.current_jr = self.jr_timeseries['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
 
