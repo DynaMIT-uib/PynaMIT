@@ -179,9 +179,8 @@ class Dynamics(object):
  
         count = 0
         while True:
-            self.update_jr()
-            self.update_conductance()
-            self.update_u()
+            for key in self.input_timeseries.keys():
+                self.update_input(key)
 
             self.state.impose_constraints()
             self.state.update_Phi_and_W()
@@ -439,93 +438,43 @@ class Dynamics(object):
         self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
 
 
-    def update_jr(self):
-        """ Update jr """
+    def update_input(self, key):
+        """ Update input """
 
-        key = 'jr'
-        vars = {'jr': 'scalar'}
+        if key == 'jr':
+            vars = {'jr': 'scalar'}
+        elif key == 'conductance':
+            vars = {'etaP': 'scalar', 'etaH': 'scalar'}
+        elif key == 'u':
+            vars = {'u': 'tangential'}
+        else:
+            raise ValueError('Unknown input key')
 
-        if key in self.input_timeseries.keys():
-            dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-            last_input_exists = all([var in self.last_input.keys() for var in vars])
+        dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
+        last_input_exists = all([var in self.last_input.keys() for var in vars])
 
-            current_input = {}
-            if self.vector_input[key]:
-                for var in vars:
-                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
-                if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
-            else:
-                for var in vars:
-                    current_input[var] = dataset['GRID_' + var].values
-                if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
+        current_input = {}
+        if self.vector_input[key]:
+            for var in vars:
+                current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
+            if last_input_exists:
+                close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
+        else:
+            for var in vars:
+                current_input[var] = dataset['GRID_' + var].values
+            if last_input_exists:
+                close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
-            # Check if input has changed since last update
-            if (not last_input_exists) or (not close_to_last):
-                if key == 'jr':
-                    self.state.set_jr(current_input['jr'], self.vector_input[key])
-                for var in vars:
-                    self.last_input[var] = current_input[var]
-
-
-    def update_conductance(self):
-        """ Update conductance """
-
-        key = 'conductance'
-        vars = {'etaP': 'scalar', 'etaH': 'scalar'}
-
-        if key in self.input_timeseries.keys():
-            dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-            last_input_exists = all([var in self.last_input.keys() for var in vars])
-
-            current_input = {}
-            if self.vector_input[key]:
-                for var in vars:
-                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
-                if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
-            else:
-                for var in vars:
-                    current_input[var] = dataset['GRID_' + var].values
-                if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
-
-            # Check if input has changed since last update
-            if (not last_input_exists) or (not close_to_last):
-                if key == 'conductance':
-                    self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_input[key])
-                for var in vars:
-                    self.last_input[var] = current_input[var]
-
-
-    def update_u(self):
-        """ Update neutral wind """
-
-        key = 'u'
-        vars = {'u': 'tangential'}
-
-        if key in self.input_timeseries.keys():
-            dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-            last_input_exists = all([var in self.last_input.keys() for var in vars])
-
-            current_input = {}
-            if self.vector_input[key]:
-                for var in vars:
-                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
-                if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
-            else:
-                for var in vars:
-                    current_input[var] = dataset['GRID_' + var].values
-                if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
-
-            if (not last_input_exists) or (not close_to_last):
-                if key == 'u':
-                    self.state.set_u(current_input['u'], self.vector_input[key])
-                for var in vars:
-                    self.last_input[var] = current_input[var]
+        # Check if input has changed since last update
+        if (not last_input_exists) or (not close_to_last):
+            if key == 'jr':
+                self.state.set_jr(current_input['jr'], self.vector_input[key])
+            elif key == 'conductance':
+                self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_input[key])
+            elif key == 'u':
+                self.state.set_u(current_input['u'], self.vector_input[key])
+            for var in vars:
+                self.last_input[var] = current_input[var]
 
 
     def load_timeseries(self):
