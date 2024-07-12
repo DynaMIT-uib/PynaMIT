@@ -42,8 +42,9 @@ class SHBasis(object):
         # Set the general properties of the basis
         self.short_name = 'SH'
 
-        self.index_labels = ['n', 'm']
-        self.index = pd.MultiIndex.from_arrays([self.n, self.m], names = self.index_labels)
+        self.index_names = ['n', 'm']
+        self.index_length = len(self.cnm.keys) + len(self.snm.keys)
+        self.indices = [self.n, self.m]
 
         self.minimum_phi_sampling = 2 * Mmax + 1
 

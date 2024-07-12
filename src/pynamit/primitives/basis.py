@@ -17,12 +17,17 @@ class Basis(ABC):
 
     @property
     @abstractmethod
-    def index_labels(self):
+    def index_names(self):
         pass
 
     @property
     @abstractmethod
-    def index(self):
+    def index_length(self):
+        pass
+
+    @property
+    @abstractmethod
+    def indices(self):
         pass
 
     @property

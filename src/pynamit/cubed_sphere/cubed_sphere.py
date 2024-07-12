@@ -1103,7 +1103,7 @@ class CSProjection(object):
         Ps_normalized_inv = np.einsum('nij, njk -> nik', Q, Ps_inv)
         u_east_int, u_north_int, u_r_int = np.einsum('nij, nj -> ni', Ps_normalized_inv, u.T).T
 
-        return( np.vstack((u_east_int, u_north_int, u_r_int)) )
+        return u_east_int, u_north_int, u_r_int
 
 
 

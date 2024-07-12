@@ -98,10 +98,10 @@ class State(object):
         if not hasattr(self, '_m_imp_to_B_pol'):
 
             self._m_imp_to_B_pol = xr.DataArray(
-                data = np.zeros((len(self.basis.index), len(self.basis.index))),
+                data = np.zeros((self.basis.index_length, self.basis.index_length)),
                 coords = {
-                    'i': np.arange(len(self.basis.index)),
-                    'j': np.arange(len(self.basis.index)),
+                    'i': np.arange(self.basis.index_length),
+                    'j': np.arange(self.basis.index_length),
                 },
                 dims = ['i', 'j']
             )
@@ -229,7 +229,7 @@ class State(object):
                 self.G_jr_dip_equator = self.jr_dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
             else:
                 # Make zero-row stand-in for the jr matrix
-                self.G_jr_dip_equator = np.empty((0, len(self.jr_basis.index)))
+                self.G_jr_dip_equator = np.empty((0, self.jr_basis.index_length))
 
 
     def impose_constraints(self):
@@ -302,8 +302,8 @@ class State(object):
                 # Represent as values on cp_grid
                 u_theta_on_cp_grid, u_phi_on_cp_grid = np.split(self.u.to_grid(self.u_cp_basis_evaluator), 2)
             else:
-                u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.phi, self.u_cp_basis_evaluator.grid.theta, self.u_cp_basis_evaluator.grid.phi)
-                u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
+                u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.phi, self.u_cp_basis_evaluator.grid.theta, self.u_cp_basis_evaluator.grid.phi)
+                u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int_north, u_cp_int_east
 
             # Neutral wind at low latitude grid points and at their conjugate points
             u_theta_ll    = self.u_theta_on_grid[self.ll_mask]

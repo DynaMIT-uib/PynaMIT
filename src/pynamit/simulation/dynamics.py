@@ -134,7 +134,7 @@ class Dynamics(object):
         self.load_timeseries()
 
         if hasattr(self, 'state_timeseries'):
-            if not self.state_timeseries.coords['i'].equals(self.state_basis.index):
+            if not self.state_timeseries.coords['i'].equals(pd.MultiIndex.from_arrays(self.state_basis.indices, names = self.state_basis.index_names)):
                 raise ValueError('The index of the state time series does not match the index of the state basis')
             self.latest_time = np.max(self.state_timeseries.time.values)
             self.state.set_coeffs(m_ind = self.state_timeseries[self.state_basis.short_name + '_m_ind'].sel(time = self.latest_time).values)
@@ -143,7 +143,7 @@ class Dynamics(object):
             self.state.set_coeffs(W     = self.state_timeseries[self.state_basis.short_name + '_W'].sel(time = self.latest_time).values)
         else:
             self.latest_time = np.float64(0)
-            self.state.set_coeffs(m_ind = np.zeros(len(self.state_basis.index)))
+            self.state.set_coeffs(m_ind = np.zeros(self.state_basis.index_length))
 
         if self.result_filename_prefix is None:
             self.result_filename_prefix = 'tmp'
@@ -174,6 +174,8 @@ class Dynamics(object):
         self.save_jr         = False
         self.save_conductance = False
         self.save_u           = False
+
+        index = pd.MultiIndex.from_arrays(self.state_basis.indices, names = self.state_basis.index_names)
  
         count = 0
         while True:
@@ -193,7 +195,7 @@ class Dynamics(object):
                         self.state_basis.short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
                         self.state_basis.short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.state_basis.index, dim = 'i').merge({'time': [self.latest_time]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [self.latest_time]})
                 )
 
                 if not hasattr(self, 'state_timeseries'):
@@ -258,6 +260,15 @@ class Dynamics(object):
 
         time = np.atleast_1d(time)
 
+        if self.vector_input[key]:
+            indices = self.input_bases[key].indices
+            index_names = self.input_bases[key].index_names
+        else:
+            indices = [self.state_grid.theta, self.state_grid.phi]
+            index_names = ['theta', 'phi']
+
+        index = pd.MultiIndex.from_arrays(indices, names = index_names)
+
         for i in range(time.size):
             # Interpolate to state_grid
             jr_int = csp.interpolate_scalar(jr[i], jr_grid.theta, jr_grid.phi, self.state_grid.theta, self.state_grid.phi)
@@ -271,7 +282,7 @@ class Dynamics(object):
                     data_vars = {
                         self.input_bases[key].short_name + '_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
@@ -279,7 +290,7 @@ class Dynamics(object):
                     data_vars = {
                         'GRID_jr': (['time', 'i'], jr_int.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_grid.theta, self.state_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
 
             # Add to the jr time series
@@ -313,6 +324,15 @@ class Dynamics(object):
 
         time = np.atleast_1d(time)
 
+        if self.vector_input[key]:
+            indices = self.input_bases[key].indices
+            index_names = self.input_bases[key].index_names
+        else:
+            indices = [self.state_grid.theta, self.state_grid.phi]
+            index_names = ['theta', 'phi']
+
+        index = pd.MultiIndex.from_arrays(indices, names = index_names)
+
         for i in range(time.size):
             # Transform to resistivities
             etaP = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
@@ -332,7 +352,7 @@ class Dynamics(object):
                         self.input_bases[key].short_name + '_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
                         self.input_bases[key].short_name + '_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
@@ -344,7 +364,7 @@ class Dynamics(object):
                         'GRID_etaP': (['time', 'i'], etaP.reshape((1, -1))),
                         'GRID_etaH': (['time', 'i'], etaH.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_grid.theta, self.state_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
 
             # Add to the conductance time series
@@ -376,31 +396,37 @@ class Dynamics(object):
 
         time = np.atleast_1d(time)
 
+        if self.vector_input[key]:
+            indices = self.input_bases[key].indices
+            index_names = self.input_bases[key].index_names
+        else:
+            indices = [self.state_grid.theta, self.state_grid.phi]
+            index_names = ['theta', 'phi']
+
+        index = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
+
         for i in range(time.size):
             # Interpolate to state_grid
-            u_int = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.state_grid.theta, self.state_grid.phi)
-            u_int_theta, u_int_phi = -u_int[1], u_int[0]
+            u_int_east, u_int_north, _ = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.state_grid.theta, self.state_grid.phi)
+            u_int = np.hstack((-u_int_north, u_int_east)) # convert to theta, phi
 
             if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                u = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack((u_int_theta, u_int_phi)), helmholtz = True)
+                u = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = u_int, helmholtz = True)
 
-                u_cf, u_df = np.split(u.coeffs, 2)
                 current_u = xr.Dataset(
                     data_vars = {
-                        self.input_bases[key].short_name + '_u_cf': (['time', 'i'], u_cf.reshape((1, -1))),
-                        self.input_bases[key].short_name + '_u_df': (['time', 'i'], u_df.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_u': (['time', 'i'], u.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
                 current_u = xr.Dataset(
                     data_vars = {
-                        'GRID_u_theta': (['time', 'i'], u_int_theta.reshape((1, -1))),
-                        'GRID_u_phi':   (['time', 'i'], u_int_phi.reshape((1, -1))),
+                        'GRID_u': (['time', 'i'], u_int.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(pd.MultiIndex.from_arrays([self.state_grid.theta, self.state_grid.phi], names = ['theta', 'phi']), dim = 'i').merge({'time': [time[i]]})
+                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
 
             # Add to the neutral wind time series
@@ -426,22 +452,12 @@ class Dynamics(object):
             current_input = {}
             if self.vector_input[key]:
                 for var in vars:
-                    if vars[var] == 'scalar':
-                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
-                    elif vars[var] == 'tangential':
-                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
-                    else:
-                        raise ValueError('Unknown variable type')
+                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
             else:
                 for var in vars:
-                    if vars[var] == 'scalar':
-                        current_input[var] = dataset['GRID_' + var].values
-                    elif vars[var] == 'tangential':
-                        current_input[var] = np.hstack((dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values))
-                    else:
-                        raise ValueError('Unknown variable type')
+                    current_input[var] = dataset['GRID_' + var].values
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
@@ -466,22 +482,12 @@ class Dynamics(object):
             current_input = {}
             if self.vector_input[key]:
                 for var in vars:
-                    if vars[var] == 'scalar':
-                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
-                    elif vars[var] == 'tangential':
-                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
-                    else:
-                        raise ValueError('Unknown variable type')
+                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
             else:
                 for var in vars:
-                    if vars[var] == 'scalar':
-                        current_input[var] = dataset['GRID_' + var].values
-                    elif vars[var] == 'tangential':
-                        current_input[var] = np.hstack((dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values))
-                    else:
-                        raise ValueError('Unknown variable type')
+                    current_input[var] = dataset['GRID_' + var].values
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
@@ -506,22 +512,12 @@ class Dynamics(object):
             current_input = {}
             if self.vector_input[key]:
                 for var in vars:
-                    if vars[var] == 'scalar':
-                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
-                    elif vars[var] == 'tangential':
-                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
-                    else:
-                        raise ValueError('Unknown variable type')
+                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
             else:
                 for var in vars:
-                    if vars[var] == 'scalar':
-                        current_input[var] = dataset['GRID_' + var].values
-                    elif vars[var] == 'tangential':
-                        current_input[var] = np.hstack((dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values))
-                    else:
-                        raise ValueError('Unknown variable type')
+                    current_input[var] = dataset['GRID_' + var].values
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
@@ -540,7 +536,7 @@ class Dynamics(object):
             if os.path.exists(self.result_filename_prefix + '_state.ncdf'):
                 state_timeseries = xr.load_timeseries(self.result_filename_prefix + '_state.ncdf')
 
-                state_basis_index = pd.MultiIndex.from_arrays([state_timeseries[self.state_basis.index_labels[i]].values for i in range(len(self.state_basis.index_labels))], names = self.state_basis.index_labels)
+                state_basis_index = pd.MultiIndex.from_arrays([state_timeseries[self.state_basis.index_names[i]].values for i in range(len(self.state_basis.index_names))], names = self.state_basis.index_names)
                 state_coords = xr.Coordinates.from_pandas_multiindex(state_basis_index, dim = 'i').merge({'time': state_timeseries.time.values})
                 self.state_timeseries = state_timeseries.drop_vars(['m', 'n']).assign_coords(state_coords)
 
@@ -550,7 +546,7 @@ class Dynamics(object):
                     self.input_timeseries[key] = xr.load_timeseries(self.result_filename_prefix + '_' + key + '.ncdf')
 
                     if self.vector_input[key]:
-                        basis_labels = self.input_bases[key].index_labels
+                        basis_labels = self.input_bases[key].index_names
                     else:
                         basis_labels = ['theta', 'phi']
 

@@ -37,7 +37,7 @@ d = etaH
 m_plain = np.linalg.lstsq(G, d, rcond = 0)[0]
 
 GTG = G.T.dot(G)
-R = np.eye(len(cbasis.index)) * cbasis.n * (cbasis.n + 1)
+R = np.eye(cbasis.index_length) * cbasis.n * (cbasis.n + 1)
 alpha = 1
 GTd = G.T.dot(d)
 m_regularized = np.linalg.lstsq(GTG + alpha * R, GTd, rcond = 0)[0]
