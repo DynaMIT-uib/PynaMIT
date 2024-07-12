@@ -101,12 +101,6 @@ class Dynamics(object):
                                    hI = (settings.RI - RE) * 1e-3,
                                    B0 = None if settings.mainfield_B0 == 0 else settings.mainfield_B0)
 
-        self.vector_input = {
-            'jr':          bool(settings.vector_jr),
-            'conductance': bool(settings.vector_conductance),
-            'u':           bool(settings.vector_u),
-        }
-
         self.csp = CSProjection(settings.Ncs)
         self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
@@ -119,6 +113,34 @@ class Dynamics(object):
 
         self.state_basis_evaluator = BasisEvaluator(self.state_basis, self.state_grid)
         self.input_basis_evaluators = dict([(key, BasisEvaluator(self.input_bases[key], self.state_grid)) for key in self.input_bases.keys()])
+
+        self.vector_input = {
+            'jr':          bool(settings.vector_jr),
+            'conductance': bool(settings.vector_conductance),
+            'u':           bool(settings.vector_u),
+        }
+
+        self.input_vars = {
+            'jr':          {'jr': 'scalar'},
+            'conductance': {'etaP': 'scalar', 'etaH': 'scalar'},
+            'u':           {'u': 'tangential'},
+        }
+
+        self.input_indices = {}
+        for key in self.input_vars.keys():
+            if self.vector_input[key]:
+                indices = self.input_bases[key].indices
+                index_names = self.input_bases[key].index_names
+            else:
+                indices = [self.state_grid.theta, self.state_grid.phi]
+                index_names = ['theta', 'phi']
+
+            if all(self.input_vars[key][var] == 'scalar' for var in self.input_vars[key]):
+                self.input_indices[key] = pd.MultiIndex.from_arrays(indices, names = index_names)
+            elif all(self.input_vars[key][var] == 'tangential' for var in self.input_vars[key]):
+                self.input_indices[key] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
+            else:
+                raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
 
         # Initialize the state of the ionosphere
         self.state = State(self.state_basis,
@@ -158,6 +180,7 @@ class Dynamics(object):
             self.state.m_imp_to_B_pol.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
+    
         self.last_input = {}
 
 
@@ -295,15 +318,6 @@ class Dynamics(object):
     def set_input(self, key, input_values, lat = None, lon = None, theta = None, phi = None, times = None):
         """ Set input """
 
-        if key == 'jr':
-            vars = {'jr': 'scalar'}
-        elif key == 'conductance':
-            vars = {'etaP': 'scalar', 'etaH': 'scalar'}
-        elif key == 'u':
-            vars = {'u': 'tangential'}
-        else:
-            raise ValueError('Unknown input key')
-
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if times is None:
@@ -313,39 +327,25 @@ class Dynamics(object):
 
         times = np.atleast_1d(times)
 
-        if self.vector_input[key]:
-            indices = self.input_bases[key].indices
-            index_names = self.input_bases[key].index_names
-        else:
-            indices = [self.state_grid.theta, self.state_grid.phi]
-            index_names = ['theta', 'phi']
-
-        if all(vars[var] == 'scalar' for var in vars):
-            index = pd.MultiIndex.from_arrays(indices, names = index_names)
-        elif all(vars[var] == 'tangential' for var in vars):
-            index = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
-        else:
-            raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
-
         for time in range(times.size):
             current_input = {}
-            for var in vars:
+            for var in self.input_vars[key]:
                 # Interpolate to state_grid
-                if vars[var] == 'scalar':
+                if self.input_vars[key][var] == 'scalar':
                     interpolated = csp.interpolate_scalar(input_values[var]['values'][time], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                elif vars[var] == 'tangential':
+                elif self.input_vars[key][var] == 'tangential':
                     interpolated_east, interplated_north, _ = csp.interpolate_vector_components(input_values[var]['phi'], -input_values[var]['theta'][time], np.zeros_like(input_values[var]['phi'][time]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                     interpolated = np.hstack((-interplated_north, interpolated_east)) # convert to theta, phi
 
                 if self.vector_input[key]:
-                    vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = interpolated, helmholtz = (vars[var] == 'tangential'))
+                    vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = interpolated, helmholtz = (self.input_vars[key][var] == 'tangential'))
                     current_input[self.input_bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
                 else:
                     current_input['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
 
             current_dataset = xr.Dataset(
                 data_vars = current_input,
-                coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [times[time]]})
+                coords = xr.Coordinates.from_pandas_multiindex(self.input_indices[key], dim = 'i').merge({'time': [times[time]]})
             )
 
             # Add to the time series
@@ -361,29 +361,20 @@ class Dynamics(object):
     def update_input(self, key):
         """ Update input """
 
-        if key == 'jr':
-            vars = {'jr': 'scalar'}
-        elif key == 'conductance':
-            vars = {'etaP': 'scalar', 'etaH': 'scalar'}
-        elif key == 'u':
-            vars = {'u': 'tangential'}
-        else:
-            raise ValueError('Unknown input key')
-
         dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-        last_input_exists = all([var in self.last_input.keys() for var in vars])
+        last_input_exists = all([var in self.last_input.keys() for var in self.input_vars[key]])
 
         current_input = {}
         if self.vector_input[key]:
-            for var in vars:
-                current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (vars[var] == 'tangential'))
+            for var in self.input_vars[key]:
+                current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (self.input_vars[key][var] == 'tangential'))
             if last_input_exists:
-                close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
+                close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in self.input_vars[key]])
         else:
-            for var in vars:
+            for var in self.input_vars[key]:
                 current_input[var] = dataset['GRID_' + var].values
             if last_input_exists:
-                close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
+                close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in self.input_vars[key]])
 
         # Check if input has changed since last update
         if (not last_input_exists) or (not close_to_last):
@@ -393,7 +384,7 @@ class Dynamics(object):
                 self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_input[key])
             elif key == 'u':
                 self.state.set_u(current_input['u'], self.vector_input[key])
-            for var in vars:
+            for var in self.input_vars[key]:
                 self.last_input[var] = current_input[var]
 
 
