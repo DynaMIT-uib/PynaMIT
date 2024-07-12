@@ -104,68 +104,66 @@ class Dynamics(object):
         self.csp = CSProjection(settings.Ncs)
         self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
-        self.state_basis       = SHBasis(settings.Nmax, settings.Mmax)
-        self.input_bases = {
+        self.bases = {
+            'state':       SHBasis(settings.Nmax, settings.Mmax),
             'jr':          SHBasis(settings.Nmax, settings.Mmax),
             'conductance': SHBasis(settings.Nmax, settings.Mmax, Nmin = 0),
             'u':           SHBasis(settings.Nmax, settings.Mmax),
         }
 
-        self.state_basis_evaluator = BasisEvaluator(self.state_basis, self.state_grid)
-        self.input_basis_evaluators = dict([(key, BasisEvaluator(self.input_bases[key], self.state_grid)) for key in self.input_bases.keys()])
+        self.basis_evaluators = dict([(key, BasisEvaluator(self.bases[key], self.state_grid)) for key in self.bases.keys()])
 
-        self.vector_input = {
+        self.vector_storage = {
+            'state':       True,
             'jr':          bool(settings.vector_jr),
             'conductance': bool(settings.vector_conductance),
             'u':           bool(settings.vector_u),
         }
 
-        self.input_vars = {
+        self.vars = {
+            'state':       {'m_ind': 'scalar', 'm_imp': 'scalar', 'Phi': 'scalar', 'W': 'scalar'},
             'jr':          {'jr': 'scalar'},
             'conductance': {'etaP': 'scalar', 'etaH': 'scalar'},
             'u':           {'u': 'tangential'},
         }
 
-        self.input_indices = {}
-        for key in self.input_vars.keys():
-            if self.vector_input[key]:
-                indices = self.input_bases[key].indices
-                index_names = self.input_bases[key].index_names
+        self.indices = {}
+        for key in self.vars.keys():
+            if self.vector_storage[key]:
+                indices = self.bases[key].indices
+                index_names = self.bases[key].index_names
             else:
                 indices = [self.state_grid.theta, self.state_grid.phi]
                 index_names = ['theta', 'phi']
 
-            if all(self.input_vars[key][var] == 'scalar' for var in self.input_vars[key]):
-                self.input_indices[key] = pd.MultiIndex.from_arrays(indices, names = index_names)
-            elif all(self.input_vars[key][var] == 'tangential' for var in self.input_vars[key]):
-                self.input_indices[key] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
+            if all(self.vars[key][var] == 'scalar' for var in self.vars[key]):
+                self.indices[key] = pd.MultiIndex.from_arrays(indices, names = index_names)
+            elif all(self.vars[key][var] == 'tangential' for var in self.vars[key]):
+                self.indices[key] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
             else:
                 raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
 
         # Initialize the state of the ionosphere
-        self.state = State(self.state_basis,
-                           self.input_bases['jr'],
-                           self.input_bases['conductance'],
-                           self.input_bases['u'],
+        self.state = State(self.bases['state'],
+                           self.bases['jr'],
+                           self.bases['conductance'],
+                           self.bases['u'],
                            self.mainfield,
                            self.state_grid,
                            settings,
                            PFAC_matrix = PFAC_matrix)
 
-        self.input_timeseries = {}
+        self.timeseries = {}
         self.load_timeseries()
 
-        if hasattr(self, 'state_timeseries'):
-            if not self.state_timeseries.coords['i'].equals(pd.MultiIndex.from_arrays(self.state_basis.indices, names = self.state_basis.index_names)):
+        if 'state' in self.timeseries.keys():
+            if not self.timeseries['state'].coords['i'].equals(pd.MultiIndex.from_arrays(self.bases['state'].indices, names = self.bases['state'].index_names)):
                 raise ValueError('The index of the state time series does not match the index of the state basis')
-            self.latest_time = np.max(self.state_timeseries.time.values)
-            self.state.set_coeffs(m_ind = self.state_timeseries[self.state_basis.short_name + '_m_ind'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(m_imp = self.state_timeseries[self.state_basis.short_name + '_m_imp'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(Phi   = self.state_timeseries[self.state_basis.short_name + '_Phi'].sel(time = self.latest_time).values)
-            self.state.set_coeffs(W     = self.state_timeseries[self.state_basis.short_name + '_W'].sel(time = self.latest_time).values)
+            self.latest_time = np.max(self.timeseries['state'].time.values)
+            self.input_selection('state')
         else:
             self.latest_time = np.float64(0)
-            self.state.set_coeffs(m_ind = np.zeros(self.state_basis.index_length))
+            self.state.set_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
 
         if self.result_filename_prefix is None:
             self.result_filename_prefix = 'tmp'
@@ -194,16 +192,18 @@ class Dynamics(object):
         """
 
         # Will be set to True when the corresponding time series is different from the one saved on disk
-        self.save_jr         = False
+        self.save_jr          = False
         self.save_conductance = False
         self.save_u           = False
-
-        index = pd.MultiIndex.from_arrays(self.state_basis.indices, names = self.state_basis.index_names)
  
         count = 0
         while True:
-            for key in self.input_timeseries.keys():
-                self.update_input(key)
+            keys = list(self.timeseries.keys())
+            if 'state' in keys:
+                keys = keys.remove('state')
+            if keys is not None:
+                for key in keys:
+                    self.input_selection(key)
 
             self.state.impose_constraints()
             self.state.update_Phi_and_W()
@@ -212,22 +212,22 @@ class Dynamics(object):
                 # Add current state to state time series
                 current_state = xr.Dataset(
                     data_vars = {
-                        self.state_basis.short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
-                        self.state_basis.short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        self.state_basis.short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
-                        self.state_basis.short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [self.latest_time]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.indices['state'], dim = 'i').merge({'time': [self.latest_time]})
                 )
 
-                if not hasattr(self, 'state_timeseries'):
-                    self.state_timeseries = current_state
+                if 'state' not in self.timeseries.keys():
+                    self.timeseries['state'] = current_state
                 else:
-                    self.state_timeseries = xr.concat([self.state_timeseries.drop_sel(time = self.latest_time, errors = 'ignore'), current_state], dim = 'time')
+                    self.timeseries['state'] = xr.concat([self.timeseries['state'].drop_sel(time = self.latest_time, errors = 'ignore'), current_state], dim = 'time')
 
                 # Save output if requested
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
-                    self.state_timeseries.reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
+                    self.timeseries['state'].reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
                     if quiet:
                         pass
                     else:
@@ -329,62 +329,66 @@ class Dynamics(object):
 
         for time in range(times.size):
             current_input = {}
-            for var in self.input_vars[key]:
+            for var in self.vars[key]:
                 # Interpolate to state_grid
-                if self.input_vars[key][var] == 'scalar':
+                if self.vars[key][var] == 'scalar':
                     interpolated = csp.interpolate_scalar(input_values[var]['values'][time], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                elif self.input_vars[key][var] == 'tangential':
+                elif self.vars[key][var] == 'tangential':
                     interpolated_east, interplated_north, _ = csp.interpolate_vector_components(input_values[var]['phi'], -input_values[var]['theta'][time], np.zeros_like(input_values[var]['phi'][time]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                     interpolated = np.hstack((-interplated_north, interpolated_east)) # convert to theta, phi
 
-                if self.vector_input[key]:
-                    vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = interpolated, helmholtz = (self.input_vars[key][var] == 'tangential'))
-                    current_input[self.input_bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
+                if self.vector_storage[key]:
+                    vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated, helmholtz = (self.vars[key][var] == 'tangential'))
+                    current_input[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
                 else:
                     current_input['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
 
             current_dataset = xr.Dataset(
                 data_vars = current_input,
-                coords = xr.Coordinates.from_pandas_multiindex(self.input_indices[key], dim = 'i').merge({'time': [times[time]]})
+                coords = xr.Coordinates.from_pandas_multiindex(self.indices[key], dim = 'i').merge({'time': [times[time]]})
             )
 
             # Add to the time series
-            if key not in self.input_timeseries.keys():
-                self.input_timeseries[key] = current_dataset
+            if key not in self.timeseries.keys():
+                self.timeseries[key] = current_dataset
             else:
-                self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = times[time], errors = 'ignore'), current_dataset], dim = 'time')
+                self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = times[time], errors = 'ignore'), current_dataset], dim = 'time')
 
         # Save the time series
-        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
+        self.timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
 
 
-    def update_input(self, key):
-        """ Update input """
+    def input_selection(self, key):
+        """ Select correct input for the current time step """
 
-        dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-        last_input_exists = all([var in self.last_input.keys() for var in self.input_vars[key]])
+        dataset = self.timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
+        last_input_exists = all([var in self.last_input.keys() for var in self.vars[key]])
 
         current_input = {}
-        if self.vector_input[key]:
-            for var in self.input_vars[key]:
-                current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values, helmholtz = (self.input_vars[key][var] == 'tangential'))
+        if self.vector_storage[key]:
+            for var in self.vars[key]:
+                current_input[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = dataset[self.bases[key].short_name + '_' + var].values, helmholtz = (self.vars[key][var] == 'tangential'))
             if last_input_exists:
-                close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in self.input_vars[key]])
+                close_to_last_input = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in self.vars[key]])
         else:
-            for var in self.input_vars[key]:
+            for var in self.vars[key]:
                 current_input[var] = dataset['GRID_' + var].values
             if last_input_exists:
-                close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in self.input_vars[key]])
+                close_to_last_input = all([np.allclose(current_input[var], self.last_input[var]) for var in self.vars[key]])
 
-        # Check if input has changed since last update
-        if (not last_input_exists) or (not close_to_last):
+        if (not last_input_exists) or (not close_to_last_input):
+            if key == 'state':
+                self.state.set_coeffs(m_ind = current_input['m_ind'].coeffs)
+                self.state.set_coeffs(m_imp = current_input['m_imp'].coeffs)
+                self.state.set_coeffs(Phi   = current_input['Phi'].coeffs)
+                self.state.set_coeffs(W     = current_input['W'].coeffs)
             if key == 'jr':
-                self.state.set_jr(current_input['jr'], self.vector_input[key])
+                self.state.set_jr(current_input['jr'], self.vector_storage[key])
             elif key == 'conductance':
-                self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_input[key])
+                self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_storage[key])
             elif key == 'u':
-                self.state.set_u(current_input['u'], self.vector_input[key])
-            for var in self.input_vars[key]:
+                self.state.set_u(current_input['u'], self.vector_storage[key])
+            for var in self.vars[key]:
                 self.last_input[var] = current_input[var]
 
 
@@ -392,27 +396,19 @@ class Dynamics(object):
         """ Load time series from file """
 
         if (self.result_filename_prefix is not None):
-            # Load state time series if it exists on file
-            if os.path.exists(self.result_filename_prefix + '_state.ncdf'):
-                state_timeseries = xr.load_timeseries(self.result_filename_prefix + '_state.ncdf')
-
-                state_basis_index = pd.MultiIndex.from_arrays([state_timeseries[self.state_basis.index_names[i]].values for i in range(len(self.state_basis.index_names))], names = self.state_basis.index_names)
-                state_coords = xr.Coordinates.from_pandas_multiindex(state_basis_index, dim = 'i').merge({'time': state_timeseries.time.values})
-                self.state_timeseries = state_timeseries.drop_vars(['m', 'n']).assign_coords(state_coords)
-
             # Load input time series if they exist on file
-            for key in self.input_bases.keys():
+            for key in self.vars.keys():
                 if os.path.exists(self.result_filename_prefix + '_' + key + '.ncdf'):
-                    self.input_timeseries[key] = xr.load_timeseries(self.result_filename_prefix + '_' + key + '.ncdf')
+                    self.timeseries[key] = xr.load_timeseries(self.result_filename_prefix + '_' + key + '.ncdf')
 
-                    if self.vector_input[key]:
-                        basis_labels = self.input_bases[key].index_names
+                    if self.vector_storage[key]:
+                        basis_labels = self.bases[key].index_names
                     else:
                         basis_labels = ['theta', 'phi']
 
-                    basis_index = pd.MultiIndex.from_arrays([self.input_timeseries[key][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
-                    coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.input_timeseries[key].time.values})
-                    self.input_timeseries[key] = self.input_timeseries[key].drop_vars(basis_labels).assign_coords(coords)
+                    basis_index = pd.MultiIndex.from_arrays([self.timeseries[key][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
+                    coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.timeseries[key].time.values})
+                    self.timeseries[key] = self.timeseries[key].drop_vars(basis_labels).assign_coords(coords)
 
     @property
     def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):

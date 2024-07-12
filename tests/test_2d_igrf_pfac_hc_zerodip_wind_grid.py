@@ -40,7 +40,7 @@ def test_2d_igrf_pfac_hc_zerodip_wind_grid():
                            vector_u = False)
 
     # Assert
-    coeff_array = dynamics.state_timeseries['SH_m_ind'].values
+    coeff_array = dynamics.timeseries['state']['SH_m_ind'].values
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
