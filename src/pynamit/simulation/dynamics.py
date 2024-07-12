@@ -383,12 +383,13 @@ class Dynamics(object):
 
             if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                u = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = (u_int_theta, u_int_phi), helmholtz = True)
+                u = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack((u_int_theta, u_int_phi)), helmholtz = True)
 
+                u_cf, u_df = np.split(u.coeffs, 2)
                 current_u = xr.Dataset(
                     data_vars = {
-                        self.input_bases[key].short_name + '_u_cf': (['time', 'i'], u.coeffs[0].reshape((1, -1))),
-                        self.input_bases[key].short_name + '_u_df': (['time', 'i'], u.coeffs[1].reshape((1, -1))),
+                        self.input_bases[key].short_name + '_u_cf': (['time', 'i'], u_cf.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_u_df': (['time', 'i'], u_df.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(self.input_bases[key].index, dim = 'i').merge({'time': [time[i]]})
                 )
@@ -416,7 +417,7 @@ class Dynamics(object):
         """ Update jr """
 
         key = 'jr'
-        vars = ['jr']
+        vars = {'jr': 'scalar'}
 
         if key in self.input_timeseries.keys():
             dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
@@ -425,12 +426,22 @@ class Dynamics(object):
             current_input = {}
             if self.vector_input[key]:
                 for var in vars:
-                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                    if vars[var] == 'scalar':
+                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                    elif vars[var] == 'tangential':
+                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
+                    else:
+                        raise ValueError('Unknown variable type')
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
             else:
                 for var in vars:
-                    current_input[var] = dataset['GRID_' + var].values
+                    if vars[var] == 'scalar':
+                        current_input[var] = dataset['GRID_' + var].values
+                    elif vars[var] == 'tangential':
+                        current_input[var] = np.hstack((dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values))
+                    else:
+                        raise ValueError('Unknown variable type')
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
@@ -446,7 +457,7 @@ class Dynamics(object):
         """ Update conductance """
 
         key = 'conductance'
-        vars = ['etaP', 'etaH']
+        vars = {'etaP': 'scalar', 'etaH': 'scalar'}
 
         if key in self.input_timeseries.keys():
             dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
@@ -455,12 +466,22 @@ class Dynamics(object):
             current_input = {}
             if self.vector_input[key]:
                 for var in vars:
-                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                    if vars[var] == 'scalar':
+                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                    elif vars[var] == 'tangential':
+                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
+                    else:
+                        raise ValueError('Unknown variable type')
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
             else:
                 for var in vars:
-                    current_input[var] = dataset['GRID_' + var].values
+                    if vars[var] == 'scalar':
+                        current_input[var] = dataset['GRID_' + var].values
+                    elif vars[var] == 'tangential':
+                        current_input[var] = np.hstack((dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values))
+                    else:
+                        raise ValueError('Unknown variable type')
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
@@ -476,7 +497,7 @@ class Dynamics(object):
         """ Update neutral wind """
 
         key = 'u'
-        vars = ['u']
+        vars = {'u': 'tangential'}
 
         if key in self.input_timeseries.keys():
             dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
@@ -485,14 +506,24 @@ class Dynamics(object):
             current_input = {}
             if self.vector_input[key]:
                 for var in vars:
-                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
+                    if vars[var] == 'scalar':
+                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                    elif vars[var] == 'tangential':
+                        current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
+                    else:
+                        raise ValueError('Unknown variable type')
                 if last_input_exists:
                     close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
             else:
                 for var in vars:
-                    current_input[var] = (dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values)
+                    if vars[var] == 'scalar':
+                        current_input[var] = dataset['GRID_' + var].values
+                    elif vars[var] == 'tangential':
+                        current_input[var] = np.hstack((dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values))
+                    else:
+                        raise ValueError('Unknown variable type')
                 if last_input_exists:
-                    close_to_last = all([np.allclose(current_input[var][0], self.last_input[var][0]) and np.allclose(current_input[var][1], self.last_input[var][1]) for var in vars])
+                    close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
 
             if (not last_input_exists) or (not close_to_last):
                 if key == 'u':

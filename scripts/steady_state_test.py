@@ -110,7 +110,7 @@ Eph = eP * (dynamics.state.b10 * Jth + dynamics.state.b11 * Jph) + eH * (-dynami
 Eth -= dynamics.state.uxB_theta
 Eph -= dynamics.state.uxB_phi
 
-E_cf_coeff, E_df_coeff = dynamics.state.basis_evaluator.grid_to_basis((Eth, Eph), helmholtz = True)
+E_cf_coeff, E_df_coeff = dynamics.state.basis_evaluator.grid_to_basis(np.hstack((Eth, Eph)), helmholtz = True)
 
 
 

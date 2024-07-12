@@ -171,7 +171,7 @@ class BasisEvaluator(object):
         elif derivative == 'phi':
             return np.dot(self.G_ph, coeffs)
         elif helmholtz:
-            return np.split(np.dot(self.G_helmholtz, np.hstack(coeffs)), 2)
+            return np.dot(self.G_helmholtz, coeffs)
         else:
             return np.dot(self.G, coeffs)
 
@@ -192,7 +192,7 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            return np.split(np.dot(self.G_helmholtz_inv, np.hstack(grid_values)), 2)
+            return np.dot(self.G_helmholtz_inv, grid_values)
         else:
             return np.dot(self.G_inv, grid_values)
     

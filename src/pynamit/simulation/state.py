@@ -288,11 +288,11 @@ class State(object):
 
         if vector_u:
             self.u = u
-            self.u_theta_on_grid, self.u_phi_on_grid = self.u.to_grid(self.u_basis_evaluator)
+            self.u_theta_on_grid, self.u_phi_on_grid = np.split(self.u.to_grid(self.u_basis_evaluator), 2)
 
         else:
             self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, helmholtz = True)
-            self.u_theta_on_grid, self.u_phi_on_grid = u
+            self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
         self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
@@ -300,7 +300,7 @@ class State(object):
         if self.connect_hemispheres:
             if vector_u:
                 # Represent as values on cp_grid
-                u_theta_on_cp_grid, u_phi_on_cp_grid = self.u.to_grid(self.u_cp_basis_evaluator)
+                u_theta_on_cp_grid, u_phi_on_cp_grid = np.split(self.u.to_grid(self.u_cp_basis_evaluator), 2)
             else:
                 u_cp_int = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.phi, self.u_cp_basis_evaluator.grid.theta, self.u_cp_basis_evaluator.grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int[1], u_cp_int[0]
@@ -373,7 +373,7 @@ class State(object):
 
         """
 
-        E_cf, E_df = self.basis_evaluator.grid_to_basis(self.get_E(), helmholtz = True)
+        E_cf, E_df = np.split(self.basis_evaluator.grid_to_basis(self.get_E(), helmholtz = True), 2)
 
         self.Phi = Vector(self.basis, coeffs = E_cf)
         self.W = Vector(self.basis, coeffs = E_df)
@@ -459,4 +459,4 @@ class State(object):
             Eth -= self.uxB_theta
             Eph -= self.uxB_phi
 
-        return(Eth, Eph)
+        return np.hstack((Eth, Eph))
