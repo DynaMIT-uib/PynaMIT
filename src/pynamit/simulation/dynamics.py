@@ -158,6 +158,8 @@ class Dynamics(object):
             self.state.m_imp_to_B_pol.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
+        self.last_input = {}
+
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
         """
@@ -414,66 +416,89 @@ class Dynamics(object):
         """ Update jr """
 
         key = 'jr'
-        if key in self.input_timeseries.keys():
-            # Use xarray sel with padding to get the jr values at the current time
-            if self.vector_input[key]:
-                self.current_jr = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = self.input_timeseries[key][self.input_bases[key].short_name + '_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                if hasattr(self, 'last_jr'):
-                    close_to_last = np.allclose(self.current_jr.coeffs, self.last_jr.coeffs)
-            else:
-                self.current_jr = self.input_timeseries[key]['GRID_jr'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
-                if hasattr(self, 'last_jr'):
-                    close_to_last = np.allclose(self.current_jr, self.last_jr)
+        vars = ['jr']
 
-            # Check if current jr is different from the one used in the last call to update_jr
-            if not hasattr(self, 'last_jr') or not close_to_last:
-                self.state.set_jr(self.current_jr, self.vector_input[key])
-                self.last_jr = self.current_jr
+        if key in self.input_timeseries.keys():
+            dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
+            last_input_exists = all([var in self.last_input.keys() for var in vars])
+
+            current_input = {}
+            if self.vector_input[key]:
+                for var in vars:
+                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                if last_input_exists:
+                    close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
+            else:
+                for var in vars:
+                    current_input[var] = dataset['GRID_' + var].values
+                if last_input_exists:
+                    close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
+
+            # Check if input has changed since last update
+            if (not last_input_exists) or (not close_to_last):
+                if key == 'jr':
+                    self.state.set_jr(current_input['jr'], self.vector_input[key])
+                for var in vars:
+                    self.last_input[var] = current_input[var]
 
 
     def update_conductance(self):
         """ Update conductance """
 
         key = 'conductance'
-        if key in self.input_timeseries.keys():
-            last_exists = hasattr(self, 'last_etaP') and hasattr(self, 'last_etaH')
-            # Use xarray sel with padding to get the conductance values at the current time
-            if self.vector_input[key]:
-                self.current_etaP = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = self.input_timeseries[key][self.input_bases[key].short_name + '_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                self.current_etaH = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = self.input_timeseries[key][self.input_bases[key].short_name + '_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                if last_exists:
-                    close_to_last = np.allclose(self.current_etaP.coeffs, self.last_etaP.coeffs) and np.allclose(self.current_etaH.coeffs, self.last_etaH.coeffs)
-            else:
-                self.current_etaP = self.input_timeseries[key]['GRID_etaP'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
-                self.current_etaH = self.input_timeseries[key]['GRID_etaH'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values
-                if last_exists:
-                    close_to_last = np.allclose(self.current_etaP, self.last_etaP) and np.allclose(self.current_etaH, self.last_etaH)
+        vars = ['etaP', 'etaH']
 
-            if not last_exists or not close_to_last:
-                self.state.set_conductance(self.current_etaP, self.current_etaH, self.vector_input[key])
-                self.last_etaP = self.current_etaP
-                self.last_etaH = self.current_etaH
+        if key in self.input_timeseries.keys():
+            dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
+            last_input_exists = all([var in self.last_input.keys() for var in vars])
+
+            current_input = {}
+            if self.vector_input[key]:
+                for var in vars:
+                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = dataset[self.input_bases[key].short_name + '_' + var].values)
+                if last_input_exists:
+                    close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
+            else:
+                for var in vars:
+                    current_input[var] = dataset['GRID_' + var].values
+                if last_input_exists:
+                    close_to_last = all([np.allclose(current_input[var], self.last_input[var]) for var in vars])
+
+            # Check if input has changed since last update
+            if (not last_input_exists) or (not close_to_last):
+                if key == 'conductance':
+                    self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_input[key])
+                for var in vars:
+                    self.last_input[var] = current_input[var]
 
 
     def update_u(self):
         """ Update neutral wind """
 
         key = 'u'
-        if key in self.input_timeseries.keys():
-            last_exists = hasattr(self, 'last_u')
-            # Use xarray sel with padding to get the neutral wind values at the current time
-            if self.vector_input[key]:
-                self.current_u = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((self.input_timeseries[key][self.input_bases[key].short_name + '_u_cf'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.input_timeseries[key][self.input_bases[key].short_name + '_u_df'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)), helmholtz = True)
-                if last_exists:
-                    close_to_last = np.allclose(self.current_u.coeffs, self.last_u.coeffs)
-            else:
-                self.current_u = (self.input_timeseries[key]['GRID_u_theta'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values, self.input_timeseries[key]['GRID_u_phi'].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad').values)
-                if last_exists:
-                    close_to_last = np.allclose(self.current_u[0], self.last_u[0]) and np.allclose(self.current_u[1], self.last_u[1])
+        vars = ['u']
 
-            if not last_exists or not close_to_last:
-                self.state.set_u(self.current_u, self.vector_input[key])
-                self.last_u = self.current_u
+        if key in self.input_timeseries.keys():
+            dataset = self.input_timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
+            last_input_exists = all([var in self.last_input.keys() for var in vars])
+
+            current_input = {}
+            if self.vector_input[key]:
+                for var in vars:
+                    current_input[var] = Vector(basis = self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], coeffs = np.hstack((dataset[self.input_bases[key].short_name + '_' + var + '_cf'].values, dataset[self.input_bases[key].short_name + '_' + var + '_df'].values)), helmholtz = True)
+                if last_input_exists:
+                    close_to_last = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in vars])
+            else:
+                for var in vars:
+                    current_input[var] = (dataset['GRID_' + var + '_theta'].values, dataset['GRID_' + var + '_phi'].values)
+                if last_input_exists:
+                    close_to_last = all([np.allclose(current_input[var][0], self.last_input[var][0]) and np.allclose(current_input[var][1], self.last_input[var][1]) for var in vars])
+
+            if (not last_input_exists) or (not close_to_last):
+                if key == 'u':
+                    self.state.set_u(current_input['u'], self.vector_input[key])
+                for var in vars:
+                    self.last_input[var] = current_input[var]
 
 
     def load_timeseries(self):
