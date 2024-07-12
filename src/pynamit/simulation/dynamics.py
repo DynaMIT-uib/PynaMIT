@@ -246,64 +246,11 @@ class Dynamics(object):
 
         """
 
-        key = 'jr'
-        vars = {'jr': 'scalar'}
+        input_values = {
+            'jr': {'values': np.atleast_2d(jr)},
+        }
 
-        input_values = {}
-        input_values['jr'] = {'values': np.atleast_2d(jr)}
-
-        input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
-
-        if times is None:
-            if any([input_values[var][component].shape[0] > 1 for var in input_values.keys() for component in input_values[var].keys()]):
-                raise ValueError('Times have to be specified if input is given for multiple times')
-            times = self.latest_time
-
-        times = np.atleast_1d(times)
-
-        if self.vector_input[key]:
-            indices = self.input_bases[key].indices
-            index_names = self.input_bases[key].index_names
-        else:
-            indices = [self.state_grid.theta, self.state_grid.phi]
-            index_names = ['theta', 'phi']
-
-        multiindices = {}
-        for var in vars:
-            if vars[var] == 'scalar':
-                multiindices[var] = pd.MultiIndex.from_arrays(indices, names = index_names)
-            elif vars[var] == 'tangential':
-                multiindices[var] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
-
-        for time in range(times.size):
-            current_input = {}
-            for var in vars:
-                # Interpolate to state_grid
-                if vars[var] == 'scalar':
-                    interpolated = csp.interpolate_scalar(input_values[var]['values'][time], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                elif vars[var] == 'tangential':
-                    interpolated_east, interplated_north, _ = csp.interpolate_vector_components(input_values[var]['phi'], -input_values[var]['theta'][time], np.zeros_like(input_values[var]['phi'][time]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                    interpolated = np.hstack((-interplated_north, interpolated_east)) # convert to theta, phi
-
-                if self.vector_input[key]:
-                    vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = interpolated, helmholtz = (vars[var] == 'tangential'))
-                    current_input[self.input_bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
-                else:
-                    current_input['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
-
-            current_dataset = xr.Dataset(
-                data_vars = current_input,
-                coords = xr.Coordinates.from_pandas_multiindex(multiindices[var], dim = 'i').merge({'time': [times[time]]})
-            )
-
-            # Add to the time series
-            if key not in self.input_timeseries.keys():
-                self.input_timeseries[key] = current_dataset
-            else:
-                self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = times[time], errors = 'ignore'), current_dataset], dim = 'time')
-
-        # Save the time series
-        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
+        self.set_input('jr', input_values, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, times = None):
@@ -313,74 +260,24 @@ class Dynamics(object):
 
         """
 
-        key = 'conductance'
-        vars = {'etaP': 'scalar', 'etaH': 'scalar'}
-
         input_values = {}
 
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        input_values['etaP'] = {'values': np.empty_like(Pedersen)}
+        input_values = {
+            'etaP': {'values': np.empty_like(Pedersen)},
+            'etaH': {'values': np.empty_like(Hall)},
+        }
+
+        # Convert to resistivity
         for i in range(max(input_values['etaP']['values'].shape[0], 1)):
             input_values['etaP']['values'][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        input_values['etaH'] = {'values': np.empty_like(Hall)}
         for i in range(max(input_values['etaH']['values'].shape[0], 1)):
             input_values['etaH']['values'][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
-
-        if times is None:
-            if any([input_values[var][component].shape[0] > 1 for var in input_values.keys() for component in input_values[var].keys()]):
-                raise ValueError('Times have to be specified if input is given for multiple times')
-            times = self.latest_time
-
-        times = np.atleast_1d(times)
-
-        if self.vector_input[key]:
-            indices = self.input_bases[key].indices
-            index_names = self.input_bases[key].index_names
-        else:
-            indices = [self.state_grid.theta, self.state_grid.phi]
-            index_names = ['theta', 'phi']
-
-        multiindices = {}
-        for var in vars:
-            if vars[var] == 'scalar':
-                multiindices[var] = pd.MultiIndex.from_arrays(indices, names = index_names)
-            elif vars[var] == 'tangential':
-                multiindices[var] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
-
-        for time in range(times.size):
-            current_input = {}
-            for var in vars:
-                # Interpolate to state_grid
-                if vars[var] == 'scalar':
-                    interpolated = csp.interpolate_scalar(input_values[var]['values'][time], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                elif vars[var] == 'tangential':
-                    interpolated_east, interplated_north, _ = csp.interpolate_vector_components(input_values[var]['phi'], -input_values[var]['theta'][time], np.zeros_like(input_values[var]['phi'][time]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                    interpolated = np.hstack((-interplated_north, interpolated_east)) # convert to theta, phi
-
-                if self.vector_input[key]:
-                    vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = interpolated, helmholtz = (vars[var] == 'tangential'))
-                    current_input[self.input_bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
-                else:
-                    current_input['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
-
-            current_dataset = xr.Dataset(
-                data_vars = current_input,
-                coords = xr.Coordinates.from_pandas_multiindex(multiindices[var], dim = 'i').merge({'time': [times[time]]})
-            )
-
-            # Add to the time series
-            if key not in self.input_timeseries.keys():
-                self.input_timeseries[key] = current_dataset
-            else:
-                self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = times[time], errors = 'ignore'), current_dataset], dim = 'time')
-
-        # Save the time series
-        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
+        self.set_input('conductance', input_values, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
 
 
     def set_u(self, u, lat = None, lon = None, theta = None, phi = None, times = None):
@@ -388,11 +285,24 @@ class Dynamics(object):
             For now, they *have* to be given on grid
         """
 
-        key = 'u'
-        vars = {'u': 'tangential'}
+        input_values = {
+            'u': {'theta': np.atleast_2d(u[0]), 'phi': np.atleast_2d(u[1])},
+        }
 
-        input_values = {}
-        input_values['u'] = {'theta': np.atleast_2d(u[0]), 'phi': np.atleast_2d(u[1])}
+        self.set_input('u', input_values, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
+
+
+    def set_input(self, key, input_values, lat = None, lon = None, theta = None, phi = None, times = None):
+        """ Set input """
+
+        if key == 'jr':
+            vars = {'jr': 'scalar'}
+        elif key == 'conductance':
+            vars = {'etaP': 'scalar', 'etaH': 'scalar'}
+        elif key == 'u':
+            vars = {'u': 'tangential'}
+        else:
+            raise ValueError('Unknown input key')
 
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
@@ -410,12 +320,12 @@ class Dynamics(object):
             indices = [self.state_grid.theta, self.state_grid.phi]
             index_names = ['theta', 'phi']
 
-        multiindices = {}
-        for var in vars:
-            if vars[var] == 'scalar':
-                multiindices[var] = pd.MultiIndex.from_arrays(indices, names = index_names)
-            elif vars[var] == 'tangential':
-                multiindices[var] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
+        if all(vars[var] == 'scalar' for var in vars):
+            index = pd.MultiIndex.from_arrays(indices, names = index_names)
+        elif all(vars[var] == 'tangential' for var in vars):
+            index = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
+        else:
+            raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
 
         for time in range(times.size):
             current_input = {}
@@ -435,7 +345,7 @@ class Dynamics(object):
 
             current_dataset = xr.Dataset(
                 data_vars = current_input,
-                coords = xr.Coordinates.from_pandas_multiindex(multiindices[var], dim = 'i').merge({'time': [times[time]]})
+                coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [times[time]]})
             )
 
             # Add to the time series
