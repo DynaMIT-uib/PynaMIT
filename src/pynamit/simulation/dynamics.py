@@ -248,13 +248,14 @@ class Dynamics(object):
 
         key = 'jr'
 
-        jr = np.atleast_2d(jr)
+        current_input = {}
+        current_input['jr'] = {'values': np.atleast_2d(jr)}
 
-        jr_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if jr.shape[0] > 1:
-                raise ValueError('Time has to be specified if jr is given for multiple times')
+            if any([current_input[var][component].shape[0] > 1 for var in current_input.keys() for component in current_input[var].keys()]):
+                raise ValueError('Time has to be specified if input is given for multiple times')
             time = self.latest_time
 
         time = np.atleast_1d(time)
@@ -270,16 +271,16 @@ class Dynamics(object):
 
         for i in range(time.size):
             # Interpolate to state_grid
-            jr_int = csp.interpolate_scalar(jr[i], jr_grid.theta, jr_grid.phi, self.state_grid.theta, self.state_grid.phi)
-            
+            jr_int = csp.interpolate_scalar(current_input['jr']['values'][i], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+
             # Extract the radial component of the jr and set the corresponding basis coefficients
             if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                jr = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = jr_int)
+                jr_vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = jr_int)
 
                 current_jr = xr.Dataset(
                     data_vars = {
-                        self.input_bases[key].short_name + '_jr': (['time', 'i'], jr.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_jr': (['time', 'i'], jr_vector.coeffs.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
@@ -299,7 +300,7 @@ class Dynamics(object):
                 self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_jr], dim = 'time')
 
         # Save the jr time series
-        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_jr.ncdf')
+        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
 
 
     def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -311,14 +312,24 @@ class Dynamics(object):
 
         key = 'conductance'
 
+        current_input = {}
+
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        conductance_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        current_input['etaP'] = {'values': np.empty_like(Pedersen)}
+        for i in range(max(current_input['etaP']['values'].shape[0], 1)):
+            current_input['etaP']['values'][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
+
+        current_input['etaH'] = {'values': np.empty_like(Hall)}
+        for i in range(max(current_input['etaH']['values'].shape[0], 1)):
+            current_input['etaH']['values'][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
+
+        input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if Hall.shape[0] > 1 or Pedersen.shape[0] > 1:
-                raise ValueError('Time has to be specified if conductance is given for multiple times')
+            if any([current_input[var][component].shape[0] > 1 for var in current_input.keys() for component in current_input[var].keys()]):
+                raise ValueError('Time has to be specified if input is given for multiple times')
             time = self.latest_time
 
         time = np.atleast_1d(time)
@@ -333,35 +344,28 @@ class Dynamics(object):
         index = pd.MultiIndex.from_arrays(indices, names = index_names)
 
         for i in range(time.size):
-            # Transform to resistivities
-            etaP = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
-            etaH = Hall[i]     / (Hall[i]**2 + Pedersen[i]**2)
-
             # Interpolate to state_grid
-            etaP_int = csp.interpolate_scalar(etaP, conductance_grid.theta, conductance_grid.phi, self.state_grid.theta, self.state_grid.phi)
-            etaH_int = csp.interpolate_scalar(etaH, conductance_grid.theta, conductance_grid.phi, self.state_grid.theta, self.state_grid.phi)
+            etaP_int = csp.interpolate_scalar(current_input['etaP']['values'][i], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+            etaH_int = csp.interpolate_scalar(current_input['etaH']['values'][i], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
 
             if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                etaP = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = etaP_int)
-                etaH = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = etaH_int)
+                etaP_vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = etaP_int)
+                etaH_vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = etaH_int)
 
                 current_conductance = xr.Dataset(
                     data_vars = {
-                        self.input_bases[key].short_name + '_etaP': (['time', 'i'], etaP.coeffs.reshape((1, -1))),
-                        self.input_bases[key].short_name + '_etaH': (['time', 'i'], etaH.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_etaP': (['time', 'i'], etaP_vector.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_etaH': (['time', 'i'], etaH_vector.coeffs.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
             else:
                 # Represent as values on state_grid
-                etaP = etaP_int
-                etaH = etaH_int
-
                 current_conductance = xr.Dataset(
                     data_vars = {
-                        'GRID_etaP': (['time', 'i'], etaP.reshape((1, -1))),
-                        'GRID_etaH': (['time', 'i'], etaH.reshape((1, -1))),
+                        'GRID_etaP': (['time', 'i'], etaP_int.reshape((1, -1))),
+                        'GRID_etaH': (['time', 'i'], etaH_int.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
@@ -373,7 +377,7 @@ class Dynamics(object):
                 self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_conductance], dim = 'time')
 
         # Save the conductance time series
-        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_conductance.ncdf')
+        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
 
 
     def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
@@ -383,14 +387,14 @@ class Dynamics(object):
 
         key = 'u'
 
-        u_theta = np.atleast_2d(u[0])
-        u_phi = np.atleast_2d(u[1])
+        current_input = {}
+        current_input['u'] = {'theta': np.atleast_2d(u[0]), 'phi': np.atleast_2d(u[1])}
 
-        u_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if time is None:
-            if u_theta.shape[0] > 1 or u_phi.shape[0] > 1:
-                raise ValueError('Time has to be specified if u is given for multiple times')
+            if any([current_input[var][component].shape[0] > 1 for var in current_input.keys() for component in current_input[var].keys()]):
+                raise ValueError('Time has to be specified if input is given for multiple times')
             time = self.latest_time
 
         time = np.atleast_1d(time)
@@ -406,16 +410,16 @@ class Dynamics(object):
 
         for i in range(time.size):
             # Interpolate to state_grid
-            u_int_east, u_int_north, _ = csp.interpolate_vector_components(u_phi[i], -u_theta[i], np.zeros_like(u_phi[i]), u_grid.theta, u_grid.phi, self.state_grid.theta, self.state_grid.phi)
+            u_int_east, u_int_north, _ = csp.interpolate_vector_components(current_input['u']['phi'], -current_input['u']['theta'][i], np.zeros_like(current_input['u']['phi'][i]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
             u_int = np.hstack((-u_int_north, u_int_east)) # convert to theta, phi
 
             if self.vector_input[key]:
                 # Represent as expansion in spherical harmonics
-                u = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = u_int, helmholtz = True)
+                u_vector = Vector(self.input_bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = u_int, helmholtz = True)
 
                 current_u = xr.Dataset(
                     data_vars = {
-                        self.input_bases[key].short_name + '_u': (['time', 'i'], u.coeffs.reshape((1, -1))),
+                        self.input_bases[key].short_name + '_u': (['time', 'i'], u_vector.coeffs.reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(index, dim = 'i').merge({'time': [time[i]]})
                 )
@@ -435,7 +439,7 @@ class Dynamics(object):
                 self.input_timeseries[key] = xr.concat([self.input_timeseries[key].drop_sel(time = time[i], errors = 'ignore'), current_u], dim = 'time')
 
         # Save the neutral wind timeseries
-        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_u.ncdf')
+        self.input_timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
 
 
     def update_input(self, key):
