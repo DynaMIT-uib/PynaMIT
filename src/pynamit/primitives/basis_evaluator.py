@@ -127,6 +127,19 @@ class BasisEvaluator(object):
         return self._G_rxgrad
 
     @property
+    def G_rxgrad_inv(self):
+        """
+        Return the inverse of the G matrix that transforms coefficients to the cross 
+        product of the gradient of the grid values.
+
+        """
+
+        if not hasattr(self, '_G_rxgrad_inv'):
+            self._G_rxgrad_inv = np.linalg.pinv(self.G_rxgrad)
+        return self._G_rxgrad_inv
+
+
+    @property
     def G_helmholtz(self):
         """
         Return the G matrix for the Helmholtz decomposition into the
