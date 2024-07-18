@@ -155,10 +155,11 @@ class Dynamics(object):
 
         self.timeseries = {}
         self.load_timeseries()
+        self.last_input = {}
 
         if 'state' in self.timeseries.keys():
-            if not self.timeseries['state'].coords['i'].equals(pd.MultiIndex.from_arrays(self.bases['state'].indices, names = self.bases['state'].index_names)):
-                raise ValueError('The index of the state time series does not match the index of the state basis')
+            #if not self.timeseries['state'].coords['i'].equals(pd.MultiIndex.from_arrays(self.bases['state'].indices, names = self.bases['state'].index_names)):
+            #    raise ValueError('The index of the state time series does not match the index of the state basis')
             self.latest_time = np.max(self.timeseries['state'].time.values)
             self.input_selection('state')
         else:
@@ -179,7 +180,6 @@ class Dynamics(object):
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
     
-        self.last_input = {}
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
@@ -410,40 +410,66 @@ class Dynamics(object):
                     coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.timeseries[key].time.values})
                     self.timeseries[key] = self.timeseries[key].drop_vars(basis_labels).assign_coords(coords)
 
-    @property
-    def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
+
+    def calculate_fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
         """ Calculate matrix that returns the radial curl, using finite differences 
             when operated on a column vector of (theta, phi) vector components. 
         """
 
+        Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = stencil_size, Ni = interpolation_points, order = 1)
+        sqrtg = np.sqrt(self.csp.detg)
+        g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
+        g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
+        g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
+
+        # matrix that operates on column vector of u1, u2 and produces radial curl
+        D_curlr_u1u2 = sp.hstack(((Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
+                                  (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled))))
+
+        # matrix that transforms theta, phi to u1, u2:
+        Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
+        # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
+        # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
+        rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.state_grid.lat)) # normalization factors
+        Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
+        Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
+        Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 
+        Ps11 = sp.diags( Ps_dense[:, 1, 0] / rrcosl)
+        # stack:
+        Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
+
+        return D_curlr_u1u2.dot(Ps)
+
+
+    @property
+    def fd_curl_matrix(self):
+        """ Finite difference curl matrix
+        """
+
         if not hasattr(self, '_fd_curl_matrix'):
-            
-            Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = stencil_size, Ni = interpolation_points, order = 1)
-            sqrtg = np.sqrt(self.csp.detg)
-            g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
-            g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
-            g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
-
-            # matrix that operates on column vector of u1, u2 and produces radial curl
-            D_curlr_u1u2 = sp.hstack(((Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
-                                      (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled))))
-
-            # matrix that transforms theta, phi to u1, u2:
-            Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
-            # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
-            # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
-            rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.state_grid.lat)) # normalization factors
-            Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
-            Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
-            Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 
-            Ps11 = sp.diags( Ps_dense[:, 1, 0] / rrcosl)
-            # stack:
-            Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
-
-            # combine:
-            self._fd_curl_matrix = D_curlr_u1u2.dot(Ps)
+            self._fd_curl_matrix = self.calcualte_fd_curl_matrix()
 
         return(self._fd_curl_matrix)
+
+
+    def calculate_sh_curl_matrix(self, helmholtz = True):
+        """ Calculate matrix that returns the radial curl, using spherical harmonic analysis 
+            when operated on a column vector of (theta, phi) vector components. 
+        """
+            
+        # matrix that gets SH coefficients from vector of (theta, phi)-components on grid:
+        if helmholtz: # estimate coefficients for both DF and CF parts:
+            G_grid_to_coeffs = self.state.basis_evaluator.G_helmholtz_inv
+            Nc = self.state.basis.index_length
+            G_grid_to_coeffs =  sp.hstack((sp.eye(Nc) * 0, sp.eye(Nc))) * G_grid_to_coeffs # select only DF coefficients
+        else:
+            G_grid_to_coeffs = self.state.basis_evaluator.G_rxgrad_inv
+
+        coeffs_to_curl = sp.diags(self.state.basis.laplacian())
+
+        # combine and return:
+        return(self.state.basis_evaluator.G.dot(coeffs_to_curl.dot(G_grid_to_coeffs)))
+
 
     @property
     def sh_curl_matrix(self, helmoltz = True):
@@ -452,21 +478,10 @@ class Dynamics(object):
         """
 
         if not hasattr(self, '_sh_curl_matrix'):
-            
-            # matrix that gets SH coefficients from vector of (theta, phi)-components on grid:
-            if helmoltz: # estimate coefficients for both DF and CF parts:
-                G_grid_to_coeffs = self.state.basis_evaluator.G_helmholtz_inv
-                Nc = dynamics.state.basis.index_length
-                G_grid_to_coeffs =  sp.hstack((sp.eye(Nc) * 0, sp.eye(Nc))) * G_grid_to_coeffs # select only DF coefficients
-            else:
-                G_grid_to_coeffs = self.state.basis_evaluator.G_rxgrad_inv
-
-            coeffs_to_curl = sp.diags(self.state.basis.laplacian())
-
-            # combine:
-            self._sh_curl_matrix = ceoffs_to_curl.dot(G_grid_to_coeffs)
+            self._sh_curl_matrix = self.calculate_sh_curl_matrix()
 
         return(self._sh_curl_matrix)
+
 
     def steady_state_m_ind(self, m_imp = None):
         """ Calculate coefficients for induced field in steady state 
@@ -497,12 +512,12 @@ class Dynamics(object):
 
         uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
-        GcCGVJ = self.fd_curl_matrix.dot(C).dot(GVJ)
-        GcCGTJ = self.fd_curl_matrix.dot(C).dot(GTJ)
+        GcCGVJ = self.sh_curl_matrix.dot(C).dot(GVJ)
+        GcCGTJ = self.sh_curl_matrix.dot(C).dot(GTJ)
 
         if m_imp is None:
             m_imp = self.state.m_imp.coeffs
 
-        m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.fd_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
+        m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.sh_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
 
         return(m_ind_ss)
