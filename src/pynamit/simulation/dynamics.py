@@ -399,7 +399,7 @@ class Dynamics(object):
             # Load input time series if they exist on file
             for key in self.vars.keys():
                 if os.path.exists(self.result_filename_prefix + '_' + key + '.ncdf'):
-                    self.timeseries[key] = xr.load_timeseries(self.result_filename_prefix + '_' + key + '.ncdf')
+                    self.timeseries[key] = xr.load_dataset(self.result_filename_prefix + '_' + key + '.ncdf')
 
                     if self.vector_storage[key]:
                         basis_labels = self.bases[key].index_names
@@ -414,7 +414,6 @@ class Dynamics(object):
     def fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
         """ Calculate matrix that returns the radial curl, using finite differences 
             when operated on a column vector of (theta, phi) vector components. 
-            The function also returns the pseudo-inverse of the matrix. 
         """
 
         if not hasattr(self, '_fd_curl_matrix'):
@@ -446,6 +445,28 @@ class Dynamics(object):
 
         return(self._fd_curl_matrix)
 
+    @property
+    def sh_curl_matrix(self, helmoltz = True):
+        """ Calculate matrix that returns the radial curl, using spherical harmonic analysis 
+            when operated on a column vector of (theta, phi) vector components. 
+        """
+
+        if not hasattr(self, '_sh_curl_matrix'):
+            
+            # matrix that gets SH coefficients from vector of (theta, phi)-components on grid:
+            if helmoltz: # estimate coefficients for both DF and CF parts:
+                G_grid_to_coeffs = self.state.basis_evaluator.G_helmholtz_inv
+                Nc = dynamics.state.basis.index_length
+                G_grid_to_coeffs =  sp.hstack((sp.eye(Nc) * 0, sp.eye(Nc))) * G_grid_to_coeffs # select only DF coefficients
+            else:
+                G_grid_to_coeffs = self.state.basis_evaluator.G_rxgrad_inv
+
+            coeffs_to_curl = sp.diags(self.state.basis.laplacian())
+
+            # combine:
+            self._sh_curl_matrix = ceoffs_to_curl.dot(G_grid_to_coeffs)
+
+        return(self._sh_curl_matrix)
 
     def steady_state_m_ind(self, m_imp = None):
         """ Calculate coefficients for induced field in steady state 
