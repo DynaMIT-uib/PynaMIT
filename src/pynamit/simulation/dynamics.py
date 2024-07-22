@@ -171,15 +171,27 @@ class Dynamics(object):
 
         # Save settings if they do not exist on file
         if not settings_on_file:
-            settings.to_netcdf(self.result_filename_prefix + '_settings.ncdf')
+            filename = self.result_filename_prefix + '_settings.ncdf'
+            try:
+                settings.to_netcdf(filename + '.tmp')
+                os.rename(filename + '.tmp', filename)
+            except Exception as e:
+                if os.path.exists(filename + '.tmp'):
+                    os.remove(filename + '.tmp')
+                raise e
             print('Saved settings to {}_settings.ncdf'.format(self.result_filename_prefix))
 
         # Save PFAC matrix if it does not exist on file
         if not PFAC_matrix_on_file:
-            self.state.m_imp_to_B_pol.to_netcdf(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+            filename = self.result_filename_prefix + '_PFAC_matrix.ncdf'
+            try:
+                self.state.m_imp_to_B_pol.to_netcdf(filename + '.tmp')
+                os.rename(filename + '.tmp', filename)
+            except Exception as e:
+                if os.path.exists(filename + '.tmp'):
+                    os.remove(filename + '.tmp')
+                raise e
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
-
-    
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
@@ -227,7 +239,15 @@ class Dynamics(object):
 
                 # Save output if requested
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
-                    self.timeseries['state'].reset_index('i').to_netcdf(self.result_filename_prefix + '_state.ncdf')
+                    filename = self.result_filename_prefix + '_state.ncdf'
+                    try:
+                        self.timeseries['state'].reset_index('i').to_netcdf(filename + '.tmp')
+                        os.rename(filename + '.tmp', filename)
+                    except Exception as e:
+                        if os.path.exists(filename + '.tmp'):
+                            os.remove(filename + '.tmp')
+                        raise e
+
                     if quiet:
                         pass
                     else:
@@ -355,7 +375,14 @@ class Dynamics(object):
                 self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = times[time], errors = 'ignore'), current_dataset], dim = 'time')
 
         # Save the time series
-        self.timeseries[key].reset_index('i').to_netcdf(self.result_filename_prefix + '_' + key + '.ncdf')
+        filename = self.result_filename_prefix + '_' + key + '.ncdf'
+        try:
+            self.timeseries[key].reset_index('i').to_netcdf(filename + '.tmp')
+            os.rename(filename + '.tmp', filename)
+        except Exception as e:
+            if os.path.exists(filename + '.tmp'):
+                os.remove(filename + '.tmp')
+            raise e
 
 
     def input_selection(self, key):
