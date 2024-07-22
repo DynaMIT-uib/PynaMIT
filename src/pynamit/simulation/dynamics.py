@@ -200,7 +200,7 @@ class Dynamics(object):
         while True:
             keys = list(self.timeseries.keys())
             if 'state' in keys:
-                keys = keys.remove('state')
+                keys.remove('state')
             if keys is not None:
                 for key in keys:
                     self.input_selection(key)
