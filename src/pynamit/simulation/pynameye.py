@@ -150,7 +150,7 @@ class PynamEye(object):
         Eph = self.etaP_on_grid * (self.b10 * Jth + self.b11 * Jph) + self.etaH_on_grid * (-self.b_evaluator.br * Jth)
 
         self.u_coeffs = np.hstack((self.m_u_cf, self.m_u_df))
-        self.u = Vector(self.basis, basis_evaluator = self.evaluator['num'], coeffs = self.u_coeffs, helmholtz = True)
+        self.u = Vector(self.basis, basis_evaluator = self.evaluator['num'], coeffs = self.u_coeffs, type = 'tangential')
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(self.u.to_grid(basis_evaluator = self.evaluator['num']), 2)
 
         uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br

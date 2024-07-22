@@ -163,17 +163,17 @@ class State(object):
             raise Exception('Invalid keyword. See documentation')
 
         if key == 'm_ind':
-            self.m_ind = Vector(self.basis, kwargs['m_ind'])
+            self.m_ind = Vector(self.basis, kwargs['m_ind'], type = 'scalar')
         elif key == 'm_imp':
-            self.m_imp = Vector(self.basis, kwargs['m_imp'])
+            self.m_imp = Vector(self.basis, kwargs['m_imp'], type = 'scalar')
         elif key == 'Phi':
-            self.Phi = Vector(self.basis, kwargs['Phi'])
+            self.Phi = Vector(self.basis, kwargs['Phi'], type = 'scalar')
         elif key == 'W':
-            self.W = Vector(self.basis, kwargs['W'])
+            self.W = Vector(self.basis, kwargs['W'], type = 'scalar')
         elif key == 'Br':
-            self.m_ind = Vector(self.basis, kwargs['Br'] / self.m_ind_to_Br)
+            self.m_ind = Vector(self.basis, kwargs['Br'] / self.m_ind_to_Br, type = 'scalar')
         elif key == 'jr':
-            self.m_imp = Vector(self.basis, kwargs['jr'] / self.m_imp_to_jr)
+            self.m_imp = Vector(self.basis, kwargs['jr'] / self.m_imp_to_jr, type = 'scalar')
         else:
             raise Exception('This should not happen')
 
@@ -272,7 +272,7 @@ class State(object):
                 self.jpar_on_grid = jr.to_grid(self.jr_basis_evaluator) / self.b_evaluator.br
 
         else:
-            self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr)
+            self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr , type = 'scalar')
 
             if self.connect_hemispheres:
                 self.jpar_on_grid = jr / self.b_evaluator.br
@@ -291,7 +291,7 @@ class State(object):
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(self.u.to_grid(self.u_basis_evaluator), 2)
 
         else:
-            self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, helmholtz = True)
+            self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, type = 'tangential')
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
 
         self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
@@ -335,8 +335,8 @@ class State(object):
             self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
-            self.etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP)
-            self.etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH)
+            self.etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP, type = 'scalar')
+            self.etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH, type = 'scalar')
 
             self.etaP_on_grid = etaP
             self.etaH_on_grid = etaH
@@ -375,8 +375,8 @@ class State(object):
 
         E_cf, E_df = np.split(self.basis_evaluator.grid_to_basis(self.get_E(), helmholtz = True), 2)
 
-        self.Phi = Vector(self.basis, coeffs = E_cf)
-        self.W = Vector(self.basis, coeffs = E_df)
+        self.Phi = Vector(self.basis, coeffs = E_cf, type = 'scalar')
+        self.W = Vector(self.basis, coeffs = E_df, type = 'scalar')
 
 
     def evolve_Br(self, dt):

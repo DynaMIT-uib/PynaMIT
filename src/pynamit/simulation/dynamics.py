@@ -338,7 +338,7 @@ class Dynamics(object):
                     interpolated = np.hstack((-interplated_north, interpolated_east)) # convert to theta, phi
 
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated, helmholtz = (self.vars[key][var] == 'tangential'))
+                    vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated, type = self.vars[key][var])
                     current_input[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
                 else:
                     current_input['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
@@ -367,7 +367,7 @@ class Dynamics(object):
         current_input = {}
         if self.vector_storage[key]:
             for var in self.vars[key]:
-                current_input[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = dataset[self.bases[key].short_name + '_' + var].values, helmholtz = (self.vars[key][var] == 'tangential'))
+                current_input[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
             if last_input_exists:
                 close_to_last_input = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in self.vars[key]])
         else:
