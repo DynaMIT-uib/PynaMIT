@@ -155,13 +155,10 @@ class Dynamics(object):
 
         self.timeseries = {}
         self.load_timeseries()
-        self.last_input = {}
 
         if 'state' in self.timeseries.keys():
-            #if not self.timeseries['state'].coords['i'].equals(pd.MultiIndex.from_arrays(self.bases['state'].indices, names = self.bases['state'].index_names)):
-            #    raise ValueError('The index of the state time series does not match the index of the state basis')
             self.latest_time = np.max(self.timeseries['state'].time.values)
-            self.input_selection('state')
+            self.select_timeseries_data('state')
         else:
             self.latest_time = np.float64(0)
             self.state.set_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
@@ -169,28 +166,12 @@ class Dynamics(object):
         if self.result_filename_prefix is None:
             self.result_filename_prefix = 'tmp'
 
-        # Save settings if they do not exist on file
         if not settings_on_file:
-            filename = self.result_filename_prefix + '_settings.ncdf'
-            try:
-                settings.to_netcdf(filename + '.tmp')
-                os.rename(filename + '.tmp', filename)
-            except Exception as e:
-                if os.path.exists(filename + '.tmp'):
-                    os.remove(filename + '.tmp')
-                raise e
+            self.save_dataset(settings, 'settings')
             print('Saved settings to {}_settings.ncdf'.format(self.result_filename_prefix))
 
-        # Save PFAC matrix if it does not exist on file
         if not PFAC_matrix_on_file:
-            filename = self.result_filename_prefix + '_PFAC_matrix.ncdf'
-            try:
-                self.state.m_imp_to_B_pol.to_netcdf(filename + '.tmp')
-                os.rename(filename + '.tmp', filename)
-            except Exception as e:
-                if os.path.exists(filename + '.tmp'):
-                    os.remove(filename + '.tmp')
-                raise e
+            self.save_dataset(self.state.m_imp_to_B_pol, 'PFAC_matrix')
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
 
 
@@ -215,14 +196,13 @@ class Dynamics(object):
                 keys.remove('state')
             if keys is not None:
                 for key in keys:
-                    self.input_selection(key)
+                    self.select_timeseries_data(key)
 
             self.state.impose_constraints()
             self.state.update_Phi_and_W()
 
             if count % sampling_step_interval == 0:
-                # Add current state to state time series
-                current_state = xr.Dataset(
+                current_state_dataset = xr.Dataset(
                     data_vars = {
                         self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
@@ -232,21 +212,11 @@ class Dynamics(object):
                     coords = xr.Coordinates.from_pandas_multiindex(self.indices['state'], dim = 'i').merge({'time': [self.latest_time]})
                 )
 
-                if 'state' not in self.timeseries.keys():
-                    self.timeseries['state'] = current_state
-                else:
-                    self.timeseries['state'] = xr.concat([self.timeseries['state'].drop_sel(time = self.latest_time, errors = 'ignore'), current_state], dim = 'time')
+                self.add_to_timeseries(current_state_dataset, 'state')
 
                 # Save output if requested
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
-                    filename = self.result_filename_prefix + '_state.ncdf'
-                    try:
-                        self.timeseries['state'].reset_index('i').to_netcdf(filename + '.tmp')
-                        os.rename(filename + '.tmp', filename)
-                    except Exception as e:
-                        if os.path.exists(filename + '.tmp'):
-                            os.remove(filename + '.tmp')
-                        raise e
+                    self.save_timeseries('state')
 
                     if quiet:
                         pass
@@ -336,7 +306,7 @@ class Dynamics(object):
 
 
     def set_input(self, key, input_values, lat = None, lon = None, theta = None, phi = None, times = None):
-        """ Set input """
+        """ Set input. """
 
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
@@ -348,7 +318,7 @@ class Dynamics(object):
         times = np.atleast_1d(times)
 
         for time in range(times.size):
-            current_input = {}
+            current_data = {}
             for var in self.vars[key]:
                 # Interpolate to state_grid
                 if self.vars[key][var] == 'scalar':
@@ -359,83 +329,117 @@ class Dynamics(object):
 
                 if self.vector_storage[key]:
                     vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated, type = self.vars[key][var])
-                    current_input[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
+                    current_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
                 else:
-                    current_input['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
+                    current_data['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
 
             current_dataset = xr.Dataset(
-                data_vars = current_input,
+                data_vars = current_data,
                 coords = xr.Coordinates.from_pandas_multiindex(self.indices[key], dim = 'i').merge({'time': [times[time]]})
             )
 
-            # Add to the time series
-            if key not in self.timeseries.keys():
-                self.timeseries[key] = current_dataset
-            else:
-                self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = times[time], errors = 'ignore'), current_dataset], dim = 'time')
+            self.add_to_timeseries(current_dataset, key)
 
-        # Save the time series
-        filename = self.result_filename_prefix + '_' + key + '.ncdf'
+        self.save_timeseries(key)
+
+
+    def add_to_timeseries(self, dataset, key):
+        """ Add a dataset to the time series. """
+
+        if key not in self.timeseries.keys():
+            self.timeseries[key] = dataset
+        else:
+            self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = dataset.time, errors = 'ignore'), dataset], dim = 'time')
+
+
+    def select_timeseries_data(self, key):
+        """ Select time series data corresponding to the latest time. """
+
+        dataset = self.timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
+
+        if not hasattr(self, 'last_data'):
+            self.last_data = {}
+
+        last_data_exists = all([var in self.last_data.keys() for var in self.vars[key]])
+
+        current_data = {}
+
+        if self.vector_storage[key]:
+            for var in self.vars[key]:
+                current_data[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
+            if last_data_exists:
+                close_to_last_data = all([np.allclose(current_data[var].coeffs, self.last_data[var].coeffs) for var in self.vars[key]])
+        else:
+            for var in self.vars[key]:
+                current_data[var] = dataset['GRID_' + var].values
+            if last_data_exists:
+                close_to_last_data = all([np.allclose(current_data[var], self.last_data[var]) for var in self.vars[key]])
+
+        if (not last_data_exists) or (not close_to_last_data):
+            if key == 'state':
+                self.state.set_coeffs(m_ind = current_data['m_ind'].coeffs)
+                self.state.set_coeffs(m_imp = current_data['m_imp'].coeffs)
+                self.state.set_coeffs(Phi   = current_data['Phi'].coeffs)
+                self.state.set_coeffs(W     = current_data['W'].coeffs)
+            if key == 'jr':
+                self.state.set_jr(current_data['jr'], self.vector_storage[key])
+            elif key == 'conductance':
+                self.state.set_conductance(current_data['etaP'], current_data['etaH'], self.vector_storage[key])
+            elif key == 'u':
+                self.state.set_u(current_data['u'], self.vector_storage[key])
+            for var in self.vars[key]:
+                self.last_data[var] = current_data[var]
+
+
+    def save_dataset(self, dataset, name):
+        """ Save dataset to file. """
+
+        filename = self.result_filename_prefix + '_' + name + '.ncdf'
+
         try:
-            self.timeseries[key].reset_index('i').to_netcdf(filename + '.tmp')
+            dataset.to_netcdf(filename + '.tmp')
             os.rename(filename + '.tmp', filename)
+
         except Exception as e:
             if os.path.exists(filename + '.tmp'):
                 os.remove(filename + '.tmp')
             raise e
 
 
-    def input_selection(self, key):
-        """ Select correct input for the current time step """
+    def load_dataset(self, name):
+        """ Load dataset from file. """
 
-        dataset = self.timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-        last_input_exists = all([var in self.last_input.keys() for var in self.vars[key]])
+        filename = self.result_filename_prefix + '_' + name + '.ncdf'
 
-        current_input = {}
-        if self.vector_storage[key]:
-            for var in self.vars[key]:
-                current_input[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
-            if last_input_exists:
-                close_to_last_input = all([np.allclose(current_input[var].coeffs, self.last_input[var].coeffs) for var in self.vars[key]])
+        if os.path.exists(filename):
+            return xr.load_dataset(filename)
         else:
-            for var in self.vars[key]:
-                current_input[var] = dataset['GRID_' + var].values
-            if last_input_exists:
-                close_to_last_input = all([np.allclose(current_input[var], self.last_input[var]) for var in self.vars[key]])
+            return None
 
-        if (not last_input_exists) or (not close_to_last_input):
-            if key == 'state':
-                self.state.set_coeffs(m_ind = current_input['m_ind'].coeffs)
-                self.state.set_coeffs(m_imp = current_input['m_imp'].coeffs)
-                self.state.set_coeffs(Phi   = current_input['Phi'].coeffs)
-                self.state.set_coeffs(W     = current_input['W'].coeffs)
-            if key == 'jr':
-                self.state.set_jr(current_input['jr'], self.vector_storage[key])
-            elif key == 'conductance':
-                self.state.set_conductance(current_input['etaP'], current_input['etaH'], self.vector_storage[key])
-            elif key == 'u':
-                self.state.set_u(current_input['u'], self.vector_storage[key])
-            for var in self.vars[key]:
-                self.last_input[var] = current_input[var]
+
+    def save_timeseries(self, key):
+        """ Save time series to file. """
+
+        self.save_dataset(self.timeseries[key].reset_index('i'), key)
 
 
     def load_timeseries(self):
-        """ Load time series from file """
+        """ Load all time series that exist on file. """
 
         if (self.result_filename_prefix is not None):
-            # Load input time series if they exist on file
-            for key in self.vars.keys():
-                if os.path.exists(self.result_filename_prefix + '_' + key + '.ncdf'):
-                    self.timeseries[key] = xr.load_dataset(self.result_filename_prefix + '_' + key + '.ncdf')
 
+            for key in self.vars.keys():
+                dataset = self.load_dataset(key)
+
+                if dataset is not None:
                     if self.vector_storage[key]:
                         basis_labels = self.bases[key].index_names
                     else:
                         basis_labels = ['theta', 'phi']
 
-                    basis_index = pd.MultiIndex.from_arrays([self.timeseries[key][basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
-                    coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': self.timeseries[key].time.values})
-                    self.timeseries[key] = self.timeseries[key].drop_vars(basis_labels).assign_coords(coords)
+                    basis_index = pd.MultiIndex.from_arrays([dataset[basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
+                    coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': dataset.time.values})
+                    self.timeseries[key] = dataset.drop_vars(basis_labels).assign_coords(coords)
 
 
     def calculate_fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
