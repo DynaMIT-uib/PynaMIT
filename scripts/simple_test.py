@@ -14,7 +14,7 @@ latitude_boundary = 40
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-result_filename_prefix = 'test_data'
+dataset_filename_prefix = 'test_data'
 Nmax, Mmax, Ncs = 30, 30, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -25,7 +25,7 @@ noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
 ## SET UP SIMULATION OBJECT
-dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             Nmax = Nmax,
                             Mmax = Mmax,
                             Ncs = Ncs,

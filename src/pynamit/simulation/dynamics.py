@@ -20,7 +20,7 @@ class Dynamics(object):
     """ 2D ionosphere. """
 
     def __init__(self,
-                 result_filename_prefix = 'tmp',
+                 dataset_filename_prefix = 'simulation',
                  Nmax = 20,
                  Mmax = 20,
                  Ncs = 30,
@@ -61,7 +61,7 @@ class Dynamics(object):
             performed in lon/lat
         """
 
-        self.result_filename_prefix = result_filename_prefix
+        self.dataset_filename_prefix = dataset_filename_prefix
 
         # Store setting arguments in xarray dataset
         settings = xr.Dataset(attrs = {
@@ -85,14 +85,14 @@ class Dynamics(object):
         })
 
         # Overwrite settings with any settings existing on file
-        settings_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_settings.ncdf')
+        settings_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(self.dataset_filename_prefix + '_settings.ncdf')
         if settings_on_file:
-            settings = xr.load_dataset(self.result_filename_prefix + '_settings.ncdf')
+            settings = xr.load_dataset(self.dataset_filename_prefix + '_settings.ncdf')
 
         # Load PFAC matrix if it exists on file
-        PFAC_matrix_on_file = (self.result_filename_prefix is not None) and os.path.exists(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+        PFAC_matrix_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(self.dataset_filename_prefix + '_PFAC_matrix.ncdf')
         if PFAC_matrix_on_file:
-            PFAC_matrix = xr.load_dataarray(self.result_filename_prefix + '_PFAC_matrix.ncdf')
+            PFAC_matrix = xr.load_dataarray(self.dataset_filename_prefix + '_PFAC_matrix.ncdf')
 
         self.RI = settings.RI
 
@@ -163,16 +163,16 @@ class Dynamics(object):
             self.latest_time = np.float64(0)
             self.state.set_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
 
-        if self.result_filename_prefix is None:
-            self.result_filename_prefix = 'tmp'
+        if self.dataset_filename_prefix is None:
+            self.dataset_filename_prefix = 'simulation'
 
         if not settings_on_file:
             self.save_dataset(settings, 'settings')
-            print('Saved settings to {}_settings.ncdf'.format(self.result_filename_prefix))
+            print('Saved settings to {}_settings.ncdf'.format(self.dataset_filename_prefix))
 
         if not PFAC_matrix_on_file:
             self.save_dataset(self.state.m_imp_to_B_pol, 'PFAC_matrix')
-            print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.result_filename_prefix))
+            print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix))
 
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
@@ -394,7 +394,7 @@ class Dynamics(object):
     def save_dataset(self, dataset, name):
         """ Save dataset to file. """
 
-        filename = self.result_filename_prefix + '_' + name + '.ncdf'
+        filename = self.dataset_filename_prefix + '_' + name + '.ncdf'
 
         try:
             dataset.to_netcdf(filename + '.tmp')
@@ -409,7 +409,7 @@ class Dynamics(object):
     def load_dataset(self, name):
         """ Load dataset from file. """
 
-        filename = self.result_filename_prefix + '_' + name + '.ncdf'
+        filename = self.dataset_filename_prefix + '_' + name + '.ncdf'
 
         if os.path.exists(filename):
             return xr.load_dataset(filename)
@@ -426,7 +426,7 @@ class Dynamics(object):
     def load_timeseries(self):
         """ Load all time series that exist on file. """
 
-        if (self.result_filename_prefix is not None):
+        if (self.dataset_filename_prefix is not None):
 
             for key in self.vars.keys():
                 dataset = self.load_dataset(key)

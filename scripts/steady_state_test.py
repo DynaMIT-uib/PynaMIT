@@ -7,7 +7,7 @@ import datetime
 import pyamps
 import apexpy
 
-result_filename_prefix = 'ss_test3'
+dataset_filename_prefix = 'ss_test3'
 Nmax, Mmax, Ncs = 30, 30, 30
 latitude_boundary = 40
 RE = 6371.2e3
@@ -21,7 +21,7 @@ noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
 ## SET UP SIMULATION OBJECT
-dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             Nmax = Nmax,
                             Mmax = Mmax,
                             Ncs = Ncs,
@@ -98,7 +98,7 @@ eP, eH = dynamics.state.etaP, dynamics.state.etaH
 #GcCGTJ = Dc.dot(C).dot(GTJ)
 #
 #import xarray as xr
-#m_imp = xr.load_dataset(result_filename_prefix).SH_m_imp.values[0]
+#m_imp = xr.load_dataset(dataset_filename_prefix).SH_m_imp.values[0]
 #m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
 
 # calculate electric field with steady-state coefficients:

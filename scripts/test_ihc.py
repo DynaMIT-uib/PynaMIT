@@ -20,7 +20,7 @@ RE = 6371.2e3
 RI = RE + 110e3
 latitude_boundary = 40
 
-result_filename_prefix = 'ihc_test'
+dataset_filename_prefix = 'ihc_test'
 
 # MODEL PARAMETERS
 Nmax, Mmax, Ncs = 25, 15, 50
@@ -47,7 +47,7 @@ Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
 ## SET UP SIMULATION OBJECT
-dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             Nmax = Nmax,
                             Mmax = Mmax,
                             Ncs = Ncs,

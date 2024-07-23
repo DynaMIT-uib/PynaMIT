@@ -18,7 +18,7 @@ latitude_boundary = 35
 
 WIND_FACTOR = 1 # scale wind by this factor
 
-result_filename_prefix = 'figlayout'
+dataset_filename_prefix = 'figlayout'
 
 Nmax, Mmax, Ncs = 14, 14, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0: 80: int(80 / Nmax)])) ** 2
@@ -29,7 +29,7 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 
 ## SET UP SIMULATION OBJECT
-dynamics = pynamit.Dynamics(result_filename_prefix = result_filename_prefix,
+dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             Nmax = Nmax,
                             Mmax = Mmax,
                             Ncs = Ncs,

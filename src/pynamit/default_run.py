@@ -17,7 +17,7 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
-    dynamics = Dynamics(result_filename_prefix = None,
+    dynamics = Dynamics(dataset_filename_prefix = None,
                         Nmax = Nmax,
                         Mmax = Mmax,
                         Ncs = Ncs,
