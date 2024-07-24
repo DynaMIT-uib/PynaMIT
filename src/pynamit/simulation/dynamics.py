@@ -372,7 +372,7 @@ class Dynamics(object):
             if previous_data_exists:
                 current_data_equals_previous = all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]])
 
-        if (not previous_data_exists) or (not current_data_equals_previous):
+        if not (previous_data_exists and current_data_equals_previous):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'].coeffs)
                 self.state.set_coeffs(m_imp = current_data['m_imp'].coeffs)
