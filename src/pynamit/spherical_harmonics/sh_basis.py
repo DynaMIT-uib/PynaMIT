@@ -43,7 +43,7 @@ class SHBasis(object):
 
         self.index_names = ['n', 'm']
         self.index_length = len(self.cnm.keys) + len(self.snm.keys)
-        self.indices = [self.n, self.m]
+        self.index_arrays = [self.n, self.m]
 
         self.minimum_phi_sampling = 2 * Mmax + 1
 

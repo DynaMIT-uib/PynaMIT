@@ -395,7 +395,7 @@ def time_dependent_plot(dynamics, fig_directory, filecount, lon0, plt_grid, plts
     Philevels = np.r_[-212.5:212.5:5] # color levels for Phi
 
     fn = os.path.join(fig_directory, 'new_' + str(filecount).zfill(3) + '.png')
-    title = 't = {:.3} s'.format(dynamics.latest_time)
+    title = 't = {:.3} s'.format(dynamics.current_time)
 
     Br = dynamics.state.get_Br(plt_state_evaluator)
 

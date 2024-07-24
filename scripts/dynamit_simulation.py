@@ -69,58 +69,58 @@ STEP = 2 # number of seconds between each conductance update
 
 
 while True:
-    new_date = date + datetime.timedelta(seconds = int(dynamics.latest_time))
+    current_date = date + datetime.timedelta(seconds = int(dynamics.current_time))
 
-    if dynamics.latest_time < STEP - FLOAT_ERROR_MARGIN:
-        sza = conductance.sunlight.sza(conductance_lat, conductance_lon, new_date, degrees=True)
+    if dynamics.current_time < STEP - FLOAT_ERROR_MARGIN:
+        sza = conductance.sunlight.sza(conductance_lat, conductance_lon, current_date, degrees=True)
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
         hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1) # add starlight
         dynamics.set_conductance(hall_EUV, pedersen_EUV, lat = conductance_lat, lon = conductance_lon)
-        print('Updated_conductance (without aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 120 - FLOAT_ERROR_MARGIN:
+        print('Updated_conductance (without aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 120 - FLOAT_ERROR_MARGIN:
         Kp = 1
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 180 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 180 - FLOAT_ERROR_MARGIN:
         Kp = 2
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 240 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 240 - FLOAT_ERROR_MARGIN:
         Kp = 3
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 360 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 360 - FLOAT_ERROR_MARGIN:
         Kp = 4
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 420 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 420 - FLOAT_ERROR_MARGIN:
         Kp = 5
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 480 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 480 - FLOAT_ERROR_MARGIN:
         Kp = 6
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 540 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 540 - FLOAT_ERROR_MARGIN:
         Kp = 5
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
-    elif dynamics.latest_time < 600 - FLOAT_ERROR_MARGIN:
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
+    elif dynamics.current_time < 600 - FLOAT_ERROR_MARGIN:
         Kp = 3
-        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, new_date, starlight = 1, dipole = False)
+        hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, current_date, starlight = 1, dipole = False)
         dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
-        print('Updated conductance (with aurora) at t =', dynamics.latest_time, flush = True)
+        print('Updated conductance (with aurora) at t =', dynamics.current_time, flush = True)
     else:
-        print('Simulation finished at t =', dynamics.latest_time, flush = True)
+        print('Simulation finished at t =', dynamics.current_time, flush = True)
         break
 
-    next_time = dynamics.latest_time + STEP
+    next_time = dynamics.current_time + STEP
 
     dynamics.evolve_to_time(next_time)

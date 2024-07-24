@@ -127,19 +127,19 @@ class Dynamics(object):
             'u':           {'u': 'tangential'},
         }
 
-        self.indices = {}
+        self.multiindices = {}
         for key in self.vars.keys():
             if self.vector_storage[key]:
-                indices = self.bases[key].indices
+                index_arrays = self.bases[key].index_arrays
                 index_names = self.bases[key].index_names
             else:
-                indices = [self.state_grid.theta, self.state_grid.phi]
+                index_arrays = [self.state_grid.theta, self.state_grid.phi]
                 index_names = ['theta', 'phi']
 
             if all(self.vars[key][var] == 'scalar' for var in self.vars[key]):
-                self.indices[key] = pd.MultiIndex.from_arrays(indices, names = index_names)
+                self.multiindices[key] = pd.MultiIndex.from_arrays(index_arrays, names = index_names)
             elif all(self.vars[key][var] == 'tangential' for var in self.vars[key]):
-                self.indices[key] = pd.MultiIndex.from_arrays([np.tile(indices[i], 2) for i in range(len(indices))], names = index_names)
+                self.multiindices[key] = pd.MultiIndex.from_arrays([np.tile(index_arrays[i], 2) for i in range(len(index_arrays))], names = index_names)
             else:
                 raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
 
@@ -157,10 +157,10 @@ class Dynamics(object):
         self.load_timeseries()
 
         if 'state' in self.timeseries.keys():
-            self.latest_time = np.max(self.timeseries['state'].time.values)
+            self.current_time = np.max(self.timeseries['state'].time.values) # latest time in state time series
             self.select_timeseries_data('state')
         else:
-            self.latest_time = np.float64(0)
+            self.current_time = np.float64(0)
             self.state.set_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
 
         if self.dataset_filename_prefix is None:
@@ -179,7 +179,7 @@ class Dynamics(object):
         """
         Evolve to the given time `t`. Will overwrite the values
         corresponding to the start time, to account for any changes in
-        jr, conductance or neutral wind since the end of the last call
+        jr, conductance or neutral wind since the end of the previous call
         to `evolve_to_time`.
 
         """
@@ -209,42 +209,41 @@ class Dynamics(object):
                         self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.indices['state'], dim = 'i').merge({'time': [self.latest_time]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
                 )
 
                 self.add_to_timeseries(current_state_dataset, 'state')
 
-                # Save output if requested
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
                     self.save_timeseries('state')
 
                     if quiet:
                         pass
                     else:
-                        print('Saved output at t = {:.2f} s'.format(self.latest_time), end = '\r')
+                        print('Saved output at t = {:.2f} s'.format(self.current_time), end = '\r')
 
-            next_time = self.latest_time + dt
+            next_time = self.current_time + dt
 
             if next_time > t + FLOAT_ERROR_MARGIN:
                 break
 
             self.state.evolve_Br(dt)
-            self.latest_time = next_time
+            self.current_time = next_time
 
             count += 1
 
 
-    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, times = None):
+    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Set the field-aligned current at the given coordinate points.
         """
 
         FAC_b_evaluator = FieldEvaluator(self.mainfield, Grid(lat = lat, lon = lon, theta = theta, phi = phi), self.RI)
 
-        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
+        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
 
 
-    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, times = None):
+    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify radial current at ``self.state_grid.theta``,
         ``self.state_grid.phi``.
@@ -259,86 +258,84 @@ class Dynamics(object):
 
         """
 
-        input_values = {
+        input_data = {
             'jr': {'values': np.atleast_2d(jr)},
         }
 
-        self.set_input('jr', input_values, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
+        self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
 
 
-    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, times = None):
+    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
         """
         Specify Hall and Pedersen conductance at
         ``self.state_grid.theta``, ``self.state_grid.phi``.
 
         """
 
-        input_values = {}
-
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        input_values = {
+        input_data = {
             'etaP': {'values': np.empty_like(Pedersen)},
             'etaH': {'values': np.empty_like(Hall)},
         }
 
         # Convert to resistivity
-        for i in range(max(input_values['etaP']['values'].shape[0], 1)):
-            input_values['etaP']['values'][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
+        for i in range(max(input_data['etaP']['values'].shape[0], 1)):
+            input_data['etaP']['values'][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        for i in range(max(input_values['etaH']['values'].shape[0], 1)):
-            input_values['etaH']['values'][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
+        for i in range(max(input_data['etaH']['values'].shape[0], 1)):
+            input_data['etaH']['values'][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        self.set_input('conductance', input_values, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
+        self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
 
 
-    def set_u(self, u, lat = None, lon = None, theta = None, phi = None, times = None):
+    def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
-        input_values = {
+        input_data = {
             'u': {'theta': np.atleast_2d(u[0]), 'phi': np.atleast_2d(u[1])},
         }
 
-        self.set_input('u', input_values, lat = lat, lon = lon, theta = theta, phi = phi, times = times)
+        self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
 
 
-    def set_input(self, key, input_values, lat = None, lon = None, theta = None, phi = None, times = None):
+    def set_input(self, key, input_data, lat = None, lon = None, theta = None, phi = None, time = None):
         """ Set input. """
 
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
-        if times is None:
-            if any([input_values[var][component].shape[0] > 1 for var in input_values.keys() for component in input_values[var].keys()]):
-                raise ValueError('Times have to be specified if input is given for multiple times')
-            times = self.latest_time
+        if time is None:
+            if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in input_data[var].keys()]):
+                raise ValueError('Time must be specified if the input data is given for multiple time values.')
+            time = self.current_time
 
-        times = np.atleast_1d(times)
+        time = np.atleast_1d(time)
 
-        for time in range(times.size):
-            current_data = {}
+        for time_index in range(time.size):
+            processed_data = {}
             for var in self.vars[key]:
                 # Interpolate to state_grid
                 if self.vars[key][var] == 'scalar':
-                    interpolated = csp.interpolate_scalar(input_values[var]['values'][time], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                    interpolated_data = csp.interpolate_scalar(input_data[var]['values'][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                 elif self.vars[key][var] == 'tangential':
-                    interpolated_east, interplated_north, _ = csp.interpolate_vector_components(input_values[var]['phi'], -input_values[var]['theta'][time], np.zeros_like(input_values[var]['phi'][time]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                    interpolated = np.hstack((-interplated_north, interpolated_east)) # convert to theta, phi
+                    interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var]['phi'], -input_data[var]['theta'][time_index], np.zeros_like(input_data[var]['phi'][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                    interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
 
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated, type = self.vars[key][var])
-                    current_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
+                    vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated_data, type = self.vars[key][var])
+                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
                 else:
-                    current_data['GRID_' + var] = (['time', 'i'], interpolated.reshape((1, -1)))
+                    processed_data['GRID_' + var] = (['time', 'i'], interpolated_data.reshape((1, -1)))
 
-            current_dataset = xr.Dataset(
-                data_vars = current_data,
-                coords = xr.Coordinates.from_pandas_multiindex(self.indices[key], dim = 'i').merge({'time': [times[time]]})
+            dataset = xr.Dataset(
+                data_vars = processed_data,
+                coords = xr.Coordinates.from_pandas_multiindex(self.multiindices[key], dim = 'i').merge({'time': [time[time_index]]})
             )
 
-            self.add_to_timeseries(current_dataset, key)
+            self.add_to_timeseries(dataset, key)
 
         self.save_timeseries(key)
 
@@ -355,27 +352,27 @@ class Dynamics(object):
     def select_timeseries_data(self, key):
         """ Select time series data corresponding to the latest time. """
 
-        dataset = self.timeseries[key].sel(time = self.latest_time + FLOAT_ERROR_MARGIN, method = 'pad')
-
-        if not hasattr(self, 'last_data'):
-            self.last_data = {}
-
-        last_data_exists = all([var in self.last_data.keys() for var in self.vars[key]])
+        current_dataset = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'pad')
 
         current_data = {}
 
+        if not hasattr(self, 'previous_data'):
+            self.previous_data = {}
+
+        previous_data_exists = all([var in self.previous_data.keys() for var in self.vars[key]])
+
         if self.vector_storage[key]:
             for var in self.vars[key]:
-                current_data[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
-            if last_data_exists:
-                close_to_last_data = all([np.allclose(current_data[var].coeffs, self.last_data[var].coeffs) for var in self.vars[key]])
+                current_data[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = current_dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
+            if previous_data_exists:
+                close_to_previous_data = all([np.allclose(current_data[var].coeffs, self.previous_data[var].coeffs) for var in self.vars[key]])
         else:
             for var in self.vars[key]:
-                current_data[var] = dataset['GRID_' + var].values
-            if last_data_exists:
-                close_to_last_data = all([np.allclose(current_data[var], self.last_data[var]) for var in self.vars[key]])
+                current_data[var] = current_dataset['GRID_' + var].values
+            if previous_data_exists:
+                close_to_previous_data = all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]])
 
-        if (not last_data_exists) or (not close_to_last_data):
+        if (not previous_data_exists) or (not close_to_previous_data):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'].coeffs)
                 self.state.set_coeffs(m_imp = current_data['m_imp'].coeffs)
@@ -387,8 +384,9 @@ class Dynamics(object):
                 self.state.set_conductance(current_data['etaP'], current_data['etaH'], self.vector_storage[key])
             elif key == 'u':
                 self.state.set_u(current_data['u'], self.vector_storage[key])
+
             for var in self.vars[key]:
-                self.last_data[var] = current_data[var]
+                self.previous_data[var] = current_data[var]
 
 
     def save_dataset(self, dataset, name):

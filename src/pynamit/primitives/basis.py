@@ -27,7 +27,7 @@ class Basis(ABC):
 
     @property
     @abstractmethod
-    def indices(self):
+    def index_arrays(self):
         pass
 
     @property
