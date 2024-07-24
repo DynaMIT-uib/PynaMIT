@@ -431,13 +431,13 @@ class Dynamics(object):
 
                 if dataset is not None:
                     if self.vector_storage[key]:
-                        basis_labels = self.bases[key].index_names
+                        index_names = self.bases[key].index_names
                     else:
-                        basis_labels = ['theta', 'phi']
+                        index_names = ['theta', 'phi']
 
-                    basis_index = pd.MultiIndex.from_arrays([dataset[basis_labels[i]].values for i in range(len(basis_labels))], names = basis_labels)
-                    coords = xr.Coordinates.from_pandas_multiindex(basis_index, dim = 'i').merge({'time': dataset.time.values})
-                    self.timeseries[key] = dataset.drop_vars(basis_labels).assign_coords(coords)
+                    multiindex = pd.MultiIndex.from_arrays([dataset[index_names[i]].values for i in range(len(index_names))], names = index_names)
+                    coords = xr.Coordinates.from_pandas_multiindex(multiindex, dim = 'i').merge({'time': dataset.time.values})
+                    self.timeseries[key] = dataset.drop_vars(index_names).assign_coords(coords)
 
 
     def calculate_fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
