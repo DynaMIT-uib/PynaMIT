@@ -191,11 +191,11 @@ class Dynamics(object):
  
         count = 0
         while True:
-            keys = list(self.timeseries.keys())
-            if 'state' in keys:
-                keys.remove('state')
-            if keys is not None:
-                for key in keys:
+            timeseries_keys = list(self.timeseries.keys())
+            if 'state' in timeseries_keys:
+                timeseries_keys.remove('state')
+            if timeseries_keys is not None:
+                for key in timeseries_keys:
                     self.select_timeseries_data(key)
 
             self.state.impose_constraints()
@@ -365,14 +365,14 @@ class Dynamics(object):
             for var in self.vars[key]:
                 current_data[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = current_dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
             if previous_data_exists:
-                close_to_previous_data = all([np.allclose(current_data[var].coeffs, self.previous_data[var].coeffs) for var in self.vars[key]])
+                current_data_equals_previous = all([np.allclose(current_data[var].coeffs, self.previous_data[var].coeffs) for var in self.vars[key]])
         else:
             for var in self.vars[key]:
                 current_data[var] = current_dataset['GRID_' + var].values
             if previous_data_exists:
-                close_to_previous_data = all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]])
+                current_data_equals_previous = all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]])
 
-        if (not previous_data_exists) or (not close_to_previous_data):
+        if (not previous_data_exists) or (not current_data_equals_previous):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'].coeffs)
                 self.state.set_coeffs(m_imp = current_data['m_imp'].coeffs)
