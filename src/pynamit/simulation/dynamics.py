@@ -127,19 +127,19 @@ class Dynamics(object):
             'u':           {'u': 'tangential'},
         }
 
-        self.multiindices = {}
+        self.basis_multiindices = {}
         for key in self.vars.keys():
             if self.vector_storage[key]:
-                index_arrays = self.bases[key].index_arrays
-                index_names = self.bases[key].index_names
+                basis_index_arrays = self.bases[key].index_arrays
+                basis_index_names = self.bases[key].index_names
             else:
-                index_arrays = [self.state_grid.theta, self.state_grid.phi]
-                index_names = ['theta', 'phi']
+                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
+                basis_index_names = ['theta', 'phi']
 
             if all(self.vars[key][var] == 'scalar' for var in self.vars[key]):
-                self.multiindices[key] = pd.MultiIndex.from_arrays(index_arrays, names = index_names)
+                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(basis_index_arrays, names = basis_index_names)
             elif all(self.vars[key][var] == 'tangential' for var in self.vars[key]):
-                self.multiindices[key] = pd.MultiIndex.from_arrays([np.tile(index_arrays[i], 2) for i in range(len(index_arrays))], names = index_names)
+                self.basis_multiindices[key] = pd.MultiIndex.from_arrays([np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))], names = basis_index_names)
             else:
                 raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
 
@@ -209,7 +209,7 @@ class Dynamics(object):
                         self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
+                    coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
                 )
 
                 self.add_to_timeseries(current_state_dataset, 'state')
@@ -332,7 +332,7 @@ class Dynamics(object):
 
             dataset = xr.Dataset(
                 data_vars = processed_data,
-                coords = xr.Coordinates.from_pandas_multiindex(self.multiindices[key], dim = 'i').merge({'time': [time[time_index]]})
+                coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices[key], dim = 'i').merge({'time': [time[time_index]]})
             )
 
             self.add_to_timeseries(dataset, key)
@@ -431,13 +431,13 @@ class Dynamics(object):
 
                 if dataset is not None:
                     if self.vector_storage[key]:
-                        index_names = self.bases[key].index_names
+                        basis_index_names = self.bases[key].index_names
                     else:
-                        index_names = ['theta', 'phi']
+                        basis_index_names = ['theta', 'phi']
 
-                    multiindex = pd.MultiIndex.from_arrays([dataset[index_names[i]].values for i in range(len(index_names))], names = index_names)
-                    coords = xr.Coordinates.from_pandas_multiindex(multiindex, dim = 'i').merge({'time': dataset.time.values})
-                    self.timeseries[key] = dataset.drop_vars(index_names).assign_coords(coords)
+                    basis_multiindex = pd.MultiIndex.from_arrays([dataset[basis_index_names[i]].values for i in range(len(basis_index_names))], names = basis_index_names)
+                    coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim = 'i').merge({'time': dataset.time.values})
+                    self.timeseries[key] = dataset.drop_vars(basis_index_names).assign_coords(coords)
 
 
     def calculate_fd_curl_matrix(self, stencil_size = 1, interpolation_points = 4):
