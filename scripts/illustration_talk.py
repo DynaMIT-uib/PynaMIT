@@ -11,9 +11,9 @@ RE = 6371.2
 
 fig, ax = plt.subplots(figsize = (14, 7))
 
-rl = 0.994 * RE
-rh = 1.03 * RE
-th = np.deg2rad(5)
+rl = 0.95 * RE
+rh = 2.03 * RE
+th = np.deg2rad(65)
 RI = RE + 100
 d = 10 # step used to illustrate radii just above and below ionosphere
 C = np.sqrt(2 * (1 - np.cos(th))) # length of x axis

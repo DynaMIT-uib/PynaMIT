@@ -548,14 +548,20 @@ class Dynamics(object):
         C11 = sp.diags(eP * (bt**2 + br**2))
         C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
 
+
+
         uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
-        GcCGVJ = self.sh_curl_matrix.dot(C).dot(GVJ)
-        GcCGTJ = self.sh_curl_matrix.dot(C).dot(GTJ)
+        #GcCGVJ = self.sh_curl_matrix.dot(C).dot(GVJ)
+        #GcCGTJ = self.sh_curl_matrix.dot(C).dot(GTJ)
 
         if m_imp is None:
             m_imp = self.state.m_imp.coeffs
 
-        m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.sh_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
+        self.C = C
+        self.GVJ = GVJ
+        self.GTJ = GTJ
+        self.uxb = uxb
+        #m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.sh_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
 
-        return(m_ind_ss)
+        #return(m_ind_ss)
