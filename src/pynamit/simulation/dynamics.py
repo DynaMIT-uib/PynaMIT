@@ -307,6 +307,12 @@ class Dynamics(object):
 
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
+        if not hasattr(self.state, 'input_basis_evaluators'):
+            self.state.input_basis_evaluators = {}
+
+        if not (key in self.state.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.state.input_basis_evaluators[key].grid.theta) and np.allclose(input_grid.phi, self.state.input_basis_evaluators[key].grid.phi)):
+            self.state.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid)
+
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in input_data[var].keys()]):
                 raise ValueError('Time must be specified if the input data is given for multiple time values.')
@@ -316,18 +322,21 @@ class Dynamics(object):
 
         for time_index in range(time.size):
             processed_data = {}
-            for var in self.vars[key]:
-                # Interpolate to state_grid
-                if self.vars[key][var] == 'scalar':
-                    interpolated_data = csp.interpolate_scalar(input_data[var]['values'][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                elif self.vars[key][var] == 'tangential':
-                    interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var]['phi'], -input_data[var]['theta'][time_index], np.zeros_like(input_data[var]['phi'][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                    interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
 
+            for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.basis_evaluators[key], grid_values = interpolated_data, type = self.vars[key][var])
+                    vector = Vector(self.bases[key], basis_evaluator = self.state.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in input_data[var].keys()]), type = self.vars[key][var])
+
                     processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
+
                 else:
+                    # Interpolate to state_grid
+                    if self.vars[key][var] == 'scalar':
+                        interpolated_data = csp.interpolate_scalar(input_data[var]['values'][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                    elif self.vars[key][var] == 'tangential':
+                        interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var]['phi'], -input_data[var]['theta'][time_index], np.zeros_like(input_data[var]['phi'][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                        interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
+
                     processed_data['GRID_' + var] = (['time', 'i'], interpolated_data.reshape((1, -1)))
 
             dataset = xr.Dataset(
