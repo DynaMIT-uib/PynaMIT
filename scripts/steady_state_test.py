@@ -6,8 +6,9 @@ import dipole
 import datetime
 import pyamps
 import apexpy
+import scipy.sparse as sp
 
-result_filename_prefix = 'ss_test4'
+dataset_filename_prefix = 'ss_test4'
 Nmax, Mmax, Ncs = 15, 15, 16
 latitude_boundary = 40
 RE = 6371.2e3
@@ -78,7 +79,6 @@ GVJ, GTJ = dynamics.GVJ, dynamics.GTJ
 uxb = dynamics.uxb
 
 
-import scipy.sparse as sp
 GVJinv = np.linalg.pinv(GVJ)
 Cinv   = sp.linalg.inv(C)
 Gcinv  = np.linalg.pinv(Gc)

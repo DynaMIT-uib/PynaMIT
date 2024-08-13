@@ -12,8 +12,8 @@ d    = np.load('_d.npy')
 
 
 
-I = np.eye(n.size)
-R = I * n * (n + 1) / (2 * n + 1) + PFAC * (n + 1)
+identity = np.eye(n.size)
+R = identity * n * (n + 1) / (2 * n + 1) + PFAC * (n + 1)
 
 m_plain = np.linalg.lstsq(gtg, gtd, rcond = 0)[0]
 alpha = np.logspace(-2, 4, 20)
