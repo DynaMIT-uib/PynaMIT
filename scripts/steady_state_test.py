@@ -7,8 +7,8 @@ import datetime
 import pyamps
 import apexpy
 
-dataset_filename_prefix = 'ss_test3'
-Nmax, Mmax, Ncs = 30, 30, 30
+result_filename_prefix = 'ss_test4'
+Nmax, Mmax, Ncs = 15, 15, 16
 latitude_boundary = 40
 RE = 6371.2e3
 RI = RE + 110e3
@@ -66,9 +66,35 @@ u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
 u = (u_theta.flatten(), u_phi.flatten())
 dynamics.set_u(u, lat = u_lat, lon = u_lon)
 
-dynamics.evolve_to_time(0)
+dynamics.evolve_to_time(100)
+#dynamics.input_selection('u')
+#dynamics.input_selection('conductance')
 
 m_ind_ss = dynamics.steady_state_m_ind()
+
+Gc = dynamics.sh_curl_matrix
+C = dynamics.C
+GVJ, GTJ = dynamics.GVJ, dynamics.GTJ
+uxb = dynamics.uxb
+
+
+import scipy.sparse as sp
+GVJinv = np.linalg.pinv(GVJ)
+Cinv   = sp.linalg.inv(C)
+Gcinv  = np.linalg.pinv(Gc)
+#Xinv_  = Cinv.dot(Gcinv)
+#Xinv   = GVJinv.dot(Xinv_)
+
+m_imp = dynamics.state.m_imp.coeffs
+X_ = C .dot(GVJ)
+X  = Gc.dot(X_ )
+Xinv = np.linalg.pinv(X)
+
+XT_ = C .dot(GTJ)
+XT  = Gc.dot(XT_ )
+mv = Xinv.dot(Gc.dot(uxb) - XT.dot(m_imp))
+
+print(3/0)
 
 # numerical curl:
 #Dc = dynamics.get_finite_difference_curl_matrix()
@@ -85,7 +111,7 @@ m_ind_ss = dynamics.steady_state_m_ind()
 
 #import scipy.sparse as sp
 #br, bt, bp = dynamics.state.b_evaluator.br, dynamics.state.b_evaluator.btheta, dynamics.state.b_evaluator.bphi
-eP, eH = dynamics.state.etaP, dynamics.state.etaH
+eP, eH = dynamics.state.etaP_on_grid, dynamics.state.etaH_on_grid
 #C00 = sp.diags(eP * (bp**2 + br**2))
 #C01 = sp.diags(eP * (-bt * bp) + eH * br)
 #C10 = sp.diags(eP * (-bt * bp) - eH * br)
@@ -110,7 +136,7 @@ Eph = eP * (dynamics.state.b10 * Jth + dynamics.state.b11 * Jph) + eH * (-dynami
 Eth -= dynamics.state.uxB_theta
 Eph -= dynamics.state.uxB_phi
 
-E_cf_coeff, E_df_coeff = dynamics.state.basis_evaluator.grid_to_basis(np.hstack((Eth, Eph)), helmholtz = True)
+E_cf_coeff, E_df_coeff = np.split(dynamics.state.basis_evaluator.grid_to_basis(np.hstack((Eth, Eph)), helmholtz = True), 2)
 
 
 

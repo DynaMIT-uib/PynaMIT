@@ -4,12 +4,12 @@ import pynamit
 import numpy as np
 import matplotlib.pyplot as plt
 
-ts = np.linspace(241,246, 40)
+ts = np.linspace(0,120, 121)
 
-ts = np.linspace(1,240, 40)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/notebooks/aurora'
+#ts = np.linspace(1,240, 40)
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/notebooks/aurora2'
 
-a = pynamit.PynamEye(path).set_time(1)
+a = pynamit.PynamEye(path)
 
 for t in ts:
     a.set_time(t)
