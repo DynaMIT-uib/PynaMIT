@@ -111,8 +111,6 @@ class Dynamics(object):
             'u':           SHBasis(settings.Nmax, settings.Mmax),
         }
 
-        self.basis_evaluators = dict([(key, BasisEvaluator(self.bases[key], self.state_grid)) for key in self.bases.keys()])
-
         self.vector_storage = {
             'state':       True,
             'jr':          bool(settings.vector_jr),
@@ -372,7 +370,7 @@ class Dynamics(object):
 
         if self.vector_storage[key]:
             for var in self.vars[key]:
-                current_data[var] = Vector(basis = self.bases[key], basis_evaluator = self.basis_evaluators[key], coeffs = current_dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
+                current_data[var] = Vector(basis = self.bases[key], coeffs = current_dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
             if previous_data_exists:
                 current_data_equals_previous = all([np.allclose(current_data[var].coeffs, self.previous_data[var].coeffs) for var in self.vars[key]])
         else:
