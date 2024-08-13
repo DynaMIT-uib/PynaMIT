@@ -173,7 +173,7 @@ class Dynamics(object):
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix))
 
 
-    def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
+    def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False, interpolation = False):
         """
         Evolve to the given time `t`. Will overwrite the values
         corresponding to the start time, to account for any changes in
@@ -194,7 +194,7 @@ class Dynamics(object):
                 timeseries_keys.remove('state')
             if timeseries_keys is not None:
                 for key in timeseries_keys:
-                    self.select_timeseries_data(key)
+                    self.select_timeseries_data(key, interpolation = interpolation)
 
             self.state.impose_constraints()
             self.state.update_Phi_and_W()
@@ -356,10 +356,13 @@ class Dynamics(object):
             self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = dataset.time, errors = 'ignore'), dataset], dim = 'time')
 
 
-    def select_timeseries_data(self, key):
+    def select_timeseries_data(self, key, interpolation = False):
         """ Select time series data corresponding to the latest time. """
 
-        current_dataset = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'pad')
+        if interpolation:
+            current_dataset = self.timeseries[key].interp(time = self.current_time, method = 'linear')
+        else:
+            current_dataset = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'pad')
 
         current_data = {}
 
