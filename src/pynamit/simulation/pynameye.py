@@ -33,8 +33,8 @@ class PynamEye(object):
             visualziation. Default is 100.
         """
 
-        keys = ['settings', 'jr', 'conductance', 'state', 'u']
-        filename_suffix = dict(zip(keys, ['_settings', '_jr', '_conductance', '_state', '_u']))
+        keys = ['settings', 'conductance', 'state', 'u']
+        filename_suffix = dict(zip(keys, ['_settings', '_conductance', '_state', '_u']))
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -42,9 +42,9 @@ class PynamEye(object):
             fn = filename_prefix + filename_suffix[key] + '.ncdf'
 
             if os.path.isfile(fn):
-                self.datasets[key] = xr.load_dataset(fn)
+                self.datasets[key] = xr.load_dataset(fn )
             else:
-                raise ValueError('{}.ncdf does not exist'.format(filename_prefix))
+                raise ValueError('{}.ncdf does not exist'.format(fn))
 
         self.mlatlim = mlatlim
         settings = self.datasets['settings'] # shorthand
@@ -187,14 +187,14 @@ class PynamEye(object):
                 new_time = sorted(list(self.datasets[ds].time.values) + [self.t])
                 self.datasets[ds] = self.datasets[ds].reindex(time=new_time).ffill(dim = 'time')
 
-        self.m_ind  = self.datasets['state'      ].SH_m_ind.sel(time = self.t, method='nearest').values
-        self.m_imp  = self.datasets['state'      ].SH_m_imp.sel(time = self.t, method='nearest').values
-        self.m_W    = self.datasets['state'      ].SH_W    .sel(time = self.t, method='nearest').values * self.RI
-        self.m_Phi  = self.datasets['state'      ].SH_Phi  .sel(time = self.t, method='nearest').values * self.RI
-        self.m_u_df = self.datasets['u'          ].SH_u_df .sel(time = self.t, method='nearest').values
-        self.m_u_cf = self.datasets['u'          ].SH_u_cf .sel(time = self.t, method='nearest').values 
-        self.m_etaP = self.datasets['conductance'].SH_etaP .sel(time = self.t, method='nearest').values
-        self.m_etaH = self.datasets['conductance'].SH_etaH .sel(time = self.t, method='nearest').values
+        self.m_ind  = self.datasets['state'      ].SH_m_ind_coeffs.sel(time = self.t, method='nearest').values
+        self.m_imp  = self.datasets['state'      ].SH_m_imp_coeffs.sel(time = self.t, method='nearest').values
+        self.m_W    = self.datasets['state'      ].SH_W_coeffs    .sel(time = self.t, method='nearest').values * self.RI
+        self.m_Phi  = self.datasets['state'      ].SH_Phi_coeffs  .sel(time = self.t, method='nearest').values * self.RI
+        self.m_u_df = self.datasets['u'          ].SH_u_df_coeffs .sel(time = self.t, method='nearest').values
+        self.m_u_cf = self.datasets['u'          ].SH_u_cf_coeffs .sel(time = self.t, method='nearest').values 
+        self.m_etaP = self.datasets['conductance'].SH_etaP_coeffs .sel(time = self.t, method='nearest').values
+        self.m_etaH = self.datasets['conductance'].SH_etaH_coeffs .sel(time = self.t, method='nearest').values
 
         if np.any(np.isnan(self.m_ind)):
             print('induced magnetic field coefficients at t = {:.2f} s are nans'.format(t))
