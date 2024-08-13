@@ -308,10 +308,10 @@ class Dynamics(object):
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
 
         if not hasattr(self.state, 'input_basis_evaluators'):
-            self.state.input_basis_evaluators = {}
+            self.input_basis_evaluators = {}
 
-        if not (key in self.state.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.state.input_basis_evaluators[key].grid.theta) and np.allclose(input_grid.phi, self.state.input_basis_evaluators[key].grid.phi)):
-            self.state.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid)
+        if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi)):
+            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid)
 
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in input_data[var].keys()]):
@@ -325,7 +325,7 @@ class Dynamics(object):
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.state.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in input_data[var].keys()]), type = self.vars[key][var])
+                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in input_data[var].keys()]), type = self.vars[key][var])
 
                     processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
 
