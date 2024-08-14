@@ -351,16 +351,16 @@ class Dynamics(object):
         """ Add a dataset to the time series. """
 
         if key not in self.timeseries.keys():
-            self.timeseries[key] = dataset
+            self.timeseries[key] = dataset.sortby('time')
         else:
-            self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = dataset.time, errors = 'ignore'), dataset], dim = 'time')
+            self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = dataset.time, errors = 'ignore'), dataset], dim = 'time').sortby('time')
 
 
     def select_timeseries_data(self, key, interpolation = False):
         """ Select time series data corresponding to the latest time. """
 
-        if interpolation:
-            current_dataset = self.timeseries[key].interp(time = self.current_time, method = 'linear')
+        if interpolation and (key != 'state'):
+            current_dataset = self.timeseries[key].interp(time = self.current_time, method = 'linear', assume_sorted = True)
         else:
             current_dataset = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'pad')
 
