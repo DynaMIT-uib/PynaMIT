@@ -359,41 +359,67 @@ class Dynamics(object):
     def select_timeseries_data(self, key, interpolation = False):
         """ Select time series data corresponding to the latest time. """
 
-        if interpolation and (key != 'state'):
-            current_dataset = self.timeseries[key].interp(time = self.current_time, method = 'linear', assume_sorted = True)
+        if self.vector_storage[key]:
+            short_name = self.bases[key].short_name
         else:
-            current_dataset = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'pad')
+            short_name = 'GRID'
 
         current_data = {}
+
+        if np.any(self.timeseries[key].time.values < self.current_time + FLOAT_ERROR_MARGIN):
+            # Select latest data before the current time
+            dataset_before = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'ffill')
+            for var in self.vars[key]:
+                current_data[var] = dataset_before[short_name + '_' + var].values
+
+            # If requested, add linear interpolation correction
+            if interpolation and (key != 'state') and np.any(self.timeseries[key].time.values > self.current_time - FLOAT_ERROR_MARGIN):
+                dataset_after = self.timeseries[key].sel(time = self.current_time - FLOAT_ERROR_MARGIN, method = 'bfill')
+                if dataset_after.time.values != dataset_before.time.values:
+                    for var in self.vars[key]:
+                        current_data[var] += (self.current_time - dataset_before.time.values) / (dataset_after.time.values - dataset_before.time.values) * (dataset_after[short_name + '_' + var].values - dataset_before[short_name + '_' + var].values)
+                    print(self.current_time, key, np.linalg.norm([current_data[var] for var in current_data]), np.linalg.norm([dataset_before[var].values for var in dataset_before.data_vars]))
+
+        else:
+            # No data available before the current time
+            return
 
         if not hasattr(self, 'previous_data'):
             self.previous_data = {}
 
-        previous_data_exists = all([var in self.previous_data.keys() for var in self.vars[key]])
-
-        if self.vector_storage[key]:
-            for var in self.vars[key]:
-                current_data[var] = Vector(basis = self.bases[key], coeffs = current_dataset[self.bases[key].short_name + '_' + var].values, type = self.vars[key][var])
-            if previous_data_exists:
-                current_data_equals_previous = all([np.allclose(current_data[var].coeffs, self.previous_data[var].coeffs) for var in self.vars[key]])
-        else:
-            for var in self.vars[key]:
-                current_data[var] = current_dataset['GRID_' + var].values
-            if previous_data_exists:
-                current_data_equals_previous = all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]])
-
-        if not (previous_data_exists and current_data_equals_previous):
+        # Update state if is the first data selection or if the data has changed since the last selection
+        if (not all([var in self.previous_data.keys() for var in self.vars[key]]) or (not all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]]))):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'].coeffs)
                 self.state.set_coeffs(m_imp = current_data['m_imp'].coeffs)
                 self.state.set_coeffs(Phi   = current_data['Phi'].coeffs)
                 self.state.set_coeffs(W     = current_data['W'].coeffs)
+
             if key == 'jr':
-                self.state.set_jr(current_data['jr'], self.vector_storage[key])
+                if self.vector_storage[key]:
+                    jr = Vector(basis = self.bases[key], coeffs = current_data['jr'], type = self.vars[key]['jr'])
+                else:
+                    jr = current_data['jr']
+
+                self.state.set_jr(jr, self.vector_storage[key])
+
             elif key == 'conductance':
-                self.state.set_conductance(current_data['etaP'], current_data['etaH'], self.vector_storage[key])
+                if self.vector_storage[key]:
+                    etaP = Vector(basis = self.bases[key], coeffs = current_data['etaP'], type = self.vars[key]['etaP'])
+                    etaH = Vector(basis = self.bases[key], coeffs = current_data['etaH'], type = self.vars[key]['etaH'])
+                else:
+                    etaP = current_data['etaP']
+                    etaH = current_data['etaH']
+
+                self.state.set_conductance(etaP, etaH, self.vector_storage[key])
+
             elif key == 'u':
-                self.state.set_u(current_data['u'], self.vector_storage[key])
+                if self.vector_storage[key]:
+                    u = Vector(basis = self.bases[key], coeffs = current_data['u'], type = self.vars[key]['u'])
+                else:
+                    u = current_data['u']
+
+                self.state.set_u(u, self.vector_storage[key])
 
             for var in self.vars[key]:
                 self.previous_data[var] = current_data[var]
