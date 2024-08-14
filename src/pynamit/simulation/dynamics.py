@@ -359,27 +359,29 @@ class Dynamics(object):
     def select_timeseries_data(self, key, interpolation = False):
         """ Select time series data corresponding to the latest time. """
 
-        if self.vector_storage[key]:
-            short_name = self.bases[key].short_name
-        else:
-            short_name = 'GRID'
+        if np.any(self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN):
+            if self.vector_storage[key]:
+                short_name = self.bases[key].short_name
+            else:
+                short_name = 'GRID'
 
-        current_data = {}
+            current_data = {}
 
-        if np.any(self.timeseries[key].time.values < self.current_time + FLOAT_ERROR_MARGIN):
             # Select latest data before the current time
             dataset_before = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'ffill')
             for var in self.vars[key]:
                 current_data[var] = dataset_before[short_name + '_' + var].values
 
             # If requested, add linear interpolation correction
-            if interpolation and (key != 'state') and np.any(self.timeseries[key].time.values > self.current_time - FLOAT_ERROR_MARGIN):
-                dataset_after = self.timeseries[key].sel(time = self.current_time - FLOAT_ERROR_MARGIN, method = 'bfill')
-                if dataset_after.time.values != dataset_before.time.values:
-                    for var in self.vars[key]:
-                        current_data[var] += (self.current_time - dataset_before.time.values) / (dataset_after.time.values - dataset_before.time.values) * (dataset_after[short_name + '_' + var].values - dataset_before[short_name + '_' + var].values)
-                    print(self.current_time, key, np.linalg.norm([current_data[var] for var in current_data]), np.linalg.norm([dataset_before[var].values for var in dataset_before.data_vars]))
-
+            if interpolation and (key != 'state') and np.any(self.timeseries[key].time.values > self.current_time + FLOAT_ERROR_MARGIN):
+                dataset_after = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'bfill')
+                for var in self.vars[key]:
+                    proportion_after = (self.current_time - dataset_before.time.values) / (dataset_after.time.values - dataset_before.time.values)
+                    data_difference = dataset_after[short_name + '_' + var].values - dataset_before[short_name + '_' + var].values
+                    current_data[var] += proportion_after * data_difference
+                    print(self.current_time, proportion_after, dataset_before.time.values, dataset_after.time.values, key, var, np.linalg.norm(data_difference))
+                    print('before', np.linalg.norm(dataset_after[short_name + '_' + var].values))
+                    print('after',  np.linalg.norm(dataset_before[short_name + '_' + var].values))
         else:
             # No data available before the current time
             return
