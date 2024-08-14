@@ -368,20 +368,17 @@ class Dynamics(object):
             current_data = {}
 
             # Select latest data before the current time
-            dataset_before = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'ffill')
+            dataset_before = self.timeseries[key].sel(time = [self.current_time + FLOAT_ERROR_MARGIN], method = 'ffill')
+
             for var in self.vars[key]:
-                current_data[var] = dataset_before[short_name + '_' + var].values
+                current_data[var] = dataset_before[short_name + '_' + var].values.flatten()
 
             # If requested, add linear interpolation correction
             if interpolation and (key != 'state') and np.any(self.timeseries[key].time.values > self.current_time + FLOAT_ERROR_MARGIN):
-                dataset_after = self.timeseries[key].sel(time = self.current_time + FLOAT_ERROR_MARGIN, method = 'bfill')
+                dataset_after = self.timeseries[key].sel(time = [self.current_time + FLOAT_ERROR_MARGIN], method = 'bfill')
                 for var in self.vars[key]:
-                    proportion_after = (self.current_time - dataset_before.time.values) / (dataset_after.time.values - dataset_before.time.values)
-                    data_difference = dataset_after[short_name + '_' + var].values - dataset_before[short_name + '_' + var].values
-                    current_data[var] += proportion_after * data_difference
-                    print(self.current_time, proportion_after, dataset_before.time.values, dataset_after.time.values, key, var, np.linalg.norm(data_difference))
-                    print('before', np.linalg.norm(dataset_after[short_name + '_' + var].values))
-                    print('after',  np.linalg.norm(dataset_before[short_name + '_' + var].values))
+                    current_data[var] +=  (self.current_time - dataset_before.time.item()) / (dataset_after.time.item() - dataset_before.time.item()) * (dataset_after[short_name + '_' + var].values.flatten() - dataset_before[short_name + '_' + var].values.flatten())
+
         else:
             # No data available before the current time
             return
@@ -392,10 +389,10 @@ class Dynamics(object):
         # Update state if is the first data selection or if the data has changed since the last selection
         if (not all([var in self.previous_data.keys() for var in self.vars[key]]) or (not all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]]))):
             if key == 'state':
-                self.state.set_coeffs(m_ind = current_data['m_ind'].coeffs)
-                self.state.set_coeffs(m_imp = current_data['m_imp'].coeffs)
-                self.state.set_coeffs(Phi   = current_data['Phi'].coeffs)
-                self.state.set_coeffs(W     = current_data['W'].coeffs)
+                self.state.set_coeffs(m_ind = current_data['m_ind'])
+                self.state.set_coeffs(m_imp = current_data['m_imp'])
+                self.state.set_coeffs(Phi   = current_data['Phi'])
+                self.state.set_coeffs(W     = current_data['W'])
 
             if key == 'jr':
                 if self.vector_storage[key]:
