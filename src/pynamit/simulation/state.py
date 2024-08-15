@@ -5,6 +5,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.various.math import inv_and_cond_hermitian
 
 
 class State(object):
@@ -245,7 +246,7 @@ class State(object):
 
             self.constraint_vector = np.hstack((self.jpar_on_grid[~self.ll_mask], np.zeros(self.G_jpar_ll_diff.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), self.c * self.ih_constraint_scaling ))
 
-            self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
+            self.set_coeffs(m_imp = np.dot(self.GTG_m_imp_constraints_inv, np.dot(self.G_m_imp_constraints.T, self.constraint_vector)))
         else:
             self.set_coeffs(jr = self.jr.coeffs)
 
@@ -365,7 +366,7 @@ class State(object):
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_jpar_hl, self.G_jpar_ll_diff, self.G_jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
-            self.G_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints, rcond = 0)
+            self.GTG_m_imp_constraints_inv = inv_and_cond_hermitian(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
 
     def update_Phi_and_W(self):

@@ -3,6 +3,7 @@ Used to construct objects that transform between basis coefficients and a grid.
 """
 
 import numpy as np
+from pynamit.various.math import inv_and_cond_hermitian
 
 class BasisEvaluator(object):
     """
@@ -83,22 +84,16 @@ class BasisEvaluator(object):
         return self._G_ph
 
     @property
-    def GTG(self):
+    def GTG_inv(self):
         """
-        Return the matrix ``G^T G``. The first time is called, it will
-        also report the condition number of the matrix.
+        Return the inverse of the matrix ``G^T G``.
 
         """
 
-        if not hasattr(self, '_GTG'):
-            # Calculate GTG
-            self._GTG = self.G.T.dot(self.G)
+        if not hasattr(self, '_GTG_inv'):
+            self._GTG_inv = inv_and_cond_hermitian(np.dot(self.G.T, self.G))
 
-            # Report condition number for GTG
-            cond_GTG = np.linalg.cond(self._GTG)
-            print('The condition number for the GTG matrix is {:.1f}'.format(cond_GTG))
-
-        return self._GTG
+        return self._GTG_inv
 
     @property
     def G_grad(self):
@@ -138,7 +133,6 @@ class BasisEvaluator(object):
             self._G_rxgrad_inv = np.linalg.pinv(self.G_rxgrad)
         return self._G_rxgrad_inv
 
-
     @property
     def G_helmholtz(self):
         """
@@ -150,6 +144,19 @@ class BasisEvaluator(object):
         if not hasattr(self, '_G_helmholtz'):
             self._G_helmholtz = np.hstack((-self.G_grad, self.G_rxgrad))
         return self._G_helmholtz
+
+    @property
+    def GTG_helmholtz_inv(self):
+        """
+        Return the inverse of the matrix ``G^T G`` for the Helmholtz decomposition
+        into the curl-free and divergence-free components of a vector.
+
+        """
+
+        if not hasattr(self, '_GTG_helmholtz_inv'):
+            self._GTG_helmholtz_inv = inv_and_cond_hermitian(np.dot(self.G_helmholtz.T, self.G_helmholtz))
+
+        return self._GTG_helmholtz_inv
 
     @property
     def G_helmholtz_inv(self):
@@ -205,9 +212,9 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            return np.dot(self.G_helmholtz_inv, grid_values)
+            return np.dot(self.GTG_helmholtz_inv, np.dot(self.G_helmholtz.T, grid_values))
         else:
-            return np.dot(self.G_inv, grid_values)
+            return np.dot(self.GTG_inv, np.dot(self.G.T, grid_values))
     
     def to_other_basis(self, this_coeffs, other_coeffs):
         """
