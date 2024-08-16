@@ -10,14 +10,14 @@ def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
 
     # Filter out small eigenvalues using a relative tolerance, following the convention of numpy.linalg.pinv.
     first_nonzero = np.argmax(eigenvalues > rtol * eigenvalues[-1])
-    eigenvalues = eigenvalues[first_nonzero:]
+    filtered_eigenvalues = eigenvalues[first_nonzero:]
 
     # If there are no zero eigenvalues, the sliced eigenvectors array is a full contiguous view of the original array.
     # Otherwise, the view's memory address and shape are adjusted to avoid unnecessary data copies.
-    eigenvectors = eigenvectors[:, first_nonzero:]
+    filtered_eigenvectors = eigenvectors[:, first_nonzero:]
 
     if condition_number:
-        print('The condition number for the matrix is: {:.1f}'.format(eigenvalues[-1] / eigenvalues[0]))
+        print('The condition number for the matrix is: {:.1f}'.format(filtered_eigenvalues[-1] / filtered_eigenvalues[0]))
 
     # Compute the pseudoinverse using the filtered eigenvalues and eigenvectors.
-    return np.einsum('ij, j, jk -> ik', eigenvectors, 1 / eigenvalues, eigenvectors.T)
+    return np.einsum('ij, j, jk -> ik', filtered_eigenvectors, 1 / filtered_eigenvalues, filtered_eigenvectors.T)
