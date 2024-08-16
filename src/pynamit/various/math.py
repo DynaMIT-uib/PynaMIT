@@ -1,13 +1,23 @@
 import numpy as np
 
-def inv_and_cond_hermitian(A):
+def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     """
-    Return the inverse of the matrix A and print its condition number.
+    Return the pseudoinverse of the positive semidefinite matrix A and print its condition number.
     """
 
-    u, s, vh = np.linalg.svd(A, hermitian = True)
+    # For a symmetric positive semidefinite matrix, its eigenvalues are equal to its singular values.
+    eigenvalues, eigenvectors = np.linalg.eigh(A)
 
-    #print('The condition number for the matrix is {:.1f}'.format(s[0] / s[-1]))
+    # Filter out small eigenvalues using a relative tolerance, following the convention of numpy.linalg.pinv.
+    first_nonzero = np.argmax(eigenvalues > rtol * eigenvalues[-1])
+    eigenvalues = eigenvalues[first_nonzero:]
 
-    return np.einsum('ij, j, jk -> ik', vh.T, 1 / s, u.T)
-    #return np.dot(vh.T / s, u.T) # Need to compare relative speed of einsum and broadcast + dot
+    # If there are no zero eigenvalues, the sliced eigenvectors array is a full contiguous view of the original array.
+    # Otherwise, the view's memory address and shape are adjusted to avoid unnecessary data copies.
+    eigenvectors = eigenvectors[:, first_nonzero:]
+
+    if condition_number:
+        print('The condition number for the matrix is: {:.1f}'.format(eigenvalues[-1] / eigenvalues[0]))
+
+    # Compute the pseudoinverse using the filtered eigenvalues and eigenvectors.
+    return np.einsum('ij, j, jk -> ik', eigenvectors, 1 / eigenvalues, eigenvectors.T)

@@ -3,7 +3,7 @@ Used to construct objects that transform between basis coefficients and a grid.
 """
 
 import numpy as np
-from pynamit.various.math import inv_and_cond_hermitian
+from pynamit.various.math import pinv_positive_semidefinite
 
 class BasisEvaluator(object):
     """
@@ -91,7 +91,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTG_inv'):
-            self._GTG_inv = inv_and_cond_hermitian(np.dot(self.G.T, self.G))
+            self._GTG_inv = pinv_positive_semidefinite(np.dot(self.G.T, self.G))
 
         return self._GTG_inv
 
@@ -154,7 +154,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTG_helmholtz_inv'):
-            self._GTG_helmholtz_inv = inv_and_cond_hermitian(np.dot(self.G_helmholtz.T, self.G_helmholtz))
+            self._GTG_helmholtz_inv = pinv_positive_semidefinite(np.dot(self.G_helmholtz.T, self.G_helmholtz))
 
         return self._GTG_helmholtz_inv
 

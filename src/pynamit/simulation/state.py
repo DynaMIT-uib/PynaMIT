@@ -5,7 +5,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import inv_and_cond_hermitian
+from pynamit.various.math import pinv_positive_semidefinite
 
 
 class State(object):
@@ -366,7 +366,7 @@ class State(object):
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_jpar_hl, self.G_jpar_ll_diff, self.G_jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
-            self.GTG_m_imp_constraints_inv = inv_and_cond_hermitian(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
+            self.GTG_m_imp_constraints_inv = pinv_positive_semidefinite(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
 
     def update_Phi_and_W(self):
