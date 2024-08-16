@@ -2,7 +2,8 @@ import numpy as np
 
 def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     """
-    Return the pseudoinverse of the positive semidefinite matrix A and print its condition number.
+    Return the pseudoinverse of the positive semidefinite matrix A and,
+    if requested, print its condition number.
     """
 
     # For a symmetric positive semidefinite matrix, its eigenvalues are equal to its singular values.
@@ -12,7 +13,7 @@ def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     first_nonzero = np.argmax(eigenvalues > rtol * eigenvalues[-1])
     filtered_eigenvalues = eigenvalues[first_nonzero:]
 
-    # If there are no zero eigenvalues, the sliced eigenvectors array is a full contiguous view of the original array.
+    # If there are no zero eigenvalues, the filtered eigenvectors array is a full contiguous view of the original array.
     # Otherwise, the view's memory address and shape are adjusted to avoid unnecessary data copies.
     filtered_eigenvectors = eigenvectors[:, first_nonzero:]
 
