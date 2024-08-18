@@ -1,4 +1,4 @@
-def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, zero_jr_at_dip_equator = False, wind_directory = None, vector_jr = True, vector_conductance = True, vector_u = True):
+def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, wind_directory = None, vector_jr = True, vector_conductance = True, vector_u = True):
     """ Run the pynamit simulation with the given parameters. """
 
     import os
@@ -26,7 +26,6 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
                         ignore_PFAC = ignore_PFAC,
                         connect_hemispheres = connect_hemispheres,
                         latitude_boundary = latitude_boundary,
-                        zero_jr_at_dip_equator = zero_jr_at_dip_equator,
                         vector_jr = vector_jr,
                         vector_conductance = vector_conductance,
                         vector_u = vector_u)

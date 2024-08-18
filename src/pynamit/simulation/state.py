@@ -29,7 +29,6 @@ class State(object):
         self.latitude_boundary      = settings.latitude_boundary
         self.ignore_PFAC            = bool(settings.ignore_PFAC)
         self.connect_hemispheres    = bool(settings.connect_hemispheres)
-        self.zero_jr_at_dip_equator = bool(settings.zero_jr_at_dip_equator)
         self.FAC_integration_steps  = settings.FAC_integration_steps
         self.ih_constraint_scaling  = settings.ih_constraint_scaling
 
@@ -200,14 +199,14 @@ class State(object):
                 print('this should not happen')
 
             # Calculate the matrices that convert m_imp to FAC on grid and conjugate grid
-            G_jpar    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr / self.b_evaluator.br.reshape((-1 ,1)))
-            G_jpar_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr / self.cp_b_evaluator.br.reshape((-1 ,1)))
+            G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
+            G_jr_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr / self.cp_b_evaluator.Br.reshape((-1 ,1)) * self.b_evaluator.Br.reshape((-1 ,1)))
 
             # Calculate matrix that ensures high latitude FACs are unaffected by other constraints
-            self.G_jpar_hl = G_jpar[~self.ll_mask]
+            self.G_jr_hl = G_jr[~self.ll_mask]
 
             # Calculate matrix that constrains outwards FACs at low latitude points to be equal to inwards FACs at conjugate points
-            self.G_jpar_ll_diff = (G_jpar[self.ll_mask] - G_jpar_cp[self.ll_mask])
+            self.G_jr_ll_diff = (G_jr[self.ll_mask] - G_jr_cp[self.ll_mask])
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
@@ -219,18 +218,6 @@ class State(object):
             self.aeH_ind_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeP_imp_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeH_imp_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
-
-            if self.zero_jr_at_dip_equator:
-                # Calculate matrix that converts m_imp to jr at dip equator
-                n_phi = self.jr_basis.minimum_phi_sampling
-                dip_equator_phi = np.linspace(0, 360, n_phi)
-                self.jr_dip_equator_basis_evaluator = BasisEvaluator(self.jr_basis, Grid(theta = self.mainfield.dip_equator(dip_equator_phi), phi = dip_equator_phi))
-
-                _equation_scaling = self.grid.lat[self.ll_mask].size / n_phi # scaling to match importance of other equations
-                self.G_jr_dip_equator = self.jr_dip_equator_basis_evaluator.scaled_G(self.m_imp_to_jr) * _equation_scaling
-            else:
-                # Make zero-row stand-in for the jr matrix
-                self.G_jr_dip_equator = np.empty((0, self.jr_basis.index_length))
 
 
     def impose_constraints(self):
@@ -244,7 +231,7 @@ class State(object):
             if self.neutral_wind:
                 self.c += self.cu
 
-            self.constraint_vector = np.hstack((self.jpar_on_grid[~self.ll_mask], np.zeros(self.G_jpar_ll_diff.shape[0]), np.zeros(self.G_jr_dip_equator.shape[0]), self.c * self.ih_constraint_scaling ))
+            self.constraint_vector = np.hstack((self.jr_on_grid[~self.ll_mask], np.zeros(self.G_jr_ll_diff.shape[0]), self.c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = np.dot(self.GTG_m_imp_constraints_inv, np.dot(self.G_m_imp_constraints.T, self.constraint_vector)))
         else:
@@ -270,13 +257,13 @@ class State(object):
             self.jr = jr
 
             if self.connect_hemispheres:
-                self.jpar_on_grid = jr.to_grid(self.jr_basis_evaluator) / self.b_evaluator.br
+                self.jr_on_grid = jr.to_grid(self.jr_basis_evaluator)
 
         else:
             self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr , type = 'scalar')
 
             if self.connect_hemispheres:
-                self.jpar_on_grid = jr / self.b_evaluator.br
+                self.jr_on_grid = jr
 
 
     def set_u(self, u, vector_u = True):
@@ -365,7 +352,7 @@ class State(object):
                          -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
 
             # Combine constraint matrices
-            self.G_m_imp_constraints = np.vstack((self.G_jpar_hl, self.G_jpar_ll_diff, self.G_jr_dip_equator, self.A_imp * self.ih_constraint_scaling))
+            self.G_m_imp_constraints = np.vstack((self.G_jr_hl, self.G_jr_ll_diff, self.A_imp * self.ih_constraint_scaling))
             self.GTG_m_imp_constraints_inv = pinv_positive_semidefinite(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
 
