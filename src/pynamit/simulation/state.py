@@ -198,12 +198,15 @@ class State(object):
             else:
                 print('this should not happen')
 
+            # Calculate matrices that calculates jr at grid and conjugate grid points from m_imp
             G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
-            G_jr_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))
+            G_jr_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr)
 
-            # Calculate matrices that calculates jr from m_imp, including hemisphere connection at low latitudes
-            self.G_jr_hl    = G_jr[~self.ll_mask] # magnetosphere-ionosphere currents
-            self.G_jr_ll_hc = G_jr[self.ll_mask] + G_jr_cp[self.ll_mask] # interhemispheric currents
+            # At high latitudes, radial currents come from the magnetosphere-ionosphere coupling
+            self.G_jr_hl    = G_jr[~self.ll_mask]
+
+            # At low latitudes, radial currents are balanced by interhemispheric currents from conjugate points
+            self.G_jr_ll_hc = G_jr[self.ll_mask] + ((-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * G_jr_cp)[self.ll_mask]
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
