@@ -202,11 +202,9 @@ class State(object):
             G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
             G_jr_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr)
 
-            # At high latitudes, radial currents come from the magnetosphere-ionosphere coupling
-            self.G_jr_hl    = G_jr[~self.ll_mask]
-
             # At low latitudes, radial currents are balanced by interhemispheric currents from conjugate points
-            self.G_jr_ll_hc = G_jr[self.ll_mask] + ((-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * G_jr_cp)[self.ll_mask]
+            self.G_jr_hc = G_jr
+            self.G_jr_hc[self.ll_mask] += ((-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * G_jr_cp)[self.ll_mask]
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
@@ -231,7 +229,7 @@ class State(object):
             if self.neutral_wind:
                 self.c += self.cu
 
-            self.constraint_vector = np.hstack((self.jr_on_grid[~self.ll_mask], np.zeros(self.G_jr_ll_hc.shape[0]), self.c * self.ih_constraint_scaling ))
+            self.constraint_vector = np.hstack((self.jr_on_grid, self.c * self.ih_constraint_scaling ))
 
             self.set_coeffs(m_imp = np.dot(self.GTG_m_imp_constraints_inv, np.dot(self.G_m_imp_constraints.T, self.constraint_vector)))
         else:
@@ -258,12 +256,14 @@ class State(object):
 
             if self.connect_hemispheres:
                 self.jr_on_grid = jr.to_grid(self.jr_basis_evaluator)
+                self.jr_on_grid[self.ll_mask] = 0
 
         else:
             self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr , type = 'scalar')
 
             if self.connect_hemispheres:
                 self.jr_on_grid = jr
+                self.jr_on_grid[self.ll_mask] = 0
 
 
     def set_u(self, u, vector_u = True):
@@ -352,7 +352,7 @@ class State(object):
                          -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
 
             # Combine constraint matrices
-            self.G_m_imp_constraints = np.vstack((self.G_jr_hl, self.G_jr_ll_hc, self.A_imp * self.ih_constraint_scaling))
+            self.G_m_imp_constraints = np.vstack((self.G_jr_hc, self.A_imp * self.ih_constraint_scaling))
             self.GTG_m_imp_constraints_inv = pinv_positive_semidefinite(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
 
