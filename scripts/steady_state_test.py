@@ -32,7 +32,6 @@ dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             ignore_PFAC = False,
                             connect_hemispheres = True,
                             latitude_boundary = latitude_boundary,
-                            zero_jr_at_dip_equator = True,
                             ih_constraint_scaling = 1e-5)
 
 print('made dynamics object')

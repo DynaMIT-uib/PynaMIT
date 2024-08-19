@@ -6,11 +6,11 @@ import shutil
 from pynamit.default_run import run_pynamit
 import numpy as np
 
-def test_2d_igrf_pfac_hc_zerodip_wind_grid():
+def test_2d_igrf_pfac_hc_wind():
     # Arrange
-    expected_coeff_norm = 3.216153994863885e-10
-    expected_coeff_max = 1.9911583135563488e-11
-    expected_coeff_min = -1.4365845381197927e-11
+    expected_coeff_norm = 4.401980940335376e-10
+    expected_coeff_max = 2.477549172140724e-11
+    expected_coeff_min = -2.0229414801295296e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -33,11 +33,7 @@ def test_2d_igrf_pfac_hc_zerodip_wind_grid():
                            ignore_PFAC = False,
                            connect_hemispheres = True,
                            latitude_boundary = 50,
-                           zero_jr_at_dip_equator = True,
-                           wind_directory = temp_dir,
-                           vector_jr = False,
-                           vector_conductance = False,
-                           vector_u = False)
+                           wind_directory = temp_dir)
 
     # Assert
     coeff_array = dynamics.timeseries['state']['SH_m_ind'].values
