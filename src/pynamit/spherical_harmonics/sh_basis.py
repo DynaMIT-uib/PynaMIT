@@ -228,18 +228,19 @@ class SHBasis(object):
 
 
     @property
-    def surface_discontinuity(self):
+    def delta_external_internal(self):
         """
-        Calculate the discontinuity across the surface where the spherical
-        harmonics are evaluated, assuming that the first-order radial
-        derivative is continuous across the surface.
+        Calculate the multiplicative factor in the difference between the
+        spherical harmonics for external and internal sources, assuming
+        that the first-order radial derivative is continuous across the
+        surface.
 
         """
 
-        if not hasattr(self, '_surface_discontinuity'):
-            self._surface_discontinuity = (2 * self.n + 1) / (self.n + 1)
+        if not hasattr(self, '_delta_external_internal'):
+            self._delta_external_internal = -(2 * self.n + 1) / (self.n + 1)
 
-        return self._surface_discontinuity
+        return self._delta_external_internal
 
 
     def radial_shift(self, start, end):

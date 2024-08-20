@@ -129,7 +129,7 @@ class PynamEye(object):
             self.b10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
             self.b11 =  self.b_evaluator.btheta**2 + self.b_evaluator.br**2
 
-            self.G_B_pol_to_JS = self.evaluator['num'].G_rxgrad * self.basis.surface_discontinuity / mu0
+            self.G_B_pol_to_JS = -self.evaluator['num'].G_rxgrad * self.basis.delta_external_internal / mu0
             self.G_B_tor_to_JS = -self.evaluator['num'].G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
             self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol)
