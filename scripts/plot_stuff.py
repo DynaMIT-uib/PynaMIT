@@ -4,10 +4,10 @@ import pynamit
 import numpy as np
 import matplotlib.pyplot as plt
 
-ts = np.linspace(0,120, 121)
+ts = np.linspace(0,120, 5)
 
 #ts = np.linspace(1,240, 40)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/notebooks/aurora2'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/aurora_update'
 
 a = pynamit.PynamEye(path)
 
