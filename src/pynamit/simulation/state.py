@@ -72,7 +72,9 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
-            #self.footpoint_conjugation    = np.dot(self.basis_evaluator.G_inv, self.cp_basis_evaluator.G)
+            self.footpoint_conjugation    = np.dot(self.basis_evaluator.G_inv, self.cp_basis_evaluator.G)
+            self.conductance_footpoint_conjugation = np.dot(self.conductance_basis_evaluator.G_inv, self.conductance_cp_basis_evaluator.G)
+            self.u_footpoint_conjugation = np.dot(self.u_basis_evaluator.G_helmholtz_inv, self.u_cp_basis_evaluator.G_helmholtz)
             self.footpoint_br_conjugation = -np.dot(self.basis_evaluator.G_inv, (self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * self.cp_basis_evaluator.G)
 
         # Neutral wind and conductance should be set after state initialization
@@ -290,10 +292,13 @@ class State(object):
 
         if self.connect_hemispheres:
             if vector_u:
+                self.u_cp = Vector(basis = self.u_basis, coeffs = np.dot(self.u_footpoint_conjugation, self.u.coeffs), type = 'tangential')
+                self.u_cp = Vector(basis = self.u_basis, coeffs = np.dot(self.u_footpoint_conjugation, self.u.coeffs), type = 'tangential')
+
                 # Represent as values on cp_grid
                 u_theta_on_cp_grid, u_phi_on_cp_grid = np.split(self.u.to_grid(self.u_cp_basis_evaluator), 2)
             else:
-                u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.u_basis_evaluator.grid.theta, self.u_basis_evaluator.grid.phi, self.u_cp_basis_evaluator.grid.theta, self.u_cp_basis_evaluator.grid.phi)
+                u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int_north, u_cp_int_east
 
             # Neutral wind at low latitude grid points and at their conjugate points
@@ -334,18 +339,22 @@ class State(object):
 
         if self.connect_hemispheres:
             if vector_conductance:
-                # Represent as values on cp_grid
-                etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)
-                etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)
+                self.etaP_cp = Vector(basis = self.conductance_basis, coeffs = np.dot(self.conductance_footpoint_conjugation, self.etaP.coeffs), type = 'scalar')
+                self.etaH_cp = Vector(basis = self.conductance_basis, coeffs = np.dot(self.conductance_footpoint_conjugation, self.etaH.coeffs), type = 'scalar')
+
+                # Represent as values on grid
+                etaP_cp_on_grid = self.etaP_cp.to_grid(self.conductance_basis_evaluator)
+                etaH_cp_on_grid = self.etaH_cp.to_grid(self.conductance_basis_evaluator)
+
             else:
-                etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.phi, self.conductance_cp_basis_evaluator.grid.theta, self.conductance_cp_basis_evaluator.grid.phi)
-                etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.conductance_basis_evaluator.grid.theta, self.conductance_basis_evaluator.grid.phi, self.conductance_cp_basis_evaluator.grid.theta, self.conductance_cp_basis_evaluator.grid.phi)
+                etaP_cp_on_grid = csp.interpolate_scalar(self.etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
+                etaH_cp_on_grid = csp.interpolate_scalar(self.etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]
             etaH_ll    = self.etaH_on_grid[self.ll_mask]
-            etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
-            etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
+            etaP_cp_ll = etaP_cp_on_grid[self.ll_mask]
+            etaH_cp_ll = etaH_cp_on_grid[self.ll_mask]
 
             # Conductance-dependent constraint matrices
             self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
