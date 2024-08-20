@@ -117,21 +117,21 @@ class State(object):
                 JS_shifted_to_B_pol_shifted = np.linalg.pinv(self.G_B_pol_to_JS, rcond = 0)
 
                 for i in range(r_k.size):
-                    print(f'Calculating matrix for poloidal field of FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
+                    print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
                     # Map coordinates from r_k[i] to RI:
                     theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.grid.theta, self.grid.phi)
                     mapped_grid = Grid(theta = theta_mapped, phi = phi_mapped)
 
-                    # Matrix that gives FAC at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal components
+                    # Matrix that gives jr at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal current components
                     shifted_b_evaluator = FieldEvaluator(self.mainfield, self.grid, r_k[i])
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.jr_basis, mapped_grid)
-                    m_imp_to_jpar = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr / mapped_b_evaluator.br.reshape((-1 ,1)))
-                    jpar_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.B_magnitude).reshape((-1, 1)),
-                                          (shifted_b_evaluator.Bphi   / mapped_b_evaluator.B_magnitude).reshape((-1, 1)))
-                    m_imp_to_JS_shifted = np.vstack(m_imp_to_jpar * jpar_to_JS_shifted)
+                    m_imp_to_jr = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr)
+                    jr_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.Br).reshape((-1, 1)),
+                                        (shifted_b_evaluator.Bphi   / mapped_b_evaluator.Br).reshape((-1, 1)))
+                    m_imp_to_JS_shifted = np.vstack(m_imp_to_jr * jr_to_JS_shifted)
 
-                    # Matrix that calculates the contribution to the poloidal coefficients from the horizontal components at r_k[i]
+                    # Matrix that calculates the contribution to the poloidal coefficients from the horizontal current components at r_k[i]
                     B_pol_shifted_to_B_pol = self.basis.radial_shift(r_k[i], self.RI).reshape((-1, 1))
                     JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
 
