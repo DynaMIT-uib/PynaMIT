@@ -187,14 +187,14 @@ class PynamEye(object):
                 new_time = sorted(list(self.datasets[ds].time.values) + [self.t])
                 self.datasets[ds] = self.datasets[ds].reindex(time=new_time).ffill(dim = 'time')
 
-        self.m_ind  = self.datasets['state'      ].SH_m_ind_coeffs.sel(time = self.t, method='nearest').values
-        self.m_imp  = self.datasets['state'      ].SH_m_imp_coeffs.sel(time = self.t, method='nearest').values
-        self.m_W    = self.datasets['state'      ].SH_W_coeffs    .sel(time = self.t, method='nearest').values * self.RI
-        self.m_Phi  = self.datasets['state'      ].SH_Phi_coeffs  .sel(time = self.t, method='nearest').values * self.RI
-        self.m_u_df = self.datasets['u'          ].SH_u_df_coeffs .sel(time = self.t, method='nearest').values
-        self.m_u_cf = self.datasets['u'          ].SH_u_cf_coeffs .sel(time = self.t, method='nearest').values 
-        self.m_etaP = self.datasets['conductance'].SH_etaP_coeffs .sel(time = self.t, method='nearest').values
-        self.m_etaH = self.datasets['conductance'].SH_etaH_coeffs .sel(time = self.t, method='nearest').values
+        self.m_ind  = self.datasets['state'      ].SH_m_ind.sel(time = self.t, method='nearest').values
+        self.m_imp  = self.datasets['state'      ].SH_m_imp.sel(time = self.t, method='nearest').values
+        self.m_W    = self.datasets['state'      ].SH_W    .sel(time = self.t, method='nearest').values * self.RI
+        self.m_Phi  = self.datasets['state'      ].SH_Phi  .sel(time = self.t, method='nearest').values * self.RI
+        self.m_etaP = self.datasets['conductance'].SH_etaP .sel(time = self.t, method='nearest').values
+        self.m_etaH = self.datasets['conductance'].SH_etaH .sel(time = self.t, method='nearest').values
+        self.m_u    = self.datasets['u'          ].SH_u    .sel(time = self.t, method='nearest').values
+        self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
 
         if np.any(np.isnan(self.m_ind)):
             print('induced magnetic field coefficients at t = {:.2f} s are nans'.format(t))
