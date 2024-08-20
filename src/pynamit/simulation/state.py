@@ -72,10 +72,10 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
-            self.footpoint_conjugation    = np.dot(self.basis_evaluator.G_inv, self.cp_basis_evaluator.G)
-            self.conductance_footpoint_conjugation = np.dot(self.conductance_basis_evaluator.G_inv, self.conductance_cp_basis_evaluator.G)
-            self.u_footpoint_conjugation = np.dot(self.u_basis_evaluator.G_helmholtz_inv, self.u_cp_basis_evaluator.G_helmholtz)
-            self.footpoint_br_conjugation = -np.dot(self.basis_evaluator.G_inv, (self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * self.cp_basis_evaluator.G)
+            self.footpoint_conjugation    = np.dot(self.basis_evaluator.GTG_inv, np.dot(self.basis_evaluator.G.T, self.cp_basis_evaluator.G))
+            self.conductance_footpoint_conjugation = np.dot(self.conductance_basis_evaluator.GTG_inv, np.dot(self.conductance_basis_evaluator.G.T, self.conductance_cp_basis_evaluator.G))
+            self.u_footpoint_conjugation = np.dot(self.u_basis_evaluator.GTG_helmholtz_inv, np.dot(self.u_basis_evaluator.G_helmholtz.T, self.u_cp_basis_evaluator.G_helmholtz))
+            self.footpoint_br_conjugation = np.dot(self.basis_evaluator.GTG_inv, np.dot(self.basis_evaluator.G.T, -(self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * self.cp_basis_evaluator.G))
 
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
