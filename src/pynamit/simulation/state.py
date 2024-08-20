@@ -356,6 +356,7 @@ class State(object):
             etaP_cp_ll = etaP_cp_on_grid[self.ll_mask]
             etaH_cp_ll = etaH_cp_on_grid[self.ll_mask]
 
+            # Scale and remove 
             # Conductance-dependent constraint matrices
             self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
                          -(np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
