@@ -72,6 +72,9 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
+            #self.footpoint_conjugation    = np.dot(self.basis_evaluator.G_inv, self.cp_basis_evaluator.G)
+            self.footpoint_br_conjugation = -np.dot(self.basis_evaluator.G_inv, (self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * self.cp_basis_evaluator.G)
+
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
         self.conductance  = False
@@ -198,13 +201,13 @@ class State(object):
             else:
                 print('this should not happen')
 
-            # Calculate matrices that calculates jr at grid and conjugate grid points from m_imp
+            # Calculate matrices that calculates radial currents and interhemispheric currents from conjugate footpoints
             G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
-            G_jr_cp = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr)
+            G_jr_ih = np.dot(G_jr, self.footpoint_br_conjugation)
 
-            # At low latitudes, radial currents are balanced by interhemispheric currents from conjugate points
+            # The hemispheres are connected via interhemispheric currents at low latitudes
             self.G_jr_hc = G_jr
-            self.G_jr_hc[self.ll_mask] += ((-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * G_jr_cp)[self.ll_mask]
+            self.G_jr_hc[self.ll_mask] += G_jr_ih[self.ll_mask]
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
