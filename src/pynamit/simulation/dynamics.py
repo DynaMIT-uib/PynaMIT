@@ -109,6 +109,13 @@ class Dynamics(object):
             'u':           SHBasis(settings.Nmax, settings.Mmax),
         }
 
+        self.pinv_rtols = {
+            'state':       1e-15,
+            'jr':          1e-15,
+            'conductance': 1e-2,
+            'u':           1e-2,
+        }
+
         self.vector_storage = {
             'state':       True,
             'jr':          bool(settings.vector_jr),
@@ -140,10 +147,8 @@ class Dynamics(object):
                 raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
 
         # Initialize the state of the ionosphere
-        self.state = State(self.bases['state'],
-                           self.bases['jr'],
-                           self.bases['conductance'],
-                           self.bases['u'],
+        self.state = State(self.bases,
+                           self.pinv_rtols,
                            self.mainfield,
                            self.state_grid,
                            settings,
@@ -307,7 +312,7 @@ class Dynamics(object):
             self.input_basis_evaluators = {}
 
         if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi)):
-            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid)
+            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key])
 
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in input_data[var].keys()]):

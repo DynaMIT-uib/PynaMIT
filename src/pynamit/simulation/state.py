@@ -13,15 +13,15 @@ class State(object):
 
     """
 
-    def __init__(self, basis, jr_basis, conductance_basis, u_basis, mainfield, grid, settings, PFAC_matrix = None):
+    def __init__(self, bases, pinv_rtols, mainfield, grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
 
-        self.basis             = basis
-        self.jr_basis          = jr_basis
-        self.conductance_basis = conductance_basis
-        self.u_basis           = u_basis
+        self.basis             = bases['state']
+        self.jr_basis          = bases['jr']
+        self.conductance_basis = bases['conductance']
+        self.u_basis           = bases['u']
 
         self.mainfield = mainfield
 
@@ -38,10 +38,10 @@ class State(object):
         # Initialize grid-related objects
         self.grid = grid
 
-        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid)
-        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid)
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
-        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid)
+        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid, pinv_rtol = pinv_rtols['state'])
+        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid, pinv_rtol = pinv_rtols['jr'])
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid, pinv_rtol = pinv_rtols['conductance'])
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid, pinv_rtol = pinv_rtols['u'])
 
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
@@ -60,10 +60,10 @@ class State(object):
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
-            self.cp_basis_evaluator             = BasisEvaluator(self.basis,             self.cp_grid)
-            self.jr_cp_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.cp_grid)
-            self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid)
-            self.u_cp_basis_evaluator           = BasisEvaluator(self.u_basis,           self.cp_grid)
+            self.cp_basis_evaluator             = BasisEvaluator(self.basis,             self.cp_grid, pinv_rtol = pinv_rtols['state'])
+            self.jr_cp_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.cp_grid, pinv_rtol = pinv_rtols['jr'])
+            self.conductance_cp_basis_evaluator = BasisEvaluator(self.conductance_basis, self.cp_grid, pinv_rtol = pinv_rtols['conductance'])
+            self.u_cp_basis_evaluator           = BasisEvaluator(self.u_basis,           self.cp_grid, pinv_rtol = pinv_rtols['u'])
 
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 

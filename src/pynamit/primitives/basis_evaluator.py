@@ -11,9 +11,10 @@ class BasisEvaluator(object):
 
     """
     
-    def __init__(self, basis, grid):
+    def __init__(self, basis, grid, pinv_rtol = 1e-15):
         self.basis = basis
         self.grid = grid
+        self.pinv_rtol = pinv_rtol
 
     @property
     def G(self):
@@ -91,7 +92,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTG_inv'):
-            self._GTG_inv = pinv_positive_semidefinite(np.dot(self.G.T, self.G))
+            self._GTG_inv = pinv_positive_semidefinite(np.dot(self.G.T, self.G), rtol = self.pinv_rtol)
 
         return self._GTG_inv
 
@@ -154,7 +155,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTG_helmholtz_inv'):
-            self._GTG_helmholtz_inv = pinv_positive_semidefinite(np.dot(self.G_helmholtz.T, self.G_helmholtz))
+            self._GTG_helmholtz_inv = pinv_positive_semidefinite(np.dot(self.G_helmholtz.T, self.G_helmholtz), rtol = self.pinv_rtol)
 
         return self._GTG_helmholtz_inv
 
