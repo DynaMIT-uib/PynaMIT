@@ -260,7 +260,7 @@ class Dynamics(object):
         """
 
         input_data = {
-            'jr': {'values': np.atleast_2d(jr)},
+            'jr': [np.atleast_2d(jr)],
         }
 
         self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
@@ -277,16 +277,16 @@ class Dynamics(object):
         Pedersen = np.atleast_2d(Pedersen)
 
         input_data = {
-            'etaP': {'values': np.empty_like(Pedersen)},
-            'etaH': {'values': np.empty_like(Hall)},
+            'etaP': [np.empty_like(Pedersen)],
+            'etaH': [np.empty_like(Hall)],
         }
 
         # Convert to resistivity
-        for i in range(max(input_data['etaP']['values'].shape[0], 1)):
-            input_data['etaP']['values'][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
+        for i in range(max(input_data['etaP'][0].shape[0], 1)):
+            input_data['etaP'][0][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        for i in range(max(input_data['etaH']['values'].shape[0], 1)):
-            input_data['etaH']['values'][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
+        for i in range(max(input_data['etaH'][0].shape[0], 1)):
+            input_data['etaH'][0][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
 
         self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
 
@@ -297,7 +297,7 @@ class Dynamics(object):
         """
 
         input_data = {
-            'u': {'theta': np.atleast_2d(u[0]), 'phi': np.atleast_2d(u[1])},
+            'u': [np.atleast_2d(u[0]), np.atleast_2d(u[1])]
         }
 
         self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
@@ -315,7 +315,7 @@ class Dynamics(object):
             self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key])
 
         if time is None:
-            if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in input_data[var].keys()]):
+            if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in range(len(input_data[var]))]):
                 raise ValueError('Time must be specified if the input data is given for multiple time values.')
             time = self.current_time
 
@@ -326,16 +326,16 @@ class Dynamics(object):
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in input_data[var].keys()]), type = self.vars[key][var])
+                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in range(len(input_data[var]))]), type = self.vars[key][var])
 
                     processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
 
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == 'scalar':
-                        interpolated_data = csp.interpolate_scalar(input_data[var]['values'][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                        interpolated_data = csp.interpolate_scalar(input_data[var][0][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                     elif self.vars[key][var] == 'tangential':
-                        interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var]['phi'], -input_data[var]['theta'][time_index], np.zeros_like(input_data[var]['phi'][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                        interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var][1], -input_data[var][0][time_index], np.zeros_like(input_data[var][1][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                         interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
 
                     processed_data['GRID_' + var] = (['time', 'i'], interpolated_data.reshape((1, -1)))
