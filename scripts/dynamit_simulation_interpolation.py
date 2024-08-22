@@ -54,11 +54,11 @@ dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
                              glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
-u = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
+u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 #u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 #u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-dynamics.set_u(u, lat = u_lat, lon = u_lon)
+dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon)
 
 ## CONDUCTANCE GRID
 conductance_lat = dynamics.state_grid.lat

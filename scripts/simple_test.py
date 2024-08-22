@@ -58,7 +58,7 @@ dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 #u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-dynamics.set_u((u_theta.flatten(), u_phi.flatten()), lat = u_lat.flatten(), lon = u_lon.flatten())
+dynamics.set_u(u_theta = u_theta.flatten(), u_phi = u_phi.flatten(), lat = u_lat.flatten(), lon = u_lon.flatten())
 
 ## CONDUCTANCE GRID
 conductance_lat = dynamics.state_grid.lat

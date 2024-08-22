@@ -58,10 +58,10 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
         #u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
         u_lat, u_lon, u_phi, u_theta = np.load(os.path.join(wind_directory, 'ulat.npy')), np.load(os.path.join(wind_directory, 'ulon.npy')), np.load(os.path.join(wind_directory, 'uphi.npy')), np.load(os.path.join(wind_directory, 'utheta.npy'))
-        u = (u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR)
+        u_theta, u_phi = (u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR)
         u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
 
-        dynamics.set_u(u, lat = u_lat, lon = u_lon)
+        dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon)
 
     dynamics.evolve_to_time(t = final_time, dt = dt, sampling_step_interval = 1, saving_sample_interval = plotsteps)
 

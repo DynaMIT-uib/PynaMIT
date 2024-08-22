@@ -291,13 +291,13 @@ class Dynamics(object):
         self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
 
 
-    def set_u(self, u, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
 
         input_data = {
-            'u': [np.atleast_2d(u[0]), np.atleast_2d(u[1])]
+            'u': [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
         }
 
         self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
