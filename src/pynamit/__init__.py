@@ -7,3 +7,4 @@ from .simulation.mainfield import Mainfield
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.grid import Grid
+from .primitives.vector import Vector
