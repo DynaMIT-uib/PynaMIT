@@ -99,8 +99,8 @@ Br = G_Br.dot(dynamics.state.m_imp_to_B_pol.dot(dynamics.state.m_imp.coeffs))
 if PLOT_WIND:
     u_basis_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, pynamit.Grid(lat = u_lat, lon = u_lon))
 
-    u_theta_sh = pynamit.Vector(dynamics.state_basis, basis_evaluator = u_basis_evaluator, grid_values = u[0], type = 'scalar')
-    u_phi_sh   = pynamit.Vector(dynamics.state_basis, basis_evaluator = u_basis_evaluator, grid_values = u[1], type = 'scalar')
+    u_theta_sh = pynamit.Vector(dynamics.state_basis, basis_evaluator = u_basis_evaluator, grid_values = u_theta, type = 'scalar')
+    u_phi_sh   = pynamit.Vector(dynamics.state_basis, basis_evaluator = u_basis_evaluator, grid_values = u_phi,   type = 'scalar')
 
     u_theta_int = u_theta_sh.to_grid(dynamics.state_basis_evaluator)
     u_phi_int   = u_phi_sh.to_grid(dynamics.state_basis_evaluator)
@@ -108,7 +108,7 @@ if PLOT_WIND:
     fig, ax = plt.subplots(figsize=(10, 7),
                            subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
     ax.coastlines()
-    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u[1].flatten(), -u[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+    Q = ax.quiver(u_lon.flatten(), u_lat.flatten(), u_phi.flatten(), -u_theta.flatten(), color='blue', transform=ccrs.PlateCarree())
     ax.quiver(dynamics.state_grid.lon, dynamics.state_grid.lat, u_phi_int, -u_theta_int, color = 'red', scale = Q.scale, transform=ccrs.PlateCarree() )
 
 
