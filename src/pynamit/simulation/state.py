@@ -72,10 +72,6 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
-            self.conductance_footpoint_conjugation = np.dot(self.conductance_basis_evaluator.GTG_inv, np.dot(self.conductance_basis_evaluator.G.T, self.conductance_cp_basis_evaluator.G))
-            self.u_footpoint_conjugation = np.dot(self.u_basis_evaluator.GTG_helmholtz_inv, np.dot(self.u_basis_evaluator.G_helmholtz.T, self.u_cp_basis_evaluator.G_helmholtz))
-            self.footpoint_br_conjugation = np.dot(self.basis_evaluator.GTG_inv, np.dot(self.basis_evaluator.G.T, -(self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)) * self.cp_basis_evaluator.G))
-
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
         self.conductance  = False
@@ -204,7 +200,7 @@ class State(object):
 
             # Calculate matrices that calculates radial currents and interhemispheric currents from conjugate footpoints
             G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
-            G_jr_ih = np.dot(G_jr, self.footpoint_br_conjugation)
+            G_jr_ih = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1))
 
             # The hemispheres are connected via interhemispheric currents at low latitudes
             self.G_jr_hc = G_jr
@@ -291,9 +287,6 @@ class State(object):
 
         if self.connect_hemispheres:
             if vector_u:
-                self.u_cp = Vector(basis = self.u_basis, coeffs = np.dot(self.u_footpoint_conjugation, self.u.coeffs), type = 'tangential')
-                self.u_cp = Vector(basis = self.u_basis, coeffs = np.dot(self.u_footpoint_conjugation, self.u.coeffs), type = 'tangential')
-
                 # Represent as values on cp_grid
                 u_theta_on_cp_grid, u_phi_on_cp_grid = np.split(self.u.to_grid(self.u_cp_basis_evaluator), 2)
             else:
@@ -338,22 +331,19 @@ class State(object):
 
         if self.connect_hemispheres:
             if vector_conductance:
-                self.etaP_cp = Vector(basis = self.conductance_basis, coeffs = np.dot(self.conductance_footpoint_conjugation, self.etaP.coeffs), type = 'scalar')
-                self.etaH_cp = Vector(basis = self.conductance_basis, coeffs = np.dot(self.conductance_footpoint_conjugation, self.etaH.coeffs), type = 'scalar')
-
-                # Represent as values on grid
-                etaP_cp_on_grid = self.etaP_cp.to_grid(self.conductance_basis_evaluator)
-                etaH_cp_on_grid = self.etaH_cp.to_grid(self.conductance_basis_evaluator)
+                # Represent as values on cp_grid
+                etaP_on_cp_grid = etaP.to_grid(self.conductance_cp_basis_evaluator)
+                etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)
 
             else:
-                etaP_cp_on_grid = csp.interpolate_scalar(self.etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
-                etaH_cp_on_grid = csp.interpolate_scalar(self.etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
+                etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
+                etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
             # Resistances at low latitude grid points and at their conjugate points
             etaP_ll    = self.etaP_on_grid[self.ll_mask]
             etaH_ll    = self.etaH_on_grid[self.ll_mask]
-            etaP_cp_ll = etaP_cp_on_grid[self.ll_mask]
-            etaH_cp_ll = etaH_cp_on_grid[self.ll_mask]
+            etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
+            etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
 
             # Scale and remove 
             # Conductance-dependent constraint matrices
