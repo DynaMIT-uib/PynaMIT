@@ -56,8 +56,8 @@ interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # conver
 cs_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
 sh_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
 
-cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(dynamics.state_basis_evaluators['u'])
-sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(dynamics.state_basis_evaluators['u'])
+cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
+sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
 # Scatter plot of the interpolated wind
 fig1 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid.grid_values, 2)[0], title = 'CS interpolated u_theta')
