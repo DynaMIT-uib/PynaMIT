@@ -234,17 +234,17 @@ class Dynamics(object):
             count += 1
 
 
-    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None, weights = None):
         """
         Set the field-aligned current at the given coordinate points.
         """
 
         FAC_b_evaluator = FieldEvaluator(self.mainfield, Grid(lat = lat, lon = lon, theta = theta, phi = phi), self.RI)
 
-        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
+        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights)
 
 
-    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None, weights = None):
         """
         Specify radial current at ``self.state_grid.theta``,
         ``self.state_grid.phi``.
@@ -263,10 +263,10 @@ class Dynamics(object):
             'jr': [np.atleast_2d(jr)],
         }
 
-        self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
+        self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights)
 
 
-    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None, weights = None):
         """
         Specify Hall and Pedersen conductance at
         ``self.state_grid.theta``, ``self.state_grid.phi``.
@@ -288,10 +288,10 @@ class Dynamics(object):
         for i in range(max(input_data['etaH'][0].shape[0], 1)):
             input_data['etaH'][0][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
+        self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights)
 
 
-    def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None, weights = None):
         """ set neutral wind theta and phi components 
             For now, they *have* to be given on grid
         """
@@ -300,10 +300,10 @@ class Dynamics(object):
             'u': [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
         }
 
-        self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time)
+        self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights)
 
 
-    def set_input(self, key, input_data, lat = None, lon = None, theta = None, phi = None, time = None):
+    def set_input(self, key, input_data, lat = None, lon = None, theta = None, phi = None, time = None, weights = None):
         """ Set input. """
 
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
@@ -312,7 +312,8 @@ class Dynamics(object):
             self.input_basis_evaluators = {}
 
         if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi)):
-            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key])
+            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key], weights = weights)
+
 
         # Only needed for interpolation of tangential vectors
         if not hasattr(self.state, 'state_basis_evaluators'):
@@ -320,6 +321,7 @@ class Dynamics(object):
 
         if key not in self.state_basis_evaluators.keys():
             self.state_basis_evaluators[key] = BasisEvaluator(self.bases[key], self.state_grid, self.pinv_rtols[key])
+
 
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in range(len(input_data[var]))]):

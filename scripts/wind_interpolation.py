@@ -16,7 +16,7 @@ WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
 dataset_filename_prefix = 'aurora2'
-Nmax, Mmax, Ncs = 10, 10, 70
+Nmax, Mmax, Ncs = 30, 30, 70
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -49,7 +49,7 @@ u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatte
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 
-input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'])
+input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'], weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
 state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid, dynamics.pinv_rtols['u'])
 
 interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, dynamics.state_grid.theta, dynamics.state_grid.phi)
