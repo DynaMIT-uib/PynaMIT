@@ -16,7 +16,7 @@ WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
 dataset_filename_prefix = 'aurora2'
-Nmax, Mmax, Ncs = 30, 30, 70
+Nmax, Mmax, Ncs = 50, 50, 70
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -49,8 +49,8 @@ u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatte
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 
-input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'], weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
-state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid, dynamics.pinv_rtols['u'])
+input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
+state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid)
 
 interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, dynamics.state_grid.theta, dynamics.state_grid.phi)
 interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
@@ -58,45 +58,53 @@ interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # conver
 cs_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
 sh_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
 
-cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
-sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
+#cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
+#sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
+cs_interpolated_u_on_grid = np.hstack((u_theta, u_phi))
+sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(input_basis_evaluator)
+
+#lon = dynamics.state_grid.lon.flatten()
+#lat = dynamics.state_grid.lat.flatten()
+
+lon = u_lon.flatten()
+lat = u_lat.flatten()
 
 ## Curl free components
-cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
-sh_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(sh_interpolated_u.coeffs, 2)[0])
-
-fig3, (ax13, ax23) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-ax13.coastlines()
-ax23.coastlines()
-
-Q = ax13.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-ax23.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
-
-plt.tight_layout()
-plt.show()
-
-## Divergence free components
-cs_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(cs_interpolated_u.coeffs, 2)[1])
-sh_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(sh_interpolated_u.coeffs, 2)[1])
-
-fig4, (ax14, ax24) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-ax14.coastlines()
-ax24.coastlines()
-
-Q = ax14.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-ax24.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
-
-plt.tight_layout()
-plt.show()
+#cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
+#sh_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(sh_interpolated_u.coeffs, 2)[0])
+#
+#fig3, (ax13, ax23) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+#ax13.coastlines()
+#ax23.coastlines()
+#
+#Q = ax13.quiver(lon, lat, np.split(cs_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+#ax23.quiver(lon, lat, np.split(sh_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
+#
+#plt.tight_layout()
+#plt.show()
+#
+### Divergence free components
+#cs_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(cs_interpolated_u.coeffs, 2)[1])
+#sh_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(sh_interpolated_u.coeffs, 2)[1])
+#
+#fig4, (ax14, ax24) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+#ax14.coastlines()
+#ax24.coastlines()
+#
+#Q = ax14.quiver(lon, lat, np.split(cs_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+#ax24.quiver(lon, lat, np.split(sh_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
+#
+#plt.tight_layout()
+#plt.show()
 
 
 ## Full wind field
 fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
 ax1.coastlines()
 ax2.coastlines()
-Q = ax1.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-ax2.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
+Q = ax1.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+ax2.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
 
 plt.tight_layout()
 plt.show()
@@ -106,8 +114,8 @@ fig2, (ax12, ax22) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection
 ax12.coastlines()
 ax22.coastlines()
 
-ax12.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='blue', transform=ccrs.PlateCarree())
-ax22.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
+ax12.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='blue', transform=ccrs.PlateCarree())
+ax22.quiver(lon, lat, np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
 
 plt.tight_layout()
 
