@@ -1,6 +1,5 @@
 import numpy as np
 import pynamit
-from lompe import conductance
 import dipole
 import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
@@ -60,10 +59,10 @@ cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
 sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
 # Scatter plot of the interpolated wind
-fig1 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid.grid_values, 2)[0], title = 'CS interpolated u_theta')
-fig2 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid.grid_values, 2)[1], title = 'CS interpolated u_phi')
-fig3 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(sh_interpolated_u_on_grid.grid_values, 2)[0], title = 'SH interpolated u_theta')
-fig4 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(sh_interpolated_u_on_grid.grid_values, 2)[1], title = 'SH interpolated u_phi')
+fig1 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid, 2)[0], title = 'CS interpolated u_theta')
+fig2 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid, 2)[1], title = 'CS interpolated u_phi')
+fig3 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(sh_interpolated_u_on_grid, 2)[0], title = 'SH interpolated u_theta')
+fig4 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(sh_interpolated_u_on_grid, 2)[1], title = 'SH interpolated u_phi')
 
 
 

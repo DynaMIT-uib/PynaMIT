@@ -318,7 +318,7 @@ class Dynamics(object):
         if not hasattr(self.state, 'state_basis_evaluators'):
             self.state_basis_evaluators = {}
 
-        if not (key in self.state_basis_evaluators.keys()):
+        if key not in self.state_basis_evaluators.keys():
             self.state_basis_evaluators[key] = BasisEvaluator(self.bases[key], self.state_grid, self.pinv_rtols[key])
 
         if time is None:
