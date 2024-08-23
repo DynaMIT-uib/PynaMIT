@@ -16,7 +16,7 @@ WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
 dataset_filename_prefix = 'aurora2'
-Nmax, Mmax, Ncs = 50, 50, 50
+Nmax, Mmax, Ncs = 10, 10, 70
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -61,6 +61,37 @@ sh_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = input_
 cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
 sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
+
+## Curl free components
+cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
+sh_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(sh_interpolated_u.coeffs, 2)[0])
+
+fig3, (ax13, ax23) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+ax13.coastlines()
+ax23.coastlines()
+
+Q = ax13.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+ax23.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
+
+plt.tight_layout()
+plt.show()
+
+## Divergence free components
+cs_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(cs_interpolated_u.coeffs, 2)[1])
+sh_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(sh_interpolated_u.coeffs, 2)[1])
+
+fig4, (ax14, ax24) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+ax14.coastlines()
+ax24.coastlines()
+
+Q = ax14.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+ax24.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
+
+plt.tight_layout()
+plt.show()
+
+
+## Full wind field
 fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
 ax1.coastlines()
 ax2.coastlines()
@@ -68,9 +99,9 @@ Q = ax1.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatte
 ax2.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
 
 plt.tight_layout()
-
 plt.show()
 
+## Difference
 fig2, (ax12, ax22) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
 ax12.coastlines()
 ax22.coastlines()
