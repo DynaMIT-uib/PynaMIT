@@ -4,6 +4,9 @@ import dipole
 import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 from pynamit.cubed_sphere.cubed_sphere import csp
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+
 
 RE = 6371.2e3
 RI = RE + 110e3
@@ -18,11 +21,11 @@ rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
 
-
 date = datetime.datetime(2001, 5, 12, 17, 0)
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
+lon0 = d.mlt2mlon(12, date) # noon longitude
 
 ## SET UP SIMULATION OBJECT
 dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
@@ -58,14 +61,19 @@ sh_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = input_
 cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
 sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
-# Scatter plot of the interpolated wind
-fig1 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid, 2)[0], title = 'CS interpolated u_theta')
-fig2 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(cs_interpolated_u_on_grid, 2)[1], title = 'CS interpolated u_phi')
-fig3 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(sh_interpolated_u_on_grid, 2)[0], title = 'SH interpolated u_theta')
-fig4 = pynamit.globalplot(lon = dynamics.state_grid.lon, lat = dynamics.state_grid.lat, data = np.split(sh_interpolated_u_on_grid, 2)[1], title = 'SH interpolated u_phi')
+fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+ax1.coastlines()
+ax2.coastlines()
+Q = ax1.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+ax2.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
 
+plt.show()
 
+fig2, (ax12, ax22) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
+ax12.coastlines()
+ax22.coastlines()
 
-dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon)
+ax12.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='blue', transform=ccrs.PlateCarree())
+ax22.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
 
-
+plt.show()
