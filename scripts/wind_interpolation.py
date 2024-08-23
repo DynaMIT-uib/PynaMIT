@@ -67,6 +67,8 @@ ax2.coastlines()
 Q = ax1.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
 ax2.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
 
+plt.tight_layout()
+
 plt.show()
 
 fig2, (ax12, ax22) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
@@ -75,5 +77,7 @@ ax22.coastlines()
 
 ax12.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='blue', transform=ccrs.PlateCarree())
 ax22.quiver(dynamics.state_grid.lon.flatten(), dynamics.state_grid.lat.flatten(), np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
+
+plt.tight_layout()
 
 plt.show()
