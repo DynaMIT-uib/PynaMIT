@@ -49,8 +49,8 @@ u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatte
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 
-input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
-state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid)
+input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'], weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
+state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid, dynamics.pinv_rtols['u'])
 
 interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, dynamics.state_grid.theta, dynamics.state_grid.phi)
 interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
@@ -58,17 +58,17 @@ interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # conver
 cs_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
 sh_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
 
-#cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
-#sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
+cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
+sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
-cs_interpolated_u_on_grid = np.hstack((u_theta, u_phi))
-sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(input_basis_evaluator)
+#cs_interpolated_u_on_grid = np.hstack((u_theta, u_phi))
+#sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(input_basis_evaluator)
 
-#lon = dynamics.state_grid.lon.flatten()
-#lat = dynamics.state_grid.lat.flatten()
+lon = dynamics.state_grid.lon.flatten()
+lat = dynamics.state_grid.lat.flatten()
 
-lon = u_lon.flatten()
-lat = u_lat.flatten()
+#lon = u_lon.flatten()
+#lat = u_lat.flatten()
 
 ## Curl free components
 #cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
