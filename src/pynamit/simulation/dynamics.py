@@ -112,8 +112,8 @@ class Dynamics(object):
         self.pinv_rtols = {
             'state':       1e-15,
             'jr':          1e-15,
-            'conductance': 1e-2,
-            'u':           1e-2,
+            'conductance': 1e-15,
+            'u':           1e-15,
         }
 
         self.vector_storage = {

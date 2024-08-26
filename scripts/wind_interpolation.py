@@ -49,7 +49,7 @@ u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatte
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 
-input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'], weights = np.sin(np.deg2rad(90 - u_lat.flatten())), reg_lambda = 1.0)
+input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'], reg_lambda = 70.0) #weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
 state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid, dynamics.pinv_rtols['u'])
 
 interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, dynamics.state_grid.theta, dynamics.state_grid.phi)
