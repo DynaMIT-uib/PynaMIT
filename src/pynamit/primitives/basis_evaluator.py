@@ -11,11 +11,12 @@ class BasisEvaluator(object):
 
     """
     
-    def __init__(self, basis, grid, pinv_rtol = 1e-15, weights = None):
+    def __init__(self, basis, grid, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
         self.basis = basis
         self.grid = grid
         self.pinv_rtol = pinv_rtol
         self.weights = weights
+        self.reg_lambda = reg_lambda
 
     @property
     def G(self):
@@ -51,6 +52,18 @@ class BasisEvaluator(object):
         return self._GTW
 
     @property
+    def GTWG(self):
+        """
+        Return the matrix ``G^T W G``.
+
+        """
+
+        if not hasattr(self, '_GTWG'):
+            self._GTWG = np.dot(self.GTW, self.G)
+
+        return self._GTWG
+
+    @property
     def GTW_helmholtz(self):
         """
         Return the matrix ``G^T W`` for the Helmholtz decomposition into the
@@ -65,6 +78,19 @@ class BasisEvaluator(object):
                 self._GTW_helmholtz = self.G_helmholtz.T
 
         return self._GTW_helmholtz
+
+    @property
+    def GTWG_helmholtz(self):
+        """
+        Return the matrix ``G^T W G`` for the Helmholtz decomposition into the
+        curl-free and divergence-free components of a vector.
+
+        """
+
+        if not hasattr(self, '_GTWG_helmholtz'):
+            self._GTWG_helmholtz = np.dot(self.GTW_helmholtz, self.G_helmholtz)
+
+        return self._GTWG_helmholtz
     
     @property
     def G_inv(self):
@@ -136,7 +162,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_inv'):
-            self._GTWG_inv = pinv_positive_semidefinite(np.dot(self.GTW, self.G), rtol = self.pinv_rtol)
+            self._GTWG_inv = pinv_positive_semidefinite(self.GTWG, rtol = self.pinv_rtol)
 
         return self._GTWG_inv
 
@@ -149,7 +175,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz_inv'):
-            self._GTWG_helmholtz_inv = pinv_positive_semidefinite(np.dot(self.GTW_helmholtz, self.G_helmholtz), rtol = self.pinv_rtol)
+            self._GTWG_helmholtz_inv = pinv_positive_semidefinite(self.GTWG_helmholtz, rtol = self.pinv_rtol)
 
         return self._GTWG_helmholtz_inv
 
@@ -270,9 +296,18 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            return np.dot(self.GTWG_helmholtz_inv, np.dot(self.GTW_helmholtz, grid_values))
+            if self.reg_lambda is not None:
+                #reg_L = np.diag(self.basis.laplacian(), 2)
+                reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
+                return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * reg_L, np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
+            else:
+                return np.dot(self.GTWG_helmholtz_inv, np.dot(self.GTW_helmholtz, grid_values))
         else:
-            return np.dot(self.GTWG_inv, np.dot(self.GTW, grid_values))
+            if self.reg_lambda is not None:
+                reg_L = np.diag(np.ones(self.basis.index_length))
+                return np.linalg.lstsq(self.GTWG + self.reg_lambda * reg_L, np.dot(self.GTW, grid_values), rcond = self.pinv_rtol)[0]
+            else:
+                return np.dot(self.GTWG_inv, np.dot(self.GTW, grid_values))
     
     def to_other_basis(self, this_coeffs, other_coeffs):
         """
