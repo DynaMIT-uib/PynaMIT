@@ -7,14 +7,15 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
 PLOT = True
-PLOT_CF_DF_DIFF = False
+PROJECTED_CS = True
+MAX_NMAX_MMAX = 30
 
 rtol = 1e-15
 Ncs = 70
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
 d = dipole.Dipole(date.year)
-noon_mlon = d.mlt2mlon(12, date) # noon longitude
+nooNmax_Mmaxlon = d.mlt2mlon(12, date) # noon longitude
 
 ## WIND INPUT
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
@@ -34,60 +35,86 @@ interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # conver
 lon = csp_grid.lon.flatten()
 lat = csp_grid.lat.flatten()
 
-relative_errors = []
+relative_grid_errors = []
+if PROJECTED_CS:
+    relative_coeff_errors = []
 
-for Nmax_Mmax in range(1, 30):
+
+for Nmax_Mmax in range(1, MAX_NMAX_MMAX + 1):
     sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
     input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
     state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol)
 
-    cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
     sh_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
+    sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
+
+    if PROJECTED_CS:
+        cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
+        cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
+    else:
+        cs_interpolated_u_on_grid = interpolated_data
 
     if PLOT:
-        ## Evaluate full wind field on cubed sphere grid
-        cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
-        sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
+        ## Prepare for plotting
+        grid_fig, (grid_cs_ax, grid_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = nooNmax_Mmaxlon)})
+        grid_cs_ax.coastlines()
+        grid_sh_ax.coastlines()
 
-        ## Plot full wind field
-        full_fig, (full_cs_ax, full_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = noon_mlon)})
-        full_cs_ax.coastlines()
-        full_sh_ax.coastlines()
+        grid_cs_ax.title.set_text("Cubed sphere")
+        grid_sh_ax.set_title("Spherical harmonics")
 
-        cs_quiver = full_cs_ax.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-        full_sh_ax.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
+        # Plot grid wind field
+        cs_quiver = grid_cs_ax.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+        grid_sh_ax.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
 
-        full_cs_ax.title.set_text("Cubed Sphere")
-        full_sh_ax.set_title("Spherical Harmonics")
         plt.show()
 
-        if PLOT_CF_DF_DIFF:
-            cf_df_diff_fig, (cf_diff_ax, df_diff_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = noon_mlon)})
-            cf_diff_ax.coastlines()
-            df_diff_ax.coastlines()
+        if PROJECTED_CS:
+            coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5))
+            abs_coeff_cs = np.abs(cs_interpolated_u.coeffs)
+            abs_coeff_sh = np.abs(sh_interpolated_u.coeffs)
 
-            cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
-            sh_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(sh_interpolated_u.coeffs, 2)[0])
+            coeff_cs_ax.plot(np.split(abs_coeff_cs, 2)[0], label = "CF")
+            coeff_cs_ax.plot(np.split(abs_coeff_cs, 2)[1], label = "DF")
+            coeff_sh_ax.plot(np.split(abs_coeff_sh, 2)[0], label = "CF")
+            coeff_sh_ax.plot(np.split(abs_coeff_sh, 2)[1], label = "DF")
 
-            cs_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(cs_interpolated_u.coeffs, 2)[1])
-            sh_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(sh_interpolated_u.coeffs, 2)[1])
+            coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
+            coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
 
-            u_min_grad_on_grid_diff = cs_interpolated_u_min_grad_on_grid - sh_interpolated_u_min_grad_on_grid
-            u_rxgrad_on_grid_diff = cs_interpolated_u_rxgrad_on_grid - sh_interpolated_u_rxgrad_on_grid
+            min_coeff = min(np.min(abs_coeff_cs), np.min(abs_coeff_sh))
+            max_coeff = max(np.max(abs_coeff_cs), np.max(abs_coeff_sh))
+            coeff_cs_ax.set_ylim(min_coeff*0.75, max_coeff*1.25)
+            coeff_sh_ax.set_ylim(min_coeff*0.75, max_coeff*1.25)
 
-            cf_diff_ax.quiver(lon, lat, np.split(u_min_grad_on_grid_diff, 2)[1].flatten(), -np.split(u_min_grad_on_grid_diff, 2)[0].flatten(), color='blue', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
-            df_diff_ax.quiver(lon, lat, np.split(u_rxgrad_on_grid_diff, 2)[1].flatten(), -np.split(u_rxgrad_on_grid_diff, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
+            coeff_cs_ax.legend()
+            coeff_sh_ax.legend()
 
-            cf_diff_ax.title.set_text("Curl Free Difference")
-            df_diff_ax.set_title("Divergence Free Difference")
-
+            coeff_cs_ax.set_yscale("log")
+            coeff_sh_ax.set_yscale("log")
             plt.show()
 
-    relative_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
-    print("Finished interpolation with Nmax = %d, Mmax = %d, relative error = %e" % (Nmax_Mmax, Nmax_Mmax, relative_errors[-1]))
+    relative_grid_errors.append(np.linalg.norm(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid)/np.linalg.norm(cs_interpolated_u_on_grid))
+    if PROJECTED_CS:
+        relative_coeff_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
+
+    if PROJECTED_CS:
+        print("Finished interpolation with Nmax = %d, Mmax = %d, relative grid error = %e, relative coefficient error = %e" % (Nmax_Mmax, Nmax_Mmax, relative_grid_errors[-1], relative_coeff_errors[-1]))
+    else:
+        print("Finished interpolation with Nmax = %d, Mmax = %d, relative grid error = %e" % (Nmax_Mmax, Nmax_Mmax, relative_grid_errors[-1]))
 
 # Plot errors
-plt.plot(relative_errors)
+plt.plot(relative_grid_errors, label = "Grid values")
+plt.yscale("log")
 plt.xlabel("Nmax = Mmax")
 plt.ylabel("Error (relative to CS interpolation)")
+
+if PROJECTED_CS:
+    plt.plot(relative_coeff_errors, label = "Coefficients")
+    plt.yscale("log")
+    plt.xlabel("Nmax = Mmax")
+    plt.ylabel("Error (relative to CS interpolation)")
+
+plt.legend()
+
 plt.show()
