@@ -7,116 +7,88 @@ from pynamit.cubed_sphere.cubed_sphere import csp
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
+PLOT = True
+PLOT_CF_DF_DIFF = False
 
-RE = 6371.2e3
-RI = RE + 110e3
-latitude_boundary = 40
-
-WIND_FACTOR = 1 # scale wind by this factor
-FLOAT_ERROR_MARGIN = 1e-6
-
-dataset_filename_prefix = 'aurora2'
-Nmax, Mmax, Ncs = 50, 50, 70
-rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
-print(len(rk))
-
+rtol = 1e-15
+Ncs = 70
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
 d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
-lon0 = d.mlt2mlon(12, date) # noon longitude
-
-## SET UP SIMULATION OBJECT
-dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
-                            Nmax = Nmax,
-                            Mmax = Mmax,
-                            Ncs = Ncs,
-                            RI = RI,
-                            mainfield_kind = 'igrf',
-                            FAC_integration_steps = rk,
-                            ignore_PFAC = True,
-                            connect_hemispheres = False,
-                            latitude_boundary = latitude_boundary,
-                            ih_constraint_scaling = 1e-5,
-                            t0 = str(date))
 
 ## WIND INPUT
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
                              glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
-u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
+u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 
-input_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], u_grid, dynamics.pinv_rtols['u'], reg_lambda = 70.0) #weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
-state_basis_evaluator = pynamit.BasisEvaluator(dynamics.bases['u'], dynamics.state_grid, dynamics.pinv_rtols['u'])
+## CS PROJECTION
+csp = pynamit.CSProjection(Ncs)
+csp_grid = pynamit.Grid(theta = csp.arr_theta, phi = csp.arr_phi)
 
-interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, dynamics.state_grid.theta, dynamics.state_grid.phi)
+interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, csp_grid.theta, csp_grid.phi)
 interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
 
-cs_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
-sh_interpolated_u = pynamit.Vector(dynamics.bases['u'], basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
+lon = csp_grid.lon.flatten()
+lat = csp_grid.lat.flatten()
 
-cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
-sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
+relative_errors = []
 
-#cs_interpolated_u_on_grid = np.hstack((u_theta, u_phi))
-#sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(input_basis_evaluator)
+for Nmax_Mmax in range(1, 30):
+    sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
+    input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
+    state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol)
 
-lon = dynamics.state_grid.lon.flatten()
-lat = dynamics.state_grid.lat.flatten()
+    cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
+    sh_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
 
-#lon = u_lon.flatten()
-#lat = u_lat.flatten()
+    if PLOT:
+        ## Evaluate full wind field on cubed sphere grid
+        cs_interpolated_u_on_grid = cs_interpolated_u.to_grid(state_basis_evaluator)
+        sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
 
-## Curl free components
-#cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
-#sh_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(sh_interpolated_u.coeffs, 2)[0])
-#
-#fig3, (ax13, ax23) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-#ax13.coastlines()
-#ax23.coastlines()
-#
-#Q = ax13.quiver(lon, lat, np.split(cs_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-#ax23.quiver(lon, lat, np.split(sh_interpolated_u_min_grad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_min_grad_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
-#
-#plt.tight_layout()
-#plt.show()
-#
-### Divergence free components
-#cs_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(cs_interpolated_u.coeffs, 2)[1])
-#sh_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(sh_interpolated_u.coeffs, 2)[1])
-#
-#fig4, (ax14, ax24) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-#ax14.coastlines()
-#ax24.coastlines()
-#
-#Q = ax14.quiver(lon, lat, np.split(cs_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-#ax24.quiver(lon, lat, np.split(sh_interpolated_u_rxgrad_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_rxgrad_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
-#
-#plt.tight_layout()
-#plt.show()
+        ## Plot full wind field
+        full_fig, (full_cs_ax, full_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = noon_mlon)})
+        full_cs_ax.coastlines()
+        full_sh_ax.coastlines()
 
+        cs_quiver = full_cs_ax.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+        full_sh_ax.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
 
-## Full wind field
-fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-ax1.coastlines()
-ax2.coastlines()
-Q = ax1.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-ax2.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = Q.scale, transform=ccrs.PlateCarree())
+        full_cs_ax.title.set_text("Cubed Sphere")
+        full_sh_ax.set_title("Spherical Harmonics")
+        plt.show()
 
-plt.tight_layout()
-plt.show()
+        if PLOT_CF_DF_DIFF:
+            cf_df_diff_fig, (cf_diff_ax, df_diff_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = noon_mlon)})
+            cf_diff_ax.coastlines()
+            df_diff_ax.coastlines()
 
-## Difference
-fig2, (ax12, ax22) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = lon0)})
-ax12.coastlines()
-ax22.coastlines()
+            cs_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(cs_interpolated_u.coeffs, 2)[0])
+            sh_interpolated_u_min_grad_on_grid = -state_basis_evaluator.G_grad.dot(np.split(sh_interpolated_u.coeffs, 2)[0])
 
-ax12.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='blue', transform=ccrs.PlateCarree())
-ax22.quiver(lon, lat, np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid, 2)[0].flatten(), scale = Q.scale, color='red', transform=ccrs.PlateCarree())
+            cs_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(cs_interpolated_u.coeffs, 2)[1])
+            sh_interpolated_u_rxgrad_on_grid   = state_basis_evaluator.G_rxgrad.dot(np.split(sh_interpolated_u.coeffs, 2)[1])
 
-plt.tight_layout()
+            u_min_grad_on_grid_diff = cs_interpolated_u_min_grad_on_grid - sh_interpolated_u_min_grad_on_grid
+            u_rxgrad_on_grid_diff = cs_interpolated_u_rxgrad_on_grid - sh_interpolated_u_rxgrad_on_grid
 
+            cf_diff_ax.quiver(lon, lat, np.split(u_min_grad_on_grid_diff, 2)[1].flatten(), -np.split(u_min_grad_on_grid_diff, 2)[0].flatten(), color='blue', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
+            df_diff_ax.quiver(lon, lat, np.split(u_rxgrad_on_grid_diff, 2)[1].flatten(), -np.split(u_rxgrad_on_grid_diff, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
+
+            cf_diff_ax.title.set_text("Curl Free Difference")
+            df_diff_ax.set_title("Divergence Free Difference")
+
+            plt.show()
+
+    relative_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
+    print("Finished interpolation with Nmax = %d, Mmax = %d, relative error = %e" % (Nmax_Mmax, Nmax_Mmax, relative_errors[-1]))
+
+# Plot errors
+plt.plot(relative_errors)
+plt.xlabel("Nmax = Mmax")
+plt.ylabel("Error (relative to CS interpolation)")
 plt.show()
