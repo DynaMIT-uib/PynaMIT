@@ -3,7 +3,6 @@ import pynamit
 import dipole
 import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
-from pynamit.cubed_sphere.cubed_sphere import csp
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
