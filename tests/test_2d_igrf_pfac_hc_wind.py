@@ -8,9 +8,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind():
     # Arrange
-    expected_coeff_norm = 4.387971309942574e-10
-    expected_coeff_max = 2.5676649674055196e-11
-    expected_coeff_min = -1.9246355279434585e-11
+    expected_coeff_norm = 4.223430340032234e-10
+    expected_coeff_max = 1.7222179909543226e-11
+    expected_coeff_min = -2.339773548351343e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -33,7 +33,7 @@ def test_2d_igrf_pfac_hc_wind():
                            ignore_PFAC = False,
                            connect_hemispheres = True,
                            latitude_boundary = 50,
-                           wind_directory = temp_dir)
+                           wind = True)
 
     # Assert
     coeff_array = dynamics.timeseries['state']['SH_m_ind'].values

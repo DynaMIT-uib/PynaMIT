@@ -1,4 +1,4 @@
-def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, wind_directory = None, vector_jr = True, vector_conductance = True, vector_u = True):
+def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, wind = False, vector_jr = True, vector_conductance = True, vector_u = True):
     """ Run the pynamit simulation with the given parameters. """
 
     import os
@@ -8,12 +8,10 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     from lompe import conductance
     import dipole
     import pyamps
-    #import pyhwm2014 # https://github.com/rilma/pyHWM14
+    import pyhwm2014 # https://github.com/rilma/pyHWM14
 
     from pynamit.simulation.dynamics import Dynamics
     from pynamit.various.constants import RE
-
-    WIND_FACTOR = 1
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
@@ -49,17 +47,11 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
     ## WIND INPUT
-    if (wind_directory is not None) and os.path.exists(wind_directory):
-        #hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3.,
-        #                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
-        #u_phi   =  hwm14Obj.Uwind
-        #u_theta = -hwm14Obj.Vwind
-        #u = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
-        #u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
-
-        u_lat, u_lon, u_phi, u_theta = np.load(os.path.join(wind_directory, 'ulat.npy')), np.load(os.path.join(wind_directory, 'ulon.npy')), np.load(os.path.join(wind_directory, 'uphi.npy')), np.load(os.path.join(wind_directory, 'utheta.npy'))
-        u_theta, u_phi = (u_theta.flatten() * WIND_FACTOR, u_phi.flatten() * WIND_FACTOR)
-        u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
+    if wind:
+        hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glatstp = 1.5,
+                                     glonlim=[-180., 180.], glonstp = 3., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
+        u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
+        u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
         dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
 
