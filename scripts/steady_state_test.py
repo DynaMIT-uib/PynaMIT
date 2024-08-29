@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import datetime
 import pyamps
 import apexpy
-import scipy.sparse as sp
 
 dataset_filename_prefix = 'ss_test'
 Nmax, Mmax, Ncs = 15, 15, 16
