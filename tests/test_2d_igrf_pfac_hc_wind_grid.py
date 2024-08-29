@@ -1,7 +1,6 @@
 import os
 import tempfile
 import pytest
-import shutil
 
 from pynamit.default_run import run_pynamit
 import numpy as np
