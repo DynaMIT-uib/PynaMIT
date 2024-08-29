@@ -566,9 +566,6 @@ class Dynamics(object):
 
         """
         
-        GVJ = self.state.G_m_ind_to_JS
-        GTJ = self.state.G_m_imp_to_JS
-
         br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
         eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
         C00 = sp.diags(eP * (bp**2 + br**2))
@@ -577,20 +574,47 @@ class Dynamics(object):
         C11 = sp.diags(eP * (bt**2 + br**2))
         C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
 
-
-
         uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
-        #GcCGVJ = self.sh_curl_matrix.dot(C).dot(GVJ)
-        #GcCGTJ = self.sh_curl_matrix.dot(C).dot(GTJ)
 
         if m_imp is None:
             m_imp = self.state.m_imp.coeffs
 
-        self.C = C
-        self.GVJ = GVJ
-        self.GTJ = GTJ
-        self.uxb = uxb
+        C = C
+        G_ind = self.state.G_m_ind_to_JS
+        G_imp = self.state.G_m_imp_to_JS
+
+        Gc    = self.sh_curl_matrix # curl matrix
+        Gcinv = np.linalg.pinv(Gc)      # inverse of curl matrix
+
+
+        Cind = C .dot(G_ind)
+        X    = Gc.dot(Cind)
+        Xinv = np.linalg.pinv(X)
+
+        Cimp = C .dot(G_imp)
+        Z    = Gc.dot(Cimp)
+        mv   = Xinv.dot(Gc.dot(uxb) - Z.dot(m_imp))
+
+        return(mv)
+
+
+
+        """
+        Gc = self.sh_curl_matrix
+        GVJinv = np.linalg.pinv(GVJ)
+        Cinv   = sp.linalg.inv(C)
+        Gcinv  = np.linalg.pinv(Gc)
+
+        XT_ = C .dot(GTJ)
+        XT  = Gc.dot(XT_ )
+
+
+
+        mv = Xinv.dot(Gc.dot(uxb) - XT.dot(m_imp))
+        """
+
+
         #m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.sh_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
 
         #return(m_ind_ss)
