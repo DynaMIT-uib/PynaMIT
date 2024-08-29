@@ -22,8 +22,9 @@ RUN wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/lat
 RUN mamba update -y -c conda-forge mamba
 
 # Create PynaMIT environment
-# Python 3.11 is used to avoid a bug in pip encountered during Python 3.12 installation of the Lompe dependency apexpy
-RUN mamba create -y -n pynamit-env pip numpy scipy pandas matplotlib cartopy pytest python-build python=3.11 && \
+# Python <3.12 is used to avoid a bug in pip encountered during Python 3.12 installation of the Lompe dependency apexpy
+# Python 3.10 is used for compatibility with pyHWM14
+RUN mamba create -y -n pynamit-env pip numpy scipy pandas matplotlib cartopy pytest python-build python=3.10 && \
     echo "mamba activate pynamit-env" >> /etc/profile.d/activate_env.sh
 
 # Install the Lompe dependency apexpy after removing -lquadmath flag (incompatible with aarch64)
