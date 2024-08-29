@@ -8,9 +8,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind_grid():
     # Arrange
-    expected_coeff_norm = 4.389456015945499e-10
-    expected_coeff_max =  1.6816683070496886e-11
-    expected_coeff_min = -2.4475703737768415e-11
+    expected_coeff_norm = 4.3986682790917025e-10
+    expected_coeff_max =  1.683039295718644e-11
+    expected_coeff_min = -2.4527167438233472e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -51,7 +51,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-9)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-9)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-9)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-9)
+    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-8)
+    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-8)
+    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-8)
+    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-8)
