@@ -2,13 +2,13 @@ import numpy as np
 import pynamit
 from lompe import conductance
 import dipole
-#import pyhwm2014 # https://github.com/rilma/pyHWM14
+import matplotlib.pyplot as plt
 import datetime
 import pyamps
 import apexpy
 import scipy.sparse as sp
 
-dataset_filename_prefix = 'ss_test4'
+dataset_filename_prefix = 'ss_test'
 Nmax, Mmax, Ncs = 15, 15, 16
 latitude_boundary = 40
 RE = 6371.2e3
@@ -55,93 +55,18 @@ jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
 dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
 ## WIND INPUT
-#hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
-#                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
-
-#u_phi   =  hwm14Obj.Uwind
-#u_theta = -hwm14Obj.Vwind
-#u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
 u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
 dynamics.set_u(u_theta = u_theta.flatten(), u_phi = u_phi.flatten(), lat = u_lat, lon = u_lon, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
 
 dynamics.evolve_to_time(100)
-#dynamics.input_selection('u')
-#dynamics.input_selection('conductance')
 
-m_ind_ss = dynamics.steady_state_m_ind()
-
-Gc = dynamics.sh_curl_matrix
-C = dynamics.C
-GVJ, GTJ = dynamics.GVJ, dynamics.GTJ
-uxb = dynamics.uxb
+mv = dynamics.steady_state_m_ind()
 
 
-GVJinv = np.linalg.pinv(GVJ)
-Cinv   = sp.linalg.inv(C)
-Gcinv  = np.linalg.pinv(Gc)
-#Xinv_  = Cinv.dot(Gcinv)
-#Xinv   = GVJinv.dot(Xinv_)
+fig, ax = plt.subplots()
+ax.plot(mv)
+ax.plot(dynamics.timeseries['state'].SH_m_ind.values[-1, :])
+plt.show()
 
-m_imp = dynamics.state.m_imp.coeffs
-X_ = C .dot(GVJ)
-X  = Gc.dot(X_ )
-Xinv = np.linalg.pinv(X)
-
-XT_ = C .dot(GTJ)
-XT  = Gc.dot(XT_ )
-mv = Xinv.dot(Gc.dot(uxb) - XT.dot(m_imp))
-
-print(3/0)
-
-# numerical curl:
-#Dc = dynamics.get_finite_difference_curl_matrix()
-#E = np.atleast_2d(np.hstack((dynamics.state.get_E()))).T
-#curl_E_num = Dc.dot(E)
-
-# SH curl
-#curlE_SH_coeffs = -dynamics.state.W.coeffs * dynamics.state.W_to_dBr_dt
-
-#curl_E_SH = dynamics.state_basis_evaluator.basis_to_grid(curlE_SH_coeffs)
-
-#GVJ = dynamics.state.G_m_ind_to_JS
-#GTJ = dynamics.state.G_m_imp_to_JS
-
-#import scipy.sparse as sp
-#br, bt, bp = dynamics.state.b_evaluator.br, dynamics.state.b_evaluator.btheta, dynamics.state.b_evaluator.bphi
-eP, eH = dynamics.state.etaP_on_grid, dynamics.state.etaH_on_grid
-#C00 = sp.diags(eP * (bp**2 + br**2))
-#C01 = sp.diags(eP * (-bt * bp) + eH * br)
-#C10 = sp.diags(eP * (-bt * bp) - eH * br)
-#C11 = sp.diags(eP * (bt**2 + br**2))
-#C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
-#
-#uxb = np.hstack((dynamics.state.uxB_theta, dynamics.state.uxB_phi))
-#
-#GcCGVJ = Dc.dot(C).dot(GVJ)
-#GcCGTJ = Dc.dot(C).dot(GTJ)
-#
-#import xarray as xr
-#m_imp = xr.load_dataset(dataset_filename_prefix).SH_m_imp.values[0]
-#m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(Dc.dot(uxb) - GcCGTJ.dot(m_imp))
-
-# calculate electric field with steady-state coefficients:
-Js_ind, Je_ind = np.split(dynamics.state.G_m_ind_to_JS.dot(m_ind_ss), 2, axis = 0)
-Js_imp, Je_imp = np.split(dynamics.state.G_m_imp_to_JS.dot(dynamics.state.m_imp.coeffs), 2, axis = 0)
-Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
-Eth = eP * (dynamics.state.b00 * Jth + dynamics.state.b01 * Jph) + eH * ( dynamics.state.b_evaluator.br * Jph)
-Eph = eP * (dynamics.state.b10 * Jth + dynamics.state.b11 * Jph) + eH * (-dynamics.state.b_evaluator.br * Jth)
-Eth -= dynamics.state.uxB_theta
-Eph -= dynamics.state.uxB_phi
-
-E_cf_coeff, E_df_coeff = np.split(dynamics.state.basis_evaluator.grid_to_basis(np.hstack((Eth, Eph)), helmholtz = True), 2)
-
-
-
-#import matplotlib.pyplot as plt
-#fig, axes = plt.subplots(nrows = 2)
-#axes[0].scatter(dynamics.state_grid.lon, dynamics.state_grid.lat, c = curl_E_num)
-#axes[1].scatter(dynamics.state_grid.lon, dynamics.state_grid.lat, c = curl_E_SH)
-#plt.show()
-#
 
