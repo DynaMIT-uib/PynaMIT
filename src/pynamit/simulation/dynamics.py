@@ -335,7 +335,7 @@ class Dynamics(object):
                     if self.vars[key][var] == 'scalar':
                         interpolated_data = csp.interpolate_scalar(input_data[var][0][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                     elif self.vars[key][var] == 'tangential':
-                        interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var][1], -input_data[var][0][time_index], np.zeros_like(input_data[var][1][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
+                        interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var][1][time_index], -input_data[var][0][time_index], np.zeros_like(input_data[var][1][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
                         interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
 
                     processed_data['GRID_' + var] = (['time', 'i'], interpolated_data.reshape((1, -1)))
