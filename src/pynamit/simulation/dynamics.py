@@ -585,8 +585,6 @@ class Dynamics(object):
         G_imp = self.state.G_m_imp_to_JS
 
         Gc    = self.sh_curl_matrix # curl matrix
-        Gcinv = np.linalg.pinv(Gc)      # inverse of curl matrix
-
 
         Cind = C .dot(G_ind)
         X    = Gc.dot(Cind)
