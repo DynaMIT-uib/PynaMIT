@@ -597,22 +597,3 @@ class Dynamics(object):
         return(mv)
 
 
-
-        """
-        Gc = self.sh_curl_matrix
-        GVJinv = np.linalg.pinv(GVJ)
-        Cinv   = sp.linalg.inv(C)
-        Gcinv  = np.linalg.pinv(Gc)
-
-        XT_ = C .dot(GTJ)
-        XT  = Gc.dot(XT_ )
-
-
-
-        mv = Xinv.dot(Gc.dot(uxb) - XT.dot(m_imp))
-        """
-
-
-        #m_ind_ss = np.linalg.pinv(GcCGVJ, rcond = 0).dot(self.sh_curl_matrix.dot(uxb) - GcCGTJ.dot(m_imp))
-
-        #return(m_ind_ss)
