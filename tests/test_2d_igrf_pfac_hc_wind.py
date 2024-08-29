@@ -17,11 +17,6 @@ def test_2d_igrf_pfac_hc_wind():
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
 
-    input_dir = os.path.join(os.path.dirname(__file__), 'input')
-    input_files = ['ulat.npy', 'ulon.npy', 'uphi.npy', 'utheta.npy'] # wind files
-    for file in input_files:
-        shutil.copyfile(os.path.join(input_dir, file), os.path.join(temp_dir, file))        
-
     # Act
     dynamics = run_pynamit(final_time = 0.1,
                            dt = 5e-4,
