@@ -106,7 +106,7 @@ plt.tight_layout()
 
 
 
-ax.text(1.  * RE, 1.  * RE, '$\\mathbf{B}\\cdot\\nabla\\times\\mathbf{B} = 0$\n$\\mathbf{E} + \\mathbf{v}\\times \\mathbf{B} = 0$\n$\\mathbf{B} = -\\nabla V^i + \\mathbf{P} + \\mathbf{r}\\times\\nabla T$', ha = 'center', va = 'center', size = textsize, bbox=dict(facecolor='white', edgecolor='none', pad = 0, alpha = .5))
+ax.text(1.  * RE, 1.  * RE, '$\\mathbf{B}\\times\\nabla\\times\\mathbf{B} = 0$\n$\\mathbf{E} + \\mathbf{v}\\times \\mathbf{B} = 0$\n$\\mathbf{B} = -\\nabla V^i + \\mathbf{P} + \\mathbf{r}\\times\\nabla T$', ha = 'center', va = 'center', size = textsize, bbox=dict(facecolor='white', edgecolor='none', pad = 0, alpha = .5))
 ax.text( .5 * RE,  .5 * RE, '$\\nabla\\times\\mathbf{B} = 0$\n$\\mathbf{B} = -\\nabla V^e$', ha = 'center', va = 'center', size = textsize)
 ax.text(RI / np.sqrt(2), RI / np.sqrt(2), '$r = R$', rotation = -45, ha = 'center', va = 'center', size = textsize, bbox=dict(facecolor='white', edgecolor='none', pad = 0))
 #ax.text(.5 * RE, .5 * RE, '$r < R$\n$\\mathbf{B}\\cdot\\nabla\\times\\mathbf{B} = 0$\n$\\mathbf{E} + \\mathbf{v}\\times \\mathbf{B} = 0$', ha = 'left', va = 'center', size = textsize, bbox=dict(facecolor='white', edgecolor='none', pad = 0))
