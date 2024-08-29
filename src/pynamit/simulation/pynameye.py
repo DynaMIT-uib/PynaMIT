@@ -170,7 +170,7 @@ class PynamEye(object):
         """ Define default settings for various plots """
         self.Br_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
         self.eqJ_defaults = {'colors':'black',  'levels':np.r_[-210:220:20] * 1e3}
-        self.jr_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22)/6 * 1e-6, 'extend':'both'}
+        self.jr_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
         self.Phi_defaults = {'colors':'black',  'levels':np.r_[-212.5:220:5] * 1e3}
         self.W_defaults   = {'colors':'orange', 'levels':self.Phi_defaults['levels']}
 
