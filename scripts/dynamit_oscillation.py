@@ -12,6 +12,7 @@ RI = RE + 110e3
 latitude_boundary = 40
 
 STEADY_STATE_INITIALIZATION = True
+STEADY_STATE_ITERATIONS = 1
 
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
@@ -89,10 +90,15 @@ if STEADY_STATE_INITIALIZATION:
 
     dynamics.state.impose_constraints()
 
-    print('Calculating steady state', flush = True)
-    mv = dynamics.steady_state_m_ind()
-    print('Setting steady state', flush = True)
-    dynamics.state.set_coeffs(m_ind = mv)
+    for iteration in range(STEADY_STATE_ITERATIONS):
+        print('Calculating steady state', flush = True)
+        mv = dynamics.steady_state_m_ind()
+    
+        print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
+        print('Setting steady state', flush = True)
+        dynamics.state.set_coeffs(m_ind = mv)
+
+        dynamics.state.impose_constraints()
 
 # Create array that will store all jr values
 time_values = np.arange(0, final_time + jr_sampling_dt - FLOAT_ERROR_MARGIN, jr_sampling_dt, dtype = np.float64)
@@ -107,7 +113,7 @@ for time_index in range(time_values.size):
         # sinusoidal variation of jr
         scaled_jr = jr * (1 + 0.5 * np.sin(2 * np.pi * (time_values[time_index] - relaxation_time) / jr_period))
     scaled_jr_values[time_index] = scaled_jr
-    print('Interpolated jr at t =', time_values[time_index], flush = True)
+    #print('Interpolated jr at t =', time_values[time_index], flush = True)
 
 print('Setting jr', flush = True)
 dynamics.set_jr(jr = scaled_jr_values, lat = jr_lat, lon = jr_lon, time = time_values)
