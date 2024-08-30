@@ -92,7 +92,7 @@ if STEADY_STATE_INITIALIZATION:
 
     for iteration in range(STEADY_STATE_ITERATIONS):
         print('Calculating steady state', flush = True)
-        mv = dynamics.steady_state_m_ind()
+        mv = dynamics.steady_state_m_ind(m_imp = dynamics.state.m_imp.coeffs)
     
         print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
         print('Setting steady state', flush = True)
