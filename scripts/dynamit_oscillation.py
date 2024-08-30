@@ -11,11 +11,13 @@ RE = 6371.2e3
 RI = RE + 110e3
 latitude_boundary = 40
 
+STEADY_STATE_INITIALIZATION = True
+
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
 dataset_filename_prefix = 'aurora2'
-Nmax, Mmax, Ncs = 20, 20, 20
+Nmax, Mmax, Ncs = 10, 10, 10
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
 
@@ -75,11 +77,27 @@ final_time = 600.
 jr_sampling_dt = 0.5
 jr_period = 20.
 
+if STEADY_STATE_INITIALIZATION:
+    dynamics.set_jr(jr = jr, lat = jr_lat, lon = jr_lon)
+
+    timeseries_keys = list(dynamics.timeseries.keys())
+    if 'state' in timeseries_keys:
+        timeseries_keys.remove('state')
+    if timeseries_keys is not None:
+        for key in timeseries_keys:
+            dynamics.select_timeseries_data(key, interpolation = False)
+
+    dynamics.state.impose_constraints()
+
+    print('Calculating steady state', flush = True)
+    mv = dynamics.steady_state_m_ind()
+    print('Setting steady state', flush = True)
+    dynamics.state.set_coeffs(m_ind = mv)
+
 # Create array that will store all jr values
 time_values = np.arange(0, final_time + jr_sampling_dt - FLOAT_ERROR_MARGIN, jr_sampling_dt, dtype = np.float64)
 print('size of time_values:', time_values.size)
 scaled_jr_values = np.zeros((time_values.size, jr.size), dtype = np.float64)
-
 
 print('Interpolating jr', flush = True)
 for time_index in range(time_values.size):
