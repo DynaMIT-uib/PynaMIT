@@ -15,6 +15,11 @@ STEADY_STATE_INITIALIZATION = True
 STEADY_STATE_ITERATIONS = 500
 UNDER_RELAXATION_FACTOR = 0.5
 
+relaxation_time = 100.
+final_time = 600.
+jr_sampling_dt = 0.5
+jr_period = 20.
+
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
@@ -74,10 +79,7 @@ a = pyamps.AMPS(300, 0, -4, 20, 100, minlat = 50)
 jr = a.get_upward_current(mlat = mlat, mlt = mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
 
-relaxation_time = 100.
-final_time = 600.
-jr_sampling_dt = 0.5
-jr_period = 20.
+
 
 if STEADY_STATE_INITIALIZATION:
     dynamics.set_jr(jr = jr, lat = jr_lat, lon = jr_lon)
