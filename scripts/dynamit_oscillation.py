@@ -12,7 +12,8 @@ RI = RE + 110e3
 latitude_boundary = 40
 
 STEADY_STATE_INITIALIZATION = True
-STEADY_STATE_ITERATIONS = 1
+STEADY_STATE_ITERATIONS = 500
+UNDER_RELAXATION_FACTOR = 0.5
 
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
@@ -95,8 +96,7 @@ if STEADY_STATE_INITIALIZATION:
         mv = dynamics.steady_state_m_ind(m_imp = dynamics.state.m_imp.coeffs)
     
         print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
-        print('Setting steady state', flush = True)
-        dynamics.state.set_coeffs(m_ind = mv)
+        dynamics.state.set_coeffs(m_ind = dynamics.state.m_ind.coeffs + UNDER_RELAXATION_FACTOR * (mv - dynamics.state.m_ind.coeffs))
 
         dynamics.state.impose_constraints()
 

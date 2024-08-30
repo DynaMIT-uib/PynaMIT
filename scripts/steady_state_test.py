@@ -2,6 +2,7 @@ import numpy as np
 import pynamit
 from lompe import conductance
 import dipole
+import pyhwm2014 # https://github.com/rilma/pyHWM14
 import matplotlib.pyplot as plt
 import datetime
 import pyamps
@@ -54,9 +55,13 @@ jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
 dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
 ## WIND INPUT
-u_lat, u_lon, u_phi, u_theta = np.load('ulat.npy'), np.load('ulon.npy'), np.load('uphi.npy'), np.load('utheta.npy')
-u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing = 'ij')
-dynamics.set_u(u_theta = u_theta.flatten(), u_phi = u_phi.flatten(), lat = u_lat, lon = u_lon, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
+hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glatstp = 1.5,
+                             glonlim=[-180., 180.], glonstp = 3., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
+
+u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
+u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
+
+dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
 
 dynamics.evolve_to_time(100)
 
