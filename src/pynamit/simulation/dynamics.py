@@ -311,7 +311,7 @@ class Dynamics(object):
         if not hasattr(self.state, 'input_basis_evaluators'):
             self.input_basis_evaluators = {}
 
-        if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi)):
+        if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta, rtol = 0.0, atol = FLOAT_ERROR_MARGIN) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi, rtol = 0.0, atol = FLOAT_ERROR_MARGIN)):
             self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key], weights = weights)
 
         if time is None:
@@ -390,7 +390,7 @@ class Dynamics(object):
             self.previous_data = {}
 
         # Update state if is the first data selection or if the data has changed since the last selection
-        if (not all([var in self.previous_data.keys() for var in self.vars[key]]) or (not all([np.allclose(current_data[var], self.previous_data[var]) for var in self.vars[key]]))):
+        if (not all([var in self.previous_data.keys() for var in self.vars[key]]) or (not all([np.allclose(current_data[var], self.previous_data[var], rtol = FLOAT_ERROR_MARGIN, atol = 0.0) for var in self.vars[key]]))):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'])
                 self.state.set_coeffs(m_imp = current_data['m_imp'])
