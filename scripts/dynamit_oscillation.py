@@ -16,7 +16,7 @@ STEADY_STATE_INITIALIZATION = True
 STEADY_STATE_ITERATIONS = 500
 UNDER_RELAXATION_FACTOR = 0.5
 RELAXATION_TIME = 100.
-RAMP_TIME = 0.
+TAPERING_TIME = 0.
 FINAL_TIME = 600.
 JR_SAMPLING_DT = 0.5
 JR_PERIOD = 20.
@@ -116,8 +116,8 @@ print('Interpolating jr', flush = True)
 for time_index in range(time_values.size):
     if time_values[time_index] < RELAXATION_TIME - FLOAT_ERROR_MARGIN:
         envelope_factor = 0.0
-    elif time_values[time_index] < RELAXATION_TIME + RAMP_TIME - FLOAT_ERROR_MARGIN:
-        envelope_factor = np.sin(0.5 * np.pi * (time_values[time_index] - RELAXATION_TIME) / RAMP_TIME)**2
+    elif time_values[time_index] < RELAXATION_TIME + TAPERING_TIME - FLOAT_ERROR_MARGIN:
+        envelope_factor = np.sin(0.5 * np.pi * (time_values[time_index] - RELAXATION_TIME) / TAPERING_TIME)**2
     else:
         envelope_factor = 1.0
 
