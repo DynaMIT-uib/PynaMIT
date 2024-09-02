@@ -519,24 +519,6 @@ class Dynamics(object):
         return(self._fd_curl_matrix)
 
 
-    def calculate_sh_curl_matrix(self, helmholtz = True):
-        """
-        Calculate matrix that returns the radial curl when operating on a
-        column vector of (theta, phi) vector components, using spherical
-        harmonic analysis.
-
-        """
-
-        # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components on grid
-        if helmholtz:
-            G_grid_to_coeffs = self.state.basis_evaluator.G_helmholtz_inv[self.state.basis.index_length:, :]
-        else:
-            G_grid_to_coeffs = self.state.basis_evaluator.G_rxgrad_inv
-
-        # Multiply with Laplacian and evaluation matrix, and return
-        return(self.state.basis_evaluator.G.dot(self.state.basis.laplacian().reshape((-1, 1)) * G_grid_to_coeffs))
-
-
     @property
     def sh_curl_matrix(self):
         """
@@ -547,7 +529,11 @@ class Dynamics(object):
         """
 
         if not hasattr(self, '_sh_curl_matrix'):
-            self._sh_curl_matrix = self.calculate_sh_curl_matrix(helmholtz = True)
+            # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components on grid via Helmholtz decomposition
+            G_df = self.state.basis_evaluator.G_helmholtz_inv[self.state.basis.index_length:, :]
+
+            # Multiply with Laplacian and evaluation matrix to get the curl matrix
+            self._sh_curl_matrix = self.state.basis_evaluator.G.dot(self.state.basis.laplacian().reshape((-1, 1)) * G_df)
 
         return(self._sh_curl_matrix)
 
