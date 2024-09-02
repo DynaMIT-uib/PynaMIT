@@ -520,32 +520,34 @@ class Dynamics(object):
 
 
     def calculate_sh_curl_matrix(self, helmholtz = True):
-        """ Calculate matrix that returns the radial curl, using spherical harmonic analysis 
-            when operated on a column vector of (theta, phi) vector components. 
         """
-            
-        # matrix that gets SH coefficients from vector of (theta, phi)-components on grid:
-        if helmholtz: # estimate coefficients for both DF and CF parts:
-            G_grid_to_coeffs = self.state.basis_evaluator.G_helmholtz_inv
-            Nc = self.state.basis.index_length
-            G_grid_to_coeffs =  sp.hstack((sp.eye(Nc) * 0, sp.eye(Nc))) * G_grid_to_coeffs # select only DF coefficients
+        Calculate matrix that returns the radial curl when operating on a
+        column vector of (theta, phi) vector components, using spherical
+        harmonic analysis.
+
+        """
+
+        # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components on grid
+        if helmholtz:
+            G_grid_to_coeffs = self.state.basis_evaluator.G_helmholtz_inv[self.state.basis.index_length:, :]
         else:
             G_grid_to_coeffs = self.state.basis_evaluator.G_rxgrad_inv
 
-        coeffs_to_curl = sp.diags(self.state.basis.laplacian())
-
-        # combine and return:
-        return(self.state.basis_evaluator.G.dot(coeffs_to_curl.dot(G_grid_to_coeffs)))
+        # Multiply with Laplacian and evaluation matrix, and return
+        return(self.state.basis_evaluator.G.dot(self.state.basis.laplacian().reshape((-1, 1)) * G_grid_to_coeffs))
 
 
     @property
-    def sh_curl_matrix(self, helmoltz = True):
-        """ Calculate matrix that returns the radial curl, using spherical harmonic analysis 
-            when operated on a column vector of (theta, phi) vector components. 
+    def sh_curl_matrix(self):
+        """
+        Calculate matrix that returns the radial curl when operating on a
+        column vector of (theta, phi) vector components, using spherical
+        harmonic analysis.
+
         """
 
         if not hasattr(self, '_sh_curl_matrix'):
-            self._sh_curl_matrix = self.calculate_sh_curl_matrix()
+            self._sh_curl_matrix = self.calculate_sh_curl_matrix(helmholtz = True)
 
         return(self._sh_curl_matrix)
 
@@ -568,6 +570,7 @@ class Dynamics(object):
         
         br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
         eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
+
         C00 = sp.diags(eP * (bp**2 + br**2))
         C01 = sp.diags(eP * (-bt * bp) + eH * br)
         C10 = sp.diags(eP * (-bt * bp) - eH * br)
@@ -576,23 +579,17 @@ class Dynamics(object):
 
         uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
-
         if m_imp is None:
             m_imp = self.state.m_imp.coeffs
 
-        C = C
-        G_ind = self.state.G_m_ind_to_JS
-        G_imp = self.state.G_m_imp_to_JS
+        G_curl = self.sh_curl_matrix # curl matrix
 
-        Gc    = self.sh_curl_matrix # curl matrix
+        X    = G_curl.dot(C.dot(self.state.G_m_ind_to_JS))
+        X_inv = np.linalg.pinv(X)
 
-        Cind = C .dot(G_ind)
-        X    = Gc.dot(Cind)
-        Xinv = np.linalg.pinv(X)
+        Z    = G_curl.dot(C.dot(self.state.G_m_imp_to_JS))
 
-        Cimp = C .dot(G_imp)
-        Z    = Gc.dot(Cimp)
-        mv   = Xinv.dot(Gc.dot(uxb) - Z.dot(m_imp))
+        mv   = X_inv.dot(G_curl.dot(uxb) - Z.dot(m_imp))
 
         return(mv)
 
