@@ -538,7 +538,7 @@ class Dynamics(object):
         return(self._sh_curl_matrix)
 
 
-    def steady_state_m_ind(self, m_imp = None):
+    def steady_state_m_ind(self):
         """ Calculate coefficients for induced field in steady state 
             
             Parameters:
@@ -564,17 +564,14 @@ class Dynamics(object):
 
         JS_to_E = sp.vstack((sp.hstack((JS_to_E_00, JS_to_E_01)), sp.hstack((JS_to_E_10, JS_to_E_11))))
 
-        uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
+        uxB = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
-        if m_imp is None:
-            m_imp = self.state.m_imp.coeffs
-
-        curl_matrix = self.sh_curl_matrix # curl matrix
+        curl_matrix = self.sh_curl_matrix
 
         G_m_ind_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_ind_to_JS))
         G_m_imp_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_imp_to_JS))
 
-        m_ind = np.linalg.pinv(G_m_ind_to_curl_E).dot(curl_matrix.dot(uxb) - G_m_imp_to_curl_E.dot(m_imp))
+        m_ind = np.linalg.pinv(G_m_ind_to_curl_E).dot(curl_matrix.dot(uxB) - G_m_imp_to_curl_E.dot(self.state.m_imp.coeffs))
 
         return(m_ind)
 

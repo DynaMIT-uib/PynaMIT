@@ -72,7 +72,7 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
 
         for iteration in range(STEADY_STATE_ITERATIONS):
             print('Calculating steady state', flush = True)
-            mv = dynamics.steady_state_m_ind(m_imp = dynamics.state.m_imp.coeffs)
+            mv = dynamics.steady_state_m_ind()
 
             print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
             dynamics.state.set_coeffs(m_ind = dynamics.state.m_ind.coeffs + UNDER_RELAXATION_FACTOR * (mv - dynamics.state.m_ind.coeffs))
