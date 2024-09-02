@@ -1,4 +1,4 @@
-def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, wind = False, vector_jr = True, vector_conductance = True, vector_u = True):
+def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, wind = False, steady_state = False, vector_jr = True, vector_conductance = True, vector_u = True):
     """ Run the pynamit simulation with the given parameters. """
 
     import datetime
@@ -11,6 +11,9 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
 
     from pynamit.simulation.dynamics import Dynamics
     from pynamit.various.constants import RE
+
+    STEADY_STATE_ITERATIONS = 5
+    UNDER_RELAXATION_FACTOR = 0.5
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
@@ -53,6 +56,28 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
         u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
         dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
+
+
+    if steady_state:
+        dynamics.set_jr(jr = jr, lat = jr_lat, lon = jr_lon)
+
+        timeseries_keys = list(dynamics.timeseries.keys())
+        if 'state' in timeseries_keys:
+            timeseries_keys.remove('state')
+        if timeseries_keys is not None:
+            for key in timeseries_keys:
+                dynamics.select_timeseries_data(key, interpolation = False)
+
+        dynamics.state.impose_constraints()
+
+        for iteration in range(STEADY_STATE_ITERATIONS):
+            print('Calculating steady state', flush = True)
+            mv = dynamics.steady_state_m_ind(m_imp = dynamics.state.m_imp.coeffs)
+
+            print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
+            dynamics.state.set_coeffs(m_ind = dynamics.state.m_ind.coeffs + UNDER_RELAXATION_FACTOR * (mv - dynamics.state.m_ind.coeffs))
+
+            dynamics.state.impose_constraints()
 
     dynamics.evolve_to_time(t = final_time, dt = dt, sampling_step_interval = 1, saving_sample_interval = plotsteps)
 
