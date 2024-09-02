@@ -514,7 +514,7 @@ class Dynamics(object):
         """
 
         if not hasattr(self, '_fd_curl_matrix'):
-            self._fd_curl_matrix = self.calcualte_fd_curl_matrix()
+            self._fd_curl_matrix = self.calculate_fd_curl_matrix()
 
         return(self._fd_curl_matrix)
 
