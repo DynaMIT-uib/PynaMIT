@@ -561,22 +561,20 @@ class Dynamics(object):
         C01 = sp.diags(eP * (-bt * bp) + eH * br)
         C10 = sp.diags(eP * (-bt * bp) - eH * br)
         C11 = sp.diags(eP * (bt**2 + br**2))
-        C = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
+        JS_to_E = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
 
         uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
         if m_imp is None:
             m_imp = self.state.m_imp.coeffs
 
-        G_curl = self.sh_curl_matrix # curl matrix
+        curl_matrix = self.sh_curl_matrix # curl matrix
 
-        X    = G_curl.dot(C.dot(self.state.G_m_ind_to_JS))
-        X_inv = np.linalg.pinv(X)
+        G_m_ind_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_ind_to_JS))
+        G_m_imp_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_imp_to_JS))
 
-        Z    = G_curl.dot(C.dot(self.state.G_m_imp_to_JS))
+        m_ind = np.linalg.pinv(G_m_ind_to_curl_E).dot(curl_matrix.dot(uxb) - G_m_imp_to_curl_E.dot(m_imp))
 
-        mv   = X_inv.dot(G_curl.dot(uxb) - Z.dot(m_imp))
-
-        return(mv)
+        return(m_ind)
 
 
