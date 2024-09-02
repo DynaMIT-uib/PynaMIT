@@ -557,11 +557,12 @@ class Dynamics(object):
         br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
         eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
 
-        C00 = sp.diags(eP * (bp**2 + br**2))
-        C01 = sp.diags(eP * (-bt * bp) + eH * br)
-        C10 = sp.diags(eP * (-bt * bp) - eH * br)
-        C11 = sp.diags(eP * (bt**2 + br**2))
-        JS_to_E = sp.vstack((sp.hstack((C00, C01)), sp.hstack((C10, C11))))
+        JS_to_E_00 = sp.diags(eP * (bp**2 + br**2))
+        JS_to_E_01 = sp.diags(eP * (-bt * bp) + eH * br)
+        JS_to_E_10 = sp.diags(eP * (-bt * bp) - eH * br)
+        JS_to_E_11 = sp.diags(eP * (bt**2 + br**2))
+
+        JS_to_E = sp.vstack((sp.hstack((JS_to_E_00, JS_to_E_01)), sp.hstack((JS_to_E_10, JS_to_E_11))))
 
         uxb = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
