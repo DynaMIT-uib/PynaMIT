@@ -115,15 +115,15 @@ sine_wave_factors = np.empty(time_values.size, dtype = np.float64)
 print('Interpolating jr', flush = True)
 for time_index in range(time_values.size):
     if time_values[time_index] < RELAXATION_TIME - FLOAT_ERROR_MARGIN:
-        envelope_factor = 0.
+        envelope_factor = 0.0
     elif time_values[time_index] < RELAXATION_TIME + RAMP_TIME - FLOAT_ERROR_MARGIN:
         envelope_factor = np.sin(0.5 * np.pi * (time_values[time_index] - RELAXATION_TIME) / RAMP_TIME)**2
     else:
-        envelope_factor = 1.
+        envelope_factor = 1.0
 
-    sine_wave_factor = np.sin(2 * np.pi * (time_values[time_index] - RELAXATION_TIME) / JR_PERIOD)
+    sine_wave_factor = np.sin(2.0 * np.pi * (time_values[time_index] - RELAXATION_TIME) / JR_PERIOD)
 
-    scaled_jr = jr * (1 + envelope_factor * 0.5 * sine_wave_factor)
+    scaled_jr = jr * (1.0 + envelope_factor * 0.5 * sine_wave_factor)
 
     scaled_jr_values[time_index] = scaled_jr
 
