@@ -6,24 +6,27 @@ import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import pyamps
 import apexpy
+import matplotlib.pyplot as plt
 
 RE = 6371.2e3
 RI = RE + 110e3
-latitude_boundary = 40
+LATITUDE_BOUNDARY = 40
 
 STEADY_STATE_INITIALIZATION = True
 STEADY_STATE_ITERATIONS = 500
 UNDER_RELAXATION_FACTOR = 0.5
+RELAXATION_TIME = 100.
+RAMP_TIME = 0.
+FINAL_TIME = 600.
+JR_SAMPLING_DT = 0.5
+JR_PERIOD = 20.
 
-relaxation_time = 100.
-final_time = 600.
-jr_sampling_dt = 0.5
-jr_period = 20.
+PLOT_SCALING = False
 
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-dataset_filename_prefix = 'aurora2'
+dataset_filename_prefix = 'oscillations'
 Nmax, Mmax, Ncs = 10, 10, 10
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -43,7 +46,7 @@ dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             FAC_integration_steps = rk,
                             ignore_PFAC = False,
                             connect_hemispheres = True,
-                            latitude_boundary = latitude_boundary,
+                            latitude_boundary = LATITUDE_BOUNDARY,
                             ih_constraint_scaling = 1e-5,
                             t0 = str(date))
 
@@ -103,22 +106,45 @@ if STEADY_STATE_INITIALIZATION:
         dynamics.state.impose_constraints()
 
 # Create array that will store all jr values
-time_values = np.arange(0, final_time + jr_sampling_dt - FLOAT_ERROR_MARGIN, jr_sampling_dt, dtype = np.float64)
-print('size of time_values:', time_values.size)
+time_values = np.arange(0, FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN, JR_SAMPLING_DT, dtype = np.float64)
 scaled_jr_values = np.zeros((time_values.size, jr.size), dtype = np.float64)
+
+envelope_factors = np.empty(time_values.size, dtype = np.float64)
+sine_wave_factors = np.empty(time_values.size, dtype = np.float64)
 
 print('Interpolating jr', flush = True)
 for time_index in range(time_values.size):
-    if time_values[time_index] < relaxation_time - FLOAT_ERROR_MARGIN:
-        scaled_jr = jr
+    if time_values[time_index] < RELAXATION_TIME - FLOAT_ERROR_MARGIN:
+        envelope_factor = 0.
+    elif time_values[time_index] < RELAXATION_TIME + RAMP_TIME - FLOAT_ERROR_MARGIN:
+        envelope_factor = np.sin(0.5 * np.pi * (time_values[time_index] - RELAXATION_TIME) / RAMP_TIME)**2
     else:
-        # sinusoidal variation of jr
-        scaled_jr = jr * (1 + 0.5 * np.sin(2 * np.pi * (time_values[time_index] - relaxation_time) / jr_period))
+        envelope_factor = 1.
+
+    sine_wave_factor = np.sin(2 * np.pi * (time_values[time_index] - RELAXATION_TIME) / JR_PERIOD)
+
+    scaled_jr = jr * (1 + envelope_factor * 0.5 * sine_wave_factor)
+
     scaled_jr_values[time_index] = scaled_jr
-    #print('Interpolated jr at t =', time_values[time_index], flush = True)
+
+    envelope_factors[time_index] = envelope_factor
+    sine_wave_factors[time_index] = sine_wave_factor
+
+if PLOT_SCALING:
+    fig, axs = plt.subplots(3, 1, tight_layout = True)
+
+    axs[0].plot(time_values, envelope_factors)
+    axs[1].plot(time_values, sine_wave_factors)
+    axs[2].plot(time_values, envelope_factors * sine_wave_factors)
+
+    axs[0].set_title('Envelope')
+    axs[1].set_title('Oscillation')
+    axs[2].set_title('Product')
+
+    plt.show()
 
 print('Setting jr', flush = True)
 dynamics.set_jr(jr = scaled_jr_values, lat = jr_lat, lon = jr_lon, time = time_values)
 
 print('Starting simulation', flush = True)
-dynamics.evolve_to_time(final_time, interpolation = True)
+dynamics.evolve_to_time(FINAL_TIME, interpolation = True)
