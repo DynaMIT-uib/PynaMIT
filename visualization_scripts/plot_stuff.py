@@ -4,10 +4,10 @@ import pynamit
 import numpy as np
 import matplotlib.pyplot as plt
 
-ts = np.linspace(0,120, 5)
+ts = np.linspace(400,480, 81)
 
 #ts = np.linspace(1,240, 40)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/aurora_update'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/oscillations_40s'
 
 a = pynamit.PynamEye(path)
 

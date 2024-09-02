@@ -8,8 +8,14 @@ import dipole
 import datetime
 import apexpy
 
-state_data_list = [xr.load_dataset('../scripts/oscillations_20s_state.ncdf'), xr.load_dataset('../scripts/oscillations_10s_state.ncdf')]
-settings_list   = [xr.load_dataset('../scripts/oscillations_20s_settings.ncdf'), xr.load_dataset('../scripts/oscillations_10s_settings.ncdf')]
+state_data_list = [xr.load_dataset('../scripts/oscillations_40s_state.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_20s_state.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_10s_state.ncdf'),
+                   xr.load_dataset('../scripts/oscillations_05s_state.ncdf')]
+settings_list   = [xr.load_dataset('../scripts/oscillations_40s_settings.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_20s_settings.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_10s_settings.ncdf'),
+                   xr.load_dataset('../scripts/oscillations_05s_settings.ncdf')]
 
 RI = settings_list[0].RI
 sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
@@ -68,6 +74,18 @@ for state_data in state_data_list:
             #axes[jj[i], ii[i]].set_title('mlat = ' + str(mlat[ii[i], jj[i]]), loc = 'right')
             axes[jj[i], ii[i]].yaxis.set_label_position("right")
     
+
+
+fig, ax = plt.subplots(ncols = 5, nrows = 5, sharex = True)
+
+for state_data in state_data_list:
+    # calculate the time series:
+    m_ind = state_data.SH_m_ind.values.T
+
+
+    for i in range(25):
+        ax.flatten()[i].plot(state_data.time.values, state_data['SH_m_imp'].values[:, i], label = '$B_r$')
+
 
 #axes[0, 0].legend(frameon = False)
 
