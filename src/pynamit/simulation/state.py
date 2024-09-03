@@ -324,15 +324,20 @@ class State(object):
             self.etaH = etaH
 
             # Represent as values on grid
-            self.etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
-            self.etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
+            etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
+            etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
             self.etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP, type = 'scalar')
             self.etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH, type = 'scalar')
 
-            self.etaP_on_grid = etaP
-            self.etaH_on_grid = etaH
+            etaP_on_grid = etaP
+            etaH_on_grid = etaH
+
+        self.JS_to_E_00 = etaP_on_grid * self.bP_00
+        self.JS_to_E_01 = etaP_on_grid * self.bP_01 + etaH_on_grid * self.bH_01
+        self.JS_to_E_10 = etaP_on_grid * self.bP_10 + etaH_on_grid * self.bH_10
+        self.JS_to_E_11 = etaP_on_grid * self.bP_11
 
         if self.connect_hemispheres:
             if vector_conductance:
@@ -341,12 +346,12 @@ class State(object):
                 etaH_on_cp_grid = etaH.to_grid(self.conductance_cp_basis_evaluator)
 
             else:
-                etaP_on_cp_grid = csp.interpolate_scalar(self.etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
-                etaH_on_cp_grid = csp.interpolate_scalar(self.etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
+                etaP_on_cp_grid = csp.interpolate_scalar(etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
+                etaH_on_cp_grid = csp.interpolate_scalar(etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
             # Resistances at low latitude grid points and at their conjugate points
-            etaP_ll    = self.etaP_on_grid[self.ll_mask]
-            etaH_ll    = self.etaH_on_grid[self.ll_mask]
+            etaH_ll    = etaH_on_grid[self.ll_mask]
+            etaP_ll    = etaP_on_grid[self.ll_mask]
             etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
             etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
 
@@ -447,8 +452,8 @@ class State(object):
 
         Jth, Jph = self.get_JS()
 
-        Eth = self.etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
-        Eph = self.etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
+        Eth = self.JS_to_E_00 * Jth + self.JS_to_E_01 * Jph
+        Eph = self.JS_to_E_10 * Jth + self.JS_to_E_11 * Jph
 
         E = np.hstack((Eth, Eph))
 

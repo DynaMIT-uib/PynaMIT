@@ -553,20 +553,14 @@ class Dynamics(object):
                 array of coefficients for the induced magnetic field in steady state
 
         """
-        eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
-
-        JS_to_E_00 = (eP * self.state.bP_00).reshape((-1, 1))
-        JS_to_E_01 = (eP * self.state.bP_01 + eH * self.state.bH_01).reshape((-1, 1))
-        JS_to_E_10 = (eP * self.state.bP_10 + eH * self.state.bH_10).reshape((-1, 1))
-        JS_to_E_11 = (eP * self.state.bP_11).reshape((-1, 1))
 
         grid_size = self.state_grid.size
 
-        G_m_imp_to_E = np.vstack((JS_to_E_00 * self.state.G_m_imp_to_JS[:grid_size] + JS_to_E_01 * self.state.G_m_imp_to_JS[grid_size:],
-                                  JS_to_E_10 * self.state.G_m_imp_to_JS[:grid_size] + JS_to_E_11 * self.state.G_m_imp_to_JS[grid_size:]))
+        G_m_imp_to_E = np.vstack((self.state.JS_to_E_00.reshape((-1, 1)) * self.state.G_m_imp_to_JS[:grid_size] + self.state.JS_to_E_01.reshape((-1, 1)) * self.state.G_m_imp_to_JS[grid_size:],
+                                  self.state.JS_to_E_10.reshape((-1, 1)) * self.state.G_m_imp_to_JS[:grid_size] + self.state.JS_to_E_11.reshape((-1, 1)) * self.state.G_m_imp_to_JS[grid_size:]))
 
-        G_m_ind_to_E = np.vstack((JS_to_E_00 * self.state.G_m_ind_to_JS[:grid_size] + JS_to_E_01 * self.state.G_m_ind_to_JS[grid_size:],
-                                  JS_to_E_10 * self.state.G_m_ind_to_JS[:grid_size] + JS_to_E_11 * self.state.G_m_ind_to_JS[grid_size:]))
+        G_m_ind_to_E = np.vstack((self.state.JS_to_E_00.reshape((-1, 1)) * self.state.G_m_ind_to_JS[:grid_size] + self.state.JS_to_E_01.reshape((-1, 1)) * self.state.G_m_ind_to_JS[grid_size:],
+                                  self.state.JS_to_E_10.reshape((-1, 1)) * self.state.G_m_ind_to_JS[:grid_size] + self.state.JS_to_E_11.reshape((-1, 1)) * self.state.G_m_ind_to_JS[grid_size:]))
 
         E_imp = G_m_imp_to_E.dot(self.state.m_imp.coeffs)
         curl_matrix = self.sh_curl_matrix
