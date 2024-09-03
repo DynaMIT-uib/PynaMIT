@@ -8,8 +8,14 @@ import dipole
 import datetime
 import apexpy
 
-state_data_list = [xr.load_dataset('../scripts/oscillations_state.ncdf')]
-settings_list   = [xr.load_dataset('../scripts/oscillations_settings.ncdf')]
+state_data_list = [xr.load_dataset('../scripts/oscillations_40s_state.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_20s_state.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_10s_state.ncdf'),
+                   xr.load_dataset('../scripts/oscillations_05s_state.ncdf')]
+settings_list   = [xr.load_dataset('../scripts/oscillations_40s_settings.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_20s_settings.ncdf'), 
+                   xr.load_dataset('../scripts/oscillations_10s_settings.ncdf'),
+                   xr.load_dataset('../scripts/oscillations_05s_settings.ncdf')]
 
 RI = settings_list[0].RI
 sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
