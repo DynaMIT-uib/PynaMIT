@@ -567,13 +567,10 @@ class Dynamics(object):
         uxB = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
         curl_matrix = self.sh_curl_matrix
-        JS_to_curl_E = curl_matrix.dot(JS_to_E)
 
-        G_m_ind_to_curl_E = JS_to_curl_E.dot(self.state.G_m_ind_to_JS)
-        G_m_imp_to_curl_E = JS_to_curl_E.dot(self.state.G_m_imp_to_JS)
+        G_m_imp_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_imp_to_JS))
+        G_m_ind_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_ind_to_JS))
 
         m_ind = np.linalg.pinv(G_m_ind_to_curl_E).dot(curl_matrix.dot(uxB) - G_m_imp_to_curl_E.dot(self.state.m_imp.coeffs))
 
         return(m_ind)
-
-
