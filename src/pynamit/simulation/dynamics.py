@@ -570,7 +570,7 @@ class Dynamics(object):
         G_imp_inv = np.linalg.pinv(self.state.G_m_imp_constraints)
 
         m_ind = np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(self.state.uxB)) \
-              - np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(G_m_imp_to_E.dot(G_imp_inv.dot(np.hstack((self.state.jr_on_grid, self.state.cu * self.state.ih_constraint_scaling))) \
-                                                                                                   + G_imp_inv.dot(np.hstack((np.zeros(self.state.jr_on_grid.shape[0]), self.state.A_ind.dot(self.state.m_ind.coeffs) * self.state.ih_constraint_scaling))))))
+              - np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(G_m_imp_to_E.dot(G_imp_inv.dot(np.hstack((self.state.jr_on_grid, self.state.cu * self.state.ih_constraint_scaling)))))) \
+              - np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(G_m_imp_to_E.dot(G_imp_inv.dot(np.hstack((np.zeros(self.state.jr_on_grid.shape[0]), self.state.A_ind.dot(self.state.m_ind.coeffs) * self.state.ih_constraint_scaling))))))
 
         return(m_ind)
