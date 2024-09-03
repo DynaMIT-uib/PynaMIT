@@ -124,10 +124,13 @@ class PynamEye(object):
 
             # evaluate elelctric field on that grid
             self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
-            self.b00 =  self.b_evaluator.bphi**2 + self.b_evaluator.br**2
-            self.b01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-            self.b10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-            self.b11 =  self.b_evaluator.btheta**2 + self.b_evaluator.br**2
+            self.bP_00 =  self.b_evaluator.bphi**2 + self.b_evaluator.br**2
+            self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
+            self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
+            self.bP_11 =  self.b_evaluator.btheta**2 + self.b_evaluator.br**2
+
+            self.bH_01 =  self.b_evaluator.br
+            self.bH_10 = -self.b_evaluator.br
 
             self.G_B_pol_to_JS = -self.evaluator['num'].G_rxgrad * self.basis.delta_internal_external / mu0
             self.G_B_tor_to_JS = -self.evaluator['num'].G_grad / mu0
@@ -146,8 +149,8 @@ class PynamEye(object):
         self.etaP_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaP)
         self.etaH_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaH)
 
-        Eth = self.etaP_on_grid * (self.b00 * Jth + self.b01 * Jph) + self.etaH_on_grid * ( self.b_evaluator.br * Jph)
-        Eph = self.etaP_on_grid * (self.b10 * Jth + self.b11 * Jph) + self.etaH_on_grid * (-self.b_evaluator.br * Jth)
+        Eth = self.etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
+        Eph = self.etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
 
         self.u_coeffs = np.hstack((self.m_u_cf, self.m_u_df))
         self.u = Vector(self.basis, basis_evaluator = self.evaluator['num'], coeffs = self.u_coeffs, type = 'tangential')

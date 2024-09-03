@@ -553,14 +553,12 @@ class Dynamics(object):
                 array of coefficients for the induced magnetic field in steady state
 
         """
-        
-        br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
         eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
 
-        JS_to_E_00 = (eP * (bp**2 + br**2)).reshape((-1, 1))
-        JS_to_E_01 = (eP * (-bt * bp) + eH * br).reshape((-1, 1))
-        JS_to_E_10 = (eP * (-bt * bp) - eH * br).reshape((-1, 1))
-        JS_to_E_11 = (eP * (bt**2 + br**2)).reshape((-1, 1))
+        JS_to_E_00 = (eP * self.state.bP_00).reshape((-1, 1))
+        JS_to_E_01 = (eP * self.state.bP_01 + eH * self.state.bH_01).reshape((-1, 1))
+        JS_to_E_10 = (eP * self.state.bP_10 + eH * self.state.bH_10).reshape((-1, 1))
+        JS_to_E_11 = (eP * self.state.bP_11).reshape((-1, 1))
 
         grid_size = self.state_grid.size
 

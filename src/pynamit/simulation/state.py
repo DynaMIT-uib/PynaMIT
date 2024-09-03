@@ -77,10 +77,13 @@ class State(object):
         self.conductance  = False
 
         # Construct the matrix elements used to calculate the electric field
-        self.b00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
-        self.b01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-        self.b10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-        self.b11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
+        self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
+        self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
+        self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
+        self.bP_11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
+
+        self.bH_01 = self.b_evaluator.br
+        self.bH_10 = -self.b_evaluator.br
 
         self.initialize_constraints()
 
@@ -442,8 +445,8 @@ class State(object):
 
         Jth, Jph = self.get_JS()
 
-        Eth = self.etaP_on_grid * (self.b00 * Jth + self.b01 * Jph) + self.etaH_on_grid * ( self.b_evaluator.br * Jph)
-        Eph = self.etaP_on_grid * (self.b10 * Jth + self.b11 * Jph) + self.etaH_on_grid * (-self.b_evaluator.br * Jth)
+        Eth = self.etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
+        Eph = self.etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
 
         if self.neutral_wind:
             Eth -= self.uxB_theta
