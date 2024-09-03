@@ -334,10 +334,13 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        self.JS_to_E_00 = etaP_on_grid * self.bP_00
-        self.JS_to_E_01 = etaP_on_grid * self.bP_01 + etaH_on_grid * self.bH_01
-        self.JS_to_E_10 = etaP_on_grid * self.bP_10 + etaH_on_grid * self.bH_10
-        self.JS_to_E_11 = etaP_on_grid * self.bP_11
+        JS_to_E_00 = etaP_on_grid * self.bP_00
+        JS_to_E_01 = etaP_on_grid * self.bP_01 + etaH_on_grid * self.bH_01
+        JS_to_E_10 = etaP_on_grid * self.bP_10 + etaH_on_grid * self.bH_10
+        JS_to_E_11 = etaP_on_grid * self.bP_11
+
+        self.Jth_to_E = np.hstack((JS_to_E_00, JS_to_E_10))
+        self.Jph_to_E = np.hstack((JS_to_E_01, JS_to_E_11))
 
         if self.connect_hemispheres:
             if vector_conductance:
@@ -452,10 +455,7 @@ class State(object):
 
         Jth, Jph = self.get_JS()
 
-        Eth = self.JS_to_E_00 * Jth + self.JS_to_E_01 * Jph
-        Eph = self.JS_to_E_10 * Jth + self.JS_to_E_11 * Jph
-
-        E = np.hstack((Eth, Eph))
+        E = self.Jth_to_E * np.tile(Jth, 2) + self.Jph_to_E * np.tile(Jph, 2)
 
         if self.neutral_wind:
             E -= self.uxB

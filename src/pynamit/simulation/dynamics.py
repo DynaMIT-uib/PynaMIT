@@ -556,11 +556,11 @@ class Dynamics(object):
 
         grid_size = self.state_grid.size
 
-        G_m_imp_to_E = np.vstack((self.state.JS_to_E_00.reshape((-1, 1)) * self.state.G_m_imp_to_JS[:grid_size] + self.state.JS_to_E_01.reshape((-1, 1)) * self.state.G_m_imp_to_JS[grid_size:],
-                                  self.state.JS_to_E_10.reshape((-1, 1)) * self.state.G_m_imp_to_JS[:grid_size] + self.state.JS_to_E_11.reshape((-1, 1)) * self.state.G_m_imp_to_JS[grid_size:]))
+        G_m_imp_to_E =   self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[:grid_size], (2, 1)) \
+                       + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[grid_size:], (2, 1))
 
-        G_m_ind_to_E = np.vstack((self.state.JS_to_E_00.reshape((-1, 1)) * self.state.G_m_ind_to_JS[:grid_size] + self.state.JS_to_E_01.reshape((-1, 1)) * self.state.G_m_ind_to_JS[grid_size:],
-                                  self.state.JS_to_E_10.reshape((-1, 1)) * self.state.G_m_ind_to_JS[:grid_size] + self.state.JS_to_E_11.reshape((-1, 1)) * self.state.G_m_ind_to_JS[grid_size:]))
+        G_m_ind_to_E =   self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[:grid_size], (2, 1)) \
+                       + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[grid_size:], (2, 1))
 
         E_imp = G_m_imp_to_E.dot(self.state.m_imp.coeffs)
         curl_matrix = self.sh_curl_matrix
