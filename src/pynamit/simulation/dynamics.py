@@ -575,6 +575,8 @@ class Dynamics(object):
         m_ind = np.linalg.pinv( \
                     np.eye(self.bases['state'].index_length) \
                     + np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(m_ind_to_E_imp)) \
-                ).dot(E_imp_uxB + E_imp_jr + E_imp_cu)
+                ).dot( \
+                    E_imp_uxB + E_imp_jr + E_imp_cu \
+                )
 
         return(m_ind)
