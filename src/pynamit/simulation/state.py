@@ -285,8 +285,10 @@ class State(object):
             self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, type = 'tangential')
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
 
-        self.uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
-        self.uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
+        uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
+        uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
+
+        self.uxB = np.hstack((uxB_theta, uxB_phi))
 
         if self.connect_hemispheres:
             if vector_u:
@@ -448,8 +450,9 @@ class State(object):
         Eth = self.etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
         Eph = self.etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
 
-        if self.neutral_wind:
-            Eth -= self.uxB_theta
-            Eph -= self.uxB_phi
+        E = np.hstack((Eth, Eph))
 
-        return np.hstack((Eth, Eph))
+        if self.neutral_wind:
+            E -= self.uxB
+
+        return E

@@ -568,11 +568,9 @@ class Dynamics(object):
         G_m_ind_to_E = np.vstack((JS_to_E_00 * self.state.G_m_ind_to_JS[:grid_size] + JS_to_E_01 * self.state.G_m_ind_to_JS[grid_size:],
                                   JS_to_E_10 * self.state.G_m_ind_to_JS[:grid_size] + JS_to_E_11 * self.state.G_m_ind_to_JS[grid_size:]))
 
-        uxB = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
         E_imp = G_m_imp_to_E.dot(self.state.m_imp.coeffs)
-
         curl_matrix = self.sh_curl_matrix
 
-        m_ind = np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(uxB - E_imp))
+        m_ind = np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(self.state.uxB - E_imp))
 
         return(m_ind)
