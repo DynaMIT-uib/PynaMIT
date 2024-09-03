@@ -557,19 +557,25 @@ class Dynamics(object):
         br, bt, bp = self.state.b_evaluator.br, self.state.b_evaluator.btheta, self.state.b_evaluator.bphi
         eP, eH = self.state.etaP_on_grid, self.state.etaH_on_grid
 
-        JS_to_E_00 = sp.diags(eP * (bp**2 + br**2))
-        JS_to_E_01 = sp.diags(eP * (-bt * bp) + eH * br)
-        JS_to_E_10 = sp.diags(eP * (-bt * bp) - eH * br)
-        JS_to_E_11 = sp.diags(eP * (bt**2 + br**2))
+        JS_to_E_00 = (eP * (bp**2 + br**2)).reshape((-1, 1))
+        JS_to_E_01 = (eP * (-bt * bp) + eH * br).reshape((-1, 1))
+        JS_to_E_10 = (eP * (-bt * bp) - eH * br).reshape((-1, 1))
+        JS_to_E_11 = (eP * (bt**2 + br**2)).reshape((-1, 1))
 
-        JS_to_E = sp.vstack((sp.hstack((JS_to_E_00, JS_to_E_01)), sp.hstack((JS_to_E_10, JS_to_E_11))))
+        grid_size = self.state_grid.size
+
+        G_m_imp_to_E = np.vstack((JS_to_E_00 * self.state.G_m_imp_to_JS[:grid_size] + JS_to_E_01 * self.state.G_m_imp_to_JS[grid_size:],
+                                  JS_to_E_10 * self.state.G_m_imp_to_JS[:grid_size] + JS_to_E_11 * self.state.G_m_imp_to_JS[grid_size:]))
+
+        G_m_ind_to_E = np.vstack((JS_to_E_00 * self.state.G_m_ind_to_JS[:grid_size] + JS_to_E_01 * self.state.G_m_ind_to_JS[grid_size:],
+                                  JS_to_E_10 * self.state.G_m_ind_to_JS[:grid_size] + JS_to_E_11 * self.state.G_m_ind_to_JS[grid_size:]))
 
         uxB = np.hstack((self.state.uxB_theta, self.state.uxB_phi))
 
         curl_matrix = self.sh_curl_matrix
 
-        G_m_imp_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_imp_to_JS))
-        G_m_ind_to_curl_E = curl_matrix.dot(JS_to_E.dot(self.state.G_m_ind_to_JS))
+        G_m_imp_to_curl_E = curl_matrix.dot(G_m_imp_to_E)
+        G_m_ind_to_curl_E = curl_matrix.dot(G_m_ind_to_E)
 
         m_ind = np.linalg.pinv(G_m_ind_to_curl_E).dot(curl_matrix.dot(uxB) - G_m_imp_to_curl_E.dot(self.state.m_imp.coeffs))
 
