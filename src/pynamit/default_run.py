@@ -12,9 +12,6 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     from pynamit.simulation.dynamics import Dynamics
     from pynamit.various.constants import RE
 
-    STEADY_STATE_ITERATIONS = 5
-    UNDER_RELAXATION_FACTOR = 0.5
-
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
     dynamics = Dynamics(dataset_filename_prefix = None,
@@ -68,16 +65,10 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
             for key in timeseries_keys:
                 dynamics.select_timeseries_data(key, interpolation = False)
 
+        mv = dynamics.steady_state_m_ind()
+        dynamics.state.set_coeffs(m_ind = mv)
+
         dynamics.state.impose_constraints()
-
-        for iteration in range(STEADY_STATE_ITERATIONS):
-            print('Calculating steady state', flush = True)
-            mv = dynamics.steady_state_m_ind()
-
-            print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
-            dynamics.state.set_coeffs(m_ind = dynamics.state.m_ind.coeffs + UNDER_RELAXATION_FACTOR * (mv - dynamics.state.m_ind.coeffs))
-
-            dynamics.state.impose_constraints()
 
     dynamics.evolve_to_time(t = final_time, dt = dt, sampling_step_interval = 1, saving_sample_interval = plotsteps)
 

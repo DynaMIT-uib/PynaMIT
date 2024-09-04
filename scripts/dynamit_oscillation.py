@@ -13,8 +13,6 @@ RI = RE + 110e3
 LATITUDE_BOUNDARY = 40
 
 STEADY_STATE_INITIALIZATION = True
-STEADY_STATE_ITERATIONS = 500
-UNDER_RELAXATION_FACTOR = 0.5
 RELAXATION_TIME = 100.
 TAPERING_TIME = 0.
 FINAL_TIME = 600.
@@ -94,16 +92,11 @@ if STEADY_STATE_INITIALIZATION:
         for key in timeseries_keys:
             dynamics.select_timeseries_data(key, interpolation = False)
 
+    print('Calculating steady state', flush = True)
+    mv = dynamics.steady_state_m_ind()
+    dynamics.state.set_coeffs(m_ind = mv)
+
     dynamics.state.impose_constraints()
-
-    for iteration in range(STEADY_STATE_ITERATIONS):
-        print('Calculating steady state', flush = True)
-        mv = dynamics.steady_state_m_ind()
-    
-        print('Difference between iteration %d and iteration %d:' % (iteration, iteration + 1), np.linalg.norm(mv - dynamics.state.m_ind.coeffs), flush = True)
-        dynamics.state.set_coeffs(m_ind = dynamics.state.m_ind.coeffs + UNDER_RELAXATION_FACTOR * (mv - dynamics.state.m_ind.coeffs))
-
-        dynamics.state.impose_constraints()
 
 # Create array that will store all jr values
 time_values = np.arange(0, FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN, JR_SAMPLING_DT, dtype = np.float64)

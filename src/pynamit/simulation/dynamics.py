@@ -554,17 +554,10 @@ class Dynamics(object):
 
         """
 
-        grid_size = self.state_grid.size
+        helmholtz_E_jr = self.state.jr_to_helmholtz_E.dot(self.state.jr_on_grid)
+        helmholtz_E_cu = self.state.c_to_helmholtz_E.dot(self.state.cu * self.state.ih_constraint_scaling)
+        helmholtz_E_noind = helmholtz_E_jr + helmholtz_E_cu + self.state.helmholtz_E_uxB
 
-        G_m_imp_to_E =   self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[:grid_size], (2, 1)) \
-                       + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[grid_size:], (2, 1))
-
-        G_m_ind_to_E =   self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[:grid_size], (2, 1)) \
-                       + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[grid_size:], (2, 1))
-
-        E_imp = G_m_imp_to_E.dot(self.state.m_imp.coeffs)
-        curl_matrix = self.sh_curl_matrix
-
-        m_ind = np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(curl_matrix.dot(self.state.uxB - E_imp))
+        m_ind = -np.linalg.pinv(self.state.G_m_ind_to_helmholtz_E[self.state.basis.index_length:, :]).dot(helmholtz_E_noind[self.state.basis.index_length:])
 
         return(m_ind)
