@@ -562,7 +562,7 @@ class Dynamics(object):
         G_m_ind_to_E = (self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[:grid_size], (2, 1))
                         + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[grid_size:], (2, 1)))
 
-        curl_matrix = self.sh_curl_matrix
+        curl_matrix = self.state.basis_evaluator.G_helmholtz_inv[self.state.basis.index_length:, :]
 
         G_imp_inv = np.linalg.pinv(self.state.G_m_imp_constraints)
 
