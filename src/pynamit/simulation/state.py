@@ -290,6 +290,8 @@ class State(object):
 
         self.uxB = np.hstack((uxB_theta, uxB_phi))
 
+        self.helmholtz_E_uxB = -self.basis_evaluator.G_helmholtz_inv.dot(self.uxB)
+
         if self.connect_hemispheres:
             if vector_u:
                 # Represent as values on cp_grid
@@ -342,6 +344,14 @@ class State(object):
         self.Jth_to_E = np.hstack((JS_to_E_00, JS_to_E_10))
         self.Jph_to_E = np.hstack((JS_to_E_01, JS_to_E_11))
 
+        self.G_m_imp_to_E_direct = (self.Jth_to_E.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[:self.grid.size], (2, 1))
+                                   + self.Jph_to_E.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[self.grid.size:], (2, 1)))
+
+        self.G_m_ind_to_E_direct = (self.Jth_to_E.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
+                                    + self.Jph_to_E.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
+
+        self.G_m_ind_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(self.G_m_ind_to_E_direct)
+
         if self.connect_hemispheres:
             if vector_conductance:
                 # Represent as values on cp_grid
@@ -370,6 +380,13 @@ class State(object):
             self.G_m_imp_constraints = np.vstack((self.G_jr_hc, self.A_imp * self.ih_constraint_scaling))
             self.GTG_m_imp_constraints_inv = pinv_positive_semidefinite(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
+            # Prepare matrices used to calculate the electric field
+            constraint_to_E = self.G_m_imp_to_E_direct.dot(np.linalg.pinv(self.G_m_imp_constraints))
+
+            self.jr_to_helmholtz_E = self.basis_evaluator.G_helmholtz_inv.dot(constraint_to_E[:,:self.G_jr_hc.shape[0]])
+            self.c_to_helmholtz_E  = self.basis_evaluator.G_helmholtz_inv.dot(constraint_to_E[:,self.G_jr_hc.shape[0]:])
+
+            self.G_m_ind_to_helmholtz_E_constraint = self.c_to_helmholtz_E.dot(self.A_ind * self.ih_constraint_scaling)
 
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
