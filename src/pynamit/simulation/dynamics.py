@@ -562,11 +562,11 @@ class Dynamics(object):
         G_m_ind_to_E = (self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[:grid_size], (2, 1))
                         + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[grid_size:], (2, 1)))
 
-        G_imp_inv = np.linalg.pinv(self.state.G_m_imp_constraints)
+        constraint_to_E = G_m_imp_to_E.dot(np.linalg.pinv(self.state.G_m_imp_constraints))
 
-        G_m_ind_to_E_indless = self.state.basis_evaluator.G_helmholtz_inv.dot(G_m_ind_to_E + G_m_imp_to_E.dot(G_imp_inv[:,self.state.jr_on_grid.shape[0]:].dot(self.state.A_ind * self.state.ih_constraint_scaling)))
+        G_m_ind_to_E_indless = self.state.basis_evaluator.G_helmholtz_inv.dot(G_m_ind_to_E + constraint_to_E[:,self.state.jr_on_grid.shape[0]:].dot(self.state.A_ind * self.state.ih_constraint_scaling))
 
-        E_imp_indless = G_m_imp_to_E.dot(G_imp_inv.dot(np.hstack((self.state.jr_on_grid, self.state.cu * self.state.ih_constraint_scaling))))
+        E_imp_indless = constraint_to_E.dot(np.hstack((self.state.jr_on_grid, self.state.cu * self.state.ih_constraint_scaling)))
         E_indless = self.state.basis_evaluator.G_helmholtz_inv.dot(E_imp_indless - self.state.uxB)
 
         m_ind = -np.linalg.pinv(G_m_ind_to_E_indless[self.state.basis.index_length:, :]).dot(E_indless[self.state.basis.index_length:])
