@@ -566,15 +566,12 @@ class Dynamics(object):
 
         G_imp_inv = np.linalg.pinv(self.state.G_m_imp_constraints)
 
-        G_m_imp_to_curl_E = curl_matrix.dot(G_m_imp_to_E)
         G_m_ind_to_curl_E = curl_matrix.dot(G_m_ind_to_E)
+        G_m_ind_to_curl_E_imp = curl_matrix.dot(G_m_imp_to_E).dot(G_imp_inv[:,self.state.jr_on_grid.shape[0]:].dot(self.state.A_ind * self.state.ih_constraint_scaling))
 
-        G_m_ind_to_curl_E_imp = G_m_imp_to_curl_E.dot(G_imp_inv[:,self.state.jr_on_grid.shape[0]:].dot(self.state.A_ind * self.state.ih_constraint_scaling))
+        E_imp_jr = -G_m_imp_to_E.dot(G_imp_inv[:,:self.state.jr_on_grid.shape[0]].dot(self.state.jr_on_grid))
+        E_imp_cu = -G_m_imp_to_E.dot(G_imp_inv[:,self.state.jr_on_grid.shape[0]:].dot(self.state.cu * self.state.ih_constraint_scaling))
 
-        E_imp_uxB = curl_matrix.dot(self.state.uxB)
-        E_imp_jr = -G_m_imp_to_curl_E.dot(G_imp_inv[:,:self.state.jr_on_grid.shape[0]].dot(self.state.jr_on_grid))
-        E_imp_cu = -G_m_imp_to_curl_E.dot(G_imp_inv[:,self.state.jr_on_grid.shape[0]:].dot(self.state.cu * self.state.ih_constraint_scaling))
-
-        m_ind = np.linalg.pinv(G_m_ind_to_curl_E + G_m_ind_to_curl_E_imp).dot(E_imp_uxB + E_imp_jr + E_imp_cu)
+        m_ind = np.linalg.pinv(G_m_ind_to_curl_E + G_m_ind_to_curl_E_imp).dot(curl_matrix.dot(self.state.uxB + E_imp_jr + E_imp_cu))
 
         return(m_ind)
