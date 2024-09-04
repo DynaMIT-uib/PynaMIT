@@ -556,24 +556,25 @@ class Dynamics(object):
 
         grid_size = self.state_grid.size
 
-        G_m_imp_to_E = (self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[:grid_size], (2, 1))
-                        + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[grid_size:], (2, 1)))
+        self.G_m_imp_to_E = (self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[:grid_size], (2, 1))
+                             + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_imp_to_JS[grid_size:], (2, 1)))
 
-        G_m_ind_to_E = (self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[:grid_size], (2, 1))
-                        + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[grid_size:], (2, 1)))
+        self.G_m_ind_to_E_direct = (self.state.Jth_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[:grid_size], (2, 1))
+                                    + self.state.Jph_to_E.reshape((-1, 1)) * np.tile(self.state.G_m_ind_to_JS[grid_size:], (2, 1)))
 
-        constraint_to_E = G_m_imp_to_E.dot(np.linalg.pinv(self.state.G_m_imp_constraints))
+        constraint_to_E = self.G_m_imp_to_E.dot(np.linalg.pinv(self.state.G_m_imp_constraints))
+        G_m_ind_to_E_constraint = constraint_to_E[:,self.state.jr_on_grid.shape[0]:].dot(self.state.A_ind * self.state.ih_constraint_scaling)
+        G_m_ind_to_helmholtz_E = self.state.basis_evaluator.G_helmholtz_inv.dot(self.G_m_ind_to_E_direct + G_m_ind_to_E_constraint)
 
-        G_m_ind_to_E_noind_helmholtz = self.state.basis_evaluator.G_helmholtz_inv.dot(
-            G_m_ind_to_E
-            + constraint_to_E[:,self.state.jr_on_grid.shape[0]:].dot(self.state.A_ind * self.state.ih_constraint_scaling)
-        )
+        jr_to_helmholtz_E = self.state.basis_evaluator.G_helmholtz_inv.dot(constraint_to_E[:,:self.state.jr_on_grid.shape[0]])
+        cu_to_helmholtz_E = self.state.basis_evaluator.G_helmholtz_inv.dot(constraint_to_E[:,self.state.jr_on_grid.shape[0]:])
 
-        E_jr = constraint_to_E[:,:self.state.jr_on_grid.shape[0]].dot(self.state.jr_on_grid)
-        E_u = constraint_to_E[:,self.state.jr_on_grid.shape[0]:].dot(self.state.cu * self.state.ih_constraint_scaling) - self.state.uxB
+        helmholtz_E_jr  = jr_to_helmholtz_E.dot(self.state.jr_on_grid)
+        helmholtz_E_cu  = cu_to_helmholtz_E.dot(self.state.cu * self.state.ih_constraint_scaling)
+        helmholtz_E_uxB = -self.state.basis_evaluator.G_helmholtz_inv.dot(self.state.uxB)
 
-        E_noind_helmholtz = self.state.basis_evaluator.G_helmholtz_inv.dot(E_jr + E_u)
+        helmholtz_E_noind = helmholtz_E_jr + helmholtz_E_cu + helmholtz_E_uxB
 
-        m_ind = -np.linalg.pinv(G_m_ind_to_E_noind_helmholtz[self.state.basis.index_length:, :]).dot(E_noind_helmholtz[self.state.basis.index_length:])
+        m_ind = -np.linalg.pinv(G_m_ind_to_helmholtz_E[self.state.basis.index_length:, :]).dot(helmholtz_E_noind[self.state.basis.index_length:])
 
         return(m_ind)
