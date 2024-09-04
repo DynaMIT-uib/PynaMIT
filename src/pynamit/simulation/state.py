@@ -350,6 +350,7 @@ class State(object):
         G_m_ind_to_E_direct = (self.Jth_to_E.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
                                + self.Jph_to_E.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
 
+        G_m_imp_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_imp_to_E_direct)
         G_m_ind_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_ind_to_E_direct)
 
         if self.connect_hemispheres:
@@ -381,14 +382,14 @@ class State(object):
             self.GTG_m_imp_constraints_inv = pinv_positive_semidefinite(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
             # Prepare matrices used to calculate the electric field
-            constraints_to_helmholtz_E = self.basis_evaluator.G_helmholtz_inv.dot(G_m_imp_to_E_direct.dot(np.linalg.pinv(self.G_m_imp_constraints)))
+            constraints_to_helmholtz_E = G_m_imp_to_helmholtz_E_direct.dot(np.linalg.pinv(self.G_m_imp_constraints))
 
             self.jr_to_helmholtz_E = constraints_to_helmholtz_E[:,:self.G_jr_hc.shape[0]]
             self.c_to_helmholtz_E  = constraints_to_helmholtz_E[:,self.G_jr_hc.shape[0]:]
 
-            G_m_ind_to_helmholtz_E_constraint = self.c_to_helmholtz_E.dot(self.A_ind * self.ih_constraint_scaling)
+            G_m_ind_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_ind * self.ih_constraint_scaling)
 
-            self.G_m_ind_to_helmholtz_E = G_m_ind_to_helmholtz_E_direct + G_m_ind_to_helmholtz_E_constraint
+            self.G_m_ind_to_helmholtz_E = G_m_ind_to_helmholtz_E_direct + G_m_ind_to_helmholtz_E_constraints
 
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
