@@ -574,10 +574,10 @@ class Dynamics(object):
         E_imp_cu = -G_m_imp_to_curl_E.dot(G_imp_inv[:,self.state.jr_on_grid.shape[0]:].dot(self.state.cu * self.state.ih_constraint_scaling))
 
         m_ind = np.linalg.pinv(
-                    np.eye(self.bases['state'].index_length)
-                    + np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(G_m_ind_to_curl_E_imp)
-                ).dot(
-                    np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E))
+                    curl_matrix.dot(G_m_ind_to_E).dot(
+                        np.eye(self.bases['state'].index_length)
+                        + np.linalg.pinv(curl_matrix.dot(G_m_ind_to_E)).dot(G_m_ind_to_curl_E_imp)
+                    )
                 ).dot(
                     E_imp_uxB + E_imp_jr + E_imp_cu
                 )
