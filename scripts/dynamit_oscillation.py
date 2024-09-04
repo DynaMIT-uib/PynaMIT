@@ -92,8 +92,6 @@ if STEADY_STATE_INITIALIZATION:
         for key in timeseries_keys:
             dynamics.select_timeseries_data(key, interpolation = False)
 
-    dynamics.state.impose_constraints()
-
     print('Calculating steady state', flush = True)
     mv = dynamics.steady_state_m_ind()
     dynamics.state.set_coeffs(m_ind = mv)
