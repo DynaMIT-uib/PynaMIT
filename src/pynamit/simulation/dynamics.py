@@ -558,6 +558,6 @@ class Dynamics(object):
         helmholtz_E_cu = self.state.c_to_helmholtz_E.dot(self.state.cu * self.state.ih_constraint_scaling)
         helmholtz_E_noind = helmholtz_E_jr + helmholtz_E_cu + self.state.helmholtz_E_uxB
 
-        m_ind = -np.linalg.pinv(self.state.G_m_ind_to_helmholtz_E[self.state.basis.index_length:, :]).dot(helmholtz_E_noind[self.state.basis.index_length:])
+        m_ind = -np.linalg.pinv(self.state.m_ind_to_helmholtz_E[self.state.basis.index_length:, :]).dot(helmholtz_E_noind[self.state.basis.index_length:])
 
         return(m_ind)
