@@ -65,7 +65,7 @@ dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weigh
 
 dynamics.evolve_to_time(100)
 
-mv = dynamics.steady_state_m_ind()
+mv = dynamics.state.steady_state_m_ind()
 
 
 fig, ax = plt.subplots()

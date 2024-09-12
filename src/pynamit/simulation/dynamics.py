@@ -103,31 +103,35 @@ class Dynamics(object):
         self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
 
         self.bases = {
-            'state':       SHBasis(settings.Nmax, settings.Mmax),
-            'jr':          SHBasis(settings.Nmax, settings.Mmax),
-            'conductance': SHBasis(settings.Nmax, settings.Mmax, Nmin = 0),
-            'u':           SHBasis(settings.Nmax, settings.Mmax),
+            'state':        SHBasis(settings.Nmax, settings.Mmax),
+            'steady_state': SHBasis(settings.Nmax, settings.Mmax),
+            'jr':           SHBasis(settings.Nmax, settings.Mmax),
+            'conductance':  SHBasis(settings.Nmax, settings.Mmax, Nmin = 0),
+            'u':            SHBasis(settings.Nmax, settings.Mmax),
         }
 
         self.pinv_rtols = {
-            'state':       1e-15,
-            'jr':          1e-15,
-            'conductance': 1e-15,
-            'u':           1e-15,
+            'state':        1e-15,
+            'steady_state': 1e-15,
+            'jr':           1e-15,
+            'conductance':  1e-15,
+            'u':            1e-15,
         }
 
         self.vector_storage = {
-            'state':       True,
-            'jr':          bool(settings.vector_jr),
-            'conductance': bool(settings.vector_conductance),
-            'u':           bool(settings.vector_u),
+            'state':        True,
+            'steady_state': True,
+            'jr':           bool(settings.vector_jr),
+            'conductance':  bool(settings.vector_conductance),
+            'u':            bool(settings.vector_u),
         }
 
         self.vars = {
-            'state':       {'m_ind': 'scalar', 'm_imp': 'scalar', 'Phi': 'scalar', 'W': 'scalar'},
-            'jr':          {'jr': 'scalar'},
-            'conductance': {'etaP': 'scalar', 'etaH': 'scalar'},
-            'u':           {'u': 'tangential'},
+            'state':        {'m_ind': 'scalar', 'm_imp': 'scalar', 'Phi': 'scalar', 'W': 'scalar'},
+            'steady_state': {'m_ind': 'scalar'},
+            'jr':           {'jr': 'scalar'},
+            'conductance':  {'etaP': 'scalar', 'etaH': 'scalar'},
+            'u':            {'u': 'tangential'},
         }
 
         self.basis_multiindices = {}
@@ -217,6 +221,9 @@ class Dynamics(object):
 
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
                     self.save_timeseries('state')
+
+                    self.calculate_steady_state()
+                    self.save_timeseries('steady_state')
 
                     if quiet:
                         pass
@@ -538,26 +545,16 @@ class Dynamics(object):
         return(self._sh_curl_matrix)
 
 
-    def steady_state_m_ind(self):
-        """ Calculate coefficients for induced field in steady state 
-            
-            Parameters:
-            -----------
-            m_imp: array, optional
-                the coefficient vector for the imposed magnetic field. If None, the
-                vector for the current state will be used
+    def calculate_steady_state(self):
+        """ Calculate coefficients for induced field in steady state """
 
-            Returns:
-            --------
-            m_ind_ss: array
-                array of coefficients for the induced magnetic field in steady state
+        m_ind = self.state.steady_state_m_ind()
 
-        """
+        current_dataset = xr.Dataset(
+            data_vars = {
+                self.bases['steady_state'].short_name + '_m_ind': (['i'], m_ind),
+            },
+            coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['steady_state'], dim = 'i').merge({'time': [self.current_time]})
+        )
 
-        helmholtz_E_jr = self.state.jr_to_helmholtz_E.dot(self.state.jr_on_grid)
-        helmholtz_E_cu = self.state.c_to_helmholtz_E.dot(self.state.cu * self.state.ih_constraint_scaling)
-        helmholtz_E_noind = helmholtz_E_jr + helmholtz_E_cu + self.state.helmholtz_E_uxB
-
-        m_ind = -np.linalg.pinv(self.state.m_ind_to_helmholtz_E[self.state.basis.index_length:, :]).dot(helmholtz_E_noind[self.state.basis.index_length:])
-
-        return(m_ind)
+        self.add_to_timeseries(current_dataset, 'steady_state')

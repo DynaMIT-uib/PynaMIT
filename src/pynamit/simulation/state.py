@@ -186,6 +186,10 @@ class State(object):
 
         """
 
+        G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
+
+        self.G_jr_hc = G_jr
+
         if self.connect_hemispheres:
             if self.ignore_PFAC:
                 raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
@@ -202,11 +206,10 @@ class State(object):
                 print('this should not happen')
 
             # Calculate matrices that calculates radial currents and interhemispheric currents from conjugate footpoints
-            G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
             G_jr_ih = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1))
 
             # The hemispheres are connected via interhemispheric currents at low latitudes
-            self.G_jr_hc = G_jr
+
             self.G_jr_hc[self.ll_mask] += G_jr_ih[self.ll_mask]
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
@@ -257,15 +260,15 @@ class State(object):
         if vector_jr:
             self.jr = jr
 
+            self.jr_on_grid = jr.to_grid(self.jr_basis_evaluator)
             if self.connect_hemispheres:
-                self.jr_on_grid = jr.to_grid(self.jr_basis_evaluator)
                 self.jr_on_grid[self.ll_mask] = 0
 
         else:
             self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr , type = 'scalar')
 
+            self.jr_on_grid = jr
             if self.connect_hemispheres:
-                self.jr_on_grid = jr
                 self.jr_on_grid[self.ll_mask] = 0
 
 
@@ -353,6 +356,8 @@ class State(object):
         m_imp_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_imp_to_E_direct)
         m_ind_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_ind_to_E_direct)
 
+        self.G_m_imp_constraints = self.G_jr_hc
+
         if self.connect_hemispheres:
             if vector_conductance:
                 # Represent as values on cp_grid
@@ -378,18 +383,22 @@ class State(object):
                          -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
 
             # Combine constraint matrices
-            self.G_m_imp_constraints = np.vstack((self.G_jr_hc, self.A_imp * self.ih_constraint_scaling))
+            self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
             self.GTG_m_imp_constraints_inv = pinv_positive_semidefinite(np.dot(self.G_m_imp_constraints.T, self.G_m_imp_constraints))
 
-            # Prepare matrices used to calculate the electric field
-            constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(np.linalg.pinv(self.G_m_imp_constraints))
+        # Prepare matrices used to calculate the electric field
+        constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(np.linalg.pinv(self.G_m_imp_constraints))
 
-            self.jr_to_helmholtz_E = constraints_to_helmholtz_E[:,:self.G_jr_hc.shape[0]]
-            self.c_to_helmholtz_E  = constraints_to_helmholtz_E[:,self.G_jr_hc.shape[0]:]
+        self.jr_to_helmholtz_E = constraints_to_helmholtz_E[:,:self.grid.size]
+
+        self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct
+
+        if self.connect_hemispheres:
+            self.c_to_helmholtz_E  = constraints_to_helmholtz_E[:,self.grid.size:]
 
             m_ind_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_ind * self.ih_constraint_scaling)
 
-            self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct + m_ind_to_helmholtz_E_constraints
+            self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
@@ -481,3 +490,32 @@ class State(object):
             E -= self.uxB
 
         return E
+
+
+    def steady_state_m_ind(self):
+        """ Calculate coefficients for induced field in steady state 
+            
+            Parameters:
+            -----------
+            m_imp: array, optional
+                the coefficient vector for the imposed magnetic field. If None, the
+                vector for the current state will be used
+
+            Returns:
+            --------
+            m_ind_ss: array
+                array of coefficients for the induced magnetic field in steady state
+
+        """
+
+        helmholtz_E_noind = self.jr_to_helmholtz_E.dot(self.jr_on_grid)
+
+        if self.neutral_wind:
+            helmholtz_E_noind += self.helmholtz_E_uxB
+
+            if self.connect_hemispheres:
+                helmholtz_E_noind += self.c_to_helmholtz_E.dot(self.cu * self.ih_constraint_scaling)
+
+        m_ind = -np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :]).dot(helmholtz_E_noind[self.basis.index_length:])
+
+        return(m_ind)

@@ -65,7 +65,7 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
             for key in timeseries_keys:
                 dynamics.select_timeseries_data(key, interpolation = False)
 
-        mv = dynamics.steady_state_m_ind()
+        mv = dynamics.state.steady_state_m_ind()
         dynamics.state.set_coeffs(m_ind = mv)
 
         dynamics.state.impose_constraints()
