@@ -32,6 +32,9 @@ class State(object):
         self.FAC_integration_steps  = settings.FAC_integration_steps
         self.ih_constraint_scaling  = settings.ih_constraint_scaling
 
+        self.vector_u  = settings.vector_u
+        self.vector_jr = settings.vector_jr
+
         if PFAC_matrix is not None:
             self._m_imp_to_B_pol = PFAC_matrix
 
@@ -90,6 +93,9 @@ class State(object):
 
         self.u_to_helmholtz_E_uxB = -np.hstack((self.basis_evaluator.G_helmholtz_inv[:,self.grid.size:] * self.b_uxB_10.reshape((1, -1)),
                                                 self.basis_evaluator.G_helmholtz_inv[:,:self.grid.size] * self.b_uxB_01.reshape((1, -1))))
+
+        if self.vector_u:
+            self.u_coeffs_to_helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(self.u_basis_evaluator.G_helmholtz)
 
         self.initialize_constraints()
 
@@ -192,9 +198,8 @@ class State(object):
 
         """
 
-        G_jr    = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
-
-        self.G_jr_hc = G_jr
+        self.G_jr = self.jr_basis_evaluator.G
+        self.G_m_imp_to_jr = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
@@ -211,12 +216,9 @@ class State(object):
             else:
                 print('this should not happen')
 
-            # Calculate matrices that calculates radial currents and interhemispheric currents from conjugate footpoints
-            G_jr_ih = self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1))
-
             # The hemispheres are connected via interhemispheric currents at low latitudes
-
-            self.G_jr_hc[self.ll_mask] += G_jr_ih[self.ll_mask]
+            self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))[self.ll_mask]
+            self.G_jr[self.ll_mask] = 0.0
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
@@ -266,9 +268,7 @@ class State(object):
         if vector_jr:
             self.jr = jr
 
-            self.jr_on_grid = jr.to_grid(self.jr_basis_evaluator)
-            if self.connect_hemispheres:
-                self.jr_on_grid[self.ll_mask] = 0
+            self.jr_on_grid = self.G_jr.dot(self.jr.coeffs)
 
         else:
             self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr , type = 'scalar')
@@ -294,12 +294,15 @@ class State(object):
             self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, type = 'tangential')
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
 
-        uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
-        uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
+        if vector_u:
+            self.helmholtz_E_uxB = self.u_coeffs_to_helmholtz_E_uxB.dot(self.u.coeffs)
+        else:
+            uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
+            uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
-        self.uxB = np.hstack((uxB_theta, uxB_phi))
+            self.uxB = np.hstack((uxB_theta, uxB_phi))
 
-        self.helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(np.hstack((self.u_theta_on_grid, self.u_phi_on_grid)))
+            self.helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(np.hstack((self.u_theta_on_grid, self.u_phi_on_grid)))
 
         if self.connect_hemispheres:
             if vector_u:
@@ -362,7 +365,7 @@ class State(object):
         m_imp_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_imp_to_E_direct)
         m_ind_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_ind_to_E_direct)
 
-        self.G_m_imp_constraints = self.G_jr_hc
+        self.G_m_imp_constraints = self.G_m_imp_to_jr
 
         if self.connect_hemispheres:
             if vector_conductance:
@@ -397,14 +400,21 @@ class State(object):
 
         self.jr_to_helmholtz_E = constraints_to_helmholtz_E[:,:self.grid.size]
 
+        if self.vector_jr:
+            self.jr_coeffs_to_helmholtz_E = self.jr_to_helmholtz_E.dot(self.G_jr)
+
         self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct
 
         if self.connect_hemispheres:
-            self.c_to_helmholtz_E  = constraints_to_helmholtz_E[:,self.grid.size:]
+            self.c_to_helmholtz_E  = constraints_to_helmholtz_E[:,self.grid.size:] * self.ih_constraint_scaling
 
-            m_ind_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_ind * self.ih_constraint_scaling)
+            m_ind_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_ind)
 
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
+
+            if self.vector_u:
+                self.u_coeffs_to_helmholtz_E = self.c_to_helmholtz_E.dot(-(  self.b_evaluator.aut.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aut.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz
+                                                                           + self.b_evaluator.aup.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aup.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz)[np.tile(self.ll_mask, 2)])
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :])
 
@@ -413,7 +423,23 @@ class State(object):
 
         """
 
-        E_cf, E_df = np.split(self.basis_evaluator.grid_to_basis(self.get_E(), helmholtz = True), 2)
+        E = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
+
+        if self.vector_jr:
+            E += self.jr_coeffs_to_helmholtz_E.dot(self.jr.coeffs)
+        else:
+            E += self.jr_to_helmholtz_E.dot(self.jr_on_grid)
+
+        if self.neutral_wind:
+            E += self.helmholtz_E_uxB
+
+            if self.connect_hemispheres:
+                if self.vector_u:
+                    E += self.u_coeffs_to_helmholtz_E.dot(self.u.coeffs)
+                else:
+                    E += self.c_to_helmholtz_E.dot(self.cu)
+
+        E_cf, E_df = np.split(E, 2)
 
         self.Phi = Vector(self.basis, coeffs = E_cf, type = 'scalar')
         self.W = Vector(self.basis, coeffs = E_df, type = 'scalar')
@@ -516,13 +542,19 @@ class State(object):
 
         """
 
-        helmholtz_E_noind = self.jr_to_helmholtz_E.dot(self.jr_on_grid)
+        if self.vector_jr:
+            helmholtz_E_noind = self.jr_coeffs_to_helmholtz_E.dot(self.jr.coeffs)
+        else:
+            helmholtz_E_noind = self.jr_to_helmholtz_E.dot(self.jr_on_grid)
 
         if self.neutral_wind:
             helmholtz_E_noind += self.helmholtz_E_uxB
 
             if self.connect_hemispheres:
-                helmholtz_E_noind += self.c_to_helmholtz_E.dot(self.cu * self.ih_constraint_scaling)
+                if self.vector_u:
+                    helmholtz_E_noind += self.u_coeffs_to_helmholtz_E.dot(self.u.coeffs)
+                else:
+                    helmholtz_E_noind += self.c_to_helmholtz_E.dot(self.cu)
 
         m_ind = -self.m_ind_to_helmholtz_E_cf_inv.dot(helmholtz_E_noind[self.basis.index_length:])
 
