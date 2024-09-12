@@ -400,6 +400,8 @@ class State(object):
 
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
+        self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :])
+
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
 
@@ -516,6 +518,6 @@ class State(object):
             if self.connect_hemispheres:
                 helmholtz_E_noind += self.c_to_helmholtz_E.dot(self.cu * self.ih_constraint_scaling)
 
-        m_ind = -np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :]).dot(helmholtz_E_noind[self.basis.index_length:])
+        m_ind = -self.m_ind_to_helmholtz_E_cf_inv.dot(helmholtz_E_noind[self.basis.index_length:])
 
         return(m_ind)
