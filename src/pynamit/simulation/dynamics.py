@@ -207,6 +207,7 @@ class Dynamics(object):
             self.state.update_Phi_and_W()
 
             if count % sampling_step_interval == 0:
+                # Add current state to time series
                 current_state_dataset = xr.Dataset(
                     data_vars = {
                         self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
@@ -219,10 +220,19 @@ class Dynamics(object):
 
                 self.add_to_timeseries(current_state_dataset, 'state')
 
+                # Calculate and add current steady state to time series
+                current_dataset = xr.Dataset(
+                    data_vars = {
+                        self.bases['steady_state'].short_name + '_m_ind': (['i'], self.state.steady_state_m_ind()),
+                    },
+                    coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['steady_state'], dim = 'i').merge({'time': [self.current_time]})
+                )
+
+                self.add_to_timeseries(current_dataset, 'steady_state')
+
+                # Save state and steady state time series
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
                     self.save_timeseries('state')
-
-                    self.calculate_steady_state()
                     self.save_timeseries('steady_state')
 
                     if quiet:
@@ -543,18 +553,3 @@ class Dynamics(object):
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(self.state.basis.laplacian().reshape((-1, 1)) * G_df)
 
         return(self._sh_curl_matrix)
-
-
-    def calculate_steady_state(self):
-        """ Calculate coefficients for induced field in steady state """
-
-        m_ind = self.state.steady_state_m_ind()
-
-        current_dataset = xr.Dataset(
-            data_vars = {
-                self.bases['steady_state'].short_name + '_m_ind': (['i'], m_ind),
-            },
-            coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['steady_state'], dim = 'i').merge({'time': [self.current_time]})
-        )
-
-        self.add_to_timeseries(current_dataset, 'steady_state')
