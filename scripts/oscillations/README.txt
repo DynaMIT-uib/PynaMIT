@@ -1,1 +1,0 @@
-simulation output for sine wave driving

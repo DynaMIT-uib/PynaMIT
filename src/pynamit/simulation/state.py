@@ -198,8 +198,10 @@ class State(object):
 
         """
 
-        self.G_jr = self.jr_basis_evaluator.G
         self.G_m_imp_to_jr = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
+
+        if self.vector_jr:
+            self.G_jr = self.jr_basis_evaluator.G
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
@@ -218,7 +220,6 @@ class State(object):
 
             # The hemispheres are connected via interhemispheric currents at low latitudes
             self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))[self.ll_mask]
-            self.G_jr[self.ll_mask] = 0.0
 
             # Calculate constraint matrices for low latitude points and their conjugate points:
             self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
@@ -230,6 +231,13 @@ class State(object):
             self.aeH_ind_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeP_imp_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeH_imp_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
+
+            if self.vector_jr:
+                self.G_jr[self.ll_mask] = 0.0
+
+            if self.vector_u:
+                self.u_coeffs_to_cu = -(  self.b_evaluator.aut.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aut.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz
+                                        + self.b_evaluator.aup.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aup.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz)[np.tile(self.ll_mask, 2)]
 
 
     def impose_constraints(self):
@@ -271,8 +279,6 @@ class State(object):
             self.jr_on_grid = self.G_jr.dot(self.jr.coeffs)
 
         else:
-            self.jr = Vector(basis = self.jr_basis, basis_evaluator = self.jr_basis_evaluator, grid_values = jr , type = 'scalar')
-
             self.jr_on_grid = jr
             if self.connect_hemispheres:
                 self.jr_on_grid[self.ll_mask] = 0
@@ -288,15 +294,11 @@ class State(object):
 
         if vector_u:
             self.u = u
-            self.u_theta_on_grid, self.u_phi_on_grid = np.split(self.u.to_grid(self.u_basis_evaluator), 2)
+            self.helmholtz_E_uxB = self.u_coeffs_to_helmholtz_E_uxB.dot(self.u.coeffs)
 
         else:
-            self.u = Vector(basis = self.u_basis, basis_evaluator = self.u_basis_evaluator, grid_values = u, type = 'tangential')
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
 
-        if vector_u:
-            self.helmholtz_E_uxB = self.u_coeffs_to_helmholtz_E_uxB.dot(self.u.coeffs)
-        else:
             uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
             uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
@@ -306,21 +308,21 @@ class State(object):
 
         if self.connect_hemispheres:
             if vector_u:
-                # Represent as values on cp_grid
-                u_theta_on_cp_grid, u_phi_on_cp_grid = np.split(self.u.to_grid(self.u_cp_basis_evaluator), 2)
+                self.cu = self.u_coeffs_to_cu.dot(self.u.coeffs)
+
             else:
                 u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int_north, u_cp_int_east
 
-            # Neutral wind at low latitude grid points and at their conjugate points
-            u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
-            u_phi_ll      = self.u_phi_on_grid[self.ll_mask]
-            u_theta_cp_ll = u_theta_on_cp_grid[self.ll_mask]
-            u_phi_cp_ll   = u_phi_on_cp_grid[self.ll_mask]
+                # Neutral wind at low latitude grid points and at their conjugate points
+                u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
+                u_phi_ll      = self.u_phi_on_grid[self.ll_mask]
+                u_theta_cp_ll = u_theta_on_cp_grid[self.ll_mask]
+                u_phi_cp_ll   = u_phi_on_cp_grid[self.ll_mask]
 
-            # Constraint vector contribution from wind
-            self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
-                      -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
+                # Constraint vector contribution from wind
+                self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
+                          -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
 
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
@@ -413,8 +415,7 @@ class State(object):
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
             if self.vector_u:
-                self.u_coeffs_to_helmholtz_E = self.c_to_helmholtz_E.dot(-(  self.b_evaluator.aut.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aut.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz
-                                                                           + self.b_evaluator.aup.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aup.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz)[np.tile(self.ll_mask, 2)])
+                self.u_coeffs_to_helmholtz_E = self.c_to_helmholtz_E.dot(self.u_coeffs_to_cu)
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :])
 
