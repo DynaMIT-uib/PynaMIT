@@ -203,10 +203,11 @@ class Dynamics(object):
                 for key in timeseries_keys:
                     self.select_timeseries_data(key, interpolation = interpolation)
 
-            self.state.impose_constraints()
             self.state.update_Phi_and_W()
 
             if count % sampling_step_interval == 0:
+                self.state.impose_constraints()
+
                 # Add current state to time series
                 current_state_dataset = xr.Dataset(
                     data_vars = {
