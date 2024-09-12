@@ -85,6 +85,12 @@ class State(object):
         self.bH_01 = self.b_evaluator.br
         self.bH_10 = -self.b_evaluator.br
 
+        self.b_uxB_01 = self.b_evaluator.Br
+        self.b_uxB_10 = -self.b_evaluator.Br
+
+        self.u_to_helmholtz_E_uxB = -np.hstack((self.basis_evaluator.G_helmholtz_inv[:,self.grid.size:] * self.b_uxB_10.reshape((1, -1)),
+                                                self.basis_evaluator.G_helmholtz_inv[:,:self.grid.size] * self.b_uxB_01.reshape((1, -1))))
+
         self.initialize_constraints()
 
     @property
@@ -293,7 +299,7 @@ class State(object):
 
         self.uxB = np.hstack((uxB_theta, uxB_phi))
 
-        self.helmholtz_E_uxB = -self.basis_evaluator.G_helmholtz_inv.dot(self.uxB)
+        self.helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(np.hstack((self.u_theta_on_grid, self.u_phi_on_grid)))
 
         if self.connect_hemispheres:
             if vector_u:
