@@ -13,8 +13,8 @@ RI = RE + 110e3
 LATITUDE_BOUNDARY = 40
 
 STEADY_STATE_INITIALIZATION = True
-RELAXATION_TIME = 100.
-TAPERING_TIME = 0.
+RELAXATION_TIME = 0.
+TAPERING_TIME = 200.
 FINAL_TIME = 300.
 JR_SAMPLING_DT = 0.5
 JR_PERIOD = 20.
@@ -24,7 +24,7 @@ PLOT_SCALING = False
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-Nmax, Mmax, Ncs = 10, 10, 10
+Nmax, Mmax, Ncs = 50, 50, 50
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 #print(len(rk))
 

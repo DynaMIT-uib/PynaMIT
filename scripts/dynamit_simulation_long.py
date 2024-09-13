@@ -14,7 +14,7 @@ latitude_boundary = 40
 WIND_FACTOR = 1 # scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-dataset_filename_prefix = 'aurora2'
+dataset_filename_prefix = 'long_step'
 Nmax, Mmax, Ncs = 50, 50, 50
 rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 2]))**2 #int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -69,3 +69,4 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(conductance_lon, conductanc
 dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lon = conductance_lon)
 
 dynamics.evolve_to_time(60 * 60)
+
