@@ -97,7 +97,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
                 dynamics.select_timeseries_data(key, interpolation = False)
 
         print('Calculating steady state', flush = True)
-        mv = dynamics.steady_state_m_ind()
+        mv = dynamics.state.steady_state_m_ind()
         dynamics.state.set_coeffs(m_ind = mv)
 
         dynamics.state.impose_constraints()

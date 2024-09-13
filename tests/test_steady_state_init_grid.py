@@ -5,11 +5,11 @@ import pytest
 from pynamit.default_run import run_pynamit
 import numpy as np
 
-def test_steady_state_init():
+def test_steady_state_init_grid():
     # Arrange
-    expected_coeff_norm = 1.1583938868441088e-07
-    expected_coeff_max =  3.3722673470127786e-09
-    expected_coeff_min = -3.655869211751457e-09
+    expected_coeff_norm = 7.685931221004545e-08
+    expected_coeff_max =  2.434639030063287e-09
+    expected_coeff_min = -2.3229434000301765e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -29,9 +29,9 @@ def test_steady_state_init():
                            latitude_boundary = 50,
                            wind = True,
                            steady_state = True,
-                           vector_jr = True,
-                           vector_conductance = True,
-                           vector_u = True)
+                           vector_jr = False,
+                           vector_conductance = False,
+                           vector_u = False)
 
     # Assert
     coeff_array = dynamics.timeseries['state']['SH_m_ind'].values
