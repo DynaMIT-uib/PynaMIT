@@ -146,11 +146,11 @@ class PynamEye(object):
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
-        self.etaP_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaP)
-        self.etaH_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaH)
+        etaP_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaP)
+        etaH_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaH)
 
-        Eth = self.etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
-        Eph = self.etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
+        Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
+        Eph = etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
 
         self.u_coeffs = np.hstack((self.m_u_cf, self.m_u_df))
         self.u = Vector(self.basis, basis_evaluator = self.evaluator['num'], coeffs = self.u_coeffs, type = 'tangential')
@@ -171,11 +171,12 @@ class PynamEye(object):
 
     def _define_defaults(self):
         """ Define default settings for various plots """
-        self.Br_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
-        self.eqJ_defaults = {'colors':'black',  'levels':np.r_[-210:220:20] * 1e3}
-        self.jr_defaults  = {'cmap':plt.cm.bwr, 'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
-        self.Phi_defaults = {'colors':'black',  'levels':np.r_[-212.5:220:5] * 1e3}
-        self.W_defaults   = {'colors':'orange', 'levels':self.Phi_defaults['levels']}
+        self.conductance_defaults  = {'cmap':plt.cm.viridis, 'levels':np.linspace(0, 20, 22), 'extend':'max'}
+        self.Br_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
+        self.eqJ_defaults          = {'colors':'black',      'levels':np.r_[-210:220:20] * 1e3}
+        self.jr_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
+        self.Phi_defaults          = {'colors':'black',      'levels':np.r_[-212.5:220:5] * 1e3}
+        self.W_defaults            = {'colors':'orange',     'levels':self.Phi_defaults['levels']}
 
 
     def set_time(self, t):
@@ -268,6 +269,42 @@ class PynamEye(object):
                 return ax.contourf(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
         else:
             raise ValueError('region must be either global, north, or south')
+
+
+    def plot_conductance(self, ax, hp = 'h', region = 'global', **kwargs):
+        """ plot conductance
+
+        Parameters
+        ----------
+        t: float
+            simulation time in seconds
+        ax: matplotlib.axes or Polarplot
+            where to plot - must be either polplot object or axis with PlateCarree project
+        hp: string, optional
+            'h' for Hall, 'p' for Pedersen
+        region: string, optional
+            string, either 'global', 'north', or 'south'
+        kwargs: dict, optional
+            keyword arguments passed to contourf
+        """
+
+        # populate kwargs with default values if not specificed in function call:
+        for key in self.conductance_defaults:
+            if key not in kwargs.keys():
+                kwargs[key] = self.conductance_defaults[key]
+
+        etaP_on_grid =  self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
+        etaH_on_grid =  self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
+
+        if 'h':
+            Sigma = etaH_on_grid / (etaP_on_grid ** 2 + etaH_on_grid ** 2)
+        elif 'p':
+            Sigma = etaP_on_grid / (etaP_on_grid ** 2 + etaH_on_grid ** 2)
+        else:
+            raise ValueError('hp must be h or p')
+
+        return self._plot_filled_contour(Sigma, ax, region, **kwargs)
+
 
 
     def plot_Br(self, ax, region = 'global', **kwargs):
