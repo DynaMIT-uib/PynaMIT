@@ -19,7 +19,7 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.various.constants import RE, mu0
 
 class PynamEye(object):
-    def __init__(self, filename_prefix, t = 0, Nlat = 60, Nlon = 100, mlatlim = 50):
+    def __init__(self, filename_prefix, t = 0, Nlat = 60, Nlon = 100, NCS_plot = 10, mlatlim = 50):
         """
         Parameters
         ----------
@@ -55,12 +55,25 @@ class PynamEye(object):
                                    epoch = settings.mainfield_epoch,
                                    hI = (settings.RI - RE) * 1e-3)
 
+
+        # Set up cubed sphere grid for vector plotting
+        self.vector_csp = CSProjection(NCS_plot)
+        k, i, j = self.vector_csp.get_gridpoints(NCS_plot)
+        arr_xi  = self.vector_csp.xi( i[:, :-1, :-1] + .5, NCS_plot).flatten() # crop to skip duplicate points
+        arr_eta = self.vector_csp.eta(j[:, :-1, :-1] + .5, NCS_plot).flatten()
+        _, arr_theta, arr_phi = self.vector_csp.cube2spherical(arr_xi, arr_eta, k[:, :-1, :-1].flatten(), deg = True)
+        self.global_vector_grid = Grid(theta = arr_theta, lon = arr_phi)
+
+
         # Define t0 and set up dipole objct
         self.t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
         self.dp = Dipole(self.t0.year)
 
         self.basis             = SHBasis(settings.Nmax, settings.Mmax)
         self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
+
+        # Basis evaluator for wind
+        self.u_basis_evaluator = BasisEvaluator(self.basis, self.global_vector_grid)
 
         # Set up global grid and basis evaluators:
         self.evaluator = {}
@@ -70,6 +83,8 @@ class PynamEye(object):
         self.global_grid = Grid(lat = self.lat, lon = self.lon)
         self.evaluator['global'] = BasisEvaluator(self.basis, self.global_grid)
         self.conductance_evaluator['global'] = BasisEvaluator(self.conductance_basis, self.global_grid)
+        self.evaluator['global_vector'] = BasisEvaluator(self.basis, self.global_vector_grid)
+        self.conductance_evaluator['global_vector'] = BasisEvaluator(self.conductance_basis, self.global_vector_grid)
 
         # Set up polar grids and basis evaluators:
         self.mlat, self.mlon = np.meshgrid(np.linspace(mlatlim, 89.9, Nlat // 2), np.linspace(-180, 180, Nlon))
@@ -109,6 +124,7 @@ class PynamEye(object):
         can be expensive with high resoultions due to matrix inversion
         """
 
+        print('does not work. Rewrite')
         if not self.B_parameters_calculated:
 
             PFAC = self.datasets['settings'].PFAC_matrix
@@ -171,6 +187,7 @@ class PynamEye(object):
 
     def _define_defaults(self):
         """ Define default settings for various plots """
+        self.wind_defaults         = {'color':'black',       'scale':1e3}
         self.conductance_defaults  = {'cmap':plt.cm.viridis, 'levels':np.linspace(0, 20, 22), 'extend':'max'}
         self.Br_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
         self.eqJ_defaults          = {'colors':'black',      'levels':np.r_[-210:220:20] * 1e3}
@@ -215,10 +232,10 @@ class PynamEye(object):
         return( ccrs.PlateCarree(central_longitude = noon_longitude) )
 
 
-    def jazz_global_plot(self, ax):
+    def jazz_global_plot(self, ax, draw_labels = True):
         """ add coastlines, coordinates, ... """
         ax.coastlines(zorder = 2, color = 'grey')
-        gridlines = ax.gridlines(draw_labels=True)
+        gridlines = ax.gridlines(draw_labels = draw_labels)
         gridlines.right_labels = False
         gridlines.top_labels = False
 
@@ -244,7 +261,7 @@ class PynamEye(object):
                 warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
                 return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == 'global':
-            assert ax.projection == self.get_global_projection()
+            assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
                 return ax.contour(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
@@ -263,10 +280,25 @@ class PynamEye(object):
                 warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
                 return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == 'global':
-            assert ax.projection == self.get_global_projection()
+            assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
                 return ax.contourf(self.lon, self.lat, values.reshape(self.lon.shape), transform = ccrs.PlateCarree(), **kwargs) 
+        else:
+            raise ValueError('region must be either global, north, or south')
+
+
+    def _quiver(self, east, north, ax, region = 'global', **kwargs):
+        """ quiver plot """
+
+        if region in ['south', 'north']:
+            print('vector plot on polar grid not yet implemented')
+        elif region == 'global':
+            assert ax.projection == self.get_global_projection()
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="No contour levels were found within the data range.")
+                lon, lat = self.global_vector_grid.lon, self.global_vector_grid.lat
+                return ax.quiver(lon, lat, east, north, transform = ccrs.PlateCarree(), **kwargs) 
         else:
             raise ValueError('region must be either global, north, or south')
 
@@ -304,6 +336,32 @@ class PynamEye(object):
             raise ValueError('hp must be h or p')
 
         return self._plot_filled_contour(Sigma, ax, region, **kwargs)
+
+
+    def plot_wind(self, ax, region = 'global', **kwargs):
+        """ plot wind vector field
+
+        Parameters
+        ----------
+        t: float
+            simulation time in seconds
+        ax: matplotlib.axes or Polarplot
+            where to plot - must be either polplot object or axis with PlateCarree project
+        region: string, optional
+            string, !!! only 'global' is implemented for vector plots
+        kwargs: dict, optional
+            keyword arguments passed to contourf
+        """
+
+        # populate kwargs with default values if not specificed in function call:
+        for key in self.wind_defaults:
+            if key not in kwargs.keys():
+                kwargs[key] = self.wind_defaults[key]
+
+        utheta, uphi = np.split(self.u_basis_evaluator.basis_to_grid(self.m_u, helmholtz = True), 2)
+
+        return self._quiver(uphi, -utheta, ax, region, **kwargs)
+
 
 
 
