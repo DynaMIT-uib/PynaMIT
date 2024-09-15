@@ -112,6 +112,37 @@ class FieldEvaluator:
 
         return self.basevectors[4][2]
 
+
+    @property
+    def surface_to_spherical(self):
+        """
+        Create the matrix that takes the surface parts of a vector in the
+        spherical coordinate system and returns the components in the
+        radial direction.
+
+        """
+
+        if not hasattr(self, '_surface_to_spherical'):
+            self._surface_to_spherical = np.array([[-self.Btheta / self.Br,   -self.Bphi / self.Br],
+                                                   [np.ones(self.grid.size),  np.zeros(self.grid.size)],
+                                                   [np.zeros(self.grid.size), np.ones(self.grid.size)]])
+
+    @property
+    def spherical_to_apex(self):
+        """
+        Create the matrix that takes the spherical parts of a vector in
+        the spherical coordinate system and returns components orthogonal
+        to the magnetic field in the apex coordinate system.
+
+        """
+
+        if not hasattr(self, '_spherical_to_apex'):
+            self._spherical_to_apex = np.array([[self.e1r, self.e1t, self.e1p],
+                                                [self.e2r, self.e2t, self.e2p]])
+
+        return self._spherical_to_apex
+
+
     @property
     def aeP(self):
         """ a e P matrix. """
