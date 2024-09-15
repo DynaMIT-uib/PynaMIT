@@ -127,6 +127,7 @@ class FieldEvaluator:
                                                    [np.ones(self.grid.size),  np.zeros(self.grid.size)],
                                                    [np.zeros(self.grid.size), np.ones(self.grid.size)]])
 
+
     @property
     def spherical_to_apex(self):
         """
@@ -141,6 +142,21 @@ class FieldEvaluator:
                                                 [self.e2r, self.e2t, self.e2p]])
 
         return self._spherical_to_apex
+
+
+    @property
+    def surface_to_apex(self):
+        """
+        Create the matrix that takes the surface parts of a vector in the
+        spherical coordinate system and returns components orthogonal
+        to the magnetic field in the apex coordinate system.
+
+        """
+
+        if not hasattr(self, '_surface_to_apex'):
+            self._surface_to_apex = np.dot(self.spherical_to_apex, self.surface_to_spherical)
+
+        return self._surface_to_apex
 
 
     @property
