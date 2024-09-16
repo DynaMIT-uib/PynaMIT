@@ -162,32 +162,6 @@ class FieldEvaluator:
 
 
     @property
-    def aeP(self):
-        """ a e P matrix. """
-
-        if not hasattr(self, '_aeP'):
-            alpha11_eP = self.bphi**2*self.e1t - self.bphi*self.btheta*self.e1p + self.br**2*self.e1t - self.br*self.btheta*self.e1r
-            alpha12_eP = -self.bphi*self.br*self.e1r - self.bphi*self.btheta*self.e1t + self.br**2*self.e1p + self.btheta**2*self.e1p
-            alpha21_eP = self.bphi**2*self.e2t - self.bphi*self.btheta*self.e2p + self.br**2*self.e2t - self.br*self.btheta*self.e2r
-            alpha22_eP = -self.bphi*self.br*self.e2r - self.bphi*self.btheta*self.e2t + self.br**2*self.e2p + self.btheta**2*self.e2p
-            self._aeP = np.vstack((np.hstack((np.diag(alpha11_eP), np.diag(alpha12_eP))),
-                                   np.hstack((np.diag(alpha21_eP), np.diag(alpha22_eP)))))
-        return self._aeP
-
-    @property
-    def aeH(self):
-        """ a e H matrix. """
-
-        if not hasattr(self, '_aeH'):
-            alpha11_eH = self.bphi*self.e1r - self.br*self.e1p
-            alpha12_eH = self.br*self.e1t - self.btheta*self.e1r
-            alpha21_eH = self.bphi*self.e2r - self.br*self.e2p
-            alpha22_eH = self.br*self.e2t - self.btheta*self.e2r
-            self._aeH = np.vstack((np.hstack((np.diag(alpha11_eH), np.diag(alpha12_eH))),
-                                   np.hstack((np.diag(alpha21_eH), np.diag(alpha22_eH)))))
-        return self._aeH
-
-    @property
     def aut(self):
         """ a u t matrix. """
 

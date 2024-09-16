@@ -75,7 +75,6 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
-
             self.bP_cp = np.array([[self.cp_b_evaluator.bphi**2 + self.cp_b_evaluator.br**2, -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi],
                                    [-self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi,  self.cp_b_evaluator.btheta**2 + self.cp_b_evaluator.br**2]])
 
