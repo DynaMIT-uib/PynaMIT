@@ -252,25 +252,16 @@ class State(object):
             #G_m_imp_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EP)
             #G_m_imp_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EH)
 
-            self.aeP_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EP[0] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EP[1],
-                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EP[0] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EP[1]))[np.tile(self.ll_mask, 2)]
-            self.aeH_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EH[0] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EH[1],
-                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EH[0] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EH[1]))[np.tile(self.ll_mask, 2)]
+            print(self.b_evaluator.surface_to_apex.shape, G_m_ind_to_EP.shape)
+            self.aeP_ind_ll = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_ind_to_EP)
+            self.aeH_ind_ll = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_ind_to_EH)
+            self.aeP_imp_ll = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_imp_to_EP)
+            self.aeH_imp_ll = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_imp_to_EH)
 
-            self.aeP_imp_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EP[0] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EP[1],
-                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EP[0] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EP[1]))[np.tile(self.ll_mask, 2)]
-            self.aeH_imp_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EH[0] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EH[1],
-                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EH[0] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EH[1]))[np.tile(self.ll_mask, 2)]
-
-            self.aeP_ind_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EP_cp[0] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EP_cp[1],
-                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EP_cp[0] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EP_cp[1]))[np.tile(self.ll_mask, 2)]
-            self.aeH_ind_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EH_cp[0] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EH_cp[1],
-                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EH_cp[0] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EH_cp[1]))[np.tile(self.ll_mask, 2)]
-
-            self.aeP_imp_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EP_cp[0] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EP_cp[1],
-                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EP_cp[0] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EP_cp[1]))[np.tile(self.ll_mask, 2)]
-            self.aeH_imp_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EH_cp[0] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EH_cp[1],
-                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EH_cp[0] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EH_cp[1]))[np.tile(self.ll_mask, 2)]
+            self.aeP_ind_cp_ll = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_ind_to_EP_cp)
+            self.aeH_ind_cp_ll = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_ind_to_EH_cp)
+            self.aeP_imp_cp_ll = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_imp_to_EP_cp)
+            self.aeH_imp_cp_ll = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_imp_to_EH_cp)
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
@@ -427,11 +418,18 @@ class State(object):
 
             # Scale and remove 
             # Conductance-dependent constraint matrices
-            self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
-                         -(np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
+            aP_ind = np.vstack(np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_ind_ll))
+            aH_ind = np.vstack(np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_ind_ll))
+            aP_imp = np.vstack(np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_imp_ll))
+            aH_imp = np.vstack(np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_imp_ll))
 
-            self.A_imp =  (np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_imp_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_imp_ll) \
-                         -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
+            aP_ind_cp = np.vstack(np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_ind_cp_ll))
+            aH_ind_cp = np.vstack(np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_ind_cp_ll))
+            aP_imp_cp = np.vstack(np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_imp_cp_ll))
+            aH_imp_cp = np.vstack(np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_imp_cp_ll))
+
+            self.A_ind = -((aP_ind + aH_ind) - (aP_ind_cp + aH_ind_cp))[np.tile(self.ll_mask, 2)]
+            self.A_imp =  ((aP_imp + aH_imp) - (aP_imp_cp + aH_imp_cp))[np.tile(self.ll_mask, 2)]
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
