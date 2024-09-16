@@ -405,23 +405,19 @@ class State(object):
             aP_imp_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_imp_cp_ll)
             aH_imp_cp = np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_imp_cp_ll)
 
-            aP_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_ind)
-            aH_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aH_ind)
-            aP_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_imp)
-            aH_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aH_imp)
+            a_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_ind + aH_ind)
+            a_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_imp + aH_imp)
 
-            aP_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_ind_cp)
-            aH_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aH_ind_cp)
-            aP_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_imp_cp)
-            aH_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aH_imp_cp)
+            a_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_ind_cp + aH_ind_cp)
+            a_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_imp_cp + aH_imp_cp)
 
             #G_m_ind_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EP)
             #G_m_ind_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EH)
             #G_m_imp_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EP)
             #G_m_imp_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EH)
 
-            self.A_ind = -np.vstack(((aP_ind + aH_ind) - (aP_ind_cp + aH_ind_cp))[:,self.ll_mask])
-            self.A_imp =  np.vstack(((aP_imp + aH_imp) - (aP_imp_cp + aH_imp_cp))[:,self.ll_mask])
+            self.A_ind = -np.vstack((a_ind - a_ind_cp)[:,self.ll_mask])
+            self.A_imp =  np.vstack((a_imp - a_imp_cp)[:,self.ll_mask])
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
