@@ -227,14 +227,30 @@ class State(object):
             bP0 = np.hstack((self.bP_00, self.bP_10))
             bP1 = np.hstack((self.bP_01, self.bP_11))
 
-            G_m_ind_to_E_direct = (  bP0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
-                                   + bP1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
+            bH0 = np.hstack((np.zeros_like(self.bP_00), self.bH_10))
+            bH1 = np.hstack((self.bH_01, np.zeros_like(self.bP_11)))
 
-            self.aeP_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_E_direct[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_E_direct[self.grid.size:],
-                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_E_direct[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_E_direct[self.grid.size:]))[np.tile(self.ll_mask, 2)]
-            self.aeH_ind_ll = self.b_evaluator.aeH.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeP_imp_ll = self.b_evaluator.aeP.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeH_imp_ll = self.b_evaluator.aeH.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
+            G_m_ind_to_EP = (  bP0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
+                             + bP1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
+
+            G_m_ind_to_EH = (  bH0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
+                             + bH1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
+
+            G_m_imp_to_EP = (  bP0.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[:self.grid.size], (2, 1))
+                             + bP1.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[self.grid.size:], (2, 1)))
+
+            G_m_imp_to_EH = (  bH0.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[:self.grid.size], (2, 1))
+                             + bH1.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[self.grid.size:], (2, 1)))
+
+            self.aeP_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EP[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EP[self.grid.size:],
+                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EP[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EP[self.grid.size:]))[np.tile(self.ll_mask, 2)]
+            self.aeH_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EH[self.grid.size:],
+                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EH[self.grid.size:]))[np.tile(self.ll_mask, 2)]
+
+            self.aeP_imp_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EP[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EP[self.grid.size:],
+                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EP[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EP[self.grid.size:]))[np.tile(self.ll_mask, 2)]
+            self.aeH_imp_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EH[self.grid.size:],
+                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EH[self.grid.size:]))[np.tile(self.ll_mask, 2)]
 
             self.aeP_ind_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
             self.aeH_ind_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
