@@ -73,8 +73,8 @@ class State(object):
         self.u_to_helmholtz_E = np.einsum('ijk,ilk->jlk', helmholtz_inv_split, self.bu)
 
         if self.vector_u:
-            G_helmholtz_split = np.array(np.split(self.u_basis_evaluator.G_helmholtz, 2))
-            self.u_coeffs_to_helmholtz_E_uxB = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E, G_helmholtz_split)
+            u_helmholtz_split = np.array(np.split(self.u_basis_evaluator.G_helmholtz, 2))
+            self.u_coeffs_to_helmholtz_E_uxB = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E, u_helmholtz_split)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
