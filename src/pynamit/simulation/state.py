@@ -237,31 +237,15 @@ class State(object):
             m_imp_to_JS_cp_array = np.array([self.G_m_imp_to_JS_cp[:self.grid.size],
                                              self.G_m_imp_to_JS_cp[self.grid.size:]])
 
-            G_m_ind_to_EP = np.einsum('ilj,ljk->ijk', self.bP, m_ind_to_JS_array)
-            G_m_ind_to_EH = np.einsum('ilj,ljk->ijk', self.bH, m_ind_to_JS_array)
-            G_m_imp_to_EP = np.einsum('ilj,ljk->ijk', self.bP, m_imp_to_JS_array)
-            G_m_imp_to_EH = np.einsum('ilj,ljk->ijk', self.bH, m_imp_to_JS_array)
+            self.aeP_ind_ll = np.einsum('ilj,ljk->ijk', self.bP, m_ind_to_JS_array)
+            self.aeH_ind_ll = np.einsum('ilj,ljk->ijk', self.bH, m_ind_to_JS_array)
+            self.aeP_imp_ll = np.einsum('ilj,ljk->ijk', self.bP, m_imp_to_JS_array)
+            self.aeH_imp_ll = np.einsum('ilj,ljk->ijk', self.bH, m_imp_to_JS_array)
 
-            G_m_ind_to_EP_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, m_ind_to_JS_cp_array)
-            G_m_ind_to_EH_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, m_ind_to_JS_cp_array)
-            G_m_imp_to_EP_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, m_imp_to_JS_cp_array)
-            G_m_imp_to_EH_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, m_imp_to_JS_cp_array)
-
-            #G_m_ind_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EP)
-            #G_m_ind_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EH)
-            #G_m_imp_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EP)
-            #G_m_imp_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EH)
-
-            print(self.b_evaluator.surface_to_apex.shape, G_m_ind_to_EP.shape)
-            self.aeP_ind_ll = G_m_ind_to_EP
-            self.aeH_ind_ll = G_m_ind_to_EH
-            self.aeP_imp_ll = G_m_imp_to_EP
-            self.aeH_imp_ll = G_m_imp_to_EH
-
-            self.aeP_ind_cp_ll = G_m_ind_to_EP_cp
-            self.aeH_ind_cp_ll = G_m_ind_to_EH_cp
-            self.aeP_imp_cp_ll = G_m_imp_to_EP_cp
-            self.aeH_imp_cp_ll = G_m_imp_to_EH_cp
+            self.aeP_ind_cp_ll = np.einsum('ilj,ljk->ijk', self.bP_cp, m_ind_to_JS_cp_array)
+            self.aeH_ind_cp_ll = np.einsum('ilj,ljk->ijk', self.bH_cp, m_ind_to_JS_cp_array)
+            self.aeP_imp_cp_ll = np.einsum('ilj,ljk->ijk', self.bP_cp, m_imp_to_JS_cp_array)
+            self.aeH_imp_cp_ll = np.einsum('ilj,ljk->ijk', self.bH_cp, m_imp_to_JS_cp_array)
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
@@ -421,7 +405,6 @@ class State(object):
             aP_imp_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_imp_cp_ll)
             aH_imp_cp = np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_imp_cp_ll)
 
-            print(self.b_evaluator.surface_to_apex.shape, aP_ind.shape)
             aP_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_ind)
             aH_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aH_ind)
             aP_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_imp)
@@ -431,6 +414,11 @@ class State(object):
             aH_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aH_ind_cp)
             aP_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_imp_cp)
             aH_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aH_imp_cp)
+
+            #G_m_ind_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EP)
+            #G_m_ind_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EH)
+            #G_m_imp_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EP)
+            #G_m_imp_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EH)
 
             self.A_ind = -np.vstack(((aP_ind + aH_ind) - (aP_ind_cp + aH_ind_cp))[:,self.ll_mask])
             self.A_imp =  np.vstack(((aP_imp + aH_imp) - (aP_imp_cp + aH_imp_cp))[:,self.ll_mask])
