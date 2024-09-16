@@ -260,7 +260,7 @@ class State(object):
                 u_helmholtz_split = np.array(np.vsplit(self.u_basis_evaluator.G_helmholtz, 2))
                 u_helmholtz_split_cp = np.array(np.vsplit(self.u_cp_basis_evaluator.G_helmholtz, 2))
 
-                self.u_coeffs_to_cu = -np.vstack(np.einsum('ijk,jkl->ikl', u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', u_to_E_apex_cp, u_helmholtz_split_cp))[np.tile(self.ll_mask, 2)]
+                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', u_to_E_apex_cp, u_helmholtz_split_cp))[np.tile(self.ll_mask, 2)]
 
             helmholtz_split = np.array(np.vsplit(self.basis_evaluator.G_helmholtz, 2))
             self.helmholtz_to_apex = np.einsum(('ijk,jkl->ikl'), self.b_evaluator.surface_to_apex, helmholtz_split)
@@ -331,7 +331,7 @@ class State(object):
 
         if self.connect_hemispheres:
             if vector_u:
-                self.cu = self.u_coeffs_to_cu.dot(self.u.coeffs)
+                self.cu = self.A_u.dot(self.u.coeffs)
 
             else:
                 u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
@@ -438,7 +438,7 @@ class State(object):
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
             if self.vector_u:
-                self.u_coeffs_to_helmholtz_E = self.c_to_helmholtz_E.dot(self.u_coeffs_to_cu)
+                self.u_coeffs_to_helmholtz_E = self.c_to_helmholtz_E.dot(self.A_u)
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :])
 
