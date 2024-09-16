@@ -75,6 +75,15 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
+
+            self.bP_cp_00 = self.cp_b_evaluator.bphi**2 + self.cp_b_evaluator.br**2
+            self.bP_cp_01 = -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi
+            self.bP_cp_10 = -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi
+            self.bP_cp_11 = self.cp_b_evaluator.btheta**2 + self.cp_b_evaluator.br**2
+
+            self.bH_cp_01 = self.cp_b_evaluator.br
+            self.bH_cp_10 = -self.cp_b_evaluator.br
+
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
         self.conductance  = False
@@ -242,6 +251,29 @@ class State(object):
             G_m_imp_to_EH = (  bH0.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[:self.grid.size], (2, 1))
                              + bH1.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[self.grid.size:], (2, 1)))
 
+            bP_cp_0 = np.hstack((self.bP_cp_00, self.bP_cp_10))
+            bP_cp_1 = np.hstack((self.bP_cp_01, self.bP_cp_11))
+
+            bH_cp_0 = np.hstack((np.zeros_like(self.bP_cp_00), self.bH_cp_10))
+            bH_cp_1 = np.hstack((self.bH_cp_01, np.zeros_like(self.bP_cp_11)))
+
+            G_m_ind_to_EP_cp = (  bP_cp_0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS_cp[:self.grid.size], (2, 1))
+                                + bP_cp_1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS_cp[self.grid.size:], (2, 1)))
+
+            G_m_ind_to_EH_cp = (  bH_cp_0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS_cp[:self.grid.size], (2, 1))
+                                + bH_cp_1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS_cp[self.grid.size:], (2, 1)))
+
+            G_m_imp_to_EP_cp = (  bP_cp_0.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS_cp[:self.grid.size], (2, 1))
+                                + bP_cp_1.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS_cp[self.grid.size:], (2, 1)))
+
+            G_m_imp_to_EH_cp = (  bH_cp_0.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS_cp[:self.grid.size], (2, 1))
+                                + bH_cp_1.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS_cp[self.grid.size:], (2, 1)))
+
+            #G_m_ind_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EP)
+            #G_m_ind_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EH)
+            #G_m_imp_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EP)
+            #G_m_imp_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_imp_to_EH)
+
             self.aeP_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EP[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EP[self.grid.size:],
                                          self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EP[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EP[self.grid.size:]))[np.tile(self.ll_mask, 2)]
             self.aeH_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EH[self.grid.size:],
@@ -252,10 +284,15 @@ class State(object):
             self.aeH_imp_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EH[self.grid.size:],
                                          self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EH[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EH[self.grid.size:]))[np.tile(self.ll_mask, 2)]
 
-            self.aeP_ind_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeH_ind_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeP_imp_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeH_imp_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
+            self.aeP_ind_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EP_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EP_cp[self.grid.size:],
+                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EP_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EP_cp[self.grid.size:]))[np.tile(self.ll_mask, 2)]
+            self.aeH_ind_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_EH_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_EH_cp[self.grid.size:],
+                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_EH_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_EH_cp[self.grid.size:]))[np.tile(self.ll_mask, 2)]
+
+            self.aeP_imp_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EP_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EP_cp[self.grid.size:],
+                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EP_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EP_cp[self.grid.size:]))[np.tile(self.ll_mask, 2)]
+            self.aeH_imp_cp_ll = np.vstack((self.cp_b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_imp_to_EH_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_imp_to_EH_cp[self.grid.size:],
+                                            self.cp_b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_imp_to_EH_cp[:self.grid.size] + self.cp_b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_imp_to_EH_cp[self.grid.size:]))[np.tile(self.ll_mask, 2)]
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
