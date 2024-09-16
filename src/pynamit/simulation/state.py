@@ -89,13 +89,11 @@ class State(object):
         self.conductance  = False
 
         # Construct the matrix elements used to calculate the electric field
-        self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
-        self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-        self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-        self.bP_11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
+        self.bP = np.array([[self.b_evaluator.bphi**2 + self.b_evaluator.br**2, -self.b_evaluator.btheta * self.b_evaluator.bphi],
+                            [-self.b_evaluator.btheta * self.b_evaluator.bphi,  self.b_evaluator.btheta**2 + self.b_evaluator.br**2]])
 
-        self.bH_01 = self.b_evaluator.br
-        self.bH_10 = -self.b_evaluator.br
+        self.bH = np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.br],
+                            [-self.b_evaluator.br,         np.zeros_like(self.bP[1][1])]])
 
         self.b_uxB_01 = self.b_evaluator.Br
         self.b_uxB_10 = -self.b_evaluator.Br
@@ -233,11 +231,11 @@ class State(object):
             # Calculate constraint matrices for low latitude points and their conjugate points:
             #self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
 
-            bP0 = np.hstack((self.bP_00, self.bP_10))
-            bP1 = np.hstack((self.bP_01, self.bP_11))
+            bP0 = np.hstack((self.bP[0][0], self.bP[1][0]))
+            bP1 = np.hstack((self.bP[0][1], self.bP[1][1]))
 
-            bH0 = np.hstack((np.zeros_like(self.bP_00), self.bH_10))
-            bH1 = np.hstack((self.bH_01, np.zeros_like(self.bP_11)))
+            bH0 = np.hstack((self.bH[0][0], self.bH[1][0]))
+            bH1 = np.hstack((self.bH[0][1], self.bH[1][1]))
 
             G_m_ind_to_EP = (  bP0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
                              + bP1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
@@ -412,10 +410,10 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        JS_to_E_00 = etaP_on_grid * self.bP_00
-        JS_to_E_01 = etaP_on_grid * self.bP_01 + etaH_on_grid * self.bH_01
-        JS_to_E_10 = etaP_on_grid * self.bP_10 + etaH_on_grid * self.bH_10
-        JS_to_E_11 = etaP_on_grid * self.bP_11
+        JS_to_E_00 = etaP_on_grid * self.bP[0][0]
+        JS_to_E_01 = etaP_on_grid * self.bP[0][1] + etaH_on_grid * self.bH[0][1]
+        JS_to_E_10 = etaP_on_grid * self.bP[1][0] + etaH_on_grid * self.bH[1][0]
+        JS_to_E_11 = etaP_on_grid * self.bP[1][1]
 
         self.Jth_to_E = np.hstack((JS_to_E_00, JS_to_E_10))
         self.Jph_to_E = np.hstack((JS_to_E_01, JS_to_E_11))
