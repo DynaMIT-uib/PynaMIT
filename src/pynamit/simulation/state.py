@@ -66,14 +66,15 @@ class State(object):
         self.bH = np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.br],
                             [-self.b_evaluator.br,         np.zeros_like(self.bP[1][1])]])
 
-        self.b_uxB_01 = self.b_evaluator.Br
-        self.b_uxB_10 = -self.b_evaluator.Br
+        self.b_uxB = -np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.Br],
+                                [-self.b_evaluator.Br,         np.zeros_like(self.bP[1][1])]])
 
-        self.u_to_helmholtz_E_uxB = -np.hstack((self.basis_evaluator.G_helmholtz_inv[:,self.grid.size:] * self.b_uxB_10.reshape((1, -1)),
-                                                self.basis_evaluator.G_helmholtz_inv[:,:self.grid.size] * self.b_uxB_01.reshape((1, -1))))
+        helmholtz_inv_split = np.array(np.hsplit(self.basis_evaluator.G_helmholtz_inv, 2))
+        self.u_to_helmholtz_E_uxB = np.einsum('ijk,ilk->jlk', helmholtz_inv_split, self.b_uxB)
 
         if self.vector_u:
-            self.u_coeffs_to_helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(self.u_basis_evaluator.G_helmholtz)
+            G_helmholtz_split = np.array(np.split(self.u_basis_evaluator.G_helmholtz, 2))
+            self.u_coeffs_to_helmholtz_E_uxB = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E_uxB, G_helmholtz_split)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
@@ -318,13 +319,7 @@ class State(object):
 
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
-
-            uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
-            uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
-
-            self.uxB = np.hstack((uxB_theta, uxB_phi))
-
-            self.helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(np.hstack((self.u_theta_on_grid, self.u_phi_on_grid)))
+            self.helmholtz_E_uxB = np.einsum('ijk,jk->i',  self.u_to_helmholtz_E_uxB, np.array([self.u_theta_on_grid, self.u_phi_on_grid]))
 
         if self.connect_hemispheres:
             if vector_u:
@@ -542,6 +537,11 @@ class State(object):
         E = self.Jth_to_E * np.tile(Jth, 2) + self.Jph_to_E * np.tile(Jph, 2)
 
         if self.neutral_wind:
+            uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
+            uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
+
+            self.uxB = np.hstack((uxB_theta, uxB_phi))
+
             E -= self.uxB
 
         return E
