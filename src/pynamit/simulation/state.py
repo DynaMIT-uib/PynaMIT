@@ -253,10 +253,10 @@ class State(object):
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
 
-            if self.vector_u:
-                u_to_E_apex    = np.einsum('ijk,jlk->ilk', self.b_evaluator.surface_to_apex, self.bu)
-                u_to_E_apex_cp = np.einsum('ijk,jlk->ilk', self.cp_b_evaluator.surface_to_apex, self.bu_cp)
+            self.u_to_E_apex    = np.einsum('ijk,jlk->ilk', self.b_evaluator.surface_to_apex, self.bu)
+            self.u_to_E_apex_cp = np.einsum('ijk,jlk->ilk', self.cp_b_evaluator.surface_to_apex, self.bu_cp)
 
+            if self.vector_u:
                 u_helmholtz_split = np.array(np.vsplit(self.u_basis_evaluator.G_helmholtz, 2))
                 u_helmholtz_split_cp = np.array(np.vsplit(self.u_cp_basis_evaluator.G_helmholtz, 2))
 
@@ -264,7 +264,7 @@ class State(object):
                 #u_helmholtz_split = np.array(np.vsplit(self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(self.u_basis_evaluator.G_helmholtz), 2))
                 #u_helmholtz_split_cp = np.array(np.vsplit(self.cp_basis_evaluator.G_helmholtz.dot(self.cp_basis_evaluator.G_helmholtz_inv).dot(self.u_cp_basis_evaluator.G_helmholtz), 2))
 
-                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', u_to_E_apex_cp, u_helmholtz_split_cp))[np.tile(self.ll_mask, 2)]
+                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', self.u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', self.u_to_E_apex_cp, u_helmholtz_split_cp))[np.tile(self.ll_mask, 2)]
 
             helmholtz_split = np.array(np.vsplit(self.basis_evaluator.G_helmholtz, 2))
             self.helmholtz_to_apex = np.einsum(('ijk,jkl->ikl'), self.b_evaluator.surface_to_apex, helmholtz_split)
@@ -341,15 +341,9 @@ class State(object):
                 u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int_north, u_cp_int_east
 
-                # Neutral wind at low latitude grid points and at their conjugate points
-                u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
-                u_phi_ll      = self.u_phi_on_grid[self.ll_mask]
-                u_theta_cp_ll = u_theta_on_cp_grid[self.ll_mask]
-                u_phi_cp_ll   = u_phi_on_cp_grid[self.ll_mask]
-
                 # Constraint vector contribution from wind
-                self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
-                          -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
+                self.cu = -np.hstack(  np.einsum('ijk,jk->ik', self.u_to_E_apex, np.array([self.u_theta_on_grid, self.u_phi_on_grid]))
+                                     - np.einsum('ijk,jk->ik', self.u_to_E_apex_cp, np.array([u_theta_on_cp_grid, u_phi_on_cp_grid])))[np.tile(self.ll_mask, 2)]
 
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
