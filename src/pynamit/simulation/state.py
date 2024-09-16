@@ -410,13 +410,6 @@ class State(object):
                 etaP_on_cp_grid = csp.interpolate_scalar(etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 etaH_on_cp_grid = csp.interpolate_scalar(etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
-            # Resistances at low latitude grid points and at their conjugate points
-            etaH_ll    = etaH_on_grid[self.ll_mask]
-            etaP_ll    = etaP_on_grid[self.ll_mask]
-            etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
-            etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
-
-            # Scale and remove 
             # Conductance-dependent constraint matrices
             aP_ind = np.vstack(np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_ind_ll))
             aH_ind = np.vstack(np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_ind_ll))
