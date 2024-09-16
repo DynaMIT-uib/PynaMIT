@@ -260,6 +260,10 @@ class State(object):
                 u_helmholtz_split = np.array(np.vsplit(self.u_basis_evaluator.G_helmholtz, 2))
                 u_helmholtz_split_cp = np.array(np.vsplit(self.u_cp_basis_evaluator.G_helmholtz, 2))
 
+                # Alternative: uncomment to project onto state Helmholtz matrix, could be used for uxB reuse
+                #u_helmholtz_split = np.array(np.vsplit(self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(self.u_basis_evaluator.G_helmholtz), 2))
+                #u_helmholtz_split_cp = np.array(np.vsplit(self.cp_basis_evaluator.G_helmholtz.dot(self.cp_basis_evaluator.G_helmholtz_inv).dot(self.u_cp_basis_evaluator.G_helmholtz), 2))
+
                 self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', u_to_E_apex_cp, u_helmholtz_split_cp))[np.tile(self.ll_mask, 2)]
 
             helmholtz_split = np.array(np.vsplit(self.basis_evaluator.G_helmholtz, 2))
