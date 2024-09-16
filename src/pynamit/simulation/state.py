@@ -230,10 +230,8 @@ class State(object):
             G_m_ind_to_E_direct = (  bP0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
                                    + bP1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
 
-            #self.aeP_ind_ll = self.b_evaluator.surface_to_apex.dot(G_m_ind_to_E_direct)[np.tile(self.ll_mask, 2)]
-            self.aeP_ind_ll_0 = self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * self.G_m_ind_to_JS[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * self.G_m_ind_to_JS[self.grid.size:]
-            self.aeP_ind_ll_1 = self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * self.G_m_ind_to_JS[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * self.G_m_ind_to_JS[self.grid.size:]
-            self.aeP_ind_ll = np.vstack((self.aeP_ind_ll_0, self.aeP_ind_ll_1))[np.tile(self.ll_mask, 2)]
+            self.aeP_ind_ll = np.vstack((self.b_evaluator.surface_to_apex[0][0].reshape((-1, 1)) * G_m_ind_to_E_direct[:self.grid.size] + self.b_evaluator.surface_to_apex[0][1].reshape((-1, 1)) * G_m_ind_to_E_direct[self.grid.size:],
+                                         self.b_evaluator.surface_to_apex[1][0].reshape((-1, 1)) * G_m_ind_to_E_direct[:self.grid.size] + self.b_evaluator.surface_to_apex[1][1].reshape((-1, 1)) * G_m_ind_to_E_direct[self.grid.size:]))[np.tile(self.ll_mask, 2)]
             self.aeH_ind_ll = self.b_evaluator.aeH.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
             self.aeP_imp_ll = self.b_evaluator.aeP.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
             self.aeH_imp_ll = self.b_evaluator.aeH.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
