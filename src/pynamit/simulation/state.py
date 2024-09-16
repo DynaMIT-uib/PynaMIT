@@ -76,13 +76,11 @@ class State(object):
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
 
-            self.bP_cp_00 = self.cp_b_evaluator.bphi**2 + self.cp_b_evaluator.br**2
-            self.bP_cp_01 = -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi
-            self.bP_cp_10 = -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi
-            self.bP_cp_11 = self.cp_b_evaluator.btheta**2 + self.cp_b_evaluator.br**2
+            self.bP_cp = np.array([[self.cp_b_evaluator.bphi**2 + self.cp_b_evaluator.br**2, -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi],
+                                   [-self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi,  self.cp_b_evaluator.btheta**2 + self.cp_b_evaluator.br**2]])
 
-            self.bH_cp_01 = self.cp_b_evaluator.br
-            self.bH_cp_10 = -self.cp_b_evaluator.br
+            self.bH_cp = np.array([[np.zeros_like(self.bP_cp[0][0]), self.cp_b_evaluator.br],
+                                   [-self.cp_b_evaluator.br,         np.zeros_like(self.bP_cp[1][1])]])
 
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
@@ -249,11 +247,11 @@ class State(object):
             G_m_imp_to_EH = (  bH0.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[:self.grid.size], (2, 1))
                              + bH1.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[self.grid.size:], (2, 1)))
 
-            bP_cp_0 = np.hstack((self.bP_cp_00, self.bP_cp_10))
-            bP_cp_1 = np.hstack((self.bP_cp_01, self.bP_cp_11))
+            bP_cp_0 = np.hstack((self.bP_cp[0][0], self.bP_cp[1][0]))
+            bP_cp_1 = np.hstack((self.bP_cp[0][1], self.bP_cp[1][1]))
 
-            bH_cp_0 = np.hstack((np.zeros_like(self.bP_cp_00), self.bH_cp_10))
-            bH_cp_1 = np.hstack((self.bH_cp_01, np.zeros_like(self.bP_cp_11)))
+            bH_cp_0 = np.hstack((self.bH_cp[0][0], self.bH_cp[1][0]))
+            bH_cp_1 = np.hstack((self.bH_cp[0][1], self.bH_cp[1][1]))
 
             G_m_ind_to_EP_cp = (  bP_cp_0.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS_cp[:self.grid.size], (2, 1))
                                 + bP_cp_1.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS_cp[self.grid.size:], (2, 1)))
