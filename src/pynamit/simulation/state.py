@@ -395,21 +395,17 @@ class State(object):
                 etaH_on_cp_grid = csp.interpolate_scalar(etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
             # Conductance-dependent constraint matrices
-            aP_ind = np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_ind_ll)
-            aH_ind = np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_ind_ll)
-            aP_imp = np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_imp_ll)
-            aH_imp = np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_imp_ll)
+            a_pre_ind = np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_ind_ll) + np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_ind_ll)
+            a_pre_imp = np.einsum('j,ijk->ijk', etaP_on_grid, self.aeP_imp_ll) + np.einsum('j,ijk->ijk', etaH_on_grid, self.aeH_imp_ll)
 
-            aP_ind_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_ind_cp_ll)
-            aH_ind_cp = np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_ind_cp_ll)
-            aP_imp_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_imp_cp_ll)
-            aH_imp_cp = np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_imp_cp_ll)
+            a_pre_ind_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_ind_cp_ll) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_ind_cp_ll)
+            a_pre_imp_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.aeP_imp_cp_ll) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.aeH_imp_cp_ll)
 
-            a_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_ind + aH_ind)
-            a_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, aP_imp + aH_imp)
+            a_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, a_pre_ind)
+            a_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, a_pre_imp)
 
-            a_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_ind_cp + aH_ind_cp)
-            a_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, aP_imp_cp + aH_imp_cp)
+            a_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, a_pre_ind_cp)
+            a_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, a_pre_imp_cp)
 
             #G_m_ind_to_EP = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EP)
             #G_m_ind_to_EH = self.basis_evaluator.G_helmholtz.dot(self.basis_evaluator.G_helmholtz_inv).dot(G_m_ind_to_EH)
