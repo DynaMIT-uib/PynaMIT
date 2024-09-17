@@ -544,9 +544,7 @@ class State(object):
             uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
             uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
 
-            self.uxB = np.hstack((uxB_theta, uxB_phi))
-
-            E -= self.uxB
+            E -= np.hstack((uxB_theta, uxB_phi))
 
         return E
 
