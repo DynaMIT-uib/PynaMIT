@@ -59,6 +59,19 @@ class State(object):
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol.values)
 
+        # Construct the matrix elements used to calculate the electric field
+        self.bP = np.array([[self.b_evaluator.bphi**2 + self.b_evaluator.br**2, -self.b_evaluator.btheta * self.b_evaluator.bphi],
+                            [-self.b_evaluator.btheta * self.b_evaluator.bphi,  self.b_evaluator.btheta**2 + self.b_evaluator.br**2]])
+
+        self.bH = np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.br],
+                            [-self.b_evaluator.br,         np.zeros_like(self.bP[1][1])]])
+
+        self.bu = -np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.Br],
+                             [-self.b_evaluator.Br,         np.zeros_like(self.bP[1][1])]])
+
+        self.helmholtz_inv_split = np.array(np.hsplit(self.basis_evaluator.G_helmholtz_inv, 2))
+        self.u_to_helmholtz_E = np.einsum('ijk,ilk->jlk', self.helmholtz_inv_split, self.bu, optimize = True)
+
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
@@ -75,27 +88,21 @@ class State(object):
             self.G_m_ind_to_JS_cp = self.G_B_pol_to_JS_cp
             self.G_m_imp_to_JS_cp = self.G_B_tor_to_JS_cp + self.G_B_pol_to_JS_cp.dot(self.m_imp_to_B_pol.values)
 
+            self.bP_cp = np.array([[self.cp_b_evaluator.bphi**2 + self.cp_b_evaluator.br**2, -self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi],
+                                   [-self.cp_b_evaluator.btheta * self.cp_b_evaluator.bphi,  self.cp_b_evaluator.btheta**2 + self.cp_b_evaluator.br**2]])
+
+            self.bH_cp = np.array([[np.zeros_like(self.bP_cp[0][0]), self.cp_b_evaluator.br],
+                                   [-self.cp_b_evaluator.br,         np.zeros_like(self.bP_cp[1][1])]])
+
+            self.bu_cp = -np.array([[np.zeros_like(self.bP_cp[0][0]), self.cp_b_evaluator.Br],
+                                    [-self.cp_b_evaluator.Br,         np.zeros_like(self.bP_cp[1][1])]])
+
+            self.helmholtz_inv_split_cp = np.array(np.hsplit(self.cp_basis_evaluator.G_helmholtz_inv, 2))
+            self.u_to_helmholtz_E_cp = np.einsum('ijk,ilk->jlk', self.helmholtz_inv_split_cp, self.bu_cp, optimize = True)
+
         # Neutral wind and conductance should be set after state initialization
         self.neutral_wind = False
         self.conductance  = False
-
-        # Construct the matrix elements used to calculate the electric field
-        self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
-        self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-        self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-        self.bP_11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
-
-        self.bH_01 = self.b_evaluator.br
-        self.bH_10 = -self.b_evaluator.br
-
-        self.b_uxB_01 = self.b_evaluator.Br
-        self.b_uxB_10 = -self.b_evaluator.Br
-
-        self.u_to_helmholtz_E_uxB = -np.hstack((self.basis_evaluator.G_helmholtz_inv[:,self.grid.size:] * self.b_uxB_10.reshape((1, -1)),
-                                                self.basis_evaluator.G_helmholtz_inv[:,:self.grid.size] * self.b_uxB_01.reshape((1, -1))))
-
-        if self.vector_u:
-            self.u_coeffs_to_helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(self.u_basis_evaluator.G_helmholtz)
 
         self.initialize_constraints()
 
@@ -203,6 +210,18 @@ class State(object):
         if self.vector_jr:
             self.G_jr = self.jr_basis_evaluator.G
 
+        u_helmholtz_split = np.array(np.split(self.u_basis_evaluator.G_helmholtz, 2))
+        if self.vector_u:
+            self.u_coeffs_to_helmholtz_E = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E, u_helmholtz_split, optimize = True)
+
+        G_m_ind_to_JS_split = np.array(np.split(self.G_m_ind_to_JS, 2))
+        G_m_imp_to_JS_split = np.array(np.split(self.G_m_imp_to_JS, 2))
+
+        self.m_ind_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, G_m_ind_to_JS_split, optimize = True)
+        self.m_ind_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, G_m_ind_to_JS_split, optimize = True)
+        self.m_imp_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, G_m_imp_to_JS_split, optimize = True)
+        self.m_imp_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, G_m_imp_to_JS_split, optimize = True)
+
         if self.connect_hemispheres:
             if self.ignore_PFAC:
                 raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
@@ -221,23 +240,35 @@ class State(object):
             # The hemispheres are connected via interhemispheric currents at low latitudes
             self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))[self.ll_mask]
 
-            # Calculate constraint matrices for low latitude points and their conjugate points:
-            self.aeP_ind_ll = self.b_evaluator.aeP.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeH_ind_ll = self.b_evaluator.aeH.dot(self.G_m_ind_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeP_imp_ll = self.b_evaluator.aeP.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
-            self.aeH_imp_ll = self.b_evaluator.aeH.dot(self.G_m_imp_to_JS)[np.tile(self.ll_mask, 2)]
+            # Calculate constraint matrices for low latitude points and their conjugate points
+            G_m_ind_to_JS_cp_split = np.array(np.split(self.G_m_ind_to_JS_cp, 2))
+            G_m_imp_to_JS_cp_split = np.array(np.split(self.G_m_imp_to_JS_cp, 2))
 
-            self.aeP_ind_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeH_ind_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_ind_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeP_imp_cp_ll = self.cp_b_evaluator.aeP.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
-            self.aeH_imp_cp_ll = self.cp_b_evaluator.aeH.dot(self.G_m_imp_to_JS_cp)[np.tile(self.ll_mask, 2)]
+            self.m_ind_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, G_m_ind_to_JS_cp_split, optimize = True)
+            self.m_ind_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, G_m_ind_to_JS_cp_split, optimize = True)
+            self.m_imp_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, G_m_imp_to_JS_cp_split, optimize = True)
+            self.m_imp_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, G_m_imp_to_JS_cp_split, optimize = True)
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
 
+            self.u_to_E_apex    = np.einsum('ijk,jlk->ilk', self.b_evaluator.surface_to_apex, self.bu, optimize = True)
+            self.u_to_E_apex_cp = np.einsum('ijk,jlk->ilk', self.cp_b_evaluator.surface_to_apex, self.bu_cp, optimize = True)
+
+            helmholtz_split = np.array(np.split(self.basis_evaluator.G_helmholtz, 2))
+            self.helmholtz_to_apex = np.einsum(('ijk,jkl->ikl'), self.b_evaluator.surface_to_apex, helmholtz_split, optimize = True)
+
+            helmholtz_cp_split = np.array(np.split(self.cp_basis_evaluator.G_helmholtz, 2))
+            self.helmholtz_to_apex_cp = np.einsum(('ijk,jkl->ikl'), self.cp_b_evaluator.surface_to_apex, helmholtz_cp_split, optimize = True)
+
             if self.vector_u:
-                self.u_coeffs_to_cu = -(  self.b_evaluator.aut.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aut.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz
-                                        + self.b_evaluator.aup.reshape((-1, 1)) * self.u_basis_evaluator.G_helmholtz - self.cp_b_evaluator.aup.reshape((-1, 1)) * self.u_cp_basis_evaluator.G_helmholtz)[np.tile(self.ll_mask, 2)]
+                u_helmholtz_cp_split = np.array(np.split(self.u_cp_basis_evaluator.G_helmholtz, 2))
+                self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E_cp, u_helmholtz_cp_split, optimize = True)
+
+                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', self.u_to_E_apex, u_helmholtz_split, optimize = True) - np.einsum('ijk,jkl->ikl', self.u_to_E_apex_cp, u_helmholtz_cp_split, optimize = True))[np.tile(self.ll_mask, 2)]
+
+                # Alternative: uncomment to reuse u_coeffs_to_helmholtz_E for constraint matrices
+                #self.A_u = -np.vstack(np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, self.u_coeffs_to_helmholtz_E, optimize = True) - np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, self.u_coeffs_to_helmholtz_E_cp, optimize = True))[np.tile(self.ll_mask, 2)]
 
 
     def impose_constraints(self):
@@ -294,35 +325,23 @@ class State(object):
 
         if vector_u:
             self.u = u
-            self.helmholtz_E_uxB = self.u_coeffs_to_helmholtz_E_uxB.dot(self.u.coeffs)
+            self.helmholtz_E_u = self.u_coeffs_to_helmholtz_E.dot(self.u.coeffs)
 
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
-
-            uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
-            uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
-
-            self.uxB = np.hstack((uxB_theta, uxB_phi))
-
-            self.helmholtz_E_uxB = self.u_to_helmholtz_E_uxB.dot(np.hstack((self.u_theta_on_grid, self.u_phi_on_grid)))
+            self.helmholtz_E_u = np.einsum('ijk,jk->i',  self.u_to_helmholtz_E, np.array([self.u_theta_on_grid, self.u_phi_on_grid]), optimize = True)
 
         if self.connect_hemispheres:
             if vector_u:
-                self.cu = self.u_coeffs_to_cu.dot(self.u.coeffs)
+                self.cu = self.A_u.dot(self.u.coeffs)
 
             else:
                 u_cp_int_east, u_cp_int_north, _ = csp.interpolate_vector_components(self.u_phi_on_grid, -self.u_theta_on_grid, np.zeros_like(self.u_phi_on_grid), self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 u_theta_on_cp_grid, u_phi_on_cp_grid = -u_cp_int_north, u_cp_int_east
 
-                # Neutral wind at low latitude grid points and at their conjugate points
-                u_theta_ll    = self.u_theta_on_grid[self.ll_mask]
-                u_phi_ll      = self.u_phi_on_grid[self.ll_mask]
-                u_theta_cp_ll = u_theta_on_cp_grid[self.ll_mask]
-                u_phi_cp_ll   = u_phi_on_cp_grid[self.ll_mask]
-
                 # Constraint vector contribution from wind
-                self.cu =  (np.tile(u_theta_cp_ll, 2) * self.cp_b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_cp_ll, 2) * self.cp_b_evaluator.aup[np.tile(self.ll_mask, 2)]) \
-                          -(np.tile(u_theta_ll,    2) *    self.b_evaluator.aut[np.tile(self.ll_mask, 2)] + np.tile(u_phi_ll,    2) *    self.b_evaluator.aup[np.tile(self.ll_mask, 2)])
+                self.cu = -np.hstack(  np.einsum('ijk,jk->ik', self.u_to_E_apex, np.array([self.u_theta_on_grid, self.u_phi_on_grid]), optimize = True)
+                                     - np.einsum('ijk,jk->ik', self.u_to_E_apex_cp, np.array([u_theta_on_cp_grid, u_phi_on_cp_grid]), optimize = True))[np.tile(self.ll_mask, 2)]
 
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
@@ -350,22 +369,11 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        JS_to_E_00 = etaP_on_grid * self.bP_00
-        JS_to_E_01 = etaP_on_grid * self.bP_01 + etaH_on_grid * self.bH_01
-        JS_to_E_10 = etaP_on_grid * self.bP_10 + etaH_on_grid * self.bH_10
-        JS_to_E_11 = etaP_on_grid * self.bP_11
+        G_m_ind_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_ind_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_ind_to_bH_JS, optimize = True)
+        G_m_imp_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_imp_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_imp_to_bH_JS, optimize = True)
 
-        self.Jth_to_E = np.hstack((JS_to_E_00, JS_to_E_10))
-        self.Jph_to_E = np.hstack((JS_to_E_01, JS_to_E_11))
-
-        G_m_imp_to_E_direct = (self.Jth_to_E.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[:self.grid.size], (2, 1))
-                              + self.Jph_to_E.reshape((-1, 1)) * np.tile(self.G_m_imp_to_JS[self.grid.size:], (2, 1)))
-
-        G_m_ind_to_E_direct = (self.Jth_to_E.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[:self.grid.size], (2, 1))
-                               + self.Jph_to_E.reshape((-1, 1)) * np.tile(self.G_m_ind_to_JS[self.grid.size:], (2, 1)))
-
-        m_imp_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_imp_to_E_direct)
-        m_ind_to_helmholtz_E_direct = self.basis_evaluator.G_helmholtz_inv.dot(G_m_ind_to_E_direct)
+        m_ind_to_helmholtz_E_direct = np.einsum('ijk,ikl->jl', self.helmholtz_inv_split, G_m_ind_to_E_direct, optimize = True)
+        m_imp_to_helmholtz_E_direct = np.einsum('ijk,ikl->jl', self.helmholtz_inv_split, G_m_imp_to_E_direct, optimize = True)
 
         self.G_m_imp_constraints = self.G_m_imp_to_jr
 
@@ -379,19 +387,28 @@ class State(object):
                 etaP_on_cp_grid = csp.interpolate_scalar(etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 etaH_on_cp_grid = csp.interpolate_scalar(etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
-            # Resistances at low latitude grid points and at their conjugate points
-            etaH_ll    = etaH_on_grid[self.ll_mask]
-            etaP_ll    = etaP_on_grid[self.ll_mask]
-            etaP_cp_ll = etaP_on_cp_grid[self.ll_mask]
-            etaH_cp_ll = etaH_on_cp_grid[self.ll_mask]
+            G_m_ind_to_E_direct_cp = np.einsum('i,jik->jik', etaP_on_cp_grid, self.m_ind_to_bP_JS_cp, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.m_ind_to_bH_JS_cp, optimize = True)
+            G_m_imp_to_E_direct_cp = np.einsum('i,jik->jik', etaP_on_cp_grid, self.m_imp_to_bP_JS_cp, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.m_imp_to_bH_JS_cp, optimize = True)
 
-            # Scale and remove 
             # Conductance-dependent constraint matrices
-            self.A_ind =  (np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_ind_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_ind_cp_ll) \
-                         -(np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_ind_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_ind_ll)
+            a_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_ind_to_E_direct, optimize = True)
+            a_imp = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_imp_to_E_direct, optimize = True)
 
-            self.A_imp =  (np.tile(etaP_ll,    2).reshape((-1, 1)) * self.aeP_imp_ll    + np.tile(etaH_ll,    2).reshape((-1, 1)) * self.aeH_imp_ll) \
-                         -(np.tile(etaP_cp_ll, 2).reshape((-1, 1)) * self.aeP_imp_cp_ll + np.tile(etaH_cp_ll, 2).reshape((-1, 1)) * self.aeH_imp_cp_ll)
+            a_ind_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_ind_to_E_direct_cp, optimize = True)
+            a_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_imp_to_E_direct_cp, optimize = True)
+
+            # Alternative: uncomment to reuse m_ind_to_helmholtz_E for constraint matrices
+            #a_ind = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, m_ind_to_helmholtz_E_direct, optimize = True)
+            #a_imp = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, m_imp_to_helmholtz_E_direct, optimize = True)
+
+            #m_ind_to_helmholtz_E_direct_cp = np.einsum('ijk,ikl->jl', self.helmholtz_inv_split_cp, G_m_ind_to_E_direct_cp, optimize = True)
+            #m_imp_to_helmholtz_E_direct_cp = np.einsum('ijk,ikl->jl', self.helmholtz_inv_split_cp, G_m_imp_to_E_direct_cp, optimize = True)
+
+            #a_ind_cp = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, m_ind_to_helmholtz_E_direct_cp, optimize = True)
+            #a_imp_cp = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, m_imp_to_helmholtz_E_direct_cp, optimize = True)
+
+            self.A_ind = -np.vstack((a_ind - a_ind_cp)[:,self.ll_mask])
+            self.A_imp =  np.vstack((a_imp - a_imp_cp)[:,self.ll_mask])
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
@@ -415,7 +432,7 @@ class State(object):
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
             if self.vector_u:
-                self.u_coeffs_to_helmholtz_E = self.c_to_helmholtz_E.dot(self.u_coeffs_to_cu)
+                self.u_coeffs_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_u)
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[self.basis.index_length:, :])
 
@@ -432,11 +449,11 @@ class State(object):
             E += self.jr_to_helmholtz_E.dot(self.jr_on_grid)
 
         if self.neutral_wind:
-            E += self.helmholtz_E_uxB
+            E += self.helmholtz_E_u
 
             if self.connect_hemispheres:
                 if self.vector_u:
-                    E += self.u_coeffs_to_helmholtz_E.dot(self.u.coeffs)
+                    E += self.u_coeffs_to_helmholtz_E_constraints.dot(self.u.coeffs)
                 else:
                     E += self.c_to_helmholtz_E.dot(self.cu)
 
@@ -522,7 +539,10 @@ class State(object):
         E = self.Jth_to_E * np.tile(Jth, 2) + self.Jph_to_E * np.tile(Jph, 2)
 
         if self.neutral_wind:
-            E -= self.uxB
+            uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
+            uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
+
+            E -= np.hstack((uxB_theta, uxB_phi))
 
         return E
 
@@ -549,11 +569,11 @@ class State(object):
             helmholtz_E_noind = self.jr_to_helmholtz_E.dot(self.jr_on_grid)
 
         if self.neutral_wind:
-            helmholtz_E_noind += self.helmholtz_E_uxB
+            helmholtz_E_noind += self.helmholtz_E_u
 
             if self.connect_hemispheres:
                 if self.vector_u:
-                    helmholtz_E_noind += self.u_coeffs_to_helmholtz_E.dot(self.u.coeffs)
+                    helmholtz_E_noind += self.u_coeffs_to_helmholtz_E_constraints.dot(self.u.coeffs)
                 else:
                     helmholtz_E_noind += self.c_to_helmholtz_E.dot(self.cu)
 
