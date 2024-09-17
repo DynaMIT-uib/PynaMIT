@@ -210,19 +210,17 @@ class State(object):
         if self.vector_jr:
             self.G_jr = self.jr_basis_evaluator.G
 
-        u_helmholtz_split = np.array(np.vsplit(self.u_basis_evaluator.G_helmholtz, 2))
+        u_helmholtz_split = np.array(np.split(self.u_basis_evaluator.G_helmholtz, 2))
         if self.vector_u:
             self.u_coeffs_to_helmholtz_E = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E, u_helmholtz_split)
 
-        m_ind_to_JS_array = np.array([self.G_m_ind_to_JS[:self.grid.size],
-                                      self.G_m_ind_to_JS[self.grid.size:]])
-        m_imp_to_JS_array = np.array([self.G_m_imp_to_JS[:self.grid.size],
-                                      self.G_m_imp_to_JS[self.grid.size:]])
+        G_m_ind_to_JS_split = np.array(np.split(self.G_m_ind_to_JS, 2))
+        G_m_imp_to_JS_split = np.array(np.split(self.G_m_imp_to_JS, 2))
 
-        self.m_ind_to_bP_JS = np.einsum('ilj,ljk->ijk', self.bP, m_ind_to_JS_array)
-        self.m_ind_to_bH_JS = np.einsum('ilj,ljk->ijk', self.bH, m_ind_to_JS_array)
-        self.m_imp_to_bP_JS = np.einsum('ilj,ljk->ijk', self.bP, m_imp_to_JS_array)
-        self.m_imp_to_bH_JS = np.einsum('ilj,ljk->ijk', self.bH, m_imp_to_JS_array)
+        self.m_ind_to_bP_JS = np.einsum('ilj,ljk->ijk', self.bP, G_m_ind_to_JS_split)
+        self.m_ind_to_bH_JS = np.einsum('ilj,ljk->ijk', self.bH, G_m_ind_to_JS_split)
+        self.m_imp_to_bP_JS = np.einsum('ilj,ljk->ijk', self.bP, G_m_imp_to_JS_split)
+        self.m_imp_to_bH_JS = np.einsum('ilj,ljk->ijk', self.bH, G_m_imp_to_JS_split)
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
@@ -243,15 +241,13 @@ class State(object):
             self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))[self.ll_mask]
 
             # Calculate constraint matrices for low latitude points and their conjugate points
-            m_ind_to_JS_cp_array = np.array([self.G_m_ind_to_JS_cp[:self.grid.size],
-                                             self.G_m_ind_to_JS_cp[self.grid.size:]])
-            m_imp_to_JS_cp_array = np.array([self.G_m_imp_to_JS_cp[:self.grid.size],
-                                             self.G_m_imp_to_JS_cp[self.grid.size:]])
+            G_m_ind_to_JS_cp_split = np.array(np.split(self.G_m_ind_to_JS_cp, 2))
+            G_m_imp_to_JS_cp_split = np.array(np.split(self.G_m_imp_to_JS_cp, 2))
 
-            self.m_ind_to_bP_JS_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, m_ind_to_JS_cp_array)
-            self.m_ind_to_bH_JS_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, m_ind_to_JS_cp_array)
-            self.m_imp_to_bP_JS_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, m_imp_to_JS_cp_array)
-            self.m_imp_to_bH_JS_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, m_imp_to_JS_cp_array)
+            self.m_ind_to_bP_JS_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, G_m_ind_to_JS_cp_split)
+            self.m_ind_to_bH_JS_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, G_m_ind_to_JS_cp_split)
+            self.m_imp_to_bP_JS_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, G_m_imp_to_JS_cp_split)
+            self.m_imp_to_bH_JS_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, G_m_imp_to_JS_cp_split)
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
@@ -259,22 +255,22 @@ class State(object):
             self.u_to_E_apex    = np.einsum('ijk,jlk->ilk', self.b_evaluator.surface_to_apex, self.bu)
             self.u_to_E_apex_cp = np.einsum('ijk,jlk->ilk', self.cp_b_evaluator.surface_to_apex, self.bu_cp)
 
-            helmholtz_split = np.array(np.vsplit(self.basis_evaluator.G_helmholtz, 2))
+            helmholtz_split = np.array(np.split(self.basis_evaluator.G_helmholtz, 2))
             self.helmholtz_to_apex = np.einsum(('ijk,jkl->ikl'), self.b_evaluator.surface_to_apex, helmholtz_split)
 
-            helmholtz_split_cp = np.array(np.vsplit(self.cp_basis_evaluator.G_helmholtz, 2))
-            self.helmholtz_to_apex_cp = np.einsum(('ijk,jkl->ikl'), self.cp_b_evaluator.surface_to_apex, helmholtz_split_cp)
+            helmholtz_cp_split = np.array(np.split(self.cp_basis_evaluator.G_helmholtz, 2))
+            self.helmholtz_to_apex_cp = np.einsum(('ijk,jkl->ikl'), self.cp_b_evaluator.surface_to_apex, helmholtz_cp_split)
 
             if self.vector_u:
-                u_helmholtz_split_cp = np.array(np.split(self.u_cp_basis_evaluator.G_helmholtz, 2))
-                self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E_cp, u_helmholtz_split_cp)
+                u_helmholtz_cp_split = np.array(np.split(self.u_cp_basis_evaluator.G_helmholtz, 2))
+                self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E_cp, u_helmholtz_cp_split)
 
                 # Alternative: uncomment to reuse u_coeffs_to_helmholtz_E for constraint matrices
                 #u_coeffs_to_helmholtz_E_split    = self.u_coeffs_to_helmholtz_E
                 #u_coeffs_to_helmholtz_E_cp_split = self.u_coeffs_to_helmholtz_E_cp
                 #self.A_u = -np.vstack(np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, u_coeffs_to_helmholtz_E_split) - np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, u_coeffs_to_helmholtz_E_cp_split))[np.tile(self.ll_mask, 2)]
 
-                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', self.u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', self.u_to_E_apex_cp, u_helmholtz_split_cp))[np.tile(self.ll_mask, 2)]
+                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', self.u_to_E_apex, u_helmholtz_split) - np.einsum('ijk,jkl->ikl', self.u_to_E_apex_cp, u_helmholtz_cp_split))[np.tile(self.ll_mask, 2)]
 
 
     def impose_constraints(self):
