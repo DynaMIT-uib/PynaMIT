@@ -159,24 +159,3 @@ class FieldEvaluator:
             self._surface_to_apex = np.einsum('ilk,ljk->ijk', self.spherical_to_apex, self.surface_to_spherical, optimize = True)
 
         return self._surface_to_apex
-
-
-    @property
-    def aut(self):
-        """ a u t matrix. """
-
-        if not hasattr(self, '_aut'):
-            alpha13_ut = -self.Br*self.bphi*self.e1r/self.br + self.Br*self.e1p
-            alpha23_ut = -self.Br*self.bphi*self.e2r/self.br + self.Br*self.e2p
-            self._aut = np.hstack((alpha13_ut, alpha23_ut))
-        return self._aut
-
-    @property
-    def aup(self):
-        """ a u p matrix. """
-
-        if not hasattr(self, '_aup'):
-            alpha13_up = -self.Br*self.e1t + self.Br*self.btheta*self.e1r/self.br
-            alpha23_up = -self.Br*self.e2t + self.Br*self.btheta*self.e2r/self.br
-            self._aup = np.hstack((alpha13_up, alpha23_up))
-        return self._aup
