@@ -217,10 +217,10 @@ class State(object):
         G_m_ind_to_JS_split = np.array(np.split(self.G_m_ind_to_JS, 2))
         G_m_imp_to_JS_split = np.array(np.split(self.G_m_imp_to_JS, 2))
 
-        self.m_ind_to_bP_JS = np.einsum('ilj,ljk->ijk', self.bP, G_m_ind_to_JS_split, optimize = True)
-        self.m_ind_to_bH_JS = np.einsum('ilj,ljk->ijk', self.bH, G_m_ind_to_JS_split, optimize = True)
-        self.m_imp_to_bP_JS = np.einsum('ilj,ljk->ijk', self.bP, G_m_imp_to_JS_split, optimize = True)
-        self.m_imp_to_bH_JS = np.einsum('ilj,ljk->ijk', self.bH, G_m_imp_to_JS_split, optimize = True)
+        self.m_ind_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, G_m_ind_to_JS_split, optimize = True)
+        self.m_ind_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, G_m_ind_to_JS_split, optimize = True)
+        self.m_imp_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, G_m_imp_to_JS_split, optimize = True)
+        self.m_imp_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, G_m_imp_to_JS_split, optimize = True)
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
@@ -244,10 +244,10 @@ class State(object):
             G_m_ind_to_JS_cp_split = np.array(np.split(self.G_m_ind_to_JS_cp, 2))
             G_m_imp_to_JS_cp_split = np.array(np.split(self.G_m_imp_to_JS_cp, 2))
 
-            self.m_ind_to_bP_JS_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, G_m_ind_to_JS_cp_split, optimize = True)
-            self.m_ind_to_bH_JS_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, G_m_ind_to_JS_cp_split, optimize = True)
-            self.m_imp_to_bP_JS_cp = np.einsum('ilj,ljk->ijk', self.bP_cp, G_m_imp_to_JS_cp_split, optimize = True)
-            self.m_imp_to_bH_JS_cp = np.einsum('ilj,ljk->ijk', self.bH_cp, G_m_imp_to_JS_cp_split, optimize = True)
+            self.m_ind_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, G_m_ind_to_JS_cp_split, optimize = True)
+            self.m_ind_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, G_m_ind_to_JS_cp_split, optimize = True)
+            self.m_imp_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, G_m_imp_to_JS_cp_split, optimize = True)
+            self.m_imp_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, G_m_imp_to_JS_cp_split, optimize = True)
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
@@ -369,8 +369,8 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        G_m_ind_to_E_direct = np.einsum('j,ijk->ijk', etaP_on_grid, self.m_ind_to_bP_JS, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_grid, self.m_ind_to_bH_JS, optimize = True)
-        G_m_imp_to_E_direct = np.einsum('j,ijk->ijk', etaP_on_grid, self.m_imp_to_bP_JS, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_grid, self.m_imp_to_bH_JS, optimize = True)
+        G_m_ind_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_ind_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_ind_to_bH_JS, optimize = True)
+        G_m_imp_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_imp_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_imp_to_bH_JS, optimize = True)
 
         m_ind_to_helmholtz_E_direct = np.einsum('ijk,ikl->jl', self.helmholtz_inv_split, G_m_ind_to_E_direct, optimize = True)
         m_imp_to_helmholtz_E_direct = np.einsum('ijk,ikl->jl', self.helmholtz_inv_split, G_m_imp_to_E_direct, optimize = True)
@@ -387,8 +387,8 @@ class State(object):
                 etaP_on_cp_grid = csp.interpolate_scalar(etaP_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
                 etaH_on_cp_grid = csp.interpolate_scalar(etaH_on_grid, self.grid.theta, self.grid.phi, self.cp_grid.theta, self.cp_grid.phi)
 
-            G_m_ind_to_E_direct_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.m_ind_to_bP_JS_cp, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.m_ind_to_bH_JS_cp, optimize = True)
-            G_m_imp_to_E_direct_cp = np.einsum('j,ijk->ijk', etaP_on_cp_grid, self.m_imp_to_bP_JS_cp, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.m_imp_to_bH_JS_cp, optimize = True)
+            G_m_ind_to_E_direct_cp = np.einsum('i,jik->jik', etaP_on_cp_grid, self.m_ind_to_bP_JS_cp, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.m_ind_to_bH_JS_cp, optimize = True)
+            G_m_imp_to_E_direct_cp = np.einsum('i,jik->jik', etaP_on_cp_grid, self.m_imp_to_bP_JS_cp, optimize = True) + np.einsum('j,ijk->ijk', etaH_on_cp_grid, self.m_imp_to_bH_JS_cp, optimize = True)
 
             # Conductance-dependent constraint matrices
             a_ind = np.einsum('ijk,jkl->ikl', self.b_evaluator.surface_to_apex, G_m_ind_to_E_direct, optimize = True)
