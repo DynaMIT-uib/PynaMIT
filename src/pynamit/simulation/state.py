@@ -265,12 +265,10 @@ class State(object):
                 u_helmholtz_cp_split = np.array(np.split(self.u_cp_basis_evaluator.G_helmholtz, 2))
                 self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E_cp, u_helmholtz_cp_split, optimize = True)
 
-                # Alternative: uncomment to reuse u_coeffs_to_helmholtz_E for constraint matrices
-                #u_coeffs_to_helmholtz_E_split    = self.u_coeffs_to_helmholtz_E
-                #u_coeffs_to_helmholtz_E_cp_split = self.u_coeffs_to_helmholtz_E_cp
-                #self.A_u = -np.vstack(np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, u_coeffs_to_helmholtz_E_split, optimize = True) - np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, u_coeffs_to_helmholtz_E_cp_split, optimize = True))[np.tile(self.ll_mask, 2)]
-
                 self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', self.u_to_E_apex, u_helmholtz_split, optimize = True) - np.einsum('ijk,jkl->ikl', self.u_to_E_apex_cp, u_helmholtz_cp_split, optimize = True))[np.tile(self.ll_mask, 2)]
+
+                # Alternative: uncomment to reuse u_coeffs_to_helmholtz_E for constraint matrices
+                #self.A_u = -np.vstack(np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, self.u_coeffs_to_helmholtz_E, optimize = True) - np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, self.u_coeffs_to_helmholtz_E_cp, optimize = True))[np.tile(self.ll_mask, 2)]
 
 
     def impose_constraints(self):
