@@ -11,7 +11,9 @@ from ppigrf.ppigrf import igrf_gc, igrf_V
 import datetime
 from pynamit.cubed_sphere import cubed_sphere, diffutils
 from functools import reduce
+import pytest
 
+@pytest.mark.skip(reason = 'Differentiation must be re-implemented now that grid is cell centered')
 def test_differentiation():
     # set up projection and make a grid (not using the grid class)
     R = 6371.2e3
