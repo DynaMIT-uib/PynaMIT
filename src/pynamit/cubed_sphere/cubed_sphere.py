@@ -136,7 +136,7 @@ class CSProjection(object):
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
-        return(-np.pi / 4 + i * np.pi / 2 / N)
+        return(-np.pi / 4 + i * np.pi / (2 * N))
 
 
 
@@ -168,7 +168,7 @@ class CSProjection(object):
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
-        return(-np.pi / 4 + j * np.pi / 2 / N)
+        return(-np.pi / 4 + j * np.pi / (2 * N))
 
 
 
