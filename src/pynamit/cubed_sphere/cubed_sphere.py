@@ -62,20 +62,19 @@ class CSProjection(object):
 
         """
 
-        if N is not None: # Calculate grid arrays
+        if N is not None: # calculate grid arrays
             if N % 2 != 0:
                 raise ValueError('Cubed sphere grid dimension must be even. Sorry')
 
             self.N = N
             k, i, j = self.get_gridpoints(N)
-            #k, i, j = k[:, :-1, :-1], i[:, :-1, :-1], j[:, :-1, :-1] # crop, since we only want cell centers
-            self.arr_xi  = self.xi( i, N).flatten()
-            self.arr_eta = self.eta(j, N).flatten()
-            self.arr_block = k.flatten()
+            self.arr_xi  = self.xi( i[:, :-1, :-1] + .5, N).flatten() # crop to skip duplicate points
+            self.arr_eta = self.eta(j[:, :-1, :-1] + .5, N).flatten()
+            self.arr_block = k[:, :-1, :-1].flatten()
             _, self.arr_theta, self.arr_phi = self.cube2spherical(self.arr_xi, self.arr_eta, self.arr_block, deg = True)
 
-            # calcualte area
-            step = np.diff(self.xi(np.array([0, 1]), N))[0] # lenght of each cell side in xi/eta coords
+            # Calculate area
+            step = np.diff(self.xi(np.array([0, 1]), N))[0] # length of each cell side in xi/eta coords
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
             self.detg = arrayutils.get_3D_determinants(self.g)
             self.unit_area = step**2 * np.sqrt(self.detg) # Eq. (20) in Yin
@@ -107,7 +106,7 @@ class CSProjection(object):
 
         """
 
-        k, i, j = np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing = 'ij')
+        k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing = 'ij')
         if flat:
             return k.flatten(), i.flatten(), j.flatten()
         else:
@@ -137,7 +136,7 @@ class CSProjection(object):
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
-        return(-np.pi / 4 + i * np.pi / 2 / (N-1))
+        return(-np.pi / 4 + i * np.pi / (2 * N))
 
 
 
@@ -169,7 +168,7 @@ class CSProjection(object):
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
-        return(-np.pi / 4 + j * np.pi / 2 / (N-1))
+        return(-np.pi / 4 + j * np.pi / (2 * N))
 
 
 
