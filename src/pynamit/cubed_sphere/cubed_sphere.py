@@ -106,7 +106,7 @@ class CSProjection(object):
 
         """
 
-        k, i, j = np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing = 'ij')
+        k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing = 'ij')
         if flat:
             return k.flatten(), i.flatten(), j.flatten()
         else:
