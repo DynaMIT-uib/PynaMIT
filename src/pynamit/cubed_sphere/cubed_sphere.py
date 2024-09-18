@@ -68,10 +68,9 @@ class CSProjection(object):
 
             self.N = N
             k, i, j = self.get_gridpoints(N)
-            #k, i, j = k[:, :-1, :-1], i[:, :-1, :-1], j[:, :-1, :-1] # crop, since we only want cell centers
-            self.arr_xi  = self.xi( i, N).flatten()
-            self.arr_eta = self.eta(j, N).flatten()
-            self.arr_block = k.flatten()
+            self.arr_xi  = self.xi( i[:, :-1, :-1] + .5, N).flatten() # crop to skip duplicate points
+            self.arr_eta = self.eta(j[:, :-1, :-1] + .5, N).flatten()
+            self.arr_block = k[:, :-1, :-1].flatten()
             _, self.arr_theta, self.arr_phi = self.cube2spherical(self.arr_xi, self.arr_eta, self.arr_block, deg = True)
 
             # calcualte area
@@ -137,7 +136,7 @@ class CSProjection(object):
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
-        return(-np.pi / 4 + i * np.pi / 2 / (N-1))
+        return(-np.pi / 4 + i * np.pi / 2 / N)
 
 
 
@@ -169,7 +168,7 @@ class CSProjection(object):
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
 
-        return(-np.pi / 4 + j * np.pi / 2 / (N-1))
+        return(-np.pi / 4 + j * np.pi / 2 / N)
 
 
 
