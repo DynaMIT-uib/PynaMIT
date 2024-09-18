@@ -62,7 +62,7 @@ class CSProjection(object):
 
         """
 
-        if N is not None: # Calculate grid arrays
+        if N is not None: # calculate grid arrays
             if N % 2 != 0:
                 raise ValueError('Cubed sphere grid dimension must be even. Sorry')
 
@@ -73,8 +73,8 @@ class CSProjection(object):
             self.arr_block = k[:, :-1, :-1].flatten()
             _, self.arr_theta, self.arr_phi = self.cube2spherical(self.arr_xi, self.arr_eta, self.arr_block, deg = True)
 
-            # calcualte area
-            step = np.diff(self.xi(np.array([0, 1]), N))[0] # lenght of each cell side in xi/eta coords
+            # Calculate area
+            step = np.diff(self.xi(np.array([0, 1]), N))[0] # length of each cell side in xi/eta coords
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
             self.detg = arrayutils.get_3D_determinants(self.g)
             self.unit_area = step**2 * np.sqrt(self.detg) # Eq. (20) in Yin
