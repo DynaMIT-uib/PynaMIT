@@ -210,9 +210,8 @@ class State(object):
         if self.vector_jr:
             self.G_jr = self.jr_basis_evaluator.G
 
-        u_helmholtz_split = np.array(np.split(self.u_basis_evaluator.G_helmholtz, 2))
         if self.vector_u:
-            self.u_coeffs_to_helmholtz_E = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E, u_helmholtz_split, optimize = True)
+            self.u_coeffs_to_helmholtz_E = np.einsum('ijk,jlkm->ilm', self.u_to_helmholtz_E, self.u_basis_evaluator.G_helmholtz, optimize = True)
 
         G_m_ind_to_JS_split = np.array(np.split(self.G_m_ind_to_JS, 2))
         G_m_imp_to_JS_split = np.array(np.split(self.G_m_imp_to_JS, 2))
@@ -255,17 +254,15 @@ class State(object):
             self.u_to_E_apex    = np.einsum('ijk,jlk->ilk', self.b_evaluator.surface_to_apex, self.bu, optimize = True)
             self.u_to_E_apex_cp = np.einsum('ijk,jlk->ilk', self.cp_b_evaluator.surface_to_apex, self.bu_cp, optimize = True)
 
-            helmholtz_split = np.array(np.split(self.basis_evaluator.G_helmholtz, 2))
-            self.helmholtz_to_apex = np.einsum(('ijk,jkl->ikl'), self.b_evaluator.surface_to_apex, helmholtz_split, optimize = True)
-
-            helmholtz_cp_split = np.array(np.split(self.cp_basis_evaluator.G_helmholtz, 2))
-            self.helmholtz_to_apex_cp = np.einsum(('ijk,jkl->ikl'), self.cp_b_evaluator.surface_to_apex, helmholtz_cp_split, optimize = True)
+            #self.helmholtz_to_apex    = np.einsum('ijk,jlkm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+            #self.helmholtz_to_apex_cp = np.einsum('ijk,jlkm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
 
             if self.vector_u:
-                u_helmholtz_cp_split = np.array(np.split(self.u_cp_basis_evaluator.G_helmholtz, 2))
-                self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijk,jkl->il', self.u_to_helmholtz_E_cp, u_helmholtz_cp_split, optimize = True)
+                self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijk,jlkm->ilm', self.u_to_helmholtz_E_cp, self.u_cp_basis_evaluator.G_helmholtz, optimize = True)
 
-                self.A_u = -np.vstack(np.einsum('ijk,jkl->ikl', self.u_to_E_apex, u_helmholtz_split, optimize = True) - np.einsum('ijk,jkl->ikl', self.u_to_E_apex_cp, u_helmholtz_cp_split, optimize = True))[np.tile(self.ll_mask, 2)]
+                self.a_u = np.einsum('ijk,jlkm->ilkm', self.u_to_E_apex, self.u_basis_evaluator.G_helmholtz, optimize = True) - np.einsum('ijk,jlkm->ilkm', self.u_to_E_apex_cp, self.u_cp_basis_evaluator.G_helmholtz, optimize = True)
+                self.A_u = -np.vstack((np.hstack((self.a_u[0][0], self.a_u[0][1])),
+                                       np.hstack((self.a_u[1][0], self.a_u[1][1]))))[np.tile(self.ll_mask, 2)]
 
                 # Alternative: uncomment to reuse u_coeffs_to_helmholtz_E for constraint matrices
                 #self.A_u = -np.vstack(np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, self.u_coeffs_to_helmholtz_E, optimize = True) - np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, self.u_coeffs_to_helmholtz_E_cp, optimize = True))[np.tile(self.ll_mask, 2)]
@@ -325,7 +322,7 @@ class State(object):
 
         if vector_u:
             self.u = u
-            self.helmholtz_E_u = self.u_coeffs_to_helmholtz_E.dot(self.u.coeffs)
+            self.helmholtz_E_u = np.einsum('ijk,jk->i', self.u_coeffs_to_helmholtz_E, np.array(np.split(self.u.coeffs, 2)))
 
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
