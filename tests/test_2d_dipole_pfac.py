@@ -8,7 +8,7 @@ import numpy as np
 def test_2d_dipole_pfac():
     # Arrange
     expected_coeff_norm = 6.539977254541425e-10
-    expected_coeff_max = 2.1791032648377966e-11
+    expected_coeff_max =  2.1791032648377966e-11
     expected_coeff_min = -4.482432073737194e-11
     expected_n_coeffs = 201
 

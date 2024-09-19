@@ -7,9 +7,9 @@ import numpy as np
 
 def test_steady_state_init():
     # Arrange
-    expected_coeff_norm = 1.3123319998066322e-07
-    expected_coeff_max =  3.4488367397402506e-09
-    expected_coeff_min = -4.487730574232079e-09
+    expected_coeff_norm = 7.928786270592175e-08
+    expected_coeff_max =  1.9567045671388153e-09
+    expected_coeff_min = -2.262283244973042e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
