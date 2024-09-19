@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind_grid():
     # Arrange
-    expected_coeff_norm = 5.426977121817499e-10
-    expected_coeff_max =  2.0596475785189906e-11
-    expected_coeff_min = -3.50917603783816e-11
+    expected_coeff_norm = 5.344491371674161e-10
+    expected_coeff_max =  2.2588303561218535e-11
+    expected_coeff_min = -3.970997323419278e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
