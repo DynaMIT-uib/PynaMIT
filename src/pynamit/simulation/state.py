@@ -246,9 +246,6 @@ class State(object):
             self.u_to_E_apex    = np.einsum('ijk,jlk->ilk', self.b_evaluator.surface_to_apex, self.bu, optimize = True)
             self.u_to_E_apex_cp = np.einsum('ijk,jlk->ilk', self.cp_b_evaluator.surface_to_apex, self.bu_cp, optimize = True)
 
-            #self.helmholtz_to_apex    = np.einsum('ijk,jlkm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
-            #self.helmholtz_to_apex_cp = np.einsum('ijk,jlkm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
-
             if self.vector_u:
                 self.u_coeffs_to_helmholtz_E_cp = np.einsum('ijkl,jmln->imkn', self.u_to_helmholtz_E_cp, self.u_cp_basis_evaluator.G_helmholtz, optimize = True)
 
@@ -257,7 +254,12 @@ class State(object):
                                        np.hstack((self.a_u[1][0], self.a_u[1][1]))))[np.tile(self.ll_mask, 2)]
 
                 # Alternative: uncomment to reuse u_coeffs_to_helmholtz_E for constraint matrices
-                #self.A_u = -np.vstack(np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, self.u_coeffs_to_helmholtz_E, optimize = True) - np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, self.u_coeffs_to_helmholtz_E_cp, optimize = True))[np.tile(self.ll_mask, 2)]
+                #self.helmholtz_to_apex    = np.einsum('ijk,jlkm->ilkm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+                #self.helmholtz_to_apex_cp = np.einsum('ijk,jlkm->ilkm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+
+                #self.a_u = np.einsum('ijkl,jmln->imkn', self.helmholtz_to_apex, self.u_coeffs_to_helmholtz_E, optimize = True) - np.einsum('ijkl,jmln->imkn', self.helmholtz_to_apex_cp, self.u_coeffs_to_helmholtz_E_cp, optimize = True)
+                #self.A_u = -np.vstack((np.hstack((self.a_u[0][0], self.a_u[0][1])),
+                #                       np.hstack((self.a_u[1][0], self.a_u[1][1]))))[np.tile(self.ll_mask, 2)]
 
 
     def impose_constraints(self):
@@ -387,14 +389,14 @@ class State(object):
             a_imp_cp = np.einsum('ijk,jkl->ikl', self.cp_b_evaluator.surface_to_apex, G_m_imp_to_E_direct_cp, optimize = True)
 
             # Alternative: uncomment to reuse m_ind_to_helmholtz_E for constraint matrices
-            #a_ind = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, m_ind_to_helmholtz_E_direct, optimize = True)
-            #a_imp = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex, m_imp_to_helmholtz_E_direct, optimize = True)
+            #a_ind = np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex, m_ind_to_helmholtz_E_direct, optimize = True)
+            #a_imp = np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex, m_imp_to_helmholtz_E_direct, optimize = True)
 
-            #m_ind_to_helmholtz_E_direct_cp = np.einsum('ijkl,jlm->ikm', sself.cp_basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct_cp, optimize = True)
-            #m_imp_to_helmholtz_E_direct_cp = np.einsum('ijkl,jlm->ikm', sself.cp_basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct_cp, optimize = True)
+            #m_ind_to_helmholtz_E_direct_cp = np.einsum('ijkl,jlm->ikm', self.cp_basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct_cp, optimize = True)
+            #m_imp_to_helmholtz_E_direct_cp = np.einsum('ijkl,jlm->ikm', self.cp_basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct_cp, optimize = True)
 
-            #a_ind_cp = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, m_ind_to_helmholtz_E_direct_cp, optimize = True)
-            #a_imp_cp = np.einsum('ijk,kl->ijl', self.helmholtz_to_apex_cp, m_imp_to_helmholtz_E_direct_cp, optimize = True)
+            #a_ind_cp = np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_cp, m_ind_to_helmholtz_E_direct_cp, optimize = True)
+            #a_imp_cp = np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_cp, m_imp_to_helmholtz_E_direct_cp, optimize = True)
 
             self.A_ind = -np.vstack((a_ind - a_ind_cp)[:,self.ll_mask])
             self.A_imp =  np.vstack((a_imp - a_imp_cp)[:,self.ll_mask])
