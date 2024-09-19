@@ -131,7 +131,7 @@ class State(object):
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_B_pol_shifted = np.linalg.pinv(self.G_B_pol_to_JS, rcond = 0)
+                JS_shifted_to_B_pol_shifted = np.linalg.pinv(np.vstack(self.G_B_pol_to_JS), rcond = 0)
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
@@ -211,13 +211,10 @@ class State(object):
         if self.vector_u:
             self.u_coeffs_to_helmholtz_E = np.einsum('ijkl,jmln->imkn', self.u_to_helmholtz_E, self.u_basis_evaluator.G_helmholtz, optimize = True)
 
-        G_m_ind_to_JS_split = np.array(np.split(self.G_m_ind_to_JS, 2))
-        G_m_imp_to_JS_split = np.array(np.split(self.G_m_imp_to_JS, 2))
-
-        self.m_ind_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, G_m_ind_to_JS_split, optimize = True)
-        self.m_ind_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, G_m_ind_to_JS_split, optimize = True)
-        self.m_imp_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, G_m_imp_to_JS_split, optimize = True)
-        self.m_imp_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, G_m_imp_to_JS_split, optimize = True)
+        self.m_ind_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, self.G_m_ind_to_JS, optimize = True)
+        self.m_ind_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, self.G_m_ind_to_JS, optimize = True)
+        self.m_imp_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, self.G_m_imp_to_JS, optimize = True)
+        self.m_imp_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, self.G_m_imp_to_JS, optimize = True)
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
@@ -238,13 +235,10 @@ class State(object):
             self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))[self.ll_mask]
 
             # Calculate constraint matrices for low latitude points and their conjugate points
-            G_m_ind_to_JS_cp_split = np.array(np.split(self.G_m_ind_to_JS_cp, 2))
-            G_m_imp_to_JS_cp_split = np.array(np.split(self.G_m_imp_to_JS_cp, 2))
-
-            self.m_ind_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, G_m_ind_to_JS_cp_split, optimize = True)
-            self.m_ind_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, G_m_ind_to_JS_cp_split, optimize = True)
-            self.m_imp_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, G_m_imp_to_JS_cp_split, optimize = True)
-            self.m_imp_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, G_m_imp_to_JS_cp_split, optimize = True)
+            self.m_ind_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, self.G_m_ind_to_JS_cp, optimize = True)
+            self.m_ind_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, self.G_m_ind_to_JS_cp, optimize = True)
+            self.m_imp_to_bP_JS_cp = np.einsum('ijk,jkl->ikl', self.bP_cp, self.G_m_imp_to_JS_cp, optimize = True)
+            self.m_imp_to_bH_JS_cp = np.einsum('ijk,jkl->ikl', self.bH_cp, self.G_m_imp_to_JS_cp, optimize = True)
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0

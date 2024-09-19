@@ -189,7 +189,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_grad'):
-            self._G_grad = np.vstack((self.G_th, self.G_ph))
+            self._G_grad = np.array([self.G_th, self.G_ph])
 
         return self._G_grad
 
@@ -202,7 +202,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_rxgrad'):
-            self._G_rxgrad = np.vstack((-self.G_ph, self.G_th))
+            self._G_rxgrad = np.array([-self.G_ph, self.G_th])
 
         return self._G_rxgrad
 
@@ -227,11 +227,9 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz'):
-            G_grad_split = np.vsplit(self.G_grad, 2)
-            G_rxgrad_split = np.vsplit(self.G_rxgrad, 2)
 
-            self._G_helmholtz = np.array([[-G_grad_split[0], G_rxgrad_split[0]],
-                                          [-G_grad_split[1], G_rxgrad_split[1]]])
+            self._G_helmholtz = np.array([[-self.G_grad[0], self.G_rxgrad[0]],
+                                          [-self.G_grad[1], self.G_rxgrad[1]]])
 
         return self._G_helmholtz
 
