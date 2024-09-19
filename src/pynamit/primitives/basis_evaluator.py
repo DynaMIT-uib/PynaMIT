@@ -73,9 +73,9 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTW_helmholtz'):
             if self.weights is not None:
-                self._GTW_helmholtz = np.einsum('ijkl,k->jilk', self.G_helmholtz, self.weights)
+                self._GTW_helmholtz = np.einsum('ijkl,k->jilk', self.G_helmholtz, self.weights, optimize = True)
             else:
-                self._GTW_helmholtz = np.einsum('ijkl,k->jilk', self.G_helmholtz)
+                self._GTW_helmholtz = np.einsum('ijkl->jilk', self.G_helmholtz, optimize = True)
 
         return self._GTW_helmholtz
 
@@ -88,7 +88,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.einsum('ijkl,jmln->imkn', self.GTW_helmholtz, self.G_helmholtz)
+            self._GTWG_helmholtz = np.einsum('ijkl,jmln->imkn', self.GTW_helmholtz, self.G_helmholtz, optimize = True)
 
         return self._GTWG_helmholtz
     
@@ -244,7 +244,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTG_helmholtz_inv'):
-            GTG_helmholtz = np.einsum('ijkl,jmln->imkn', self.G_helmholtz, self.G_helmholtz)
+            GTG_helmholtz = np.einsum('ijkl,jmln->imkn', self.G_helmholtz, self.G_helmholtz, optimize = True)
             self._GTG_helmholtz_inv = pinv_positive_semidefinite(np.vstack((np.hstack((GTG_helmholtz[0][0], GTG_helmholtz[0][1])),
                                                                             np.hstack((GTG_helmholtz[1][0], GTG_helmholtz[1][1])))), rtol = self.pinv_rtol)
 
@@ -259,8 +259,11 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz_inv'):
-            self._G_helmholtz_inv = np.linalg.pinv(np.vstack((np.hstack((self.G_helmholtz[0][0], self.G_helmholtz[0][1])),
-                                                              np.hstack((self.G_helmholtz[1][0], self.G_helmholtz[1][1])))))
+            stacked_inv = np.linalg.pinv(np.vstack((np.hstack((self.G_helmholtz[0][0], self.G_helmholtz[0][1])),
+                                                    np.hstack((self.G_helmholtz[1][0], self.G_helmholtz[1][1])))))
+
+            self._G_helmholtz_inv = np.array(np.split(np.array(np.split(stacked_inv, 2, axis = 1)), 2, axis = 1))
+
         return self._G_helmholtz_inv
 
     def basis_to_grid(self, coeffs, derivative = None, helmholtz = False):
@@ -310,7 +313,7 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * reg_L, np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.hstack(np.einsum('ijkl,jl->ik', self.GTW_helmholtz, np.array(np.split(grid_values, 2))))
+                intermediate = np.hstack(np.einsum('ijkl,jl->ik', self.GTW_helmholtz, np.array(np.split(grid_values, 2)), optimize = True))
                 return np.dot(self.GTWG_helmholtz_inv, intermediate)
         else:
             if self.reg_lambda is not None:
