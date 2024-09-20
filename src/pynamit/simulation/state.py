@@ -219,11 +219,12 @@ class State(object):
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
 
-            self.helmholtz_to_apex    = np.einsum('ijk,jlkm->ilkm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
-            self.helmholtz_to_apex_cp = np.einsum('ijk,jlkm->ilkm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+            helmholtz_to_apex    = np.einsum('ijk,jlkm->ilkm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+            helmholtz_to_apex_cp = np.einsum('ijk,jlkm->ilkm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+            self.helmholtz_to_apex_diff = helmholtz_to_apex - helmholtz_to_apex_cp
 
             if self.vector_u:
-                A_u_unstacked = -np.einsum('ijkl,jmln->imkn', self.helmholtz_to_apex - self.helmholtz_to_apex_cp, self.u_coeffs_to_helmholtz_E, optimize = True)
+                A_u_unstacked = -np.einsum('ijkl,jmln->imkn', self.helmholtz_to_apex_diff, self.u_coeffs_to_helmholtz_E, optimize = True)
                 self.A_u = np.vstack((np.hstack((A_u_unstacked[0][0], A_u_unstacked[0][1])),
                                       np.hstack((A_u_unstacked[1][0], A_u_unstacked[1][1]))))[np.tile(self.ll_mask, 2)]
 
@@ -293,7 +294,7 @@ class State(object):
             if vector_u:
                 self.cu = self.A_u.dot(self.u.coeffs)
             else:
-                self.cu = -np.hstack(np.einsum('ijkl,jl->ik', self.helmholtz_to_apex - self.helmholtz_to_apex_cp, self.helmholtz_E_u, optimize = True)[:,self.ll_mask])
+                self.cu = -np.hstack(np.einsum('ijkl,jl->ik', self.helmholtz_to_apex_diff, self.helmholtz_E_u, optimize = True)[:,self.ll_mask])
 
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
@@ -329,8 +330,8 @@ class State(object):
         self.G_m_imp_constraints = self.G_m_imp_to_jr
 
         if self.connect_hemispheres:
-            self.A_ind = -np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex - self.helmholtz_to_apex_cp, m_ind_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
-            self.A_imp =  np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex - self.helmholtz_to_apex_cp, m_imp_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
+            self.A_ind = -np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_diff , m_ind_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
+            self.A_imp =  np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_diff , m_imp_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
