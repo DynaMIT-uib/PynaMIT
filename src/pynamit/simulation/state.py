@@ -72,11 +72,11 @@ class State(object):
         self.bP = np.array([[self.b_evaluator.bphi**2 + self.b_evaluator.br**2, -self.b_evaluator.btheta * self.b_evaluator.bphi],
                             [-self.b_evaluator.btheta * self.b_evaluator.bphi,  self.b_evaluator.btheta**2 + self.b_evaluator.br**2]])
 
-        self.bH = np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.br],
-                            [-self.b_evaluator.br,         np.zeros_like(self.bP[1][1])]])
+        self.bH = np.array([[np.zeros_like(self.bP[0,0]), self.b_evaluator.br],
+                            [-self.b_evaluator.br,         np.zeros_like(self.bP[1,1])]])
 
-        self.bu = -np.array([[np.zeros_like(self.bP[0][0]), self.b_evaluator.Br],
-                             [-self.b_evaluator.Br,         np.zeros_like(self.bP[1][1])]])
+        self.bu = -np.array([[np.zeros_like(self.bP[0,0]), self.b_evaluator.Br],
+                             [-self.b_evaluator.Br,         np.zeros_like(self.bP[1,1])]])
 
         self.m_ind_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, self.G_m_ind_to_JS, optimize = True)
         self.m_ind_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, self.G_m_ind_to_JS, optimize = True)
@@ -225,8 +225,8 @@ class State(object):
 
             if self.vector_u:
                 A_u_unstacked = -np.einsum('ijkl,jmln->imkn', self.helmholtz_to_apex_ll_diff, self.u_coeffs_to_helmholtz_E, optimize = True)
-                self.A_u = np.vstack((np.hstack((A_u_unstacked[0][0], A_u_unstacked[0][1])),
-                                      np.hstack((A_u_unstacked[1][0], A_u_unstacked[1][1]))))
+                self.A_u = np.vstack((np.hstack((A_u_unstacked[0,0], A_u_unstacked[0,1])),
+                                      np.hstack((A_u_unstacked[1,0], A_u_unstacked[1,1]))))
 
 
     def impose_constraints(self):
