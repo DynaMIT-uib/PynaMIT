@@ -330,8 +330,8 @@ class State(object):
         self.G_m_imp_constraints = self.G_m_imp_to_jr
 
         if self.connect_hemispheres:
-            self.A_ind = -np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_diff , m_ind_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
-            self.A_imp =  np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_diff , m_imp_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
+            self.A_ind = -np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_diff, m_ind_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
+            self.A_imp =  np.vstack((np.einsum('ijkl,jlm->ikm', self.helmholtz_to_apex_diff, m_imp_to_helmholtz_E_direct, optimize = True))[:,self.ll_mask])
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
