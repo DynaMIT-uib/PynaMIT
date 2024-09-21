@@ -157,5 +157,6 @@ class FieldEvaluator:
 
         if not hasattr(self, '_surface_to_apex'):
             self._surface_to_apex = np.einsum('ijk,jlk->ilk', self.spherical_to_apex, self.surface_to_spherical, optimize = True)
+            self._surface_to_apex = np.einsum('ijk->ikj', self._surface_to_apex, optimize = True)
 
         return self._surface_to_apex
