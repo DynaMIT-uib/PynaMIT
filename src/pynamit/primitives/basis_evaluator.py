@@ -88,7 +88,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.einsum('ijkl,klmn->ijmn', self.GTW_helmholtz, self.G_helmholtz, optimize = True)
+            self._GTWG_helmholtz = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
 
         return self._GTWG_helmholtz
     
@@ -242,7 +242,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTG_helmholtz_inv'):
-            GTG_helmholtz = np.einsum('ijkl,jmln->imkn', self.G_helmholtz, self.G_helmholtz, optimize = True)
+            GTG_helmholtz = np.einsum('ijkl,ijmn->klmn', self.G_helmholtz, self.G_helmholtz, optimize = True)
             self._GTG_helmholtz_inv = pinv_positive_semidefinite(np.vstack((np.hstack((GTG_helmholtz[0,:,0,:], GTG_helmholtz[0,:,1,:])),
                                                                             np.hstack((GTG_helmholtz[1,:,0,:], GTG_helmholtz[1,:,1,:])))), rtol = self.pinv_rtol)
 
@@ -312,7 +312,7 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.hstack(np.einsum('ijkl,kl->ij', self.GTW_helmholtz, np.array(np.split(grid_values, 2)), optimize = True))
+                intermediate = np.hstack(np.tensordot(self.GTW_helmholtz, np.array(np.split(grid_values, 2)), 2))
                 return np.dot(self.GTWG_helmholtz_inv, intermediate)
         else:
             if self.reg_lambda is not None:
