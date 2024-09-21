@@ -310,14 +310,14 @@ class BasisEvaluator(object):
             if self.reg_lambda is not None:
                 #reg_L = np.diag(self.basis.laplacian(), 2)
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
-                return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * reg_L, np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
+                return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
                 intermediate = np.hstack(np.einsum('ijkl,kl->ij', self.GTW_helmholtz, np.array(np.split(grid_values, 2)), optimize = True))
                 return np.dot(self.GTWG_helmholtz_inv, intermediate)
         else:
             if self.reg_lambda is not None:
                 reg_L = np.diag(np.ones(self.basis.index_length))
-                return np.linalg.lstsq(self.GTWG + self.reg_lambda * reg_L, np.dot(self.GTW, grid_values), rcond = self.pinv_rtol)[0]
+                return np.linalg.lstsq(self.GTWG + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW, grid_values), rcond = self.pinv_rtol)[0]
             else:
                 return np.dot(self.GTWG_inv, np.dot(self.GTW, grid_values))
     
