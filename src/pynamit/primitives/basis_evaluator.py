@@ -3,7 +3,7 @@ Used to construct objects that transform between basis coefficients and a grid.
 """
 
 import numpy as np
-from pynamit.various.math import pinv_positive_semidefinite
+from pynamit.various.math import pinv_positive_semidefinite, tensor_pinv, tensor_pinv_positive_semidefinite
 
 class BasisEvaluator(object):
     """
@@ -175,8 +175,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz_inv'):
-            self._GTWG_helmholtz_inv = pinv_positive_semidefinite(np.vstack((np.hstack((self.GTWG_helmholtz[0,:,0,:], self.GTWG_helmholtz[0,:,1,:])),
-                                                                             np.hstack((self.GTWG_helmholtz[1,:,0,:], self.GTWG_helmholtz[1,:,1,:])))), rtol = self.pinv_rtol)
+            self._GTWG_helmholtz_inv = tensor_pinv(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
 
         return self._GTWG_helmholtz_inv
 
@@ -243,8 +242,7 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTG_helmholtz_inv'):
             GTG_helmholtz = np.einsum('ijkl,ijmn->klmn', self.G_helmholtz, self.G_helmholtz, optimize = True)
-            self._GTG_helmholtz_inv = pinv_positive_semidefinite(np.vstack((np.hstack((GTG_helmholtz[0,:,0,:], GTG_helmholtz[0,:,1,:])),
-                                                                            np.hstack((GTG_helmholtz[1,:,0,:], GTG_helmholtz[1,:,1,:])))), rtol = self.pinv_rtol)
+            self._GTG_helmholtz_inv = tensor_pinv_positive_semidefinite(GTG_helmholtz, 2, rtol = self.pinv_rtol)
 
         return self._GTG_helmholtz_inv
 
@@ -257,10 +255,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz_inv'):
-            stacked_inv = np.linalg.pinv(np.vstack((np.hstack((self.G_helmholtz[0,:,0,:], self.G_helmholtz[0,:,1,:])),
-                                                    np.hstack((self.G_helmholtz[1,:,0,:], self.G_helmholtz[1,:,1,:])))))
-
-            self._G_helmholtz_inv = np.moveaxis(np.array(np.split(np.array(np.split(stacked_inv, 2, axis = 1)), 2, axis = 1)), 1, 2)
+            self._G_helmholtz_inv = tensor_pinv(self.G_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
 
         return self._G_helmholtz_inv
 
@@ -311,8 +306,8 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.hstack(np.tensordot(self.GTW_helmholtz, np.array(np.split(grid_values, 2)), 2))
-                return np.dot(self.GTWG_helmholtz_inv, intermediate)
+                intermediate = np.tensordot(self.GTW_helmholtz, np.array(np.split(grid_values, 2)), 2)
+                return np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2)
         else:
             if self.reg_lambda is not None:
                 reg_L = np.diag(np.ones(self.basis.index_length))

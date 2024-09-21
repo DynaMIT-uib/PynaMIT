@@ -37,3 +37,33 @@ def matrix_product(A, B, contracted_dims):
     ).reshape((first_dims + last_dims))
 
     return AB
+
+def tensor_pinv(A, contracted_dims=2, rtol=1e-15, hermitian=False):
+    """
+    Compute the Moore-Penrose pseudoinverse of a tensor.
+
+    """
+
+    first_dims = A.shape[:contracted_dims]
+    last_dims  = A.shape[contracted_dims:]
+
+    A_inv = np.linalg.pinv(
+        A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
+    ).reshape((last_dims + first_dims))
+
+    return A_inv
+
+def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, condition_number=False):
+    """
+    Compute the Moore-Penrose pseudoinverse of a positive semidefinite tensor.
+
+    """
+
+    first_dims = A.shape[:contracted_dims]
+    last_dims  = A.shape[contracted_dims:]
+
+    A_inv = pinv_positive_semidefinite(
+        A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
+    ).reshape((last_dims + first_dims))
+
+    return A_inv
