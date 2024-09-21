@@ -75,7 +75,7 @@ class BasisEvaluator(object):
             if self.weights is not None:
                 self._GTW_helmholtz = np.einsum('ijkl,j->klij', self.G_helmholtz, self.weights, optimize = True)
             else:
-                self._GTW_helmholtz = np.einsum('ijkl->klij', self.G_helmholtz)
+                self._GTW_helmholtz = np.moveaxis(self.G_helmholtz, [0, 1], [2, 3])
 
         return self._GTW_helmholtz
 
@@ -229,7 +229,7 @@ class BasisEvaluator(object):
         if not hasattr(self, '_G_helmholtz'):
 
             G_helmholtz = np.array([-self.G_grad, self.G_rxgrad])
-            self._G_helmholtz = np.einsum('ijkl->ikjl', G_helmholtz, optimize = True)
+            self._G_helmholtz = np.moveaxis(G_helmholtz, 1, 2)
 
         return self._G_helmholtz
 
@@ -260,8 +260,7 @@ class BasisEvaluator(object):
             stacked_inv = np.linalg.pinv(np.vstack((np.hstack((self.G_helmholtz[0,:,0,:], self.G_helmholtz[0,:,1,:])),
                                                     np.hstack((self.G_helmholtz[1,:,0,:], self.G_helmholtz[1,:,1,:])))))
 
-            self._G_helmholtz_inv = np.array(np.split(np.array(np.split(stacked_inv, 2, axis = 1)), 2, axis = 1))
-            self._G_helmholtz_inv = np.einsum('ijkl->ikjl', self._G_helmholtz_inv, optimize = True)
+            self._G_helmholtz_inv = np.moveaxis(np.array(np.split(np.array(np.split(stacked_inv, 2, axis = 1)), 2, axis = 1)), 1, 2)
 
         return self._G_helmholtz_inv
 
