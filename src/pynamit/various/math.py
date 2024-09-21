@@ -67,3 +67,16 @@ def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, conditio
     ).reshape((last_dims + first_dims))
 
     return A_inv
+
+def tensor_scale(scale_factors, A):
+    """
+    Scale the indices of a tensor A by the scale factors.
+
+    """
+
+    first_dims = scale_factors.shape
+    last_dims  = A.shape[len(first_dims):]
+
+    A_scaled = scale_factors.reshape((np.prod(first_dims), 1)) * A.reshape((np.prod(first_dims), np.prod(last_dims)))
+
+    return A_scaled.reshape((first_dims + last_dims))
