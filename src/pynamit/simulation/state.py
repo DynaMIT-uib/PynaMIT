@@ -5,7 +5,6 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import tensor_scale, tensor_svd
 
 class State(object):
     """ State of the ionosphere.
