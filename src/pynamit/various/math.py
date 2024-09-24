@@ -77,19 +77,51 @@ def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, conditio
 
     return A_inv
 
-def tensor_scale(scale_factors, A):
+def tensor_scale_left(scaling_factors, A):
     """
-    Scale the indices of a tensor A by the scale factors.
+    Scale the first indices of a tensor A by the scaling factors.
 
     """
 
-    first_dims = scale_factors.shape
+    first_dims = scaling_factors.shape
     last_dims  = A.shape[len(first_dims):]
 
-    A_scaled = scale_factors.reshape((np.prod(first_dims), 1)) * A.reshape((np.prod(first_dims), np.prod(last_dims)))
+    A_scaled = scaling_factors.reshape((np.prod(first_dims), 1)) * A.reshape((np.prod(first_dims), np.prod(last_dims)))
 
     return A_scaled.reshape((first_dims + last_dims))
 
+def tensor_scale_right(A, scaling_factors):
+    """
+    Scale the last indices of a tensor A by the scaling factors.
+
+    """
+
+    last_dims = scaling_factors.shape
+    first_dims = A.shape[:len(last_dims)]
+    print(A.shape, first_dims, last_dims)
+
+    A_scaled = A.reshape((np.prod(first_dims), np.prod(last_dims))) * scaling_factors.reshape((1, np.prod(first_dims)))
+
+    return A_scaled.reshape((first_dims + last_dims))
+
+def tensor_outer(A, B, contracted_dims):
+
+    first_A_dims = A.shape[:contracted_dims]
+    first_B_dims = B.shape[:contracted_dims]
+
+    if first_A_dims != first_B_dims:
+        raise ValueError('First dimensions of outer product tensors do not match.')
+
+    last_A_dims = A.shape[contracted_dims:]
+    last_B_dims = B.shape[contracted_dims:]
+
+    outer = np.einsum(
+        'ij,ik->ijk',
+        A.reshape((np.prod(first_A_dims), np.prod(last_A_dims))),
+        B.reshape((np.prod(first_B_dims), np.prod(last_B_dims)))
+    ).reshape((first_A_dims + last_A_dims + last_B_dims))
+
+    return outer
 
 def tensor_svd(A, contracted_dims=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
 
