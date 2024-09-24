@@ -10,7 +10,16 @@ def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     eigenvalues, eigenvectors = np.linalg.eigh(A)
 
     # Filter out small eigenvalues using a relative tolerance, following the convention of numpy.linalg.pinv.
-    first_nonzero = np.argmax(eigenvalues > rtol * eigenvalues[-1])
+    if rtol:
+        mask = (eigenvalues > rtol * eigenvalues[-1])
+    else:
+        mask = False
+
+    if np.any(mask):
+        first_nonzero = np.argmax(mask)
+    else:
+        first_nonzero = len(eigenvalues)
+
     filtered_eigenvalues = eigenvalues[first_nonzero:]
 
     # If there are no zero eigenvalues, the filtered eigenvectors array is a full contiguous view of the original array.
@@ -80,3 +89,32 @@ def tensor_scale(scale_factors, A):
     A_scaled = scale_factors.reshape((np.prod(first_dims), 1)) * A.reshape((np.prod(first_dims), np.prod(last_dims)))
 
     return A_scaled.reshape((first_dims + last_dims))
+
+
+def tensor_svd(A, contracted_dims=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
+
+    first_dims = A.shape[:contracted_dims]
+    last_dims  = A.shape[contracted_dims:]
+
+    U, S, VT = np.linalg.svd(
+        A.reshape((np.prod(first_dims), np.prod(last_dims))),
+        full_matrices=full_matrices,
+        compute_uv=compute_uv,
+        hermitian=hermitian
+    )
+
+    if rtol:
+        mask = (S <= rtol * S[0])
+    else:
+        mask = False
+
+    if np.any(mask):
+        first_zero = np.argmax(mask)
+    else:
+        first_zero = len(S)
+
+    filtered_S = S[:first_zero]
+    filtered_U = U[:, :first_zero].reshape(first_dims + (first_zero, ))
+    filtered_VT = VT[:, :first_zero].reshape((first_zero, ) + last_dims)
+
+    return filtered_U, filtered_S, filtered_VT

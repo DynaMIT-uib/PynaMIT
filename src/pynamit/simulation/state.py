@@ -5,7 +5,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import tensor_scale
+from pynamit.various.math import tensor_scale, tensor_svd
 
 class State(object):
     """ State of the ionosphere.
@@ -77,17 +77,17 @@ class State(object):
         self.bu = -np.array([[np.zeros(self.b_evaluator.grid.size), self.b_evaluator.Br],
                              [-self.b_evaluator.Br,                 np.zeros(self.b_evaluator.grid.size)]])
 
-        self.m_ind_to_bP_JS = np.einsum('ijk,jkl->kil', self.bP, self.G_m_ind_to_JS, optimize = True)
-        self.m_ind_to_bH_JS = np.einsum('ijk,jkl->kil', self.bH, self.G_m_ind_to_JS, optimize = True)
-        self.m_imp_to_bP_JS = np.einsum('ijk,jkl->kil', self.bP, self.G_m_imp_to_JS, optimize = True)
-        self.m_imp_to_bH_JS = np.einsum('ijk,jkl->kil', self.bH, self.G_m_imp_to_JS, optimize = True)
+        self.m_ind_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, self.G_m_ind_to_JS, optimize = True)
+        self.m_ind_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, self.G_m_ind_to_JS, optimize = True)
+        self.m_imp_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, self.G_m_imp_to_JS, optimize = True)
+        self.m_imp_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, self.G_m_imp_to_JS, optimize = True)
 
         self.G_m_imp_to_jr = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
 
         if self.vector_jr:
             self.G_jr = self.jr_basis_evaluator.G
 
-        self.u_to_helmholtz_E = np.einsum('ijlk,kml->ijml', self.basis_evaluator.G_helmholtz_inv, self.bu, optimize = True)
+        self.u_to_helmholtz_E = np.einsum('ijkl,kml->ijml', self.basis_evaluator.G_helmholtz_inv, self.bu, optimize = True)
 
         if self.vector_u:
             self.u_coeffs_to_helmholtz_E = np.tensordot(self.u_to_helmholtz_E, self.u_basis_evaluator.G_helmholtz, 2)
@@ -320,8 +320,8 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        G_m_ind_to_E_direct = tensor_scale(etaP_on_grid, self.m_ind_to_bP_JS) + tensor_scale(etaH_on_grid, self.m_ind_to_bH_JS)
-        G_m_imp_to_E_direct = tensor_scale(etaP_on_grid, self.m_imp_to_bP_JS) + tensor_scale(etaH_on_grid, self.m_imp_to_bH_JS)
+        G_m_ind_to_E_direct = np.einsum('j,ijk->ijk', etaP_on_grid, self.m_ind_to_bP_JS) + np.einsum('j,ijk->ijk', etaH_on_grid, self.m_ind_to_bH_JS)
+        G_m_imp_to_E_direct = np.einsum('j,ijk->ijk', etaP_on_grid, self.m_imp_to_bP_JS) + np.einsum('j,ijk->ijk', etaH_on_grid, self.m_imp_to_bH_JS)
 
         m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 2)
         m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 2)

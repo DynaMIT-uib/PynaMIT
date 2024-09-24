@@ -255,7 +255,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz_inv'):
-            self._G_helmholtz_inv = np.moveaxis(tensor_pinv(self.G_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol), 2, 3)
+            self._G_helmholtz_inv = tensor_pinv(self.G_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
 
         return self._G_helmholtz_inv
 
