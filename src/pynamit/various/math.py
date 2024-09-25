@@ -97,10 +97,9 @@ def tensor_scale_right(A, scaling_factors):
     """
 
     last_dims = scaling_factors.shape
-    first_dims = A.shape[:len(last_dims)]
-    print(A.shape, first_dims, last_dims)
+    first_dims = A.shape[:-len(last_dims)]
 
-    A_scaled = A.reshape((np.prod(first_dims), np.prod(last_dims))) * scaling_factors.reshape((1, np.prod(first_dims)))
+    A_scaled = A.reshape((np.prod(first_dims), np.prod(last_dims))) * scaling_factors.reshape((1, np.prod(last_dims)))
 
     return A_scaled.reshape((first_dims + last_dims))
 

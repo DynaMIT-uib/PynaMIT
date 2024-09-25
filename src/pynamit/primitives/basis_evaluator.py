@@ -3,7 +3,7 @@ Used to construct objects that transform between basis coefficients and a grid.
 """
 
 import numpy as np
-from pynamit.various.math import pinv_positive_semidefinite, tensor_pinv, tensor_pinv_positive_semidefinite
+from pynamit.various.math import pinv_positive_semidefinite, tensor_pinv, tensor_pinv_positive_semidefinite, tensor_scale_right
 
 class BasisEvaluator(object):
     """
@@ -73,7 +73,7 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTW_helmholtz'):
             if self.weights is not None:
-                self._GTW_helmholtz = np.einsum('i,ijkl->lkji', self.weights, self.G_helmholtz, optimize = True)
+                self._GTW_helmholtz = tensor_scale_right(self.G_helmholtz.T, self.weights)
             else:
                 self._GTW_helmholtz = self.G_helmholtz.T
 
@@ -88,7 +88,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.einsum('ijkl,lkmn->ijmn', self.GTW_helmholtz, self.G_helmholtz, optimize = True)
+            self._GTWG_helmholtz = np.einsum('ijkkmn->ijmn', np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 1), optimize = True)
 
         return self._GTWG_helmholtz
     
@@ -225,7 +225,6 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz'):
-
             self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1], [1,0])
 
         return self._G_helmholtz
@@ -304,8 +303,8 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.einsum('ijkl,lk->ij', self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), optimize = True)
-                return np.moveaxis(np.einsum('ijkl,lk->ij', self.GTWG_helmholtz_inv, intermediate, optimize = True), 0, 1)
+                intermediate = np.einsum('ijkk->ij', np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 1), optimize = True)
+                return np.moveaxis(np.einsum('ijkk->ij', np.tensordot(self.GTWG_helmholtz_inv, intermediate, 1), optimize = True), 0, 1)
         else:
             if self.reg_lambda is not None:
                 reg_L = np.diag(np.ones(self.basis.index_length))
