@@ -60,7 +60,7 @@ def tensor_pinv(A, contracted_dims=2, rtol=1e-15, hermitian=False):
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
     ).reshape((last_dims + first_dims))
 
-    return A_inv
+    return np.moveaxis(A_inv, [0,1,2,3], [1,0,3,2])
 
 def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, condition_number=False):
     """

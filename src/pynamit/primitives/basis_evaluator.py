@@ -73,7 +73,7 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTW_helmholtz'):
             if self.weights is not None:
-                self._GTW_helmholtz = np.einsum('ijkl,j->klij', self.G_helmholtz, self.weights, optimize = True)
+                self._GTW_helmholtz = np.einsum('ijkl,i->klij', self.G_helmholtz, self.weights, optimize = True)
             else:
                 self._GTW_helmholtz = np.moveaxis(self.G_helmholtz, [0, 1], [2, 3])
 
@@ -175,8 +175,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz_inv'):
-            self._GTWG_helmholtz_inv = tensor_pinv(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
-
+            self._GTWG_helmholtz_inv = np.moveaxis(tensor_pinv(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol), [0,1,2,3], [1,0,3,2])
         return self._GTWG_helmholtz_inv
 
     @property
@@ -188,7 +187,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_grad'):
-            self._G_grad = np.array([self.G_th, self.G_ph])
+            self._G_grad = np.moveaxis(np.array([self.G_th, self.G_ph]), 0, 1)
 
         return self._G_grad
 
@@ -201,7 +200,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_rxgrad'):
-            self._G_rxgrad = np.array([-self.G_ph, self.G_th])
+            self._G_rxgrad = np.moveaxis(np.array([-self.G_ph, self.G_th]), 0, 1)
 
         return self._G_rxgrad
 
@@ -227,8 +226,7 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_G_helmholtz'):
 
-            G_helmholtz = np.array([-self.G_grad, self.G_rxgrad])
-            self._G_helmholtz = np.moveaxis(G_helmholtz, 1, 2)
+            self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1], [1,0])
 
         return self._G_helmholtz
 
@@ -306,7 +304,7 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.tensordot(self.GTW_helmholtz, np.array(np.split(grid_values, 2)), 2)
+                intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
                 return np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2)
         else:
             if self.reg_lambda is not None:
