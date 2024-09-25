@@ -243,7 +243,7 @@ class State(object):
 
             self.constraint_vector = np.hstack((self.jr_on_grid, self.c * self.ih_constraint_scaling))
 
-            self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
+            self.set_coeffs(m_imp = self.GTG_m_imp_constraints_inv.dot(self.G_m_imp_constraints_T.dot(self.constraint_vector)))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -328,20 +328,22 @@ class State(object):
         m_ind_to_helmholtz_E_direct = np.einsum('ijkkm->ijm', np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 1), optimize = True)
         m_imp_to_helmholtz_E_direct = np.einsum('ijkkm->ijm', np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 1), optimize = True)
 
-        self.G_m_imp_constraints = self.G_m_imp_to_jr
+        G_m_imp_constraints = self.G_m_imp_to_jr
 
         if self.connect_hemispheres:
             self.A_ind = -np.vstack(np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct, 1), optimize = True))
             self.A_imp =  np.vstack(np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct, 1), optimize = True))
 
             # Combine constraint matrices
-            self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
+            G_m_imp_constraints = np.vstack((G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
+
+        self.G_m_imp_constraints_T = G_m_imp_constraints.T
 
         # Prepare matrices used to calculate the electric field
-        self.G_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints)
-        constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.G_m_imp_constraints_inv)
+        self.GTG_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints_T.dot(G_m_imp_constraints))
+        constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.GTG_m_imp_constraints_inv)
 
-        self.jr_to_helmholtz_E = constraints_to_helmholtz_E[:,:,:self.grid.size]
+        self.jr_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,:self.grid.size])
 
         if self.vector_jr:
             self.jr_coeffs_to_helmholtz_E = self.jr_to_helmholtz_E.dot(self.G_jr)
@@ -349,7 +351,7 @@ class State(object):
         self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct
 
         if self.connect_hemispheres:
-            self.c_to_helmholtz_E  = constraints_to_helmholtz_E[:,:,self.grid.size:] * self.ih_constraint_scaling
+            self.c_to_helmholtz_E  = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:]) * self.ih_constraint_scaling
 
             m_ind_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_ind)
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
