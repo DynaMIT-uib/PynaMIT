@@ -225,9 +225,9 @@ class State(object):
             self.helmholtz_to_apex_ll_diff = (helmholtz_to_apex - helmholtz_to_apex_cp)[self.ll_mask]
 
             if self.vector_u:
-                A_u_unstacked = -np.einsum('ijkkmn->jimn', np.tensordot(self.helmholtz_to_apex_ll_diff, self.u_coeffs_to_helmholtz_E, 1), optimize = True)
-                self.A_u = np.vstack((np.hstack((A_u_unstacked[0,:,0,:], A_u_unstacked[0,:,1,:])),
-                                      np.hstack((A_u_unstacked[1,:,0,:], A_u_unstacked[1,:,1,:]))))
+                A_u_unstacked = -np.einsum('ijkkmn->ijmn', np.tensordot(self.helmholtz_to_apex_ll_diff, self.u_coeffs_to_helmholtz_E, 1), optimize = True)
+                self.A_u = np.vstack((np.hstack((A_u_unstacked[:,0,0,:], A_u_unstacked[:,0,1,:])),
+                                      np.hstack((A_u_unstacked[:,1,0,:], A_u_unstacked[:,1,1,:]))))
 
         if self.vector_jr:
             self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.G_jr)
@@ -298,7 +298,8 @@ class State(object):
             if vector_u:
                 self.cu = self.A_u.dot(self.u.coeffs)
             else:
-                self.cu = -np.hstack(np.einsum('ijkk->ji', np.tensordot(self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, 1), optimize = True))
+                cu_unstacked = np.einsum('ijkk->ij', np.tensordot(self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, 1), optimize = True)
+                self.cu = -np.hstack((cu_unstacked[:,0], cu_unstacked[:,1]))
 
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
@@ -334,8 +335,10 @@ class State(object):
         self.GTG_constraints = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 
         if self.connect_hemispheres:
-            self.A_ind = -np.vstack(np.einsum('ijkkm->jim', np.tensordot(self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct, 1), optimize = True))
-            self.A_imp =  np.vstack(np.einsum('ijkkm->jim', np.tensordot(self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct, 1), optimize = True))
+            A_ind_unstacked = -np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct, 1), optimize = True)
+            A_imp_unstacked =  np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct, 1), optimize = True)
+            self.A_ind = np.vstack((A_ind_unstacked[:,0], A_ind_unstacked[:,1]))
+            self.A_imp = np.vstack((A_imp_unstacked[:,0], A_imp_unstacked[:,1]))
 
             # Combine constraint matrices
             self.GTG_constraints += self.A_imp.T.dot(self.A_imp) * self.ih_constraint_scaling**2
