@@ -5,7 +5,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import tensor_scale_left
+from pynamit.various.math import tensor_scale_left, pinv_positive_semidefinite
 
 class State(object):
     """ State of the ionosphere.
@@ -246,7 +246,7 @@ class State(object):
 
             self.constraint_vector = np.hstack((self.jr_on_grid, self.c * self.ih_constraint_scaling))
 
-            self.set_coeffs(m_imp = self.GTG_m_imp_constraints_inv.dot(self.G_m_imp_constraints_T.dot(self.constraint_vector)))
+            self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(self.G_constraints.T.dot(self.constraint_vector)))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -331,36 +331,34 @@ class State(object):
         m_ind_to_helmholtz_E_direct = np.einsum('ijkkm->ijm', np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 1), optimize = True)
         m_imp_to_helmholtz_E_direct = np.einsum('ijkkm->ijm', np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 1), optimize = True)
 
-        G_m_imp_constraints = self.G_m_imp_to_jr
+        self.G_constraints = self.G_m_imp_to_jr
 
         if self.connect_hemispheres:
             self.A_ind = -np.vstack(np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct, 1), optimize = True))
             self.A_imp =  np.vstack(np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct, 1), optimize = True))
 
             # Combine constraint matrices
-            G_m_imp_constraints = np.vstack((G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))
-
-        self.G_m_imp_constraints_T = G_m_imp_constraints.T
+            self.G_constraints = np.vstack((self.G_constraints, self.A_imp * self.ih_constraint_scaling))
 
         # Prepare matrices used to calculate the electric field
-        self.GTG_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints_T.dot(G_m_imp_constraints))
-        constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.GTG_m_imp_constraints_inv)
+        self.GTG_constraints_inv = pinv_positive_semidefinite(self.G_constraints.T.dot(self.G_constraints))
+        GTG_constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.GTG_constraints_inv)
 
         if self.vector_jr:
-            self.jr_coeffs_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.jr_m_imp_matrix)
+            self.jr_coeffs_to_helmholtz_E = GTG_constraints_to_helmholtz_E.dot(self.jr_m_imp_matrix)
         else:
-            self.jr_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_to_jr.T)
+            self.jr_to_helmholtz_E = GTG_constraints_to_helmholtz_E.dot(self.G_m_imp_to_jr.T)
 
         self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct
 
         if self.connect_hemispheres:
-            m_ind_to_helmholtz_E_constraints = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:].dot(self.A_ind)) * self.ih_constraint_scaling
+            m_ind_to_helmholtz_E_constraints = GTG_constraints_to_helmholtz_E.dot(self.A_imp.T.dot(self.A_ind)) * self.ih_constraint_scaling**2
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
             if self.vector_u:
-                self.u_coeffs_to_helmholtz_E_constraints = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:].dot(self.A_u)) * self.ih_constraint_scaling
+                self.u_coeffs_to_helmholtz_E_constraints = GTG_constraints_to_helmholtz_E.dot(self.A_imp.T.dot(self.A_u)) * self.ih_constraint_scaling**2
             else:
-                self.cu_to_helmholtz_E  = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:]) * self.ih_constraint_scaling
+                self.cu_to_helmholtz_E  = GTG_constraints_to_helmholtz_E.dot(self.A_imp.T) * self.ih_constraint_scaling**2
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[:,1])
 
