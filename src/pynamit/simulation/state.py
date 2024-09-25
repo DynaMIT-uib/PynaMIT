@@ -244,9 +244,9 @@ class State(object):
             if self.neutral_wind:
                 self.c += self.cu
 
-            self.constraint_vector = np.hstack((self.jr_on_grid, self.c * self.ih_constraint_scaling))
+            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + self.A_imp.T.dot(self.c) * self.ih_constraint_scaling
 
-            self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(self.G_constraints.T.dot(self.constraint_vector)))
+            self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(self.GT_constraint_vector))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -331,17 +331,17 @@ class State(object):
         m_ind_to_helmholtz_E_direct = np.einsum('ijkkm->ijm', np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 1), optimize = True)
         m_imp_to_helmholtz_E_direct = np.einsum('ijkkm->ijm', np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 1), optimize = True)
 
-        self.G_constraints = self.G_m_imp_to_jr
+        self.GTG_constraints = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 
         if self.connect_hemispheres:
             self.A_ind = -np.vstack(np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct, 1), optimize = True))
             self.A_imp =  np.vstack(np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct, 1), optimize = True))
 
             # Combine constraint matrices
-            self.G_constraints = np.vstack((self.G_constraints, self.A_imp * self.ih_constraint_scaling))
+            self.GTG_constraints += self.A_imp.T.dot(self.A_imp) * self.ih_constraint_scaling**2
 
         # Prepare matrices used to calculate the electric field
-        self.GTG_constraints_inv = pinv_positive_semidefinite(self.G_constraints.T.dot(self.G_constraints))
+        self.GTG_constraints_inv = pinv_positive_semidefinite(self.GTG_constraints)
         GTG_constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.GTG_constraints_inv)
 
         if self.vector_jr:
