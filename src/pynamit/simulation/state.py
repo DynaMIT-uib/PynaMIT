@@ -343,21 +343,21 @@ class State(object):
         self.GTG_m_imp_constraints_inv = np.linalg.pinv(self.G_m_imp_constraints_T.dot(G_m_imp_constraints))
         constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.GTG_m_imp_constraints_inv)
 
-        self.jr_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,:self.grid.size])
-
         if self.vector_jr:
-            self.jr_coeffs_to_helmholtz_E = self.jr_to_helmholtz_E.dot(self.G_jr)
+            self.jr_coeffs_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,:self.grid.size].dot(self.G_jr))
+        else:
+            self.jr_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,:self.grid.size])
 
         self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct
 
         if self.connect_hemispheres:
-            self.c_to_helmholtz_E  = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:]) * self.ih_constraint_scaling
-
-            m_ind_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_ind)
+            m_ind_to_helmholtz_E_constraints = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:].dot(self.A_ind)) * self.ih_constraint_scaling
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
             if self.vector_u:
-                self.u_coeffs_to_helmholtz_E_constraints = self.c_to_helmholtz_E.dot(self.A_u)
+                self.u_coeffs_to_helmholtz_E_constraints = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:].dot(self.A_u)) * self.ih_constraint_scaling
+            else:
+                self.cu_to_helmholtz_E  = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,self.grid.size:]) * self.ih_constraint_scaling
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[:,1])
 
@@ -380,7 +380,7 @@ class State(object):
                 if self.vector_u:
                     E += self.u_coeffs_to_helmholtz_E_constraints.dot(self.u.coeffs)
                 else:
-                    E += self.c_to_helmholtz_E.dot(self.cu)
+                    E += self.cu_to_helmholtz_E.dot(self.cu)
 
         self.Phi = Vector(self.basis, coeffs = E[:,0], type = 'scalar')
         self.W = Vector(self.basis, coeffs = E[:,1], type = 'scalar')
@@ -498,7 +498,7 @@ class State(object):
                 if self.vector_u:
                     helmholtz_E_noind += self.u_coeffs_to_helmholtz_E_constraints.dot(self.u.coeffs)
                 else:
-                    helmholtz_E_noind += self.c_to_helmholtz_E.dot(self.cu)
+                    helmholtz_E_noind += self.cu_to_helmholtz_E.dot(self.cu)
 
         m_ind = -self.m_ind_to_helmholtz_E_cf_inv.dot(helmholtz_E_noind[:,1])
 
