@@ -89,6 +89,7 @@ class State(object):
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_helmholtz_E = np.einsum('ijkl,lkmn->ijmn', self.basis_evaluator.G_helmholtz_inv, u_coeffs_to_uxB, optimize = True)
+            #self.u_coeffs_to_helmholtz_E = np.einsum('ijkkmn->ijmn', np.tensordot(self.basis_evaluator.G_helmholtz_inv, u_coeffs_to_uxB, 1))
         else:
             self.bu = np.moveaxis(self.bu, [0,1,2], [1,2,0])
             self.u_to_helmholtz_E = np.einsum('ijkl,lkm->ijml', self.basis_evaluator.G_helmholtz_inv, self.bu, optimize = True)
@@ -126,7 +127,7 @@ class State(object):
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_B_pol_shifted = np.linalg.pinv(np.vstack([self.G_B_pol_to_JS[:,0], self.G_B_pol_to_JS[:,1]]), rcond = 0)
+                JS_shifted_to_B_pol_shifted = np.linalg.pinv(np.vstack((self.G_B_pol_to_JS[:,0], self.G_B_pol_to_JS[:,1])), rcond = 0)
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
@@ -240,7 +241,7 @@ class State(object):
             if self.neutral_wind:
                 self.c += self.cu
 
-            self.constraint_vector = np.hstack((self.jr_on_grid, self.c * self.ih_constraint_scaling ))
+            self.constraint_vector = np.hstack((self.jr_on_grid, self.c * self.ih_constraint_scaling))
 
             self.set_coeffs(m_imp = self.G_m_imp_constraints_inv.dot(self.constraint_vector))
 
@@ -284,17 +285,17 @@ class State(object):
 
         if vector_u:
             self.u = u
-            self.helmholtz_E_u = np.einsum('ijkl,lk->ij', self.u_coeffs_to_helmholtz_E, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1))
+            self.helmholtz_E_u = np.einsum('ijkl,lk->ij', self.u_coeffs_to_helmholtz_E, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), optimize = True)
 
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
-            self.helmholtz_E_u = np.einsum('ijkl,lk->ij', self.u_to_helmholtz_E, np.moveaxis(np.array(np.split(u, 2)), 0, 1))
+            self.helmholtz_E_u = np.einsum('ijkl,lk->ij', self.u_to_helmholtz_E, np.moveaxis(np.array(np.split(u, 2)), 0, 1), optimize = True)
 
         if self.connect_hemispheres:
             if vector_u:
                 self.cu = self.A_u.dot(self.u.coeffs)
             else:
-                self.cu = -np.hstack(np.einsum('ijkl,lk->ij', self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u))
+                self.cu = -np.hstack(np.einsum('ijkl,lk->ij', self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, optimize = True))
 
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
@@ -321,8 +322,8 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        G_m_ind_to_E_direct = np.einsum('i,ijk->ijk', etaP_on_grid, self.m_ind_to_bP_JS) + np.einsum('i,ijk->ijk', etaH_on_grid, self.m_ind_to_bH_JS)
-        G_m_imp_to_E_direct = np.einsum('i,ijk->ijk', etaP_on_grid, self.m_imp_to_bP_JS) + np.einsum('i,ijk->ijk', etaH_on_grid, self.m_imp_to_bH_JS)
+        G_m_ind_to_E_direct = np.einsum('i,ijk->ijk', etaP_on_grid, self.m_ind_to_bP_JS, optimize = True) + np.einsum('i,ijk->ijk', etaH_on_grid, self.m_ind_to_bH_JS, optimize = True)
+        G_m_imp_to_E_direct = np.einsum('i,ijk->ijk', etaP_on_grid, self.m_imp_to_bP_JS, optimize = True) + np.einsum('i,ijk->ijk', etaH_on_grid, self.m_imp_to_bH_JS, optimize = True)
 
         m_ind_to_helmholtz_E_direct = np.einsum('ijkl,lkm->ijm', self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, optimize = True)
         m_imp_to_helmholtz_E_direct = np.einsum('ijkl,lkm->ijm', self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, optimize = True)
@@ -330,8 +331,8 @@ class State(object):
         self.G_m_imp_constraints = self.G_m_imp_to_jr
 
         if self.connect_hemispheres:
-            self.A_ind = -np.vstack((np.einsum('ijkl,lkm->ijm', self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct)))
-            self.A_imp =  np.vstack((np.einsum('ijkl,lkm->ijm', self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct)))
+            self.A_ind = -np.vstack(np.einsum('ijkl,lkm->ijm', self.helmholtz_to_apex_ll_diff, m_ind_to_helmholtz_E_direct, optimize = True))
+            self.A_imp =  np.vstack(np.einsum('ijkl,lkm->ijm', self.helmholtz_to_apex_ll_diff, m_imp_to_helmholtz_E_direct, optimize = True))
 
             # Combine constraint matrices
             self.G_m_imp_constraints = np.vstack((self.G_m_imp_constraints, self.A_imp * self.ih_constraint_scaling))

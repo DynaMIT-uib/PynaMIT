@@ -88,7 +88,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.einsum('ijkl,lkmn->ijmn', self.GTW_helmholtz, self.G_helmholtz)
+            self._GTWG_helmholtz = np.einsum('ijkl,lkmn->ijmn', self.GTW_helmholtz, self.G_helmholtz, optimize = True)
 
         return self._GTWG_helmholtz
     
@@ -304,8 +304,8 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.einsum('ijkl,lk->ij', self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1))
-                return np.moveaxis(np.einsum('ijkl,lk->ij', self.GTWG_helmholtz_inv, intermediate), 0, 1)
+                intermediate = np.einsum('ijkl,lk->ij', self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), optimize = True)
+                return np.moveaxis(np.einsum('ijkl,lk->ij', self.GTWG_helmholtz_inv, intermediate, optimize = True), 0, 1)
         else:
             if self.reg_lambda is not None:
                 reg_L = np.diag(np.ones(self.basis.index_length))
