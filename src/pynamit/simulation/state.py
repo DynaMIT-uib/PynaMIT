@@ -229,6 +229,9 @@ class State(object):
                 self.A_u = np.vstack((np.hstack((A_u_unstacked[0,:,0,:], A_u_unstacked[0,:,1,:])),
                                       np.hstack((A_u_unstacked[1,:,0,:], A_u_unstacked[1,:,1,:]))))
 
+        if self.vector_jr:
+            self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.G_jr)
+
 
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to m_imp from
@@ -344,9 +347,9 @@ class State(object):
         constraints_to_helmholtz_E = m_imp_to_helmholtz_E_direct.dot(self.GTG_m_imp_constraints_inv)
 
         if self.vector_jr:
-            self.jr_coeffs_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,:self.grid.size].dot(self.G_jr))
+            self.jr_coeffs_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.jr_m_imp_matrix)
         else:
-            self.jr_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_constraints_T[:,:self.grid.size])
+            self.jr_to_helmholtz_E = constraints_to_helmholtz_E.dot(self.G_m_imp_to_jr.T)
 
         self.m_ind_to_helmholtz_E = m_ind_to_helmholtz_E_direct
 
