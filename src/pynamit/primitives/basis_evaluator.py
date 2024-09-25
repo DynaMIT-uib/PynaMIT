@@ -73,9 +73,9 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTW_helmholtz'):
             if self.weights is not None:
-                self._GTW_helmholtz = np.einsum('ijkl,i->klij', self.G_helmholtz, self.weights, optimize = True)
+                self._GTW_helmholtz = np.einsum('i,ijkl->lkji', self.weights, self.G_helmholtz, optimize = True)
             else:
-                self._GTW_helmholtz = np.moveaxis(self.G_helmholtz, [0, 1], [2, 3])
+                self._GTW_helmholtz = self.G_helmholtz.T
 
         return self._GTW_helmholtz
 
@@ -88,7 +88,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
+            self._GTWG_helmholtz = np.einsum('ijkl,lkmn->ijmn', self.GTW_helmholtz, self.G_helmholtz)
 
         return self._GTWG_helmholtz
     
@@ -175,7 +175,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_GTWG_helmholtz_inv'):
-            self._GTWG_helmholtz_inv = np.moveaxis(tensor_pinv(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol), [0,1,2,3], [1,0,3,2])
+            self._GTWG_helmholtz_inv = tensor_pinv(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
         return self._GTWG_helmholtz_inv
 
     @property
@@ -304,8 +304,8 @@ class BasisEvaluator(object):
                 reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
                 return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
             else:
-                intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
-                return np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2)
+                intermediate = np.einsum('ijkl,lk->ij', self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1))
+                return np.moveaxis(np.einsum('ijkl,lk->ij', self.GTWG_helmholtz_inv, intermediate), 0, 1)
         else:
             if self.reg_lambda is not None:
                 reg_L = np.diag(np.ones(self.basis.index_length))
