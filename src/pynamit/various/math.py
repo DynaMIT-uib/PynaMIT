@@ -80,7 +80,11 @@ def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, conditio
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
     ).reshape((last_dims + first_dims))
 
-    return A_inv
+    reorder_source = np.arange(len(last_dims) + len(first_dims))
+    reorder_dest = np.concatenate((reorder_source[:(len(last_dims))][::-1], reorder_source[(len(last_dims)):][::-1]))
+
+    return np.moveaxis(A_inv, reorder_source, reorder_dest)
+
 
 def tensor_scale_left(scaling_factors, A):
     """
