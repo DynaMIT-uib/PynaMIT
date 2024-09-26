@@ -238,12 +238,11 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            A_m_ind = np.tensordot(self.A_ind, self.m_ind.coeffs, 1)
-            self.c = np.hstack((A_m_ind[:,0], A_m_ind[:,1]))
+            self.c = np.tensordot(self.A_ind, self.m_ind.coeffs, 1)
             if self.neutral_wind:
-                self.c += np.hstack((self.cu[:,0], self.cu[:,1]))
+                self.c += self.cu
 
-            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.A_imp.T, np.moveaxis(np.array(np.split(self.c, 2)), 0, 1), 1)) * self.ih_constraint_scaling
+            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.A_imp.T, self.c, 1)) * self.ih_constraint_scaling
 
             self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(self.GT_constraint_vector))
 
