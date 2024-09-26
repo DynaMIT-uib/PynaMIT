@@ -7,6 +7,8 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.various.math import tensor_scale_left, tensor_pinv, tensor_transpose, pinv_positive_semidefinite
 
+TRIPLE_PRODUCT = False
+
 class State(object):
     """ State of the ionosphere.
 
@@ -31,8 +33,9 @@ class State(object):
         self.FAC_integration_steps  = settings.FAC_integration_steps
         self.ih_constraint_scaling  = settings.ih_constraint_scaling
 
-        self.vector_u  = settings.vector_u
-        self.vector_jr = settings.vector_jr
+        self.vector_u           = settings.vector_u
+        self.vector_jr          = settings.vector_jr
+        self.vector_conductance = settings.vector_conductance
 
         if PFAC_matrix is not None:
             self._m_imp_to_B_pol = PFAC_matrix
@@ -81,6 +84,19 @@ class State(object):
         self.m_ind_to_bH_JS = np.einsum('ijk,kjl->kil', self.bH, self.G_m_ind_to_JS, optimize = True)
         self.m_imp_to_bP_JS = np.einsum('ijk,kjl->kil', self.bP, self.G_m_imp_to_JS, optimize = True)
         self.m_imp_to_bH_JS = np.einsum('ijk,kjl->kil', self.bH, self.G_m_imp_to_JS, optimize = True)
+
+        if TRIPLE_PRODUCT and self.vector_conductance:
+            etaP_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
+            self.etaP_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaP_m_ind_to_E, 2)
+
+            etaH_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
+            self.etaH_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaH_m_ind_to_E, 2)
+
+            etaP_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
+            self.etaP_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaP_m_imp_to_E, 2)
+
+            etaH_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
+            self.etaH_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaH_m_imp_to_E, 2)
 
         self.G_m_imp_to_jr = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
 
@@ -313,12 +329,9 @@ class State(object):
 
         self.conductance = True
 
-        if vector_conductance:
+        if self.vector_conductance:
             self.etaP = etaP
             self.etaH = etaH
-
-            etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
-            etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
         else:
             self.etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP, type = 'scalar')
@@ -327,11 +340,20 @@ class State(object):
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
-        G_m_ind_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_ind_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_ind_to_bH_JS)
-        G_m_imp_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_imp_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_imp_to_bH_JS)
+        if TRIPLE_PRODUCT and self.vector_conductance:
+            self.m_ind_to_helmholtz_E_direct = self.etaP_m_ind_to_helmholtz_E.dot(self.etaP.coeffs) + self.etaH_m_ind_to_helmholtz_E.dot(self.etaH.coeffs)
+            self.m_imp_to_helmholtz_E_direct = self.etaP_m_imp_to_helmholtz_E.dot(self.etaP.coeffs) + self.etaH_m_imp_to_helmholtz_E.dot(self.etaH.coeffs)
+        
+        else:
+            if self.vector_conductance:
+                etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
+                etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
-        self.m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 2)
-        self.m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 2)
+            G_m_ind_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_ind_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_ind_to_bH_JS)
+            G_m_imp_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_imp_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_imp_to_bH_JS)
+
+            self.m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 2)
+            self.m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 2)
 
         self.GTG_constraints = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 
