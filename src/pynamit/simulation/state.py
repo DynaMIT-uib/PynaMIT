@@ -98,6 +98,23 @@ class State(object):
             etaH_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
             self.etaH_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaH_m_imp_to_E, 2)
 
+            import matplotlib.pyplot as plt
+            import matplotlib.colors as colors
+
+            _, ax = plt.subplots(5, 1, tight_layout = True, figsize = (40, 10))
+
+            vmin = 1e-4
+            vmax = 1e8
+
+            ax[0].matshow(np.abs(self.etaP_m_ind_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
+            ax[1].matshow(np.abs(self.etaP_m_imp_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
+            ax[2].matshow(np.abs(self.etaH_m_ind_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
+            ax[3].matshow(np.abs(self.etaH_m_imp_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
+            ax[4].matshow((np.abs(self.etaP_m_ind_to_helmholtz_E) + np.abs(self.etaP_m_imp_to_helmholtz_E) + np.abs(self.etaH_m_ind_to_helmholtz_E) + np.abs(self.etaH_m_imp_to_helmholtz_E)).reshape((2 * self.basis.index_length, -1)), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
+
+            plt.show()
+
+
         self.G_m_imp_to_jr = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
 
         if self.vector_jr:
