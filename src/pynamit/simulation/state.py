@@ -246,7 +246,7 @@ class State(object):
                 self.c += self.cu
 
             E_c = np.einsum('ijkk->ij', np.tensordot(self.helmholtz_to_apex_ll_diff.T, self.c, 1), optimize = True)
-            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.m_imp_to_helmholtz_E_direct.T, E_c, 1)) * self.ih_constraint_scaling
+            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.m_imp_to_helmholtz_E_direct.T, E_c, 1)) * self.ih_constraint_scaling**2
 
             self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(self.GT_constraint_vector))
 
