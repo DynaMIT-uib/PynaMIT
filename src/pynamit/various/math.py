@@ -60,7 +60,12 @@ def tensor_pinv(A, contracted_dims=2, rtol=1e-15, hermitian=False):
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
     ).reshape((last_dims + first_dims))
 
-    return np.moveaxis(A_inv, [0,1,2,3], [1,0,3,2])
+    reorder_source = np.arange(len(last_dims) + len(first_dims))
+    reorder_dest = np.concatenate((reorder_source[:(len(last_dims))][::-1], reorder_source[(len(last_dims)):][::-1]))
+
+    # Transpose the contracted dimensions and the remaining dimensions.
+    return np.moveaxis(A_inv, reorder_source, reorder_dest)
+
 
 def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, condition_number=False):
     """

@@ -5,7 +5,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import tensor_scale_left, pinv_positive_semidefinite
+from pynamit.various.math import tensor_scale_left, tensor_pinv, pinv_positive_semidefinite
 
 class State(object):
     """ State of the ionosphere.
@@ -127,7 +127,7 @@ class State(object):
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_B_pol_shifted = np.linalg.pinv(np.vstack((self.G_B_pol_to_JS[:,0], self.G_B_pol_to_JS[:,1])), rcond = 0)
+                JS_shifted_to_B_pol_shifted = tensor_pinv(self.G_B_pol_to_JS, contracted_dims = 2, rtol = 0)
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
@@ -140,16 +140,17 @@ class State(object):
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.jr_basis, mapped_grid)
                     m_imp_to_jr = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr)
-                    jr_to_JS_shifted = ((shifted_b_evaluator.Btheta / mapped_b_evaluator.Br).reshape((-1, 1)),
-                                        (shifted_b_evaluator.Bphi   / mapped_b_evaluator.Br).reshape((-1, 1)))
-                    m_imp_to_JS_shifted = np.vstack(m_imp_to_jr * jr_to_JS_shifted)
+                    jr_to_JS_shifted = np.array([shifted_b_evaluator.Btheta / mapped_b_evaluator.Br,
+                                                 shifted_b_evaluator.Bphi   / mapped_b_evaluator.Br])
+
+                    m_imp_to_JS_shifted = np.einsum('ij,jk->jik', jr_to_JS_shifted, m_imp_to_jr, optimize = True)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal current components at r_k[i]
-                    B_pol_shifted_to_B_pol = self.basis.radial_shift(r_k[i], self.RI).reshape((-1, 1))
+                    B_pol_shifted_to_B_pol = self.basis.radial_shift(r_k[i], self.RI).reshape((-1, 1, 1))
                     JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
 
                     # Integration step, negative sign is to create a poloidal field that shields the region under the ionosphere from the FAC poloidal field
-                    self._m_imp_to_B_pol -= Delta_k[i] * JS_shifted_to_B_pol.dot(m_imp_to_JS_shifted)
+                    self._m_imp_to_B_pol -= Delta_k[i] * np.einsum('ijjk->ik', np.tensordot(JS_shifted_to_B_pol, m_imp_to_JS_shifted, 1))
 
         return(self._m_imp_to_B_pol)
 
