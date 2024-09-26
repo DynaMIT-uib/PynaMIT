@@ -240,13 +240,13 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            self.A_ind = -np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, self.m_ind_to_helmholtz_E_direct, 1), optimize = True)
-            self.c = np.tensordot(self.A_ind, self.m_ind.coeffs, 1)
+            E_m_ind = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
+            self.c = -np.einsum('ijkk->ij', np.tensordot(self.helmholtz_to_apex_ll_diff, E_m_ind, 1), optimize = True)
             if self.neutral_wind:
                 self.c += self.cu
 
-            self.A_imp =  np.einsum('ijkkm->ijm', np.tensordot(self.helmholtz_to_apex_ll_diff, self.m_imp_to_helmholtz_E_direct, 1), optimize = True)
-            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.A_imp.T, self.c, 1)) * self.ih_constraint_scaling
+            E_c = np.einsum('ijkk->ij', np.tensordot(self.helmholtz_to_apex_ll_diff.T, self.c, 1), optimize = True)
+            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.m_imp_to_helmholtz_E_direct.T, E_c, 1)) * self.ih_constraint_scaling
 
             self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(self.GT_constraint_vector))
 
@@ -335,13 +335,11 @@ class State(object):
 
         self.GTG_constraints = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 
+        # Add low latitude E field constraints
         if self.connect_hemispheres:
             m_imp_apex_ll_diff_gram = np.einsum('ijjlm->ilm', np.tensordot(self.m_imp_to_helmholtz_E_direct.T, self.helmholtz_to_apex_ll_diff_gram, 1))
-
-            # Combine constraint matrices
             self.GTG_constraints += np.einsum('ijjk->ik', np.tensordot(m_imp_apex_ll_diff_gram, self.m_imp_to_helmholtz_E_direct, 1), optimize = True) * self.ih_constraint_scaling**2
 
-        # Prepare matrices used to calculate the electric field
         self.GTG_constraints_inv = pinv_positive_semidefinite(self.GTG_constraints)
         GTG_constraints_to_helmholtz_E = self.m_imp_to_helmholtz_E_direct.dot(self.GTG_constraints_inv)
 
