@@ -124,8 +124,7 @@ class State(object):
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, u_coeffs_to_uxB, 2)
         else:
-            self.bu = np.moveaxis(self.bu, [0,1,2], [1,2,0])
-            self.u_to_helmholtz_E = np.einsum('ijkl,klm->ijkm', self.basis_evaluator.G_helmholtz_inv, self.bu, optimize = True)
+            self.u_to_helmholtz_E = np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.G_helmholtz_inv, self.bu, optimize = True)
 
         # Conductance and neutral wind should be set after state initialization
         self.neutral_wind = False
