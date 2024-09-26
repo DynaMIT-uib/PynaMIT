@@ -60,12 +60,7 @@ def tensor_pinv(A, contracted_dims=2, rtol=1e-15, hermitian=False):
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
     ).reshape((last_dims + first_dims))
 
-    reorder_source = np.arange(len(last_dims) + len(first_dims))
-    reorder_dest = np.concatenate((reorder_source[:(len(last_dims))][::-1], reorder_source[(len(last_dims)):][::-1]))
-
-    # Transpose the contracted dimensions and the remaining dimensions.
-    return np.moveaxis(A_inv, reorder_source, reorder_dest)
-
+    return A_inv
 
 def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, condition_number=False):
     """
@@ -80,11 +75,20 @@ def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, conditio
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
     ).reshape((last_dims + first_dims))
 
-    reorder_source = np.arange(len(last_dims) + len(first_dims))
-    reorder_dest = np.concatenate((reorder_source[:(len(last_dims))][::-1], reorder_source[(len(last_dims)):][::-1]))
+    return A_inv
 
-    return np.moveaxis(A_inv, reorder_source, reorder_dest)
+def tensor_transpose(A, contracted_dims=2):
+    """
+    Transpose a tensor by swapping the contracted dimensions.
 
+    """
+
+    first_dims = A.shape[:contracted_dims]
+    last_dims  = A.shape[contracted_dims:]
+
+    A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape((last_dims + first_dims))
+
+    return A_transposed
 
 def tensor_scale_left(scaling_factors, A):
     """
