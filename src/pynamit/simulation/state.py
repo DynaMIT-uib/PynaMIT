@@ -248,7 +248,7 @@ class State(object):
                 print('this should not happen')
 
             # The hemispheres are connected via interhemispheric currents at low latitudes
-            self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.Br / self.b_evaluator.Br).reshape((-1, 1)))[self.ll_mask]
+            self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1)))[self.ll_mask]
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
