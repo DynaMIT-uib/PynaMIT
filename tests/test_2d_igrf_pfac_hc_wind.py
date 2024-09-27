@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind():
     # Arrange
-    expected_coeff_norm = 5.168376000371659e-10
-    expected_coeff_max =  2.1184967802722978e-11
-    expected_coeff_min = -3.00427422769841e-11
+    expected_coeff_norm = 2.7975471789059956e-10
+    expected_coeff_max =  1.2861200697321767e-11
+    expected_coeff_min = -2.1476553005388132e-11
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -22,7 +22,7 @@ def test_2d_igrf_pfac_hc_wind():
                            Nmax = 5,
                            Mmax = 3,
                            Ncs = 18,
-                           mainfield_kind = 'dipole',
+                           mainfield_kind = 'igrf',
                            fig_directory = temp_dir,
                            ignore_PFAC = False,
                            connect_hemispheres = True,
