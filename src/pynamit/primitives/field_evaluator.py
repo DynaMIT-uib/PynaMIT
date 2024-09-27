@@ -112,6 +112,23 @@ class FieldEvaluator:
 
         return self.basevectors[4][2]
 
+    @property
+    def e3r(self):
+        """ Radial component of the e3 basis vector. """
+
+        return self.basevectors[5][0]
+
+    @property
+    def e3t(self):
+        """ Theta component of the e3 basis vector. """
+
+        return self.basevectors[5][1]
+
+    @property
+    def e3p(self):
+        """ Phi component of the e3 basis vector. """
+
+        return self.basevectors[5][2]
 
     @property
     def surface_to_spherical(self):
@@ -123,7 +140,7 @@ class FieldEvaluator:
         """
 
         if not hasattr(self, '_surface_to_spherical'):
-            self._surface_to_spherical = np.array([[-self.Btheta / self.Br,   -self.Bphi / self.Br],
+            self._surface_to_spherical = np.array([[-self.btheta / self.br,   -self.bphi / self.br],
                                                    [np.ones(self.grid.size),  np.zeros(self.grid.size)],
                                                    [np.zeros(self.grid.size), np.ones(self.grid.size)]])
 
