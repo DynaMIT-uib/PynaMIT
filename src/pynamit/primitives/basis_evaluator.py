@@ -298,17 +298,31 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
+            intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
             if self.reg_lambda is not None:
-                #reg_L = np.diag(self.basis.laplacian(), 2)
-                reg_L = np.hstack((self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1), self.basis.n + 1))
-                return np.linalg.lstsq(self.GTWG_helmholtz + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW_helmholtz, grid_values), rcond = self.pinv_rtol)[0]
+                regularization = self.reg_lambda * np.moveaxis(
+                    np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
+                              [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag(self.basis.n + 1)]]
+                ), [0,1,2,3], [1,3,0,2])
+
+                GTWG_plus_regularization = self.GTWG_helmholtz + regularization
+
+                lstsq_solution = np.linalg.lstsq(
+                    GTWG_plus_regularization.reshape(2 * self.basis.index_length, 2 * self.basis.index_length),
+                    intermediate.reshape(2 * self.basis.index_length),
+                    rcond = self.pinv_rtol
+                )[0]
+
+                return np.moveaxis(np.array(np.split(lstsq_solution, 2)), 0, 1)
+
             else:
-                intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
                 return np.moveaxis(np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2), 0, 1)
+
         else:
             if self.reg_lambda is not None:
-                reg_L = np.diag(np.ones(self.basis.index_length))
-                return np.linalg.lstsq(self.GTWG + self.reg_lambda * np.diag(reg_L), np.dot(self.GTW, grid_values), rcond = self.pinv_rtol)[0]
+                regularization = self.reg_lambda * np.diag(np.ones(self.basis.index_length))
+                return np.linalg.lstsq(self.GTWG + regularization, np.dot(self.GTW, grid_values), rcond = self.pinv_rtol)[0]
+
             else:
                 return np.dot(self.GTWG_inv, np.dot(self.GTW, grid_values))
     

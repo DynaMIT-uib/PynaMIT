@@ -118,6 +118,14 @@ class Dynamics(object):
             'u':            1e-15,
         }
 
+        self.reg_lambdas = {
+            'state':        None, #0.01
+            'steady_state': None, #0.01
+            'jr':           None, #0.01
+            'conductance':  None, #0.01
+            'u':            None, #0.01
+        }
+
         self.vector_storage = {
             'state':        True,
             'steady_state': True,
@@ -153,6 +161,7 @@ class Dynamics(object):
         # Initialize the state of the ionosphere
         self.state = State(self.bases,
                            self.pinv_rtols,
+                           self.reg_lambdas,
                            self.mainfield,
                            self.state_grid,
                            settings,
@@ -330,7 +339,7 @@ class Dynamics(object):
             self.input_basis_evaluators = {}
 
         if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta, rtol = 0.0, atol = FLOAT_ERROR_MARGIN) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi, rtol = 0.0, atol = FLOAT_ERROR_MARGIN)):
-            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key], weights = weights)
+            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key], weights = weights, reg_lambda = self.reg_lambdas[key])
 
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in range(len(input_data[var]))]):

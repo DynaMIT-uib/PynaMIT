@@ -14,7 +14,7 @@ class State(object):
 
     """
 
-    def __init__(self, bases, pinv_rtols, mainfield, grid, settings, PFAC_matrix = None):
+    def __init__(self, bases, pinv_rtols, reg_lambdas, mainfield, grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
@@ -43,10 +43,10 @@ class State(object):
         # Initialize grid-related objects
         self.grid = grid
 
-        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid, pinv_rtol = pinv_rtols['state'])
-        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid, pinv_rtol = pinv_rtols['jr'])
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid, pinv_rtol = pinv_rtols['conductance'])
-        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid, pinv_rtol = pinv_rtols['u'])
+        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid, pinv_rtol = pinv_rtols['state'],       reg_lambda = reg_lambdas['state'])
+        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid, pinv_rtol = pinv_rtols['jr'],          reg_lambda = reg_lambdas['jr'])
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid, pinv_rtol = pinv_rtols['conductance'], reg_lambda = reg_lambdas['conductance'])
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid, pinv_rtol = pinv_rtols['u'],           reg_lambda = reg_lambdas['u'])
 
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
@@ -54,8 +54,8 @@ class State(object):
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
 
-            self.cp_basis_evaluator    = BasisEvaluator(self.basis, self.cp_grid, pinv_rtol = pinv_rtols['state'])
-            self.jr_cp_basis_evaluator = BasisEvaluator(self.jr_basis, self.cp_grid, pinv_rtol = pinv_rtols['jr'])
+            self.cp_basis_evaluator    = BasisEvaluator(self.basis, self.cp_grid,    pinv_rtol = pinv_rtols['state'], reg_lambda = reg_lambdas['state'])
+            self.jr_cp_basis_evaluator = BasisEvaluator(self.jr_basis, self.cp_grid, pinv_rtol = pinv_rtols['jr'],    reg_lambda = reg_lambdas['jr'])
 
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
@@ -331,7 +331,6 @@ class State(object):
             if vector_u:
                 self.cu = np.tensordot(self.A_u, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), 2)
             else:
-                print(self.helmholtz_to_apex_ll_diff.shape, self.helmholtz_E_u.shape)
                 self.cu = -np.tensordot(self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, 2)
 
 
