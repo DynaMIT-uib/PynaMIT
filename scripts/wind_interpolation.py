@@ -9,10 +9,13 @@ import cartopy.crs as ccrs
 PLOT = True
 SH_COMPARISON = True
 GRID_COMPARISON = True
-MIN_NMAX_MMAX = 10
-MAX_NMAX_MMAX = 60
+
+MIN_NMAX_MMAX = 20
+MAX_NMAX_MMAX = 20
 NMAX_MMAX_STEP = 10
-REG_LAMBDA = 0.0
+MIN_REG_LAMBDA_LOG = -2
+MAX_REG_LAMBDA_LOG = 0
+REG_LAMBDA_LOG_STEPS = 3
 
 rtol = 1e-15
 Ncs = 70
@@ -46,79 +49,89 @@ if GRID_COMPARISON:
     relative_grid_errors = []
 if SH_COMPARISON:
     relative_coeff_errors = []
+    sh_norms = []
+    cs_norms = []
 
+Nmax_Mmax_values = []
+reg_lambda_values = []
 
-for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
-    sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
-    input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())), reg_lambda = REG_LAMBDA)
-    state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol, reg_lambda = REG_LAMBDA)
+for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA_LOG_STEPS):
+    for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
+        reg_lambda_values.append(reg_lambda)
+        Nmax_Mmax_values.append(Nmax_Mmax)
 
-    sh_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
+        sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
+        input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())), reg_lambda = reg_lambda)
+        state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol, reg_lambda = reg_lambda)
 
-    print("Interpolation with Nmax = %d, Mmax = %d:" % (Nmax_Mmax, Nmax_Mmax))
+        sh_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
 
-    if GRID_COMPARISON:
-        cs_interpolated_u_on_grid = interpolated_data
-        sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator).flatten()
-        relative_grid_errors.append(np.linalg.norm(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid)/np.linalg.norm(cs_interpolated_u_on_grid))
-        print("   Relative grid error = %e" % (relative_grid_errors[-1]))
+        print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax_Mmax, Nmax_Mmax, reg_lambda))
 
-    if SH_COMPARISON:
-        cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
-        relative_coeff_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
-        print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
-
-    if PLOT:
         if GRID_COMPARISON:
-            grid_fig, (grid_cs_ax, grid_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = nooNmax_Mmaxlon)})
-            grid_cs_ax.coastlines()
-            grid_sh_ax.coastlines()
-
-            grid_cs_ax.title.set_text("Cubed sphere")
-            grid_sh_ax.set_title("Spherical harmonics")
-
-            # Plot grid wind field
-            cs_quiver = grid_cs_ax.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-            grid_sh_ax.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
-
-            plt.show()
+            cs_interpolated_u_on_grid = interpolated_data
+            sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator).flatten()
+            relative_grid_errors.append(np.linalg.norm(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid)/np.linalg.norm(cs_interpolated_u_on_grid))
+            print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
         if SH_COMPARISON:
-            coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained')
-            abs_coeff_cs = np.abs(cs_interpolated_u.coeffs)
-            abs_coeff_sh = np.abs(sh_interpolated_u.coeffs)
+            cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
+            sh_norms.append(np.linalg.norm(sh_interpolated_u.coeffs))
+            cs_norms.append(np.linalg.norm(cs_interpolated_u.coeffs))
+            relative_coeff_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
+            print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
 
-            coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
-            coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
+        if PLOT:
+            if GRID_COMPARISON:
+                grid_fig, (grid_cs_ax, grid_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained', subplot_kw={'projection': ccrs.PlateCarree(central_longitude = nooNmax_Mmaxlon)})
+                grid_cs_ax.coastlines()
+                grid_sh_ax.coastlines()
 
-            # Plot curl free and divergence free coefficients
-            coeff_cs_ax.plot(abs_coeff_cs[0], label = "CF")
-            coeff_cs_ax.plot(abs_coeff_cs[1], label = "DF")
-            coeff_sh_ax.plot(abs_coeff_sh[0], label = "CF")
-            coeff_sh_ax.plot(abs_coeff_sh[1], label = "DF")
+                grid_cs_ax.title.set_text("Cubed sphere")
+                grid_sh_ax.set_title("Spherical harmonics")
 
-            min_coeff = min(np.min(abs_coeff_cs), np.min(abs_coeff_sh))
-            max_coeff = max(np.max(abs_coeff_cs), np.max(abs_coeff_sh))
-            coeff_cs_ax.set_ylim(min_coeff*0.75, max_coeff*1.25)
-            coeff_sh_ax.set_ylim(min_coeff*0.75, max_coeff*1.25)
+                # Plot grid wind field
+                cs_quiver = grid_cs_ax.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+                grid_sh_ax.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
 
-            coeff_cs_ax.legend()
-            coeff_sh_ax.legend()
+                plt.show()
 
-            coeff_cs_ax.set_yscale("log")
-            coeff_sh_ax.set_yscale("log")
+            if SH_COMPARISON:
+                coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained')
+                abs_coeff_cs = np.abs(cs_interpolated_u.coeffs)
+                abs_coeff_sh = np.abs(sh_interpolated_u.coeffs)
 
-            plt.show()
+                coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
+                coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
+
+                # Plot curl free and divergence free coefficients
+                coeff_cs_ax.plot(abs_coeff_cs[0], label = "CF")
+                coeff_cs_ax.plot(abs_coeff_cs[1], label = "DF")
+                coeff_sh_ax.plot(abs_coeff_sh[0], label = "CF")
+                coeff_sh_ax.plot(abs_coeff_sh[1], label = "DF")
+
+                min_coeff = min(np.min(abs_coeff_cs), np.min(abs_coeff_sh))
+                max_coeff = max(np.max(abs_coeff_cs), np.max(abs_coeff_sh))
+                coeff_cs_ax.set_ylim(min_coeff*0.75, max_coeff*1.25)
+                coeff_sh_ax.set_ylim(min_coeff*0.75, max_coeff*1.25)
+
+                coeff_cs_ax.legend()
+                coeff_sh_ax.legend()
+
+                coeff_cs_ax.set_yscale("log")
+                coeff_sh_ax.set_yscale("log")
+
+                plt.show()
 
 # Plot errors
 if GRID_COMPARISON:
-    plt.plot(relative_grid_errors, label = "Grid values")
+    plt.plot(Nmax_Mmax_values, relative_grid_errors, label = "Grid values")
     plt.yscale("log")
     plt.xlabel("Nmax = Mmax")
     plt.ylabel("Error (relative to CS interpolation)")
 
 if SH_COMPARISON:
-    plt.plot(relative_coeff_errors, label = "Coefficients")
+    plt.plot(Nmax_Mmax_values, relative_coeff_errors, label = "Coefficients")
     plt.yscale("log")
     plt.xlabel("Nmax = Mmax")
     plt.ylabel("Error (relative to CS interpolation)")
@@ -126,3 +139,16 @@ if SH_COMPARISON:
 plt.legend()
 
 plt.show()
+
+if SH_COMPARISON:
+    plt.plot(reg_lambda_values, sh_norms, label = "SH")
+    if SH_COMPARISON:
+        plt.plot(reg_lambda_values, cs_norms, label = "CS")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.xlabel("lambda")
+    plt.ylabel("Coefficient norms")
+
+    plt.legend()
+
+    plt.show()
