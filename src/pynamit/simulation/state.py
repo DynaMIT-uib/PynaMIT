@@ -87,16 +87,16 @@ class State(object):
 
         if TRIPLE_PRODUCT and self.vector_conductance:
             etaP_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
-            self.etaP_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaP_m_ind_to_E, 2)
+            self.etaP_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaP_m_ind_to_E, 2), 2)
 
             etaH_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
-            self.etaH_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaH_m_ind_to_E, 2)
+            self.etaH_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaH_m_ind_to_E, 2), 2)
 
             etaP_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
-            self.etaP_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaP_m_imp_to_E, 2)
+            self.etaP_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaP_m_imp_to_E, 2), 2)
 
             etaH_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
-            self.etaH_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, etaH_m_imp_to_E, 2)
+            self.etaH_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaH_m_imp_to_E, 2), 2)
 
             import matplotlib.pyplot as plt
             import matplotlib.colors as colors
@@ -122,9 +122,9 @@ class State(object):
 
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
-            self.u_coeffs_to_helmholtz_E = np.tensordot(self.basis_evaluator.G_helmholtz_inv, u_coeffs_to_uxB, 2)
+            self.u_coeffs_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, u_coeffs_to_uxB, 2), 2)
         else:
-            self.u_to_helmholtz_E = np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.G_helmholtz_inv, self.bu, optimize = True)
+            self.u_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.GTW_helmholtz, self.bu, optimize = True), 2)
 
         # Conductance and neutral wind should be set after state initialization
         self.neutral_wind = False
@@ -367,8 +367,8 @@ class State(object):
             G_m_ind_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_ind_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_ind_to_bH_JS)
             G_m_imp_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_imp_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_imp_to_bH_JS)
 
-            self.m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_ind_to_E_direct, 2)
-            self.m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.G_helmholtz_inv, G_m_imp_to_E_direct, 2)
+            self.m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
+            self.m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.GTWG_helmholtz_inv, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
 
         self.GTG_constraints = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 

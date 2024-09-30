@@ -37,74 +37,6 @@ class BasisEvaluator(object):
         return self._G
 
     @property
-    def GTW(self):
-        """
-        Return the matrix ``G^T W``.
-
-        """
-
-        if not hasattr(self, '_GTW'):
-            if self.weights is not None:
-                self._GTW = (self.G * self.weights.reshape(-1, 1)).T
-            else:
-                self._GTW = self.G.T
-
-        return self._GTW
-
-    @property
-    def GTWG(self):
-        """
-        Return the matrix ``G^T W G``.
-
-        """
-
-        if not hasattr(self, '_GTWG'):
-            self._GTWG = np.dot(self.GTW, self.G)
-
-        return self._GTWG
-
-    @property
-    def GTW_helmholtz(self):
-        """
-        Return the matrix ``G^T W`` for the Helmholtz decomposition into the
-        curl-free and divergence-free components of a vector.
-
-        """
-
-        if not hasattr(self, '_GTW_helmholtz'):
-            if self.weights is not None:
-                self._GTW_helmholtz = tensor_transpose(tensor_scale_left(self.weights, self.G_helmholtz), 2)
-            else:
-                self._GTW_helmholtz = self.G_helmholtz.T
-
-        return self._GTW_helmholtz
-
-    @property
-    def GTWG_helmholtz(self):
-        """
-        Return the matrix ``G^T W G`` for the Helmholtz decomposition into the
-        curl-free and divergence-free components of a vector.
-
-        """
-
-        if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
-
-        return self._GTWG_helmholtz
-    
-    @property
-    def G_inv(self):
-        """
-        Return matrix that transforms grid to coefficients.
-
-        """
-
-        if not hasattr(self, '_G_inv'):
-            self._G_inv = np.linalg.pinv(self.G)
-
-        return self._G_inv
-
-    @property
     def G_th(self):
         """
         Return matrix that differentiates coefficients with respect to
@@ -141,42 +73,6 @@ class BasisEvaluator(object):
                 self._G_ph = self.basis.get_G(self.grid, derivative = 'phi')
 
         return self._G_ph
-
-    @property
-    def GTG_inv(self):
-        """
-        Return the inverse of the matrix ``G^T G``.
-
-        """
-
-        if not hasattr(self, '_GTG_inv'):
-            self._GTG_inv = pinv_positive_semidefinite(np.dot(self.G.T, self.G), rtol = self.pinv_rtol)
-
-        return self._GTG_inv
-
-    @property
-    def GTWG_inv(self):
-        """
-        Return the inverse of the matrix ``G^T W G``.
-
-        """
-
-        if not hasattr(self, '_GTWG_inv'):
-            self._GTWG_inv = pinv_positive_semidefinite(self.GTWG, rtol = self.pinv_rtol)
-
-        return self._GTWG_inv
-
-    @property
-    def GTWG_helmholtz_inv(self):
-        """
-        Return the inverse of the matrix ``G^T W G`` for the Helmholtz decomposition
-        into the curl-free and divergence-free components of a vector.
-
-        """
-
-        if not hasattr(self, '_GTWG_helmholtz_inv'):
-            self._GTWG_helmholtz_inv = tensor_pinv(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
-        return self._GTWG_helmholtz_inv
 
     @property
     def G_grad(self):
@@ -230,31 +126,85 @@ class BasisEvaluator(object):
         return self._G_helmholtz
 
     @property
-    def GTG_helmholtz_inv(self):
+    def GTW(self):
         """
-        Return the inverse of the matrix ``G^T G`` for the Helmholtz decomposition
-        into the curl-free and divergence-free components of a vector.
+        Return the matrix ``G^T W``.
 
         """
 
-        if not hasattr(self, '_GTG_helmholtz_inv'):
-            GTG_helmholtz = np.einsum('ijkl,ijmn->klmn', self.G_helmholtz, self.G_helmholtz, optimize = True)
-            self._GTG_helmholtz_inv = tensor_pinv_positive_semidefinite(GTG_helmholtz, 2, rtol = self.pinv_rtol)
+        if not hasattr(self, '_GTW'):
+            if self.weights is not None:
+                self._GTW = (self.G * self.weights.reshape(-1, 1)).T
+            else:
+                self._GTW = self.G.T
 
-        return self._GTG_helmholtz_inv
+        return self._GTW
 
     @property
-    def G_helmholtz_inv(self):
+    def GTW_helmholtz(self):
         """
-        Return the inverse of the G matrix for the Helmholtz decomposition
+        Return the matrix ``G^T W`` for the Helmholtz decomposition into the
+        curl-free and divergence-free components of a vector.
+
+        """
+
+        if not hasattr(self, '_GTW_helmholtz'):
+            if self.weights is not None:
+                self._GTW_helmholtz = tensor_transpose(tensor_scale_left(self.weights, self.G_helmholtz), 2)
+            else:
+                self._GTW_helmholtz = tensor_transpose(self.G_helmholtz, 2)
+
+        return self._GTW_helmholtz
+
+    @property
+    def GTWG(self):
+        """
+        Return the matrix ``G^T W G``.
+
+        """
+
+        if not hasattr(self, '_GTWG'):
+            self._GTWG = np.dot(self.GTW, self.G)
+
+        return self._GTWG
+
+    @property
+    def GTWG_helmholtz(self):
+        """
+        Return the matrix ``G^T W G`` for the Helmholtz decomposition into the
+        curl-free and divergence-free components of a vector.
+
+        """
+
+        if not hasattr(self, '_GTWG_helmholtz'):
+            self._GTWG_helmholtz = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
+
+        return self._GTWG_helmholtz
+
+    @property
+    def GTWG_inv(self):
+        """
+        Return the inverse of the matrix ``G^T W G``.
+
+        """
+
+        if not hasattr(self, '_GTWG_inv'):
+            self._GTWG_inv = pinv_positive_semidefinite(self.GTWG, rtol = self.pinv_rtol)
+
+        return self._GTWG_inv
+
+    @property
+    def GTWG_helmholtz_inv(self):
+        """
+        Return the inverse of the matrix ``G^T W G`` for the Helmholtz decomposition
         into the curl-free and divergence-free components of a vector.
 
         """
 
-        if not hasattr(self, '_G_helmholtz_inv'):
-            self._G_helmholtz_inv = tensor_pinv(self.G_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
+        if not hasattr(self, '_GTWG_helmholtz_inv'):
+            self._GTWG_helmholtz_inv = tensor_pinv_positive_semidefinite(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
+        return self._GTWG_helmholtz_inv
 
-        return self._G_helmholtz_inv
 
     def basis_to_grid(self, coeffs, derivative = None, helmholtz = False):
         """
@@ -325,24 +275,6 @@ class BasisEvaluator(object):
 
             else:
                 return np.dot(self.GTWG_inv, np.dot(self.GTW, grid_values))
-    
-    def to_other_basis(self, this_coeffs, other_coeffs):
-        """
-        Transform coefficients in the basis to another basis.
-
-        Parameters
-        ----------
-        coeffs : ndarray
-            Coefficients in the basis.
-
-        Returns
-        -------
-        ndarray
-            Coefficients in the new basis.
-
-        """
-
-        other_coeffs.values = other_coeffs.basis.grid_to_basis(self.basis_to_grid(this_coeffs))
 
     def scaled_G(self, factor):
         """
