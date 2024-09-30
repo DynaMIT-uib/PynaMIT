@@ -56,7 +56,7 @@ for Nmax_Mmax in range(10, MAX_NMAX_MMAX + 1, 10):
 
     if GRID_COMPARISON:
         cs_interpolated_u_on_grid = interpolated_data
-        sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator)
+        sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator).flatten()
         relative_grid_errors.append(np.linalg.norm(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid)/np.linalg.norm(cs_interpolated_u_on_grid))
         print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
@@ -89,10 +89,10 @@ for Nmax_Mmax in range(10, MAX_NMAX_MMAX + 1, 10):
             coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
 
             # Plot curl free and divergence free coefficients
-            coeff_cs_ax.plot(np.split(abs_coeff_cs, 2)[0], label = "CF")
-            coeff_cs_ax.plot(np.split(abs_coeff_cs, 2)[1], label = "DF")
-            coeff_sh_ax.plot(np.split(abs_coeff_sh, 2)[0], label = "CF")
-            coeff_sh_ax.plot(np.split(abs_coeff_sh, 2)[1], label = "DF")
+            coeff_cs_ax.plot(abs_coeff_cs[0], label = "CF")
+            coeff_cs_ax.plot(abs_coeff_cs[1], label = "DF")
+            coeff_sh_ax.plot(abs_coeff_sh[0], label = "CF")
+            coeff_sh_ax.plot(abs_coeff_sh[1], label = "DF")
 
             min_coeff = min(np.min(abs_coeff_cs), np.min(abs_coeff_sh))
             max_coeff = max(np.max(abs_coeff_cs), np.max(abs_coeff_sh))
