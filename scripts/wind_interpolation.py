@@ -65,7 +65,6 @@ reg_lambda_values = []
 
 for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA_LOG_STEPS):
     for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
-        reg_lambda_values.append(reg_lambda)
         Nmax_Mmax_values.append(Nmax_Mmax)
 
         sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
@@ -77,7 +76,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax_Mmax, Nmax_Mmax, reg_lambda))
 
         if L_CURVE:
-            lambda_values.append(reg_lambda)
+            reg_lambda_values.append(reg_lambda)
             sh_norms.append(np.linalg.norm(input_sh.coeffs))
             input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator).flatten()
             sh_resiudal_norms.append(np.linalg.norm(input_sh_on_input_grid - input_grid_values)/np.linalg.norm(input_grid_values))
