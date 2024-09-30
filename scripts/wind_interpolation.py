@@ -15,8 +15,8 @@ L_CURVE = True
 MIN_NMAX_MMAX = 20
 MAX_NMAX_MMAX = 20
 NMAX_MMAX_STEP = 10
-MIN_REG_LAMBDA_LOG = -10
-MAX_REG_LAMBDA_LOG = 10
+MIN_REG_LAMBDA_LOG = -5
+MAX_REG_LAMBDA_LOG = 5
 REG_LAMBDA_LOG_STEPS = 21
 
 rtol = 1e-15
@@ -58,10 +58,9 @@ if SH_COMPARISON:
 if L_CURVE:
     sh_norms = []
     sh_resiudal_norms = []
-    lambda_values = []
+    reg_lambda_values = []
 
 Nmax_Mmax_values = []
-reg_lambda_values = []
 
 for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA_LOG_STEPS):
     for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
@@ -162,8 +161,8 @@ if L_CURVE:
     #cbar = plt.colorbar(scatter)
     #cbar.set_label("Regularization lambda")
 
-    for i, lambda_val in enumerate(lambda_values):
-        plt.annotate(f'{lambda_val:.1e}', 
+    for i, reg_lambda_val in enumerate(reg_lambda_values):
+        plt.annotate(f'{reg_lambda_val:.1e}',
                      (sh_resiudal_norms[i], sh_norms[i]), 
                      textcoords="offset points", xytext=(5,5), ha='center')
 
