@@ -35,17 +35,21 @@ hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glats
 
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
-u_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
+input_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
+input_grid_values = np.hstack((u_theta, u_phi))
+input_weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
+vector_type = 'tangential'
 
 ## CS PROJECTION
 csp = pynamit.CSProjection(Ncs)
-csp_grid = pynamit.Grid(theta = csp.arr_theta, phi = csp.arr_phi)
+output_grid = pynamit.Grid(theta = csp.arr_theta, phi = csp.arr_phi)
+output_weights = None
 
-interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), u_grid.theta, u_grid.phi, csp_grid.theta, csp_grid.phi)
+interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
 interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
 
-lon = csp_grid.lon.flatten()
-lat = csp_grid.lat.flatten()
+lon = output_grid.lon.flatten()
+lat = output_grid.lat.flatten()
 
 if GRID_COMPARISON:
     relative_grid_errors = []
@@ -65,28 +69,28 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         Nmax_Mmax_values.append(Nmax_Mmax)
 
         sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
-        input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())), reg_lambda = reg_lambda)
-        state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol, reg_lambda = reg_lambda)
+        input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, input_grid, pinv_rtol = rtol, weights = input_weights, reg_lambda = reg_lambda)
+        output_basis_evaluator = pynamit.BasisEvaluator(sh_basis, output_grid, pinv_rtol = rtol, weights = output_weights, reg_lambda = reg_lambda)
 
-        sh_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
+        input_sh = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = input_grid_values, type = vector_type)
 
         print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax_Mmax, Nmax_Mmax, reg_lambda))
 
         if L_CURVE:
             lambda_values.append(reg_lambda)
-            sh_norms.append(np.linalg.norm(sh_interpolated_u.coeffs))
-            sh_interpolated_u_on_input_grid = sh_interpolated_u.to_grid(input_basis_evaluator).flatten()
-            sh_resiudal_norms.append(np.linalg.norm(sh_interpolated_u_on_input_grid - np.hstack((u_theta, u_phi)))/np.linalg.norm(np.hstack((u_theta, u_phi))))
+            sh_norms.append(np.linalg.norm(input_sh.coeffs))
+            input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator).flatten()
+            sh_resiudal_norms.append(np.linalg.norm(input_sh_on_input_grid - input_grid_values)/np.linalg.norm(input_grid_values))
 
         if GRID_COMPARISON:
-            cs_interpolated_u_on_grid = interpolated_data
-            sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator).flatten()
-            relative_grid_errors.append(np.linalg.norm(cs_interpolated_u_on_grid - sh_interpolated_u_on_grid)/np.linalg.norm(cs_interpolated_u_on_grid))
+            cs_interpolated_output = interpolated_data
+            sh_interpolated_output = input_sh.to_grid(output_basis_evaluator).flatten()
+            relative_grid_errors.append(np.linalg.norm(cs_interpolated_output - sh_interpolated_output)/np.linalg.norm(cs_interpolated_output))
             print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
         if SH_COMPARISON:
-            cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
-            relative_coeff_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
+            cs_interpolated_output_sh = pynamit.Vector(sh_basis, basis_evaluator = output_basis_evaluator, grid_values = interpolated_data, type = vector_type)
+            relative_coeff_errors.append(np.linalg.norm(cs_interpolated_output_sh.coeffs - input_sh.coeffs)/np.linalg.norm(cs_interpolated_output_sh.coeffs))
             print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
 
         if PLOT:
@@ -99,15 +103,15 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 grid_sh_ax.set_title("Spherical harmonics")
 
                 # Plot grid wind field
-                cs_quiver = grid_cs_ax.quiver(lon, lat, np.split(cs_interpolated_u_on_grid, 2)[1].flatten(), -np.split(cs_interpolated_u_on_grid, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
-                grid_sh_ax.quiver(lon, lat, np.split(sh_interpolated_u_on_grid, 2)[1].flatten(), -np.split(sh_interpolated_u_on_grid, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
+                cs_quiver = grid_cs_ax.quiver(lon, lat, np.split(cs_interpolated_output, 2)[1].flatten(), -np.split(cs_interpolated_output, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
+                grid_sh_ax.quiver(lon, lat, np.split(sh_interpolated_output, 2)[1].flatten(), -np.split(sh_interpolated_output, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
 
                 plt.show()
 
             if SH_COMPARISON:
                 coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), layout = 'constrained')
-                abs_coeff_cs = np.abs(cs_interpolated_u.coeffs)
-                abs_coeff_sh = np.abs(sh_interpolated_u.coeffs)
+                abs_coeff_cs = np.abs(cs_interpolated_output_sh.coeffs)
+                abs_coeff_sh = np.abs(input_sh.coeffs)
 
                 coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
                 coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
