@@ -256,13 +256,13 @@ class BasisEvaluator(object):
                               [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag(self.basis.n + 1)]]
                 ), [0,1,2,3], [1,3,0,2])
 
-                GTWG_plus_regularization = self.GTWG_helmholtz + regularization
+                GTWG_helmholtz_plus_regularization = self.GTWG_helmholtz + regularization
 
-                first_dims = GTWG_plus_regularization.shape[:2]
-                last_dims  = GTWG_plus_regularization.shape[2:]
+                first_dims = GTWG_helmholtz_plus_regularization.shape[:2]
+                last_dims  = GTWG_helmholtz_plus_regularization.shape[2:]
 
                 coeffs = np.linalg.lstsq(
-                    GTWG_plus_regularization.reshape((np.prod(first_dims), np.prod(last_dims))),
+                    GTWG_helmholtz_plus_regularization.reshape((np.prod(first_dims), np.prod(last_dims))),
                     intermediate.reshape((np.prod(last_dims))),
                     rcond = self.pinv_rtol
                 )[0].reshape((first_dims))
