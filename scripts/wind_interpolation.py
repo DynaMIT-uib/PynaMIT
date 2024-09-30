@@ -5,17 +5,19 @@ import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+from matplotlib.colors import LogNorm
 
 PLOT = True
-SH_COMPARISON = True
-GRID_COMPARISON = True
+SH_COMPARISON = False
+GRID_COMPARISON = False
+L_CURVE = True
 
 MIN_NMAX_MMAX = 20
 MAX_NMAX_MMAX = 20
 NMAX_MMAX_STEP = 10
 MIN_REG_LAMBDA_LOG = -2
-MAX_REG_LAMBDA_LOG = 0
-REG_LAMBDA_LOG_STEPS = 3
+MAX_REG_LAMBDA_LOG = 5
+REG_LAMBDA_LOG_STEPS = 8
 
 rtol = 1e-15
 Ncs = 70
@@ -49,8 +51,10 @@ if GRID_COMPARISON:
     relative_grid_errors = []
 if SH_COMPARISON:
     relative_coeff_errors = []
+if L_CURVE:
     sh_norms = []
-    cs_norms = []
+    sh_resiudal_norms = []
+    lambda_values = []
 
 Nmax_Mmax_values = []
 reg_lambda_values = []
@@ -68,6 +72,12 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax_Mmax, Nmax_Mmax, reg_lambda))
 
+        if L_CURVE:
+            lambda_values.append(reg_lambda)
+            sh_norms.append(np.linalg.norm(sh_interpolated_u.coeffs))
+            sh_interpolated_u_on_input_grid = sh_interpolated_u.to_grid(input_basis_evaluator).flatten()
+            sh_resiudal_norms.append(np.linalg.norm(sh_interpolated_u_on_input_grid - np.hstack((u_theta, u_phi)))/np.linalg.norm(np.hstack((u_theta, u_phi))))
+
         if GRID_COMPARISON:
             cs_interpolated_u_on_grid = interpolated_data
             sh_interpolated_u_on_grid = sh_interpolated_u.to_grid(state_basis_evaluator).flatten()
@@ -76,8 +86,6 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if SH_COMPARISON:
             cs_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = state_basis_evaluator, grid_values = interpolated_data, type = 'tangential')
-            sh_norms.append(np.linalg.norm(sh_interpolated_u.coeffs))
-            cs_norms.append(np.linalg.norm(cs_interpolated_u.coeffs))
             relative_coeff_errors.append(np.linalg.norm(cs_interpolated_u.coeffs - sh_interpolated_u.coeffs)/np.linalg.norm(cs_interpolated_u.coeffs))
             print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
 
@@ -124,31 +132,32 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 plt.show()
 
 # Plot errors
-if GRID_COMPARISON:
-    plt.plot(Nmax_Mmax_values, relative_grid_errors, label = "Grid values")
-    plt.yscale("log")
-    plt.xlabel("Nmax = Mmax")
-    plt.ylabel("Error (relative to CS interpolation)")
+if GRID_COMPARISON or SH_COMPARISON:
+    if GRID_COMPARISON:
+        plt.plot(Nmax_Mmax_values, relative_grid_errors, label = "Grid values")
+        plt.yscale("log")
+        plt.xlabel("Nmax = Mmax")
+        plt.ylabel("Error (relative to CS interpolation)")
 
-if SH_COMPARISON:
-    plt.plot(Nmax_Mmax_values, relative_coeff_errors, label = "Coefficients")
-    plt.yscale("log")
-    plt.xlabel("Nmax = Mmax")
-    plt.ylabel("Error (relative to CS interpolation)")
-
-plt.legend()
-
-plt.show()
-
-if SH_COMPARISON:
-    plt.plot(reg_lambda_values, sh_norms, label = "SH")
     if SH_COMPARISON:
-        plt.plot(reg_lambda_values, cs_norms, label = "CS")
-    plt.xscale("log")
-    plt.yscale("log")
-    plt.xlabel("lambda")
-    plt.ylabel("Coefficient norms")
+        plt.plot(Nmax_Mmax_values, relative_coeff_errors, label = "Coefficients")
+        plt.yscale("log")
+        plt.xlabel("Nmax = Mmax")
+        plt.ylabel("Error (relative to CS interpolation)")
 
     plt.legend()
+    plt.show()
+
+if L_CURVE:
+    scatter = plt.scatter(sh_resiudal_norms, sh_norms, c = lambda_values, cmap='viridis', s=100, norm=LogNorm())
+
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.xlabel("Residual norms")
+    plt.ylabel("Coefficient norms")
+
+
+    cbar = plt.colorbar(scatter)
+    cbar.set_label("Regularization lambda")
 
     plt.show()
