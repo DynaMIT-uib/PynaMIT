@@ -249,6 +249,7 @@ class BasisEvaluator(object):
 
         if helmholtz:
             intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
+
             if self.reg_lambda is not None:
                 regularization = self.reg_lambda * np.moveaxis(
                     np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
@@ -257,16 +258,19 @@ class BasisEvaluator(object):
 
                 GTWG_plus_regularization = self.GTWG_helmholtz + regularization
 
-                lstsq_solution = np.linalg.lstsq(
-                    GTWG_plus_regularization.reshape(2 * self.basis.index_length, 2 * self.basis.index_length),
-                    intermediate.reshape(2 * self.basis.index_length),
-                    rcond = self.pinv_rtol
-                )[0]
+                first_dims = GTWG_plus_regularization.shape[:2]
+                last_dims  = GTWG_plus_regularization.shape[2:]
 
-                return np.moveaxis(np.array(np.split(lstsq_solution, 2)), 0, 1)
+                coeffs = np.linalg.lstsq(
+                    GTWG_plus_regularization.reshape((np.prod(first_dims), np.prod(last_dims))),
+                    intermediate.reshape((np.prod(last_dims))),
+                    rcond = self.pinv_rtol
+                )[0].reshape((first_dims))
 
             else:
-                return np.moveaxis(np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2), 0, 1)
+                coeffs = np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2)
+
+            return np.moveaxis(coeffs, 0, 1)
 
         else:
             if self.reg_lambda is not None:
