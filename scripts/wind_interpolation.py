@@ -149,13 +149,12 @@ if GRID_COMPARISON or SH_COMPARISON:
     plt.show()
 
 if L_CURVE:
-    scatter = plt.scatter(sh_resiudal_norms, sh_norms, c = lambda_values, cmap='viridis', s=100, norm=LogNorm())
+    scatter = plt.scatter(sh_resiudal_norms, sh_norms, c = lambda_values, norm=LogNorm())
 
     plt.xscale("log")
     plt.yscale("log")
     plt.xlabel("Residual norms")
     plt.ylabel("Coefficient norms")
-
 
     cbar = plt.colorbar(scatter)
     cbar.set_label("Regularization lambda")
