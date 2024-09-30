@@ -9,7 +9,10 @@ import cartopy.crs as ccrs
 PLOT = True
 SH_COMPARISON = True
 GRID_COMPARISON = True
+MIN_NMAX_MMAX = 10
 MAX_NMAX_MMAX = 60
+NMAX_MMAX_STEP = 10
+REG_LAMBDA = 0.0
 
 rtol = 1e-15
 Ncs = 70
@@ -45,10 +48,10 @@ if SH_COMPARISON:
     relative_coeff_errors = []
 
 
-for Nmax_Mmax in range(10, MAX_NMAX_MMAX + 1, 10):
+for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
     sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
-    input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
-    state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol)
+    input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, u_grid, pinv_rtol = rtol, weights = np.sin(np.deg2rad(90 - u_lat.flatten())), reg_lambda = REG_LAMBDA)
+    state_basis_evaluator = pynamit.BasisEvaluator(sh_basis, csp_grid, pinv_rtol = rtol, reg_lambda = REG_LAMBDA)
 
     sh_interpolated_u = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = np.hstack((u_theta, u_phi)), type = 'tangential')
 
