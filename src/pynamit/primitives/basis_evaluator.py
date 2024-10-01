@@ -182,38 +182,38 @@ class BasisEvaluator(object):
         return self._GTWG_helmholtz
 
     @property
-    def R(self):
+    def L(self):
         """
         Return the regularization matrix.
 
         """
 
-        if not hasattr(self, '_R'):
+        if not hasattr(self, '_L'):
             if self.reg_lambda is None:
                 raise ValueError("Regularization parameter not set.")
 
-            self._R = self.reg_lambda * np.diag(self.basis.n * (self.basis.n + 1))
+            self._L = np.diag(self.basis.n * (self.basis.n + 1))
 
-        return self._R
+        return self._L
 
     @property
-    def R_helmholtz(self):
+    def L_helmholtz(self):
         """
         Return the regularization matrix for the Helmholtz decomposition
         into the curl-free and divergence-free components of a vector.
 
         """
 
-        if not hasattr(self, '_R_helmholtz'):
+        if not hasattr(self, '_L_helmholtz'):
             if self.reg_lambda is None:
                 raise ValueError("Regularization parameter not set.")
 
-            self._R_helmholtz = self.reg_lambda * np.moveaxis(
+            self._L_helmholtz = np.moveaxis(
                 np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
                           [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
             ), [0,1,2,3], [1,3,0,2])
 
-        return self._R_helmholtz
+        return self._L_helmholtz
 
     @property
     def GTWG_plus_R_inv(self):
@@ -224,7 +224,7 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTWG_plus_R_inv'):
             if self.reg_lambda is not None:
-                GTWG_plus_R = self.GTWG + self.R
+                GTWG_plus_R = self.GTWG + self.reg_lambda * np.dot(self.L.T, self.L)
             else:
                 GTWG_plus_R = self.GTWG
 
@@ -243,7 +243,7 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_GTWG_plus_R_inv_helmholtz'):
             if self.reg_lambda is not None:
-                GTWG_plus_R_helmholtz = self.GTWG_helmholtz + self.R_helmholtz
+                GTWG_plus_R_helmholtz = self.GTWG_helmholtz + self.reg_lambda * np.tensordot(tensor_transpose(self.L_helmholtz, 2), self.L_helmholtz, 2)
             else:
                 GTWG_plus_R_helmholtz = self.GTWG_helmholtz
 
@@ -298,6 +298,28 @@ class BasisEvaluator(object):
 
         else:
             return np.dot(self.GTWG_plus_R_inv, np.dot(self.GTW, grid_values))
+
+    def regularization_term(self, coeffs, helmholtz = False):
+        """
+        Return the regularization term.
+
+        Parameters
+        ----------
+        coeffs : ndarray
+            Coefficients in the basis.
+
+        Returns
+        -------
+        float
+            Regularization term.
+
+        """
+
+        if helmholtz:
+            return np.moveaxis(np.tensordot(self.L_helmholtz, np.moveaxis(coeffs, 0, 1), 2), 0, 1)
+
+        else:
+            return np.dot(coeffs, np.dot(self.L, coeffs))
 
     def scaled_G(self, factor):
         """

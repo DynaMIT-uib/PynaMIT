@@ -22,7 +22,7 @@ MAX_NMAX_MMAX = 20
 NMAX_MMAX_STEP = 10
 MIN_REG_LAMBDA_LOG = -10
 MAX_REG_LAMBDA_LOG = 0
-REG_LAMBDA_LOG_STEPS = 41
+REG_LAMBDA_LOG_STEPS = 21
 
 rtol = 1e-15
 Ncs = 70
@@ -101,7 +101,8 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
-            sh_norms.append(np.linalg.norm(input_sh.coeffs))
+            #sh_norms.append(np.linalg.norm(input_sh.coeffs))
+            sh_norms.append(np.linalg.norm(input_sh.regularization_term(input_basis_evaluator)))
             input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator).flatten()
             sh_resiudal_norms.append(np.linalg.norm(input_sh_on_input_grid - input_grid_values)/np.linalg.norm(input_grid_values))
 
@@ -190,10 +191,7 @@ if L_CURVE:
     plt.xscale("log")
     plt.yscale("log")
     plt.xlabel("Residual norms")
-    plt.ylabel("Coefficient norms")
-
-    #cbar = plt.colorbar(scatter)
-    #cbar.set_label("Regularization lambda")
+    plt.ylabel("Regularization term norms")
 
     for i, reg_lambda_val in enumerate(reg_lambda_values):
         plt.annotate(f'{reg_lambda_val:.1e}',
