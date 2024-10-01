@@ -167,7 +167,7 @@ class BasisEvaluator(object):
             self._GTWG_reg = np.dot(self.GTW, self.G)
 
             if self.reg_lambda is not None:
-                self._GTWG_reg += self.reg_lambda * np.diag(np.ones(self.basis.index_length))
+                self._GTWG_reg += self.reg_lambda * np.diag(self.basis.n * (self.basis.n + 1))
 
         return self._GTWG_reg
 
