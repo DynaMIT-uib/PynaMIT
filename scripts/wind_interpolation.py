@@ -30,6 +30,9 @@ nooNmax_Mmaxlon = d.mlt2mlon(12, date) # noon longitude
 #hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3.,
 #                             glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
+#hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glatstp = 6.,
+#                             glonlim=[-180., 180.], glonstp = 12., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
+
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glatstp = 1.5,
                              glonlim=[-180., 180.], glonstp = 3., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
@@ -37,7 +40,8 @@ u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 input_grid = pynamit.Grid(lat = u_lat.flatten(), lon = u_lon.flatten())
 input_grid_values = np.hstack((u_theta, u_phi))
-input_weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
+#input_weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
+input_weights = None
 vector_type = 'tangential'
 
 ## CS PROJECTION

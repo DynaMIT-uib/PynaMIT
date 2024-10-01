@@ -143,8 +143,8 @@ class BasisEvaluator(object):
     @property
     def GTW_helmholtz(self):
         """
-        Return the matrix ``G^T W`` for the Helmholtz decomposition into the
-        curl-free and divergence-free components of a vector.
+        Return the matrix ``G^T W`` for the Helmholtz decomposition into
+        the curl-free and divergence-free components of a vector.
 
         """
 
@@ -157,53 +157,63 @@ class BasisEvaluator(object):
         return self._GTW_helmholtz
 
     @property
-    def GTWG(self):
+    def GTWG_reg(self):
         """
         Return the matrix ``G^T W G``.
 
         """
 
-        if not hasattr(self, '_GTWG'):
-            self._GTWG = np.dot(self.GTW, self.G)
+        if not hasattr(self, '_GTWG_reg'):
+            self._GTWG_reg = np.dot(self.GTW, self.G)
 
-        return self._GTWG
+            if self.reg_lambda is not None:
+                self._GTWG_reg += self.reg_lambda * np.diag(np.ones(self.basis.index_length))
 
-    @property
-    def GTWG_helmholtz(self):
-        """
-        Return the matrix ``G^T W G`` for the Helmholtz decomposition into the
-        curl-free and divergence-free components of a vector.
-
-        """
-
-        if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
-
-        return self._GTWG_helmholtz
+        return self._GTWG_reg
 
     @property
-    def GTWG_inv(self):
+    def GTWG_helmholtz_reg(self):
         """
-        Return the inverse of the matrix ``G^T W G``.
+        Return the matrix ``G^T W G`` for the Helmholtz decomposition into
+        the curl-free and divergence-free components of a vector.
 
         """
 
-        if not hasattr(self, '_GTWG_inv'):
-            self._GTWG_inv = pinv_positive_semidefinite(self.GTWG, rtol = self.pinv_rtol)
+        if not hasattr(self, '_GTWG_helmholtz_reg'):
+            self._GTWG_helmholtz_reg = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
 
-        return self._GTWG_inv
+            if self.reg_lambda is not None:
+                self._GTWG_helmholtz_reg += self.reg_lambda * np.moveaxis(
+                    np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
+                              [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
+                ), [0,1,2,3], [1,3,0,2])
+
+        return self._GTWG_helmholtz_reg
 
     @property
-    def GTWG_helmholtz_inv(self):
+    def GTWG_reg_inv(self):
         """
-        Return the inverse of the matrix ``G^T W G`` for the Helmholtz decomposition
-        into the curl-free and divergence-free components of a vector.
+        Return the inverse of the matrix ``G^T W G + reg``.
 
         """
 
-        if not hasattr(self, '_GTWG_helmholtz_inv'):
-            self._GTWG_helmholtz_inv = tensor_pinv_positive_semidefinite(self.GTWG_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
-        return self._GTWG_helmholtz_inv
+        if not hasattr(self, '_GTWG_reg_inv'):
+            self._GTWG_reg_inv = pinv_positive_semidefinite(self.GTWG_reg, rtol = self.pinv_rtol)
+
+        return self._GTWG_reg_inv
+
+    @property
+    def GTWG_helmholtz_reg_inv(self):
+        """
+        Return the inverse of the matrix ``G^T W G + reg`` for the
+        Helmholtz decompositionn into the curl-free and divergence-free
+        components of a vector.
+
+        """
+
+        if not hasattr(self, '_GTWG_helmholtz_reg_inv'):
+            self._GTWG_helmholtz_reg_inv = tensor_pinv_positive_semidefinite(self.GTWG_helmholtz_reg, contracted_dims = 2, rtol = self.pinv_rtol)
+        return self._GTWG_helmholtz_reg_inv
 
 
     def basis_to_grid(self, coeffs, derivative = None, helmholtz = False):
@@ -249,36 +259,10 @@ class BasisEvaluator(object):
 
         if helmholtz:
             intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
-
-            if self.reg_lambda is not None:
-                regularization = self.reg_lambda * np.moveaxis(
-                    np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
-                              [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag(self.basis.n + 1)]]
-                ), [0,1,2,3], [1,3,0,2])
-
-                GTWG_helmholtz_plus_regularization = self.GTWG_helmholtz + regularization
-
-                first_dims = GTWG_helmholtz_plus_regularization.shape[:2]
-                last_dims  = GTWG_helmholtz_plus_regularization.shape[2:]
-
-                coeffs = np.linalg.lstsq(
-                    GTWG_helmholtz_plus_regularization.reshape((np.prod(first_dims), np.prod(last_dims))),
-                    intermediate.reshape((np.prod(last_dims))),
-                    rcond = self.pinv_rtol
-                )[0].reshape((first_dims))
-
-            else:
-                coeffs = np.tensordot(self.GTWG_helmholtz_inv, intermediate, 2)
-
-            return np.moveaxis(coeffs, 0, 1)
+            return np.moveaxis(np.tensordot(self.GTWG_helmholtz_reg_inv, intermediate, 2), 0, 1)
 
         else:
-            if self.reg_lambda is not None:
-                regularization = self.reg_lambda * np.diag(np.ones(self.basis.index_length))
-                return np.linalg.lstsq(self.GTWG + regularization, np.dot(self.GTW, grid_values), rcond = self.pinv_rtol)[0]
-
-            else:
-                return np.dot(self.GTWG_inv, np.dot(self.GTW, grid_values))
+            return np.dot(self.GTWG_reg_inv, np.dot(self.GTW, grid_values))
 
     def scaled_G(self, factor):
         """
