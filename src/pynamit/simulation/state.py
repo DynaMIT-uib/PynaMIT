@@ -275,13 +275,12 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            E_m_ind = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
-            self.c = -np.tensordot(self.helmholtz_to_apex_ll_diff, E_m_ind, 2)
-            if self.neutral_wind:
-                self.c += -np.tensordot(self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, 2)
+            E = self.m_ind_to_helmholtz_E_total.dot(self.m_ind.coeffs)
 
-            E_c = np.tensordot(tensor_transpose(self.helmholtz_to_apex_ll_diff, 2), self.c, 2)
-            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.m_imp_to_helmholtz_E_direct.T, E_c, 1)) * self.ih_constraint_scaling**2
+            if self.neutral_wind:
+                E += self.helmholtz_E_u
+
+            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_E_direct_T_W, E, 2) * self.ih_constraint_scaling**2
 
             self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(self.GT_constraint_vector))
 
@@ -352,8 +351,8 @@ class State(object):
             etaH_on_grid = etaH
 
         if TRIPLE_PRODUCT and self.vector_conductance:
-            self.m_ind_to_helmholtz_E_direct = self.etaP_m_ind_to_helmholtz_E.dot(self.etaP.coeffs) + self.etaH_m_ind_to_helmholtz_E.dot(self.etaH.coeffs)
-            self.m_imp_to_helmholtz_E_direct = self.etaP_m_imp_to_helmholtz_E.dot(self.etaP.coeffs) + self.etaH_m_imp_to_helmholtz_E.dot(self.etaH.coeffs)
+            self.m_ind_to_helmholtz_E = self.etaP_m_ind_to_helmholtz_E.dot(self.etaP.coeffs) + self.etaH_m_ind_to_helmholtz_E.dot(self.etaH.coeffs)
+            self.m_imp_to_helmholtz_E = self.etaP_m_imp_to_helmholtz_E.dot(self.etaP.coeffs) + self.etaH_m_imp_to_helmholtz_E.dot(self.etaH.coeffs)
         
         else:
             if self.vector_conductance:
@@ -363,52 +362,53 @@ class State(object):
             G_m_ind_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_ind_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_ind_to_bH_JS)
             G_m_imp_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_imp_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_imp_to_bH_JS)
 
-            self.m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
-            self.m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
+            self.m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
+            self.m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
 
         self.GTWG_constraints = self.G_m_imp_to_jr_gram
 
         # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
-            m_imp_to_helmholtz_E_direct_T = tensor_transpose(self.m_imp_to_helmholtz_E_direct)
-            W = self.helmholtz_to_apex_ll_diff_gram
-            m_imp_to_helmholtz_E_direct_T_W = np.tensordot(m_imp_to_helmholtz_E_direct_T, W, 2)
-            self.GTWG_constraints += np.tensordot(m_imp_to_helmholtz_E_direct_T_W, self.m_imp_to_helmholtz_E_direct, 2) * self.ih_constraint_scaling**2
+            m_imp_to_helmholtz_E_direct_T = tensor_transpose(self.m_imp_to_helmholtz_E)
+            self.m_imp_to_helmholtz_E_direct_T_W = np.tensordot(m_imp_to_helmholtz_E_direct_T, self.helmholtz_to_apex_ll_diff_gram, 2)
+            self.GTWG_constraints += np.tensordot(self.m_imp_to_helmholtz_E_direct_T_W, self.m_imp_to_helmholtz_E, 2) * self.ih_constraint_scaling**2
 
         self.GTWG_constraints_inv = pinv_positive_semidefinite(self.GTWG_constraints)
-        GTWG_constraints_inv_to_helmholtz_E = self.m_imp_to_helmholtz_E_direct.dot(self.GTWG_constraints_inv)
+        GTWG_constraints_inv_to_helmholtz_E = self.m_imp_to_helmholtz_E.dot(self.GTWG_constraints_inv)
 
         if self.vector_jr:
             self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_m_imp_matrix)
         else:
             self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.G_m_imp_to_jr.T)
 
-        self.m_ind_to_helmholtz_E = self.m_ind_to_helmholtz_E_direct
-
         if self.connect_hemispheres:
-            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, m_imp_to_helmholtz_E_direct_T_W, 1) * self.ih_constraint_scaling**2
+            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_helmholtz_E_direct_T_W, 1) * self.ih_constraint_scaling**2
 
-            m_ind_to_helmholtz_E_constraints = np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E_direct, 2)
-            self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
+            m_ind_to_helmholtz_E_constraints = np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E, 2)
+            self.m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E + m_ind_to_helmholtz_E_constraints
+        else:
+            self.m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E
 
-        self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[:,1])
+        self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E_total[:,1])
 
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
 
         """
 
-        E = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
+        E_m_ind = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
 
         if self.vector_jr:
-            E += self.jr_coeffs_to_helmholtz_E.dot(self.jr.coeffs)
+            E = E_m_ind + self.jr_coeffs_to_helmholtz_E.dot(self.jr.coeffs)
         else:
-            E += self.jr_to_helmholtz_E.dot(self.jr_on_grid)
+            E = E_m_ind + self.jr_to_helmholtz_E.dot(self.jr_on_grid)
 
         if self.neutral_wind:
             E += self.helmholtz_E_u
 
-            if self.connect_hemispheres:
+        if self.connect_hemispheres:
+            E += np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, E_m_ind, 2)
+            if self.neutral_wind:
                 E += np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.helmholtz_E_u, 2)
 
         self.Phi = Vector(self.basis, coeffs = E[:,0], type = 'scalar')
