@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind_grid():
     # Arrange
-    expected_coeff_norm = 2.6678129612496394e-10
-    expected_coeff_max =  1.194678309840048e-11
-    expected_coeff_min = -2.1249095716016872e-11
+    expected_coeff_norm = 7.077073059239658e-08
+    expected_coeff_max =  1.5216933864583085e-09
+    expected_coeff_min = -2.1058018988450016e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -33,7 +33,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
                            vector_u = False)
 
     # Assert
-    coeff_array = dynamics.timeseries['state']['SH_m_ind'].values
+    coeff_array = np.hstack((dynamics.timeseries['state']['SH_m_ind'].values, dynamics.timeseries['state']['SH_m_imp'].values))
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
