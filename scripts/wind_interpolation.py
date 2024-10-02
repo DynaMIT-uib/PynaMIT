@@ -10,8 +10,8 @@ from matplotlib.colors import LogNorm
 plt.rcParams['figure.constrained_layout.use'] = True
 
 PLOT = True
-SH_COMPARISON = False
-GRID_COMPARISON = False
+SH_COMPARISON = True
+GRID_COMPARISON = True
 L_CURVE = True
 
 WIND = False
@@ -20,8 +20,8 @@ CONDUCTANCE = True
 MIN_NMAX_MMAX = 30
 MAX_NMAX_MMAX = 30
 NMAX_MMAX_STEP = 10
-MIN_REG_LAMBDA_LOG = -5
-MAX_REG_LAMBDA_LOG = 0
+MIN_REG_LAMBDA_LOG = -6
+MAX_REG_LAMBDA_LOG = -1
 REG_LAMBDA_LOG_STEPS = 21
 
 rtol = 1e-15
@@ -54,6 +54,7 @@ if CONDUCTANCE:
     input_grid_values = hall
     input_weights = None
     vector_type = 'scalar'
+    nmin = 0
 
     interpolated_data = csp.interpolate_scalar(hall, input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
 
@@ -69,6 +70,7 @@ if WIND:
     #input_weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
     input_weights = None
     vector_type = 'tangential'
+    nmin = 1
 
     interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
     interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
@@ -91,7 +93,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
     for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
         Nmax_Mmax_values.append(Nmax_Mmax)
 
-        sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax)
+        sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax, nmin)
         input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, input_grid, pinv_rtol = rtol, weights = input_weights, reg_lambda = reg_lambda)
         output_basis_evaluator = pynamit.BasisEvaluator(sh_basis, output_grid, pinv_rtol = rtol, weights = output_weights, reg_lambda = reg_lambda)
 
