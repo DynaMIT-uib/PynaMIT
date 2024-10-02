@@ -278,7 +278,7 @@ class State(object):
             E_m_ind = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
             self.c = -np.tensordot(self.helmholtz_to_apex_ll_diff, E_m_ind, 2)
             if self.neutral_wind:
-                self.c += self.cu
+                self.c += -np.tensordot(self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, 2)
 
             E_c = np.tensordot(tensor_transpose(self.helmholtz_to_apex_ll_diff, 2), self.c, 2)
             self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) + np.einsum('ijj->i', np.tensordot(self.m_imp_to_helmholtz_E_direct.T, E_c, 1)) * self.ih_constraint_scaling**2
@@ -329,13 +329,6 @@ class State(object):
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
             self.helmholtz_E_u = np.tensordot(self.u_to_helmholtz_E, np.moveaxis(np.array(np.split(u, 2)), 0, 1), 2)
-
-        if self.connect_hemispheres:
-            if vector_u:
-                self.cu = np.tensordot(self.A_u, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), 2)
-            else:
-                self.cu = -np.tensordot(self.helmholtz_to_apex_ll_diff, self.helmholtz_E_u, 2)
-
 
     def set_conductance(self, etaP, etaH, vector_conductance = True):
         """
@@ -393,15 +386,10 @@ class State(object):
         self.m_ind_to_helmholtz_E = self.m_ind_to_helmholtz_E_direct
 
         if self.connect_hemispheres:
-            helmholtz_E_direct_to_helmholtz_E_constraints = np.tensordot(GTWG_constraints_inv_to_helmholtz_E, m_imp_to_helmholtz_E_direct_T_W, 1) * self.ih_constraint_scaling**2
+            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, m_imp_to_helmholtz_E_direct_T_W, 1) * self.ih_constraint_scaling**2
 
-            m_ind_to_helmholtz_E_constraints = -np.tensordot(helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E_direct, 2)
+            m_ind_to_helmholtz_E_constraints = np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E_direct, 2)
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
-
-            if self.vector_u:
-                self.u_coeffs_to_helmholtz_E_constraints = -np.tensordot(helmholtz_E_direct_to_helmholtz_E_constraints, self.u_coeffs_to_helmholtz_E, 2)
-            else:
-                self.cu_to_helmholtz_E = np.tensordot(np.tensordot(GTWG_constraints_inv_to_helmholtz_E, m_imp_to_helmholtz_E_direct_T, 1), self.helmholtz_to_apex_ll_diff_T, 2) * self.ih_constraint_scaling**2
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[:,1])
 
@@ -421,10 +409,7 @@ class State(object):
             E += self.helmholtz_E_u
 
             if self.connect_hemispheres:
-                if self.vector_u:
-                    E += np.tensordot(self.u_coeffs_to_helmholtz_E_constraints, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), 2)
-                else:
-                    E += np.tensordot(self.cu_to_helmholtz_E, self.cu, 2)
+                E += np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.helmholtz_E_u, 2)
 
         self.Phi = Vector(self.basis, coeffs = E[:,0], type = 'scalar')
         self.W = Vector(self.basis, coeffs = E[:,1], type = 'scalar')
@@ -539,10 +524,7 @@ class State(object):
             helmholtz_E_noind += self.helmholtz_E_u
 
             if self.connect_hemispheres:
-                if self.vector_u:
-                    helmholtz_E_noind += np.tensordot(self.u_coeffs_to_helmholtz_E_constraints, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), 2)
-                else:
-                    helmholtz_E_noind += np.tensordot(self.cu_to_helmholtz_E, self.cu, 2)
+                helmholtz_E_noind += np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.helmholtz_E_u, 2)
 
         m_ind = -self.m_ind_to_helmholtz_E_cf_inv.dot(helmholtz_E_noind[:,1])
 
