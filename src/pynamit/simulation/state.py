@@ -256,7 +256,8 @@ class State(object):
             helmholtz_to_apex    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             helmholtz_to_apex_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
             self.helmholtz_to_apex_ll_diff = (helmholtz_to_apex - helmholtz_to_apex_cp)[self.ll_mask]
-            self.helmholtz_to_apex_ll_diff_gram = np.tensordot(tensor_transpose(self.helmholtz_to_apex_ll_diff), self.helmholtz_to_apex_ll_diff, 2)
+            self.helmholtz_to_apex_ll_diff_T = tensor_transpose(self.helmholtz_to_apex_ll_diff, 2)
+            self.helmholtz_to_apex_ll_diff_gram = np.tensordot(self.helmholtz_to_apex_ll_diff_T, self.helmholtz_to_apex_ll_diff, 2)
 
             if self.vector_u:
                 self.A_u = -np.tensordot(self.helmholtz_to_apex_ll_diff, self.u_coeffs_to_helmholtz_E, 2)
@@ -376,7 +377,8 @@ class State(object):
 
         # Add low latitude E field constraints
         if self.connect_hemispheres:
-            m_imp_apex_ll_diff_gram = np.tensordot(tensor_transpose(self.m_imp_to_helmholtz_E_direct), self.helmholtz_to_apex_ll_diff_gram, 2)
+            m_imp_to_helmholtz_E_direct_T = tensor_transpose(self.m_imp_to_helmholtz_E_direct)
+            m_imp_apex_ll_diff_gram = np.tensordot(m_imp_to_helmholtz_E_direct_T, self.helmholtz_to_apex_ll_diff_gram, 2)
             self.GTG_constraints += np.tensordot(m_imp_apex_ll_diff_gram, self.m_imp_to_helmholtz_E_direct, 2) * self.ih_constraint_scaling**2
 
         self.GTG_constraints_inv = pinv_positive_semidefinite(self.GTG_constraints)
@@ -390,16 +392,16 @@ class State(object):
         self.m_ind_to_helmholtz_E = self.m_ind_to_helmholtz_E_direct
 
         if self.connect_hemispheres:
-            A_imp_T_A_ind = np.tensordot(m_imp_apex_ll_diff_gram, -self.m_ind_to_helmholtz_E_direct, 2)
-            m_ind_to_helmholtz_E_constraints = GTG_constraints_to_helmholtz_E.dot(A_imp_T_A_ind) * self.ih_constraint_scaling**2
+            A_imp_T_A_ind = np.tensordot(m_imp_apex_ll_diff_gram, self.m_ind_to_helmholtz_E_direct, 2)
+            m_ind_to_helmholtz_E_constraints = -np.tensordot(GTG_constraints_to_helmholtz_E, A_imp_T_A_ind, 1) * self.ih_constraint_scaling**2
             self.m_ind_to_helmholtz_E += m_ind_to_helmholtz_E_constraints
 
             if self.vector_u:
-                A_imp_T_A_u = np.tensordot(m_imp_apex_ll_diff_gram, -self.u_coeffs_to_helmholtz_E, 2)
-                self.u_coeffs_to_helmholtz_E_constraints = np.tensordot(GTG_constraints_to_helmholtz_E, A_imp_T_A_u, 1) * self.ih_constraint_scaling**2
+                A_imp_T_A_u = np.tensordot(m_imp_apex_ll_diff_gram, self.u_coeffs_to_helmholtz_E, 2)
+                self.u_coeffs_to_helmholtz_E_constraints = -np.tensordot(GTG_constraints_to_helmholtz_E, A_imp_T_A_u, 1) * self.ih_constraint_scaling**2
             else:
-                A_imp = np.tensordot(self.helmholtz_to_apex_ll_diff, self.m_imp_to_helmholtz_E_direct, 2)
-                self.cu_to_helmholtz_E  = np.tensordot(GTG_constraints_to_helmholtz_E, tensor_transpose(A_imp, 2), 1) * self.ih_constraint_scaling**2
+                A_imp_T = np.tensordot(m_imp_to_helmholtz_E_direct_T, self.helmholtz_to_apex_ll_diff_T, 2)
+                self.cu_to_helmholtz_E  = np.tensordot(GTG_constraints_to_helmholtz_E, A_imp_T, 1) * self.ih_constraint_scaling**2
 
         self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[:,1])
 
