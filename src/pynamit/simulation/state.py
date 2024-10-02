@@ -275,7 +275,7 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            E = self.m_ind_to_helmholtz_E_total.dot(self.m_ind.coeffs)
+            E = (self.m_ind_to_helmholtz_E + self.m_ind_to_helmholtz_E_constraints).dot(self.m_ind.coeffs)
 
             if self.neutral_wind:
                 E += self.helmholtz_E_u
@@ -384,12 +384,12 @@ class State(object):
         if self.connect_hemispheres:
             self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_helmholtz_E_direct_T_W, 1) * self.ih_constraint_scaling**2
 
-            m_ind_to_helmholtz_E_constraints = np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E, 2)
-            self.m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E + m_ind_to_helmholtz_E_constraints
+            self.m_ind_to_helmholtz_E_constraints = np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E, 2)
+            m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E + self.m_ind_to_helmholtz_E_constraints
         else:
-            self.m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E
+            m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E
 
-        self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E_total[:,1])
+        self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(m_ind_to_helmholtz_E_total[:,1])
 
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
