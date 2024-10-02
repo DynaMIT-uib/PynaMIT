@@ -261,6 +261,8 @@ class State(object):
             if self.vector_u:
                 self.A_u = -np.tensordot(self.helmholtz_to_apex_ll_diff, self.u_coeffs_to_helmholtz_E, 2)
 
+        self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
+
         if self.vector_jr:
             self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.G_jr)
 
@@ -370,7 +372,7 @@ class State(object):
             self.m_ind_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
             self.m_imp_to_helmholtz_E_direct = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
 
-        self.GTG_constraints = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
+        self.GTG_constraints = self.G_m_imp_to_jr_gram
 
         # Add low latitude E field constraints
         if self.connect_hemispheres:
