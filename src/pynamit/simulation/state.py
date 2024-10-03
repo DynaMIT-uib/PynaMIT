@@ -232,7 +232,7 @@ class State(object):
             G_jr_to_jpar    = self.b_evaluator.br.reshape((-1, 1)) * self.basis_evaluator.G
             G_jr_to_jpar_cp = self.cp_b_evaluator.br.reshape((-1, 1)) * self.cp_basis_evaluator.G
             G_jr_to_jpar_ll_diff = (G_jr_to_jpar - G_jr_to_jpar_cp)[self.ll_mask]
-            G_jr_to_jr_ll_diff = G_jr_to_jpar_ll_diff / self.b_evaluator.br[self.ll_mask].reshape((-1, 1))
+            G_jr_to_jr_ll_diff = G_jr_to_jpar_ll_diff
             self.W_jr_ll = G_jr_to_jr_ll_diff.T.dot(G_jr_to_jr_ll_diff)
             W_jr_total += self.W_jr_ll
 
