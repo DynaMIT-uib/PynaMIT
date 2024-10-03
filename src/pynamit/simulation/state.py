@@ -257,7 +257,7 @@ class State(object):
             self.set_coeffs(jr = self.jr.coeffs)
 
 
-    def set_jr(self, jr, vector_jr = True):
+    def set_jr(self, jr):
         """
         Specify radial current at ``self.grid.theta``,
         ``self.grid.phi``.
@@ -272,7 +272,7 @@ class State(object):
 
         """
 
-        if vector_jr:
+        if self.vector_jr:
             self.jr = jr
 
             self.jr_on_grid = self.G_jr.dot(self.jr.coeffs)
@@ -283,28 +283,26 @@ class State(object):
                 self.jr_on_grid[self.ll_mask] = 0
 
 
-    def set_u(self, u, vector_u = True):
+    def set_u(self, u):
         """ Set neutral wind theta and phi components.
 
         """
-        from pynamit.cubed_sphere.cubed_sphere import csp
 
         self.neutral_wind = True
 
-        if vector_u:
+        if self.vector_u:
             self.u = u
             self.helmholtz_E_u = np.tensordot(self.u_coeffs_to_helmholtz_E, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), 2)
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
             self.helmholtz_E_u = np.tensordot(self.u_to_helmholtz_E, np.moveaxis(np.array(np.split(u, 2)), 0, 1), 2)
 
-    def set_conductance(self, etaP, etaH, vector_conductance = True):
+    def set_conductance(self, etaP, etaH):
         """
         Specify Hall and Pedersen conductance at
         ``self.grid.theta``, ``self.grid.phi``.
 
         """
-        from pynamit.cubed_sphere.cubed_sphere import csp
 
         self.conductance = True
 
@@ -504,9 +502,6 @@ class State(object):
 
         """
 
-        import matplotlib.pyplot as plt
-        import matplotlib.colors as colors
-
         etaP_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
         self.etaP_m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaP_m_ind_to_E, 2), 2)
 
@@ -520,6 +515,9 @@ class State(object):
         self.etaH_m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaH_m_imp_to_E, 2), 2)
 
         if plot:
+            import matplotlib.pyplot as plt
+            import matplotlib.colors as colors
+
             _, ax = plt.subplots(5, 1, tight_layout = True, figsize = (40, 10))
 
             vmin = 1e-4
@@ -529,6 +527,7 @@ class State(object):
             ax[1].matshow(np.abs(self.etaP_m_imp_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
             ax[2].matshow(np.abs(self.etaH_m_ind_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
             ax[3].matshow(np.abs(self.etaH_m_imp_to_helmholtz_E.reshape((2 * self.basis.index_length, -1))), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
+
             ax[4].matshow((np.abs(self.etaP_m_ind_to_helmholtz_E) + np.abs(self.etaP_m_imp_to_helmholtz_E) + np.abs(self.etaH_m_ind_to_helmholtz_E) + np.abs(self.etaH_m_imp_to_helmholtz_E)).reshape((2 * self.basis.index_length, -1)), norm=colors.LogNorm(vmin = vmin, vmax = vmax))
 
             plt.show()

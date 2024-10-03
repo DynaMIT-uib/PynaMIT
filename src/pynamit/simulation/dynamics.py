@@ -429,7 +429,7 @@ class Dynamics(object):
                 else:
                     jr = current_data['jr']
 
-                self.state.set_jr(jr, self.vector_storage[key])
+                self.state.set_jr(jr)
 
             elif key == 'conductance':
                 if self.vector_storage[key]:
@@ -439,7 +439,7 @@ class Dynamics(object):
                     etaP = current_data['etaP']
                     etaH = current_data['etaH']
 
-                self.state.set_conductance(etaP, etaH, self.vector_storage[key])
+                self.state.set_conductance(etaP, etaH)
 
             elif key == 'u':
                 if self.vector_storage[key]:
@@ -447,7 +447,7 @@ class Dynamics(object):
                 else:
                     u = current_data['u']
 
-                self.state.set_u(u, self.vector_storage[key])
+                self.state.set_u(u)
 
             for var in self.vars[key]:
                 self.previous_data[var] = current_data[var]
