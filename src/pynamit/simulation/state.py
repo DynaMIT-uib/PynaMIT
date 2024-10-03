@@ -53,9 +53,7 @@ class State(object):
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
-
-            self.cp_basis_evaluator    = BasisEvaluator(self.basis, self.cp_grid,    pinv_rtol = pinv_rtols['state'], reg_lambda = reg_lambdas['state'])
-            self.jr_cp_basis_evaluator = BasisEvaluator(self.jr_basis, self.cp_grid, pinv_rtol = pinv_rtols['jr'],    reg_lambda = reg_lambdas['jr'])
+            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid, pinv_rtol = pinv_rtols['state'], reg_lambda = reg_lambdas['state'])
 
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
@@ -88,7 +86,7 @@ class State(object):
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.prepare_triple_product_tensors()
 
-        self.G_m_imp_to_jr = self.jr_basis_evaluator.scaled_G(self.m_imp_to_jr)
+        self.G_m_imp_to_jr = self.basis_evaluator.scaled_G(self.m_imp_to_jr)
 
         if self.vector_jr:
             self.G_jr = self.jr_basis_evaluator.G
@@ -143,7 +141,7 @@ class State(object):
                     # Matrix that gives jr at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal current components
                     shifted_b_evaluator = FieldEvaluator(self.mainfield, self.grid, r_k[i])
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
-                    mapped_basis_evaluator = BasisEvaluator(self.jr_basis, mapped_grid)
+                    mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
                     m_imp_to_jr = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr)
                     jr_to_JS_shifted = np.array([shifted_b_evaluator.Btheta / mapped_b_evaluator.Br,
                                                  shifted_b_evaluator.Bphi   / mapped_b_evaluator.Br])
@@ -221,7 +219,7 @@ class State(object):
                 print('this should not happen')
 
             # The hemispheres are connected via interhemispheric currents at low latitudes
-            self.G_m_imp_to_jr[self.ll_mask] += (self.jr_cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1)))[self.ll_mask]
+            self.G_m_imp_to_jr[self.ll_mask] += (self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1)))[self.ll_mask]
 
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
