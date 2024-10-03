@@ -227,7 +227,8 @@ class State(object):
         self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr_hl.T.dot(self.G_m_imp_to_jr_hl)
 
         if self.connect_hemispheres:
-            G_m_imp_to_jr_ll = (self.basis_evaluator.scaled_G(self.m_imp_to_jr) + self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1))) * self.ll_mask.reshape((-1, 1))
+            G_m_imp_to_jpar = self.b_evaluator.br.reshape((-1, 1)) * self.basis_evaluator.scaled_G(self.m_imp_to_jr) - self.cp_b_evaluator.br.reshape((-1, 1)) * self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr)
+            G_m_imp_to_jr_ll = G_m_imp_to_jpar * (self.ll_mask / self.b_evaluator.br).reshape((-1, 1))
             self.G_m_imp_to_jr_gram += G_m_imp_to_jr_ll.T.dot(G_m_imp_to_jr_ll)
 
         if self.vector_jr:
