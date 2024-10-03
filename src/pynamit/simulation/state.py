@@ -88,9 +88,6 @@ class State(object):
 
         self.G_m_imp_to_jr = self.basis_evaluator.scaled_G(self.m_imp_to_jr)
 
-        if self.vector_jr:
-            self.G_jr = self.jr_basis_evaluator.G
-
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, u_coeffs_to_uxB, 2), 2)
@@ -221,9 +218,6 @@ class State(object):
             # The hemispheres are connected via interhemispheric currents at low latitudes
             self.G_m_imp_to_jr[self.ll_mask] += (self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1)))[self.ll_mask]
 
-            if self.vector_jr:
-                self.G_jr[self.ll_mask] = 0.0
-
             helmholtz_E_to_apex_E_perp    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             helmholtz_E_to_apex_E_perp_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
             helmholtz_E_to_apex_E_perp_ll_diff = (helmholtz_E_to_apex_E_perp - helmholtz_E_to_apex_E_perp_cp)[self.ll_mask]
@@ -232,7 +226,12 @@ class State(object):
         self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 
         if self.vector_jr:
-            self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.G_jr)
+            if self.connect_hemispheres:
+                G_jr = self.jr_basis_evaluator.G
+                G_jr[self.ll_mask] = 0.0
+                self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(G_jr)
+            else:
+                self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.jr_basis_evaluator.G)
 
 
     def impose_constraints(self):
@@ -272,13 +271,13 @@ class State(object):
 
         if self.vector_jr:
             self.jr = jr
-
-            self.jr_on_grid = self.G_jr.dot(self.jr.coeffs)
+            self.jr_on_grid = self.jr_basis_evaluator.G.dot(self.jr.coeffs)
 
         else:
             self.jr_on_grid = jr
-            if self.connect_hemispheres:
-                self.jr_on_grid[self.ll_mask] = 0
+
+        if self.connect_hemispheres:
+            self.jr_on_grid[self.ll_mask] = 0
 
 
     def set_u(self, u):
