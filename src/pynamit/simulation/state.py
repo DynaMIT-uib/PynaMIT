@@ -227,9 +227,11 @@ class State(object):
         self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr_hl.T.dot(self.G_m_imp_to_jr_hl)
 
         if self.connect_hemispheres:
-            G_m_imp_to_jpar = self.b_evaluator.br.reshape((-1, 1)) * self.basis_evaluator.scaled_G(self.m_imp_to_jr) - self.cp_b_evaluator.br.reshape((-1, 1)) * self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr)
-            G_m_imp_to_jr_ll = G_m_imp_to_jpar * (self.ll_mask / self.b_evaluator.br).reshape((-1, 1))
-            self.G_m_imp_to_jr_gram += G_m_imp_to_jr_ll.T.dot(G_m_imp_to_jr_ll)
+            G_m_imp_to_jpar    = self.b_evaluator.br.reshape((-1, 1)) * self.basis_evaluator.scaled_G(self.m_imp_to_jr)
+            G_m_imp_to_jpar_cp = self.cp_b_evaluator.br.reshape((-1, 1)) * self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr)
+            G_m_imp_to_jpar_ll_diff = (G_m_imp_to_jpar - G_m_imp_to_jpar_cp)[self.ll_mask]
+            G_m_imp_to_jr_ll_diff = G_m_imp_to_jpar_ll_diff / self.b_evaluator.br[self.ll_mask].reshape((-1, 1))
+            self.G_m_imp_to_jr_gram += G_m_imp_to_jr_ll_diff.T.dot(G_m_imp_to_jr_ll_diff)
 
         if self.vector_jr:
             self.jr_m_imp_matrix = self.G_m_imp_to_jr_hl.T.dot(self.jr_basis_evaluator.G)
