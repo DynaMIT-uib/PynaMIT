@@ -86,8 +86,6 @@ class State(object):
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.prepare_triple_product_tensors()
 
-        self.G_m_imp_to_jr = self.basis_evaluator.scaled_G(self.m_imp_to_jr)
-
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, u_coeffs_to_uxB, 2), 2)
@@ -216,18 +214,21 @@ class State(object):
                 print('this should not happen')
 
             # The hemispheres are connected via interhemispheric currents at low latitudes
-            self.G_m_imp_to_jr[self.ll_mask] += (self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1)))[self.ll_mask]
-
             helmholtz_E_to_apex_E_perp    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             helmholtz_E_to_apex_E_perp_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
             helmholtz_E_to_apex_E_perp_ll_diff = (helmholtz_E_to_apex_E_perp - helmholtz_E_to_apex_E_perp_cp)[self.ll_mask]
             self.W_helmholtz_E_ll = np.tensordot(tensor_transpose(helmholtz_E_to_apex_E_perp_ll_diff, 2), helmholtz_E_to_apex_E_perp_ll_diff, 2)
 
-        self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
         if self.connect_hemispheres:
-            self.G_m_imp_to_jr_hl = self.G_m_imp_to_jr * (~self.ll_mask).reshape((-1, 1))
+            self.G_m_imp_to_jr_hl = self.basis_evaluator.scaled_G(self.m_imp_to_jr) * (~self.ll_mask).reshape((-1, 1))
         else:
-            self.G_m_imp_to_jr_hl = self.G_m_imp_to_jr
+            self.G_m_imp_to_jr_hl = self.basis_evaluator.scaled_G(self.m_imp_to_jr)
+
+        self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr_hl.T.dot(self.G_m_imp_to_jr_hl)
+
+        if self.connect_hemispheres:
+            G_m_imp_to_jr_ll = (self.basis_evaluator.scaled_G(self.m_imp_to_jr) + self.cp_basis_evaluator.scaled_G(self.m_imp_to_jr) * (-self.cp_b_evaluator.br / self.b_evaluator.br).reshape((-1, 1))) * self.ll_mask.reshape((-1, 1))
+            self.G_m_imp_to_jr_gram += G_m_imp_to_jr_ll.T.dot(G_m_imp_to_jr_ll)
 
         if self.vector_jr:
             self.jr_m_imp_matrix = self.G_m_imp_to_jr_hl.T.dot(self.jr_basis_evaluator.G)
