@@ -224,12 +224,13 @@ class State(object):
             self.W_helmholtz_E_ll = np.tensordot(tensor_transpose(helmholtz_E_to_apex_E_perp_ll_diff, 2), helmholtz_E_to_apex_E_perp_ll_diff, 2)
 
         self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
+        if self.connect_hemispheres:
+            self.G_m_imp_to_jr_hl = self.G_m_imp_to_jr * (~self.ll_mask).reshape((-1, 1))
+        else:
+            self.G_m_imp_to_jr_hl = self.G_m_imp_to_jr
 
         if self.vector_jr:
-            if self.connect_hemispheres:
-                self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.jr_basis_evaluator.G * (~self.ll_mask).reshape((-1, 1)))
-            else:
-                self.jr_m_imp_matrix = self.G_m_imp_to_jr.T.dot(self.jr_basis_evaluator.G)
+            self.jr_m_imp_matrix = self.G_m_imp_to_jr_hl.T.dot(self.jr_basis_evaluator.G)
 
 
     def impose_constraints(self):
@@ -244,12 +245,7 @@ class State(object):
             if self.neutral_wind:
                 E += self.helmholtz_E_u
 
-            if self.connect_hemispheres:
-                jr = self.jr_on_grid * (~self.ll_mask)
-            else:
-                jr = self.jr_on_grid
-
-            GWT_constraints_vector = self.G_m_imp_to_jr.T.dot(jr) - np.tensordot(self.m_imp_to_helmholtz_ETW_ll, E, 2) * self.ih_constraint_scaling**2
+            GWT_constraints_vector = self.G_m_imp_to_jr_hl.T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_ETW_ll, E, 2) * self.ih_constraint_scaling**2
 
             self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(GWT_constraints_vector))
 
@@ -342,10 +338,7 @@ class State(object):
         if self.vector_jr:
             self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_m_imp_matrix)
         else:
-            if self.connect_hemispheres:
-                self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.G_m_imp_to_jr.T) * (~self.ll_mask)
-            else:
-                self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.G_m_imp_to_jr.T)
+            self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.G_m_imp_to_jr_hl.T)
 
         if self.connect_hemispheres:
             self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_helmholtz_ETW_ll, 1) * self.ih_constraint_scaling**2
