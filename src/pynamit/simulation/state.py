@@ -244,7 +244,7 @@ class State(object):
         """
 
         if self.connect_hemispheres:
-            E = (self.m_ind_to_helmholtz_E + self.m_ind_to_helmholtz_E_constraints).dot(self.m_ind.coeffs)
+            E = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
 
             if self.neutral_wind:
                 E += self.helmholtz_E_u
