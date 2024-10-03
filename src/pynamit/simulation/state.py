@@ -253,14 +253,10 @@ class State(object):
             if self.vector_jr:
                 self.G_jr[self.ll_mask] = 0.0
 
-            helmholtz_to_apex    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
-            helmholtz_to_apex_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
-            self.helmholtz_to_apex_ll_diff = (helmholtz_to_apex - helmholtz_to_apex_cp)[self.ll_mask]
-            self.helmholtz_to_apex_ll_diff_T = tensor_transpose(self.helmholtz_to_apex_ll_diff, 2)
-            self.helmholtz_to_apex_ll_diff_gram = np.tensordot(self.helmholtz_to_apex_ll_diff_T, self.helmholtz_to_apex_ll_diff, 2)
-
-            if self.vector_u:
-                self.A_u = -np.tensordot(self.helmholtz_to_apex_ll_diff, self.u_coeffs_to_helmholtz_E, 2)
+            helmholtz_E_to_apex_E_perp    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+            helmholtz_E_to_apex_E_perp_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+            helmholtz_E_to_apex_E_perp_ll_diff = (helmholtz_E_to_apex_E_perp - helmholtz_E_to_apex_E_perp_cp)[self.ll_mask]
+            self.W_helmholtz_E_ll = np.tensordot(tensor_transpose(helmholtz_E_to_apex_E_perp_ll_diff, 2), helmholtz_E_to_apex_E_perp_ll_diff, 2)
 
         self.G_m_imp_to_jr_gram = self.G_m_imp_to_jr.T.dot(self.G_m_imp_to_jr)
 
@@ -280,7 +276,7 @@ class State(object):
             if self.neutral_wind:
                 E += self.helmholtz_E_u
 
-            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_E_direct_T_W, E, 2) * self.ih_constraint_scaling**2
+            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_ET_ll_W, E, 2) * self.ih_constraint_scaling**2
 
             self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(self.GT_constraint_vector))
 
@@ -369,9 +365,8 @@ class State(object):
 
         # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
-            m_imp_to_helmholtz_E_direct_T = tensor_transpose(self.m_imp_to_helmholtz_E)
-            self.m_imp_to_helmholtz_E_direct_T_W = np.tensordot(m_imp_to_helmholtz_E_direct_T, self.helmholtz_to_apex_ll_diff_gram, 2)
-            self.GTWG_constraints += np.tensordot(self.m_imp_to_helmholtz_E_direct_T_W, self.m_imp_to_helmholtz_E, 2) * self.ih_constraint_scaling**2
+            self.m_imp_to_helmholtz_ET_ll_W = np.tensordot(tensor_transpose(self.m_imp_to_helmholtz_E), self.W_helmholtz_E_ll, 2)
+            self.GTWG_constraints += np.tensordot(self.m_imp_to_helmholtz_ET_ll_W, self.m_imp_to_helmholtz_E, 2) * self.ih_constraint_scaling**2
 
         self.GTWG_constraints_inv = pinv_positive_semidefinite(self.GTWG_constraints)
         GTWG_constraints_inv_to_helmholtz_E = self.m_imp_to_helmholtz_E.dot(self.GTWG_constraints_inv)
@@ -382,7 +377,7 @@ class State(object):
             self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.G_m_imp_to_jr.T)
 
         if self.connect_hemispheres:
-            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_helmholtz_E_direct_T_W, 1) * self.ih_constraint_scaling**2
+            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_helmholtz_ET_ll_W, 1) * self.ih_constraint_scaling**2
 
             self.m_ind_to_helmholtz_E_constraints = np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E, 2)
             m_ind_to_helmholtz_E_total = self.m_ind_to_helmholtz_E + self.m_ind_to_helmholtz_E_constraints
