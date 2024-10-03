@@ -249,9 +249,9 @@ class State(object):
             if self.neutral_wind:
                 E += self.helmholtz_E_u
 
-            self.GT_constraint_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_ETW_ll, E, 2) * self.ih_constraint_scaling**2
+            GWT_constraints_vector = self.G_m_imp_to_jr.T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_ETW_ll, E, 2) * self.ih_constraint_scaling**2
 
-            self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(self.GT_constraint_vector))
+            self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(GWT_constraints_vector))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -443,25 +443,12 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.E.coeffs[:,1])
 
 
-    def get_E(self): # for now, E is always returned on self.grid!
+    def get_E(self, _basis_evaluator):
         """ Calculate electric field.
 
         """
 
-        if not self.conductance:
-            raise ValueError('Conductance must be set before calculating electric field')
-
-        Jth, Jph = self.get_JS()
-
-        E = self.Jth_to_E * np.tile(Jth, 2) + self.Jph_to_E * np.tile(Jph, 2)
-
-        if self.neutral_wind:
-            uxB_theta =  self.u_phi_on_grid   * self.b_evaluator.Br
-            uxB_phi   = -self.u_theta_on_grid * self.b_evaluator.Br
-
-            E -= np.hstack((uxB_theta, uxB_phi))
-
-        return E
+        return self.E.to_grid(_basis_evaluator)
 
 
     def steady_state_m_ind(self):
