@@ -60,10 +60,10 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Spherical harmonic conversion factors
-        self.m_ind_to_Br  = self.RI * self.basis.d_dr(self.RI)
-        self.m_imp_to_jr  = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.W_to_dBr_dt  = -self.RI * self.basis.laplacian(self.RI)
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.delta_internal_external
+        self.m_ind_to_Br    = self.RI * self.basis.d_dr(self.RI)
+        self.m_imp_to_jr    = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.E_df_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
+        self.m_ind_to_Jeq   = -self.RI / mu0 * self.basis.delta_internal_external
 
         self.G_B_pol_to_JS = -self.basis_evaluator.G_rxgrad * self.basis.delta_internal_external / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
@@ -406,8 +406,7 @@ class State(object):
             if self.neutral_wind:
                 E += np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.helmholtz_E_u, 2)
 
-        self.Phi = Vector(self.basis, coeffs = E[:,0], type = 'scalar')
-        self.W = Vector(self.basis, coeffs = E[:,1], type = 'scalar')
+        self.E = Vector(self.basis, coeffs = E, type = 'tangential')
 
 
     def evolve_Br(self, dt):
@@ -415,7 +414,7 @@ class State(object):
 
         """
 
-        new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.W.coeffs * self.W_to_dBr_dt * dt
+        new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.E.coeffs[:,1] * self.E_df_to_dBr_dt * dt
 
         self.set_coeffs(Br = new_Br)
 
@@ -462,7 +461,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.Phi.coeffs)
+        return _basis_evaluator.basis_to_grid(self.E.coeffs[:,1])
 
 
     def get_W(self, _basis_evaluator):
@@ -470,7 +469,7 @@ class State(object):
 
         """
 
-        return _basis_evaluator.basis_to_grid(self.W.coeffs)
+        return _basis_evaluator.basis_to_grid(self.E.coeffs[:,1])
 
 
     def get_E(self): # for now, E is always returned on self.grid!

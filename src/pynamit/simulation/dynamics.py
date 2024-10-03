@@ -222,8 +222,8 @@ class Dynamics(object):
                     data_vars = {
                         self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[:,0].reshape((1, -1))),
+                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[:,1].reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
                 )
@@ -421,8 +421,7 @@ class Dynamics(object):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'])
                 self.state.set_coeffs(m_imp = current_data['m_imp'])
-                self.state.set_coeffs(Phi   = current_data['Phi'])
-                self.state.set_coeffs(W     = current_data['W'])
+                self.state.E = Vector(basis = self.bases[key], coeffs = np.hstack([current_data['Phi'], current_data['W']]), type = 'tangential')
 
             if key == 'jr':
                 if self.vector_storage[key]:
