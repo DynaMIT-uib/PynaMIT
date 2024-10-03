@@ -229,8 +229,8 @@ class State(object):
         W_jr_total = self.W_jr_hl
 
         if self.connect_hemispheres:
-            G_jr_to_jpar    = self.b_evaluator.br.reshape((-1, 1)) * self.basis_evaluator.G
-            G_jr_to_jpar_cp = self.cp_b_evaluator.br.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            G_jr_to_jpar    = (1 / self.b_evaluator.br).reshape((-1, 1)) * self.basis_evaluator.G
+            G_jr_to_jpar_cp = (1 / self.cp_b_evaluator.br).reshape((-1, 1)) * self.cp_basis_evaluator.G
             G_jr_to_jpar_ll_diff = (G_jr_to_jpar - G_jr_to_jpar_cp)[self.ll_mask]
             G_jr_to_jr_ll_diff = G_jr_to_jpar_ll_diff
             self.W_jr_ll = G_jr_to_jr_ll_diff.T.dot(G_jr_to_jr_ll_diff)
