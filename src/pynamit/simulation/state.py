@@ -225,6 +225,7 @@ class State(object):
             self.G_jr_hl = self.basis_evaluator.G
 
         self.W_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
+        self.GTW_m_imp_to_jr = self.m_imp_to_jr.reshape((-1, 1)) * self.W_jr_hl
 
         W_jr_total = self.W_jr_hl
 
@@ -238,7 +239,8 @@ class State(object):
         self.G_m_imp_to_jr_gram = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_total * self.m_imp_to_jr.reshape((1, -1))
 
         if self.vector_jr:
-            self.jr_m_imp_matrix = (self.m_imp_to_jr.reshape((1, -1)) * self.G_jr_hl).T.dot(self.jr_basis_evaluator.G)
+            self.jr_to_constraint_vector = self.GTW_m_imp_to_jr.dot(np.linalg.pinv(self.G_jr_hl))
+            self.jr_coeff_to_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_basis_evaluator.G)
 
 
     def impose_constraints(self):
@@ -344,7 +346,7 @@ class State(object):
         GTWG_constraints_inv_to_helmholtz_E = self.m_imp_to_helmholtz_E.dot(self.GTWG_constraints_inv)
 
         if self.vector_jr:
-            self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_m_imp_matrix)
+            self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_coeff_to_constraint_vector)
         else:
             self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot((self.m_imp_to_jr.reshape((1, -1)) * self.G_jr_hl).T)
 
