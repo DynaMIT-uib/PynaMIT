@@ -131,7 +131,7 @@ class FieldEvaluator:
         return self.basevectors[5][2]
 
     @property
-    def surface_to_spherical(self):
+    def surface_to_field_orthogonal(self):
         """
         Create the matrix that takes the surface parts of a vector in the
         spherical coordinate system and returns the components in the
@@ -139,16 +139,16 @@ class FieldEvaluator:
 
         """
 
-        if not hasattr(self, '_surface_to_spherical'):
-            self._surface_to_spherical = np.array([[-self.btheta / self.br,   -self.bphi / self.br],
-                                                   [np.ones(self.grid.size),  np.zeros(self.grid.size)],
-                                                   [np.zeros(self.grid.size), np.ones(self.grid.size)]])
+        if not hasattr(self, '_surface_to_field_orthogonal'):
+            self._surface_to_field_orthogonal = np.array([[-self.btheta / self.br,   -self.bphi / self.br],
+                                                          [np.ones(self.grid.size),  np.zeros(self.grid.size)],
+                                                          [np.zeros(self.grid.size), np.ones(self.grid.size)]])
 
-        return self._surface_to_spherical
+        return self._surface_to_field_orthogonal
 
 
     @property
-    def spherical_to_apex(self):
+    def field_orthogonal_to_apex(self):
         """
         Create the matrix that takes the spherical parts of a vector in
         the spherical coordinate system and returns components orthogonal
@@ -156,11 +156,11 @@ class FieldEvaluator:
 
         """
 
-        if not hasattr(self, '_spherical_to_apex'):
-            self._spherical_to_apex = np.array([[self.e1r, self.e1t, self.e1p],
-                                                [self.e2r, self.e2t, self.e2p]])
+        if not hasattr(self, '_field_orthogonal_to_apex'):
+            self._field_orthogonal_to_apex = np.array([[self.e1r, self.e1t, self.e1p],
+                                                       [self.e2r, self.e2t, self.e2p]])
 
-        return self._spherical_to_apex
+        return self._field_orthogonal_to_apex
 
 
     @property
@@ -173,6 +173,6 @@ class FieldEvaluator:
         """
 
         if not hasattr(self, '_surface_to_apex'):
-            self._surface_to_apex = np.einsum('ijk,jlk->ilk', self.spherical_to_apex, self.surface_to_spherical, optimize = True)
+            self._surface_to_apex = np.einsum('ijk,jlk->ilk', self.field_orthogonal_to_apex, self.surface_to_field_orthogonal, optimize = True)
 
         return self._surface_to_apex
