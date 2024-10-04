@@ -176,3 +176,50 @@ class FieldEvaluator:
             self._surface_to_apex = np.einsum('ijk,jlk->ilk', self.field_orthogonal_to_apex, self.surface_to_field_orthogonal, optimize = True)
 
         return self._surface_to_apex
+
+
+    @property
+    def radial_to_field_parallel(self):
+        """
+        Create the matrix that takes the radial parts of a vector in the
+        spherical coordinate system and returns the components parallel
+        to the magnetic field.
+
+        """
+
+        if not hasattr(self, '_radial_to_field_parallel'):
+            self._radial_to_field_parallel = np.array([[np.ones(self.grid.size)],
+                                                       [self.btheta / self.br],
+                                                       [self.bphi / self.br]])
+
+        return self._radial_to_field_parallel
+
+
+    @property
+    def field_parallel_to_apex(self):
+        """
+        Create the matrix that takes the spherical parts of a vector in
+        the spherical coordinate system and returns components parallel
+        to the magnetic field in the apex coordinate system.
+
+        """
+
+        if not hasattr(self, '_field_parallel_to_apex'):
+            self._field_parallel_to_apex = np.array([[self.e3r, self.e3t, self.e3p]])
+
+        return self._field_parallel_to_apex
+
+
+    @property
+    def radial_to_apex(self):
+        """
+        Create the matrix that takes the radial parts of a vector in the
+        spherical coordinate system and returns components parallel
+        to the magnetic field in the apex coordinate system.
+
+        """
+
+        if not hasattr(self, '_radial_to_apex'):
+            self._radial_to_apex = np.einsum('ijk,jlk->ilk', self.field_parallel_to_apex, self.radial_to_field_parallel, optimize = True)
+
+        return self._radial_to_apex
