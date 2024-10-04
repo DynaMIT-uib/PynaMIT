@@ -227,9 +227,11 @@ class State(object):
         W_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
         GTW_jr_hl = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_hl
 
-        self.jr_to_constraint_vector = GTW_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
         if self.vector_jr:
-            self.jr_coeffs_to_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_basis_evaluator.G)
+            jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
+            self.jr_coeffs_to_constraint_vector = GTW_jr_hl.dot(jr_hl_projection)
+        else:
+            self.jr_to_constraint_vector = GTW_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
 
         W_jr_total = W_jr_hl
 
