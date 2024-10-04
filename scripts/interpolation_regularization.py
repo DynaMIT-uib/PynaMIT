@@ -5,7 +5,6 @@ import pyhwm2014 # https://github.com/rilma/pyHWM14
 import datetime
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
-from matplotlib.colors import LogNorm
 
 plt.rcParams['figure.constrained_layout.use'] = True
 

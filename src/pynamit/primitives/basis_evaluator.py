@@ -3,7 +3,7 @@ Used to construct objects that transform between basis coefficients and a grid.
 """
 
 import numpy as np
-from pynamit.various.math import pinv_positive_semidefinite, tensor_pinv, tensor_pinv_positive_semidefinite, tensor_scale_left, tensor_transpose
+from pynamit.various.math import pinv_positive_semidefinite, tensor_pinv_positive_semidefinite, tensor_scale_left, tensor_transpose
 
 class BasisEvaluator(object):
     """
