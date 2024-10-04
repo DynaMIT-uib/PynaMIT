@@ -224,24 +224,23 @@ class State(object):
         else:
             self.G_jr_hl = self.basis_evaluator.G
 
-        self.W_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
-        self.GTW_m_imp_to_jr = self.m_imp_to_jr.reshape((-1, 1)) * self.W_jr_hl
+        W_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
+        GTW_m_imp_to_jr = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_hl
 
-        W_jr_total = self.W_jr_hl
+        self.jr_to_constraint_vector = GTW_m_imp_to_jr.dot(np.linalg.pinv(self.G_jr_hl))
+        if self.vector_jr:
+            self.jr_coeff_to_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_basis_evaluator.G)
+
+        W_jr_total = W_jr_hl
 
         if self.connect_hemispheres:
             G_jr_to_jpar    = (1 / self.b_evaluator.br).reshape((-1, 1)) * self.basis_evaluator.G
             G_jr_to_jpar_cp = (1 / self.cp_b_evaluator.br).reshape((-1, 1)) * self.cp_basis_evaluator.G
             G_jr_to_jpar_ll_diff = (G_jr_to_jpar - G_jr_to_jpar_cp)[self.ll_mask]
-            self.W_jr_ll = G_jr_to_jpar_ll_diff.T.dot(G_jr_to_jpar_ll_diff)
-            W_jr_total += self.W_jr_ll
+            W_jr_ll = G_jr_to_jpar_ll_diff.T.dot(G_jr_to_jpar_ll_diff)
+            W_jr_total += W_jr_ll
 
-        self.G_m_imp_to_jr_gram = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_total * self.m_imp_to_jr.reshape((1, -1))
-
-        if self.vector_jr:
-            self.jr_to_constraint_vector = self.GTW_m_imp_to_jr.dot(np.linalg.pinv(self.G_jr_hl))
-            self.jr_coeff_to_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_basis_evaluator.G)
-
+        self.GTWG_jr_constraints = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_total * self.m_imp_to_jr.reshape((1, -1))
 
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to m_imp from
@@ -250,14 +249,19 @@ class State(object):
         """
 
         if self.connect_hemispheres:
+            if self.vector_jr:
+                GTW_constraint_vector = self.jr_coeff_to_constraint_vector.dot(self.jr.coeffs)
+            else:
+                GTW_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_on_grid)
+
             E = self.m_ind_to_helmholtz_E.dot(self.m_ind.coeffs)
 
             if self.neutral_wind:
                 E += self.helmholtz_E_u
 
-            GWT_constraints_vector = (self.m_imp_to_jr.reshape((1, -1)) * self.G_jr_hl).T.dot(self.jr_on_grid) - np.tensordot(self.m_imp_to_helmholtz_ETW_ll, E, 2) * self.ih_constraint_scaling**2
+            GTW_constraint_vector -= np.tensordot(self.m_imp_to_constraint_vector, E, 2) * self.ih_constraint_scaling**2
 
-            self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(GWT_constraints_vector))
+            self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(GTW_constraint_vector))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -280,7 +284,6 @@ class State(object):
 
         if self.vector_jr:
             self.jr = jr
-            self.jr_on_grid = self.jr_basis_evaluator.G.dot(self.jr.coeffs)
 
         else:
             self.jr_on_grid = jr
@@ -335,12 +338,12 @@ class State(object):
             self.m_ind_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
             self.m_imp_to_helmholtz_E = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
 
-        self.GTWG_constraints = self.G_m_imp_to_jr_gram
+        self.GTWG_constraints = self.GTWG_jr_constraints
 
         # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
-            self.m_imp_to_helmholtz_ETW_ll = np.tensordot(tensor_transpose(self.m_imp_to_helmholtz_E), self.W_helmholtz_E_ll, 2)
-            self.GTWG_constraints += np.tensordot(self.m_imp_to_helmholtz_ETW_ll, self.m_imp_to_helmholtz_E, 2) * self.ih_constraint_scaling**2
+            self.m_imp_to_constraint_vector = np.tensordot(tensor_transpose(self.m_imp_to_helmholtz_E), self.W_helmholtz_E_ll, 2)
+            self.GTWG_constraints += np.tensordot(self.m_imp_to_constraint_vector, self.m_imp_to_helmholtz_E, 2) * self.ih_constraint_scaling**2
 
         self.GTWG_constraints_inv = pinv_positive_semidefinite(self.GTWG_constraints)
         GTWG_constraints_inv_to_helmholtz_E = self.m_imp_to_helmholtz_E.dot(self.GTWG_constraints_inv)
@@ -348,10 +351,10 @@ class State(object):
         if self.vector_jr:
             self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_coeff_to_constraint_vector)
         else:
-            self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot((self.m_imp_to_jr.reshape((1, -1)) * self.G_jr_hl).T)
+            self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_to_constraint_vector)
 
         if self.connect_hemispheres:
-            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_helmholtz_ETW_ll, 1) * self.ih_constraint_scaling**2
+            self.helmholtz_E_direct_to_helmholtz_E_constraints = -np.tensordot(GTWG_constraints_inv_to_helmholtz_E, self.m_imp_to_constraint_vector, 1) * self.ih_constraint_scaling**2
             self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv((self.m_ind_to_helmholtz_E + np.tensordot(self.helmholtz_E_direct_to_helmholtz_E_constraints, self.m_ind_to_helmholtz_E, 2))[:,1])
         else:
             self.m_ind_to_helmholtz_E_cf_inv = np.linalg.pinv(self.m_ind_to_helmholtz_E[:,1])
