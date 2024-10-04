@@ -9,12 +9,13 @@ import cartopy.crs as ccrs
 plt.rcParams['figure.constrained_layout.use'] = True
 
 PLOT = True
-SH_COMPARISON = True
-GRID_COMPARISON = True
+SH_COMPARISON = False
+GRID_COMPARISON = False
 L_CURVE = True
 
 WIND = False
-CONDUCTANCE = True
+CONDUCTANCE = False
+CURRENT = True
 
 MIN_NMAX_MMAX = 30
 MAX_NMAX_MMAX = 30
@@ -73,6 +74,21 @@ if WIND:
 
     interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
     interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
+
+if CURRENT:
+    import pyamps
+
+    a = pyamps.AMPS(300, 0, -3, 20, 100)
+    je, jn = a.get_total_current(mlat = input_grid.lat, mlt = input_grid.lon / 15)
+
+    input_grid_values = np.hstack((-jn, je))
+    input_weights = None
+    vector_type = 'tangential'
+    nmin = 1
+
+    interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(je, jn, np.zeros_like(je), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
+    interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
+
 
 lon = output_grid.lon.flatten()
 lat = output_grid.lat.flatten()
