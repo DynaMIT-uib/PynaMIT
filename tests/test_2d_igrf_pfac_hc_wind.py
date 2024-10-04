@@ -7,9 +7,9 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind():
     # Arrange
-    expected_coeff_norm = 4.5957389996712474e-10
-    expected_coeff_max = 1.8316480349106215e-11
-    expected_coeff_min = -2.7589420343633984e-11
+    expected_coeff_norm = 5.021150792701728e-08
+    expected_coeff_max =  1.0820157362646031e-09
+    expected_coeff_min = -1.9532857201511205e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -22,7 +22,7 @@ def test_2d_igrf_pfac_hc_wind():
                            Nmax = 5,
                            Mmax = 3,
                            Ncs = 18,
-                           mainfield_kind = 'dipole',
+                           mainfield_kind = 'igrf',
                            fig_directory = temp_dir,
                            ignore_PFAC = False,
                            connect_hemispheres = True,
@@ -30,7 +30,7 @@ def test_2d_igrf_pfac_hc_wind():
                            wind = True)
 
     # Assert
-    coeff_array = dynamics.timeseries['state']['SH_m_ind'].values
+    coeff_array = np.hstack((dynamics.timeseries['state']['SH_m_ind'].values, dynamics.timeseries['state']['SH_m_imp'].values))
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

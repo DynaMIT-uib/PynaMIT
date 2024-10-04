@@ -118,6 +118,14 @@ class Dynamics(object):
             'u':            1e-15,
         }
 
+        self.reg_lambdas = {
+            'state':        None, #0.01
+            'steady_state': None, #0.01
+            'jr':           None, #0.01
+            'conductance':  None, #0.01
+            'u':            None, #0.01
+        }
+
         self.vector_storage = {
             'state':        True,
             'steady_state': True,
@@ -153,6 +161,7 @@ class Dynamics(object):
         # Initialize the state of the ionosphere
         self.state = State(self.bases,
                            self.pinv_rtols,
+                           self.reg_lambdas,
                            self.mainfield,
                            self.state_grid,
                            settings,
@@ -213,8 +222,8 @@ class Dynamics(object):
                     data_vars = {
                         self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.Phi.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.W.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[:,0].reshape((1, -1))),
+                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[:,1].reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
                 )
@@ -330,7 +339,7 @@ class Dynamics(object):
             self.input_basis_evaluators = {}
 
         if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta, rtol = 0.0, atol = FLOAT_ERROR_MARGIN) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi, rtol = 0.0, atol = FLOAT_ERROR_MARGIN)):
-            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key], weights = weights)
+            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, self.pinv_rtols[key], weights = weights, reg_lambda = self.reg_lambdas[key])
 
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in range(len(input_data[var]))]):
@@ -412,8 +421,7 @@ class Dynamics(object):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'])
                 self.state.set_coeffs(m_imp = current_data['m_imp'])
-                self.state.set_coeffs(Phi   = current_data['Phi'])
-                self.state.set_coeffs(W     = current_data['W'])
+                self.state.E = Vector(basis = self.bases[key], coeffs = np.hstack([current_data['Phi'], current_data['W']]), type = 'tangential')
 
             if key == 'jr':
                 if self.vector_storage[key]:
@@ -421,7 +429,7 @@ class Dynamics(object):
                 else:
                     jr = current_data['jr']
 
-                self.state.set_jr(jr, self.vector_storage[key])
+                self.state.set_jr(jr)
 
             elif key == 'conductance':
                 if self.vector_storage[key]:
@@ -431,7 +439,7 @@ class Dynamics(object):
                     etaP = current_data['etaP']
                     etaH = current_data['etaH']
 
-                self.state.set_conductance(etaP, etaH, self.vector_storage[key])
+                self.state.set_conductance(etaP, etaH)
 
             elif key == 'u':
                 if self.vector_storage[key]:
@@ -439,7 +447,7 @@ class Dynamics(object):
                 else:
                     u = current_data['u']
 
-                self.state.set_u(u, self.vector_storage[key])
+                self.state.set_u(u)
 
             for var in self.vars[key]:
                 self.previous_data[var] = current_data[var]

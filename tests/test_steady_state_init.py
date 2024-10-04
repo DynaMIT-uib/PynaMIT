@@ -7,9 +7,9 @@ import numpy as np
 
 def test_steady_state_init():
     # Arrange
-    expected_coeff_norm = 1.3123319998066322e-07
-    expected_coeff_max =  3.4488367397402506e-09
-    expected_coeff_min = -4.487730574232079e-09
+    expected_coeff_norm = 1.3404016871380674e-07
+    expected_coeff_max =  2.894235719565986e-09
+    expected_coeff_min = -3.809213786152136e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -34,7 +34,7 @@ def test_steady_state_init():
                            vector_u = True)
 
     # Assert
-    coeff_array = dynamics.timeseries['state']['SH_m_ind'].values
+    coeff_array = np.hstack((dynamics.timeseries['state']['SH_m_ind'].values, dynamics.timeseries['state']['SH_m_imp'].values))
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

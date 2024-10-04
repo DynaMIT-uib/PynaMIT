@@ -27,3 +27,10 @@ class Vector(object):
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz = False)
         elif self._type == 'tangential':
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz = True)
+
+
+    def regularization_term(self, basis_evaluator):
+        if self._type == 'scalar':
+            return basis_evaluator.regularization_term(self.coeffs, helmholtz = False)
+        elif self._type == 'tangential':
+            return basis_evaluator.regularization_term(self.coeffs, helmholtz = True)
