@@ -17,9 +17,11 @@ WIND = False
 CONDUCTANCE = False
 CURRENT = True
 
-MIN_NMAX_MMAX = 30
-MAX_NMAX_MMAX = 30
-NMAX_MMAX_STEP = 10
+MIN_NMAX = 30
+MAX_NMAX = 30
+MMAX_EQUALS_NMAX = True
+MMAX = 3
+NMAX_STEP = 10
 MIN_REG_LAMBDA_LOG = -6
 MAX_REG_LAMBDA_LOG = -1
 REG_LAMBDA_LOG_STEPS = 21
@@ -29,7 +31,7 @@ Ncs = 70
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
 d = dipole.Dipole(date.year)
-nooNmax_Mmaxlon = d.mlt2mlon(12, date) # noon longitude
+noon_lon = d.mlt2mlon(12, date) # noon longitude
 
 ## CS PROJECTION
 csp = pynamit.CSProjection(Ncs)
@@ -102,19 +104,24 @@ if L_CURVE:
     sh_resiudal_norms = []
     reg_lambda_values = []
 
-Nmax_Mmax_values = []
+Nmax_values = []
 
 for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA_LOG_STEPS):
-    for Nmax_Mmax in range(MIN_NMAX_MMAX, MAX_NMAX_MMAX + 1, NMAX_MMAX_STEP):
-        Nmax_Mmax_values.append(Nmax_Mmax)
+    for Nmax in range(MIN_NMAX, MAX_NMAX + 1, NMAX_STEP):
+        if MMAX_EQUALS_NMAX:
+            Mmax = Nmax
+        else:
+            Mmax = MMAX
 
-        sh_basis = pynamit.SHBasis(Nmax_Mmax, Nmax_Mmax, nmin)
+        Nmax_values.append(Nmax)
+
+        sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
         input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, input_grid, pinv_rtol = rtol, weights = input_weights, reg_lambda = reg_lambda)
         output_basis_evaluator = pynamit.BasisEvaluator(sh_basis, output_grid, pinv_rtol = rtol, weights = output_weights, reg_lambda = reg_lambda)
 
         input_sh = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = input_grid_values, type = vector_type)
 
-        print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax_Mmax, Nmax_Mmax, reg_lambda))
+        print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax, Mmax, reg_lambda))
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
@@ -136,7 +143,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if PLOT:
             if GRID_COMPARISON:
-                grid_fig, (grid_cs_ax, grid_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = nooNmax_Mmaxlon)})
+                grid_fig, (grid_cs_ax, grid_sh_ax) = plt.subplots(1, 2, figsize=(20, 5), subplot_kw={'projection': ccrs.PlateCarree(central_longitude = noon_lon)})
                 grid_cs_ax.coastlines()
                 grid_sh_ax.coastlines()
 
@@ -188,13 +195,13 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 # Plot errors
 if GRID_COMPARISON or SH_COMPARISON:
     if GRID_COMPARISON:
-        plt.plot(Nmax_Mmax_values, relative_grid_errors, label = "Grid values")
+        plt.plot(Nmax_values, relative_grid_errors, label = "Grid values")
         plt.yscale("log")
         plt.xlabel("Nmax = Mmax")
         plt.ylabel("Error (relative to CS interpolation)")
 
     if SH_COMPARISON:
-        plt.plot(Nmax_Mmax_values, relative_coeff_errors, label = "Coefficients")
+        plt.plot(Nmax_values, relative_coeff_errors, label = "Coefficients")
         plt.yscale("log")
         plt.xlabel("Nmax = Mmax")
         plt.ylabel("Error (relative to CS interpolation)")
