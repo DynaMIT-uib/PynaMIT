@@ -229,15 +229,15 @@ class State(object):
 
         self.jr_to_constraint_vector = GTW_m_imp_to_jr.dot(np.linalg.pinv(self.G_jr_hl))
         if self.vector_jr:
-            self.jr_coeff_to_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_basis_evaluator.G)
+            self.jr_coeffs_to_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_basis_evaluator.G)
 
         W_jr_total = W_jr_hl
 
         if self.connect_hemispheres:
-            G_jr_to_jpar    = (1 / self.b_evaluator.br).reshape((-1, 1)) * self.basis_evaluator.G
-            G_jr_to_jpar_cp = (1 / self.cp_b_evaluator.br).reshape((-1, 1)) * self.cp_basis_evaluator.G
-            G_jr_to_jpar_ll_diff = (G_jr_to_jpar - G_jr_to_jpar_cp)[self.ll_mask]
-            W_jr_ll = G_jr_to_jpar_ll_diff.T.dot(G_jr_to_jpar_ll_diff)
+            G_jr_coeffs_to_jpar    = (1 / self.b_evaluator.br).reshape((-1, 1)) * self.basis_evaluator.G
+            G_jr_coeffs_to_jpar_cp = (1 / self.cp_b_evaluator.br).reshape((-1, 1)) * self.cp_basis_evaluator.G
+            G_jr_coeffs_to_jpar_ll_diff = (G_jr_coeffs_to_jpar - G_jr_coeffs_to_jpar_cp)[self.ll_mask]
+            W_jr_ll = G_jr_coeffs_to_jpar_ll_diff.T.dot(G_jr_coeffs_to_jpar_ll_diff)
             W_jr_total += W_jr_ll
 
         self.GTWG_jr_constraints = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_total * self.m_imp_to_jr.reshape((1, -1))
@@ -250,7 +250,7 @@ class State(object):
 
         if self.connect_hemispheres:
             if self.vector_jr:
-                GTW_constraint_vector = self.jr_coeff_to_constraint_vector.dot(self.jr.coeffs)
+                GTW_constraint_vector = self.jr_coeffs_to_constraint_vector.dot(self.jr.coeffs)
             else:
                 GTW_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_on_grid)
 
@@ -349,7 +349,7 @@ class State(object):
         GTWG_constraints_inv_to_helmholtz_E = self.m_imp_to_helmholtz_E.dot(self.GTWG_constraints_inv)
 
         if self.vector_jr:
-            self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_coeff_to_constraint_vector)
+            self.jr_coeffs_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_coeffs_to_constraint_vector)
         else:
             self.jr_to_helmholtz_E = GTWG_constraints_inv_to_helmholtz_E.dot(self.jr_to_constraint_vector)
 
