@@ -222,7 +222,7 @@ class State(object):
         if self.connect_hemispheres:
             self.G_jr_hl = self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
         else:
-            self.G_jr_hl = self.basis_evaluator.G
+            self.G_jr_hl = self.basis_evaluator.G.copy()
 
         W_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
         GTW_jr_hl = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_hl
@@ -233,7 +233,7 @@ class State(object):
         else:
             self.jr_to_constraint_vector = GTW_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
 
-        W_jr_total = W_jr_hl
+        W_jr_total = W_jr_hl.copy()
 
         if self.connect_hemispheres:
             G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
@@ -340,7 +340,7 @@ class State(object):
             self.m_ind_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
             self.m_imp_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
 
-        self.GTWG_constraints = self.GTWG_jr_constraints
+        self.GTWG_constraints = self.GTWG_jr_constraints.copy()
 
         # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
