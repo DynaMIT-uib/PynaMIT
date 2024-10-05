@@ -162,6 +162,7 @@ cython_debug/
 .DS_Store
 _mynotes/
 scripts/figs
+scripts/data
 #*.npy
 
 
