@@ -355,10 +355,7 @@ class Dynamics(object):
                 if self.vector_storage[key]:
                     vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in range(len(input_data[var]))]), type = self.vars[key][var])
 
-                    if self.vars[key][var] == 'scalar':
-                        processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
-                    elif self.vars[key][var] == 'tangential':
-                        processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], np.hstack((vector.coeffs[:,0], vector.coeffs[:,1])).reshape((1, -1)))
+                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.merged_coeffs().reshape((1, -1)))
 
                 else:
                     # Interpolate to state_grid

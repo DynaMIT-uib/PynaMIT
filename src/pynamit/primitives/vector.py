@@ -31,6 +31,13 @@ class Vector(object):
             return np.moveaxis(np.split(coeffs, 2), 0, 1)
 
 
+    def merged_coeffs(self):
+        if self._type == 'scalar':
+            return self.coeffs
+        elif self._type == 'tangential':
+            return np.hstack(np.moveaxis(self.coeffs, 0, 1))
+
+
     def to_grid(self, basis_evaluator):
         if self._type == 'scalar':
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz = False)
