@@ -495,7 +495,7 @@ class PynamEye(object):
 
     def make_multipanel_output_figure(self, label = None):
 
-        if label == None:
+        if label is None:
             label = ''
 
         fig = plt.figure(figsize = (14, 14))
