@@ -272,7 +272,7 @@ class BasisEvaluator(object):
         elif derivative == 'phi':
             return np.dot(self.G_ph, coeffs)
         elif helmholtz:
-            return np.moveaxis(np.tensordot(self.G_helmholtz, np.moveaxis(coeffs, 0, 1), 2), 0, 1)
+            return np.tensordot(self.G_helmholtz, coeffs, 2)
         else:
             return np.dot(self.G, coeffs)
 
