@@ -163,7 +163,7 @@ class PynamEye(object):
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
         etaP_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaP)
-        etaH_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaH)
+        #etaH_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaH)
 
         Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
         Eph = etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
@@ -495,7 +495,9 @@ class PynamEye(object):
 
     def make_multipanel_output_figure(self, label = None):
 
-        label = '' if label == None else label
+        if label == None:
+            label = ''
+
         fig = plt.figure(figsize = (14, 14))
     
         gax1 = fig.add_subplot(333, projection = self.get_global_projection())

@@ -383,7 +383,7 @@ class State(object):
             if self.neutral_wind:
                 E_coeffs += np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.E_coeffs_u, 2)
 
-        self.E = Vector(self.basis, coeffs = np.hstack((E_coeffs[:,0], E_coeffs[:,1])), type = 'tangential')
+        self.E = Vector(self.basis, coeffs = np.hstack(np.moveaxis(E_coeffs, 0, 1)), type = 'tangential')
 
 
     def evolve_Br(self, dt):
