@@ -192,7 +192,7 @@ class PynamEye(object):
         self.Br_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
         self.eqJ_defaults          = {'colors':'black',      'levels':np.r_[-210:220:20] * 1e3}
         self.jr_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
-        self.Phi_defaults          = {'colors':'black',      'levels':np.r_[-212.5:220:5] * 1e3}
+        self.Phi_defaults          = {'colors':'black',      'levels':np.r_[-211.5:220:3] * 1e3}
         self.W_defaults            = {'colors':'orange',     'levels':self.Phi_defaults['levels']}
 
 
@@ -493,7 +493,9 @@ class PynamEye(object):
 
 
 
-    def make_multipanel_output_figure(self):
+    def make_multipanel_output_figure(self, label = None):
+
+        label = '' if label == None else label
         fig = plt.figure(figsize = (14, 14))
     
         gax1 = fig.add_subplot(333, projection = self.get_global_projection())
@@ -527,6 +529,8 @@ class PynamEye(object):
         self.plot_jr(                            paxs2, region = 'south')
         self.plot_electric_potential(            paxs3, region = 'south')
         self.plot_electric_field_stream_function(paxs3, region = 'south')
+
+        gax1.set_title(label)
 
         plt.tight_layout()
 
