@@ -294,7 +294,7 @@ class BasisEvaluator(object):
 
         if helmholtz:
             intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
-            return np.moveaxis(np.tensordot(self.GTWG_plus_R_inv_helmholtz, intermediate, 2), 0, 1)
+            return np.tensordot(self.GTWG_plus_R_inv_helmholtz, intermediate, 2)
 
         else:
             return np.dot(self.GTWG_plus_R_inv, np.dot(self.GTW, grid_values))
@@ -316,7 +316,7 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            return np.moveaxis(np.tensordot(self.L_helmholtz, np.moveaxis(coeffs, 0, 1), 2), 0, 1)
+            return np.tensordot(self.L_helmholtz, coeffs, 2)
 
         else:
             return np.dot(coeffs, np.dot(self.L, coeffs))

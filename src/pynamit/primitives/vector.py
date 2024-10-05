@@ -35,7 +35,7 @@ class Vector(object):
         if self._type == 'scalar':
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz = False)
         elif self._type == 'tangential':
-            return basis_evaluator.basis_to_grid(self.coeffs, helmholtz = True)
+            return np.hstack(np.moveaxis(basis_evaluator.basis_to_grid(self.coeffs, helmholtz = True), 0, 1))
 
 
     def regularization_term(self, basis_evaluator):

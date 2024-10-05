@@ -9,8 +9,8 @@ import cartopy.crs as ccrs
 plt.rcParams['figure.constrained_layout.use'] = True
 
 PLOT = True
-SH_COMPARISON = False
-GRID_COMPARISON = False
+SH_COMPARISON = True
+GRID_COMPARISON = True
 L_CURVE = True
 
 WIND = False
@@ -19,7 +19,7 @@ CURRENT = True
 
 MIN_NMAX = 30
 MAX_NMAX = 30
-MMAX_EQUALS_NMAX = True
+MMAX_EQUALS_NMAX = False
 MMAX = 3
 NMAX_STEP = 10
 MIN_REG_LAMBDA_LOG = -6
@@ -174,10 +174,10 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                     coeff_sh_ax.plot(abs_coeff_sh, label = "SH")
                 elif vector_type == 'tangential':
                     # Plot curl free and divergence free coefficients
-                    coeff_cs_ax.plot(abs_coeff_cs[0], label = "CF")
-                    coeff_cs_ax.plot(abs_coeff_cs[1], label = "DF")
-                    coeff_sh_ax.plot(abs_coeff_sh[0], label = "CF")
-                    coeff_sh_ax.plot(abs_coeff_sh[1], label = "DF")
+                    coeff_cs_ax.plot(abs_coeff_cs[:,0], label = "CF")
+                    coeff_cs_ax.plot(abs_coeff_cs[:,1], label = "DF")
+                    coeff_sh_ax.plot(abs_coeff_sh[:,0], label = "CF")
+                    coeff_sh_ax.plot(abs_coeff_sh[:,1], label = "DF")
 
                 min_coeff = min(np.min(abs_coeff_cs), np.min(abs_coeff_sh))
                 max_coeff = max(np.max(abs_coeff_cs), np.max(abs_coeff_sh))
