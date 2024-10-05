@@ -1,3 +1,5 @@
+import numpy as np
+
 class Vector(object):
 
     def __init__(self, basis, coeffs = None, basis_evaluator = None, grid_values = None, type = 'scalar'):
@@ -8,7 +10,7 @@ class Vector(object):
         self._type = type
 
         if coeffs is not None:
-            self.coeffs = coeffs
+            self.coeffs = self.split_coeffs(coeffs)
         elif (basis_evaluator is not None) and (grid_values is not None):
             self.coeffs = self.coeffs_from_grid(basis_evaluator, grid_values)
         else:
@@ -20,6 +22,13 @@ class Vector(object):
             return basis_evaluator.grid_to_basis(grid_values, helmholtz = False)
         elif self._type == 'tangential':
             return basis_evaluator.grid_to_basis(grid_values, helmholtz = True)
+
+
+    def split_coeffs(self, coeffs):
+        if self._type == 'scalar':
+            return coeffs
+        elif self._type == 'tangential':
+            return np.moveaxis(np.split(coeffs, 2), 0, 1)
 
 
     def to_grid(self, basis_evaluator):

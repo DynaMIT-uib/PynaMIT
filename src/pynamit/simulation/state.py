@@ -300,7 +300,7 @@ class State(object):
 
         if self.vector_u:
             self.u = u
-            self.E_coeffs_u = np.tensordot(self.u_coeffs_to_E_coeffs, np.moveaxis(np.array(np.split(self.u.coeffs, 2)), 0, 1), 2)
+            self.E_coeffs_u = np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
         else:
             self.u_theta_on_grid, self.u_phi_on_grid = np.split(u, 2)
             self.E_coeffs_u = np.tensordot(self.u_to_E_coeffs, np.moveaxis(np.array(np.split(u, 2)), 0, 1), 2)
@@ -383,7 +383,7 @@ class State(object):
             if self.neutral_wind:
                 E_coeffs += np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.E_coeffs_u, 2)
 
-        self.E = Vector(self.basis, coeffs = E_coeffs, type = 'tangential')
+        self.E = Vector(self.basis, coeffs = np.hstack((E_coeffs[:,0], E_coeffs[:,1])), type = 'tangential')
 
 
     def evolve_Br(self, dt):
