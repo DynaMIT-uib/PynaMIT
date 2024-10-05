@@ -236,10 +236,10 @@ class State(object):
         W_jr_total = W_jr_hl.copy()
 
         if self.connect_hemispheres:
-            G_jr_coeffs_to_jpar    = (1 / self.b_evaluator.br).reshape((-1, 1)) * self.basis_evaluator.G
-            G_jr_coeffs_to_jpar_cp = (1 / self.cp_b_evaluator.br).reshape((-1, 1)) * self.cp_basis_evaluator.G
-            G_jr_coeffs_to_jpar_ll_diff = (G_jr_coeffs_to_jpar - G_jr_coeffs_to_jpar_cp)[self.ll_mask]
-            W_jr_ll = G_jr_coeffs_to_jpar_ll_diff.T.dot(G_jr_coeffs_to_jpar_ll_diff)
+            G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
+            G_jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            G_jr_coeffs_to_j_apex_ll_diff = (G_jr_coeffs_to_j_apex - G_jr_coeffs_to_j_apex_cp)[self.ll_mask]
+            W_jr_ll = G_jr_coeffs_to_j_apex_ll_diff.T.dot(G_jr_coeffs_to_j_apex_ll_diff)
             W_jr_total += W_jr_ll
 
         self.GTWG_jr_constraints = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_total * self.m_imp_to_jr.reshape((1, -1))
