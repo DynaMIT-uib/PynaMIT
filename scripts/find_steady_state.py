@@ -3,13 +3,12 @@ import pynamit
 from lompe import conductance
 import dipole
 import pyhwm2014 # https://github.com/rilma/pyHWM14
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import datetime
 import pyamps
-from polplot import Polarplot
 import apexpy
 
-dataset_filename_prefix = 'data/steady_stae'
+dataset_filename_prefix = 'data/steady_state'
 Nmax, Mmax, Ncs = 60, 60, 60
 latitude_boundary = 45
 RE = 6371.2e3

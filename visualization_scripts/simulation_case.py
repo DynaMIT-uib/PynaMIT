@@ -1,16 +1,11 @@
 import numpy as np
 import pynamit
-from lompe import conductance
-import dipole
-import pyhwm2014 # https://github.com/rilma/pyHWM14
 import matplotlib.pyplot as plt
 import datetime
-import pyamps
 from polplot import Polarplot
-import apexpy
 from string import ascii_lowercase as abc
 
-path = '../scripts/data/steady_stae' # where the save files are
+path = '../scripts/data/steady_state' # where the save files are
 
 print(datetime.datetime.now(), 'making PynamEye object')
 a = pynamit.PynamEye(path)

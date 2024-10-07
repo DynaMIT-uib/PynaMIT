@@ -14,7 +14,7 @@ class State(object):
 
     """
 
-    def __init__(self, bases, pinv_rtols, reg_lambdas, mainfield, grid, settings, PFAC_matrix = None):
+    def __init__(self, bases, mainfield, grid, settings, PFAC_matrix = None):
         """ Initialize the state of the ionosphere.
     
         """
@@ -43,18 +43,18 @@ class State(object):
         # Initialize grid-related objects
         self.grid = grid
 
-        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid, pinv_rtol = pinv_rtols['state'],       reg_lambda = reg_lambdas['state'])
-        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid, pinv_rtol = pinv_rtols['jr'],          reg_lambda = reg_lambdas['jr'])
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid, pinv_rtol = pinv_rtols['conductance'], reg_lambda = reg_lambdas['conductance'])
-        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid, pinv_rtol = pinv_rtols['u'],           reg_lambda = reg_lambdas['u'])
+        # Note that these BasisEvaluator objects cannot be used for inverses, as they do not include regularization and weights
+        self.basis_evaluator             = BasisEvaluator(self.basis,             self.grid)
+        self.jr_basis_evaluator          = BasisEvaluator(self.jr_basis,          self.grid)
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
+        self.u_basis_evaluator           = BasisEvaluator(self.u_basis,           self.grid)
 
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta = cp_theta, phi = cp_phi)
-            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid, pinv_rtol = pinv_rtols['state'], reg_lambda = reg_lambdas['state'])
-
+            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Spherical harmonic conversion factors
@@ -319,9 +319,6 @@ class State(object):
             self.etaH = etaH
 
         else:
-            self.etaP = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaP, type = 'scalar')
-            self.etaH = Vector(basis = self.conductance_basis, basis_evaluator = self.conductance_basis_evaluator, grid_values = etaH, type = 'scalar')
-
             etaP_on_grid = etaP
             etaH_on_grid = etaH
 
