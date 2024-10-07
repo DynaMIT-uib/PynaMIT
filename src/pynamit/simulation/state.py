@@ -88,9 +88,9 @@ class State(object):
 
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
-            self.u_coeffs_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, u_coeffs_to_uxB, 2), 2)
+            self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
         else:
-            self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.GTW_helmholtz, self.bu, optimize = True), 2)
+            self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.least_squares_helmholtz.ATW, self.bu, optimize = True), 2)
 
         # Conductance and neutral wind should be set after state initialization
         self.neutral_wind = False
@@ -334,8 +334,8 @@ class State(object):
             G_m_ind_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_ind_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_ind_to_bH_JS)
             G_m_imp_to_E_direct = tensor_scale_left(etaP_on_grid, self.m_imp_to_bP_JS) + tensor_scale_left(etaH_on_grid, self.m_imp_to_bH_JS)
 
-            self.m_ind_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_ind_to_E_direct, 2), 2)
-            self.m_imp_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, G_m_imp_to_E_direct, 2), 2)
+            self.m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
+            self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
         self.GTWG_constraints = self.GTWG_jr_constraints.copy()
 

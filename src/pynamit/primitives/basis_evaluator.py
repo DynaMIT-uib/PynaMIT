@@ -154,7 +154,33 @@ class BasisEvaluator(object):
                 ), [0,1,2,3], [1,3,0,2])
 
         return self._L_helmholtz
-    
+
+    @property
+    def least_squares(self):
+        """
+        Return the least squares solver.
+
+        """
+
+        if not hasattr(self, '_least_squares'):
+            self._least_squares = LeastSquares(self.G, 1, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L)
+
+        return self._least_squares
+
+    @property
+    def least_squares_helmholtz(self):
+        """
+        Return the least squares solver for the Helmholtz decomposition
+        into the curl-free and divergence-free components of a vector.
+
+        """
+
+        if not hasattr(self, '_least_squares_helmholtz'):
+            self._least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz)
+
+        return self._least_squares_helmholtz
+
+
     def least_squares_solution(self, grid_values):
         """
         Return the least squares solution for the given grid values.
@@ -170,8 +196,6 @@ class BasisEvaluator(object):
             Coefficients in the basis.
 
         """
-        if not hasattr(self, 'least_squares'):
-            self.least_squares = LeastSquares(self.G, 1, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L)
 
         return self.least_squares.solve(grid_values)
     
@@ -191,8 +215,6 @@ class BasisEvaluator(object):
             Coefficients in the basis.
 
         """
-        if not hasattr(self, 'least_squares_helmholtz'):
-            self.least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz)
 
         return self.least_squares_helmholtz.solve(grid_values)
 
