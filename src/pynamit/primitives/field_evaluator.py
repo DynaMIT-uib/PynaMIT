@@ -1,5 +1,3 @@
-""" Field evaluator module. """
-
 import numpy as np
 
 class FieldEvaluator:

@@ -1,9 +1,5 @@
-"""
-Used to construct objects that transform between basis coefficients and a grid.
-"""
-
 import numpy as np
-from pynamit.various.math import pinv_positive_semidefinite, tensor_pinv_positive_semidefinite, tensor_scale_left, tensor_transpose
+from pynamit.primitives.least_squares import LeastSquares
 
 class BasisEvaluator(object):
     """
@@ -126,62 +122,6 @@ class BasisEvaluator(object):
         return self._G_helmholtz
 
     @property
-    def GTW(self):
-        """
-        Return the matrix ``G^T W``.
-
-        """
-
-        if not hasattr(self, '_GTW'):
-            if self.weights is not None:
-                self._GTW = (self.G * self.weights.reshape(-1, 1)).T
-            else:
-                self._GTW = self.G.T
-
-        return self._GTW
-
-    @property
-    def GTW_helmholtz(self):
-        """
-        Return the matrix ``G^T W`` for the Helmholtz decomposition into
-        the curl-free and divergence-free components of a vector.
-
-        """
-
-        if not hasattr(self, '_GTW_helmholtz'):
-            if self.weights is not None:
-                self._GTW_helmholtz = tensor_transpose(tensor_scale_left(self.weights, self.G_helmholtz), 2)
-            else:
-                self._GTW_helmholtz = tensor_transpose(self.G_helmholtz, 2)
-
-        return self._GTW_helmholtz
-
-    @property
-    def GTWG(self):
-        """
-        Return the matrix ``G^T W G``.
-
-        """
-
-        if not hasattr(self, '_GTWG'):
-            self._GTWG = np.dot(self.GTW, self.G)
-
-        return self._GTWG
-
-    @property
-    def GTWG_helmholtz(self):
-        """
-        Return the matrix ``G^T W G`` for the Helmholtz decomposition into
-        the curl-free and divergence-free components of a vector.
-
-        """
-
-        if not hasattr(self, '_GTWG_helmholtz'):
-            self._GTWG_helmholtz = np.tensordot(self.GTW_helmholtz, self.G_helmholtz, 2)
-
-        return self._GTWG_helmholtz
-
-    @property
     def L(self):
         """
         Return the regularization matrix.
@@ -190,9 +130,9 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_L'):
             if self.reg_lambda is None:
-                raise ValueError("Regularization parameter not set.")
-
-            self._L = np.diag(self.basis.n * (self.basis.n + 1))
+                self._L = None
+            else:
+                self._L = np.diag(self.basis.n * (self.basis.n + 1))
 
         return self._L
 
@@ -206,50 +146,55 @@ class BasisEvaluator(object):
 
         if not hasattr(self, '_L_helmholtz'):
             if self.reg_lambda is None:
-                raise ValueError("Regularization parameter not set.")
-
-            self._L_helmholtz = np.moveaxis(
-                np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
-                          [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
-            ), [0,1,2,3], [1,3,0,2])
+                self._L_helmholtz = None
+            else:
+                self._L_helmholtz = np.moveaxis(
+                    np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
+                              [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
+                ), [0,1,2,3], [1,3,0,2])
 
         return self._L_helmholtz
-
-    @property
-    def GTWG_plus_R_inv(self):
+    
+    def least_squares_solution(self, grid_values):
         """
-        Return the inverse of the matrix ``G^T W G + R``.
+        Return the least squares solution for the given grid values.
 
-        """
+        Parameters
+        ----------
+        grid_values : ndarray
+            Values at the grid points.
 
-        if not hasattr(self, '_GTWG_plus_R_inv'):
-            if self.reg_lambda is not None:
-                GTWG_plus_R = self.GTWG + self.reg_lambda * np.dot(self.L.T, self.L)
-            else:
-                GTWG_plus_R = self.GTWG
-
-            self._GTWG_plus_R_inv = pinv_positive_semidefinite(GTWG_plus_R, rtol = self.pinv_rtol)
-
-        return self._GTWG_plus_R_inv
-
-    @property
-    def GTWG_plus_R_inv_helmholtz(self):
-        """
-        Return the inverse of the matrix ``G^T W G + R`` for the
-        Helmholtz decomposition into the curl-free and divergence-free
-        components of a vector.
+        Returns
+        -------
+        ndarray
+            Coefficients in the basis.
 
         """
+        if not hasattr(self, 'least_squares'):
+            self.least_squares = LeastSquares(self.G, 1, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L)
 
-        if not hasattr(self, '_GTWG_plus_R_inv_helmholtz'):
-            if self.reg_lambda is not None:
-                GTWG_plus_R_helmholtz = self.GTWG_helmholtz + self.reg_lambda * np.tensordot(tensor_transpose(self.L_helmholtz, 2), self.L_helmholtz, 2)
-            else:
-                GTWG_plus_R_helmholtz = self.GTWG_helmholtz
+        return self.least_squares.solve(grid_values)
+    
+    def least_squares_solution_helmholtz(self, grid_values):
+        """
+        Return the least squares solution for the Helmholtz decomposition
+        into the curl-free and divergence-free components of a vector.
 
-            self._GTWG_plus_R_inv_helmholtz = tensor_pinv_positive_semidefinite(GTWG_plus_R_helmholtz, contracted_dims = 2, rtol = self.pinv_rtol)
+        Parameters
+        ----------
+        grid_values : ndarray
+            Values at the grid points.
 
-        return self._GTWG_plus_R_inv_helmholtz
+        Returns
+        -------
+        ndarray
+            Coefficients in the basis.
+
+        """
+        if not hasattr(self, 'least_squares_helmholtz'):
+            self.least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz)
+
+        return self.least_squares_helmholtz.solve(grid_values)
 
     def basis_to_grid(self, coeffs, derivative = None, helmholtz = False):
         """
@@ -293,11 +238,10 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            intermediate = np.tensordot(self.GTW_helmholtz, np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1), 2)
-            return np.tensordot(self.GTWG_plus_R_inv_helmholtz, intermediate, 2)
+            return self.least_squares_solution_helmholtz(np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1))
 
         else:
-            return np.dot(self.GTWG_plus_R_inv, np.dot(self.GTW, grid_values))
+            return self.least_squares_solution(grid_values)
 
     def regularization_term(self, coeffs, helmholtz = False):
         """
