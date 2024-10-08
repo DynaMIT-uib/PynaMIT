@@ -215,17 +215,20 @@ class State(object):
             else:
                 print('this should not happen')
 
+            self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
+
+            G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
+            G_jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            G_jr_coeffs_to_j_apex_ll_diff = (G_jr_coeffs_to_j_apex - G_jr_coeffs_to_j_apex_cp)[self.ll_mask]
+
             # The hemispheres are connected via interhemispheric currents at low latitudes
             E_coeffs_to_E_apex_perp    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
             self.E_coeffs_to_E_apex_perp_ll_diff = (E_coeffs_to_E_apex_perp - E_coeffs_to_E_apex_perp_cp)[self.ll_mask]
-
-        if self.connect_hemispheres:
-            self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
+        
+            self.G_jr_ll = self.m_imp_to_jr.reshape((1, -1)) * G_jr_coeffs_to_j_apex_ll_diff
         else:
             self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G.copy()
-
-        GTG_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
 
         if self.vector_jr:
             self.jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
@@ -233,17 +236,7 @@ class State(object):
         else:
             self.jr_to_constraint_vector = self.G_jr_hl.T.dot(self.G_jr_hl.dot(np.linalg.pinv(self.G_jr_hl)))
 
-        if self.connect_hemispheres:
-            G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
-            G_jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
-            G_jr_coeffs_to_j_apex_ll_diff = (G_jr_coeffs_to_j_apex - G_jr_coeffs_to_j_apex_cp)[self.ll_mask]
-            self.G_jr_ll = self.m_imp_to_jr.reshape((1, -1)) * G_jr_coeffs_to_j_apex_ll_diff
-
-            self.GTG_jr_constraints = GTG_jr_hl + self.G_jr_ll.T.dot(self.G_jr_ll)
-
-        else:
-            self.GTG_jr_constraints = GTG_jr_hl
-
+    
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to m_imp from
         m_ind if the hemispheres are connected.
