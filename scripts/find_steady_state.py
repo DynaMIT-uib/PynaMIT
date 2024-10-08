@@ -9,13 +9,13 @@ import pyamps
 import apexpy
 
 dataset_filename_prefix = 'data/steady_state'
-Nmax, Mmax, Ncs = 60, 60, 60
+Nmax, Mmax, Ncs = 90, 90, 100
 latitude_boundary = 45
 RE = 6371.2e3
 RI = RE + 110e3
-rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 5]))**2
+rk = RI / np.cos(np.deg2rad(np.r_[0: 70: 1]))**2
 
-date = datetime.datetime(2001, 5, 1, 0, 0)
+date = datetime.datetime(2001, 6, 1, 0, 0)
 Kp   = 4
 d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
@@ -41,7 +41,7 @@ print(datetime.datetime.now(), 'made dynamics object')
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = False)
-dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon)
+dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon, reg_lambda = 0.001)
 
 print(datetime.datetime.now(), 'setting jr')
 ## jr INPUT
