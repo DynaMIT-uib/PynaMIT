@@ -350,7 +350,7 @@ class State(object):
             self.constraints_least_squares = LeastSquares(self.G_jr_hl, contracted_dims = 1)
             coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
 
-        self.GTG_constraints_inv = pinv_positive_semidefinite(self.GTG_constraints)
+        self.GTG_constraints_inv = self.constraints_least_squares.ATWA_plus_R_inv
         GTG_constraints_inv_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.GTG_constraints_inv)
 
         if self.vector_jr:
