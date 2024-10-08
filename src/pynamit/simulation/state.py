@@ -263,7 +263,7 @@ class State(object):
 
             GT_constraint_vector -= np.tensordot(np.tensordot(tensor_transpose(self.G_E_ll, 2), self.E_coeffs_to_E_apex_perp_ll_diff, 2), E_coeffs, 2) * self.ih_constraint_scaling**2
 
-            self.set_coeffs(m_imp = self.GTG_constraints_inv.dot(GT_constraint_vector))
+            self.set_coeffs(m_imp = self.constraints_least_squares.ATWA_plus_R_inv.dot(GT_constraint_vector))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -337,20 +337,15 @@ class State(object):
             self.m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
-        self.GTG_constraints = self.GTG_jr_constraints.copy()
-
         # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
             self.G_E_ll = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2)
-            self.GTG_constraints += np.tensordot(tensor_transpose(self.G_E_ll, 2), self.G_E_ll, 2) * self.ih_constraint_scaling**2
 
             self.constraints_least_squares = LeastSquares([self.G_jr_hl, self.G_jr_ll, self.G_E_ll * self.ih_constraint_scaling], contracted_dims = 1)
-            coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), self.G_E_ll * self.ih_constraint_scaling])
+            coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), -self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling])
         else:
             self.constraints_least_squares = LeastSquares(self.G_jr_hl, contracted_dims = 1)
             coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
-
-        self.GTG_constraints_inv = self.constraints_least_squares.ATWA_plus_R_inv
 
         if self.vector_jr:
             self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(self.jr_hl_projection))
@@ -358,7 +353,7 @@ class State(object):
             self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(np.linalg.pinv(self.G_jr_hl)))
 
         if self.connect_hemispheres:
-            self.E_coeffs_direct_to_E_coeffs_constraints = -np.tensordot(self.m_imp_to_E_coeffs, np.tensordot(np.tensordot(self.constraints_least_squares.ATWA_plus_R_inv, self.constraints_least_squares.ATW[2], 1), self.E_coeffs_to_E_apex_perp_ll_diff, 2), 1) * self.ih_constraint_scaling
+            self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, coefficients_to_m_imp[2], 1)
             self.m_ind_to_E_cf_inv = np.linalg.pinv((self.m_ind_to_E_coeffs + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs, 2))[:,1])
         else:
             self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[:,1])
