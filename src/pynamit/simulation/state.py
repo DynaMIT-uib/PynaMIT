@@ -5,7 +5,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import tensor_scale_left, tensor_pinv, tensor_transpose, pinv_positive_semidefinite
+from pynamit.various.math import tensor_scale_left, tensor_pinv, tensor_transpose
 from pynamit.primitives.least_squares import LeastSquares
 
 TRIPLE_PRODUCT = False
