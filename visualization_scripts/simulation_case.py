@@ -5,11 +5,7 @@ import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
 
-<<<<<<< HEAD
-path = '../scripts/data/steady_state' # where the save files are
-=======
 path = '../scripts/data/sss' # where the save files are
->>>>>>> d31532a (modified plotting)
 
 print(datetime.datetime.now(), 'making PynamEye object')
 a = pynamit.PynamEye(path)
