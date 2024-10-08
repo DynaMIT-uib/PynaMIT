@@ -197,7 +197,7 @@ class BasisEvaluator(object):
 
         """
 
-        return self.least_squares.solve(grid_values)
+        return self.least_squares.solve(grid_values)[0]
     
     def least_squares_solution_helmholtz(self, grid_values):
         """
@@ -216,7 +216,7 @@ class BasisEvaluator(object):
 
         """
 
-        return self.least_squares_helmholtz.solve(grid_values)
+        return self.least_squares_helmholtz.solve(grid_values)[0]
 
     def basis_to_grid(self, coeffs, derivative = None, helmholtz = False):
         """

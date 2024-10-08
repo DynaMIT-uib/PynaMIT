@@ -38,10 +38,7 @@ class LeastSquares(object):
 
         solution = [np.tensordot(self.ATWA_plus_R_inv, np.tensordot(self.ATW[i], b_list[i], self.remaining_dims[i]), self.contracted_dims) for i in range(len(self.A))]
 
-        if len(solution) == 1:
-            return solution[0]
-        else:
-            return solution
+        return solution
 
     @property
     def ATW(self):
