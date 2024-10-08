@@ -6,6 +6,7 @@ from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.various.math import tensor_scale_left, tensor_pinv, tensor_transpose, pinv_positive_semidefinite
+from pynamit.primitives.least_squares import LeastSquares
 
 TRIPLE_PRODUCT = False
 
@@ -89,8 +90,9 @@ class State(object):
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
+            print(self.u_coeffs_to_E_coeffs.shape)
         else:
-            self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.least_squares_helmholtz.ATW, self.bu, optimize = True), 2)
+            self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.least_squares_helmholtz.ATW[0], self.bu, optimize = True), 2)
 
         # Conductance and neutral wind should be set after state initialization
         self.neutral_wind = False
@@ -226,8 +228,8 @@ class State(object):
         GTG_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
 
         if self.vector_jr:
-            jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
-            self.jr_coeffs_to_constraint_vector = self.G_jr_hl.T.dot(self.G_jr_hl.dot(jr_hl_projection))
+            self.jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
+            self.jr_coeffs_to_constraint_vector = self.G_jr_hl.T.dot(self.G_jr_hl.dot(self.jr_hl_projection))
         else:
             self.jr_to_constraint_vector = self.G_jr_hl.T.dot(self.G_jr_hl.dot(np.linalg.pinv(self.G_jr_hl)))
 
@@ -342,11 +344,20 @@ class State(object):
             self.G_E_ll = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2)
             self.GTG_constraints += np.tensordot(tensor_transpose(self.G_E_ll, 2), self.G_E_ll, 2) * self.ih_constraint_scaling**2
 
+            self.constraints_least_squares = LeastSquares([self.G_jr_hl, self.G_jr_ll, self.G_E_ll * self.ih_constraint_scaling], contracted_dims = 1)
+            coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), self.G_E_ll * self.ih_constraint_scaling])
+        else:
+            self.constraints_least_squares = LeastSquares(self.G_jr_hl, contracted_dims = 1)
+            coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
+
         self.GTG_constraints_inv = pinv_positive_semidefinite(self.GTG_constraints)
         GTG_constraints_inv_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.GTG_constraints_inv)
 
         if self.vector_jr:
-            self.jr_coeffs_to_E_coeffs = GTG_constraints_inv_to_E_coeffs.dot(self.jr_coeffs_to_constraint_vector)
+            if self.connect_hemispheres:
+                self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(self.jr_hl_projection))
+            else:
+                self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp.dot(self.jr_hl_projection))
         else:
             self.jr_to_E_coeffs = GTG_constraints_inv_to_E_coeffs.dot(self.jr_to_constraint_vector)
 
