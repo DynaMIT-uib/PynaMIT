@@ -5,7 +5,7 @@ import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
 
-path = '../scripts/data/steady_state' # where the save files are
+path = '../scripts/data/sss' # where the save files are
 
 print(datetime.datetime.now(), 'making PynamEye object')
 a = pynamit.PynamEye(path)
@@ -43,7 +43,7 @@ for i, ax in enumerate([paxn1.ax, paxs1.ax, gax1, paxn2.ax, paxs2.ax, gax2, paxn
     ax.text(0.01, 0.99, abc[i] + ')', transform = ax.transAxes, bbox = dict(facecolor='white', edgecolor='none'), fontsize=12, verticalalignment='top', horizontalalignment='left')
 
 a.plot_wind(                          gax1, color  = 'black')
-c = a.plot_conductance(               gax2, region = 'global', levels = np.linspace(0, 20, 22), extend = 'both')
+c = a.plot_conductance(               gax2, region = 'global', levels = np.linspace(0, 30, 22), extend = 'both')
 for c in c.collections:
     c.set_edgecolor("face")
 c = a.plot_Br(                        gax3, region = 'global', levels = a.Br_defaults['levels']*2)
@@ -59,7 +59,7 @@ a.plot_electric_potential(            gax4, region = 'global', colors = 'black',
 c = a.plot_jr(                        paxn1, region = 'north')
 for c in c.collections:
     c.set_edgecolor("face")
-c = a.plot_conductance(               paxn2, region = 'north', levels = np.linspace(0, 20, 22), extend = 'both')
+c = a.plot_conductance(               paxn2, region = 'north', levels = np.linspace(0, 30, 22), extend = 'both')
 for c in c.collections:
     c.set_edgecolor("face")
 c = a.plot_Br(                        paxn3, region = 'north', levels = a.Br_defaults['levels']*2)
@@ -75,7 +75,7 @@ a.plot_electric_field_stream_function(paxn4, region = 'north')
 c = a.plot_jr(                        paxs1, region = 'south')
 for c in c.collections:
     c.set_edgecolor("face")
-c = a.plot_conductance(               paxs2, region = 'south', levels = np.linspace(0, 20, 22))
+c = a.plot_conductance(               paxs2, region = 'south', levels = np.linspace(0, 30, 22))
 for c in c.collections:
     c.set_edgecolor("face")
 c = a.plot_Br(                        paxs3, region = 'south', levels = a.Br_defaults['levels']*2)
@@ -91,7 +91,7 @@ cbar_axes[0].contourf(xx, zz, zz, levels = levels, cmap = a.jr_defaults['cmap'])
 cbar_axes[0].set_xticks([])
 cbar_axes[0].set_ylabel('$\mu$A/m$^2$')
 
-levels = np.linspace(0, 20, 22)
+levels = np.linspace(0, 30, 22)
 xx, zz = np.vstack((np.zeros(levels.size), np.ones(levels.size))).T, np.vstack((levels, levels)).T
 cbar_axes[1].contourf(xx, zz, zz, levels = levels, cmap = a.conductance_defaults['cmap'])
 cbar_axes[1].set_xticks([])
