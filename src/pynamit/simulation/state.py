@@ -6,6 +6,7 @@ from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.various.math import tensor_scale_left, tensor_pinv, tensor_transpose, pinv_positive_semidefinite
+from pynamit.primitives.least_squares import LeastSquares
 
 TRIPLE_PRODUCT = False
 
@@ -89,8 +90,9 @@ class State(object):
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
+            print(self.u_coeffs_to_E_coeffs.shape)
         else:
-            self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.least_squares_helmholtz.ATW, self.bu, optimize = True), 2)
+            self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.least_squares_helmholtz.ATW[0], self.bu, optimize = True), 2)
 
         # Conductance and neutral wind should be set after state initialization
         self.neutral_wind = False
@@ -216,33 +218,31 @@ class State(object):
             # The hemispheres are connected via interhemispheric currents at low latitudes
             E_coeffs_to_E_apex_perp    = np.einsum('ijk,kjlm->kilm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,kjlm->kilm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
-            E_coeffs_to_E_apex_perp_ll_diff = (E_coeffs_to_E_apex_perp - E_coeffs_to_E_apex_perp_cp)[self.ll_mask]
-            self.W_E_ll = np.tensordot(tensor_transpose(E_coeffs_to_E_apex_perp_ll_diff, 2), E_coeffs_to_E_apex_perp_ll_diff, 2)
+            self.E_coeffs_to_E_apex_perp_ll_diff = (E_coeffs_to_E_apex_perp - E_coeffs_to_E_apex_perp_cp)[self.ll_mask]
 
         if self.connect_hemispheres:
-            self.G_jr_hl = self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
+            self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
         else:
-            self.G_jr_hl = self.basis_evaluator.G.copy()
+            self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G.copy()
 
-        W_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
-        GTW_jr_hl = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_hl
+        GTG_jr_hl = self.G_jr_hl.T.dot(self.G_jr_hl)
 
         if self.vector_jr:
-            jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
-            self.jr_coeffs_to_constraint_vector = GTW_jr_hl.dot(jr_hl_projection)
+            self.jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
+            self.jr_coeffs_to_constraint_vector = self.G_jr_hl.T.dot(self.G_jr_hl.dot(self.jr_hl_projection))
         else:
-            self.jr_to_constraint_vector = GTW_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
-
-        W_jr_total = W_jr_hl.copy()
+            self.jr_to_constraint_vector = self.G_jr_hl.T.dot(self.G_jr_hl.dot(np.linalg.pinv(self.G_jr_hl)))
 
         if self.connect_hemispheres:
             G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
             G_jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
             G_jr_coeffs_to_j_apex_ll_diff = (G_jr_coeffs_to_j_apex - G_jr_coeffs_to_j_apex_cp)[self.ll_mask]
-            W_jr_ll = G_jr_coeffs_to_j_apex_ll_diff.T.dot(G_jr_coeffs_to_j_apex_ll_diff)
-            W_jr_total += W_jr_ll
+            self.G_jr_ll = self.m_imp_to_jr.reshape((1, -1)) * G_jr_coeffs_to_j_apex_ll_diff
 
-        self.GTWG_jr_constraints = self.m_imp_to_jr.reshape((-1, 1)) * W_jr_total * self.m_imp_to_jr.reshape((1, -1))
+            self.GTG_jr_constraints = GTG_jr_hl + self.G_jr_ll.T.dot(self.G_jr_ll)
+
+        else:
+            self.GTG_jr_constraints = GTG_jr_hl
 
     def impose_constraints(self):
         """ Impose constraints, if any. Leads to a contribution to m_imp from
@@ -252,18 +252,18 @@ class State(object):
 
         if self.connect_hemispheres:
             if self.vector_jr:
-                GTW_constraint_vector = self.jr_coeffs_to_constraint_vector.dot(self.jr.coeffs)
+                GT_constraint_vector = self.jr_coeffs_to_constraint_vector.dot(self.jr.coeffs)
             else:
-                GTW_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_on_grid)
+                GT_constraint_vector = self.jr_to_constraint_vector.dot(self.jr_on_grid)
 
             E_coeffs = self.m_ind_to_E_coeffs.dot(self.m_ind.coeffs)
 
             if self.neutral_wind:
                 E_coeffs += self.E_coeffs_u
 
-            GTW_constraint_vector -= np.tensordot(self.E_coeffs_to_constraint_vector, E_coeffs, 2) * self.ih_constraint_scaling**2
+            GT_constraint_vector -= np.tensordot(np.tensordot(tensor_transpose(self.G_E_ll, 2), self.E_coeffs_to_E_apex_perp_ll_diff, 2), E_coeffs, 2) * self.ih_constraint_scaling**2
 
-            self.set_coeffs(m_imp = self.GTWG_constraints_inv.dot(GTW_constraint_vector))
+            self.set_coeffs(m_imp = self.constraints_least_squares.ATWA_plus_R_inv.dot(GT_constraint_vector))
 
         else:
             self.set_coeffs(jr = self.jr.coeffs)
@@ -337,23 +337,23 @@ class State(object):
             self.m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
-        self.GTWG_constraints = self.GTWG_jr_constraints.copy()
-
         # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
-            self.E_coeffs_to_constraint_vector = np.tensordot(tensor_transpose(self.m_imp_to_E_coeffs), self.W_E_ll, 2)
-            self.GTWG_constraints += np.tensordot(self.E_coeffs_to_constraint_vector, self.m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling**2
+            self.G_E_ll = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2)
 
-        self.GTWG_constraints_inv = pinv_positive_semidefinite(self.GTWG_constraints)
-        GTWG_constraints_inv_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.GTWG_constraints_inv)
+            self.constraints_least_squares = LeastSquares([self.G_jr_hl, self.G_jr_ll, self.G_E_ll * self.ih_constraint_scaling], contracted_dims = 1)
+            coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), -self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling])
+        else:
+            self.constraints_least_squares = LeastSquares(self.G_jr_hl, contracted_dims = 1)
+            coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
 
         if self.vector_jr:
-            self.jr_coeffs_to_E_coeffs = GTWG_constraints_inv_to_E_coeffs.dot(self.jr_coeffs_to_constraint_vector)
+            self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(self.jr_hl_projection))
         else:
-            self.jr_to_E_coeffs = GTWG_constraints_inv_to_E_coeffs.dot(self.jr_to_constraint_vector)
+            self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(np.linalg.pinv(self.G_jr_hl)))
 
         if self.connect_hemispheres:
-            self.E_coeffs_direct_to_E_coeffs_constraints = -np.tensordot(GTWG_constraints_inv_to_E_coeffs, self.E_coeffs_to_constraint_vector, 1) * self.ih_constraint_scaling**2
+            self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, coefficients_to_m_imp[2], 1)
             self.m_ind_to_E_cf_inv = np.linalg.pinv((self.m_ind_to_E_coeffs + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs, 2))[:,1])
         else:
             self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[:,1])
@@ -493,16 +493,16 @@ class State(object):
         """
 
         etaP_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
-        self.etaP_m_ind_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaP_m_ind_to_E, 2), 2)
+        self.etaP_m_ind_to_E_coeffs = np.tensordot(self.basis_evaluator.GTG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GT_helmholtz, etaP_m_ind_to_E, 2), 2)
 
         etaH_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
-        self.etaH_m_ind_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaH_m_ind_to_E, 2), 2)
+        self.etaH_m_ind_to_E_coeffs = np.tensordot(self.basis_evaluator.GTG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GT_helmholtz, etaH_m_ind_to_E, 2), 2)
 
         etaP_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
-        self.etaP_m_imp_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaP_m_imp_to_E, 2), 2)
+        self.etaP_m_imp_to_E_coeffs = np.tensordot(self.basis_evaluator.GTG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GT_helmholtz, etaP_m_imp_to_E, 2), 2)
 
         etaH_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
-        self.etaH_m_imp_to_E_coeffs = np.tensordot(self.basis_evaluator.GTWG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GTW_helmholtz, etaH_m_imp_to_E, 2), 2)
+        self.etaH_m_imp_to_E_coeffs = np.tensordot(self.basis_evaluator.GTG_plus_R_inv_helmholtz, np.tensordot(self.basis_evaluator.GT_helmholtz, etaH_m_imp_to_E, 2), 2)
 
         if plot:
             import matplotlib.pyplot as plt
