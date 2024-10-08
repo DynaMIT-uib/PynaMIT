@@ -359,7 +359,7 @@ class State(object):
             self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(np.linalg.pinv(self.G_jr_hl)))
 
         if self.connect_hemispheres:
-            self.E_coeffs_direct_to_E_coeffs_constraints = -np.tensordot(GTG_constraints_inv_to_E_coeffs, np.tensordot(tensor_transpose(self.G_E_ll, 2), self.E_coeffs_to_E_apex_perp_ll_diff, 2), 1) * self.ih_constraint_scaling**2
+            self.E_coeffs_direct_to_E_coeffs_constraints = -np.tensordot(GTG_constraints_inv_to_E_coeffs, np.tensordot(self.constraints_least_squares.ATW[2], self.E_coeffs_to_E_apex_perp_ll_diff, 2), 1) * self.ih_constraint_scaling
             self.m_ind_to_E_cf_inv = np.linalg.pinv((self.m_ind_to_E_coeffs + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs, 2))[:,1])
         else:
             self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[:,1])
