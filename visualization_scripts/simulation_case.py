@@ -5,7 +5,7 @@ import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
 
-path = '../scripts/data/sss' # where the save files are
+path = '../scripts/data/xyz' # where the save files are
 
 print(datetime.datetime.now(), 'making PynamEye object')
 a = pynamit.PynamEye(path)
@@ -43,12 +43,8 @@ for i, ax in enumerate([paxn1.ax, paxs1.ax, gax1, paxn2.ax, paxs2.ax, gax2, paxn
     ax.text(0.01, 0.99, abc[i] + ')', transform = ax.transAxes, bbox = dict(facecolor='white', edgecolor='none'), fontsize=12, verticalalignment='top', horizontalalignment='left')
 
 a.plot_wind(                          gax1, color  = 'black')
-c = a.plot_conductance(               gax2, region = 'global', levels = np.linspace(0, 30, 22), extend = 'both')
-for c in c.collections:
-    c.set_edgecolor("face")
-c = a.plot_Br(                        gax3, region = 'global', levels = a.Br_defaults['levels']*2)
-for c in c.collections:
-    c.set_edgecolor('face')
+a.plot_conductance(               gax2, region = 'global', levels = np.linspace(0, 30, 22), extend = 'both').set_edgecolor('face')
+a.plot_Br(                        gax3, region = 'global', levels = a.Br_defaults['levels']*2).set_edgecolor('face')
 
 a.plot_equivalent_current(            gax3, region = 'global')
 a.plot_electric_field_stream_function(gax3, region = 'global')
@@ -56,15 +52,9 @@ a.plot_electric_potential(            gax4, region = 'global', colors = 'black',
 
 
 
-c = a.plot_jr(                        paxn1, region = 'north')
-for c in c.collections:
-    c.set_edgecolor("face")
-c = a.plot_conductance(               paxn2, region = 'north', levels = np.linspace(0, 30, 22), extend = 'both')
-for c in c.collections:
-    c.set_edgecolor("face")
-c = a.plot_Br(                        paxn3, region = 'north', levels = a.Br_defaults['levels']*2)
-for c in c.collections:
-    c.set_edgecolor("face")
+a.plot_jr(                        paxn1, region = 'north').set_edgecolor('face')
+a.plot_conductance(               paxn2, region = 'north', levels = np.linspace(0, 30, 22), extend = 'both').set_edgecolor('face')
+a.plot_Br(                        paxn3, region = 'north', levels = a.Br_defaults['levels']*2).set_edgecolor('face')
 
 
 a.plot_equivalent_current(            paxn3, region = 'north')
@@ -72,15 +62,9 @@ a.plot_electric_potential(            paxn4, region = 'north', colors = 'black',
 a.plot_electric_field_stream_function(paxn4, region = 'north')
 
 
-c = a.plot_jr(                        paxs1, region = 'south')
-for c in c.collections:
-    c.set_edgecolor("face")
-c = a.plot_conductance(               paxs2, region = 'south', levels = np.linspace(0, 30, 22))
-for c in c.collections:
-    c.set_edgecolor("face")
-c = a.plot_Br(                        paxs3, region = 'south', levels = a.Br_defaults['levels']*2)
-for c in c.collections:
-    c.set_edgecolor("face")
+a.plot_jr(                        paxs1, region = 'south').set_edgecolor('face')
+a.plot_conductance(               paxs2, region = 'south', levels = np.linspace(0, 30, 22)).set_edgecolor('face')
+a.plot_Br(                        paxs3, region = 'south', levels = a.Br_defaults['levels']*2).set_edgecolor('face')
 a.plot_equivalent_current(            paxs3, region = 'south')
 a.plot_electric_potential(            paxs4, region = 'south', colors = 'black', levels = np.r_[-201.5:202:3]*1e3)
 a.plot_electric_field_stream_function(paxs4, region = 'south', extend = 'both')
