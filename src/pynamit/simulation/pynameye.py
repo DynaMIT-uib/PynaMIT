@@ -70,7 +70,10 @@ class PynamEye(object):
         self.dp = Dipole(self.t0.year)
 
         self.basis             = SHBasis(settings.Nmax, settings.Mmax)
-        self.conductance_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin = 0)
+
+        cNmax = int(self.datasets['conductance'].n.max())
+        cMmax = int(self.datasets['conductance'].m.max())
+        self.conductance_basis = SHBasis(cNmax, cMmax, Nmin = 0)
 
         # Basis evaluator for wind
         self.u_basis_evaluator = BasisEvaluator(self.basis, self.global_vector_grid)
