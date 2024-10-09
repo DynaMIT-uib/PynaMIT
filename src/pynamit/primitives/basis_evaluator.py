@@ -7,12 +7,12 @@ class BasisEvaluator(object):
 
     """
     
-    def __init__(self, basis, grid, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
+    def __init__(self, basis, grid, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
         self.basis = basis
         self.grid = grid
-        self.pinv_rtol = pinv_rtol
         self.weights = weights
         self.reg_lambda = reg_lambda
+        self.pinv_rtol = pinv_rtol
 
     @property
     def G(self):
@@ -163,7 +163,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_least_squares'):
-            self._least_squares = LeastSquares(self.G, 1, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L)
+            self._least_squares = LeastSquares(self.G, 1, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L, pinv_rtol = self.pinv_rtol)
 
         return self._least_squares
 
@@ -176,7 +176,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_least_squares_helmholtz'):
-            self._least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz)
+            self._least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz, pinv_rtol = self.pinv_rtol)
 
         return self._least_squares_helmholtz
 

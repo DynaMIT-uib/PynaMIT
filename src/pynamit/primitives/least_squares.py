@@ -7,13 +7,13 @@ class LeastSquares(object):
 
     """
     
-    def __init__(self, A, solution_dims, pinv_rtol = 1e-15, weights = None, reg_lambda = None, reg_L = None):
+    def __init__(self, A, solution_dims, weights = None, reg_lambda = None, reg_L = None, pinv_rtol = 1e-15):
         self.A = self.ensure_list(A)
         self.solution_dims = solution_dims
-        self.pinv_rtol = pinv_rtol
         self.weights = self.ensure_list(weights)
         self.reg_lambda = self.ensure_list(reg_lambda)
         self.reg_L = self.ensure_list(reg_L)
+        self.pinv_rtol = pinv_rtol
 
         self.b_dims = [len(self.A[i].shape) - solution_dims for i in range(len(self.A))]
 

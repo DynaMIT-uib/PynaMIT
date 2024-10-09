@@ -116,8 +116,8 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         Nmax_values.append(Nmax)
 
         sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
-        input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, input_grid, pinv_rtol = rtol, weights = input_weights, reg_lambda = reg_lambda)
-        output_basis_evaluator = pynamit.BasisEvaluator(sh_basis, output_grid, pinv_rtol = rtol, weights = output_weights, reg_lambda = reg_lambda)
+        input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, input_grid, weights = input_weights, reg_lambda = reg_lambda, pinv_rtol = rtol)
+        output_basis_evaluator = pynamit.BasisEvaluator(sh_basis, output_grid, weights = output_weights, reg_lambda = reg_lambda, pinv_rtol = rtol)
 
         input_sh = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = input_grid_values, type = vector_type)
 
