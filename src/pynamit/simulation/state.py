@@ -90,7 +90,6 @@ class State(object):
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,kjlm->kilm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
-            print(self.u_coeffs_to_E_coeffs.shape)
         else:
             self.u_to_E_coeffs = np.tensordot(self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv, np.einsum('ijkl,lmk->ijkm', self.basis_evaluator.least_squares_helmholtz.ATW[0], self.bu, optimize = True), 2)
 
