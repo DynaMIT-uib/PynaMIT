@@ -1,12 +1,12 @@
 import numpy as np
 import xarray as xr
-from pynamit.various.constants import mu0, RE
+from pynamit.math.constants import mu0, RE
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.various.math import tensor_scale_left, tensor_pinv, tensor_transpose
-from pynamit.primitives.least_squares import LeastSquares
+from pynamit.math.tensor_operations import tensor_scale_left, tensor_pinv, tensor_transpose
+from pynamit.math.least_squares import LeastSquares
 
 TRIPLE_PRODUCT = False
 

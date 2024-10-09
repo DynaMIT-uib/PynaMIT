@@ -32,7 +32,7 @@ def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     # Compute the pseudoinverse using the filtered eigenvalues and eigenvectors.
     return np.einsum('ij, j, jk -> ik', filtered_eigenvectors, 1 / filtered_eigenvalues, filtered_eigenvectors.T)
 
-def matrix_product(A, B, contracted_dims):
+def tensor_product(A, B, contracted_dims):
     """
     Compute the product of two matrices A and B, contracting the indices from uncontracted_first to uncontracted_last.
     """

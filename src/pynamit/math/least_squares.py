@@ -1,5 +1,5 @@
 import numpy as np
-from pynamit.various.math import tensor_pinv_positive_semidefinite, tensor_scale_left, tensor_transpose
+from pynamit.math.tensor_operations import tensor_pinv_positive_semidefinite, tensor_scale_left, tensor_transpose
 
 class LeastSquares(object):
     """

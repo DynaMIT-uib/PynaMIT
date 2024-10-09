@@ -2,8 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 import pynamit
-from pynamit.various.constants import RE
-from pynamit.various.constants import mu0
+from pynamit.math.constants import RE
+from pynamit.math.constants import mu0
 import dipole
 import datetime
 import apexpy

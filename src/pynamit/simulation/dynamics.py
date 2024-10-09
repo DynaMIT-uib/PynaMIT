@@ -11,7 +11,7 @@ from pynamit.primitives.vector import Vector
 import os
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
-from pynamit.various.constants import RE
+from pynamit.math.constants import RE
 import scipy.sparse as sp
 
 FLOAT_ERROR_MARGIN = 1e-6 # safety margin for floating point errors

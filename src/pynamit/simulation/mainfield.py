@@ -5,7 +5,7 @@ import apexpy
 import dipole
 import numpy as np
 from datetime import datetime
-from pynamit.various.constants import RE
+from pynamit.math.constants import RE
 
 class Mainfield(object):
     def __init__(self, kind = 'dipole', epoch = 2020, hI = 0., B0 = None):

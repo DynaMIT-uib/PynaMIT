@@ -16,7 +16,7 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.various.constants import RE, mu0
+from pynamit.math.constants import RE, mu0
 
 class PynamEye(object):
     def __init__(self, filename_prefix, t = 0, Nlat = 60, Nlon = 100, NCS_plot = 10, mlatlim = 50):

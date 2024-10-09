@@ -1,5 +1,5 @@
 import numpy as np
-from pynamit.primitives.least_squares import LeastSquares
+from pynamit.math.least_squares import LeastSquares
 
 class BasisEvaluator(object):
     """
