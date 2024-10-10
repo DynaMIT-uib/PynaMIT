@@ -1,5 +1,5 @@
 import numpy as np
-from pynamit.primitives.least_squares import LeastSquares
+from pynamit.math.least_squares import LeastSquares
 
 class BasisEvaluator(object):
     """
@@ -7,12 +7,12 @@ class BasisEvaluator(object):
 
     """
     
-    def __init__(self, basis, grid, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
+    def __init__(self, basis, grid, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
         self.basis = basis
         self.grid = grid
-        self.pinv_rtol = pinv_rtol
         self.weights = weights
         self.reg_lambda = reg_lambda
+        self.pinv_rtol = pinv_rtol
 
     @property
     def G(self):
@@ -79,7 +79,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_grad'):
-            self._G_grad = np.moveaxis(np.array([self.G_th, self.G_ph]), 0, 1)
+            self._G_grad = np.array([self.G_th, self.G_ph])
 
         return self._G_grad
 
@@ -92,7 +92,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_rxgrad'):
-            self._G_rxgrad = np.moveaxis(np.array([-self.G_ph, self.G_th]), 0, 1)
+            self._G_rxgrad = np.array([-self.G_ph, self.G_th])
 
         return self._G_rxgrad
 
@@ -117,7 +117,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz'):
-            self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1,2,3], [1,0,3,2])
+            self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1,2,3], [0,2,1,3])
 
         return self._G_helmholtz
 
@@ -151,7 +151,7 @@ class BasisEvaluator(object):
                 self._L_helmholtz = np.moveaxis(
                     np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
                               [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
-                ), [0,1,2,3], [1,3,0,2])
+                ), [0,1,2,3], [0,2,1,3])
 
         return self._L_helmholtz
 
@@ -163,7 +163,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_least_squares'):
-            self._least_squares = LeastSquares(self.G, 1, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L)
+            self._least_squares = LeastSquares(self.G, 1, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L, pinv_rtol = self.pinv_rtol)
 
         return self._least_squares
 
@@ -176,7 +176,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_least_squares_helmholtz'):
-            self._least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, pinv_rtol = self.pinv_rtol, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz)
+            self._least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz, pinv_rtol = self.pinv_rtol)
 
         return self._least_squares_helmholtz
 
@@ -260,7 +260,7 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            return self.least_squares_solution_helmholtz(np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1))
+            return self.least_squares_solution_helmholtz(grid_values)
 
         else:
             return self.least_squares_solution(grid_values)

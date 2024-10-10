@@ -11,7 +11,7 @@ from pynamit.primitives.vector import Vector
 import os
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
-from pynamit.various.constants import RE
+from pynamit.math.constants import RE
 import scipy.sparse as sp
 
 FLOAT_ERROR_MARGIN = 1e-6 # safety margin for floating point errors
@@ -204,8 +204,8 @@ class Dynamics(object):
                     data_vars = {
                         self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[:,0].reshape((1, -1))),
-                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[:,1].reshape((1, -1))),
+                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[0].reshape((1, -1))),
+                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[1].reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
                 )
@@ -243,17 +243,17 @@ class Dynamics(object):
             count += 1
 
 
-    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
+    def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
         """
         Set the field-aligned current at the given coordinate points.
         """
 
         FAC_b_evaluator = FieldEvaluator(self.mainfield, Grid(lat = lat, lon = lon, theta = theta, phi = phi), self.RI)
 
-        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time, pinv_rtol = pinv_rtol, weights = weights, reg_lambda = reg_lambda)
+        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
 
 
-    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
+    def set_jr(self, jr, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
         """
         Specify radial current at ``self.state_grid.theta``,
         ``self.state_grid.phi``.
@@ -272,10 +272,10 @@ class Dynamics(object):
             'jr': [np.atleast_2d(jr)],
         }
 
-        self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, pinv_rtol = pinv_rtol, weights = weights, reg_lambda = reg_lambda)
+        self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
 
 
-    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
+    def set_conductance(self, Hall, Pedersen, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
         """
         Specify Hall and Pedersen conductance at
         ``self.state_grid.theta``, ``self.state_grid.phi``.
@@ -297,7 +297,7 @@ class Dynamics(object):
         for i in range(max(input_data['etaH'][0].shape[0], 1)):
             input_data['etaH'][0][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
 
-        self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, pinv_rtol = pinv_rtol, weights = weights, reg_lambda = reg_lambda)
+        self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
 
 
     def set_u(self, u_theta, u_phi, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None):
@@ -309,10 +309,10 @@ class Dynamics(object):
             'u': [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
         }
 
-        self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, pinv_rtol = 1e-15, weights = weights, reg_lambda = reg_lambda)
+        self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = 1e-15)
 
 
-    def set_input(self, key, input_data, lat = None, lon = None, theta = None, phi = None, time = None, pinv_rtol = 1e-15, weights = None, reg_lambda = None):
+    def set_input(self, key, input_data, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
         """ Set input. """
 
         input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
@@ -321,7 +321,7 @@ class Dynamics(object):
             self.input_basis_evaluators = {}
 
         if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta, rtol = 0.0, atol = FLOAT_ERROR_MARGIN) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi, rtol = 0.0, atol = FLOAT_ERROR_MARGIN)):
-            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, pinv_rtol = pinv_rtol, weights = weights, reg_lambda = reg_lambda)
+            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
 
         if time is None:
             if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in range(len(input_data[var]))]):
@@ -335,9 +335,14 @@ class Dynamics(object):
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in range(len(input_data[var]))]), type = self.vars[key][var])
+                    grid_value_array = np.array([input_data[var][component][time_index] for component in range(len(input_data[var]))])
+                    if len(input_data[var]) == 1:
+                        grid_values = grid_value_array[0]
+                    else:
+                        grid_values = grid_value_array
+                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = grid_values, type = self.vars[key][var])
 
-                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.merged_coeffs().reshape((1, -1)))
+                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
 
                 else:
                     # Interpolate to state_grid
@@ -425,9 +430,9 @@ class Dynamics(object):
 
             elif key == 'u':
                 if self.vector_storage[key]:
-                    u = Vector(basis = self.bases[key], coeffs = current_data['u'], type = self.vars[key]['u'])
+                    u = Vector(basis = self.bases[key], coeffs = current_data['u'].reshape((2, -1)), type = self.vars[key]['u'])
                 else:
-                    u = current_data['u']
+                    u = current_data['u'].reshape((2, -1))
 
                 self.state.set_u(u)
 

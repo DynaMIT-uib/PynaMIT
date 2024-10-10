@@ -10,7 +10,7 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
     import pyhwm2014 # https://github.com/rilma/pyHWM14
 
     from pynamit.simulation.dynamics import Dynamics
-    from pynamit.various.constants import RE
+    from pynamit.math.constants import RE
 
     # Initialize the 2D ionosphere object at 110 km altitude
     RI = RE + 110.e3
@@ -52,7 +52,7 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
         u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
         u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-        dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.sin(np.deg2rad(90 - u_lat.flatten())))
+        dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())),  (2, 1)))
 
 
     if steady_state:
