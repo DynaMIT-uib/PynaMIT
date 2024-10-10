@@ -333,6 +333,7 @@ class State(object):
 
             self.constraints_least_squares = LeastSquares([self.G_jr_hl, self.G_jr_ll, self.G_E_ll * self.ih_constraint_scaling], 1)
             coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), -self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling])
+
             self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, coefficients_to_m_imp[2], 1)
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs_direct, 2)
             if self.vector_u:
@@ -342,6 +343,7 @@ class State(object):
         else:
             self.constraints_least_squares = LeastSquares(self.G_jr_hl, 1)
             coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
+
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
             if self.vector_u:
                 self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
@@ -487,16 +489,16 @@ class State(object):
 
         """
 
-        etaP_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
+        etaP_m_ind_to_E = np.einsum('ijk,jl->ijkl', self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
         self.etaP_m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(etaP_m_ind_to_E)
 
-        etaH_m_ind_to_E = np.einsum('ijk,il->ijkl', self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
+        etaH_m_ind_to_E = np.einsum('ijk,jl->ijkl', self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
         self.etaH_m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(etaH_m_ind_to_E)
 
-        etaP_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
+        etaP_m_imp_to_E = np.einsum('ijk,jl->ijkl', self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize = True)
         self.etaP_m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(etaP_m_imp_to_E)
 
-        etaH_m_imp_to_E = np.einsum('ijk,il->ijkl', self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
+        etaH_m_imp_to_E = np.einsum('ijk,jl->ijkl', self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize = True)
         self.etaH_m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(etaH_m_imp_to_E)
 
         if plot:
