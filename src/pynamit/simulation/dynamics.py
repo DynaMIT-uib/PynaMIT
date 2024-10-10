@@ -204,8 +204,8 @@ class Dynamics(object):
                     data_vars = {
                         self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[:,0].reshape((1, -1))),
-                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[:,1].reshape((1, -1))),
+                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[0].reshape((1, -1))),
+                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[1].reshape((1, -1))),
                     },
                     coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
                 )
@@ -335,9 +335,14 @@ class Dynamics(object):
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = np.hstack([input_data[var][component][time_index] for component in range(len(input_data[var]))]), type = self.vars[key][var])
+                    grid_value_array = np.array([input_data[var][component][time_index] for component in range(len(input_data[var]))])
+                    if len(input_data[var]) == 1:
+                        grid_values = grid_value_array[0]
+                    else:
+                        grid_values = grid_value_array
+                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = grid_values, type = self.vars[key][var])
 
-                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.merged_coeffs().reshape((1, -1)))
+                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
 
                 else:
                     # Interpolate to state_grid
@@ -425,9 +430,9 @@ class Dynamics(object):
 
             elif key == 'u':
                 if self.vector_storage[key]:
-                    u = Vector(basis = self.bases[key], coeffs = current_data['u'], type = self.vars[key]['u'])
+                    u = Vector(basis = self.bases[key], coeffs = current_data['u'].reshape((2, -1)), type = self.vars[key]['u'])
                 else:
-                    u = current_data['u']
+                    u = current_data['u'].reshape((2, -1))
 
                 self.state.set_u(u)
 

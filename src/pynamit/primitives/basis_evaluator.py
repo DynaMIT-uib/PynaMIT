@@ -79,7 +79,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_grad'):
-            self._G_grad = np.moveaxis(np.array([self.G_th, self.G_ph]), 0, 1)
+            self._G_grad = np.array([self.G_th, self.G_ph])
 
         return self._G_grad
 
@@ -92,7 +92,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_rxgrad'):
-            self._G_rxgrad = np.moveaxis(np.array([-self.G_ph, self.G_th]), 0, 1)
+            self._G_rxgrad = np.array([-self.G_ph, self.G_th])
 
         return self._G_rxgrad
 
@@ -117,7 +117,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz'):
-            self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1,2,3], [1,0,3,2])
+            self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1,2,3], [0,2,1,3])
 
         return self._G_helmholtz
 
@@ -151,7 +151,7 @@ class BasisEvaluator(object):
                 self._L_helmholtz = np.moveaxis(
                     np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
                               [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
-                ), [0,1,2,3], [1,3,0,2])
+                ), [0,1,2,3], [0,2,1,3])
 
         return self._L_helmholtz
 
@@ -260,7 +260,7 @@ class BasisEvaluator(object):
         """
 
         if helmholtz:
-            return self.least_squares_solution_helmholtz(np.moveaxis(np.array(np.split(grid_values, 2)), 0, 1))
+            return self.least_squares_solution_helmholtz(grid_values)
 
         else:
             return self.least_squares_solution(grid_values)

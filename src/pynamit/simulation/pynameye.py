@@ -171,7 +171,7 @@ class PynamEye(object):
         Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (self.bH_01 * Jph)
         Eph = etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (self.bH_10 * Jth)
 
-        self.u_coeffs = np.hstack((self.m_u_cf, self.m_u_df))
+        self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
         self.u = Vector(self.basis, basis_evaluator = self.evaluator['num'], coeffs = self.u_coeffs, type = 'tangential')
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(self.u.to_grid(basis_evaluator = self.evaluator['num']), 2)
 
@@ -181,7 +181,7 @@ class PynamEye(object):
         Eth -= uxB_theta
         Eph -= uxB_phi
 
-        self.m_Phi, self.m_W = np.split(self.evaluator['num'].grid_to_basis(np.hstack((Eth, Eph)), helmholtz = True), 2)
+        self.m_Phi, self.m_W = np.split(self.evaluator['num'].grid_to_basis(np.array([Eth, Eph]), helmholtz = True), 2)
         self.m_Phi = self.m_Phi * self.RI
         self.m_W   = self.m_W * self.RI
 

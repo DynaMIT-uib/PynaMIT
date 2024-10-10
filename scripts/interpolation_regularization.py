@@ -68,14 +68,14 @@ if WIND:
     #hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glatstp = 6.,
     #                             glonlim=[-180., 180.], glonstp = 12., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
-    input_grid_values = np.hstack((u_theta, u_phi))
-    #input_weights = np.sin(np.deg2rad(90 - u_lat.flatten()))
+    input_grid_values = np.array([u_theta, u_phi])
+    #input_weights = np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1))
     input_weights = None
     vector_type = 'tangential'
     nmin = 1
 
     interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
-    interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
+    interpolated_data = np.array([-interpolated_north, interpolated_east]) # convert to theta, phi
 
 if CURRENT:
     import pyamps
@@ -83,13 +83,13 @@ if CURRENT:
     a = pyamps.AMPS(300, 0, -3, 20, 100)
     je, jn = a.get_total_current(mlat = input_grid.lat, mlt = input_grid.lon / 15)
 
-    input_grid_values = np.hstack((-jn, je))
+    input_grid_values = np.array([-jn, je])
     input_weights = None
     vector_type = 'tangential'
     nmin = 1
 
     interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(je, jn, np.zeros_like(je), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
-    interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
+    interpolated_data = np.array([-interpolated_north, interpolated_east]) # convert to theta, phi
 
 
 lon = output_grid.lon.flatten()
@@ -127,12 +127,12 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             reg_lambda_values.append(reg_lambda)
             #sh_norms.append(np.linalg.norm(input_sh.coeffs))
             sh_norms.append(np.linalg.norm(input_sh.regularization_term(input_basis_evaluator)))
-            input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator).flatten()
+            input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator)
             sh_resiudal_norms.append(np.linalg.norm(input_sh_on_input_grid - input_grid_values)/np.linalg.norm(input_grid_values))
 
         if GRID_COMPARISON:
             cs_interpolated_output = interpolated_data
-            sh_interpolated_output = input_sh.to_grid(output_basis_evaluator).flatten()
+            sh_interpolated_output = input_sh.to_grid(output_basis_evaluator)
             relative_grid_errors.append(np.linalg.norm(cs_interpolated_output - sh_interpolated_output)/np.linalg.norm(cs_interpolated_output))
             print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
@@ -174,10 +174,10 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                     coeff_sh_ax.plot(abs_coeff_sh, label = "SH")
                 elif vector_type == 'tangential':
                     # Plot curl free and divergence free coefficients
-                    coeff_cs_ax.plot(abs_coeff_cs[:,0], label = "CF")
-                    coeff_cs_ax.plot(abs_coeff_cs[:,1], label = "DF")
-                    coeff_sh_ax.plot(abs_coeff_sh[:,0], label = "CF")
-                    coeff_sh_ax.plot(abs_coeff_sh[:,1], label = "DF")
+                    coeff_cs_ax.plot(abs_coeff_cs[0], label = "CF")
+                    coeff_cs_ax.plot(abs_coeff_cs[1], label = "DF")
+                    coeff_sh_ax.plot(abs_coeff_sh[0], label = "CF")
+                    coeff_sh_ax.plot(abs_coeff_sh[1], label = "DF")
 
                 min_coeff = min(np.min(abs_coeff_cs), np.min(abs_coeff_sh))
                 max_coeff = max(np.max(abs_coeff_cs), np.max(abs_coeff_sh))

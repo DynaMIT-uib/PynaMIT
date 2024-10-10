@@ -36,7 +36,7 @@ class LeastSquares(object):
 
         b_list = self.ensure_list(b)
 
-        solution = [np.tensordot(self.ATWA_plus_R_inv, np.tensordot(self.ATW[i], b_list[i], self.b_dims[i]), self.solution_dims) for i in range(len(self.A))]
+        solution = [np.tensordot(self.ATWA_plus_R_inv_ATW[i], b_list[i], self.b_dims[i]) for i in range(len(self.A))]
 
         return solution
 
@@ -84,3 +84,16 @@ class LeastSquares(object):
             self._ATWA_plus_R_inv = tensor_pinv_positive_semidefinite(ATWA_plus_R, contracted_dims = self.solution_dims, rtol = self.pinv_rtol)
 
         return self._ATWA_plus_R_inv
+    
+    @property
+    def ATWA_plus_R_inv_ATW(self):
+        """
+        Return inverse of the matrix ``A^T W A + R`` multiplied by
+        ``A^T W``.
+
+        """
+
+        if not hasattr(self, '_ATWA_plus_R_inv_ATW'):
+            self._ATWA_plus_R_inv_ATW = [np.tensordot(self.ATWA_plus_R_inv, self.ATW[i], self.solution_dims) for i in range(len(self.A))]
+
+        return self._ATWA_plus_R_inv_ATW
