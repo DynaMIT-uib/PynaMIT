@@ -117,8 +117,7 @@ class BasisEvaluator(object):
         """
 
         if not hasattr(self, '_G_helmholtz'):
-            self._G_helmholtz = np.moveaxis(np.array([-self.G_grad, self.G_rxgrad]), [0,1,2,3], [0,2,1,3])
-
+            self._G_helmholtz = np.stack([-self.G_grad, self.G_rxgrad], axis = 2)
         return self._G_helmholtz
 
     @property
