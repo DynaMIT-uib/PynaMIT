@@ -147,10 +147,10 @@ class BasisEvaluator(object):
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
-                self._L_helmholtz = np.moveaxis(
-                    np.array([[np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))],
-                              [np.zeros((self.basis.index_length, self.basis.index_length)),        np.diag((self.basis.n + 1)/2)]]
-                ), [0,1,2,3], [0,2,1,3])
+                L_cf = np.stack([np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))], axis = 1)
+                L_df = np.stack([np.zeros((self.basis.index_length, self.basis.index_length)), np.diag((self.basis.n + 1)/2)], axis = 1)
+
+                self._L_helmholtz = np.stack([L_cf, L_df])
 
         return self._L_helmholtz
 
