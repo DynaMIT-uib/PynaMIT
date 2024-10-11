@@ -30,7 +30,7 @@ def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
         print('The condition number for the matrix is: {:.1f}'.format(filtered_eigenvalues[-1] / filtered_eigenvalues[0]))
 
     # Compute the pseudoinverse using the filtered eigenvalues and eigenvectors.
-    return np.einsum('ij, j, jk -> ik', filtered_eigenvectors, 1 / filtered_eigenvalues, filtered_eigenvectors.T)
+    return np.einsum('ij, j, jk -> ik', filtered_eigenvectors, 1 / filtered_eigenvalues, filtered_eigenvectors.T, optimize = True)
 
 def tensor_product(A, B, contracted_dims):
     """
@@ -130,7 +130,8 @@ def tensor_outer(A, B, contracted_dims):
     outer = np.einsum(
         'ij,ik->ijk',
         A.reshape((np.prod(first_A_dims), np.prod(last_A_dims))),
-        B.reshape((np.prod(first_B_dims), np.prod(last_B_dims)))
+        B.reshape((np.prod(first_B_dims), np.prod(last_B_dims))),
+        optimize = True
     ).reshape((first_A_dims + last_A_dims + last_B_dims))
 
     return outer

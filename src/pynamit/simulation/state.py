@@ -321,8 +321,8 @@ class State(object):
                 etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
                 etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
-            G_m_ind_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_ind_to_bP_JS) + np.einsum('i,jik->jik', etaH_on_grid, self.m_ind_to_bH_JS)
-            G_m_imp_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_imp_to_bP_JS) + np.einsum('i,jik->jik', etaH_on_grid, self.m_imp_to_bH_JS)
+            G_m_ind_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_ind_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_ind_to_bH_JS, optimize = True)
+            G_m_imp_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_imp_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_imp_to_bH_JS, optimize = True)
 
             self.m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
