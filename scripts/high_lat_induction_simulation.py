@@ -9,8 +9,6 @@ import dipole
 import pyhwm2014 # https://github.com/rilma/pyHWM14
 #import matplotlib.pyplot as plt
 import datetime
-import pyamps
-import apexpy
 
 dataset_filename_prefix = 'data/brn_hl'
 Nmax, Mmax, Ncs = 80, 80, 90
