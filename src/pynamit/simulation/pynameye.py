@@ -44,7 +44,7 @@ class PynamEye(object):
             if os.path.isfile(fn):
                 self.datasets[key] = xr.load_dataset(fn )
             else:
-                raise ValueError('{}.ncdf does not exist'.format(fn))
+                raise ValueError('{} does not exist'.format(fn))
 
         self.mlatlim = mlatlim
         settings = self.datasets['settings'] # shorthand
