@@ -408,7 +408,7 @@ class Dynamics(object):
             if key == 'state':
                 self.state.set_coeffs(m_ind = current_data['m_ind'])
                 self.state.set_coeffs(m_imp = current_data['m_imp'])
-                self.state.E = Vector(basis = self.bases[key], coeffs = np.hstack([current_data['Phi'], current_data['W']]), type = 'tangential')
+                self.state.E = Vector(basis = self.bases[key], coeffs = np.array([current_data['Phi'], current_data['W']]), type = 'tangential')
 
             if key == 'jr':
                 if self.vector_storage[key]:
