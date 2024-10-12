@@ -5,30 +5,42 @@ import polplot
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import dipole
 
 ts = [0, .5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 shape = (5, 4) # layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/data/brn_wind'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/data/brn_hl'
+
 a = pynamit.PynamEye(path)
 
 GLOBAL_TIMESERIES = True
-POLAR_TIMESERIES = False
+POLAR_TIMESERIES  = True
+#EQUATORIAL_EFIELD = True
 
+# which parameter to plot:
+JOULE = False
+BR = True
 EFIELD = False
 
 if GLOBAL_TIMESERIES:
-    fig = plt.figure(figsize = (14, 12))
+    fig = plt.figure(figsize = (14, 10))
 
     for i, t in enumerate(ts):
         a.set_time(t)
         ax = fig.add_subplot(shape[0], shape[1], i + 1, projection = a.get_global_projection())
+
         if EFIELD:
             a.plot_electric_potential(ax, region = 'global')
             a.plot_electric_field_stream_function(ax, region = 'global')
-        else:            
+        
+        if BR:
             a.plot_Br(ax, region = 'global').set_edgecolor('face')
             a.plot_equivalent_current(ax, region = 'global')
+
+        if JOULE:
+            a.plot_joule(ax, region = 'global', levels = np.linspace(-100, 100, 22)*1e-6).set_edgecolor('face')
+
         a.jazz_global_plot(ax, draw_labels = True if i == 0 else False)
         ax.set_title('t={} s'.format(t))
 
@@ -37,9 +49,16 @@ if GLOBAL_TIMESERIES:
     if EFIELD:
         plt.savefig('figures/global_ts_efield.png', dpi = 200)
         plt.savefig('figures/global_ts_efield.pdf')
-    else:
+    
+    if BR:
         plt.savefig('figures/global_ts.png', dpi = 200)
         plt.savefig('figures/global_ts.pdf')
+
+    if JOULE:
+        plt.savefig('figures/global_ts_joule.png', dpi = 200)
+        plt.savefig('figures/global_ts_joule.pdf')
+
+
     plt.show()
 
 
@@ -64,11 +83,16 @@ if POLAR_TIMESERIES:
             a.plot_electric_field_stream_function(ax_left, region = 'north')
             a.plot_electric_potential(ax_right, region = 'south')
             a.plot_electric_field_stream_function(ax_right, region = 'south')
-        else:
+        
+        if BR:
             a.plot_Br(ax_left, region = 'north').set_edgecolor('face')
             a.plot_equivalent_current(ax_left, region = 'north')
             a.plot_Br(ax_right, region = 'south').set_edgecolor('face')
             a.plot_equivalent_current(ax_right, region = 'south')
+
+        if JOULE:
+            a.plot_joule(ax_left, region = 'north', levels = np.linspace(-100, 100, 22)*1e-6).set_edgecolor('face')
+            a.plot_joule(ax_right, region = 'south', levels = np.linspace(-100, 100, 22)*1e-6).set_edgecolor('face')
         
         ax_left.ax.set_title('t={} s'.format(ts[i]), loc = 'right')
 
@@ -94,9 +118,56 @@ if POLAR_TIMESERIES:
     if EFIELD:
         plt.savefig('figures/polar_ts_ef.png', dpi = 250)
         plt.savefig('figures/polar_ts_ef.pdf')
-    else:
+    if BR:
         plt.savefig('figures/polar_ts_mag.png', dpi = 250)
         plt.savefig('figures/polar_ts_mag.pdf')
+    if JOULE:
+        plt.savefig('figures/polar_ts_joule.png', dpi = 250)
+        plt.savefig('figures/polar_ts_joule.pdf')
+
+    plt.show()
+
+
+
+
+
+if EQUATORIAL_EFIELD:
+    mlt  = np.linspace(8, 24 + 8, 361) % 24 
+    dl = np.diff(mlt)[0] * 15 * np.pi / 180 * a.RI
+    mlat = np.full_like(mlt, 0)
+    d = dipole.Dipole(a.time.year)
+
+    fig, ax = plt.subplots()
+    for t in ts:
+        if t == 0:
+            a.set_time(t, steady_state = True)
+        else:
+            a.set_time(t)
+
+        mlon = d.mlt2mlon(mlt, a.time)
+
+        glat, glon, error = a.apx.apex2geo(mlat, mlon, 110)
+
+        grid = pynamit.Grid(lat = glat, lon = glon)
+
+        evaluator = pynamit.BasisEvaluator(a.basis, grid)
+
+        phi = evaluator.basis_to_grid(a.m_Phi)
+
+        Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
+        Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()
+
+        vr = (phi / dl) / Bh
+
+        if t == 0:
+            ax.plot(vr, label = 'steady state', color = 'black', linewidth = 3)
+        else:
+            ax.plot(vr, label = 't={} s'.format(t))
+    ax.set_title('not entirely accurate -- see dl')
+
+    ii = list(map(int, np.linspace(0, len(mlt), 7)))
+    ax.set_xticks(ii)
+    ax.set_xticklabels(['{:.0f}'.format(x) for x in np.hstack((mlt[ii[:-1]], mlt[0]))])
 
     plt.show()
 
