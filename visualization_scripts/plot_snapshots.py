@@ -16,7 +16,7 @@ a = pynamit.PynamEye(path)
 
 GLOBAL_TIMESERIES = True
 POLAR_TIMESERIES  = True
-#EQUATORIAL_EFIELD = True
+EQUATORIAL_EFIELD = False
 
 # which parameter to plot:
 JOULE = False
