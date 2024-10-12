@@ -33,8 +33,8 @@ class PynamEye(object):
             visualziation. Default is 100.
         """
 
-        keys = ['settings', 'conductance', 'state', 'u']
-        filename_suffix = dict(zip(keys, ['_settings', '_conductance', '_state', '_u']))
+        keys = ['settings', 'conductance', 'state', 'u', 'steady_state']
+        filename_suffix = dict(zip(keys, ['_settings', '_conductance', '_state', '_u', '_steady_state']))
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -45,6 +45,11 @@ class PynamEye(object):
                 self.datasets[key] = xr.load_dataset(fn )
             else:
                 raise ValueError('{} does not exist'.format(fn))
+
+        self.datasets['steady_state'] = xr.load_dataset(filename_prefix + '_steady_state.ncdf')
+
+        self.m_imp_to_B_pol = xr.load_dataarray(filename_prefix + '_PFAC_matrix.ncdf').values
+
 
         self.mlatlim = mlatlim
         settings = self.datasets['settings'] # shorthand
@@ -118,8 +123,23 @@ class PynamEye(object):
         self.W_to_dBr_dt  = -self.laplacian * self.RI
         self.m_ind_to_Jeq =  self.RI / mu0 * (2 * n + 1) / (n + 1)
 
+        # calculate matrices to calculate current:
+        self.G_B_pol_to_JS = {}
+        self.G_B_tor_to_JS = {}
+        self.G_m_ind_to_JS = {}
+        self.G_m_imp_to_JS = {}
+        for region in ['global', 'north', 'south']:
+            self.G_B_pol_to_JS[region] = -self.evaluator[region].G_rxgrad * self.basis.delta_internal_external / mu0
+            self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
+            self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
+            self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[region] + np.tensordot(self.G_B_pol_to_JS[region], self.m_imp_to_B_pol, 1)
+
+
+
         self._define_defaults()
         self.set_time(t)
+
+
 
     def derive_E_from_B(self):
         """ Re-calculate E coefficients from B coefficients. If B coefficients
@@ -192,6 +212,7 @@ class PynamEye(object):
         """ Define default settings for various plots """
         self.wind_defaults         = {'color':'black',       'scale':1e3}
         self.conductance_defaults  = {'cmap':plt.cm.viridis, 'levels':np.linspace(0, 20, 22), 'extend':'max'}
+        self.joule_defaults        = {'cmap':plt.cm.bwr,     'levels':np.linspace(-10, 10, 22) * 1e-3, 'extend':'both'}
         self.Br_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
         self.eqJ_defaults          = {'colors':'black',      'levels':np.r_[-210:220:20] * 1e3}
         self.jr_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
@@ -199,7 +220,7 @@ class PynamEye(object):
         self.W_defaults            = {'colors':'orange',     'levels':self.Phi_defaults['levels']}
 
 
-    def set_time(self, t):
+    def set_time(self, t, steady_state = False):
         """ set time for PynamEye object in seconds """
 
         self.t = t
@@ -219,6 +240,10 @@ class PynamEye(object):
         self.m_etaH = self.datasets['conductance'].SH_etaH .sel(time = self.t, method='nearest').values
         self.m_u    = np.vstack(np.split(self.datasets['u'          ].SH_u    .sel(time = self.t, method='nearest').values, 2)).T
         self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
+
+        if steady_state: # override m_ind
+            print('using steady state m_ind -- Phi and W are not updated!')
+            self.m_ind = self.datasets['steady_state'].SH_m_ind.sel(time = self.t, method='nearest').values
 
         if np.any(np.isnan(self.m_ind)):
             print('induced magnetic field coefficients at t = {:.2f} s are nans'.format(t))
@@ -304,6 +329,51 @@ class PynamEye(object):
                 return ax.quiver(lon, lat, east, north, transform = ccrs.PlateCarree(), **kwargs) 
         else:
             raise ValueError('region must be either global, north, or south')
+
+
+    def plot_joule(self, ax, region = 'global', **kwargs):
+        """ plot Joule heating
+
+        Parameters
+        ----------
+        t: float
+            simulation time in seconds
+        ax: matplotlib.axes or Polarplot
+            where to plot - must be either polplot object or axis with PlateCarree project
+        hp: string, optional
+            'h' for Hall, 'p' for Pedersen
+        region: string, optional
+            string, either 'global', 'north', or 'south'
+        kwargs: dict, optional
+            keyword arguments passed to contourf
+        """
+
+        # populate kwargs with default values if not specificed in function call:
+        for key in self.conductance_defaults:
+            if key not in kwargs.keys():
+                kwargs[key] = self.joule_defaults[key]
+
+        # calculate electric field
+        e_coeffs = Vector(self.basis, coeffs = np.array([self.m_Phi, self.m_W]), type = 'tangential')
+        E = e_coeffs.to_grid(self.evaluator[region]) / self.RI 
+        print('todo: is the scaling as expected?')
+
+        # calculate current
+        JS_imp = self.G_m_imp_to_JS[region].dot(self.m_imp)
+        JS_ind = self.G_m_ind_to_JS[region].dot(self.m_ind)
+        JS = np.split(JS_imp + JS_ind, 2) # theta and phi components
+
+        # calculate Joule heating
+        Q = JS[0] * E[0] + JS[1] * E[1]
+        self._Q = Q
+        self._E = E
+        self._JS = JS
+
+
+        # plot:
+        return self._plot_filled_contour(Q, ax, region, **kwargs)
+
+
 
 
     def plot_conductance(self, ax, hp = 'h', region = 'global', **kwargs):
