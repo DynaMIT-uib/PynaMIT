@@ -1,11 +1,13 @@
 import os
-os.environ["MKL_NUM_THREADS"] = "180" 
-os.environ["NUMEXPR_NUM_THREADS"] = "180" 
-os.environ["OMP_NUM_THREADS"] = "180" 
+os.environ["MKL_NUM_THREADS"] = "185" 
+os.environ["NUMEXPR_NUM_THREADS"] = "185" 
+os.environ["OMP_NUM_THREADS"] = "185" 
 import numpy as np
 import pynamit
 from lompe import conductance
 import dipole
+import apexpy
+import pyamps
 import pyhwm2014 # https://github.com/rilma/pyHWM14
 #import matplotlib.pyplot as plt
 import datetime
@@ -67,6 +69,17 @@ mv = dynamics.state.steady_state_m_ind()
 dynamics.state.set_coeffs(m_ind = mv)
 print(datetime.datetime.now(), 'simulating')
 dynamics.evolve_to_time(0)
+
+# set jr:
+apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = 2020)
+mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
+mlt = d.mlon2mlt(mlon, date)
+a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat = 50)
+jr = a.get_upward_current(mlat = mlat, mlt = mlt) * 1e-6
+jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
+dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
+
+
 dynamics.evolve_to_time(421) # save dynamics object with new m_ind
 
 
