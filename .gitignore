@@ -163,6 +163,7 @@ cython_debug/
 _mynotes/
 scripts/simulation/figs
 scripts/simulation/data
+scripts/visualization/figures
 #*.npy
 
 
