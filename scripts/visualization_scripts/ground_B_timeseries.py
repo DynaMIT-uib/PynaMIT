@@ -10,8 +10,8 @@ import apexpy
 
 
 periods = [50, 25, 10, 5, 1]
-state_data_list = [xr.load_dataset('../scripts/oscillations/' + str(p).zfill(2) + 's_state.ncdf') for p in periods]
-settings_list   = [xr.load_dataset('../scripts/oscillations/' + str(p).zfill(2) + 's_settings.ncdf') for p in periods]
+state_data_list = [xr.load_dataset('../simulation/oscillations/' + str(p).zfill(2) + 's_state.ncdf') for p in periods]
+settings_list   = [xr.load_dataset('../simulation/oscillations/' + str(p).zfill(2) + 's_settings.ncdf') for p in periods]
 
 RI = settings_list[0].RI
 sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)

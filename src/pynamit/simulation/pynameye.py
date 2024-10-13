@@ -617,7 +617,7 @@ class PynamEye(object):
 
 
 if __name__ == '__main__':
-    fn = "/".join(os.path.abspath(__file__).split("/")[:-1]) + '/../../../scripts/hdtest'
+    fn = "/".join(os.path.abspath(__file__).split("/")[:-1]) + '/../../../scripts/simulation/hdtest'
     a = PynamEye(fn).set_time(14.92)
 
     a.make_multipanel_output_figure()

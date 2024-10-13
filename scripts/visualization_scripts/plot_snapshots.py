@@ -10,7 +10,7 @@ import dipole
 ts = [0, .5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 shape = (5, 4) # layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/data/brn_hl'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/brn_hl'
 
 a = pynamit.PynamEye(path)
 

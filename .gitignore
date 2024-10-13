@@ -161,8 +161,8 @@ cython_debug/
 
 .DS_Store
 _mynotes/
-scripts/figs
-scripts/data
+scripts/simulation/figs
+scripts/simulation/data
 #*.npy
 
 

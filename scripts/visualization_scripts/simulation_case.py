@@ -5,7 +5,7 @@ import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
 
-path = '../scripts/data/brn' # where the save files are
+path = '../simulation/data/brn' # where the save files are
 
 print(datetime.datetime.now(), 'making PynamEye object')
 a = pynamit.PynamEye(path)

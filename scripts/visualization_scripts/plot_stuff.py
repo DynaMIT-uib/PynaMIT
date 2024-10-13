@@ -6,8 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 #ts = np.linspace(1,240, 40)
-#path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/wind_step'
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/long_step'
+#path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/wind_step'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/long_step'
 a = pynamit.PynamEye(path)
 
 
