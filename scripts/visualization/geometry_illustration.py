@@ -155,8 +155,8 @@ ax.text(RI / np.sqrt(2), RI / np.sqrt(2), '$r = R$', rotation = -45, ha = 'cente
 # #ax.text(x[-35] * (RI + 50), (RI + 50) * np.cos(a[-35]), r'$\mathbf{B} = -\nabla V_B + \hat{\mathbf{r}} \times \nabla T_B$' + '\n' + r'$\mathbf{v}_S = -\nabla W_v + \hat{\mathbf{r}}\times\nabla_S\Phi_V$'  + '\n' + r'$\mathbf{E}_S = -\nabla \Phi_E + \hat{\mathbf{r}}\times\nabla_SW_E$' + '\n' + r'$\mathbf{j} = T_{J_r}(R/r)^2\hat{\mathbf{r}}$' , size = textsize, va = 'center', rotation = -np.rad2deg(a[-35]))
 # #ax.text(x[-35] * (RI + 50), (RI + 20) * np.cos(a[-35]), r'$\mathbf{B} = -\nabla V_B + \hat{\mathbf{r}} \times \nabla T_B$', size = textsize, va = 'center', rotation = -np.rad2deg(a[-35]))
 
-plt.savefig('geometry.png', dpi = 250)
-plt.savefig('geometry.pdf'           )
+plt.savefig('./figures/geometry.png', dpi = 250)
+plt.savefig('./figures/geometry.pdf'           )
 
 
 plt.show()
