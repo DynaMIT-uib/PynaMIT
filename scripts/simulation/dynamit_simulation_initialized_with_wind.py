@@ -71,18 +71,7 @@ dynamics.set_conductance(hall_aurora, pedersen_aurora, lat = conductance_lat, lo
 ## Initialize with zero jr
 dynamics.set_jr(jr = jr*0, lat = jr_lat, lon = jr_lon)
 
-timeseries_keys = list(dynamics.timeseries.keys())
-if 'state' in timeseries_keys:
-    timeseries_keys.remove('state')
-if timeseries_keys is not None:
-    for key in timeseries_keys:
-        dynamics.select_timeseries_data(key, interpolation = False)
-
-print('Calculating steady state', flush = True)
-mv = dynamics.state.steady_state_m_ind()
-dynamics.state.set_coeffs(m_ind = mv)
-
-dynamics.state.impose_constraints()
+dynamics.impose_steady_state()
 
 # Turn jr on and evolve:
 dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)

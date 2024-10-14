@@ -187,12 +187,7 @@ class Dynamics(object):
  
         count = 0
         while True:
-            timeseries_keys = list(self.timeseries.keys())
-            if 'state' in timeseries_keys:
-                timeseries_keys.remove('state')
-            if timeseries_keys is not None:
-                for key in timeseries_keys:
-                    self.select_timeseries_data(key, interpolation = interpolation)
+            self.select_input_data()
 
             self.state.update_Phi_and_W()
 
@@ -241,6 +236,16 @@ class Dynamics(object):
             self.current_time = next_time
 
             count += 1
+
+
+    def impose_steady_state(self):
+        """ Set the system's state to the steady state. """
+
+        self.select_input_data()
+
+        self.state.set_coeffs(m_ind = self.state.steady_state_m_ind())
+
+        self.state.impose_constraints()
 
 
     def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
@@ -438,6 +443,17 @@ class Dynamics(object):
 
             for var in self.vars[key]:
                 self.previous_data[var] = current_data[var]
+
+
+    def select_input_data(self):
+
+        timeseries_keys = list(self.timeseries.keys())
+
+        if 'state' in timeseries_keys:
+            timeseries_keys.remove('state')
+        if timeseries_keys is not None:
+            for key in timeseries_keys:
+                self.select_timeseries_data(key, interpolation = False)
 
 
     def save_dataset(self, dataset, name):

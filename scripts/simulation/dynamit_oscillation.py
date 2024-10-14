@@ -89,18 +89,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     if STEADY_STATE_INITIALIZATION:
         dynamics.set_jr(jr = jr, lat = jr_lat, lon = jr_lon)
 
-        timeseries_keys = list(dynamics.timeseries.keys())
-        if 'state' in timeseries_keys:
-            timeseries_keys.remove('state')
-        if timeseries_keys is not None:
-            for key in timeseries_keys:
-                dynamics.select_timeseries_data(key, interpolation = False)
-
-        print('Calculating steady state', flush = True)
-        mv = dynamics.state.steady_state_m_ind()
-        dynamics.state.set_coeffs(m_ind = mv)
-
-        dynamics.state.impose_constraints()
+        dynamics.impose_steady_state()
 
     # Create array that will store all jr values
     time_values = np.arange(0, FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN, JR_SAMPLING_DT, dtype = np.float64)

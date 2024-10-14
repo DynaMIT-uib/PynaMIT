@@ -56,19 +56,7 @@ def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 
 
 
     if steady_state:
-        dynamics.set_jr(jr = jr, lat = jr_lat, lon = jr_lon)
-
-        timeseries_keys = list(dynamics.timeseries.keys())
-        if 'state' in timeseries_keys:
-            timeseries_keys.remove('state')
-        if timeseries_keys is not None:
-            for key in timeseries_keys:
-                dynamics.select_timeseries_data(key, interpolation = False)
-
-        mv = dynamics.state.steady_state_m_ind()
-        dynamics.state.set_coeffs(m_ind = mv)
-
-        dynamics.state.impose_constraints()
+        dynamics.impose_steady_state()
 
     dynamics.evolve_to_time(t = final_time, dt = dt, sampling_step_interval = 1, saving_sample_interval = plotsteps)
 
