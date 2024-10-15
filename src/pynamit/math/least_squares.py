@@ -23,7 +23,10 @@ class LeastSquares(object):
 
         """
 
-        if not isinstance(x, list):
+        if x is None:
+            x = [None] * len(self.A)
+
+        elif not isinstance(x, list):
             x = [x]
 
         return x
@@ -36,7 +39,7 @@ class LeastSquares(object):
 
         b_list = self.ensure_list(b)
 
-        solution = [np.tensordot(self.ATWA_plus_R_inv_ATW[i], b_list[i], self.b_dims[i]) for i in range(len(self.A))]
+        solution = [np.tensordot(self.ATWA_plus_R_inv_ATW[i], b_list[i], self.b_dims[i]) if b_list[i] is not None else None for i in range(len(self.A))]
 
         return solution
 
@@ -48,11 +51,12 @@ class LeastSquares(object):
         """
 
         if not hasattr(self, '_ATW'):
-
-            if self.weights[0] is not None:
-                self._ATW = [tensor_transpose(tensor_scale_left(self.weights[i], self.A[i]), self.b_dims[i]) for i in range(len(self.A))]
-            else:
-                self._ATW = [tensor_transpose(self.A[i], self.b_dims[i]) for i in range(len(self.A))]
+            self._ATW = []
+            for i in range(len(self.A)):
+                if self.weights[i] is not None:
+                    self._ATW.append(tensor_transpose(tensor_scale_left(self.weights[i], self.A[i]), self.b_dims[i]))
+                else:
+                    self._ATW.append(tensor_transpose(self.A[i], self.b_dims[i]))
 
         return self._ATW
 
@@ -76,10 +80,10 @@ class LeastSquares(object):
         """
 
         if not hasattr(self, '_ATWA_plus_R_inv'):
-            if (self.reg_lambda[0] is not None) and (self.reg_L[0] is not None):
-                ATWA_plus_R = self.ATWA + sum([self.reg_lambda[i] * np.tensordot(tensor_transpose(self.reg_L[i], self.solution_dims), self.reg_L[i], self.solution_dims) for i in range(len(self.A))])
-            else:
-                ATWA_plus_R = self.ATWA
+            ATWA_plus_R = self.ATWA.copy()
+            for i in range(len(self.A)):
+                if self.reg_lambda[i] is not None:
+                    ATWA_plus_R += np.tensordot(tensor_transpose(self.reg_L[i], self.solution_dims), self.reg_L[i], self.solution_dims)
 
             self._ATWA_plus_R_inv = tensor_pinv_positive_semidefinite(ATWA_plus_R, contracted_dims = self.solution_dims, rtol = self.pinv_rtol)
 

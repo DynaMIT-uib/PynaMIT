@@ -257,9 +257,10 @@ class State(object):
                 else:
                     E_coeffs += np.tensordot(self.u_to_E_coeffs_direct, self.u_on_grid, 2)
 
-            constraint_vector_E = -np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, E_coeffs, 2) * self.ih_constraint_scaling
+            constraint_vector_E = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, E_coeffs, 2) * self.ih_constraint_scaling
 
-            m_imp = sum(self.constraints_least_squares.solve([constraint_vector_jr, np.zeros(self.G_jr_ll.shape[0]), constraint_vector_E]))
+            least_squares_solution = self.constraints_least_squares.solve([constraint_vector_jr, None, constraint_vector_E])
+            m_imp = least_squares_solution[0] + least_squares_solution[2]
             
         else:
             m_imp = self.constraints_least_squares.solve(constraint_vector_jr)[0]
@@ -333,12 +334,20 @@ class State(object):
             self.m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
+        constraint_matrices = [self.G_jr_hl]
+        constraint_bs = [self.G_jr_hl]
+
         if self.connect_hemispheres:
-            self.G_E_ll = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2)
+            constraint_matrices.append(self.G_jr_ll)
+            constraint_matrices.append(-np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
 
-            self.constraints_least_squares = LeastSquares([self.G_jr_hl, self.G_jr_ll, self.G_E_ll * self.ih_constraint_scaling], 1)
-            coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), -self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling])
+            constraint_bs.append(None)
+            constraint_bs.append(self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
 
+        self.constraints_least_squares = LeastSquares(constraint_matrices, 1)
+        coefficients_to_m_imp = self.constraints_least_squares.solve(constraint_bs)
+
+        if self.connect_hemispheres:
             self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, coefficients_to_m_imp[2], 1)
 
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs_direct, 2)
@@ -349,9 +358,6 @@ class State(object):
                 self.u_to_E_coeffs = self.u_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.u_to_E_coeffs_direct, 2)
 
         else:
-            self.constraints_least_squares = LeastSquares(self.G_jr_hl, 1)
-            coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
-
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
 
             if self.vector_u:
