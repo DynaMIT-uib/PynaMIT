@@ -237,11 +237,17 @@ class State(object):
 
     
     def impose_constraints(self):
-        """ Impose constraints, if any. Leads to a contribution to m_imp from
+        """
+        Impose constraints, if any. Leads to a contribution to m_imp from
         m_ind if the hemispheres are connected.
 
         """
 
+        if self.vector_jr:
+            constraint_vector_jr = self.jr_coeffs_to_constraint_vector.dot(self.jr.coeffs)
+        else:
+            constraint_vector_jr = self.jr_to_constraint_vector.dot(self.jr_on_grid)
+            
         if self.connect_hemispheres:
             E_coeffs = self.m_ind_to_E_coeffs_direct.dot(self.m_ind.coeffs)
 
@@ -251,15 +257,14 @@ class State(object):
                 else:
                     E_coeffs += np.tensordot(self.u_to_E_coeffs_direct, self.u_on_grid, 2)
 
-            if self.vector_jr:
-                m_imp = sum(self.constraints_least_squares.solve([self.jr_coeffs_to_constraint_vector.dot(self.jr.coeffs), np.zeros(self.G_jr_ll.shape[0]), -np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, E_coeffs, 2) * self.ih_constraint_scaling]))
-            else:
-                m_imp = sum(self.constraints_least_squares.solve([self.jr_to_constraint_vector.dot(self.jr_on_grid), np.zeros(self.G_jr_ll.shape[0]), -np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, E_coeffs, 2) * self.ih_constraint_scaling]))
+            constraint_vector_E = -np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, E_coeffs, 2) * self.ih_constraint_scaling
 
-            self.set_coeffs(m_imp = m_imp)
-
+            m_imp = sum(self.constraints_least_squares.solve([constraint_vector_jr, np.zeros(self.G_jr_ll.shape[0]), constraint_vector_E]))
+            
         else:
-            self.set_coeffs(jr = self.jr.coeffs)
+            m_imp = self.constraints_least_squares.solve(constraint_vector_jr)[0]
+
+        self.set_coeffs(m_imp = m_imp)
 
 
     def set_jr(self, jr):
