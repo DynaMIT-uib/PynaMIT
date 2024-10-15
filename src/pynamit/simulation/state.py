@@ -94,9 +94,10 @@ class State(object):
             print('this should not happen')
 
         self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
+        self.G_jr_hl_pinv = np.linalg.pinv(self.G_jr_hl)
 
         if self.vector_jr:
-            self.jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
+            self.jr_coeffs_to_jr_hl_coeffs = self.G_jr_hl_pinv.dot(self.jr_basis_evaluator.G)
 
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,jklm->iklm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
@@ -214,11 +215,6 @@ class State(object):
 
         """
 
-        if self.vector_jr:
-            self.jr_coeffs_to_constraint_vector = self.G_jr_hl.dot(self.jr_hl_projection)
-        else:
-            self.jr_to_constraint_vector = self.G_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
-
         if self.connect_hemispheres:
             if self.ignore_PFAC:
                 raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
@@ -244,10 +240,12 @@ class State(object):
         """
 
         if self.vector_jr:
-            constraint_vector_jr = self.jr_coeffs_to_constraint_vector.dot(self.jr.coeffs)
+            jr_hl_coeffs = self.jr_coeffs_to_jr_hl_coeffs.dot(self.jr.coeffs)
         else:
-            constraint_vector_jr = self.jr_to_constraint_vector.dot(self.jr_on_grid)
-            
+            jr_hl_coeffs = self.G_jr_hl_pinv.dot(self.jr_on_grid)
+
+        m_imp = self.coefficients_to_m_imp[0].dot(jr_hl_coeffs)
+
         if self.connect_hemispheres:
             E_coeffs = self.m_ind_to_E_coeffs_direct.dot(self.m_ind.coeffs)
 
@@ -257,13 +255,7 @@ class State(object):
                 else:
                     E_coeffs += np.tensordot(self.u_to_E_coeffs_direct, self.u_on_grid, 2)
 
-            constraint_vector_E = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, E_coeffs, 2) * self.ih_constraint_scaling
-
-            least_squares_solution = self.constraints_least_squares.solve([constraint_vector_jr, None, constraint_vector_E])
-            m_imp = least_squares_solution[0] + least_squares_solution[2]
-            
-        else:
-            m_imp = self.constraints_least_squares.solve(constraint_vector_jr)[0]
+            m_imp += np.tensordot(self.coefficients_to_m_imp[2], E_coeffs, 2)
 
         self.set_coeffs(m_imp = m_imp)
 
@@ -345,10 +337,10 @@ class State(object):
             constraint_bs.append(self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
 
         self.constraints_least_squares = LeastSquares(constraint_matrices, 1)
-        coefficients_to_m_imp = self.constraints_least_squares.solve(constraint_bs)
+        self.coefficients_to_m_imp = self.constraints_least_squares.solve(constraint_bs)
 
         if self.connect_hemispheres:
-            self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, coefficients_to_m_imp[2], 1)
+            self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, self.coefficients_to_m_imp[2], 1)
 
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs_direct, 2)
 
@@ -366,9 +358,9 @@ class State(object):
                 self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
 
         if self.vector_jr:
-            self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(self.jr_hl_projection))
+            self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.coefficients_to_m_imp[0].dot(self.jr_coeffs_to_jr_hl_coeffs))
         else:
-            self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(np.linalg.pinv(self.G_jr_hl)))
+            self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.coefficients_to_m_imp[0].dot(self.G_jr_hl_pinv))
 
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
