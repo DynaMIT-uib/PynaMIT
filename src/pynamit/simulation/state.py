@@ -327,7 +327,6 @@ class State(object):
             self.m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
-        # Add low latitude E field constraints, W is the general weighting matrix of the difference between the E field at low latitudes
         if self.connect_hemispheres:
             self.G_E_ll = np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2)
 
@@ -335,16 +334,20 @@ class State(object):
             coefficients_to_m_imp = self.constraints_least_squares.solve([self.G_jr_hl, np.zeros(self.G_jr_ll.shape[0]), -self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling])
 
             self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, coefficients_to_m_imp[2], 1)
+
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs_direct, 2)
+
             if self.vector_u:
                 self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.u_coeffs_to_E_coeffs_direct, 2)
             else:
                 self.u_to_E_coeffs = self.u_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.u_to_E_coeffs_direct, 2)
+
         else:
             self.constraints_least_squares = LeastSquares(self.G_jr_hl, 1)
             coefficients_to_m_imp = self.constraints_least_squares.solve(self.G_jr_hl)
 
             self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
+
             if self.vector_u:
                 self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
             else:
