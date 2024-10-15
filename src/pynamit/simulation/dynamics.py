@@ -171,7 +171,7 @@ class Dynamics(object):
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix))
 
 
-    def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False, interpolation = False):
+    def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
         """
         Evolve to the given time `t`. Will overwrite the values
         corresponding to the start time, to account for any changes in

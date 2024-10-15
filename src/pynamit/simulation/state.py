@@ -84,14 +84,28 @@ class State(object):
         self.m_imp_to_bP_JS = np.einsum('ijk,jkl->ikl', self.bP, self.G_m_imp_to_JS, optimize = True)
         self.m_imp_to_bH_JS = np.einsum('ijk,jkl->ikl', self.bH, self.G_m_imp_to_JS, optimize = True)
 
-        if TRIPLE_PRODUCT and self.vector_conductance:
-            self.prepare_triple_product_tensors()
+        # Identify the high and low latitude points
+        if self.mainfield.kind == 'dipole':
+            self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
+        elif self.mainfield.kind == 'igrf':
+            mlat, _ = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.RI - RE)*1e-3)
+            self.ll_mask = np.abs(mlat) < self.latitude_boundary
+        else:
+            print('this should not happen')
+
+        self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
+
+        if self.vector_jr:
+            self.jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
 
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum('ijk,jklm->iklm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
         else:
             self.u_to_E_coeffs_direct = np.einsum('ijkl,kml->ijml', self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv_ATW[0], self.bu, optimize = True)
+
+        if TRIPLE_PRODUCT and self.vector_conductance:
+            self.prepare_triple_product_tensors()
 
         # Conductance and neutral wind should be set after state initialization
         self.neutral_wind = False
@@ -195,26 +209,21 @@ class State(object):
 
 
     def initialize_constraints(self):
-        """ Initialize constraints.
+        """
+        Initialize constraints.
 
         """
+
+        if self.vector_jr:
+            self.jr_coeffs_to_constraint_vector = self.G_jr_hl.dot(self.jr_hl_projection)
+        else:
+            self.jr_to_constraint_vector = self.G_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
                 raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
             if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
-
-            # Identify the high and low latitude points
-            if self.mainfield.kind == 'dipole':
-                self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
-            elif self.mainfield.kind == 'igrf':
-                mlat, _ = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.RI - RE)*1e-3)
-                self.ll_mask = np.abs(mlat) < self.latitude_boundary
-            else:
-                print('this should not happen')
-
-            self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
 
             G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
             G_jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
@@ -225,15 +234,6 @@ class State(object):
             E_coeffs_to_E_apex_perp    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
             self.E_coeffs_to_E_apex_perp_ll_diff = (E_coeffs_to_E_apex_perp - E_coeffs_to_E_apex_perp_cp)[:,self.ll_mask]
-
-        else:
-            self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G.copy()
-
-        if self.vector_jr:
-            self.jr_hl_projection = np.linalg.pinv(self.G_jr_hl).dot(self.jr_basis_evaluator.G)
-            self.jr_coeffs_to_constraint_vector = self.G_jr_hl.dot(self.jr_hl_projection)
-        else:
-            self.jr_to_constraint_vector = self.G_jr_hl.dot(np.linalg.pinv(self.G_jr_hl))
 
     
     def impose_constraints(self):
@@ -300,6 +300,7 @@ class State(object):
         else:
             self.u_on_grid = u
 
+
     def set_conductance(self, etaP, etaH):
         """
         Specify Hall and Pedersen conductance at
@@ -364,6 +365,7 @@ class State(object):
             self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(coefficients_to_m_imp[0].dot(np.linalg.pinv(self.G_jr_hl)))
 
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
+
 
     def update_Phi_and_W(self):
         """ Update the coefficients for the electric potential and the induction electric field.
