@@ -131,7 +131,7 @@ class BasisEvaluator(object):
             if self.reg_lambda is None:
                 self._L = None
             else:
-                self._L = np.diag(self.basis.n * (self.basis.n + 1))
+                self._L = np.diag(self.basis.n)
 
         return self._L
 
