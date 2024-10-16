@@ -93,7 +93,7 @@ class State(object):
         else:
             print('this should not happen')
 
-        self.G_jr_hl = self.m_imp_to_jr.reshape((1, -1)) * self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
+        self.G_jr_hl = self.basis_evaluator.G * (~self.ll_mask).reshape((-1, 1))
         self.G_jr_hl_pinv = np.linalg.pinv(self.G_jr_hl)
 
         if self.vector_jr:
@@ -223,9 +223,7 @@ class State(object):
 
             G_jr_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
             G_jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
-            G_jr_coeffs_to_j_apex_ll_diff = (G_jr_coeffs_to_j_apex - G_jr_coeffs_to_j_apex_cp)[self.ll_mask]
-
-            self.G_jr_ll = self.m_imp_to_jr.reshape((1, -1)) * G_jr_coeffs_to_j_apex_ll_diff
+            self.jr_coeffs_to_j_apex_ll_diff = (G_jr_coeffs_to_j_apex - G_jr_coeffs_to_j_apex_cp)[self.ll_mask]
 
             E_coeffs_to_E_apex_perp    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
@@ -323,12 +321,12 @@ class State(object):
             m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
         # High-latitude jr constraints
-        constraint_matrices = [self.G_jr_hl]
+        constraint_matrices = [self.G_jr_hl * self.m_imp_to_jr.reshape((1, -1))]
         coeffs_to_constraint_vectors = [self.G_jr_hl]
 
         if self.connect_hemispheres:
             # Low-latitude jr constraints
-            constraint_matrices.append(self.G_jr_ll)
+            constraint_matrices.append(self.jr_coeffs_to_j_apex_ll_diff * self.m_imp_to_jr.reshape((1, -1)))
             coeffs_to_constraint_vectors.append(None)
 
             # Low-latitude E constraints
