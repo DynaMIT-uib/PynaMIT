@@ -240,11 +240,9 @@ class State(object):
         """
 
         if self.vector_jr:
-            jr_hl_coeffs = self.jr_coeffs_to_jr_hl_coeffs.dot(self.jr.coeffs)
+            m_imp = self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
         else:
-            jr_hl_coeffs = self.G_jr_hl_pinv.dot(self.jr_on_grid)
-
-        m_imp = self.coefficients_to_m_imp[0].dot(jr_hl_coeffs)
+            m_imp = self.jr_to_m_imp.dot(self.jr_on_grid)
 
         if self.connect_hemispheres:
             E_coeffs = self.m_ind_to_E_coeffs_direct.dot(self.m_ind.coeffs)
@@ -358,9 +356,11 @@ class State(object):
                 self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
 
         if self.vector_jr:
-            self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.coefficients_to_m_imp[0].dot(self.jr_coeffs_to_jr_hl_coeffs))
+            self.jr_coeffs_to_m_imp = self.coefficients_to_m_imp[0].dot(self.jr_coeffs_to_jr_hl_coeffs)
+            self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
         else:
-            self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.coefficients_to_m_imp[0].dot(self.G_jr_hl_pinv))
+            self.jr_to_m_imp = self.coefficients_to_m_imp[0].dot(self.G_jr_hl_pinv)
+            self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
 
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
