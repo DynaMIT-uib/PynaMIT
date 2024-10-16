@@ -322,14 +322,17 @@ class State(object):
             self.m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
+        # High-latitude jr constraints
         constraint_matrices = [self.G_jr_hl]
         constraint_bs = [self.G_jr_hl]
 
         if self.connect_hemispheres:
+            # Low-latitude jr constraints
             constraint_matrices.append(self.G_jr_ll)
-            constraint_matrices.append(-np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
-
             constraint_bs.append(None)
+
+            # Low-latitude E constraints
+            constraint_matrices.append(-np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
             constraint_bs.append(self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
 
         self.constraints_least_squares = LeastSquares(constraint_matrices, 1)
