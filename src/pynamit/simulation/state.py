@@ -308,8 +308,8 @@ class State(object):
             etaH_on_grid = etaH
 
         if TRIPLE_PRODUCT and self.vector_conductance:
-            self.m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(self.etaP.coeffs) + self.etaH_m_ind_to_E_coeffs.dot(self.etaH.coeffs)
-            self.m_imp_to_E_coeffs = self.etaP_m_imp_to_E_coeffs.dot(self.etaP.coeffs) + self.etaH_m_imp_to_E_coeffs.dot(self.etaH.coeffs)
+            m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(self.etaP.coeffs) + self.etaH_m_ind_to_E_coeffs.dot(self.etaH.coeffs)
+            m_imp_to_E_coeffs = self.etaP_m_imp_to_E_coeffs.dot(self.etaP.coeffs) + self.etaH_m_imp_to_E_coeffs.dot(self.etaH.coeffs)
         
         else:
             if self.vector_conductance:
@@ -319,8 +319,8 @@ class State(object):
             G_m_ind_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_ind_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_ind_to_bH_JS, optimize = True)
             G_m_imp_to_E_direct = np.einsum('i,jik->jik', etaP_on_grid, self.m_imp_to_bP_JS, optimize = True) + np.einsum('i,jik->jik', etaH_on_grid, self.m_imp_to_bH_JS, optimize = True)
 
-            self.m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
-            self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
+            m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
+            m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
         # High-latitude jr constraints
         constraint_matrices = [self.G_jr_hl]
@@ -332,37 +332,37 @@ class State(object):
             coeffs_to_constraint_vectors.append(None)
 
             # Low-latitude E constraints
-            constraint_matrices.append(-np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, self.m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
+            constraint_matrices.append(-np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
             coeffs_to_constraint_vectors.append(self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
 
-        self.constraints_least_squares = LeastSquares(constraint_matrices, 1)
-        self.coeffs_to_m_imp = self.constraints_least_squares.solve(coeffs_to_constraint_vectors)
+        constraints_least_squares = LeastSquares(constraint_matrices, 1)
+        coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
 
         # jr matrices
         if self.vector_jr:
-            self.jr_coeffs_to_m_imp = self.coeffs_to_m_imp[0].dot(self.jr_coeffs_to_jr_hl_coeffs)
-            self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
+            self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(self.jr_coeffs_to_jr_hl_coeffs)
+            self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
         else:
-            self.jr_to_m_imp = self.coeffs_to_m_imp[0].dot(self.G_jr_hl_pinv)
-            self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
+            self.jr_to_m_imp = coeffs_to_m_imp[0].dot(self.G_jr_hl_pinv)
+            self.jr_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
 
         # m_ind matrices
-        self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
+        self.m_ind_to_E_coeffs = m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres:
-            self.m_ind_to_m_imp = np.tensordot(self.coeffs_to_m_imp[2], self.m_ind_to_E_coeffs_direct, 2)
-            self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
+            self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[2], m_ind_to_E_coeffs_direct, 2)
+            self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
         # u matrices
         if self.vector_u:
             self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
             if self.connect_hemispheres:
-                self.u_coeffs_to_m_imp = np.tensordot(self.coeffs_to_m_imp[2], self.u_coeffs_to_E_coeffs_direct, 2)
-                self.u_coeffs_to_E_coeffs += np.tensordot(self.m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
+                self.u_coeffs_to_m_imp = np.tensordot(coeffs_to_m_imp[2], self.u_coeffs_to_E_coeffs_direct, 2)
+                self.u_coeffs_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
         else:
             self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
             if self.connect_hemispheres:
-                self.u_to_m_imp = np.tensordot(self.coeffs_to_m_imp[2], self.u_to_E_coeffs_direct, 2)
-                self.u_to_E_coeffs += np.tensordot(self.m_imp_to_E_coeffs, self.u_to_m_imp, 1)
+                self.u_to_m_imp = np.tensordot(coeffs_to_m_imp[2], self.u_to_E_coeffs_direct, 2)
+                self.u_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_to_m_imp, 1)
 
         # For steady state
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
