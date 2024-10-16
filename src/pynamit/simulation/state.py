@@ -245,15 +245,14 @@ class State(object):
             m_imp = self.jr_to_m_imp.dot(self.jr_on_grid)
 
         if self.connect_hemispheres:
-            E_coeffs = self.m_ind_to_E_coeffs_direct.dot(self.m_ind.coeffs)
+            m_imp += self.m_ind_to_m_imp.dot(self.m_ind.coeffs)
 
             if self.neutral_wind:
                 if self.vector_u:
-                    E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
+                    E_coeffs = np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
                 else:
-                    E_coeffs += np.tensordot(self.u_to_E_coeffs_direct, self.u_on_grid, 2)
-
-            m_imp += np.tensordot(self.coefficients_to_m_imp[2], E_coeffs, 2)
+                    E_coeffs = np.tensordot(self.u_to_E_coeffs_direct, self.u_on_grid, 2)
+                m_imp += np.tensordot(self.coefficients_to_m_imp[2], E_coeffs, 2)
 
         self.set_coeffs(m_imp = m_imp)
 
@@ -340,7 +339,8 @@ class State(object):
         if self.connect_hemispheres:
             self.E_coeffs_direct_to_E_coeffs_constraints = np.tensordot(self.m_imp_to_E_coeffs, self.coefficients_to_m_imp[2], 1)
 
-            self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.m_ind_to_E_coeffs_direct, 2)
+            self.m_ind_to_m_imp = np.tensordot(self.coefficients_to_m_imp[2], self.m_ind_to_E_coeffs_direct, 2)
+            self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct + self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
             if self.vector_u:
                 self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct + np.tensordot(self.E_coeffs_direct_to_E_coeffs_constraints, self.u_coeffs_to_E_coeffs_direct, 2)
