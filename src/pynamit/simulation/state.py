@@ -335,14 +335,7 @@ class State(object):
         self.constraints_least_squares = LeastSquares(constraint_matrices, 1)
         self.coefficients_to_m_imp = self.constraints_least_squares.solve(constraint_bs)
 
-        self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
-
-        if self.vector_u:
-            self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
-        else:
-            self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
-
-        # Constraint matrices
+        # jr matrices
         if self.vector_jr:
             self.jr_coeffs_to_m_imp = self.coefficients_to_m_imp[0].dot(self.jr_coeffs_to_jr_hl_coeffs)
             self.jr_coeffs_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
@@ -350,17 +343,25 @@ class State(object):
             self.jr_to_m_imp = self.coefficients_to_m_imp[0].dot(self.G_jr_hl_pinv)
             self.jr_to_E_coeffs = self.m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
 
+        # m_ind matrices
+        self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres:
             self.m_ind_to_m_imp = np.tensordot(self.coefficients_to_m_imp[2], self.m_ind_to_E_coeffs_direct, 2)
             self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
-            if self.vector_u:
+        # u matrices
+        if self.vector_u:
+            self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
+            if self.connect_hemispheres:
                 self.u_coeffs_to_m_imp = np.tensordot(self.coefficients_to_m_imp[2], self.u_coeffs_to_E_coeffs_direct, 2)
                 self.u_coeffs_to_E_coeffs += np.tensordot(self.m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
-            else:
+        else:
+            self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
+            if self.connect_hemispheres:
                 self.u_to_m_imp = np.tensordot(self.coefficients_to_m_imp[2], self.u_to_E_coeffs_direct, 2)
                 self.u_to_E_coeffs += np.tensordot(self.m_imp_to_E_coeffs, self.u_to_m_imp, 1)
 
+        # For steady state
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
 
