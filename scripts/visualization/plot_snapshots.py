@@ -10,17 +10,17 @@ import dipole
 ts = [0, .5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 shape = (5, 4) # layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/brn_hl'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/data/brn_wind'
 
 a = pynamit.PynamEye(path)
 
 GLOBAL_TIMESERIES = True
-POLAR_TIMESERIES  = True
+POLAR_TIMESERIES  = False
 EQUATORIAL_EFIELD = False
 
 # which parameter to plot:
-JOULE = False
-BR = True
+JOULE = True
+BR = False
 EFIELD = False
 
 if GLOBAL_TIMESERIES:
@@ -157,9 +157,9 @@ if EQUATORIAL_EFIELD:
         Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
         Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()
 
-        vr = (phi / dl) / Bh
+        vr = (np.diff(phi) / dl) / Bh[:-1]
 
-        if t == 0:
+        if t == ts[-1]:
             ax.plot(vr, label = 'steady state', color = 'black', linewidth = 3)
         else:
             ax.plot(vr, label = 't={} s'.format(t))
