@@ -332,8 +332,8 @@ class State(object):
             coeffs_to_constraint_vectors.append(None)
 
             # Low-latitude E constraints
-            constraint_matrices.append(-np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
-            coeffs_to_constraint_vectors.append(self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
+            constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
+            coeffs_to_constraint_vectors.append(-self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
 
         constraints_least_squares = LeastSquares(constraint_matrices, 1)
         coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
