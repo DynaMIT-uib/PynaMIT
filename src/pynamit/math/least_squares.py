@@ -1,5 +1,5 @@
 import numpy as np
-from pynamit.math.tensor_operations import tensor_pinv_positive_semidefinite, tensor_scale_left, tensor_transpose
+from pynamit.math.tensor_operations import tensor_pinv, tensor_scale_left, tensor_transpose
 
 class LeastSquares(object):
     """
@@ -85,7 +85,7 @@ class LeastSquares(object):
                 if self.reg_lambda[i] is not None:
                     ATWA_plus_R += np.tensordot(tensor_transpose(self.reg_L[i], self.solution_dims), self.reg_L[i], self.solution_dims)
 
-            self._ATWA_plus_R_inv = tensor_pinv_positive_semidefinite(ATWA_plus_R, contracted_dims = self.solution_dims, rtol = self.pinv_rtol)
+            self._ATWA_plus_R_inv = tensor_pinv(ATWA_plus_R, contracted_dims = self.solution_dims, rtol = self.pinv_rtol, hermitian = True)
 
         return self._ATWA_plus_R_inv
     
