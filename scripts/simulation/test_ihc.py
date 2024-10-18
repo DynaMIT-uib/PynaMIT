@@ -83,8 +83,8 @@ dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weigh
 dynamics.update_conductance()
 dynamics.update_u()
 dynamics.update_jr()
-dynamics.state.impose_constraints()
-dynamics.state.update_Phi_and_W()
+dynamics.state.update_m_imp()
+dynamics.state.update_E()
 
 ## SET UP PLOTTING GRID AND EVALUATORS
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
@@ -149,7 +149,7 @@ if SIMULATE:
 
             W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
 
-            dynamics.state.update_Phi_and_W()
+            dynamics.state.update_E()
             Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
 
             #paxn.contour(dynamics.state_grid.lat.flatten()[nnn], (dynamics.state_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)

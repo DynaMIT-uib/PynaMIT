@@ -64,7 +64,7 @@ dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weigh
 dynamics.update_conductance()
 dynamics.update_u()
 dynamics.update_jr()
-dynamics.state.impose_constraints()
+dynamics.state.update_m_imp()
 
 #### MODEL OBJECT DONE
 def debugplot(dynamics, title = None, filename = None, noon_longitude = 0):

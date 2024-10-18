@@ -37,7 +37,8 @@ class Dynamics(object):
                  vector_jr = True,
                  vector_conductance = True,
                  vector_u = True,
-                 t0 = '2020-01-01 00:00:00'):
+                 t0 = '2020-01-01 00:00:00',
+                 save_steady_states = True):
         """
 
         Parameters
@@ -80,6 +81,7 @@ class Dynamics(object):
             'vector_conductance':     int(vector_conductance),
             'vector_u':               int(vector_u),
             't0':                     t0,
+            'save_steady_states':     int(save_steady_states),
         })
 
         # Overwrite settings with any settings existing on file
@@ -170,6 +172,8 @@ class Dynamics(object):
             self.save_dataset(self.state.m_imp_to_B_pol, 'PFAC_matrix')
             print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix))
 
+        self.save_steady_states = bool(settings.save_steady_states)
+
 
     def evolve_to_time(self, t, dt = np.float64(5e-4), sampling_step_interval = 200, saving_sample_interval = 10, quiet = False):
         """
@@ -189,16 +193,16 @@ class Dynamics(object):
         while True:
             self.select_input_data()
 
-            self.state.update_Phi_and_W()
+            self.state.update_E()
 
             if count % sampling_step_interval == 0:
-                self.state.impose_constraints()
+                # Append current state to time series
+                self.state.update_m_imp()
 
-                # Add current state to time series
                 current_state_dataset = xr.Dataset(
                     data_vars = {
-                        self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
+                        self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
                         self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[0].reshape((1, -1))),
                         self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[1].reshape((1, -1))),
                     },
@@ -207,25 +211,40 @@ class Dynamics(object):
 
                 self.add_to_timeseries(current_state_dataset, 'state')
 
-                # Calculate and add current steady state to time series
-                current_dataset = xr.Dataset(
-                    data_vars = {
-                        self.bases['steady_state'].short_name + '_m_ind': (['i'], self.state.steady_state_m_ind()),
-                    },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['steady_state'], dim = 'i').merge({'time': [self.current_time]})
-                )
+                if self.save_steady_states:
+                    # Calculate and append current steady state to time series
+                    steady_state_m_ind = self.state.steady_state_m_ind()
+                    steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
+                    steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
 
-                self.add_to_timeseries(current_dataset, 'steady_state')
+                    current_steady_state_dataset = xr.Dataset(
+                        data_vars = {
+                            self.bases['steady_state'].short_name + '_m_ind': (['i'], steady_state_m_ind),
+                            self.bases['steady_state'].short_name + '_m_imp': (['i'], steady_state_m_imp),
+                            self.bases['steady_state'].short_name + '_Phi':   (['i'], steady_state_E_coeffs[0]),
+                            self.bases['steady_state'].short_name + '_W':     (['i'], steady_state_E_coeffs[1]),
+                        },
+                        coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['steady_state'], dim = 'i').merge({'time': [self.current_time]})
+                    )
+
+                    self.add_to_timeseries(current_steady_state_dataset, 'steady_state')
 
                 # Save state and steady state time series
                 if (count % (sampling_step_interval * saving_sample_interval) == 0):
                     self.save_timeseries('state')
-                    self.save_timeseries('steady_state')
 
                     if quiet:
                         pass
                     else:
-                        print('Saved output at t = {:.2f} s'.format(self.current_time), end = '\r')
+                        print('Saved state at t = {:.2f} s'.format(self.current_time), end = '\r')
+
+                    if self.save_steady_states:
+                        self.save_timeseries('steady_state')
+
+                        if quiet:
+                            pass
+                        else:
+                            print('Saved steady state at t = {:.2f} s'.format(self.current_time), end = '\r')
 
             next_time = self.current_time + dt
 
@@ -245,7 +264,7 @@ class Dynamics(object):
 
         self.state.set_coeffs(m_ind = self.state.steady_state_m_ind())
 
-        self.state.impose_constraints()
+        self.state.update_m_imp()
 
 
     def set_FAC(self, FAC, lat = None, lon = None, theta = None, phi = None, time = None, weights = None, reg_lambda = None, pinv_rtol = 1e-15):
@@ -381,6 +400,8 @@ class Dynamics(object):
     def select_timeseries_data(self, key, interpolation = False):
         """ Select time series data corresponding to the latest time. """
 
+        input_selected = False
+
         if np.any(self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
@@ -403,7 +424,7 @@ class Dynamics(object):
 
         else:
             # No data available before the current time
-            return
+            return input_selected
 
         if not hasattr(self, 'previous_data'):
             self.previous_data = {}
@@ -444,8 +465,12 @@ class Dynamics(object):
             for var in self.vars[key]:
                 self.previous_data[var] = current_data[var]
 
+            input_selected = True
+
+        return input_selected
 
     def select_input_data(self):
+        """ Select input data corresponding to the latest time. """
 
         timeseries_keys = list(self.timeseries.keys())
 

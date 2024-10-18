@@ -229,11 +229,10 @@ class State(object):
             E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
             self.E_coeffs_to_E_apex_perp_ll_diff = (E_coeffs_to_E_apex_perp - E_coeffs_to_E_apex_perp_cp)[:,self.ll_mask]
 
-    
-    def impose_constraints(self):
+
+    def calculate_m_imp(self, m_ind):
         """
-        Impose constraints, if any. Leads to a contribution to m_imp from
-        m_ind if the hemispheres are connected.
+        Calculate m_imp.
 
         """
 
@@ -243,7 +242,7 @@ class State(object):
             m_imp = self.jr_to_m_imp.dot(self.jr_on_grid)
 
         if self.connect_hemispheres:
-            m_imp += self.m_ind_to_m_imp.dot(self.m_ind.coeffs)
+            m_imp += self.m_ind_to_m_imp.dot(m_ind)
 
             if self.neutral_wind:
                 if self.vector_u:
@@ -251,6 +250,17 @@ class State(object):
                 else:
                     m_imp += np.tensordot(self.u_to_m_imp, self.u_on_grid, 2)
 
+        return m_imp
+
+
+    def update_m_imp(self):
+        """
+        Impose constraints, if any. Leads to a contribution to m_imp from
+        m_ind if the hemispheres are connected.
+
+        """
+
+        m_imp = self.calculate_m_imp(self.m_ind.coeffs)
         self.set_coeffs(m_imp = m_imp)
 
 
@@ -366,12 +376,12 @@ class State(object):
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
 
-    def update_Phi_and_W(self):
-        """ Update the coefficients for the electric potential and the induction electric field.
+    def calculate_E_coeffs(self, m_ind):
+        """ Calculate the coefficients for the electric field.
 
         """
 
-        E_coeffs_m_ind = self.m_ind_to_E_coeffs.dot(self.m_ind.coeffs)
+        E_coeffs_m_ind = self.m_ind_to_E_coeffs.dot(m_ind)
 
         if self.vector_jr:
             E_coeffs_jr = self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
@@ -386,6 +396,15 @@ class State(object):
             else:
                 E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
 
+        return E_coeffs
+
+
+    def update_E(self):
+        """ Update the coefficients for the electric potential and the induction electric field.
+
+        """
+
+        E_coeffs = self.calculate_E_coeffs(self.m_ind.coeffs)
         self.E = Vector(self.basis, coeffs = E_coeffs, type = 'tangential')
 
 
