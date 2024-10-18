@@ -22,7 +22,7 @@ d = dipole.Dipole(date.year)
 noon_longitude = d.mlt2mlon(12, date) # noon longitude
 noon_mlon = d.mlt2mlon(12, date) # noon longitude
 
-print(datetime.datetime.now(), 'making dynamics object')
+print(datetime.datetime.now(), 'making dynamics object', flush = True)
 
 ## SET UP SIMULATION OBJECT
 dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
@@ -38,10 +38,10 @@ dynamics = pynamit.Dynamics(dataset_filename_prefix = dataset_filename_prefix,
                             ih_constraint_scaling = 1e-5,
                             t0 = str(date))
 
-print(datetime.datetime.now(), 'made dynamics object')
+print(datetime.datetime.now(), 'made dynamics object', flush = True)
 
 ## INPUT: Conductance
-print(datetime.datetime.now(), 'setting conductance')
+print(datetime.datetime.now(), 'setting conductance', flush = True)
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = False)
@@ -49,7 +49,7 @@ hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, dat
 dynamics.set_conductance(hall, pedersen, lat = conductance_lat, lon = conductance_lon, reg_lambda = 0.001)
 
 ## INPUT: Jr
-print(datetime.datetime.now(), 'setting Jr at t=0')
+print(datetime.datetime.now(), 'setting Jr at t=0', flush = True)
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 apx = apexpy.Apex(refh = (RI - RE) * 1e-3, date = date.year)
@@ -63,7 +63,7 @@ jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
 dynamics.set_jr(jr * 0, lat = jr_lat, lon = jr_lon)
 
 ## INPUT: Wind
-print(datetime.datetime.now(), 'setting wind')
+print(datetime.datetime.now(), 'setting wind', flush = True)
 hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glatstp = 1.5,
                              glonlim=[-180., 180.], glonstp = 3., option = 6, verbose = False, ut = date.hour + date.minute/60, day = date.timetuple().tm_yday)
 
@@ -74,11 +74,11 @@ dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weigh
 
 
 # EVOLVE
-print(datetime.datetime.now(), 'Starting simulation')
+print(datetime.datetime.now(), 'Starting simulation', flush = True)
 dynamics.evolve_to_time(simulation_time)
 dynamics.impose_steady_state()
 
-print(datetime.datetime.now(), 'Simulated {} seconds - switching on Jr'.format(simulation_time))
+print(datetime.datetime.now(), 'Simulated {} seconds - switching on Jr'.format(simulation_time), flush = True)
 dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 dynamics.evolve_to_time(2*simulation_time)
 
