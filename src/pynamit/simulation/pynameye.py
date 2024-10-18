@@ -238,7 +238,7 @@ class PynamEye(object):
         self.m_Phi  = self.datasets['state'      ].SH_Phi  .sel(time = self.t, method='nearest').values * self.RI
         self.m_etaP = self.datasets['conductance'].SH_etaP .sel(time = self.t, method='nearest').values
         self.m_etaH = self.datasets['conductance'].SH_etaH .sel(time = self.t, method='nearest').values
-        self.m_u    = np.vstack(np.split(self.datasets['u'          ].SH_u    .sel(time = self.t, method='nearest').values, 2)).T
+        self.m_u    = np.vstack(np.split(self.datasets['u'          ].SH_u    .sel(time = self.t, method='nearest').values, 2))
         self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
 
         if steady_state: # override m_ind
@@ -431,7 +431,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.wind_defaults[key]
 
-        utheta, uphi = self.u_basis_evaluator.basis_to_grid(self.m_u, helmholtz = True).T
+        utheta, uphi = self.u_basis_evaluator.basis_to_grid(self.m_u, helmholtz = True)
 
         return self._quiver(uphi, -utheta, ax, region, **kwargs)
 
