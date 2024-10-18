@@ -166,11 +166,11 @@ class Dynamics(object):
 
         if not settings_on_file:
             self.save_dataset(settings, 'settings')
-            print('Saved settings to {}_settings.ncdf'.format(self.dataset_filename_prefix))
+            print('Saved settings to {}_settings.ncdf'.format(self.dataset_filename_prefix), flush = True)
 
         if not PFAC_matrix_on_file:
             self.save_dataset(self.state.m_imp_to_B_pol, 'PFAC_matrix')
-            print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix))
+            print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix), flush = True)
 
         self.save_steady_states = bool(settings.save_steady_states)
 
@@ -236,7 +236,7 @@ class Dynamics(object):
                     if quiet:
                         pass
                     else:
-                        print('Saved state at t = {:.2f} s'.format(self.current_time), end = '\r')
+                        print('Saved state at t = {:.2f} s'.format(self.current_time), end = '\r', flush = True)
 
                     if self.save_steady_states:
                         self.save_timeseries('steady_state')
@@ -244,7 +244,7 @@ class Dynamics(object):
                         if quiet:
                             pass
                         else:
-                            print('Saved steady state at t = {:.2f} s'.format(self.current_time), end = '\r')
+                            print('Saved steady state at t = {:.2f} s'.format(self.current_time), end = '\r', flush = True)
 
             next_time = self.current_time + dt
 
