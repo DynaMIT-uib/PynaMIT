@@ -144,7 +144,7 @@ class State(object):
                 JS_shifted_to_B_pol_shifted = tensor_pinv(self.G_B_pol_to_JS, contracted_dims = 2, rtol = 0)
 
                 for i in range(r_k.size):
-                    print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n')
+                    print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n', flush = True)
                     # Map coordinates from r_k[i] to RI:
                     theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, r_k[i], self.grid.theta, self.grid.phi)
                     mapped_grid = Grid(theta = theta_mapped, phi = phi_mapped)
