@@ -236,7 +236,7 @@ class Dynamics(object):
                     if quiet:
                         pass
                     else:
-                        print('Saved state at t = {:.2f} s'.format(self.current_time), end = '\r', flush = True)
+                        print('Saved state at t = {:.2f} s'.format(self.current_time), end = '\n' if self.save_steady_states else '\r', flush = True)
 
                     if self.save_steady_states:
                         self.save_timeseries('steady_state')
@@ -244,11 +244,15 @@ class Dynamics(object):
                         if quiet:
                             pass
                         else:
-                            print('Saved steady state at t = {:.2f} s'.format(self.current_time), end = '\r', flush = True)
+                            print('Saved steady state at t = {:.2f} s'.format(self.current_time), end = '\x1b[F', flush = True)
 
             next_time = self.current_time + dt
 
             if next_time > t + FLOAT_ERROR_MARGIN:
+                if quiet:
+                    pass
+                else:
+                    print('\n\n')
                 break
 
             self.state.evolve_Br(dt)
