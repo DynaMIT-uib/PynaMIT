@@ -1,5 +1,4 @@
 import numpy as np
-from pynamit.math.tensor_operations import tensor_pinv, tensor_scale_left, tensor_transpose
 
 class LeastSquares(object):
     """
@@ -16,6 +15,19 @@ class LeastSquares(object):
         self.pinv_rtol = pinv_rtol
 
         self.b_dims = [len(self.A[i].shape) - solution_dims for i in range(len(self.A))]
+
+        self.b_original_shape = [self.A[i].shape[:self.b_dims[i]] for i in range(len(self.A))]
+        self.b_compound_size = [np.prod(self.b_original_shape[i]) for i in range(len(self.A))]
+
+        self.solution_original_shape = [self.A[i].shape[self.b_dims[i]:] for i in range(len(self.A))]
+        self.solution_compound_size = [np.prod(self.solution_original_shape[i]) for i in range(len(self.A))]
+
+        for i in range(len(self.A)):
+            self.A[i] = self.A[i].reshape((self.b_compound_size[i], self.solution_compound_size[i]))
+            if self.weights[i] is not None:
+                self.weights[i] = self.weights[i].reshape((self.b_compound_size[i], 1))
+            if self.reg_L[i] is not None:
+                self.reg_L[i] = self.reg_L[i].reshape((self.solution_compound_size[i], self.solution_compound_size[i]))
 
     def ensure_list(self, x):
         """
@@ -39,7 +51,26 @@ class LeastSquares(object):
 
         b_list = self.ensure_list(b)
 
-        solution = [np.tensordot(self.ATWA_plus_R_inv_ATW[i], b_list[i], self.b_dims[i]) if b_list[i] is not None else None for i in range(len(self.A))]
+        b_remaining_original_shape = [b_list[i].shape[self.b_dims[i]:] if ((b_list[i] is not None) and (len(b_list[i].shape) > self.b_dims[i])) else None for i in range(len(self.A))]
+        b_remaining_compound_size = [np.prod(b_remaining_original_shape[i]) if b_remaining_original_shape[i] is not None else None for i in range(len(self.A))]
+
+        for i in range(len(self.A)):
+            if b_list[i] is not None:
+                if b_remaining_compound_size[i] is not None:
+                    b_list[i] = b_list[i].reshape((self.b_compound_size[i], b_remaining_compound_size[i]))
+                else:
+                    b_list[i] = b_list[i].reshape((self.b_compound_size[i]))
+            else:
+                b_list[i] = None
+
+        solution = [np.dot(self.ATWA_plus_R_inv_ATW[i], b_list[i]) if b_list[i] is not None else None for i in range(len(self.A))]
+
+        for i in range(len(self.A)):
+            if solution[i] is not None:
+                if b_remaining_compound_size[i] is not None:
+                    solution[i] = solution[i].reshape((self.solution_original_shape[i] + b_remaining_original_shape[i]))
+                else:
+                    solution[i] = solution[i].reshape((self.solution_original_shape[i]))
 
         return solution
 
@@ -54,9 +85,9 @@ class LeastSquares(object):
             self._ATW = []
             for i in range(len(self.A)):
                 if self.weights[i] is not None:
-                    self._ATW.append(tensor_transpose(tensor_scale_left(self.weights[i], self.A[i]), self.b_dims[i]))
+                    self._ATW.append((self.weights[i] * self.A[i]).T)
                 else:
-                    self._ATW.append(tensor_transpose(self.A[i], self.b_dims[i]))
+                    self._ATW.append(self.A[i].T)
 
         return self._ATW
 
@@ -68,7 +99,7 @@ class LeastSquares(object):
         """
 
         if not hasattr(self, '_ATWA'):
-            self._ATWA = sum([np.tensordot(self.ATW[i], self.A[i], self.b_dims[i]) for i in range(len(self.A))])
+            self._ATWA = sum([np.dot(self.ATW[i], self.A[i]) for i in range(len(self.A))])
 
         return self._ATWA
 
@@ -83,9 +114,9 @@ class LeastSquares(object):
             ATWA_plus_R = self.ATWA.copy()
             for i in range(len(self.A)):
                 if self.reg_lambda[i] is not None:
-                    ATWA_plus_R += np.tensordot(tensor_transpose(self.reg_L[i], self.solution_dims), self.reg_L[i], self.solution_dims)
+                    ATWA_plus_R += np.dot(self.reg_L[i].T, self.reg_L[i])
 
-            self._ATWA_plus_R_inv = tensor_pinv(ATWA_plus_R, contracted_dims = self.solution_dims, rtol = self.pinv_rtol, hermitian = True)
+            self._ATWA_plus_R_inv = np.linalg.pinv(ATWA_plus_R, rcond = self.pinv_rtol, hermitian = True)
 
         return self._ATWA_plus_R_inv
     
@@ -98,6 +129,6 @@ class LeastSquares(object):
         """
 
         if not hasattr(self, '_ATWA_plus_R_inv_ATW'):
-            self._ATWA_plus_R_inv_ATW = [np.tensordot(self.ATWA_plus_R_inv, self.ATW[i], self.solution_dims) for i in range(len(self.A))]
+            self._ATWA_plus_R_inv_ATW = [np.dot(self.ATWA_plus_R_inv, self.ATW[i]) for i in range(len(self.A))]
 
         return self._ATWA_plus_R_inv_ATW
