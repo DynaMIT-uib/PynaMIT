@@ -8,9 +8,12 @@ from matplotlib.gridspec import GridSpec
 import dipole
 
 ts = [0, .5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
+DT = 480  #an offset to apply to all the ts
+filename_prefix = 'fac'
 shape = (5, 4) # layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
-path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/data/brn_wind'
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/pynamit_paper_simulation'
+#path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/steady_state'
 
 a = pynamit.PynamEye(path)
 
@@ -18,45 +21,42 @@ GLOBAL_TIMESERIES = True
 POLAR_TIMESERIES  = False
 EQUATORIAL_EFIELD = False
 
-# which parameter to plot:
-JOULE = True
-BR = False
-EFIELD = False
 
 if GLOBAL_TIMESERIES:
-    fig = plt.figure(figsize = (14, 10))
 
-    for i, t in enumerate(ts):
-        a.set_time(t)
-        ax = fig.add_subplot(shape[0], shape[1], i + 1, projection = a.get_global_projection())
-
-        if EFIELD:
-            a.plot_electric_potential(ax, region = 'global')
-            a.plot_electric_field_stream_function(ax, region = 'global')
-        
-        if BR:
-            a.plot_Br(ax, region = 'global').set_edgecolor('face')
-            a.plot_equivalent_current(ax, region = 'global')
-
-        if JOULE:
-            a.plot_joule(ax, region = 'global', levels = np.linspace(-100, 100, 22)*1e-6).set_edgecolor('face')
-
-        a.jazz_global_plot(ax, draw_labels = True if i == 0 else False)
-        ax.set_title('t={} s'.format(t))
-
-
-    plt.tight_layout()
-    if EFIELD:
-        plt.savefig('figures/global_ts_efield.png', dpi = 200)
-        plt.savefig('figures/global_ts_efield.pdf')
+    fig_E = plt.figure(figsize = (14, 10))
+    fig_B = plt.figure(figsize = (14, 10))
+    fig_Q = plt.figure(figsize = (14, 10))
     
-    if BR:
-        plt.savefig('figures/global_ts.png', dpi = 200)
-        plt.savefig('figures/global_ts.pdf')
+    for i, t in enumerate(ts):
+        a.set_time(t + DT)
+        ax_E = fig_E.add_subplot(shape[0], shape[1], i + 1, projection = a.get_global_projection())
+        ax_B = fig_B.add_subplot(shape[0], shape[1], i + 1, projection = a.get_global_projection())
+        ax_Q = fig_Q.add_subplot(shape[0], shape[1], i + 1, projection = a.get_global_projection())
 
-    if JOULE:
-        plt.savefig('figures/global_ts_joule.png', dpi = 200)
-        plt.savefig('figures/global_ts_joule.pdf')
+        a.plot_electric_potential(ax_E, region = 'global')
+        a.plot_electric_field_stream_function(ax_E, region = 'global')
+
+        a.plot_Br(ax_B, region = 'global').set_edgecolor('face')
+        a.plot_equivalent_current(ax_B, region = 'global')
+
+        a.plot_joule(ax_Q, region = 'global', levels = np.linspace(-100, 100, 22)*1e-6).set_edgecolor('face')
+
+        for ax in [ax_E, ax_B, ax_Q]:
+            a.jazz_global_plot(ax, draw_labels = True if i == 0 else False, draw_coastlines = True if i == 0 else False)
+            ax.set_title('t={} s'.format(t))
+
+    for fig in [fig_E, fig_B, fig_Q]:
+        fig.tight_layout()
+
+    fig_E.savefig('figures/global_ts_' + filename_prefix + '_efield.png', dpi = 200)
+    fig_E.savefig('figures/global_ts_' + filename_prefix + '_efield.pdf')
+
+    fig_B.savefig('figures/global_ts_' + filename_prefix + '_bfield.png', dpi = 200)
+    fig_B.savefig('figures/global_ts_' + filename_prefix + '_bfield.pdf')
+
+    fig_Q.savefig('figures/global_ts_' + filename_prefix + '_joule.png', dpi = 200)
+    fig_Q.savefig('figures/global_ts_' + filename_prefix + '_joule.pdf')
 
 
     plt.show()
