@@ -9,7 +9,7 @@ import pyamps
 import apexpy
 
 dataset_filename_prefix = 'data/pynamit_paper_simulation'
-Nmax, Mmax, Ncs = change to 90, 90, 100
+Nmax, Mmax, Ncs = 90, 90, 100
 simulation_time = 480
 latitude_boundary = 45
 RE = 6371.2e3
