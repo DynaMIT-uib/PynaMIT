@@ -103,7 +103,7 @@ class State(object):
             u_coeffs_to_uxB = np.einsum('ijk,jklm->iklm', self.bu, self.u_basis_evaluator.G_helmholtz, optimize = True)
             self.u_coeffs_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
         else:
-            self.u_to_E_coeffs_direct = np.einsum('ijkl,kml->ijml', self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv_ATW[0].reshape((self.basis_evaluator.least_squares_helmholtz.solution_original_shape[0] + self.basis_evaluator.least_squares_helmholtz.b_original_shape[0])), self.bu, optimize = True)
+            self.u_to_E_coeffs_direct = np.einsum('ijkl,kml->ijml', self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv_ATW[0].reshape((self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[1] + self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[0])), self.bu, optimize = True)
 
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.prepare_triple_product_tensors()
