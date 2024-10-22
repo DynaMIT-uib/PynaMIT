@@ -9,8 +9,8 @@ import pyamps
 import apexpy
 
 dataset_filename_prefix = 'data/pynamit_paper_simulation'
-Nmax, Mmax, Ncs = 15, 15, 20 # change to 90, 90, 100
-simulation_time = 5 # change to 480
+Nmax, Mmax, Ncs = change to 90, 90, 100
+simulation_time = 480
 latitude_boundary = 45
 RE = 6371.2e3
 RI = RE + 110e3
@@ -70,7 +70,7 @@ hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-88.5, 88.5], glats
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing = 'ij')
 
-dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)))
+dynamics.set_u(u_theta = u_theta, u_phi = u_phi, lat = u_lat, lon = u_lon, weights = np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)), reg_lambda = 0.001)
 
 
 # EVOLVE
