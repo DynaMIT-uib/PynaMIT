@@ -87,9 +87,6 @@ for period in PERIODS:
     jr_sampling_dt = period / 50
     simulation_duration = TAPERING_TIME + NUMBER_OF_OSCILLATIONS * period
 
-    ## IMPOSE STEADY STATE
-    print(datetime.datetime.now(), 'Imposing steady state before simulating period {} s'.format(period), flush = True)
-    dynamics.impose_steady_state()
 
     # Create scaled jr values
     time_values = np.arange(0, simulation_duration + jr_sampling_dt - FLOAT_ERROR_MARGIN, jr_sampling_dt, dtype = np.float64)
@@ -100,6 +97,10 @@ for period in PERIODS:
 
     print(datetime.datetime.now(), 'Setting scaled jr value', flush = True)
     dynamics.set_jr(jr = scaled_jr_values, lat = jr_lat, lon = jr_lon, time = last_simulation_time + time_values)
+
+    ## IMPOSE STEADY STATE
+    print(datetime.datetime.now(), 'Imposing steady state before simulating period {} s'.format(period), flush = True)
+    dynamics.impose_steady_state()
 
     print(datetime.datetime.now(), 'Starting simulation', flush = True)
     dynamics.evolve_to_time(last_simulation_time + simulation_duration)#, dt = 5e-3)
