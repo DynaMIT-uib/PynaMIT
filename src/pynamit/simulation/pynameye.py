@@ -260,9 +260,11 @@ class PynamEye(object):
         return( ccrs.PlateCarree(central_longitude = noon_longitude) )
 
 
-    def jazz_global_plot(self, ax, draw_labels = True):
+    def jazz_global_plot(self, ax, draw_labels = True, draw_coastlines = True):
         """ add coastlines, coordinates, ... """
-        ax.coastlines(zorder = 2, color = 'grey')
+        if draw_coastlines:
+            ax.coastlines(zorder = 2, color = 'grey')
+            
         gridlines = ax.gridlines(draw_labels = draw_labels)
         gridlines.right_labels = False
         gridlines.top_labels = False
