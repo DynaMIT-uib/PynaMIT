@@ -18,8 +18,7 @@ FLOAT_ERROR_MARGIN = 1e-6
 
 
 dataset_filename_prefix = 'data/pynamit_paper_oscillations'
-Nmax, Mmax, Ncs = 5, 5, 8 # change to 90, 90, 100
-simulation_time = 5 # change to 480
+Nmax, Mmax, Ncs = 90, 90, 100
 latitude_boundary = 45
 RE = 6371.2e3
 RI = RE + 110e3
@@ -94,7 +93,7 @@ for period in PERIODS:
 
     # Create scaled jr values
     time_values = np.arange(0, simulation_duration + jr_sampling_dt - FLOAT_ERROR_MARGIN, jr_sampling_dt, dtype = np.float64)
-    envelope = np.sin(0.5 * np.pi * time_values  / TAPERING_TIME)**2
+    envelope = 1 + np.sin(0.5 * np.pi * time_values  / TAPERING_TIME)**2
     envelope[time_values >= TAPERING_TIME] = 1
     scale_factor = np.sin(2.0 * np.pi * time_values / period) * envelope
     scaled_jr_values = scale_factor.reshape((-1, 1)) * jr.reshape((1 ,-1))
@@ -103,7 +102,7 @@ for period in PERIODS:
     dynamics.set_jr(jr = scaled_jr_values, lat = jr_lat, lon = jr_lon, time = last_simulation_time + time_values)
 
     print(datetime.datetime.now(), 'Starting simulation', flush = True)
-    dynamics.evolve_to_time(last_simulation_time + simulation_duration, dt = 5e-3)
+    dynamics.evolve_to_time(last_simulation_time + simulation_duration)#, dt = 5e-3)
 
     last_simulation_time += simulation_duration
 
