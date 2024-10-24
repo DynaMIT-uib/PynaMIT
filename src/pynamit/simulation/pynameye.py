@@ -214,7 +214,7 @@ class PynamEye(object):
         self.conductance_defaults  = {'cmap':plt.cm.viridis, 'levels':np.linspace(0, 20, 22), 'extend':'max'}
         self.joule_defaults        = {'cmap':plt.cm.bwr,     'levels':np.linspace(-10, 10, 22) * 1e-3, 'extend':'both'}
         self.Br_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-100, 100, 22) * 1e-9, 'extend':'both'}
-        self.eqJ_defaults          = {'colors':'black',      'levels':np.r_[-210:220:20] * 1e3}
+        self.eqJ_defaults          = {'colors':'black',      'levels':np.r_[-610:620:20] * 1e3}
         self.jr_defaults           = {'cmap':plt.cm.bwr,     'levels':np.linspace(-.95, .95, 22) * 1e-6, 'extend':'both'}
         self.Phi_defaults          = {'colors':'black',      'levels':np.r_[-211.5:220:3] * 1e3}
         self.W_defaults            = {'colors':'orange',     'levels':self.Phi_defaults['levels']}
@@ -264,7 +264,7 @@ class PynamEye(object):
         """ add coastlines, coordinates, ... """
         if draw_coastlines:
             ax.coastlines(zorder = 2, color = 'grey')
-            
+
         gridlines = ax.gridlines(draw_labels = draw_labels)
         gridlines.right_labels = False
         gridlines.top_labels = False
