@@ -92,7 +92,7 @@ for period in PERIODS:
     time_values = np.arange(0, simulation_duration + jr_sampling_dt - FLOAT_ERROR_MARGIN, jr_sampling_dt, dtype = np.float64)
     envelope = np.sin(0.5 * np.pi * time_values  / TAPERING_TIME)**2
     envelope[time_values >= TAPERING_TIME] = 1
-    scale_factor = np.sin(2.0 * np.pi * time_values / period) * envelope
+    scale_factor = np.sin(2.0 * np.pi * time_values / period) * envelope + 1
     scaled_jr_values = scale_factor.reshape((-1, 1)) * jr.reshape((1 ,-1))
 
     print(datetime.datetime.now(), 'Setting scaled jr value', flush = True)
