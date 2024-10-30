@@ -19,7 +19,7 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.math.constants import RE, mu0
 
 class PynamEye(object):
-    def __init__(self, filename_prefix, t = 0, Nlat = 60, Nlon = 100, NCS_plot = 10, mlatlim = 50):
+    def __init__(self, filename_prefix, t = 0, Nlat = 60, Nlon = 100, NCS_plot = 10, mlatlim = 50, steady_state = False):
         """
         Parameters
         ----------
@@ -33,8 +33,8 @@ class PynamEye(object):
             visualziation. Default is 100.
         """
 
-        keys = ['settings', 'conductance', 'state', 'u', 'steady_state']
-        filename_suffix = dict(zip(keys, ['_settings', '_conductance', '_state', '_u', '_steady_state']))
+        keys = ['settings', 'conductance', 'state', 'u']
+        filename_suffix = dict(zip(keys, ['_settings', '_conductance', '_state', '_u']))
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -46,7 +46,8 @@ class PynamEye(object):
             else:
                 raise ValueError('{} does not exist'.format(fn))
 
-        self.datasets['steady_state'] = xr.load_dataset(filename_prefix + '_steady_state.ncdf')
+        if steady_state:
+            self.datasets['state'] = xr.load_dataset(filename_prefix + '_steady_state.ncdf')
 
         self.m_imp_to_B_pol = xr.load_dataarray(filename_prefix + '_PFAC_matrix.ncdf').values
 
