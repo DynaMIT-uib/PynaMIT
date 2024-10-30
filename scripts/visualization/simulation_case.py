@@ -6,9 +6,10 @@ from polplot import Polarplot
 from string import ascii_lowercase as abc
 
 path = '../simulation/data/brn' # where the save files are
+path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/pynamit_paper_simulation'
 
 print(datetime.datetime.now(), 'making PynamEye object')
-a = pynamit.PynamEye(path)
+a = pynamit.PynamEye(path, steady_state = True)
 
 phin = a.evaluator['north'].basis_to_grid(a.m_Phi)
 phis = a.evaluator['south'].basis_to_grid(a.m_Phi)
@@ -48,7 +49,7 @@ a.plot_Br(                        gax3, region = 'global', levels = a.Br_default
 
 a.plot_equivalent_current(            gax3, region = 'global')
 a.plot_electric_field_stream_function(gax3, region = 'global')
-a.plot_electric_potential(            gax4, region = 'global', colors = 'black', levels = np.r_[-201.5:202:3]*1e3)
+a.plot_electric_potential(            gax4, region = 'global', colors = 'black', levels = np.r_[-201.25:202:.5]*1e3)
 
 
 
