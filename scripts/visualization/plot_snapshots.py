@@ -8,8 +8,8 @@ from matplotlib.gridspec import GridSpec
 import dipole
 
 ts = [0, .5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
-DT =  480 # an offset to apply to all the ts
-filename_prefix = 'fac'
+DT =  0#480 # an offset to apply to all the ts
+filename_prefix = 'wind'
 shape = (5, 4) # layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
 path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/pynamit_paper_simulation'
@@ -17,9 +17,9 @@ path = '/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/pynam
 
 a = pynamit.PynamEye(path)
 
-GLOBAL_TIMESERIES = True
-POLAR_TIMESERIES  = True
-EQUATORIAL_EFIELD = False
+GLOBAL_TIMESERIES = False
+POLAR_TIMESERIES  = False
+EQUATORIAL_EFIELD = True
 
 EFIELD = True
 BR     = True
@@ -141,7 +141,7 @@ if POLAR_TIMESERIES:
 
 
 if EQUATORIAL_EFIELD:
-    mlt  = np.linspace(8, 24 + 8, 361) % 24 
+    mlt  = np.linspace(0, 24, 361) % 24 
     dl = np.diff(mlt)[0] * 15 * np.pi / 180 * a.RI
     mlat = np.full_like(mlt, 0)
     d = dipole.Dipole(a.time.year)
@@ -149,9 +149,9 @@ if EQUATORIAL_EFIELD:
     fig, ax = plt.subplots()
     for i, t in enumerate(ts):
         if t == 0:
-            a.set_time(t, steady_state = True)
+            a.set_time(t + DT, steady_state = True)
         else:
-            a.set_time(t)
+            a.set_time(t + DT)
 
         mlon = d.mlt2mlon(mlt, a.time)
 
@@ -166,7 +166,7 @@ if EQUATORIAL_EFIELD:
         Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
         Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()
 
-        vr = (np.diff(phi) / dl) / Bh[:-1]
+        vr = (-np.diff(phi) / dl) / Bh[:-1]
 
         if t == ts[-1]:
             ax.plot(vr, label = 'steady state', color = 'black', linewidth = 3)
