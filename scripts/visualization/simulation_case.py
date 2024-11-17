@@ -15,7 +15,7 @@ phin = a.evaluator['north'].basis_to_grid(a.m_Phi)
 phis = a.evaluator['south'].basis_to_grid(a.m_Phi)
 print(datetime.datetime.now(), 'CPCP in the North is {:.1f} kV'.format((phin.max() - phin.min()) * 1e-3))
 print(datetime.datetime.now(), 'CPCP in the South is {:.1f} kV'.format((phis.max() - phis.min()) * 1e-3))
-
+conductance_levels = np.linspace(0, 20, 22)
 
 fig = plt.figure(figsize = (12, 12))
 
@@ -44,7 +44,7 @@ for i, ax in enumerate([paxn1.ax, paxs1.ax, gax1, paxn2.ax, paxs2.ax, gax2, paxn
     ax.text(0.01, 0.99, abc[i] + ')', transform = ax.transAxes, bbox = dict(facecolor='white', edgecolor='none'), fontsize=12, verticalalignment='top', horizontalalignment='left')
 
 a.plot_wind(                          gax1, color  = 'black')
-a.plot_conductance(               gax2, region = 'global', levels = np.linspace(0, 30, 22), extend = 'both').set_edgecolor('face')
+a.plot_conductance(               gax2, region = 'global', levels = conductance_levels, extend = 'both').set_edgecolor('face')
 a.plot_Br(                        gax3, region = 'global', levels = a.Br_defaults['levels']*2).set_edgecolor('face')
 
 a.plot_equivalent_current(            gax3, region = 'global')
@@ -54,7 +54,7 @@ a.plot_electric_potential(            gax4, region = 'global', colors = 'black',
 
 
 a.plot_jr(                        paxn1, region = 'north').set_edgecolor('face')
-a.plot_conductance(               paxn2, region = 'north', levels = np.linspace(0, 30, 22), extend = 'both').set_edgecolor('face')
+a.plot_conductance(               paxn2, region = 'north', levels = conductance_levels, extend = 'both').set_edgecolor('face')
 a.plot_Br(                        paxn3, region = 'north', levels = a.Br_defaults['levels']*2).set_edgecolor('face')
 
 
@@ -64,7 +64,7 @@ a.plot_electric_field_stream_function(paxn4, region = 'north')
 
 
 a.plot_jr(                        paxs1, region = 'south').set_edgecolor('face')
-a.plot_conductance(               paxs2, region = 'south', levels = np.linspace(0, 30, 22)).set_edgecolor('face')
+a.plot_conductance(               paxs2, region = 'south', levels = conductance_levels).set_edgecolor('face')
 a.plot_Br(                        paxs3, region = 'south', levels = a.Br_defaults['levels']*2).set_edgecolor('face')
 a.plot_equivalent_current(            paxs3, region = 'south')
 a.plot_electric_potential(            paxs4, region = 'south', colors = 'black', levels = np.r_[-201.5:202:3]*1e3)
@@ -76,7 +76,7 @@ cbar_axes[0].contourf(xx, zz, zz, levels = levels, cmap = a.jr_defaults['cmap'])
 cbar_axes[0].set_xticks([])
 cbar_axes[0].set_ylabel('$\mu$A/m$^2$')
 
-levels = np.linspace(0, 30, 22)
+levels = conductance_levels
 xx, zz = np.vstack((np.zeros(levels.size), np.ones(levels.size))).T, np.vstack((levels, levels)).T
 cbar_axes[1].contourf(xx, zz, zz, levels = levels, cmap = a.conductance_defaults['cmap'])
 cbar_axes[1].set_xticks([])
