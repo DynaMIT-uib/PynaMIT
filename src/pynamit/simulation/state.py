@@ -223,8 +223,8 @@ class State(object):
 
             G_jr_state_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
             G_jr_state_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
-            self.jr_coeffs_to_j_apex_hl = np.ascontiguousarray(G_jr_state_coeffs_to_j_apex[~self.ll_mask])
-            self.jr_coeffs_to_j_apex_ll_diff = np.ascontiguousarray((G_jr_state_coeffs_to_j_apex - G_jr_state_coeffs_to_j_apex_cp)[self.ll_mask])
+            self.jr_coeffs_to_j_apex = G_jr_state_coeffs_to_j_apex.copy()
+            self.jr_coeffs_to_j_apex[self.ll_mask] -= G_jr_state_coeffs_to_j_apex_cp[self.ll_mask]
 
             E_coeffs_to_E_apex_perp    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
             E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
@@ -334,10 +334,8 @@ class State(object):
 
         if self.connect_hemispheres:
             # High- and low-latitude jr constraints (stacked)
-            constraint_matrices = [np.vstack((self.jr_coeffs_to_j_apex_hl      * self.m_imp_to_jr.reshape((1, -1)),
-                                              self.jr_coeffs_to_j_apex_ll_diff * self.m_imp_to_jr.reshape((1, -1))))]
-            coeffs_to_constraint_vectors = [np.vstack((self.jr_coeffs_to_j_apex_hl,
-                                                       self.jr_coeffs_to_j_apex_ll_diff))]
+            constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
+            coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
 
             # Low-latitude E constraints
             constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
