@@ -334,8 +334,10 @@ class State(object):
 
         if self.connect_hemispheres:
             # High- and low-latitude jr constraints (stacked)
-            constraint_matrices = [np.vstack((self.jr_coeffs_to_j_apex_hl * self.m_imp_to_jr.reshape((1, -1)), self.jr_coeffs_to_j_apex_ll_diff * self.m_imp_to_jr.reshape((1, -1))))]
-            coeffs_to_constraint_vectors = [np.vstack((self.jr_coeffs_to_j_apex_hl, self.jr_coeffs_to_j_apex_ll_diff))]
+            constraint_matrices = [np.vstack((self.jr_coeffs_to_j_apex_hl      * self.m_imp_to_jr.reshape((1, -1)),
+                                              self.jr_coeffs_to_j_apex_ll_diff * self.m_imp_to_jr.reshape((1, -1))))]
+            coeffs_to_constraint_vectors = [np.vstack((self.jr_coeffs_to_j_apex_hl,
+                                                       self.jr_coeffs_to_j_apex_ll_diff))]
 
             # Low-latitude E constraints
             constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
