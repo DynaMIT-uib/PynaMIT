@@ -215,20 +215,21 @@ class State(object):
 
         """
 
+        jr_coeffs_to_j_apex = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
+        self.jr_coeffs_to_j_apex = jr_coeffs_to_j_apex.copy()
+
         if self.connect_hemispheres:
             if self.ignore_PFAC:
                 raise ValueError('Hemispheres can not be connected when ignore_PFAC is True')
             if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
 
-            G_jr_state_coeffs_to_j_apex    = self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
-            G_jr_state_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
-            self.jr_coeffs_to_j_apex = G_jr_state_coeffs_to_j_apex.copy()
-            self.jr_coeffs_to_j_apex[self.ll_mask] -= G_jr_state_coeffs_to_j_apex_cp[self.ll_mask]
+            jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
-            E_coeffs_to_E_apex_perp    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
-            E_coeffs_to_E_apex_perp_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
-            self.E_coeffs_to_E_apex_perp_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex_perp - E_coeffs_to_E_apex_perp_cp)[:,self.ll_mask])
+            E_coeffs_to_E_apex    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+            E_coeffs_to_E_apex_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+            self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:,self.ll_mask])
 
 
     def calculate_m_imp(self, m_ind):
@@ -331,19 +332,14 @@ class State(object):
             m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(G_m_ind_to_E_direct)
             m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_m_imp_to_E_direct)
 
+        # jr constraints
+        constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
+        coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
 
         if self.connect_hemispheres:
-            # High- and low-latitude jr constraints (stacked)
-            constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
-            coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
-
             # Low-latitude E constraints
-            constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_perp_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
-            coeffs_to_constraint_vectors.append(-self.E_coeffs_to_E_apex_perp_ll_diff * self.ih_constraint_scaling)
-        else:
-            # High-latitude jr constraints
-            constraint_matrices = [self.G_jr_state * self.m_imp_to_jr.reshape((1, -1))]
-            coeffs_to_constraint_vectors = [self.G_jr_state]
+            constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
+            coeffs_to_constraint_vectors.append(-self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
 
         constraints_least_squares = LeastSquares(constraint_matrices, 1)
         coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
