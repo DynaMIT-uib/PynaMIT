@@ -339,7 +339,7 @@ class State(object):
         if self.connect_hemispheres:
             # Low-latitude E constraints
             constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
-            coeffs_to_constraint_vectors.append(-self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
+            coeffs_to_constraint_vectors.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
 
         constraints_least_squares = LeastSquares(constraint_matrices, 1)
         coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
@@ -352,22 +352,22 @@ class State(object):
             self.jr_to_m_imp = coeffs_to_m_imp[0].dot(self.G_jr_state_pinv)
             self.jr_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
 
-        # m_ind matrices
+        # m_ind matrices, negative sign is from moving the induction terms to the right hand side of E - E^cp = 0 (in apex coordinates)
         self.m_ind_to_E_coeffs = m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres:
-            self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[1], m_ind_to_E_coeffs_direct, 2)
+            self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2)
             self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
-        # u matrices
+        # u matrices, negative sign is from moving the wind terms to the right hand side of E - E^cp = 0 (in apex coordinates)
         if self.vector_u:
             self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
             if self.connect_hemispheres:
-                self.u_coeffs_to_m_imp = np.tensordot(coeffs_to_m_imp[1], self.u_coeffs_to_E_coeffs_direct, 2)
+                self.u_coeffs_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.u_coeffs_to_E_coeffs_direct, 2)
                 self.u_coeffs_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
         else:
             self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
             if self.connect_hemispheres:
-                self.u_to_m_imp = np.tensordot(coeffs_to_m_imp[1], self.u_to_E_coeffs_direct, 2)
+                self.u_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.u_to_E_coeffs_direct, 2)
                 self.u_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_to_m_imp, 1)
 
         # For steady state
