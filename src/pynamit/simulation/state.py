@@ -9,6 +9,8 @@ from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares import LeastSquares
 
 TRIPLE_PRODUCT = False
+E_MAPPING = True
+J_MAPPING = True
 
 class State(object):
     """ State of the ionosphere.
@@ -224,12 +226,14 @@ class State(object):
             if self.mainfield.kind == 'radial':
                 raise ValueError('Hemispheres can not be connected with radial magnetic field')
 
-            jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
-            self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
+            if J_MAPPING:
+                jr_coeffs_to_j_apex_cp = self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
+                self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
-            E_coeffs_to_E_apex    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
-            E_coeffs_to_E_apex_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
-            self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:,self.ll_mask])
+            if E_MAPPING:
+                E_coeffs_to_E_apex    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+                E_coeffs_to_E_apex_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+                self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:,self.ll_mask])
 
 
     def calculate_m_imp(self, m_ind):
@@ -243,7 +247,7 @@ class State(object):
         else:
             m_imp = self.jr_to_m_imp.dot(self.jr_on_grid)
 
-        if self.connect_hemispheres:
+        if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
 
             if self.neutral_wind:
@@ -336,7 +340,7 @@ class State(object):
         constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
         coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
 
-        if self.connect_hemispheres:
+        if self.connect_hemispheres and E_MAPPING:
             # Low-latitude E constraints
             constraint_matrices.append(np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E_coeffs, 2) * self.ih_constraint_scaling)
             coeffs_to_constraint_vectors.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
@@ -354,19 +358,19 @@ class State(object):
 
         # m_ind matrices, negative sign is from moving the induction terms to the right hand side of E - E^cp = 0 (in apex coordinates)
         self.m_ind_to_E_coeffs = m_ind_to_E_coeffs_direct.copy()
-        if self.connect_hemispheres:
+        if self.connect_hemispheres and E_MAPPING:
             self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2)
             self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
         # u matrices, negative sign is from moving the wind terms to the right hand side of E - E^cp = 0 (in apex coordinates)
         if self.vector_u:
             self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
-            if self.connect_hemispheres:
+            if self.connect_hemispheres and E_MAPPING:
                 self.u_coeffs_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.u_coeffs_to_E_coeffs_direct, 2)
                 self.u_coeffs_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
         else:
             self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
-            if self.connect_hemispheres:
+            if self.connect_hemispheres and E_MAPPING:
                 self.u_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.u_to_E_coeffs_direct, 2)
                 self.u_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_to_m_imp, 1)
 
