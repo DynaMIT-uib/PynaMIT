@@ -64,9 +64,9 @@ class State(object):
         self.m_ind_to_Br    = self.RI * self.basis.d_dr(self.RI)
         self.m_imp_to_jr    = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
-        self.m_ind_to_Jeq   = -self.RI / mu0 * self.basis.delta_internal_external
+        self.m_ind_to_Jeq   = -self.RI / mu0 * self.basis.V_external_to_delta_V
 
-        self.G_B_pol_to_JS = -self.basis_evaluator.G_rxgrad * self.basis.delta_internal_external / mu0
+        self.G_B_pol_to_JS = -self.basis_evaluator.G_rxgrad * self.basis.V_external_to_delta_V / mu0
         self.G_B_tor_to_JS = -self.basis_evaluator.G_grad / mu0
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + np.tensordot(self.G_B_pol_to_JS, self.m_imp_to_B_pol.values, 1)

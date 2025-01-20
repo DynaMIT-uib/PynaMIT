@@ -228,19 +228,21 @@ class SHBasis(object):
 
 
     @property
-    def delta_internal_external(self):
+    def V_external_to_delta_V(self):
         """
-        Calculate the multiplicative factor obtained when subracting the
-        spherical harmonics for external sources from the spherical
-        harmonics for internal sources, assuming that the first-order
-        radial derivative is continuous across the surface.
+        Calculate the multiplicative factor obtained when converting the
+        spherical harmonic coefficients for an external potential to the
+        corresponding coefficients for an internal potential, before
+        subtracting the external potential coefficients to obtain the
+        internal-external potential difference, assuming that the
+        first-order radial derivative is continuous across the surface.
 
         """
 
-        if not hasattr(self, '_delta_internal_external'):
-            self._delta_internal_external = -(2 * self.n + 1) / (self.n + 1)
+        if not hasattr(self, '_V_external_to_delta_V'):
+            self._V_external_to_delta_V = -(2 * self.n + 1) / (self.n + 1)
 
-        return self._delta_internal_external
+        return self._V_external_to_delta_V
 
 
     def radial_shift(self, start, end):
