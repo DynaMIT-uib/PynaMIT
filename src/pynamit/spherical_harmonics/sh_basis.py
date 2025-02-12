@@ -231,7 +231,9 @@ class SHBasis(object):
         """
         Calculate the vector that represents a shift of the reference
         radius for the spherical harmonics for an external potential, from
-        `start` to `end`.
+        `start` to `end`. Corresponds to the spherical harmonic functions
+        with `end` as the reference radius divided by the the spherical
+        harmonic functions with `start` as the reference radius.
 
         """
 
