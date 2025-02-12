@@ -159,7 +159,7 @@ class Dynamics(object):
             self.select_timeseries_data('state')
         else:
             self.current_time = np.float64(0)
-            self.state.set_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
+            self.state.set_model_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
 
         if self.dataset_filename_prefix is None:
             self.dataset_filename_prefix = 'simulation'
@@ -266,7 +266,7 @@ class Dynamics(object):
 
         self.select_input_data()
 
-        self.state.set_coeffs(m_ind = self.state.steady_state_m_ind())
+        self.state.set_model_coeffs(m_ind = self.state.steady_state_m_ind())
 
         self.state.update_m_imp()
 
@@ -436,8 +436,8 @@ class Dynamics(object):
         # Update state if is the first data selection or if the data has changed since the last selection
         if (not all([var in self.previous_data.keys() for var in self.vars[key]]) or (not all([np.allclose(current_data[var], self.previous_data[var], rtol = FLOAT_ERROR_MARGIN, atol = 0.0) for var in self.vars[key]]))):
             if key == 'state':
-                self.state.set_coeffs(m_ind = current_data['m_ind'])
-                self.state.set_coeffs(m_imp = current_data['m_imp'])
+                self.state.set_model_coeffs(m_ind = current_data['m_ind'])
+                self.state.set_model_coeffs(m_imp = current_data['m_imp'])
                 self.state.E = Vector(basis = self.bases[key], coeffs = np.array([current_data['Phi'], current_data['W']]), type = 'tangential')
 
             if key == 'jr':

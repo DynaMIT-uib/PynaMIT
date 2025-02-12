@@ -173,11 +173,11 @@ class State(object):
         return(self._m_imp_to_B_pol)
 
 
-    def set_coeffs(self, **kwargs):
-        """ Set coefficients.
+    def set_model_coeffs(self, **kwargs):
+        """ Set model coefficients.
 
-        Specify a set of coefficients and update the rest so that they are
-        consistent.
+        Set model coefficients based on the coefficients given as
+        argument.
 
         This function accepts one (and only one) set of coefficients.
         Valid values for kwargs (only one):
@@ -189,7 +189,7 @@ class State(object):
 
         """
 
-        valid_kws = ['m_ind', 'm_imp', 'Phi', 'W', 'Br', 'jr']
+        valid_kws = ['m_ind', 'm_imp', 'Br', 'jr']
 
         if len(kwargs) != 1:
             raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
@@ -201,10 +201,6 @@ class State(object):
             self.m_ind = Vector(self.basis, kwargs['m_ind'], type = 'scalar')
         elif key == 'm_imp':
             self.m_imp = Vector(self.basis, kwargs['m_imp'], type = 'scalar')
-        elif key == 'Phi':
-            self.Phi = Vector(self.basis, kwargs['Phi'], type = 'scalar')
-        elif key == 'W':
-            self.W = Vector(self.basis, kwargs['W'], type = 'scalar')
         elif key == 'Br':
             self.m_ind = Vector(self.basis, kwargs['Br'] / self.m_ind_to_Br, type = 'scalar')
         elif key == 'jr':
@@ -269,7 +265,7 @@ class State(object):
         """
 
         m_imp = self.calculate_m_imp(self.m_ind.coeffs)
-        self.set_coeffs(m_imp = m_imp)
+        self.set_model_coeffs(m_imp = m_imp)
 
 
     def set_jr(self, jr):
@@ -419,7 +415,7 @@ class State(object):
 
         new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.E.coeffs[1] * self.E_df_to_dBr_dt * dt
 
-        self.set_coeffs(Br = new_Br)
+        self.set_model_coeffs(Br = new_Br)
 
 
     def get_Br(self, _basis_evaluator):
