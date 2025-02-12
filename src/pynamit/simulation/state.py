@@ -184,12 +184,10 @@ class State(object):
 
         - 'm_ind' : Coefficients for induced part of magnetic field perturbation.
         - 'm_imp' : Coefficients for imposed part of magnetic field perturbation.
-        - 'Br' : Coefficients for magnetic field perturbation ``Br`` (at ``r = RI``).
-        - 'jr': Coefficients for radial current perturbation scalar.
 
         """
 
-        valid_kws = ['m_ind', 'm_imp', 'Br', 'jr']
+        valid_kws = ['m_ind', 'm_imp']
 
         if len(kwargs) != 1:
             raise Exception('Expected one and only one keyword argument, you provided {}'.format(len(kwargs)))
@@ -201,10 +199,6 @@ class State(object):
             self.m_ind = Vector(self.basis, kwargs['m_ind'], type = 'scalar')
         elif key == 'm_imp':
             self.m_imp = Vector(self.basis, kwargs['m_imp'], type = 'scalar')
-        elif key == 'Br':
-            self.m_ind = Vector(self.basis, kwargs['Br'] / self.m_ind_to_Br, type = 'scalar')
-        elif key == 'jr':
-            self.m_imp = Vector(self.basis, kwargs['jr'] / self.m_imp_to_jr, type = 'scalar')
         else:
             raise Exception('This should not happen')
 
