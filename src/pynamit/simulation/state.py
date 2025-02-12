@@ -61,10 +61,10 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Spherical harmonic conversion factors
-        self.m_ind_to_Br    = -self.RI * self.basis.d_dr_V_external(self.RI)
-        self.m_imp_to_jr    = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.E_df_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
-        self.m_ind_to_Jeq   = -self.RI / mu0 * self.basis.V_external_to_delta_V
+        self.m_ind_to_Br        = -self.RI * self.basis.d_dr_V_external(self.RI)
+        self.m_imp_to_jr        = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.E_df_to_d_m_ind_dt = self.basis.laplacian(self.RI) / self.basis.d_dr_V_external(self.RI) # The same as d_dr_internal
+        self.m_ind_to_Jeq       = -self.RI / mu0 * self.basis.V_external_to_delta_V
 
         B_pol_to_J_df = -self.basis.V_external_to_delta_V / mu0
         B_tor_to_J_cf = 1 / mu0
@@ -182,10 +182,10 @@ class State(object):
         This function accepts one (and only one) set of coefficients.
         Valid values for kwargs (only one):
 
-        - 'm_ind' : Coefficients for induced part of magnetic field.
-        - 'm_imp' : Coefficients for imposed part of magnetic field.
-        - 'Br' : Coefficients for magnetic field ``Br`` (at ``r = RI``).
-        - 'jr': Coefficients for radial current scalar.
+        - 'm_ind' : Coefficients for induced part of magnetic field perturbation.
+        - 'm_imp' : Coefficients for imposed part of magnetic field perturbation.
+        - 'Br' : Coefficients for magnetic field perturbation ``Br`` (at ``r = RI``).
+        - 'jr': Coefficients for radial current perturbation scalar.
 
         """
 
@@ -408,14 +408,14 @@ class State(object):
         self.E = Vector(self.basis, coeffs = E_coeffs, type = 'tangential')
 
 
-    def evolve_Br(self, dt):
-        """ Evolve ``Br`` in time.
+    def evolve_m_ind(self, dt):
+        """ Evolve ``m_ind`` in time, corresponding to integrating dBr/dt.
 
         """
 
-        new_Br = self.m_ind.coeffs * self.m_ind_to_Br + self.E.coeffs[1] * self.E_df_to_dBr_dt * dt
+        new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
-        self.set_model_coeffs(Br = new_Br)
+        self.set_model_coeffs(m_ind = new_m_ind)
 
 
     def get_Br(self, _basis_evaluator):

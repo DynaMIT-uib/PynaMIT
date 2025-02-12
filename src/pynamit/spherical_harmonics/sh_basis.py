@@ -227,6 +227,16 @@ class SHBasis(object):
         return self.n / r
 
 
+    def d_dr_V_internal(self, r = 1.0):
+        """
+        Calculate the vector that represents the radial derivative of the
+        spherical harmonic coefficients for an internal potential.
+
+        """
+
+        return -(self.n + 1) / r
+
+
     def radial_shift_V_external(self, start, end):
         """
         Calculate the vector that represents a shift of the reference

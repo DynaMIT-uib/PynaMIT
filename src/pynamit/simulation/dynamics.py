@@ -255,7 +255,7 @@ class Dynamics(object):
                     print('\n\n')
                 break
 
-            self.state.evolve_Br(dt)
+            self.state.evolve_m_ind(dt)
             self.current_time = next_time
 
             count += 1
