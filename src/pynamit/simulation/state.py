@@ -61,7 +61,7 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Spherical harmonic conversion factors
-        self.m_ind_to_Br    = self.RI * self.basis.d_dr(self.RI)
+        self.m_ind_to_Br    = -self.RI * self.basis.d_dr_V_external(self.RI)
         self.m_imp_to_jr    = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_dBr_dt = -self.RI * self.basis.laplacian(self.RI)
         self.m_ind_to_Jeq   = -self.RI / mu0 * self.basis.V_external_to_delta_V
@@ -164,7 +164,7 @@ class State(object):
                     m_imp_to_JS_shifted = np.einsum('ij,jk->ijk', jr_to_JS_shifted, m_imp_to_jr, optimize = True)
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal current components at r_k[i]
-                    B_pol_shifted_to_B_pol = self.basis.radial_shift(r_k[i], self.RI).reshape((-1, 1, 1))
+                    B_pol_shifted_to_B_pol = self.basis.radial_shift_V_external(r_k[i], self.RI).reshape((-1, 1, 1))
                     JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
 
                     # Integration step, negative sign is to create a poloidal field that shields the region under the ionosphere from the FAC poloidal field

@@ -207,24 +207,35 @@ class SHBasis(object):
         return dP
 
 
-    def d_dr(self, r = 1.0):
-        """
-        Calculate the vector that represents the radial derivative of the
-        spherical harmonics.
-
-        """
-
-        return -self.n / r
-
-
     def laplacian(self, r = 1.0):
         """
-        Calculate the vector that represents the Laplacian of the
-        spherical harmonics
+        Calculate the vector that represents the angular Laplacian of the
+        spherical harmonics, or, equivalently, d^2r/dr^2 of the harmonics.
 
         """
 
         return -self.n * (self.n + 1) / r**2
+
+
+    def d_dr_V_external(self, r = 1.0):
+        """
+        Calculate the vector that represents the radial derivative of the
+        spherical harmonic coefficients for an external potential.
+
+        """
+
+        return self.n / r
+
+
+    def radial_shift_V_external(self, start, end):
+        """
+        Calculate the vector that represents a shift of the reference
+        radius for the spherical harmonics for an external potential, from
+        `start` to `end`.
+
+        """
+
+        return (end / start)**(self.n - 1)
 
 
     @property
@@ -243,13 +254,3 @@ class SHBasis(object):
             self._V_external_to_delta_V = -(2 * self.n + 1) / (self.n + 1)
 
         return self._V_external_to_delta_V
-
-
-    def radial_shift(self, start, end):
-        """
-        Calculate the vector that represents a radial shift of the
-        spherical harmonics.
-
-        """
-
-        return (end / start)**(self.n - 1)
