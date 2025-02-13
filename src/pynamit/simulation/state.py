@@ -223,8 +223,8 @@ class State(object):
                 self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
             if E_MAPPING:
-                E_coeffs_to_E_apex    = np.einsum('ijk,jklm->iklm', self.b_evaluator.surface_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
-                E_coeffs_to_E_apex_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.surface_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
+                E_coeffs_to_E_apex    = np.einsum('ijk,jklm->iklm', self.b_evaluator.horizontal_to_apex, self.basis_evaluator.G_helmholtz, optimize = True)
+                E_coeffs_to_E_apex_cp = np.einsum('ijk,jklm->iklm', self.cp_b_evaluator.horizontal_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize = True)
                 self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:,self.ll_mask])
 
 

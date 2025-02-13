@@ -74,7 +74,7 @@ class BasisEvaluator(object):
     @property
     def G_grad(self):
         """
-        The matrix that corresponds to evaluating the surface gradient
+        The matrix that corresponds to evaluating the horizontal gradient
         of the basis expansion on the given grid.
 
         """
@@ -87,7 +87,7 @@ class BasisEvaluator(object):
     @property
     def G_rxgrad(self):
         """
-        The matrix that corresponds to evaluating r cross the surface
+        The matrix that corresponds to evaluating r cross the horizontal
         gradient of the basis expansion on the given grid.
 
         """
