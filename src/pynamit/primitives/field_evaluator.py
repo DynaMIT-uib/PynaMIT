@@ -76,64 +76,64 @@ class FieldEvaluator:
 
     @property
     def e1r(self):
-        """ Radial component of the e1 basis vector. """
+        """ Radial component of the e1 magnetic apex basis vector. """
 
         return self.basevectors[3][0]
 
     @property
     def e1t(self):
-        """ Theta component of the e1 basis vector. """
+        """ Theta component of the e1 magnetic apex basis vector. """
 
         return self.basevectors[3][1]
 
     @property
     def e1p(self):
-        """ Phi component of the e1 basis vector. """
+        """ Phi component of the e1 magnetic apex basis vector. """
 
         return self.basevectors[3][2]
 
     @property
     def e2r(self):
-        """ Radial component of the e2 basis vector. """
+        """ Radial component of the e2 magnetic apex basis vector. """
 
         return self.basevectors[4][0]
 
     @property
     def e2t(self):
-        """ Theta component of the e2 basis vector. """
+        """ Theta component of the e2 magnetic apex basis vector. """
 
         return self.basevectors[4][1]
 
     @property
     def e2p(self):
-        """ Phi component of the e2 basis vector. """
+        """ Phi component of the e2 magnetic apex basis vector. """
 
         return self.basevectors[4][2]
 
     @property
     def e3r(self):
-        """ Radial component of the e3 basis vector. """
+        """ Radial component of the e3 magnetic apex basis vector. """
 
         return self.basevectors[5][0]
 
     @property
     def e3t(self):
-        """ Theta component of the e3 basis vector. """
+        """ Theta component of the e3 magnetic apex basis vector. """
 
         return self.basevectors[5][1]
 
     @property
     def e3p(self):
-        """ Phi component of the e3 basis vector. """
+        """ Phi component of the e3 magnetic apex basis vector. """
 
         return self.basevectors[5][2]
 
     @property
     def horizontal_to_field_orthogonal(self):
         """
-        Create the matrix that takes the horizontal parts of a vector in the
-        spherical coordinate system and returns the components in the
-        radial direction.
+        The matrix that maps the two components of a horizontal vector field to
+        the three spherical coordinate components of the corresponding vector
+        field that is orthogonal to the magnetic field.
 
         """
 
@@ -148,9 +148,9 @@ class FieldEvaluator:
     @property
     def field_orthogonal_to_apex(self):
         """
-        Create the matrix that takes the spherical parts of a vector in
-        the spherical coordinate system and returns components orthogonal
-        to the magnetic field in the apex coordinate system.
+        The matrix that maps the three spherical coordinate components of
+        a vector field that is orthogonal to the magnetic field to the two
+        corresponding magnetic apex coordinate components of the field.
 
         """
 
@@ -164,9 +164,9 @@ class FieldEvaluator:
     @property
     def horizontal_to_apex(self):
         """
-        Create the matrix that takes the horizontal parts of a vector in the
-        spherical coordinate system and returns components orthogonal
-        to the magnetic field in the apex coordinate system.
+        The matrix that maps the two components of a horizontal vector field to
+        the two magnetic apex coordinate components of the corresponding vector
+        field that is orthogonal to the magnetic field.
 
         """
 
@@ -179,9 +179,9 @@ class FieldEvaluator:
     @property
     def radial_to_field_parallel(self):
         """
-        Create the matrix that takes the radial parts of a vector in the
-        spherical coordinate system and returns the components parallel
-        to the magnetic field.
+        The matrix that maps the component of a radial vector field to the
+        three spherical coordinate components of the corresponding vector
+        field that is parallel with the magnetic field.
 
         """
 
@@ -196,9 +196,9 @@ class FieldEvaluator:
     @property
     def field_parallel_to_apex(self):
         """
-        Create the matrix that takes the spherical parts of a vector in
-        the spherical coordinate system and returns components parallel
-        to the magnetic field in the apex coordinate system.
+        The matrix that maps the three spherical coordinate components of
+        a vector field that is parallel with the magnetic field to the
+        corresponding magnetic apex coordinate component of the field.
 
         """
 
@@ -211,9 +211,9 @@ class FieldEvaluator:
     @property
     def radial_to_apex(self):
         """
-        Create the matrix that takes the radial parts of a vector in the
-        spherical coordinate system and returns components parallel
-        to the magnetic field in the apex coordinate system.
+        The matrix that maps the component of a radial vector field to the
+        magnetic apex coordinate component of the corresponding vector
+        field that is parallel with the magnetic field.
 
         """
 
