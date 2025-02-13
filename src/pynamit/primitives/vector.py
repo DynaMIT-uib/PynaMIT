@@ -1,8 +1,8 @@
 class Vector(object):
     """
-    Object for storing the coefficients of a vector field in a basis. The
-    `basis` object, `coeffs`, and vector `type` are stored as attributes
-    of the object.
+    Object for storing the coefficients of a scalar or tangential vector
+    field represented in a basis. The `basis` object, `coeffs`, and vector
+    `type` are stored as attributes of the object.
 
     """
 
