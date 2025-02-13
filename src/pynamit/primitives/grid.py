@@ -1,12 +1,19 @@
 import numpy as np
 
 class Grid(object):
-    """ Grid for the ionosphere.
+    """
+    Object for storing the coordinates of a two-dimensional grid. The
+    `lat`, `lon`, `theta`, and `phi` coordinates are stored as attributes
+    of the object, along with the `size` of the grid (the number of grid
+    points).
 
     """
 
     def __init__(self, lat = None, lon = None, theta = None, phi = None):
-        """ Initialize the grid for the ionosphere.
+        """
+        Initialize the object for storing the two-dimensional grid. The
+        grid is initialized from `lat` or `theta` and `lon` or `phi`
+        coordinates.
 
         """
         
