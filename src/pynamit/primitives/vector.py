@@ -1,6 +1,21 @@
 class Vector(object):
+    """
+    Object for storing the coefficients of a vector field in a basis. The
+    `basis` object, `coeffs`, and vector `type` are stored as attributes
+    of the object.
+
+    """
 
     def __init__(self, basis, coeffs = None, basis_evaluator = None, grid_values = None, type = 'scalar'):
+        """
+        Initialize the object for storing the coefficients of a vector
+        field in a basis. The `basis` object must be provided, along with
+        either the `coeffs` or the `grid_values` in combination with a
+        `basis_evaluator` object for converting the grid values to basis
+        coefficients.
+
+        """
+
         if type not in ['scalar', 'tangential']:
             raise ValueError("Type must be either 'scalar' or 'tangential'.")
 
