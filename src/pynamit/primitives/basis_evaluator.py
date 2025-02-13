@@ -17,8 +17,8 @@ class BasisEvaluator(object):
     @property
     def G(self):
         """
-        The matrix that corresponds to evaluating the basis function
-        expansion on the given grid.
+        The matrix that corresponds to evaluating the basis expansion on
+        the given grid.
 
         """
 
@@ -37,7 +37,7 @@ class BasisEvaluator(object):
     def G_th(self):
         """
         The matrix that corresponds to evaluating the theta derivative of
-        the basis function expansion on the given grid.
+        the basis expansion on the given grid.
 
         """
 
@@ -56,7 +56,7 @@ class BasisEvaluator(object):
     def G_ph(self):
         """
         The matrix that corresponds to evaluating the phi derivative of
-        the basis function expansion on the given grid.
+        the basis expansion on the given grid.
 
         """
 
@@ -75,7 +75,7 @@ class BasisEvaluator(object):
     def G_grad(self):
         """
         The matrix that corresponds to evaluating the surface gradient
-        of the basis function expansion on the given grid.
+        of the basis expansion on the given grid.
 
         """
 
@@ -88,7 +88,7 @@ class BasisEvaluator(object):
     def G_rxgrad(self):
         """
         The matrix that corresponds to evaluating r cross the surface
-        gradient of the basis function expansion on the given grid.
+        gradient of the basis expansion on the given grid.
 
         """
 
@@ -187,7 +187,8 @@ class BasisEvaluator(object):
 
     def least_squares_solution(self, grid_values):
         """
-        Return the least squares solution for the given grid values.
+        Return the least squares solution for the coefficients
+        representing a scalar field in the given basis.
 
         Parameters
         ----------
@@ -205,8 +206,9 @@ class BasisEvaluator(object):
     
     def least_squares_solution_helmholtz(self, grid_values):
         """
-        Return the least squares solution for the Helmholtz decomposition
-        into the curl-free and divergence-free components of a vector.
+        Return the least squares solution for the two sets of coefficients
+        representing the curl-free and divergence-free components of a
+        horizontal vector field in the given basis.
 
         Parameters
         ----------
