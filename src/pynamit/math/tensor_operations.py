@@ -1,12 +1,15 @@
 import numpy as np
 
-def tensor_product(A, B, contracted_dims):
+def tensor_product(A, B, compounded_inds):
     """
-    Compute the product of two matrices A and B, contracting the indices from uncontracted_first to uncontracted_last.
+    Compute the product of two matrices `A` and `B`, contracting the last
+    `compounded_inds` indices of the tensor `A` with the first
+    `compounded_inds` indices of the tensor `B`.
+
     """
 
-    first_dims = A.shape[:contracted_dims]
-    last_dims  = B.shape[contracted_dims:]
+    first_dims = A.shape[:compounded_inds]
+    last_dims  = B.shape[compounded_inds:]
 
     AB = np.dot(
         A.reshape((np.prod(first_dims), -1)),
@@ -15,14 +18,16 @@ def tensor_product(A, B, contracted_dims):
 
     return AB
 
-def tensor_pinv(A, contracted_dims=2, rtol=1e-15, hermitian=False):
+def tensor_pinv(A, compounded_inds=2, rtol=1e-15, hermitian=False):
     """
-    Compute the Moore-Penrose pseudoinverse of a tensor.
+    Compute the Moore-Penrose pseudoinverse of a tensor, where the first
+    and last `compounded_inds` indices are compounded.
+
 
     """
 
-    first_dims = A.shape[:contracted_dims]
-    last_dims  = A.shape[contracted_dims:]
+    first_dims = A.shape[:compounded_inds]
+    last_dims  = A.shape[compounded_inds:]
 
     A_inv = np.linalg.pinv(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
@@ -30,14 +35,16 @@ def tensor_pinv(A, contracted_dims=2, rtol=1e-15, hermitian=False):
 
     return A_inv
 
-def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, condition_number=False):
+def tensor_pinv_positive_semidefinite(A, compounded_inds=2, rtol=1e-15, condition_number=False):
     """
-    Compute the Moore-Penrose pseudoinverse of a positive semidefinite tensor.
+    Compute the Moore-Penrose pseudoinverse of the positive semidefinite
+    tensor `A`, where the first and last `compounded_inds` indices are
+    compounded.
 
     """
 
-    first_dims = A.shape[:contracted_dims]
-    last_dims  = A.shape[contracted_dims:]
+    first_dims = A.shape[:compounded_inds]
+    last_dims  = A.shape[compounded_inds:]
 
     A_inv = pinv_positive_semidefinite(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
@@ -45,14 +52,15 @@ def tensor_pinv_positive_semidefinite(A, contracted_dims=2, rtol=1e-15, conditio
 
     return A_inv
 
-def tensor_transpose(A, contracted_dims=2):
+def tensor_transpose(A, compounded_inds=2):
     """
-    Transpose a tensor by swapping the contracted dimensions.
+    Transpose a tensor by compounding the first and last `compounded_inds`
+    indices, and performing a matrix transpose.
 
     """
 
-    first_dims = A.shape[:contracted_dims]
-    last_dims  = A.shape[contracted_dims:]
+    first_dims = A.shape[:compounded_inds]
+    last_dims  = A.shape[compounded_inds:]
 
     A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape((last_dims + first_dims))
 
@@ -60,7 +68,8 @@ def tensor_transpose(A, contracted_dims=2):
 
 def tensor_scale_left(scaling_factors, A):
     """
-    Scale the first indices of a tensor A by the scaling factors.
+    Perform the element-wise scaling of the first indices of the tensor
+    `A` by the array `scaling_factors`.
 
     """
 
@@ -73,8 +82,9 @@ def tensor_scale_left(scaling_factors, A):
 
 def tensor_scale_right(A, scaling_factors):
     """
-    Scale the last indices of a tensor A by the scaling factors.
-
+    Perform the element-wise scaling of the last indices of the tensor `A`
+    by the array `scaling_factors`.
+    
     """
 
     last_dims = scaling_factors.shape
@@ -84,16 +94,23 @@ def tensor_scale_right(A, scaling_factors):
 
     return A_scaled.reshape((first_dims + last_dims))
 
-def tensor_outer(A, B, contracted_dims):
+def tensor_outer(A, B, compounded_inds):
+    """
+    Compute the outer product of two tensors `A` and `B` represented as
+    matrices, where the last `compounded_inds` dimensions of `A` and the
+    first `compounded_inds` dimensions of `B` are compounded, and the
+    remaining dimensions are also compounded.
 
-    first_A_dims = A.shape[:contracted_dims]
-    first_B_dims = B.shape[:contracted_dims]
+    """
+
+    first_A_dims = A.shape[:compounded_inds]
+    first_B_dims = B.shape[:compounded_inds]
 
     if first_A_dims != first_B_dims:
         raise ValueError('First dimensions of outer product tensors do not match.')
 
-    last_A_dims = A.shape[contracted_dims:]
-    last_B_dims = B.shape[contracted_dims:]
+    last_A_dims = A.shape[compounded_inds:]
+    last_B_dims = B.shape[compounded_inds:]
 
     outer = np.einsum(
         'ij,ik->ijk',
@@ -104,10 +121,15 @@ def tensor_outer(A, B, contracted_dims):
 
     return outer
 
-def tensor_svd(A, contracted_dims=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
+def tensor_svd(A, compounded_inds=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
+    """
+    Compute the singular value decomposition of the tensor `A`, where the
+    first and last `compounded_inds` indices are compounded.
 
-    first_dims = A.shape[:contracted_dims]
-    last_dims  = A.shape[contracted_dims:]
+    """
+
+    first_dims = A.shape[:compounded_inds]
+    last_dims  = A.shape[compounded_inds:]
 
     U, S, VT = np.linalg.svd(
         A.reshape((np.prod(first_dims), np.prod(last_dims))),
@@ -135,7 +157,7 @@ def tensor_svd(A, contracted_dims=2, full_matrices=True, compute_uv=True, hermit
 
 def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     """
-    Return the pseudoinverse of the positive semidefinite matrix A and,
+    Return the pseudoinverse of the positive semidefinite matrix `A` and,
     if requested, print its condition number.
 
     Note: this is very similar to what numpy.linalg.pinv does when the
