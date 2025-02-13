@@ -17,7 +17,8 @@ class BasisEvaluator(object):
     @property
     def G(self):
         """
-        Return matrix that transforms coefficients to grid.
+        The matrix that corresponds to evaluating the basis function
+        expansion on the given grid.
 
         """
 
@@ -35,8 +36,8 @@ class BasisEvaluator(object):
     @property
     def G_th(self):
         """
-        Return matrix that differentiates coefficients with respect to
-        theta and transforms to grid values.
+        The matrix that corresponds to evaluating the theta derivative of
+        the basis function expansion on the given grid.
 
         """
 
@@ -54,8 +55,8 @@ class BasisEvaluator(object):
     @property
     def G_ph(self):
         """
-        Return matrix that differentiates coefficients with respect to phi
-        and transforms to grid values.
+        The matrix that corresponds to evaluating the phi derivative of
+        the basis function expansion on the given grid.
 
         """
 
@@ -73,8 +74,8 @@ class BasisEvaluator(object):
     @property
     def G_grad(self):
         """
-        Return the matrix that transforms coefficients to the gradient of the
-        grid values.
+        The matrix that corresponds to evaluating the surface gradient
+        of the basis function expansion on the given grid.
 
         """
 
@@ -86,8 +87,8 @@ class BasisEvaluator(object):
     @property
     def G_rxgrad(self):
         """
-        Return the matrix that transforms coefficients to the cross product of
-        the gradient of the grid values.
+        The matrix that corresponds to evaluating r cross the surface
+        gradient of the basis function expansion on the given grid.
 
         """
 
@@ -99,8 +100,7 @@ class BasisEvaluator(object):
     @property
     def G_rxgrad_inv(self):
         """
-        Return the inverse of the G matrix that transforms coefficients to the cross 
-        product of the gradient of the grid values.
+        Return the inverse of the ``G_rxgrad`` matrix.
 
         """
 
@@ -111,8 +111,10 @@ class BasisEvaluator(object):
     @property
     def G_helmholtz(self):
         """
-        Return the G matrix for the Helmholtz decomposition into the
-        curl-free and divergence-free components of a vector.
+        The matrix that corresponds to evaluating the Helmholtz
+        decomposition of a horizontal vector field, represented by basis
+        expansion coefficients of the curl-free and divergence-free parts,
+        on the given grid.
 
         """
 
@@ -123,7 +125,7 @@ class BasisEvaluator(object):
     @property
     def L(self):
         """
-        Return the regularization matrix.
+        The regularization matrix.
 
         """
 
@@ -138,8 +140,9 @@ class BasisEvaluator(object):
     @property
     def L_helmholtz(self):
         """
-        Return the regularization matrix for the Helmholtz decomposition
-        into the curl-free and divergence-free components of a vector.
+        The regularization matrix for the Helmholtz decomposition
+        into basis expansion coefficients representing the curl-free and
+        divergence-free parts of a vector field.
 
         """
 
@@ -157,7 +160,8 @@ class BasisEvaluator(object):
     @property
     def least_squares(self):
         """
-        Return the least squares solver.
+        The least squares solver for finding the basis expansion
+        coefficients of a scalar field.
 
         """
 
@@ -169,8 +173,9 @@ class BasisEvaluator(object):
     @property
     def least_squares_helmholtz(self):
         """
-        Return the least squares solver for the Helmholtz decomposition
-        into the curl-free and divergence-free components of a vector.
+        The least squares solver for finding the basis expansion
+        coefficients of the curl-free and divergence-free parts of a
+        vector field.
 
         """
 

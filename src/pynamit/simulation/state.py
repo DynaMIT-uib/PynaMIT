@@ -66,10 +66,10 @@ class State(object):
         self.E_df_to_d_m_ind_dt = self.basis.laplacian(self.RI) / self.basis.d_dr_V_external(self.RI) # The same as d_dr_internal
         self.m_ind_to_Jeq       = -self.RI / mu0 * self.basis.V_external_to_delta_V
 
-        B_pol_to_J_df = -self.basis.V_external_to_delta_V / mu0
-        B_tor_to_J_cf = 1 / mu0
-        self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * B_pol_to_J_df
-        self.G_B_tor_to_JS = -self.basis_evaluator.G_grad * B_tor_to_J_cf
+        B_pol_to_J_df_coeffs = -self.RI * self.basis.V_external_to_delta_V / mu0            # RI comes from the scaling in the V potential
+        B_tor_to_J_cf_coeffs = self.RI / mu0                                                # RI comes from the scaling in the T potential
+        self.G_B_pol_to_JS = self.basis_evaluator.G_rxgrad * B_pol_to_J_df_coeffs / self.RI # 1 / RI comes from the scaling in the theta/phi components of the gradient
+        self.G_B_tor_to_JS = -self.basis_evaluator.G_grad * B_tor_to_J_cf_coeffs / self.RI  # 1 / RI comes from the scaling in the theta/phi components of the gradient
         self.G_m_ind_to_JS = self.G_B_pol_to_JS
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + np.tensordot(self.G_B_pol_to_JS, self.m_imp_to_B_pol.values, 1)
 
