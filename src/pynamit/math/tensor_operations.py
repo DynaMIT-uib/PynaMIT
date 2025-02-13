@@ -1,15 +1,15 @@
 import numpy as np
 
-def tensor_product(A, B, compounded_inds):
+def tensor_product(A, B, n_flattened_inds):
     """
     Compute the product of two matrices `A` and `B`, contracting the last
-    `compounded_inds` indices of the tensor `A` with the first
-    `compounded_inds` indices of the tensor `B`.
+    `n_flattened_inds` indices of the tensor `A` with the first
+    `n_flattened_inds` indices of the tensor `B`.
 
     """
 
-    first_dims = A.shape[:compounded_inds]
-    last_dims  = B.shape[compounded_inds:]
+    first_dims = A.shape[:n_flattened_inds]
+    last_dims  = B.shape[n_flattened_inds:]
 
     AB = np.dot(
         A.reshape((np.prod(first_dims), -1)),
@@ -18,16 +18,16 @@ def tensor_product(A, B, compounded_inds):
 
     return AB
 
-def tensor_pinv(A, compounded_inds=2, rtol=1e-15, hermitian=False):
+def tensor_pinv(A, n_flattened_inds=2, rtol=1e-15, hermitian=False):
     """
-    Compute the Moore-Penrose pseudoinverse of a tensor, where the first
-    and last `compounded_inds` indices are compounded.
-
+    Compute the Moore-Penrose pseudoinverse of the tensor `A`, by treating
+    the first `n_flattened_inds` indices and the remaining indices as flat
+    indices.
 
     """
 
-    first_dims = A.shape[:compounded_inds]
-    last_dims  = A.shape[compounded_inds:]
+    first_dims = A.shape[:n_flattened_inds]
+    last_dims  = A.shape[n_flattened_inds:]
 
     A_inv = np.linalg.pinv(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
@@ -35,16 +35,16 @@ def tensor_pinv(A, compounded_inds=2, rtol=1e-15, hermitian=False):
 
     return A_inv
 
-def tensor_pinv_positive_semidefinite(A, compounded_inds=2, rtol=1e-15, condition_number=False):
+def tensor_pinv_positive_semidefinite(A, n_flattened_inds=2, rtol=1e-15, condition_number=False):
     """
     Compute the Moore-Penrose pseudoinverse of the positive semidefinite
-    tensor `A`, where the first and last `compounded_inds` indices are
-    compounded.
+    tensor `A`, by treating the first `n_flattened_inds` indices and the
+    remaining indices as flat indices.
 
     """
 
-    first_dims = A.shape[:compounded_inds]
-    last_dims  = A.shape[compounded_inds:]
+    first_dims = A.shape[:n_flattened_inds]
+    last_dims  = A.shape[n_flattened_inds:]
 
     A_inv = pinv_positive_semidefinite(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
@@ -52,15 +52,15 @@ def tensor_pinv_positive_semidefinite(A, compounded_inds=2, rtol=1e-15, conditio
 
     return A_inv
 
-def tensor_transpose(A, compounded_inds=2):
+def tensor_transpose(A, n_flattened_inds=2):
     """
-    Transpose a tensor by compounding the first and last `compounded_inds`
-    indices, and performing a matrix transpose.
+    Transpose a tensor, by treating the first `n_flattened_inds` indices
+    and the remaining indices as flat indices.
 
     """
 
-    first_dims = A.shape[:compounded_inds]
-    last_dims  = A.shape[compounded_inds:]
+    first_dims = A.shape[:n_flattened_inds]
+    last_dims  = A.shape[n_flattened_inds:]
 
     A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape((last_dims + first_dims))
 
@@ -69,7 +69,8 @@ def tensor_transpose(A, compounded_inds=2):
 def tensor_scale_left(scaling_factors, A):
     """
     Perform the element-wise scaling of the first indices of the tensor
-    `A` by the array `scaling_factors`.
+    `A` by the `scaling_factors` tensor, by treating these indices as flat
+    indices.
 
     """
 
@@ -94,23 +95,22 @@ def tensor_scale_right(A, scaling_factors):
 
     return A_scaled.reshape((first_dims + last_dims))
 
-def tensor_outer(A, B, compounded_inds):
+def tensor_outer(A, B, n_flattened_inds):
     """
-    Compute the outer product of two tensors `A` and `B` represented as
-    matrices, where the last `compounded_inds` dimensions of `A` and the
-    first `compounded_inds` dimensions of `B` are compounded, and the
-    remaining dimensions are also compounded.
+    Compute the outer product of two tensors `A` and `B` by treating the
+    first `n_flattened_inds` indices of `A` and `B` and the remaining
+    indices of each tensor as flat indices.
 
     """
 
-    first_A_dims = A.shape[:compounded_inds]
-    first_B_dims = B.shape[:compounded_inds]
+    first_A_dims = A.shape[:n_flattened_inds]
+    first_B_dims = B.shape[:n_flattened_inds]
 
     if first_A_dims != first_B_dims:
         raise ValueError('First dimensions of outer product tensors do not match.')
 
-    last_A_dims = A.shape[compounded_inds:]
-    last_B_dims = B.shape[compounded_inds:]
+    last_A_dims = A.shape[n_flattened_inds:]
+    last_B_dims = B.shape[n_flattened_inds:]
 
     outer = np.einsum(
         'ij,ik->ijk',
@@ -121,15 +121,16 @@ def tensor_outer(A, B, compounded_inds):
 
     return outer
 
-def tensor_svd(A, compounded_inds=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
+def tensor_svd(A, n_flattened_inds=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
     """
-    Compute the singular value decomposition of the tensor `A`, where the
-    first and last `compounded_inds` indices are compounded.
+    Compute the singular value decomposition of the tensor `A`, by
+    treating the first `n_flattened_inds` indices and the remaining
+    indices as flat indices.
 
     """
 
-    first_dims = A.shape[:compounded_inds]
-    last_dims  = A.shape[compounded_inds:]
+    first_dims = A.shape[:n_flattened_inds]
+    last_dims  = A.shape[n_flattened_inds:]
 
     U, S, VT = np.linalg.svd(
         A.reshape((np.prod(first_dims), np.prod(last_dims))),
