@@ -11,7 +11,8 @@ class FlattenedArray(object):
         """
         Intialize a FlattenedArray object from the multidimensional array
         `full_array` and at least one of `n_flattened_first` or
-        `n_flattened_last`.
+        `n_flattened_last`, specifying the number of first or last
+        dimensions to flatten, respectively.
 
         """
 
