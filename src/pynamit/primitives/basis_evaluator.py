@@ -3,7 +3,10 @@ from pynamit.math.least_squares import LeastSquares
 
 class BasisEvaluator(object):
     """
-    Class for transforming between a given basis and a grid.
+    Object for transforming between expansions in given basis and grid
+    values. Can be used for both scalar and horizontal vector fields,
+    where the latter is represented by basis expansion coefficients of
+    the curl-free and divergence-free parts.
 
     """
     

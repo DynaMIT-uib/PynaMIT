@@ -1,7 +1,13 @@
 import numpy as np
 
-class FieldEvaluator:
-    """ Field evaluator class. """
+class FieldEvaluator(object):
+    """
+    Object for evaluating a magnetic field and its properties on a given
+    grid. The object also contains methods for constructing vectors that
+    are orthogonal and parallel to the magnetic field, as well as the
+    corresponding magnetic apex coordinate components.
+
+    """
 
     def __init__(self, field, grid, r):
         self.field = field
@@ -10,7 +16,11 @@ class FieldEvaluator:
 
     @property
     def grid_values(self):
-        """ Magnetic field vector. """
+        """
+        Spherical coordinate magnetic field vector components evaluated on
+        the given grid.
+
+        """
 
         if not hasattr(self, '_grid_values'):
             self._grid_values = np.vstack(self.field.get_B(self.r, self.grid.theta, self.grid.phi))
