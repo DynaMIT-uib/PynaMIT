@@ -78,9 +78,9 @@ class LeastSquares:
         else:
             self.n_arrays = 1
 
-        self.A = self.flatten_arrays(A, n_flattened_last = [solution_dims] * self.n_arrays)
-        self.weights = self.flatten_arrays(weights, n_flattened_last = [0] * self.n_arrays)
-        self.reg_L = self.flatten_arrays(reg_L, n_flattened_first = [solution_dims] * self.n_arrays, n_flattened_last = [solution_dims] * self.n_arrays)
+        self.A = self.flatten_arrays(A, n_trailing_flattened = [solution_dims] * self.n_arrays)
+        self.weights = self.flatten_arrays(weights, n_trailing_flattened = [0] * self.n_arrays)
+        self.reg_L = self.flatten_arrays(reg_L, n_leading_flattened = [solution_dims] * self.n_arrays, n_trailing_flattened = [solution_dims] * self.n_arrays)
 
         if reg_lambda is None:
             self.reg_lambda = [None] * self.n_arrays
@@ -89,16 +89,16 @@ class LeastSquares:
 
         self.pinv_rtol = pinv_rtol
 
-    def flatten_arrays(self, arrays, n_flattened_first=None, n_flattened_last=None):
+    def flatten_arrays(self, arrays, n_leading_flattened=None, n_trailing_flattened=None):
         """Convert arrays to flattened form.
         
         Parameters
         ----------
         arrays : list of ndarray or ndarray
             Input arrays to flatten
-        n_flattened_first : list of int, optional
+        n_leading_flattened : list of int, optional
             Number of leading dimensions to flatten for each array
-        n_flattened_last : list of int, optional
+        n_trailing_flattened : list of int, optional
             Number of trailing dimensions to flatten for each array
             
         Returns
@@ -112,10 +112,10 @@ class LeastSquares:
         array operations while preserving the ability to reshape back to
         original dimensions.
         """
-        if n_flattened_first is None:
-            n_flattened_first = [None] * self.n_arrays
-        if n_flattened_last is None:
-            n_flattened_last = [None] * self.n_arrays
+        if n_leading_flattened is None:
+            n_leading_flattened = [None] * self.n_arrays
+        if n_trailing_flattened is None:
+            n_trailing_flattened = [None] * self.n_arrays
 
         arrays_compounded = [None] * self.n_arrays
 
@@ -125,7 +125,7 @@ class LeastSquares:
 
             for i in range(len(arrays)):
                 if arrays[i] is not None:
-                    arrays_compounded[i] = FlattenedArray(arrays[i], n_flattened_first = n_flattened_first[i], n_flattened_last = n_flattened_last[i])
+                    arrays_compounded[i] = FlattenedArray(arrays[i], n_leading_flattened = n_leading_flattened[i], n_trailing_flattened = n_trailing_flattened[i])
 
         return arrays_compounded
 
@@ -150,7 +150,7 @@ class LeastSquares:
         
         The complete solution minimizes the sum of all constraint terms.
         """
-        b_list = self.flatten_arrays(b, n_flattened_first = [len(self.A[i].full_shapes[0]) for i in range(self.n_arrays)])
+        b_list = self.flatten_arrays(b, n_leading_flattened = [len(self.A[i].full_shapes[0]) for i in range(self.n_arrays)])
 
         solution = [None] * self.n_arrays
 

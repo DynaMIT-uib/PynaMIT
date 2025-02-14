@@ -55,18 +55,18 @@ def tensor_product(A, B, n_contracted):
 
     return AB
 
-def tensor_pinv(A, n_flattened_first=2, rtol=1e-15, hermitian=False):
+def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
     """
     Compute the Moore-Penrose pseudoinverse of the tensor `A`, by treating
-    the first `n_flattened_first` indices and the remaining indices as
+    the first `n_leading_flattened` indices and the remaining indices as
     flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
-    n_flattened_first : int, optional
-        Number of indices to flatten first. Default is 2.
+    n_leading_flattened : int, optional
+        Number of leading dimensions to flatten into first axis. Default is 2.
     rtol : float, optional
         Relative tolerance for small singular values. Default is 1e-15.
     hermitian : bool, optional
@@ -77,8 +77,8 @@ def tensor_pinv(A, n_flattened_first=2, rtol=1e-15, hermitian=False):
     array-like
         Pseudoinverse of the tensor.
     """
-    first_dims = A.shape[:n_flattened_first]
-    last_dims  = A.shape[n_flattened_first:]
+    first_dims = A.shape[:n_leading_flattened]
+    last_dims  = A.shape[n_leading_flattened:]
 
     A_inv = np.linalg.pinv(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
@@ -86,18 +86,18 @@ def tensor_pinv(A, n_flattened_first=2, rtol=1e-15, hermitian=False):
 
     return A_inv
 
-def tensor_pinv_positive_semidefinite(A, n_flattened_first=2, rtol=1e-15, condition_number=False):
+def tensor_pinv_positive_semidefinite(A, n_leading_flattened=2, rtol=1e-15, condition_number=False):
     """
     Compute the Moore-Penrose pseudoinverse of the positive semidefinite
-    tensor `A`, by treating the first `n_flattened_first` indices and the
+    tensor `A`, by treating the first `n_leading_flattened` indices and the
     remaining indices as flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
-    n_flattened_first : int, optional
-        Number of indices to flatten first. Default is 2.
+    n_leading_flattened : int, optional
+        Number of leading dimensions to flatten into first axis. Default is 2.
     rtol : float, optional
         Relative tolerance for small singular values. Default is 1e-15.
     condition_number : bool, optional
@@ -108,8 +108,8 @@ def tensor_pinv_positive_semidefinite(A, n_flattened_first=2, rtol=1e-15, condit
     array-like
         Pseudoinverse of the tensor.
     """
-    first_dims = A.shape[:n_flattened_first]
-    last_dims  = A.shape[n_flattened_first:]
+    first_dims = A.shape[:n_leading_flattened]
+    last_dims  = A.shape[n_leading_flattened:]
 
     A_inv = pinv_positive_semidefinite(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
@@ -117,25 +117,25 @@ def tensor_pinv_positive_semidefinite(A, n_flattened_first=2, rtol=1e-15, condit
 
     return A_inv
 
-def tensor_transpose(A, n_flattened_first=2):
+def tensor_transpose(A, n_leading_flattened=2):
     """
-    Transpose a tensor, by treating the first `n_flattened_first` indices
+    Transpose a tensor, by treating the first `n_leading_flattened` indices
     and the remaining indices as flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
-    n_flattened_first : int, optional
-        Number of indices to flatten first. Default is 2.
+    n_leading_flattened : int, optional
+        Number of leading dimensions to flatten into first axis. Default is 2.
 
     Returns
     -------
     array-like
         Transposed tensor.
     """
-    first_dims = A.shape[:n_flattened_first]
-    last_dims  = A.shape[n_flattened_first:]
+    first_dims = A.shape[:n_leading_flattened]
+    last_dims  = A.shape[n_leading_flattened:]
 
     A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape((last_dims + first_dims))
 
@@ -190,10 +190,10 @@ def tensor_scale_right(A, scaling_tensor):
 
     return A_scaled.reshape((first_dims + last_dims))
 
-def tensor_outer(A, B, n_flattened_first):
+def tensor_outer(A, B, n_leading_flattened):
     """
     Compute the outer product of two tensors `A` and `B` by treating the
-    first `n_flattened_first` indices of `A` and `B` and the remaining
+    first `n_leading_flattened` indices of `A` and `B` and the remaining
     indices of each tensor as flat indices.
 
     Parameters
@@ -202,8 +202,8 @@ def tensor_outer(A, B, n_flattened_first):
         First tensor.
     B : array-like
         Second tensor.
-    n_flattened_first : int
-        Number of indices to flatten first.
+    n_leading_flattened : int
+        Number of leading dimensions to flatten into first axis.
 
     Returns
     -------
@@ -215,14 +215,14 @@ def tensor_outer(A, B, n_flattened_first):
     ValueError
         If the first dimensions of the tensors do not match.
     """
-    first_A_dims = A.shape[:n_flattened_first]
-    first_B_dims = B.shape[:n_flattened_first]
+    first_A_dims = A.shape[:n_leading_flattened]
+    first_B_dims = B.shape[:n_leading_flattened]
 
     if first_A_dims != first_B_dims:
         raise ValueError('First dimensions of outer product tensors do not match.')
 
-    last_A_dims = A.shape[n_flattened_first:]
-    last_B_dims = B.shape[n_flattened_first:]
+    last_A_dims = A.shape[n_leading_flattened:]
+    last_B_dims = B.shape[n_leading_flattened:]
 
     outer = np.einsum(
         'ij,ik->ijk',
@@ -233,18 +233,18 @@ def tensor_outer(A, B, n_flattened_first):
 
     return outer
 
-def tensor_svd(A, n_flattened_first=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
+def tensor_svd(A, n_leading_flattened=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
     """
     Compute the singular value decomposition of the tensor `A`, by
-    treating the first `n_flattened_first` indices and the remaining
+    treating the first `n_leading_flattened` indices and the remaining
     indices as flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
-    n_flattened_first : int, optional
-        Number of indices to flatten first. Default is 2.
+    n_leading_flattened : int, optional
+        Number of leading dimensions to flatten into first axis. Default is 2.
     full_matrices : bool, optional
         Whether to compute full-sized U and VT matrices. Default is True.
     compute_uv : bool, optional
@@ -259,8 +259,8 @@ def tensor_svd(A, n_flattened_first=2, full_matrices=True, compute_uv=True, herm
     tuple of array-like
         U, S, and VT matrices of the singular value decomposition.
     """
-    first_dims = A.shape[:n_flattened_first]
-    last_dims  = A.shape[n_flattened_first:]
+    first_dims = A.shape[:n_leading_flattened]
+    last_dims  = A.shape[n_leading_flattened:]
 
     U, S, VT = np.linalg.svd(
         A.reshape((np.prod(first_dims), np.prod(last_dims))),

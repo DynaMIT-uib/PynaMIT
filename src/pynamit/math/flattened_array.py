@@ -22,9 +22,9 @@ class FlattenedArray(object):
     ----------
     full_array : array-like
         The multidimensional array to be flattened
-    n_flattened_first : int, optional
+    n_leading_flattened : int, optional
         Number of leading dimensions to flatten into first axis
-    n_flattened_last : int, optional
+    n_trailing_flattened : int, optional
         Number of trailing dimensions to flatten into last axis
 
     Attributes
@@ -40,38 +40,38 @@ class FlattenedArray(object):
 
     Notes
     -----
-    Must specify at least one of n_flattened_first or n_flattened_last.
+    Must specify at least one of n_leading_flattened or n_trailing_flattened.
     If both are specified, they must sum to the total number of dimensions.
 
     Raises
     ------
     ValueError
-        If neither or invalid combination of n_flattened_first/last specified
+        If neither or invalid combination of n_leading_flattened/last specified
     """
 
-    def __init__(self, full_array, n_flattened_first=None, n_flattened_last=None):
+    def __init__(self, full_array, n_leading_flattened=None, n_trailing_flattened=None):
         """
         Initialize a FlattenedArray object from the multidimensional array
-        `full_array` and at least one of `n_flattened_first` or
-        `n_flattened_last`, specifying the number of first or last
+        `full_array` and at least one of `n_leading_flattened` or
+        `n_trailing_flattened`, specifying the number of first or last
         dimensions to flatten, respectively.
 
         """
 
-        if n_flattened_first is None and n_flattened_last is None:
-            raise ValueError('Either n_flattened_first or n_flattened_last must be specified.')
-        elif n_flattened_first is not None and n_flattened_last is not None:
-            if n_flattened_first + n_flattened_last != full_array.ndim:
-                raise ValueError('n_flattened_first + n_flattened_last must be equal to the number of dimensions of the array.')
-        elif n_flattened_last is not None:
-            n_flattened_first = full_array.ndim - n_flattened_last
-        elif n_flattened_first is not None:
-            n_flattened_last = full_array.ndim - n_flattened_first
+        if n_leading_flattened is None and n_trailing_flattened is None:
+            raise ValueError('Either n_leading_flattened or n_trailing_flattened must be specified.')
+        elif n_leading_flattened is not None and n_trailing_flattened is not None:
+            if n_leading_flattened + n_trailing_flattened != full_array.ndim:
+                raise ValueError('n_leading_flattened + n_trailing_flattened must be equal to the number of dimensions of the array.')
+        elif n_trailing_flattened is not None:
+            n_leading_flattened = full_array.ndim - n_trailing_flattened
+        elif n_leading_flattened is not None:
+            n_trailing_flattened = full_array.ndim - n_leading_flattened
         else:
             raise ValueError('This should not happen.')
 
         self.full_array = full_array
-        self.full_shapes = (full_array.shape[:n_flattened_first], full_array.shape[n_flattened_first:])
+        self.full_shapes = (full_array.shape[:n_leading_flattened], full_array.shape[n_leading_flattened:])
 
         self.shapes = (math.prod(self.full_shapes[0]), math.prod(self.full_shapes[1]))
         self.array = full_array.reshape(self.shapes)
