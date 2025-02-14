@@ -25,10 +25,8 @@ time_dependent_plot
 
 import numpy as np
 import matplotlib.pyplot as plt
-import polplot
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
-from polplot import Polarplot
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
@@ -129,9 +127,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     plt_state_evaluator = BasisEvaluator(dynamics.state.basis, plt_grid)
     plt_b_evaluator = FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
     Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr) / plt_b_evaluator.br
-    eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
-    fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
+    #FAC = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr) / plt_b_evaluator.br
+    #eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
+    _, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
     ax.coastlines()
     ax.set_global()
     contour = ax.contourf(plt_grid.lon, plt_grid.lat, Br, levels=np.linspace(-300, 300, 22) * 1e-9, cmap='bwr', extend='both')
