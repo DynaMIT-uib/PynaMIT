@@ -437,20 +437,22 @@ def plot_AMPS_Br(a):
     plt.show()
     plt.close()
 
-def show_jr_and_conductance(jr, conductance, lat, lon):
+def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
     """
     Show jr and conductance.
 
     Parameters
     ----------
-    jr : array-like
-        jr values.
-    conductance : array-like
-        Conductance values.
-    lat : array-like
-        Latitudes of the data points.
-    lon : array-like
-        Longitudes of the data points.
+    dynamics : Dynamics
+        Simulation dynamics object.
+    conductance_grid : Grid
+        Conductance grid.
+    hall : array-like
+        Hall conductance.
+    pedersen : array-like
+        Pedersen conductance.
+    lon0 : float
+        Noon longitude.
     """
     levels = np.linspace(-.9, .9, 22) # color levels for jr muA/m^2
     c_levels = np.linspace(0, 20, 100) # color levels for conductance
