@@ -3,7 +3,12 @@ from pynamit.math.flattened_array import FlattenedArray
 
 class LeastSquares(object):
     """
-    Class for solving least squares problems of the form ``Ax = b``.
+    Class for solving least squares problems of the form ``Ax = b``, where
+    `A`, `x`, and `b` are lists of multi-dimensional arrays. This allows
+    for solving a least squares comprised of multiple constraints, each
+    represented by set of multi-dimensional arrays. In addition, the
+    class allows for the inclusion of weights and regularization terms for
+    each constraint.
 
     """
     
@@ -28,7 +33,9 @@ class LeastSquares(object):
 
     def flatten_arrays(self, arrays, n_flattened_first = None, n_flattened_last = None):
         """
-        Ensure that `arrays` is a list of FlattenedArray objects.
+        Ensure that `arrays` is a list of FlattenedArray objects, used to
+        be able to handle multiple multi-dimensional arrays as input to
+        the least squares solver.
 
         """
 
@@ -51,7 +58,9 @@ class LeastSquares(object):
 
     def solve(self, b):
         """
-        Solve the least squares problem.
+        Solve the least squares problem ``Ax = b``, where `b` is a list
+        of flattened arrays, one for each flattened array in `A`. The
+        solution is returned as a list of multi-dimensional arrays.
 
         """
 
@@ -73,7 +82,9 @@ class LeastSquares(object):
     @property
     def ATW(self):
         """
-        Return the matrix ``A^T W``.
+        The list of flattened arrays ``A^T W``, where `A` represents the
+        forward operator and `W` the weights, and both are lists of
+        flattened multi-dimensional arrays.
 
         """
 
@@ -90,7 +101,8 @@ class LeastSquares(object):
     @property
     def ATWA(self):
         """
-        Return the matrix ``A^T W A``
+        The flattened array ``A^T W A``, obtained as the sum of the
+        products of the lists of flattened arrays ``A^T W`` and ``A``.
 
         """
 
@@ -102,7 +114,11 @@ class LeastSquares(object):
     @property
     def ATWA_plus_R_inv(self):
         """
-        Return the inverse of the matrix ``A^T W A + R``.
+        The inverse of the flattened array ``A^T W A + R``, where the
+        flattened array `R` represents the regularization operator
+        obtained as the sum of the products of the lists of flattened
+        arrays ``L^T``and ``L``, where `L` represents the regularization
+        operator for each flattened array in `A`.
 
         """
 
@@ -119,8 +135,8 @@ class LeastSquares(object):
     @property
     def ATWA_plus_R_inv_ATW(self):
         """
-        Return inverse of the matrix ``A^T W A + R`` multiplied by
-        ``A^T W``.
+        The inverse of the flattened array ``A^T W A + R`` multiplied by
+        the flattened array ``A^T W``.
 
         """
 
