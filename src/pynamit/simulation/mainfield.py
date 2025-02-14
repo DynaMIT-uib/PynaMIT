@@ -1,4 +1,20 @@
-""" Main field models. """
+"""Main magnetic field models.
+
+This module provides implementations of different magnetic field models including
+dipole, IGRF, and radial fields, with coordinate transformations and field line
+tracing capabilities.
+
+Models
+------
+- dipole : Dipole magnetic field using IGRF coefficients for moment
+- igrf : International Geomagnetic Reference Field in geocentric coordinates
+- radial : Radial field lines with configurable magnitude
+
+Classes
+-------
+Mainfield
+    Main magnetic field model with coordinate transformations.
+"""
 
 import ppigrf
 import apexpy
@@ -8,39 +24,44 @@ from datetime import datetime
 from pynamit.math.constants import RE
 
 class Mainfield(object):
-    def __init__(self, kind = 'dipole', epoch = 2020, hI = 0., B0 = None):
-        """
-        Supported fields (with kind keywords):
+    """Main magnetic field model implementation.
+    
+    Provides magnetic field calculations, coordinate transformations, and field
+    line tracing for different field models.
 
-        - 'dipole': Dipole magnetic field, using IGRF coefficients to
-          determine dipole moment. The functions will refer to *dipole
-          coordinates*. Other parameters (jr, conductance, ...) must be
-          given in the same coordinate system.
-        - 'igrf': International Geomagentic Reference Field, described
-          in *geocentric*  coordinates. Other parameters (jr,
-          conductance, ...) must be given in the same coordinate system.
-          NOTE: Conversion between geodetic and geocentric is ignored.
-          Geodetic height is calculated as ``h = r - RE``.
-        - 'radial': Radial field lines. You can specify the magnitude of
-          ``B`` on ground through the `B0` keyword. If not specified, the
-          magnitude will be the (positive) dipole reference field for the
-          given epoch (and the epoch keyword is ignored).
+    Parameters
+    ----------
+    kind : {'dipole', 'igrf', 'radial'}, optional
+        Type of magnetic field model, by default 'dipole'
+    epoch : int, optional
+        Decimal year for field coefficients, by default 2020
+    hI : float, optional
+        Ionospheric height in km, by default 0.0
+    B0 : float, optional
+        Field magnitude at ground for radial model in Tesla.
+        If None, uses reference field for epoch.
 
-        Parameters
-        ----------
-        kind : str, {'dipole', 'igrf', 'radial'}, default = 'dipole'
-            The field model kind.
-        epoch : int, optional
-            The epoch [decimal year] for the field model.
-        hI : float, optional
-            Height of the ionosphere [km]
-        B0 : float, optional
-            The magnitude of the field on ground for ``kind == 'radial'``.
-            The default is the reference field for ``epoch = 2020``
-            (pointing upward).
+    Attributes
+    ----------
+    kind : str
+        Active field model type
+    dpl : dipole.Dipole
+        Dipole field instance (if kind='dipole')
+    apx : apexpy.Apex  
+        Apex coordinate transformer (if kind='igrf')
 
-        """
+    Notes
+    -----
+    The different models use different coordinate systems:
+    
+    - dipole: Uses dipole coordinates, input parameters must match
+    - igrf: Uses geocentric coordinates, geodetic conversion ignored
+    - radial: Simple radial field lines
+    
+    For IGRF, geodetic height is approximated as h = r - RE
+    """
 
+    def __init__(self, kind='dipole', epoch=2020, hI=0., B0=None):
         if kind.lower() not in ['radial', 'dipole', 'igrf']:
             raise ValueError('kind must be either radial, dipole or igrf')
 
@@ -73,65 +94,58 @@ class Mainfield(object):
 
 
     def get_B(self, r, theta, phi):
-        """
-        Calculate magnetic field vector [nT] at `r` [m], `theta` [deg],
-        `phi` [deg].
-
-        Broadcasting rules apply.
-
+        """Calculate magnetic field components.
+        
         Parameters
         ----------
-        r: array
-            Radius [m] of the points where the magnetic field is to be
-            evaluated.
-        theta: array
-            Colatitude [deg] of the points where the magnetic field is to
-            be evaluated.
-        phi: array
-            Longitude [deg] of the points where the magnetic field is to
-            be evaluated.
-
-        Return
-        ------
-        Br : array
-            Magnetic field [nT] in radial direction.
-        Btheta : array
-            Magnetic field [nT] in `theta` (south) direction.
-        Bphi : array
-            Magnetic field [nT] in eastward direction.
-
+        r : array-like
+            Radius in meters
+        theta : array-like  
+            Colatitude in degrees
+        phi : array-like
+            Longitude in degrees
+            
+        Returns
+        -------
+        Br : ndarray
+            Radial component in Tesla
+        Btheta : ndarray
+            Southward component in Tesla  
+        Bphi : ndarray
+            Eastward component in Tesla
+            
+        Notes
+        -----
+        Arrays are broadcast to common shape. Output components
+        are in spherical coordinate basis (r̂, θ̂, φ̂).
         """
-
         return(self._Bfunc(r, theta, phi))
 
 
     def get_sinI(self, r, theta, phi):
-        """ 
-        Calculate sin inclination angle 
+        """
+        Calculate sin inclination angle.
 
-        Defined as the angle of the magnetic field with nadir
-
+        Defined as the angle of the magnetic field with nadir.
         Broadcasting rules apply.
 
         Parameters
         ----------
-        r: array
+        r : array-like
             Radius [m] of the points where the magnetic field is to be
             evaluated.
-        theta: array
+        theta : array-like
             Colatitude [deg] of the points where the magnetic field is to
             be evaluated.
-        phi: array
+        phi : array-like
             Longitude [deg] of the points where the magnetic field is to
             be evaluated.
 
-        Return
-        ------
-        sinI: array
-            sin(inclination)
-
+        Returns
+        -------
+        sinI : array
+            sin(inclination).
         """
-
         B = np.vstack(self.get_B(r, theta, phi))
 
         # return -Br/B0
@@ -139,35 +153,34 @@ class Mainfield(object):
 
 
     def map_coords(self, r_dest, r, theta, phi):
-        """ Map coordinates from `r`, `theta`, `phi` to a radius `r_dest`.
-
-        Broadcasting rules apply.
+        """Map coordinates along field lines.
+        
+        Maps points to new radius along magnetic field lines.
 
         Parameters
         ----------
-        r_dest: float
-            Radius [m] to which we map the coordinates.
-        r: array
-            Radius [m] of the coordinates that shall be mapped to
-            ``r_dest``.
-        theta: array
-            Colatitude [deg] of the coordinates that shall be mapped to
-            ``r_dest``.
-        phi: array
-            Longitude [deg] of the coordinates that shall be mapped to
-            ``r_dest``.
+        r_dest : float
+            Destination radius in meters
+        r : array-like
+            Starting radius in meters
+        theta : array-like
+            Starting colatitude in degrees 
+        phi : array-like
+            Starting longitude in degrees
 
-        Return
-        ------
-        theta_out: array
-            Colatitude [deg] of the input points when mapped to radius
-            ``r_dest``.
-        phi_out: array
-            Longitude [deg] of the input points when mapped to radius
-            ``r_dest``.
-
+        Returns
+        -------
+        theta_out : ndarray
+            Mapped colatitude in degrees
+        phi_out : ndarray
+            Mapped longitude in degrees
+            
+        Notes
+        -----
+        For IGRF, uses apex coordinates for field line tracing.
+        For dipole, uses analytic dipole field line equation.
+        For radial, angular coordinates unchanged.
         """
-
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
 
         if self.kind == 'radial': # the angular coordinates are the same
@@ -188,28 +201,38 @@ class Mainfield(object):
         return(theta_out, phi_out)
 
     def conjugate_coordinates(self, r, theta, phi):
-        """ Calculate coordinates at magnetically conjugate points at radius `r`
+        """Find magnetically conjugate points.
+        
+        Calculates coordinates of magnetically connected points
+        in opposite hemisphere.
 
         Parameters
         ----------
-        r: array
-            Radius [m] of original coordinates 
-        theta: array
-            Colatitude [deg] of original coordinates 
-        phi: array
-            Longitude [deg] of original coordinates 
+        r : array-like
+            Radius in meters
+        theta : array-like
+            Colatitude in degrees
+        phi : array-like
+            Longitude in degrees
 
-        Return
+        Returns
+        -------
+        theta_conj : ndarray
+            Conjugate point colatitude in degrees
+        phi_conj : ndarray
+            Conjugate point longitude in degrees
+
+        Notes
+        -----
+        Not defined for radial field model.
+        For dipole, conjugate points are at (180°-θ,φ).
+        For IGRF, uses apex coordinate transformations.
+
+        Raises
         ------
-        Parameters
-        ----------
-        theta_conj: array
-            Colatitude [deg] of magnetically connected point in opposite hemisphere
-        phi_conj: array
-            Longitude [deg] of magnetically connected point in opposite hemisphere
-
+        ValueError
+            If called with radial field model
         """
-
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
 
         if self.kind == 'radial':
@@ -229,40 +252,35 @@ class Mainfield(object):
 
 
     def basevectors(self, r, theta, phi):
-        """ Get basevectors at `r`, `theta`, `phi`.
-
-        The basevectors are the apex basevectors as defined by Richmond
-        1995. For the three types of mainfield, we use different methods:
-
-        - 'dipole': we use the dipole module, see documentation of that
-          module for full explanation.
-        - 'radial': the basevectors are orthonormal unit vectors.
-        - 'igrf': we use apexpy. NOTE: We treat `theta` as
-          ``90 - geodetic latitude`` and `r` as ``RE + geodetic height``.
-
-
-        Broadcasting rules apply, but output vectors will be
-        ``(3, size)``, where ``size`` is the size of the broadcast arrays.
+        """Calculate apex coordinate basis vectors.
+        
+        Computes modified apex coordinate basis vectors defined in
+        Richmond (1995).
 
         Parameters
         ----------
-        r: array
-            Radius [m] of the coordinates where we calculate base vectors.
-        theta: array
-            Colatitude [deg] of the coordinates where we calculate base
-            vectors.
-        phi: array
-            Longitude [deg] of the coordinates where we calculate base
-            vectors.
+        r : array-like
+            Radius in meters
+        theta : array-like
+            Colatitude in degrees
+        phi : array-like
+            Longitude in degrees
 
-        Return
-        ------
-        d1, d2, d3, e1, e2, e3: arrays
-            Modifified apex base vectors, with the components referring to
-            ``(r, theta, phi)``.
-
+        Returns
+        -------
+        d1, d2, d3 : ndarray
+            Contravariant basis vectors, shape (3,N)
+        e1, e2, e3 : ndarray
+            Covariant basis vectors, shape (3,N)
+            
+        Notes
+        -----
+        Vector components are in spherical coordinates (r,θ,φ).
+        Implementation differs by model type:
+        - dipole: Uses analytic dipole expressions
+        - igrf: Uses apex coordinate transformations
+        - radial: Uses simple orthonormal vectors
         """
-
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
         size = r.size
         d1 = np.empty((3, size))
@@ -271,7 +289,6 @@ class Mainfield(object):
         e1 = np.empty((3, size))
         e2 = np.empty((3, size))
         e3 = np.empty((3, size))
-
 
 
         if self.kind == 'radial':
@@ -331,9 +348,22 @@ class Mainfield(object):
         return(d1, d2, d3, e1, e2, e3)
 
 
-    def dip_equator(self, phi, theta = 90):
-        """ Calculate the co-latitude of the dip equator (or another magnetic latitude) at given phi """
+    def dip_equator(self, phi, theta=90):
+        """
+        Calculate the co-latitude of the dip equator (or another magnetic latitude) at given phi.
 
+        Parameters
+        ----------
+        phi : array-like
+            Longitude [deg] at which to calculate the dip equator.
+        theta : float, optional
+            Magnetic latitude. Default is 90.
+
+        Returns
+        -------
+        array
+            The co-latitude of the dip equator at the given longitude.
+        """
         phi = np.array(phi) % 360
 
         if self.kind == 'radial':
@@ -347,7 +377,7 @@ class Mainfield(object):
             mlon = np.linspace(0, 360, 360)
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh) # lat of evenly spaced points
             # interpolate to phi:
-            return( np.interp(phi.flatten(), lon % 360, 90 - lat, period = 360)).reshape(phi.shape) 
+            return( np.interp(phi.flatten(), lon % 360, 90 - lat, period = 360)).reshape(phi.shape)
 
 
 

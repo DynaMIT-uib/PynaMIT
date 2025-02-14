@@ -3,26 +3,49 @@ Spherical harmonic analysis helpers.
 
 This module contains helpers for spherical harmonic analysis.
 
-"""
+Functions
+---------
+schmidt_normalization_factors
+    Return vector of Schmidt semi-normalization factors for spherical harmonic terms.
 
+Classes
+-------
+SHKeys
+    Container for spherical harmonic expansion indices n and m.
+"""
 import numpy as np
 
 class SHKeys(object):
-    """
-    Container for ``n`` and ``m``, the indices of the terms in a spherical
+    """Container for spherical harmonic expansion indices.
+    
+    A container for ``n`` and ``m``, the indices of the terms in a spherical
     harmonic expansion.
 
-    Container can be generated with::
+    Parameters
+    ----------
+    Nmax : int
+        Maximum value for n index
+    Mmax : int
+        Maximum value for m index
 
+    Attributes
+    ----------
+    keys : tuple
+        Tuple of (n,m) index pairs
+    n : ndarray
+        Array of n indices, shape (1, len(keys))
+    m : ndarray
+        Array of m indices, shape (1, len(keys))
+
+    Notes
+    -----
+    Container can be generated with::
         keys = SHKeys(Nmax, Mmax)
 
-    ``keys`` will behave as a tuple of tuples, more or less.
-    ``keys['n']`` will return a list of the ``n``'s.
-    ``keys['m']`` will return a list of the ``m``'s.
-    ``keys[3]`` will return the fourth ``(n,m)`` tuple.
-
-    ``keys`` is also iterable.
-
+    The object provides dictionary-like access:
+        - keys['n'] returns a list of n values
+        - keys['m'] returns a list of m values
+        - keys[i] returns the i-th (n,m) tuple
     """
 
     def __init__(self, Nmax, Mmax):
@@ -56,37 +79,85 @@ class SHKeys(object):
         return ''.join(['n, m\n'] + [str(key)[1:-1] + '\n' for key in self.keys])[:-1]
 
     def set_Nmin(self, Nmin):
-        """ set minimum n """
+        """Set minimum n value.
+        
+        Parameters
+        ----------
+        Nmin : int
+            Minimum value for n index
+            
+        Returns
+        -------
+        self : SHKeys
+            Modified instance with filtered keys
+        """
         self.keys = tuple([key for key in self.keys if key[0] >= Nmin])
         self.make_arrays()
         return self
 
     def set_Mmin(self, Mmin):
-        """ set minimum |m|  """
+        """Set minimum absolute m value.
+        
+        Parameters
+        ----------
+        Mmin : int
+            Minimum absolute value for m index
+            
+        Returns
+        -------
+        self : SHKeys
+            Modified instance with filtered keys
+        """
         self.keys = tuple([key for key in self.keys if abs(key[1]) >= Mmin])
         self.make_arrays()
         return self
 
     def MleN(self):
-        """ set |m| <= n """
+        """Filter keys to ensure |m| ≤ n.
+        
+        Returns
+        -------
+        self : SHKeys
+            Modified instance with filtered keys
+        """
         self.keys = tuple([key for key in self.keys if abs(key[1]) <= key[0]])
         self.make_arrays()
         return self
 
     def NminusModd(self):
-        """ remove keys if n - m is even """
+        """Filter keys to keep only odd n-m differences.
+        
+        Returns
+        -------
+        self : SHKeys
+            Modified instance with filtered keys where n-|m| is odd
+        """
         self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 1])
         self.make_arrays()
         return self
 
     def NminusMeven(self):
-        """ remove keys if n - m is odd """
+        """Filter keys to keep only even n-m differences.
+        
+        Returns
+        -------
+        self : SHKeys
+            Modified instance with filtered keys where n-|m| is even
+        """
         self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 0])
         self.make_arrays()
         return self
 
     def negative_m(self):
-        """ add negative m to the keys """
+        """Add negative m values to the keys.
+        
+        For each existing key with m≠0, adds a corresponding key with -m.
+        
+        Returns
+        -------
+        self : SHKeys
+            Modified instance with added negative m keys
+        """
         keys = []
         for key in self.keys:
             keys.append(key)
@@ -99,11 +170,10 @@ class SHKeys(object):
         return self
 
     def make_arrays(self):
+        """Create arrays of n and m indices.
+        
+        Creates n and m arrays with shape (1, len(keys)) for vectorized operations.
         """
-        Prepare array of n and m indices with shape ( 1, len(keys) ).
-
-        """
-
         if len(self) > 0:
             self.n = np.array(self)[:, 0].reshape(1, -1)
             self.m = np.array(self)[:, 1].reshape(1, -1)
@@ -127,9 +197,7 @@ def schmidt_normalization_factors(nm_tuples):
     S : vector
         Vector of Schmidt normalization factors for the given spherical
         harmonic indices.
-
     """
-
     S = np.empty(len(nm_tuples), dtype = np.float64)
 
     # Calculate the Schmidt normalization factors

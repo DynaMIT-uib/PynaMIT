@@ -1,17 +1,17 @@
-""" 
-Python implementation of cubed sphere projection and differential
-calculus, largely based on:
+"""Cubed sphere projection and differential calculus.
 
-    Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai, Parallel
-    numerical simulation of the thermal convection in the Earth's outer
-    core on the cubed-sphere, Geophysical Journal International,
-    Volume 209, Issue 3, June 2017, Pages 1934–1954,
+This module implements cubed sphere projections and associated mathematical 
+operations based on:
+
+    Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
+    Parallel numerical simulation of the thermal convection in the Earth's outer core
+    on the cubed-sphere
+    Geophysical Journal International, 209(3), 1934–1954
     https://doi.org/10.1093/gji/ggx125
 
-Cube block indices:
--------------------
-
-::
+Block Structure
+--------------
+The cube faces are arranged as follows::
 
           _______
           |     |
@@ -24,15 +24,14 @@ Cube block indices:
           | VI  |
           |_____|
 
-    0 = I  : Equator
-    1 = II : Equator 
-    2 = III: Equator    
-    3 = IV : Equator
-    4 = V  : North pole
-    5 = VI : South pole
-
+Block indices:
+    - 0 = I   : Equator
+    - 1 = II  : Equator 
+    - 2 = III : Equator    
+    - 3 = IV  : Equator
+    - 4 = V   : North pole
+    - 5 = VI  : South pole
 """
-
 
 import numpy as np
 from pynamit.cubed_sphere import diffutils
@@ -41,28 +40,59 @@ import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
+
 d2r = np.pi / 180
+datapath = os.path.dirname(os.path.abspath(__file__)) + '/data/'
 
-datapath = os.path.dirname(os.path.abspath(__file__)) + '/data/' # for coastlines
+class CSProjection:
+    """Cubed sphere projection manager.
+    
+    Handles coordinate transformations and calculations in the cubed sphere
+    grid system. Implements methods from Yin et al. (2017).
 
+    Parameters
+    ----------
+    N : int, optional
+        Number of grid cells per cube edge. If provided, initializes a grid
+        with cells centered at 6×N×N points, by default None
 
-class CSProjection(object):
-    def __init__(self, N = None):
-        """ Set up cubed sphere projection.
+    Attributes
+    ----------
+    arr_xi : ndarray
+        Xi coordinates in radians for grid points
+    arr_eta : ndarray
+        Eta coordinates in radians for grid points  
+    arr_theta : ndarray
+        Colatitude coordinates in degrees for grid points
+    arr_phi : ndarray
+        Longitude coordinates in degrees for grid points
+    arr_block : ndarray
+        Block indices (0-5) for grid points
+    arr_area : ndarray
+        Grid cell areas normalized to unit sphere
 
+    Notes
+    -----
+    The cubed sphere divides a sphere into 6 faces of a circumscribed cube.
+    Each face uses a local (xi,eta) coordinate system mapped to global
+    spherical coordinates (theta,phi).
+
+    The arrangement of faces follows Yin et al. (2017):
+    - Equatorial faces I-IV (blocks 0-3)
+    - North polar face V (block 4)
+    - South polar face VI (block 5)
+    """
+
+    def __init__(self, N=None):
+        """Initialize cubed sphere projection.
+        
         Parameters
         ----------
-        N: int, optional
-            Set to an integer to calculate a set of grid points that
-            correspond to the centers of the cells in a ``6 x N x N``
-            grid. The ``xi`` [rad], ``eta`` [rad], ``theta`` [deg] and
-            ``phi`` [deg] coordinates will be calculated along with the
-            cube block number and cell areas for a unit sphere. All arrays
-            will be flat ``6*(N-1)**2`` arrays.
-
+        N : int, optional
+            Number of grid cells per cube edge, by default None. If provided,
+            initializes arrays for a 6×N×N grid with cell-centered points.
         """
-
-        if N is not None: # calculate grid arrays
+        if N is not None:
             if N % 2 != 0:
                 raise ValueError('Cubed sphere grid dimension must be even. Sorry')
 
@@ -82,30 +112,29 @@ class CSProjection(object):
 
 
     def get_gridpoints(self, N, flat = False):
-        """
-        Return `k`, `i`, and `j` corresponding to grid resolution `N`.
-
+        """Generate grid point indices for given resolution.
+        
         Parameters
         ----------
-        N: int
-            Number of grid cell edges (``number of grid cells + 1``) in
-            each direction per block.
-        flat: bool, optional
-            Set to ``True`` to return flat grid points.
-
+        N : int
+            Number of grid cells per edge (N+1 points)
+        flat : bool, optional
+            Whether to return flattened arrays, by default False
+            
         Returns
         -------
-        k: array
-            Array of block indices.
-        i: array
-            Array of indices referring to ``xi`` direction (from ``0`` to
-            ``N-1``).
-        j: array
-            Array of indices referring to ``eta`` direction (from ``0`` to
-            ``N-1``).
-
+        k : ndarray
+            Block indices (0-5)
+        i : ndarray
+            Xi direction indices (0 to N)
+        j : ndarray 
+            Eta direction indices (0 to N)
+            
+        Notes
+        -----
+        Arrays have shape (6,N+1,N+1) if flat=False,
+        or (6*(N+1)*(N+1),) if flat=True
         """
-
         k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing = 'ij')
         if flat:
             return k.flatten(), i.flatten(), j.flatten()
@@ -114,24 +143,23 @@ class CSProjection(object):
 
 
     def xi(self, i, N):
-        """
-        Calculate the `xi` value for a given grid index `i` and grid
-        resolution `N`.
+        """Calculate xi coordinate for grid index.
         
-        ``xi(0)`` is ``-pi/4`` and ``xi(N-1)`` is ``pi/4``.
-
         Parameters
         ----------
-        i: array-like
-            Array of indices (could be non-integer).
-        N: int
-            Grid resolution.
-
+        i : array-like
+            Index values (can be non-integer)
+        N : int
+            Grid resolution
+            
         Returns
         -------
-        xi: array
-            Array of `xi` values.
-
+        ndarray
+            Xi coordinates in radians from -π/4 to π/4
+            
+        Notes
+        -----
+        Maps index i=0 to -π/4 and i=N to π/4
         """
         if not isinstance(N, (int, np.integer)):
             print('Warning: N is integer in the intended applications, did you make a mistake?')
@@ -173,24 +201,21 @@ class CSProjection(object):
 
 
     def get_delta(self, xi, eta):
-        """
-        Calculate the delta parameter::
-
-            delta = 1 + tan(xi)**2 + tan(eta)**2
+        """Calculate delta parameter for metric calculations.
+        
+        Computes δ = 1 + tan²(ξ) + tan²(η)
 
         Parameters
         ----------
-        xi: array-like
-            Array of `xi` values.
-        eta: array-like
-            Array of `eta` values.
+        xi : array-like
+            Xi coordinates in radians  
+        eta : array-like
+            Eta coordinates in radians
 
         Returns
         -------
-        delta: array
-            Array of `delta` values, shape determined by input according
-            to broadcasting rules.
-
+        ndarray
+            Delta values with shape determined by broadcasting rules
         """
         
         xi, eta = np.broadcast_arrays(xi, eta)
@@ -199,33 +224,32 @@ class CSProjection(object):
 
 
     def get_metric_tensor(self, xi, eta, r = 1, covariant = True):
-        """ Calculate metric tensor `g`.
-
-        Calculate the elements of a the metric tensor for each input
-        point, using equation (12) of Yin et al. (2017).
-    
+        """Calculate metric tensor components.
+        
         Parameters
         ----------
-        xi: array-like
-            Array of `xi` values.
-        eta: array-like
-            Array of `eta` values.
-        r : array-like, optional, default = 1
-            Array of radius values.
-        covariant: bool, optional, default = True
-            If ``True`` (default), return covariant components of the
-            metric tensor. If ``False``, return contravariant components.
-
+        xi : array-like
+            Xi coordinates in radians
+        eta : array-like
+            Eta coordinates in radians
+        r : array-like, optional
+            Radial coordinates, by default 1
+        covariant : bool, optional
+            If True, return covariant components, else contravariant,
+            by default True
+            
         Returns
         -------
-        g : array
-            ``(N, 3, 3)`` array of metric tensor elements. `g` will have
-            shape ``(N, 3, 3)``, where the last two dimensions refer to
-            column and row of the matrix, and ``N`` is the number of input
-            points, using broadcasting.
-
+        g : ndarray
+            Metric tensor components with shape (N,3,3) where N is number
+            of input points. Last two dimensions are tensor indices.
+            
+        Notes
+        -----
+        Implements equation (12) from Yin et al. (2017).
+        The metric tensor relates coordinate differentials to distances:
+        ds² = gᵢⱼ dxⁱdxʲ
         """
-
         xi, eta, r = map(np.ravel, np.broadcast_arrays(xi, eta, r)) # broadcast and flatten
         delta = self.get_delta(xi, eta)
 
@@ -321,37 +345,35 @@ class CSProjection(object):
 
 
     def cube2spherical(self, xi, eta, block, r = 1, deg = False):
-        """
-        Calculate spherical (`r`, `theta`, `phi`) coordinates of given
-        points.
-
+        """Convert from cubed sphere to spherical coordinates.
+        
         Parameters
         ----------
-        xi: array-like
-            Array of `xi` values.
-        eta: array-like
-            Array of `eta` values.
-        block: array-like, default = 0
-            Array of block indices.
-        r : array-like, optional, default = 1
-            Array of radii.
-        deg : bool, optional, default = False
-            Set to `True` if you want results in degrees, default is
-            radians.
+        xi : array-like
+            Xi coordinates in radians
+        eta : array-like  
+            Eta coordinates in radians
+        block : array-like
+            Block indices (0-5)
+        r : float or array-like, optional
+            Radial coordinates, by default 1
+        deg : bool, optional
+            Return angles in degrees if True, by default False
 
         Returns
         -------
-        r: array
-            Array of `r` values, shape determined by input according to
-            broadcasting rules.
-        theta: array
-            Array of colatitude [radians] values, shape determined by
-            input according to broadcasting rules.
-        phi: array
-            Array of longitude [radians] values, shape determined by
-            input according to broadcasting rules.
-
-        """ 
+        r : ndarray
+            Radial coordinates (same units as input r)
+        theta : ndarray  
+            Colatitude in radians or degrees
+        phi : ndarray
+            Longitude in radians or degrees
+            
+        Notes
+        -----
+        Converts through intermediate Cartesian coordinates using
+        equations from Appendix A of Yin et al. (2017).
+        """
         xi, eta = np.float64(xi), np.float64(eta)
         xi, eta, r, block = np.broadcast_arrays(xi, eta, r, block)
 

@@ -1,6 +1,47 @@
-def run_pynamit(final_time = 100, plotsteps = 200, dt = 5e-4, Nmax = 20, Mmax = 20, Ncs = 30, mainfield_kind = 'dipole', fig_directory = './figs', ignore_PFAC = True, connect_hemispheres = False, latitude_boundary = 50, wind = False, steady_state = False, vector_jr = True, vector_conductance = True, vector_u = True):
-    """ Run the pynamit simulation with the given parameters. """
+def run_pynamit(final_time=100, plotsteps=200, dt=5e-4, Nmax=20, Mmax=20, Ncs=30, mainfield_kind='dipole', fig_directory='./figs', ignore_PFAC=True, connect_hemispheres=False, latitude_boundary=50, wind=False, steady_state=False, vector_jr=True, vector_conductance=True, vector_u=True):
+    """
+    Run a default PynaMIT simulation with the given parameters.
 
+    Parameters
+    ----------
+    final_time : float, optional
+        The final time of the simulation in seconds. Default is 100.
+    plotsteps : int, optional
+        The number of steps between each plot. Default is 200.
+    dt : float, optional
+        The time step for the simulation. Default is 5e-4.
+    Nmax : int, optional
+        The maximum degree of the spherical harmonics. Default is 20.
+    Mmax : int, optional
+        The maximum order of the spherical harmonics. Default is 20.
+    Ncs : int, optional
+        The number of grid points in the cubed sphere grid. Default is 30.
+    mainfield_kind : str, optional
+        The type of main field model. Default is 'dipole'.
+    fig_directory : str, optional
+        The directory to save the figures. Default is './figs'.
+    ignore_PFAC : bool, optional
+        Whether to ignore the poloidal field-aligned currents. Default is True.
+    connect_hemispheres : bool, optional
+        Whether to connect the hemispheres. Default is False.
+    latitude_boundary : float, optional
+        The latitude boundary for the simulation. Default is 50.
+    wind : bool, optional
+        Whether to include wind in the simulation. Default is False.
+    steady_state : bool, optional
+        Whether to impose a steady state. Default is False.
+    vector_jr : bool, optional
+        Whether to use vector representation for radial current. Default is True.
+    vector_conductance : bool, optional
+        Whether to use vector representation for conductance. Default is True.
+    vector_u : bool, optional
+        Whether to use vector representation for wind. Default is True.
+
+    Returns
+    -------
+    dynamics : Dynamics
+        The dynamics object for performing the simulation and handling the simulation results.
+    """
     import datetime
     import numpy as np
 

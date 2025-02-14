@@ -1,3 +1,28 @@
+"""
+Tensor operations.
+This module contains functions for performing various tensor operations.
+Functions
+---------
+tensor_product
+    Compute the product of two matrices, contracting the last indices of the first tensor with the first indices of the second tensor.
+tensor_pinv
+    Compute the Moore-Penrose pseudoinverse of a tensor.
+tensor_pinv_positive_semidefinite
+    Compute the Moore-Penrose pseudoinverse of a positive semidefinite tensor.
+tensor_transpose
+    Transpose a tensor.
+tensor_scale_left
+    Perform element-wise scaling of the first indices of a tensor by another tensor.
+tensor_scale_right
+    Perform element-wise scaling of the last indices of a tensor by another tensor.
+tensor_outer
+    Compute the outer product of two tensors.
+tensor_svd
+    Compute the singular value decomposition of a tensor.
+pinv_positive_semidefinite
+    Return the pseudoinverse of a positive semidefinite matrix.
+"""
+
 import numpy as np
 
 def tensor_product(A, B, n_contracted):
@@ -6,8 +31,20 @@ def tensor_product(A, B, n_contracted):
     `n_contracted` indices of the tensor `A` with the first `n_contracted`
     indices of the tensor `B`.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        First tensor.
+    B : array-like
+        Second tensor.
+    n_contracted : int
+        Number of indices to contract.
 
+    Returns
+    -------
+    array-like
+        Product of the two tensors.
+    """
     first_dims = A.shape[:n_contracted]
     last_dims  = B.shape[n_contracted:]
 
@@ -24,8 +61,22 @@ def tensor_pinv(A, n_flattened_first=2, rtol=1e-15, hermitian=False):
     the first `n_flattened_first` indices and the remaining indices as
     flat indices.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        Input tensor.
+    n_flattened_first : int, optional
+        Number of indices to flatten first. Default is 2.
+    rtol : float, optional
+        Relative tolerance for small singular values. Default is 1e-15.
+    hermitian : bool, optional
+        Whether the matrix is Hermitian. Default is False.
 
+    Returns
+    -------
+    array-like
+        Pseudoinverse of the tensor.
+    """
     first_dims = A.shape[:n_flattened_first]
     last_dims  = A.shape[n_flattened_first:]
 
@@ -41,8 +92,22 @@ def tensor_pinv_positive_semidefinite(A, n_flattened_first=2, rtol=1e-15, condit
     tensor `A`, by treating the first `n_flattened_first` indices and the
     remaining indices as flat indices.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        Input tensor.
+    n_flattened_first : int, optional
+        Number of indices to flatten first. Default is 2.
+    rtol : float, optional
+        Relative tolerance for small singular values. Default is 1e-15.
+    condition_number : bool, optional
+        Whether to print the condition number. Default is False.
 
+    Returns
+    -------
+    array-like
+        Pseudoinverse of the tensor.
+    """
     first_dims = A.shape[:n_flattened_first]
     last_dims  = A.shape[n_flattened_first:]
 
@@ -57,8 +122,18 @@ def tensor_transpose(A, n_flattened_first=2):
     Transpose a tensor, by treating the first `n_flattened_first` indices
     and the remaining indices as flat indices.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        Input tensor.
+    n_flattened_first : int, optional
+        Number of indices to flatten first. Default is 2.
 
+    Returns
+    -------
+    array-like
+        Transposed tensor.
+    """
     first_dims = A.shape[:n_flattened_first]
     last_dims  = A.shape[n_flattened_first:]
 
@@ -72,8 +147,18 @@ def tensor_scale_left(scaling_tensor, A):
     `A` by the `scaling_tensor` tensor, by treating these indices as flat
     indices.
 
-    """
+    Parameters
+    ----------
+    scaling_tensor : array-like
+        Tensor to scale by.
+    A : array-like
+        Input tensor.
 
+    Returns
+    -------
+    array-like
+        Scaled tensor.
+    """
     first_dims = scaling_tensor.shape
     last_dims  = A.shape[len(first_dims):]
 
@@ -85,9 +170,19 @@ def tensor_scale_right(A, scaling_tensor):
     """
     Perform the element-wise scaling of the last indices of the tensor `A`
     by the array `scaling_tensor`.
-    
-    """
 
+    Parameters
+    ----------
+    A : array-like
+        Input tensor.
+    scaling_tensor : array-like
+        Tensor to scale by.
+
+    Returns
+    -------
+    array-like
+        Scaled tensor.
+    """
     last_dims = scaling_tensor.shape
     first_dims = A.shape[:-len(last_dims)]
 
@@ -101,8 +196,25 @@ def tensor_outer(A, B, n_flattened_first):
     first `n_flattened_first` indices of `A` and `B` and the remaining
     indices of each tensor as flat indices.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        First tensor.
+    B : array-like
+        Second tensor.
+    n_flattened_first : int
+        Number of indices to flatten first.
 
+    Returns
+    -------
+    array-like
+        Outer product of the two tensors.
+
+    Raises
+    ------
+    ValueError
+        If the first dimensions of the tensors do not match.
+    """
     first_A_dims = A.shape[:n_flattened_first]
     first_B_dims = B.shape[:n_flattened_first]
 
@@ -127,8 +239,26 @@ def tensor_svd(A, n_flattened_first=2, full_matrices=True, compute_uv=True, herm
     treating the first `n_flattened_first` indices and the remaining
     indices as flat indices.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        Input tensor.
+    n_flattened_first : int, optional
+        Number of indices to flatten first. Default is 2.
+    full_matrices : bool, optional
+        Whether to compute full-sized U and VT matrices. Default is True.
+    compute_uv : bool, optional
+        Whether to compute U and VT matrices. Default is True.
+    hermitian : bool, optional
+        Whether the matrix is Hermitian. Default is False.
+    rtol : float, optional
+        Relative tolerance for small singular values. Default is 1e-15.
 
+    Returns
+    -------
+    tuple of array-like
+        U, S, and VT matrices of the singular value decomposition.
+    """
     first_dims = A.shape[:n_flattened_first]
     last_dims  = A.shape[n_flattened_first:]
 
@@ -155,7 +285,6 @@ def tensor_svd(A, n_flattened_first=2, full_matrices=True, compute_uv=True, herm
 
     return filtered_U, filtered_S, filtered_VT
 
-
 def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     """
     Return the pseudoinverse of the positive semidefinite matrix `A` and,
@@ -165,8 +294,20 @@ def pinv_positive_semidefinite(A, rtol = 1e-15, condition_number = False):
     argument hermitian = True is specified, so we can just use that
     function instead.
 
-    """
+    Parameters
+    ----------
+    A : array-like
+        Input matrix.
+    rtol : float, optional
+        Relative tolerance for small eigenvalues. Default is 1e-15.
+    condition_number : bool, optional
+        Whether to print the condition number. Default is False.
 
+    Returns
+    -------
+    array-like
+        Pseudoinverse of the matrix.
+    """
     # For a symmetric positive semidefinite matrix, its eigenvalues are equal to its singular values.
     eigenvalues, eigenvectors = np.linalg.eigh(A)
 

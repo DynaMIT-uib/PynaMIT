@@ -1,3 +1,10 @@
+"""
+PynaMIT: A Python package for numerical simulations of the ionosphere,
+with dynamics induced by field-aligned currents and horizontal neutral winds.
+
+This package includes modules for simulation, visualization, and various utilities.
+"""
+
 from .simulation.dynamics import Dynamics
 from .simulation.visualization import globalplot, debugplot
 from .simulation.pynameye import PynamEye

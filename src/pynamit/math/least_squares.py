@@ -1,18 +1,76 @@
+"""Least squares solver for multi-dimensional arrays.
+
+This module provides solvers for weighted regularized least squares problems
+with multiple constraints and array-valued variables.
+
+Classes
+-------
+LeastSquares
+    Solves weighted regularized least squares problems with multiple constraints.
+"""
+
 import numpy as np
 from pynamit.math.flattened_array import FlattenedArray
 
-class LeastSquares(object):
-    """
-    Class for solving least squares problems of the form ``Ax = b``, where
-    `A`, `x`, and `b` are lists of multi-dimensional arrays. This allows
-    for solving a least squares comprised of multiple constraints, each
-    represented by set of multi-dimensional arrays. In addition, the
-    class allows for the inclusion of weights and regularization terms for
-    each constraint.
-
-    """
+class LeastSquares:
+    """Solver for multi-dimensional least squares problems.
     
-    def __init__(self, A, solution_dims, weights = None, reg_lambda = None, reg_L = None, pinv_rtol = 1e-15):
+    Solves problems of the form:
+    min_x Σᵢ (||Wᵢ(Aᵢx - bᵢ)||² + λᵢ||Lᵢx||²)
+    
+    Where each constraint i has:
+    - Aᵢ : Forward operator
+    - Wᵢ : Weight matrix
+    - bᵢ : Data vector
+    - Lᵢ : Regularization operator
+    - λᵢ : Regularization parameter
+
+    Parameters
+    ----------
+    A : list of ndarray or ndarray
+        Forward operator array(s). Single array or list of arrays.
+    solution_dims : int
+        Number of dimensions in solution space
+    weights : list of ndarray or ndarray, optional
+        Weight array(s) for each constraint
+    reg_lambda : list of float or float, optional
+        Regularization parameter(s) for each constraint
+    reg_L : list of ndarray or ndarray, optional
+        Regularization operator array(s)
+    pinv_rtol : float, optional
+        Relative tolerance for pseudoinverse, by default 1e-15
+
+    Attributes
+    ----------
+    n_arrays : int
+        Number of constraint operators
+    A : list of FlattenedArray
+        Flattened forward operators 
+    weights : list of FlattenedArray
+        Flattened weight arrays
+    reg_L : list of FlattenedArray
+        Flattened regularization operators
+    reg_lambda : list of float
+        Regularization parameters
+    ATW : list of ndarray
+        A^T W products for each constraint
+    ATWA : ndarray
+        Combined A^T W A matrix
+    ATWA_plus_R_inv : ndarray
+        Inverse of system matrix A^T W A + λL^T L
+    ATWA_plus_R_inv_ATW : list of ndarray
+        Solution operators for each constraint
+
+    Notes
+    -----
+    The solver handles multiple constraints simultaneously and supports:
+    - Array-valued variables and operators
+    - Per-constraint weights and regularization
+    - Efficient handling of high-dimensional arrays
+    """
+
+    def __init__(self, A, solution_dims, weights=None, reg_lambda=None,  
+                 reg_L=None, pinv_rtol=1e-15):
         self.solution_dims = solution_dims
 
         if isinstance(A, list):
@@ -31,14 +89,29 @@ class LeastSquares(object):
 
         self.pinv_rtol = pinv_rtol
 
-    def flatten_arrays(self, arrays, n_flattened_first = None, n_flattened_last = None):
+    def flatten_arrays(self, arrays, n_flattened_first=None, n_flattened_last=None):
+        """Convert arrays to flattened form.
+        
+        Parameters
+        ----------
+        arrays : list of ndarray or ndarray
+            Input arrays to flatten
+        n_flattened_first : list of int, optional
+            Number of leading dimensions to flatten for each array
+        n_flattened_last : list of int, optional
+            Number of trailing dimensions to flatten for each array
+            
+        Returns
+        -------
+        list of FlattenedArray
+            Flattened versions of input arrays
+            
+        Notes
+        -----
+        Creates FlattenedArray objects that efficiently handle high-dimensional
+        array operations while preserving the ability to reshape back to
+        original dimensions.
         """
-        Ensure that `arrays` is a list of FlattenedArray objects, used to
-        be able to handle multiple multi-dimensional arrays as input to
-        the least squares solver.
-
-        """
-
         if n_flattened_first is None:
             n_flattened_first = [None] * self.n_arrays
         if n_flattened_last is None:
@@ -57,13 +130,26 @@ class LeastSquares(object):
         return arrays_compounded
 
     def solve(self, b):
+        """Solve the least squares system.
+        
+        Parameters
+        ----------
+        b : list of ndarray or ndarray
+            Right-hand side array(s) for each constraint
+            
+        Returns
+        -------
+        list of ndarray
+            Solution array(s) with original dimensionality restored.
+            Returns list even for single solution.
+            
+        Notes
+        -----
+        For each constraint i, solves:
+        (Aᵢ^T Wᵢ Aᵢ + λᵢLᵢ^T Lᵢ)x = Aᵢ^T Wᵢ bᵢ
+        
+        The complete solution minimizes the sum of all constraint terms.
         """
-        Solve the least squares problem ``Ax = b``, where `b` is a list
-        of flattened arrays, one for each flattened array in `A`. The
-        solution is returned as a list of multi-dimensional arrays.
-
-        """
-
         b_list = self.flatten_arrays(b, n_flattened_first = [len(self.A[i].full_shapes[0]) for i in range(self.n_arrays)])
 
         solution = [None] * self.n_arrays
@@ -81,13 +167,18 @@ class LeastSquares(object):
 
     @property
     def ATW(self):
+        """Compute A^T W terms for all constraints.
+        
+        Returns
+        -------
+        list of ndarray
+            List of A^T W arrays for each constraint
+            
+        Notes
+        -----
+        Caches results for efficiency in subsequent computations.
+        Handles both weighted and unweighted cases.
         """
-        The list of flattened arrays ``A^T W``, where `A` represents the
-        forward operator and `W` the weights, and both are lists of
-        flattened multi-dimensional arrays.
-
-        """
-
         if not hasattr(self, '_ATW'):
             self._ATW = []
             for i in range(self.n_arrays):
@@ -98,14 +189,15 @@ class LeastSquares(object):
 
         return self._ATW
 
-    @property
+    @property 
     def ATWA(self):
-        """
-        The flattened array ``A^T W A``, obtained as the sum of the
-        products of the lists of flattened arrays ``A^T W`` and ``A``.
+        """Compute A^T W A term.
 
+        Returns
+        -------
+        ndarray
+            Combined A^T W A matrix for all constraints
         """
-
         if not hasattr(self, '_ATWA'):
             self._ATWA = sum([np.dot(self.ATW[i], self.A[i].array) for i in range(self.n_arrays)])
 
@@ -113,15 +205,17 @@ class LeastSquares(object):
 
     @property
     def ATWA_plus_R_inv(self):
-        """
-        The inverse of the flattened array ``A^T W A + R``, where the
-        flattened array `R` represents the regularization operator
-        obtained as the sum of the products of the lists of flattened
-        arrays ``L^T``and ``L``, where `L` represents the regularization
-        operator for each flattened array in `A`.
+        """Compute inverse of system matrix.
 
+        Returns
+        -------
+        ndarray
+            Inverse of A^T W A + λL^T L
+            
+        Notes
+        -----
+        Uses pseudoinverse with specified tolerance.
         """
-
         if not hasattr(self, '_ATWA_plus_R_inv'):
             ATWA_plus_R = self.ATWA.copy()
             for i in range(self.n_arrays):
@@ -134,12 +228,13 @@ class LeastSquares(object):
     
     @property
     def ATWA_plus_R_inv_ATW(self):
-        """
-        The inverse of the flattened array ``A^T W A + R`` multiplied by
-        the flattened array ``A^T W``.
+        """Compute solution operator.
 
+        Returns
+        -------
+        list of ndarray
+            List of (A^T W A + λL^T L)^{-1} A^T W for each constraint
         """
-
         if not hasattr(self, '_ATWA_plus_R_inv_ATW'):
             self._ATWA_plus_R_inv_ATW = [np.dot(self.ATWA_plus_R_inv, self.ATW[i]) for i in range(self.n_arrays)]
 

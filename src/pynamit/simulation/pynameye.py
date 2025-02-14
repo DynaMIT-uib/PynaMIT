@@ -1,4 +1,13 @@
-""" pynamit visualization class """
+""" PynamEye module
+
+This module contains the PynamEye class for visualizing simulation results.
+
+Classes
+-------
+PynamEye
+    A class for visualizing simulation results.
+"""
+
 import os
 import warnings
 import numpy as np
@@ -19,20 +28,48 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.math.constants import RE, mu0
 
 class PynamEye(object):
-    def __init__(self, filename_prefix, t = 0, Nlat = 60, Nlon = 100, NCS_plot = 10, mlatlim = 50, steady_state = False):
+    """
+    A class for visualizing simulation results.
+
+    Parameters
+    ----------
+    filename_prefix : str
+        Filename prefix for the simulation save files that will be visualized.
+    t : int, optional
+        Simulation time in seconds. Default is 0.
+    Nlat : int, optional
+        Number of grid points between -90 and 90 degrees latitude evaluated for visualization. Default is 60.
+    Nlon : int, optional
+        Number of grid points between -180 and 180 degrees longitude evaluated for visualization. Default is 100.
+    NCS_plot : int, optional
+        Number of grid points for the cubed sphere plot. Default is 10.
+    mlatlim : int, optional
+        Magnetic latitude limit. Default is 50.
+    steady_state : bool, optional
+        Whether to use steady state data. Default is False.
+    """
+
+    def __init__(self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=False):
         """
+        Initialize the PynamEye object.
+
         Parameters
         ----------
-        filename_prefix: string
-            filename prefix for the simulation save files that will be visualized
-        Nlat: int, optional
-            number of grid points between -90 and 90 degrees latitude evaluated for 
-            visualization. Default is 60.
-        Nlon: int, optional
-            number of grid points between -180 and 180 degrees longitude evaluated for 
-            visualziation. Default is 100.
+        filename_prefix : str
+            Filename prefix for the simulation save files that will be visualized.
+        t : int, optional
+            Simulation time in seconds. Default is 0.
+        Nlat : int, optional
+            Number of grid points between -90 and 90 degrees latitude evaluated for visualization. Default is 60.
+        Nlon : int, optional
+            Number of grid points between -180 and 180 degrees longitude evaluated for visualization. Default is 100.
+        NCS_plot : int, optional
+            Number of grid points for the cubed sphere plot. Default is 10.
+        mlatlim : int, optional
+            Magnetic latitude limit. Default is 50.
+        steady_state : bool, optional
+            Whether to use steady state data. Default is False.
         """
-
         keys = ['settings', 'conductance', 'state', 'u']
         filename_suffix = dict(zip(keys, ['_settings', '_conductance', '_state', '_u']))
 
@@ -143,11 +180,12 @@ class PynamEye(object):
 
 
     def derive_E_from_B(self):
-        """ Re-calculate E coefficients from B coefficients. If B coefficients
-        are not manipulated, this should have no meaningful effect. Calling this function
-        can be expensive with high resoultions due to matrix inversion
         """
+        Re-calculate E coefficients from B coefficients.
 
+        If B coefficients are not manipulated, this should have no meaningful effect. Calling this function
+        can be expensive with high resolutions due to matrix inversion.
+        """
         print('does not work. Rewrite')
         if not self.B_parameters_calculated:
 
@@ -210,7 +248,9 @@ class PynamEye(object):
 
 
     def _define_defaults(self):
-        """ Define default settings for various plots """
+        """
+        Define default settings for various plots.
+        """
         self.wind_defaults         = {'color':'black',       'scale':1e3}
         self.conductance_defaults  = {'cmap':plt.cm.viridis, 'levels':np.linspace(0, 20, 22), 'extend':'max'}
         self.joule_defaults        = {'cmap':plt.cm.bwr,     'levels':np.linspace(-10, 10, 22) * 1e-3, 'extend':'both'}
@@ -221,9 +261,17 @@ class PynamEye(object):
         self.W_defaults            = {'colors':'orange',     'levels':self.Phi_defaults['levels']}
 
 
-    def set_time(self, t, steady_state = False):
-        """ set time for PynamEye object in seconds """
+    def set_time(self, t, steady_state=False):
+        """
+        Set time for PynamEye object in seconds.
 
+        Parameters
+        ----------
+        t : int
+            Simulation time in seconds.
+        steady_state : bool, optional
+            Whether to use steady state data. Default is False.
+        """
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds = t)
 
@@ -253,6 +301,14 @@ class PynamEye(object):
 
 
     def get_global_projection(self):
+        """
+        Get the global projection for plotting.
+
+        Returns
+        -------
+        ccrs.PlateCarree
+            The global projection for plotting.
+        """
         noon_longitude = self.dp.mlt2mlon(12, self.time) 
 
         if self.datasets['settings'].mainfield_kind == 'igrf': # convert to geographic
@@ -261,8 +317,19 @@ class PynamEye(object):
         return( ccrs.PlateCarree(central_longitude = noon_longitude) )
 
 
-    def jazz_global_plot(self, ax, draw_labels = True, draw_coastlines = True):
-        """ add coastlines, coordinates, ... """
+    def jazz_global_plot(self, ax, draw_labels=True, draw_coastlines=True):
+        """
+        Add coastlines and coordinates to the global plot.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            The axis to plot on.
+        draw_labels : bool, optional
+            Whether to draw labels. Default is True.
+        draw_coastlines : bool, optional
+            Whether to draw coastlines. Default is True.
+        """
         if draw_coastlines:
             ax.coastlines(zorder = 2, color = 'grey')
 
@@ -282,8 +349,21 @@ class PynamEye(object):
         ax.plot(ll, lbn    , color = 'blue', linestyle = '--', linewidth = 0.5, transform = ccrs.PlateCarree())
         ax.plot(ll, lbs    , color = 'blue', linestyle = '--', linewidth = 0.5, transform = ccrs.PlateCarree())
 
-    def _plot_contour(self, values, ax, region = 'global', **kwargs):
-        """ plot contour """
+    def _plot_contour(self, values, ax, region='global', **kwargs):
+        """
+        Plot contour.
+
+        Parameters
+        ----------
+        values : array-like
+            The values to plot.
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contour.
+        """
         if region in ['south', 'north']:
             assert isinstance(ax, Polarplot)
             mlt = self.dp.mlon2mlt(self.mlon, self.time) # magnetic local time
@@ -300,9 +380,21 @@ class PynamEye(object):
             raise ValueError('region must be either global, north, or south')
 
 
-    def _plot_filled_contour(self, values, ax, region = 'global', **kwargs):
-        """ plot filled contour """
+    def _plot_filled_contour(self, values, ax, region='global', **kwargs):
+        """
+        Plot filled contour.
 
+        Parameters
+        ----------
+        values : array-like
+            The values to plot.
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contourf.
+        """
         if region in ['south', 'north']:
             assert isinstance(ax, Polarplot)
             mlt = self.dp.mlon2mlt(self.mlon, self.time) # magnetic local time
@@ -319,9 +411,23 @@ class PynamEye(object):
             raise ValueError('region must be either global, north, or south')
 
 
-    def _quiver(self, east, north, ax, region = 'global', **kwargs):
-        """ quiver plot """
+    def _quiver(self, east, north, ax, region='global', **kwargs):
+        """
+        Quiver plot.
 
+        Parameters
+        ----------
+        east : array-like
+            The eastward component of the vector field.
+        north : array-like
+            The northward component of the vector field.
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to quiver.
+        """
         if region in ['south', 'north']:
             print('vector plot on polar grid not yet implemented')
         elif region == 'global':
@@ -334,23 +440,19 @@ class PynamEye(object):
             raise ValueError('region must be either global, north, or south')
 
 
-    def plot_joule(self, ax, region = 'global', **kwargs):
-        """ plot Joule heating
+    def plot_joule(self, ax, region='global', **kwargs):
+        """
+        Plot Joule heating.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        hp: string, optional
-            'h' for Hall, 'p' for Pedersen
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contourf.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.conductance_defaults:
             if key not in kwargs.keys():
@@ -379,23 +481,21 @@ class PynamEye(object):
 
 
 
-    def plot_conductance(self, ax, hp = 'h', region = 'global', **kwargs):
-        """ plot conductance
+    def plot_conductance(self, ax, hp='h', region='global', **kwargs):
+        """
+        Plot conductance.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        hp: string, optional
-            'h' for Hall, 'p' for Pedersen
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        hp : str, optional
+            'h' for Hall, 'p' for Pedersen. Default is 'h'.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contourf.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.conductance_defaults:
             if key not in kwargs.keys():
@@ -414,21 +514,19 @@ class PynamEye(object):
         return self._plot_filled_contour(Sigma, ax, region, **kwargs)
 
 
-    def plot_wind(self, ax, region = 'global', **kwargs):
-        """ plot wind vector field
+    def plot_wind(self, ax, region='global', **kwargs):
+        """
+        Plot wind vector field.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        region: string, optional
-            string, !!! only 'global' is implemented for vector plots
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to quiver.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.wind_defaults:
             if key not in kwargs.keys():
@@ -441,21 +539,19 @@ class PynamEye(object):
 
 
 
-    def plot_Br(self, ax, region = 'global', **kwargs):
-        """ plot Br
+    def plot_Br(self, ax, region='global', **kwargs):
+        """
+        Plot Br.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contourf.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.Br_defaults:
             if key not in kwargs.keys():
@@ -466,21 +562,19 @@ class PynamEye(object):
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
 
-    def plot_equivalent_current(self, ax, region = 'global', **kwargs):
-        """ plot equivalent current
+    def plot_equivalent_current(self, ax, region='global', **kwargs):
+        """
+        Plot equivalent current.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contour.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.eqJ_defaults:
             if key not in kwargs.keys():
@@ -491,21 +585,19 @@ class PynamEye(object):
         return self._plot_contour(Jeq, ax, region, **kwargs)
 
 
-    def plot_jr(self, ax, region = 'global', **kwargs):
-        """ plot jr 
+    def plot_jr(self, ax, region='global', **kwargs):
+        """
+        Plot jr.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contourf.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.jr_defaults:
             if key not in kwargs.keys():
@@ -516,21 +608,21 @@ class PynamEye(object):
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
 
-    def plot_electric_potential(self, ax, region = 'global', from_B = False, **kwargs):
-        """ plot electric_potential
+    def plot_electric_potential(self, ax, region='global', from_B=False, **kwargs):
+        """
+        Plot electric potential.
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        from_B : bool, optional
+            Whether to derive from B coefficients. Default is False.
+        **kwargs
+            Additional keyword arguments passed to contour.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.Phi_defaults:
             if key not in kwargs.keys():
@@ -543,21 +635,19 @@ class PynamEye(object):
         return self._plot_contour(Phi, ax, region, **kwargs)
 
 
-    def plot_electric_field_stream_function(self, ax, region = 'global', **kwargs):
-        """ plot electric field stream function (the inductive part)
+    def plot_electric_field_stream_function(self, ax, region='global', **kwargs):
+        """
+        Plot electric field stream function (the inductive part).
 
         Parameters
         ----------
-        t: float
-            simulation time in seconds
-        ax: matplotlib.axes or Polarplot
-            where to plot - must be either polplot object or axis with PlateCarree project
-        region: string, optional
-            string, either 'global', 'north', or 'south'
-        kwargs: dict, optional
-            keyword arguments passed to contourf
+        ax : matplotlib.axes.Axes or Polarplot
+            The axis to plot on.
+        region : str, optional
+            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+        **kwargs
+            Additional keyword arguments passed to contour.
         """
-
         # populate kwargs with default values if not specificed in function call:
         for key in self.W_defaults:
             if key not in kwargs.keys():
@@ -569,8 +659,20 @@ class PynamEye(object):
 
 
 
-    def make_multipanel_output_figure(self, label = None):
+    def make_multipanel_output_figure(self, label=None):
+        """
+        Create a multipanel output figure.
 
+        Parameters
+        ----------
+        label : str, optional
+            Label for the figure. Default is None.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The created figure.
+        """
         if label is None:
             label = ''
 
