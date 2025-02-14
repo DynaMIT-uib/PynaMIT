@@ -1,5 +1,5 @@
 import numpy as np
-from pynamit.math.compound_index_array import CompoundIndexArray
+from pynamit.math.flattened_array import FlattenedArray
 
 class LeastSquares(object):
     """
@@ -15,9 +15,9 @@ class LeastSquares(object):
         else:
             self.n_arrays = 1
 
-        self.A = self.compound_index_arrays(A, last_n_compounded = [solution_dims] * self.n_arrays)
-        self.weights = self.compound_index_arrays(weights, last_n_compounded = [0] * self.n_arrays)
-        self.reg_L = self.compound_index_arrays(reg_L, first_n_compounded = [solution_dims] * self.n_arrays, last_n_compounded = [solution_dims] * self.n_arrays)
+        self.A = self.flatten_arrays(A, n_flattened_last = [solution_dims] * self.n_arrays)
+        self.weights = self.flatten_arrays(weights, n_flattened_last = [0] * self.n_arrays)
+        self.reg_L = self.flatten_arrays(reg_L, n_flattened_first = [solution_dims] * self.n_arrays, n_flattened_last = [solution_dims] * self.n_arrays)
 
         if reg_lambda is None:
             self.reg_lambda = [None] * self.n_arrays
@@ -26,16 +26,16 @@ class LeastSquares(object):
 
         self.pinv_rtol = pinv_rtol
 
-    def compound_index_arrays(self, arrays, first_n_compounded = None, last_n_compounded = None):
+    def flatten_arrays(self, arrays, n_flattened_first = None, n_flattened_last = None):
         """
-        Ensure that arrays is a list of CompoundIndexArray objects.
+        Ensure that `arrays` is a list of FlattenedArray objects.
 
         """
 
-        if first_n_compounded is None:
-            first_n_compounded = [None] * self.n_arrays
-        if last_n_compounded is None:
-            last_n_compounded = [None] * self.n_arrays
+        if n_flattened_first is None:
+            n_flattened_first = [None] * self.n_arrays
+        if n_flattened_last is None:
+            n_flattened_last = [None] * self.n_arrays
 
         arrays_compounded = [None] * self.n_arrays
 
@@ -45,7 +45,7 @@ class LeastSquares(object):
 
             for i in range(len(arrays)):
                 if arrays[i] is not None:
-                    arrays_compounded[i] = CompoundIndexArray(arrays[i], first_n_compounded = first_n_compounded[i], last_n_compounded = last_n_compounded[i])
+                    arrays_compounded[i] = FlattenedArray(arrays[i], n_flattened_first = n_flattened_first[i], n_flattened_last = n_flattened_last[i])
 
         return arrays_compounded
 
@@ -55,7 +55,7 @@ class LeastSquares(object):
 
         """
 
-        b_list = self.compound_index_arrays(b, first_n_compounded = [len(self.A[i].full_shapes[0]) for i in range(self.n_arrays)])
+        b_list = self.flatten_arrays(b, n_flattened_first = [len(self.A[i].full_shapes[0]) for i in range(self.n_arrays)])
 
         solution = [None] * self.n_arrays
 

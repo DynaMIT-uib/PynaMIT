@@ -1,15 +1,15 @@
 import numpy as np
 
-def tensor_product(A, B, n_flattened_inds):
+def tensor_product(A, B, n_contracted):
     """
     Compute the product of two matrices `A` and `B`, contracting the last
-    `n_flattened_inds` indices of the tensor `A` with the first
-    `n_flattened_inds` indices of the tensor `B`.
+    `n_contracted` indices of the tensor `A` with the first `n_contracted`
+    indices of the tensor `B`.
 
     """
 
-    first_dims = A.shape[:n_flattened_inds]
-    last_dims  = B.shape[n_flattened_inds:]
+    first_dims = A.shape[:n_contracted]
+    last_dims  = B.shape[n_contracted:]
 
     AB = np.dot(
         A.reshape((np.prod(first_dims), -1)),
@@ -18,16 +18,16 @@ def tensor_product(A, B, n_flattened_inds):
 
     return AB
 
-def tensor_pinv(A, n_flattened_inds=2, rtol=1e-15, hermitian=False):
+def tensor_pinv(A, n_flattened_first=2, rtol=1e-15, hermitian=False):
     """
     Compute the Moore-Penrose pseudoinverse of the tensor `A`, by treating
-    the first `n_flattened_inds` indices and the remaining indices as flat
-    indices.
+    the first `n_flattened_first` indices and the remaining indices as
+    flat indices.
 
     """
 
-    first_dims = A.shape[:n_flattened_inds]
-    last_dims  = A.shape[n_flattened_inds:]
+    first_dims = A.shape[:n_flattened_first]
+    last_dims  = A.shape[n_flattened_first:]
 
     A_inv = np.linalg.pinv(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
@@ -35,16 +35,16 @@ def tensor_pinv(A, n_flattened_inds=2, rtol=1e-15, hermitian=False):
 
     return A_inv
 
-def tensor_pinv_positive_semidefinite(A, n_flattened_inds=2, rtol=1e-15, condition_number=False):
+def tensor_pinv_positive_semidefinite(A, n_flattened_first=2, rtol=1e-15, condition_number=False):
     """
     Compute the Moore-Penrose pseudoinverse of the positive semidefinite
-    tensor `A`, by treating the first `n_flattened_inds` indices and the
+    tensor `A`, by treating the first `n_flattened_first` indices and the
     remaining indices as flat indices.
 
     """
 
-    first_dims = A.shape[:n_flattened_inds]
-    last_dims  = A.shape[n_flattened_inds:]
+    first_dims = A.shape[:n_flattened_first]
+    last_dims  = A.shape[n_flattened_first:]
 
     A_inv = pinv_positive_semidefinite(
         A.reshape((np.prod(first_dims), np.prod(last_dims))), rtol=rtol, condition_number=condition_number
@@ -52,65 +52,65 @@ def tensor_pinv_positive_semidefinite(A, n_flattened_inds=2, rtol=1e-15, conditi
 
     return A_inv
 
-def tensor_transpose(A, n_flattened_inds=2):
+def tensor_transpose(A, n_flattened_first=2):
     """
-    Transpose a tensor, by treating the first `n_flattened_inds` indices
+    Transpose a tensor, by treating the first `n_flattened_first` indices
     and the remaining indices as flat indices.
 
     """
 
-    first_dims = A.shape[:n_flattened_inds]
-    last_dims  = A.shape[n_flattened_inds:]
+    first_dims = A.shape[:n_flattened_first]
+    last_dims  = A.shape[n_flattened_first:]
 
     A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape((last_dims + first_dims))
 
     return A_transposed
 
-def tensor_scale_left(scaling_factors, A):
+def tensor_scale_left(scaling_tensor, A):
     """
     Perform the element-wise scaling of the first indices of the tensor
-    `A` by the `scaling_factors` tensor, by treating these indices as flat
+    `A` by the `scaling_tensor` tensor, by treating these indices as flat
     indices.
 
     """
 
-    first_dims = scaling_factors.shape
+    first_dims = scaling_tensor.shape
     last_dims  = A.shape[len(first_dims):]
 
-    A_scaled = scaling_factors.reshape((np.prod(first_dims), 1)) * A.reshape((np.prod(first_dims), np.prod(last_dims)))
+    A_scaled = scaling_tensor.reshape((np.prod(first_dims), 1)) * A.reshape((np.prod(first_dims), np.prod(last_dims)))
 
     return A_scaled.reshape((first_dims + last_dims))
 
-def tensor_scale_right(A, scaling_factors):
+def tensor_scale_right(A, scaling_tensor):
     """
     Perform the element-wise scaling of the last indices of the tensor `A`
-    by the array `scaling_factors`.
+    by the array `scaling_tensor`.
     
     """
 
-    last_dims = scaling_factors.shape
+    last_dims = scaling_tensor.shape
     first_dims = A.shape[:-len(last_dims)]
 
-    A_scaled = A.reshape((np.prod(first_dims), np.prod(last_dims))) * scaling_factors.reshape((1, np.prod(last_dims)))
+    A_scaled = A.reshape((np.prod(first_dims), np.prod(last_dims))) * scaling_tensor.reshape((1, np.prod(last_dims)))
 
     return A_scaled.reshape((first_dims + last_dims))
 
-def tensor_outer(A, B, n_flattened_inds):
+def tensor_outer(A, B, n_flattened_first):
     """
     Compute the outer product of two tensors `A` and `B` by treating the
-    first `n_flattened_inds` indices of `A` and `B` and the remaining
+    first `n_flattened_first` indices of `A` and `B` and the remaining
     indices of each tensor as flat indices.
 
     """
 
-    first_A_dims = A.shape[:n_flattened_inds]
-    first_B_dims = B.shape[:n_flattened_inds]
+    first_A_dims = A.shape[:n_flattened_first]
+    first_B_dims = B.shape[:n_flattened_first]
 
     if first_A_dims != first_B_dims:
         raise ValueError('First dimensions of outer product tensors do not match.')
 
-    last_A_dims = A.shape[n_flattened_inds:]
-    last_B_dims = B.shape[n_flattened_inds:]
+    last_A_dims = A.shape[n_flattened_first:]
+    last_B_dims = B.shape[n_flattened_first:]
 
     outer = np.einsum(
         'ij,ik->ijk',
@@ -121,16 +121,16 @@ def tensor_outer(A, B, n_flattened_inds):
 
     return outer
 
-def tensor_svd(A, n_flattened_inds=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
+def tensor_svd(A, n_flattened_first=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15):
     """
     Compute the singular value decomposition of the tensor `A`, by
-    treating the first `n_flattened_inds` indices and the remaining
+    treating the first `n_flattened_first` indices and the remaining
     indices as flat indices.
 
     """
 
-    first_dims = A.shape[:n_flattened_inds]
-    last_dims  = A.shape[n_flattened_inds:]
+    first_dims = A.shape[:n_flattened_first]
+    last_dims  = A.shape[n_flattened_first:]
 
     U, S, VT = np.linalg.svd(
         A.reshape((np.prod(first_dims), np.prod(last_dims))),

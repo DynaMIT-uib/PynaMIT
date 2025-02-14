@@ -145,7 +145,7 @@ class State(object):
                 Delta_k = np.diff(r_k_steps)
                 r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_B_pol_shifted = tensor_pinv(self.G_B_pol_to_JS, n_flattened_inds = 2, rtol = 0)
+                JS_shifted_to_B_pol_shifted = tensor_pinv(self.G_B_pol_to_JS, n_flattened_first = 2, rtol = 0)
 
                 for i in range(r_k.size):
                     print(f'Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}', end = '\r' if i < (r_k.size - 1) else '\n', flush = True)
