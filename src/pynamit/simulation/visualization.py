@@ -302,6 +302,44 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
     plt.close()
 
+
+if __name__ == "__main__":
+
+    # import cubedsphere submodule
+    import os
+    import sys
+    cs_path = os.path.join(os.path.dirname(__file__), 'cubedsphere')
+    sys.path.insert(0, cs_path)
+    import cubed_sphere
+    Ncs = 30
+    csp = cubed_sphere.CSProjection(Ncs) # cubed sphere projection object
+    k, i, j = csp.get_gridpoints(Ncs)
+    xi, eta = csp.xi(i, Ncs), csp.eta(j, Ncs)
+    _, theta, phi = csp.cube2spherical(xi, eta, k, deg = True)
+
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.meshgrid(lat, lon)
+
+    from lompe import conductance
+    import dipole
+    import datetime
+
+    # specify a time and Kp (for conductance):
+    date = datetime.datetime(2001, 5, 12, 21, 45)
+    Kp   = 5
+    d = dipole.Dipole(date.year)
+
+    # noon longitude
+    lon0 = d.mlt2mlon(12, date)
+
+    hall, pedersen = conductance.hardy_EUV(phi, 90 - theta, Kp, date, starlight = 1, dipole = True)
+
+    hall_plt = cs_interpolate(csp, 90 - theta, phi, hall, lat, lon)
+    pede_plt = cs_interpolate(csp, 90 - theta, phi, pedersen, lat, lon)
+
+    globalplot(lon, lat, hall_plt, noon_longitude = lon0, levels = np.linspace(0, 20, 100))
+
+
 def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     """
     Compare AMPS jr and curl-free currents.
