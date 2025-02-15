@@ -10,6 +10,7 @@ Basis
 
 from abc import ABC, abstractmethod
 
+
 class Basis(ABC):
     """Abstract base class for basis representations.
 

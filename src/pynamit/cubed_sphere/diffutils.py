@@ -1,4 +1,4 @@
-""" 
+"""
 diffutils
 
 """
@@ -10,18 +10,16 @@ from itertools import combinations_with_replacement
 
 
 def lcm_arr(arr):
-    """ Calculate least common multiplier for array of integers.
-
-    """
+    """Calculate least common multiplier for array of integers."""
     result = np.lcm(arr[0], arr[1])
-    for i in range(2, len(arr)-1):
+    for i in range(2, len(arr) - 1):
         result = np.lcm(result, arr[i])
 
     return result
 
 
-def stencil(evaluation_points, order = 1, h = 1, fraction = False):
-    """ 
+def stencil(evaluation_points, order=1, h=1, fraction=False):
+    """
     Calculate stencil for finite difference calculation of derivative.
 
     Parameters
@@ -68,16 +66,15 @@ def stencil(evaluation_points, order = 1, h = 1, fraction = False):
         # format nicely:
         fracs = [Fraction(c).limit_denominator() for c in coeffs]
         denominators = [c.denominator for c in fracs]
-        numerators   = [c.numerator for c in fracs]
+        numerators = [c.numerator for c in fracs]
         cd = lcm_arr(denominators)
         numerators = [int(c * cd / a) for (c, a) in zip(numerators, denominators)]
         return (numerators, cd)
     else:
-        return coeffs / h ** order
+        return coeffs / h**order
 
 
-
-def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
+def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
     """
     Calculate stencil coefficients for numerical differentiation of
     ``f(x, y)``.
@@ -125,16 +122,24 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
     assert dx.size == dy.size
 
-
-    NN = 4 # how high derivative terms to include when making the design matrix
-    keys   = ['_']
+    NN = 4  # how high derivative terms to include when making the design matrix
+    keys = ["_"]
     values = [np.ones_like(dx)]
 
     for i in range(1, NN):
-        newkeys = [''.join(combination) for combination in combinations_with_replacement(['x', 'y'], i)]
-        keys   += newkeys
-        permutations = [len(set(key)) for key in newkeys] 
-        values += [p * np.prod(_, axis=0) / factorial(i) for p, _ in zip(permutations, [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)])]
+        newkeys = [
+            "".join(combination)
+            for combination in combinations_with_replacement(["x", "y"], i)
+        ]
+        keys += newkeys
+        permutations = [len(set(key)) for key in newkeys]
+        values += [
+            p * np.prod(_, axis=0) / factorial(i)
+            for p, _ in zip(
+                permutations,
+                [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)],
+            )
+        ]
 
     d = np.zeros(len(keys))
     for i, key in enumerate(keys):
@@ -142,40 +147,68 @@ def get_2D_stencil_coefficients(dx, dy, derivative = 'xx'):
             d[i] = 1
 
     G = np.vstack(values)
-    c = np.linalg.lstsq(G, d, rcond = 0)[0]
+    c = np.linalg.lstsq(G, d, rcond=0)[0]
 
-    return(c)
+    return c
 
 
-if __name__ == '__main__':
-    print('Testing the 2D stencil coefficient function')
+if __name__ == "__main__":
+    print("Testing the 2D stencil coefficient function")
     import matplotlib.pyplot as plt
     from functools import reduce
 
-    dx, dy = map(np.ravel, np.meshgrid([-0.2, -0.1, 0, 0.1, 0.2], [-0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3], indexing="ij"))
+    dx, dy = map(
+        np.ravel,
+        np.meshgrid(
+            [-0.2, -0.1, 0, 0.1, 0.2],
+            [-0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3],
+            indexing="ij",
+        ),
+    )
 
     # define a test function with derivatives
-    def f(x, y)      : return x**2 - y**2 + x**2 * y - x*y + y**3
-    def dfdx(x, y)   : return 2* x + 2 * x * y - y
-    def dfdy(x, y)   : return -2* y + x**2 - x + 3 * y**2
-    def d2fdx2(x, y) : return 2 + 2 * y
-    def d2fdy2(x, y) : return -2 + 6 * y
-    def d2fdxdy(x, y): return 2*x - 1
+    def f(x, y):
+        return x**2 - y**2 + x**2 * y - x * y + y**3
 
-    x0, y0 = (np.random.random(500) - 0.5) * 20,  (np.random.random(500) - 0.5) * 20
+    def dfdx(x, y):
+        return 2 * x + 2 * x * y - y
 
-    fig, axes = plt.subplots(ncols = 5, figsize = (15, 3))
+    def dfdy(x, y):
+        return -2 * y + x**2 - x + 3 * y**2
 
-    for derivative, df, ax in zip(['x', 'y', 'xx', 'yy', 'xy'], [dfdx, dfdy, d2fdx2, d2fdy2, d2fdxdy], axes.flatten()):
+    def d2fdx2(x, y):
+        return 2 + 2 * y
+
+    def d2fdy2(x, y):
+        return -2 + 6 * y
+
+    def d2fdxdy(x, y):
+        return 2 * x - 1
+
+    x0, y0 = (np.random.random(500) - 0.5) * 20, (np.random.random(500) - 0.5) * 20
+
+    fig, axes = plt.subplots(ncols=5, figsize=(15, 3))
+
+    for derivative, df, ax in zip(
+        ["x", "y", "xx", "yy", "xy"],
+        [dfdx, dfdy, d2fdx2, d2fdy2, d2fdxdy],
+        axes.flatten(),
+    ):
         derivatives = df(x0, y0)
-        stencil = get_2D_stencil_coefficients(dx, dy, derivative = derivative)
-        derivatives_num = reduce(lambda x, y: x + y,  [stencil[i] * f(x0 + dx[i], y0 + dy[i]) for i in range(len(stencil))])
+        stencil = get_2D_stencil_coefficients(dx, dy, derivative=derivative)
+        derivatives_num = reduce(
+            lambda x, y: x + y,
+            [stencil[i] * f(x0 + dx[i], y0 + dy[i]) for i in range(len(stencil))],
+        )
         ax.scatter(derivatives, derivatives_num)
-        ax.set_aspect('equal')
-        ax.set_title(r'$f_{' + derivative + '}$')
+        ax.set_aspect("equal")
+        ax.set_title(r"$f_{" + derivative + "}$")
 
-        print('numerical and analytical values of f_' + derivative + ' match: {}'.format(np.allclose(derivatives - derivatives_num, 0)))
-
+        print(
+            "numerical and analytical values of f_"
+            + derivative
+            + " match: {}".format(np.allclose(derivatives - derivatives_num, 0))
+        )
 
     plt.tight_layout()
     plt.show()

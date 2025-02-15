@@ -12,6 +12,7 @@ FieldEvaluator
 
 import numpy as np
 
+
 class FieldEvaluator(object):
     """Evaluates magnetic field quantities on spatial grids.
 
@@ -38,7 +39,7 @@ class FieldEvaluator(object):
     Br : ndarray
         Radial magnetic field component
     Btheta : ndarray
-        Colatitudinal magnetic field component  
+        Colatitudinal magnetic field component
     Bphi : ndarray
         Longitudinal magnetic field component
     B_magnitude : ndarray
@@ -56,7 +57,7 @@ class FieldEvaluator(object):
     -----
     Implements coordinate transformations between:
     - Spherical coordinates (r, θ, φ)
-    - Field-aligned coordinates 
+    - Field-aligned coordinates
     - Magnetic apex coordinates
     """
 
@@ -68,15 +69,17 @@ class FieldEvaluator(object):
     @property
     def grid_values(self):
         """Get magnetic field components on grid.
-        
+
         Returns
         -------
         ndarray
             Magnetic field vector components [Br, Bθ, Bφ] with shape (3, N)
             where N is number of grid points
         """
-        if not hasattr(self, '_grid_values'):
-            self._grid_values = np.vstack(self.field.get_B(self.r, self.grid.theta, self.grid.phi))
+        if not hasattr(self, "_grid_values"):
+            self._grid_values = np.vstack(
+                self.field.get_B(self.r, self.grid.theta, self.grid.phi)
+            )
         return self._grid_values
 
     @property
@@ -125,8 +128,8 @@ class FieldEvaluator(object):
         array
             Magnitude of the magnetic field vector.
         """
-        if not hasattr(self, '_B_magnitude'):
-            self._B_magnitude = np.linalg.norm(self.grid_values, axis = 0)
+        if not hasattr(self, "_B_magnitude"):
+            self._B_magnitude = np.linalg.norm(self.grid_values, axis=0)
         return self._B_magnitude
 
     @property
@@ -139,7 +142,7 @@ class FieldEvaluator(object):
         array
             Radial component of the magnetic field unit vector.
         """
-        if not hasattr(self, '_br'):
+        if not hasattr(self, "_br"):
             self._br = self.Br / self.B_magnitude
         return self._br
 
@@ -153,7 +156,7 @@ class FieldEvaluator(object):
         array
             Theta component of the magnetic field unit vector.
         """
-        if not hasattr(self, '_btheta'):
+        if not hasattr(self, "_btheta"):
             self._btheta = self.Btheta / self.B_magnitude
         return self._btheta
 
@@ -167,7 +170,7 @@ class FieldEvaluator(object):
         array
             Phi component of the magnetic field unit vector.
         """
-        if not hasattr(self, '_bphi'):
+        if not hasattr(self, "_bphi"):
             self._bphi = self.Bphi / self.B_magnitude
         return self._bphi
 
@@ -181,8 +184,10 @@ class FieldEvaluator(object):
         tuple of arrays
             Base vectors of the magnetic field.
         """
-        if not hasattr(self, '_basevectors'):
-            self._basevectors = self.field.basevectors(self.r, self.grid.theta, self.grid.phi)
+        if not hasattr(self, "_basevectors"):
+            self._basevectors = self.field.basevectors(
+                self.r, self.grid.theta, self.grid.phi
+            )
         return self._basevectors
 
     @property
@@ -296,7 +301,7 @@ class FieldEvaluator(object):
     @property
     def horizontal_to_field_orthogonal(self):
         """Get horizontal to field-orthogonal transformation matrix.
-        
+
         Computes matrix that transforms 2D horizontal vector components to
         3D vector components orthogonal to the magnetic field.
 
@@ -311,18 +316,21 @@ class FieldEvaluator(object):
         The output vector is guaranteed to be orthogonal to the local
         magnetic field direction.
         """
-        if not hasattr(self, '_horizontal_to_field_orthogonal'):
-            self._horizontal_to_field_orthogonal = np.array([[-self.btheta / self.br,   -self.bphi / self.br],
-                                                             [np.ones(self.grid.size),  np.zeros(self.grid.size)],
-                                                             [np.zeros(self.grid.size), np.ones(self.grid.size)]])
+        if not hasattr(self, "_horizontal_to_field_orthogonal"):
+            self._horizontal_to_field_orthogonal = np.array(
+                [
+                    [-self.btheta / self.br, -self.bphi / self.br],
+                    [np.ones(self.grid.size), np.zeros(self.grid.size)],
+                    [np.zeros(self.grid.size), np.ones(self.grid.size)],
+                ]
+            )
 
         return self._horizontal_to_field_orthogonal
 
-
-    @property 
+    @property
     def field_orthogonal_to_apex(self):
         """Get field-orthogonal to apex transformation matrix.
-        
+
         Computes matrix that transforms field-orthogonal vector components
         to magnetic apex coordinates.
 
@@ -336,12 +344,12 @@ class FieldEvaluator(object):
         -----
         Input vectors must be orthogonal to the magnetic field.
         """
-        if not hasattr(self, '_field_orthogonal_to_apex'):
-            self._field_orthogonal_to_apex = np.array([[self.e1r, self.e1t, self.e1p],
-                                                       [self.e2r, self.e2t, self.e2p]])
+        if not hasattr(self, "_field_orthogonal_to_apex"):
+            self._field_orthogonal_to_apex = np.array(
+                [[self.e1r, self.e1t, self.e1p], [self.e2r, self.e2t, self.e2p]]
+            )
 
         return self._field_orthogonal_to_apex
-
 
     @property
     def horizontal_to_apex(self):
@@ -353,11 +361,15 @@ class FieldEvaluator(object):
         array
             Matrix that maps the two components of a horizontal vector field to the two magnetic apex coordinate components of the corresponding vector field that is orthogonal to the magnetic field.
         """
-        if not hasattr(self, '_horizontal_to_apex'):
-            self._horizontal_to_apex = np.einsum('ijk,jlk->ilk', self.field_orthogonal_to_apex, self.horizontal_to_field_orthogonal, optimize = True)
+        if not hasattr(self, "_horizontal_to_apex"):
+            self._horizontal_to_apex = np.einsum(
+                "ijk,jlk->ilk",
+                self.field_orthogonal_to_apex,
+                self.horizontal_to_field_orthogonal,
+                optimize=True,
+            )
 
         return self._horizontal_to_apex
-
 
     @property
     def radial_to_field_parallel(self):
@@ -369,13 +381,16 @@ class FieldEvaluator(object):
         array
             Matrix that maps the component of a radial vector field to the three spherical coordinate components of the corresponding vector field that is parallel with the magnetic field.
         """
-        if not hasattr(self, '_radial_to_field_parallel'):
-            self._radial_to_field_parallel = np.array([[np.ones(self.grid.size)],
-                                                       [self.btheta / self.br],
-                                                       [self.bphi / self.br]])
+        if not hasattr(self, "_radial_to_field_parallel"):
+            self._radial_to_field_parallel = np.array(
+                [
+                    [np.ones(self.grid.size)],
+                    [self.btheta / self.br],
+                    [self.bphi / self.br],
+                ]
+            )
 
         return self._radial_to_field_parallel
-
 
     @property
     def field_parallel_to_apex(self):
@@ -387,11 +402,10 @@ class FieldEvaluator(object):
         array
             Matrix that maps the three spherical coordinate components of a vector field that is parallel with the magnetic field to the corresponding magnetic apex coordinate component of the field.
         """
-        if not hasattr(self, '_field_parallel_to_apex'):
+        if not hasattr(self, "_field_parallel_to_apex"):
             self._field_parallel_to_apex = np.array([[self.e3r, self.e3t, self.e3p]])
 
         return self._field_parallel_to_apex
-
 
     @property
     def radial_to_apex(self):
@@ -403,7 +417,12 @@ class FieldEvaluator(object):
         array
             Matrix that maps the component of a radial vector field to the magnetic apex coordinate component of the corresponding vector field that is parallel with the magnetic field.
         """
-        if not hasattr(self, '_radial_to_apex'):
-            self._radial_to_apex = np.einsum('ijk,jlk->ilk', self.field_parallel_to_apex, self.radial_to_field_parallel, optimize = True)
+        if not hasattr(self, "_radial_to_apex"):
+            self._radial_to_apex = np.einsum(
+                "ijk,jlk->ilk",
+                self.field_parallel_to_apex,
+                self.radial_to_field_parallel,
+                optimize=True,
+            )
 
         return self._radial_to_apex

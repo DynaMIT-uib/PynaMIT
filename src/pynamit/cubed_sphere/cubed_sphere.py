@@ -1,6 +1,6 @@
 """Cubed sphere projection and differential calculus.
 
-This module implements cubed sphere projections and associated mathematical 
+This module implements cubed sphere projections and associated mathematical
 operations based on:
 
     Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
@@ -26,8 +26,8 @@ The cube faces are arranged as follows::
 
 Block indices:
     - 0 = I   : Equator
-    - 1 = II  : Equator 
-    - 2 = III : Equator    
+    - 1 = II  : Equator
+    - 2 = III : Equator
     - 3 = IV  : Equator
     - 4 = V   : North pole
     - 5 = VI  : South pole
@@ -42,11 +42,12 @@ from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 
 d2r = np.pi / 180
-datapath = os.path.dirname(os.path.abspath(__file__)) + '/data/'
+datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
+
 
 class CSProjection:
     """Cubed sphere projection manager.
-    
+
     Handles coordinate transformations and calculations in the cubed sphere
     grid system. Implements methods from Yin et al. (2017).
 
@@ -61,7 +62,7 @@ class CSProjection:
     arr_xi : ndarray
         Xi coordinates in radians for grid points
     arr_eta : ndarray
-        Eta coordinates in radians for grid points  
+        Eta coordinates in radians for grid points
     arr_theta : ndarray
         Colatitude coordinates in degrees for grid points
     arr_phi : ndarray
@@ -85,7 +86,7 @@ class CSProjection:
 
     def __init__(self, N=None):
         """Initialize cubed sphere projection.
-        
+
         Parameters
         ----------
         N : int, optional
@@ -94,85 +95,88 @@ class CSProjection:
         """
         if N is not None:
             if N % 2 != 0:
-                raise ValueError('Cubed sphere grid dimension must be even. Sorry')
+                raise ValueError("Cubed sphere grid dimension must be even. Sorry")
 
             self.N = N
             k, i, j = self.get_gridpoints(N)
-            self.arr_xi  = self.xi( i[:, :-1, :-1] + .5, N).flatten() # crop to skip duplicate points
-            self.arr_eta = self.eta(j[:, :-1, :-1] + .5, N).flatten()
+            # crop to skip duplicate points
+            self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
+            self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_block = k[:, :-1, :-1].flatten()
-            _, self.arr_theta, self.arr_phi = self.cube2spherical(self.arr_xi, self.arr_eta, self.arr_block, deg = True)
+            _, self.arr_theta, self.arr_phi = self.cube2spherical(
+                self.arr_xi, self.arr_eta, self.arr_block, deg=True
+            )
 
             # Calculate area
-            step = np.diff(self.xi(np.array([0, 1]), N))[0] # length of each cell side in xi/eta coords
+            # length of each cell side in xi/eta coords
+            step = np.diff(self.xi(np.array([0, 1]), N))[0]
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
             self.detg = arrayutils.get_3D_determinants(self.g)
-            self.unit_area = step**2 * np.sqrt(self.detg) # Eq. (20) in Yin
+            self.unit_area = step**2 * np.sqrt(self.detg)  # Eq. (20) in Yin
 
-
-
-    def get_gridpoints(self, N, flat = False):
+    def get_gridpoints(self, N, flat=False):
         """Generate grid point indices for given resolution.
-        
+
         Parameters
         ----------
         N : int
             Number of grid cells per edge (N+1 points)
         flat : bool, optional
             Whether to return flattened arrays, by default False
-            
+
         Returns
         -------
         k : ndarray
             Block indices (0-5)
         i : ndarray
             Xi direction indices (0 to N)
-        j : ndarray 
+        j : ndarray
             Eta direction indices (0 to N)
-            
+
         Notes
         -----
         Arrays have shape (6,N+1,N+1) if flat=False,
         or (6*(N+1)*(N+1),) if flat=True
         """
-        k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing = 'ij')
+        k, i, j = np.meshgrid(
+            np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing="ij"
+        )
         if flat:
             return k.flatten(), i.flatten(), j.flatten()
         else:
             return k, i, j
 
-
     def xi(self, i, N):
         """Calculate xi coordinate for grid index.
-        
+
         Parameters
         ----------
         i : array-like
             Index values (can be non-integer)
         N : int
             Grid resolution
-            
+
         Returns
         -------
         ndarray
             Xi coordinates in radians from -π/4 to π/4
-            
+
         Notes
         -----
         Maps index i=0 to -π/4 and i=N to π/4
         """
         if not isinstance(N, (int, np.integer)):
-            print('Warning: N is integer in the intended applications, did you make a mistake?')
+            print(
+                "Warning: N is integer in the intended applications, did you make a mistake?"
+            )
 
-        return(-np.pi / 4 + i * np.pi / (2 * N))
-
-
+        return -np.pi / 4 + i * np.pi / (2 * N)
 
     def eta(self, j, N):
         """
         Calculate the `eta` value for a given grid index `j` and grid
         resolution `N`.
-        
+
         ``eta(0)`` is ``-pi/4`` and ``eta(N-1)`` is ``pi/4``.
 
         Parameters
@@ -194,21 +198,21 @@ class CSProjection:
 
         """
         if not isinstance(N, (int, np.integer)):
-            print('Warning: N is integer in the intended applications, did you make a mistake?')
+            print(
+                "Warning: N is integer in the intended applications, did you make a mistake?"
+            )
 
-        return(-np.pi / 4 + j * np.pi / (2 * N))
-
-
+        return -np.pi / 4 + j * np.pi / (2 * N)
 
     def get_delta(self, xi, eta):
         """Calculate delta parameter for metric calculations.
-        
+
         Computes δ = 1 + tan²(ξ) + tan²(η)
 
         Parameters
         ----------
         xi : array-like
-            Xi coordinates in radians  
+            Xi coordinates in radians
         eta : array-like
             Eta coordinates in radians
 
@@ -217,15 +221,14 @@ class CSProjection:
         ndarray
             Delta values with shape determined by broadcasting rules
         """
-        
+
         xi, eta = np.broadcast_arrays(xi, eta)
 
-        return(1 + np.tan(xi)**2 + np.tan(eta)**2)
+        return 1 + np.tan(xi) ** 2 + np.tan(eta) ** 2
 
-
-    def get_metric_tensor(self, xi, eta, r = 1, covariant = True):
+    def get_metric_tensor(self, xi, eta, r=1, covariant=True):
         """Calculate metric tensor components.
-        
+
         Parameters
         ----------
         xi : array-like
@@ -237,41 +240,52 @@ class CSProjection:
         covariant : bool, optional
             If True, return covariant components, else contravariant,
             by default True
-            
+
         Returns
         -------
         g : ndarray
             Metric tensor components with shape (N,3,3) where N is number
             of input points. Last two dimensions are tensor indices.
-            
+
         Notes
         -----
         Implements equation (12) from Yin et al. (2017).
         The metric tensor relates coordinate differentials to distances:
         ds² = gᵢⱼ dxⁱdxʲ
         """
-        xi, eta, r = map(np.ravel, np.broadcast_arrays(xi, eta, r)) # broadcast and flatten
+        xi, eta, r = map(
+            np.ravel, np.broadcast_arrays(xi, eta, r)
+        )  # broadcast and flatten
         delta = self.get_delta(xi, eta)
 
         g = np.empty((xi.size, 3, 3))
-        g[:, 0, 0] =  r**2 / (np.cos(xi)**4 * np.cos(eta)**2 * delta**2)
-        g[:, 0, 1] = -r**2 * np.tan(xi) * np.tan(eta) / (np.cos(xi)**2 * np.cos(eta)**2 * delta **2)
-        g[:, 0, 2] =  0
-        g[:, 1, 0] = -r**2 * np.tan(xi) * np.tan(eta) / (np.cos(xi)**2 * np.cos(eta)**2 * delta **2)
-        g[:, 1, 1] =  r**2 /    (np.cos(xi)**2 * np.cos(eta)**4 * delta**2)
-        g[:, 1, 2] =  0
-        g[:, 2, 0] =  0
-        g[:, 2, 1] =  0
-        g[:, 2, 2] =  1
+        g[:, 0, 0] = r**2 / (np.cos(xi) ** 4 * np.cos(eta) ** 2 * delta**2)
+        g[:, 0, 1] = (
+            -(r**2)
+            * np.tan(xi)
+            * np.tan(eta)
+            / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**2)
+        )
+        g[:, 0, 2] = 0
+        g[:, 1, 0] = (
+            -(r**2)
+            * np.tan(xi)
+            * np.tan(eta)
+            / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**2)
+        )
+        g[:, 1, 1] = r**2 / (np.cos(xi) ** 2 * np.cos(eta) ** 4 * delta**2)
+        g[:, 1, 2] = 0
+        g[:, 2, 0] = 0
+        g[:, 2, 1] = 0
+        g[:, 2, 2] = 1
 
         if covariant:
-            return(g) # return covariant components
+            return g  # return covariant components
         else:
-            return(arrayutils.invert_3D_matrices(g)) # return contravariant components
+            # return contravariant components
+            return arrayutils.invert_3D_matrices(g)
 
-
-
-    def cube2cartesian(self, xi, eta, r = 1, block = 0):
+    def cube2cartesian(self, xi, eta, r=1, block=0):
         """
         Calculate Cartesian `x`, `y`, `z` coordinates (ECEF) of given
         points.
@@ -312,46 +326,45 @@ class CSProjection:
 
         # block 0 (A2)
         iii = block == 0
-        x[iii] =  r[iii]                    / np.sqrt(delta[iii])
-        y[iii] =  r[iii] * np.tan(xi [iii]) / np.sqrt(delta[iii])
-        z[iii] =  r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
+        x[iii] = r[iii] / np.sqrt(delta[iii])
+        y[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
+        z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
         # block 1 (A6)
         iii = block == 1
-        x[iii] = -r[iii] * np.tan(xi [iii]) / np.sqrt(delta[iii])
-        y[iii] =  r[iii]                    / np.sqrt(delta[iii])
-        z[iii] =  r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
+        x[iii] = -r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
+        y[iii] = r[iii] / np.sqrt(delta[iii])
+        z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
         # block 2 (A10)
         iii = block == 2
-        x[iii] = -r[iii]                    / np.sqrt(delta[iii])
-        y[iii] = -r[iii] * np.tan(xi [iii]) / np.sqrt(delta[iii])
-        z[iii] =  r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
+        x[iii] = -r[iii] / np.sqrt(delta[iii])
+        y[iii] = -r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
+        z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
         # block 3 (A14)
         iii = block == 3
-        x[iii] =  r[iii] * np.tan(xi [iii]) / np.sqrt(delta[iii])
-        y[iii] = -r[iii]                    / np.sqrt(delta[iii])
-        z[iii] =  r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
+        x[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
+        y[iii] = -r[iii] / np.sqrt(delta[iii])
+        z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
         # block 4 (A18)
         iii = block == 4
         x[iii] = -r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
-        y[iii] =  r[iii] * np.tan(xi [iii]) / np.sqrt(delta[iii])
-        z[iii] =  r[iii]                    / np.sqrt(delta[iii])
+        y[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
+        z[iii] = r[iii] / np.sqrt(delta[iii])
         # block 5 (A22)
         iii = block == 5
-        x[iii] =  r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
-        y[iii] =  r[iii] * np.tan(xi [iii]) / np.sqrt(delta[iii])
-        z[iii] = -r[iii]                    / np.sqrt(delta[iii])
+        x[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
+        y[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
+        z[iii] = -r[iii] / np.sqrt(delta[iii])
 
-        return(x, y, z)
+        return (x, y, z)
 
-
-    def cube2spherical(self, xi, eta, block, r = 1, deg = False):
+    def cube2spherical(self, xi, eta, block, r=1, deg=False):
         """Convert from cubed sphere to spherical coordinates.
-        
+
         Parameters
         ----------
         xi : array-like
             Xi coordinates in radians
-        eta : array-like  
+        eta : array-like
             Eta coordinates in radians
         block : array-like
             Block indices (0-5)
@@ -364,11 +377,11 @@ class CSProjection:
         -------
         r : ndarray
             Radial coordinates (same units as input r)
-        theta : ndarray  
+        theta : ndarray
             Colatitude in radians or degrees
         phi : ndarray
             Longitude in radians or degrees
-            
+
         Notes
         -----
         Converts through intermediate Cartesian coordinates using
@@ -378,23 +391,22 @@ class CSProjection:
         xi, eta, r, block = np.broadcast_arrays(xi, eta, r, block)
 
         x, y, z = self.cube2cartesian(xi, eta, r, block)
-        phi   = np.arctan2(y, x)
+        phi = np.arctan2(y, x)
         theta = np.arccos(z / r)
 
         if deg:
             phi, theta = np.rad2deg(phi), np.rad2deg(theta)
 
-        return(r, theta, phi)
+        return (r, theta, phi)
 
-
-    def get_Pc(self, xi, eta, r = 1, block = 0, inverse = False):
+    def get_Pc(self, xi, eta, r=1, block=0, inverse=False):
         """
         Calculate elements of transformation matrix `Pc` at all input
         points.
 
         The `Pc` matrix transforms Cartesian components ``(ux, uy, uz)``
         to contravariant components in a cubed sphere coordinate system::
-        
+
             |u1| = |P00 P01 P02| |ux|
             |u2| = |P10 P11 P12| |uy|
             |u3| = |P20 P21 P22| |uz|
@@ -425,94 +437,95 @@ class CSProjection:
             such points, `Pc` will have shape ``(N, 3, 3)``, where the
             last two dimensions refer to column and row of the matrix.
 
-        """ 
+        """
 
-        xi, et, r, block = map(np.ravel, np.broadcast_arrays(xi, eta, r, block)) # broadcast and flatten
+        xi, et, r, block = map(
+            np.ravel, np.broadcast_arrays(xi, eta, r, block)
+        )  # broadcast and flatten
         delta = self.get_delta(xi, et)
         Pc = np.empty((delta.size, 3, 3))
 
-        rsec2xi = r / np.cos(xi)**2
-        rsec2et = r / np.cos(et)**2
+        rsec2xi = r / np.cos(xi) ** 2
+        rsec2et = r / np.cos(et) ** 2
 
         # block 0
         iii = block == 0
         Pc[iii, 0, 0] = -np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
-        Pc[iii, 0, 1] =  np.sqrt(delta[iii])                   / rsec2xi[iii]
-        Pc[iii, 0, 2] =  0
+        Pc[iii, 0, 1] = np.sqrt(delta[iii]) / rsec2xi[iii]
+        Pc[iii, 0, 2] = 0
         Pc[iii, 1, 0] = -np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
-        Pc[iii, 1, 1] =  0
-        Pc[iii, 1, 2] =  np.sqrt(delta[iii])                   / rsec2et[iii]
-        Pc[iii, 2, 0] =  1               / np.sqrt(delta[iii])
-        Pc[iii, 2, 1] =  np.tan(xi[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 2] =  np.tan(et[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 1, 1] = 0
+        Pc[iii, 1, 2] = np.sqrt(delta[iii]) / rsec2et[iii]
+        Pc[iii, 2, 0] = 1 / np.sqrt(delta[iii])
+        Pc[iii, 2, 1] = np.tan(xi[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
         # block 1
         iii = block == 1
-        Pc[iii, 0, 0] = -np.sqrt(delta[iii])                   / rsec2xi[iii]
+        Pc[iii, 0, 0] = -np.sqrt(delta[iii]) / rsec2xi[iii]
         Pc[iii, 0, 1] = -np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
-        Pc[iii, 0, 2] =  0
-        Pc[iii, 1, 0] =  0
+        Pc[iii, 0, 2] = 0
+        Pc[iii, 1, 0] = 0
         Pc[iii, 1, 1] = -np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
-        Pc[iii, 1, 2] =  np.sqrt(delta[iii])                   / rsec2et[iii]
+        Pc[iii, 1, 2] = np.sqrt(delta[iii]) / rsec2et[iii]
         Pc[iii, 2, 0] = -np.tan(xi[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 1] =  1               / np.sqrt(delta[iii])
-        Pc[iii, 2, 2] =  np.tan(et[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 1] = 1 / np.sqrt(delta[iii])
+        Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
         # block 2
         iii = block == 2
-        Pc[iii, 0, 0] =  np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
-        Pc[iii, 0, 1] = -np.sqrt(delta[iii])                   / rsec2xi[iii]
-        Pc[iii, 0, 2] =  0
-        Pc[iii, 1, 0] =  np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
-        Pc[iii, 1, 1] =  0
-        Pc[iii, 1, 2] =  np.sqrt(delta[iii])                   / rsec2et[iii]
-        Pc[iii, 2, 0] = -1               / np.sqrt(delta[iii])
+        Pc[iii, 0, 0] = np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
+        Pc[iii, 0, 1] = -np.sqrt(delta[iii]) / rsec2xi[iii]
+        Pc[iii, 0, 2] = 0
+        Pc[iii, 1, 0] = np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
+        Pc[iii, 1, 1] = 0
+        Pc[iii, 1, 2] = np.sqrt(delta[iii]) / rsec2et[iii]
+        Pc[iii, 2, 0] = -1 / np.sqrt(delta[iii])
         Pc[iii, 2, 1] = -np.tan(xi[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 2] =  np.tan(et[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
         # block 3
         iii = block == 3
-        Pc[iii, 0, 0] =  np.sqrt(delta[iii])                   / rsec2xi[iii]
-        Pc[iii, 0, 1] =  np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
-        Pc[iii, 0, 2] =  0
-        Pc[iii, 1, 0] =  0
-        Pc[iii, 1, 1] =  np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
-        Pc[iii, 1, 2] =  np.sqrt(delta[iii])                   / rsec2et[iii]
-        Pc[iii, 2, 0] =  np.tan(xi[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 1] = -1               / np.sqrt(delta[iii])
-        Pc[iii, 2, 2] =  np.tan(et[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 0, 0] = np.sqrt(delta[iii]) / rsec2xi[iii]
+        Pc[iii, 0, 1] = np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
+        Pc[iii, 0, 2] = 0
+        Pc[iii, 1, 0] = 0
+        Pc[iii, 1, 1] = np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
+        Pc[iii, 1, 2] = np.sqrt(delta[iii]) / rsec2et[iii]
+        Pc[iii, 2, 0] = np.tan(xi[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 1] = -1 / np.sqrt(delta[iii])
+        Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
         # block 4
         iii = block == 4
-        Pc[iii, 0, 0] =  0
-        Pc[iii, 0, 1] =  np.sqrt(delta[iii])                   / rsec2xi[iii]
+        Pc[iii, 0, 0] = 0
+        Pc[iii, 0, 1] = np.sqrt(delta[iii]) / rsec2xi[iii]
         Pc[iii, 0, 2] = -np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
-        Pc[iii, 1, 0] = -np.sqrt(delta[iii])                   / rsec2et[iii]
-        Pc[iii, 1, 1] =  0
+        Pc[iii, 1, 0] = -np.sqrt(delta[iii]) / rsec2et[iii]
+        Pc[iii, 1, 1] = 0
         Pc[iii, 1, 2] = -np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
         Pc[iii, 2, 0] = -np.tan(et[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 1] =  np.tan(xi[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 2] =  1               / np.sqrt(delta[iii])
+        Pc[iii, 2, 1] = np.tan(xi[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 2] = 1 / np.sqrt(delta[iii])
 
         # block 5
         iii = block == 5
-        Pc[iii, 0, 0] =  0
-        Pc[iii, 0, 1] =  np.sqrt(delta[iii])                   / rsec2xi[iii]
-        Pc[iii, 0, 2] =  np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
-        Pc[iii, 1, 0] =  np.sqrt(delta[iii])                   / rsec2et[iii]
-        Pc[iii, 1, 1] =  0
-        Pc[iii, 1, 2] =  np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
-        Pc[iii, 2, 0] =  np.tan(et[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 1] =  np.tan(xi[iii]) / np.sqrt(delta[iii])
-        Pc[iii, 2, 2] = -1               / np.sqrt(delta[iii])
+        Pc[iii, 0, 0] = 0
+        Pc[iii, 0, 1] = np.sqrt(delta[iii]) / rsec2xi[iii]
+        Pc[iii, 0, 2] = np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
+        Pc[iii, 1, 0] = np.sqrt(delta[iii]) / rsec2et[iii]
+        Pc[iii, 1, 1] = 0
+        Pc[iii, 1, 2] = np.sqrt(delta[iii]) * np.tan(et[iii]) / rsec2et[iii]
+        Pc[iii, 2, 0] = np.tan(et[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 1] = np.tan(xi[iii]) / np.sqrt(delta[iii])
+        Pc[iii, 2, 2] = -1 / np.sqrt(delta[iii])
 
         if inverse:
-            return(arrayutils.invert_3D_matrices(Pc))
+            return arrayutils.invert_3D_matrices(Pc)
         else:
-            return(Pc)
+            return Pc
 
-
-    def get_Ps(self, xi, eta, r = 1, block = 0, inverse = False):
+    def get_Ps(self, xi, eta, r=1, block=0, inverse=False):
         """
         Calculate elements of transformation matrix `Ps` at all input
         points.
@@ -520,9 +533,9 @@ class CSProjection:
         The `Ps` matrix transforms vector components
         ``(u_east, u_north, u_r)`` to contravariant components in a cubed
         sphere coordinate system::
-        
+
             |u1| = |P00 P01 P02| |u_east|
-            |u2| = |P10 P11 P12| |u_north| 
+            |u2| = |P10 P11 P12| |u_north|
             |u3| = |P20 P21 P22| |u_r|
 
         The output, `Ps`, will have shape ``(N, 3, 3)``.
@@ -553,88 +566,118 @@ class CSProjection:
             such points, `Ps` will have shape ``(N, 3, 3)``, where the
             last two dimensions refer to column and row of the matrix.
 
-        """ 
+        """
 
-        xi, et, r, block = map(np.ravel, np.broadcast_arrays(xi, eta, r, block)) # broadcast and flatten
+        xi, et, r, block = map(
+            np.ravel, np.broadcast_arrays(xi, eta, r, block)
+        )  # broadcast and flatten
         delta = self.get_delta(xi, et)
         Ps = np.empty((delta.size, 3, 3))
 
         # block 0
         iii = block == 0
-        Ps[iii, 0, 0] =  1
-        Ps[iii, 0, 1] =  0
-        Ps[iii, 0, 2] =  0
-        Ps[iii, 1, 0] =  np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] =  np.cos(xi[iii]) * np.sin(et[iii])**2 + np.cos(et[iii])**2 / np.cos(xi[iii])
-        Ps[iii, 1, 2] =  0
-        Ps[iii, 2, 0] =  0
-        Ps[iii, 2, 1] =  0
-        Ps[iii, 2, 2] =  1
+        Ps[iii, 0, 0] = 1
+        Ps[iii, 0, 1] = 0
+        Ps[iii, 0, 2] = 0
+        Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
+            et[iii]
+        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 2] = 0
+        Ps[iii, 2, 0] = 0
+        Ps[iii, 2, 1] = 0
+        Ps[iii, 2, 2] = 1
 
         # block 1
         iii = block == 1
-        Ps[iii, 0, 0] =  1
-        Ps[iii, 0, 1] =  0
-        Ps[iii, 0, 2] =  0
-        Ps[iii, 1, 0] =  np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] =  np.cos(xi[iii]) * np.sin(et[iii])**2 + np.cos(et[iii])**2 / np.cos(xi[iii])
-        Ps[iii, 1, 2] =  0
-        Ps[iii, 2, 0] =  0
-        Ps[iii, 2, 1] =  0
-        Ps[iii, 2, 2] =  1
+        Ps[iii, 0, 0] = 1
+        Ps[iii, 0, 1] = 0
+        Ps[iii, 0, 2] = 0
+        Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
+            et[iii]
+        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 2] = 0
+        Ps[iii, 2, 0] = 0
+        Ps[iii, 2, 1] = 0
+        Ps[iii, 2, 2] = 1
 
         # block 2
         iii = block == 2
-        Ps[iii, 0, 0] =  1
-        Ps[iii, 0, 1] =  0
-        Ps[iii, 0, 2] =  0
-        Ps[iii, 1, 0] =  np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] =  np.cos(xi[iii]) * np.sin(et[iii])**2 + np.cos(et[iii])**2 / np.cos(xi[iii])
-        Ps[iii, 1, 2] =  0
-        Ps[iii, 2, 0] =  0
-        Ps[iii, 2, 1] =  0
-        Ps[iii, 2, 2] =  1
+        Ps[iii, 0, 0] = 1
+        Ps[iii, 0, 1] = 0
+        Ps[iii, 0, 2] = 0
+        Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
+            et[iii]
+        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 2] = 0
+        Ps[iii, 2, 0] = 0
+        Ps[iii, 2, 1] = 0
+        Ps[iii, 2, 2] = 1
 
         # block 3
         iii = block == 3
-        Ps[iii, 0, 0] =  1
-        Ps[iii, 0, 1] =  0
-        Ps[iii, 0, 2] =  0
-        Ps[iii, 1, 0] =  np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] =  np.cos(xi[iii]) * np.sin(et[iii])**2 + np.cos(et[iii])**2 / np.cos(xi[iii])
-        Ps[iii, 1, 2] =  0
-        Ps[iii, 2, 0] =  0
-        Ps[iii, 2, 1] =  0
-        Ps[iii, 2, 2] =  1
+        Ps[iii, 0, 0] = 1
+        Ps[iii, 0, 1] = 0
+        Ps[iii, 0, 2] = 0
+        Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
+            et[iii]
+        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 2] = 0
+        Ps[iii, 2, 0] = 0
+        Ps[iii, 2, 1] = 0
+        Ps[iii, 2, 2] = 1
 
         # block 4
         iii = block == 4
-        Ps[iii, 0, 0] = -np.cos(xi[iii])**2 * np.tan(et[iii])
-        Ps[iii, 0, 1] = -delta[iii] * np.tan(xi[iii]) * np.cos(xi[iii])**2 / np.sqrt(delta[iii] - 1)
-        Ps[iii, 0, 2] =  0
-        Ps[iii, 1, 0] =  np.cos(et[iii])**2 * np.tan(xi[iii]) 
-        Ps[iii, 1, 1] = -delta[iii] * np.tan(et[iii]) * np.cos(et[iii])**2 / np.sqrt(delta[iii] - 1)
-        Ps[iii, 1, 2] =  0
-        Ps[iii, 2, 0] =  0
-        Ps[iii, 2, 1] =  0
-        Ps[iii, 2, 2] =  1
+        Ps[iii, 0, 0] = -np.cos(xi[iii]) ** 2 * np.tan(et[iii])
+        Ps[iii, 0, 1] = (
+            -delta[iii]
+            * np.tan(xi[iii])
+            * np.cos(xi[iii]) ** 2
+            / np.sqrt(delta[iii] - 1)
+        )
+        Ps[iii, 0, 2] = 0
+        Ps[iii, 1, 0] = np.cos(et[iii]) ** 2 * np.tan(xi[iii])
+        Ps[iii, 1, 1] = (
+            -delta[iii]
+            * np.tan(et[iii])
+            * np.cos(et[iii]) ** 2
+            / np.sqrt(delta[iii] - 1)
+        )
+        Ps[iii, 1, 2] = 0
+        Ps[iii, 2, 0] = 0
+        Ps[iii, 2, 1] = 0
+        Ps[iii, 2, 2] = 1
 
         # block 5
         iii = block == 5
-        Ps[iii, 0, 0] =  np.cos(xi[iii])**2 * np.tan(et[iii])
-        Ps[iii, 0, 1] =  delta[iii] * np.tan(xi[iii]) * np.cos(xi[iii])**2 / np.sqrt(delta[iii] - 1)
-        Ps[iii, 0, 2] =  0
-        Ps[iii, 1, 0] = -np.cos(et[iii])**2 * np.tan(xi[iii]) 
-        Ps[iii, 1, 1] =  delta[iii] * np.tan(et[iii]) * np.cos(et[iii])**2 / np.sqrt(delta[iii] - 1)
-        Ps[iii, 1, 2] =  0
-        Ps[iii, 2, 0] =  0
-        Ps[iii, 2, 1] =  0
-        Ps[iii, 2, 2] =  1
+        Ps[iii, 0, 0] = np.cos(xi[iii]) ** 2 * np.tan(et[iii])
+        Ps[iii, 0, 1] = (
+            delta[iii]
+            * np.tan(xi[iii])
+            * np.cos(xi[iii]) ** 2
+            / np.sqrt(delta[iii] - 1)
+        )
+        Ps[iii, 0, 2] = 0
+        Ps[iii, 1, 0] = -np.cos(et[iii]) ** 2 * np.tan(xi[iii])
+        Ps[iii, 1, 1] = (
+            delta[iii]
+            * np.tan(et[iii])
+            * np.cos(et[iii]) ** 2
+            / np.sqrt(delta[iii] - 1)
+        )
+        Ps[iii, 1, 2] = 0
+        Ps[iii, 2, 0] = 0
+        Ps[iii, 2, 1] = 0
+        Ps[iii, 2, 2] = 1
 
         if inverse:
-            return(arrayutils.invert_3D_matrices(Ps))
+            return arrayutils.invert_3D_matrices(Ps)
         else:
-            return(Ps)
+            return Ps
 
     def get_Qij(self, xi, eta, block_i, block_j):
         """
@@ -652,7 +695,7 @@ class CSProjection:
             |u2_j| = Qij|u2_i|
             |u3_j|      |u3_i|
 
-        
+
         Parameters
         ----------
         xi: array-like
@@ -674,24 +717,25 @@ class CSProjection:
 
         """
 
-        xi_i, eta_i, block_i, block_j = map(np.ravel, np.broadcast_arrays(xi, eta, block_i, block_j)) # broadcast and flatten
+        xi_i, eta_i, block_i, block_j = map(
+            np.ravel, np.broadcast_arrays(xi, eta, block_i, block_j)
+        )  # broadcast and flatten
 
-        Psi_inv = self.get_Ps(xi_i, eta_i, r = 1, block = block_i, inverse = True)
+        Psi_inv = self.get_Ps(xi_i, eta_i, r=1, block=block_i, inverse=True)
 
         # find the xi, eta coordinates on block j
-        r, theta, phi = self.cube2spherical(xi_i, eta_i, r = 1, block = block_i, deg = True)
-        xi_j, eta_j, _ = self.geo2cube(phi, 90 - theta, block = block_j)
+        r, theta, phi = self.cube2spherical(xi_i, eta_i, r=1, block=block_i, deg=True)
+        xi_j, eta_j, _ = self.geo2cube(phi, 90 - theta, block=block_j)
 
         # calculate Ps relative to block j
-        Psj = self.get_Ps(xi_j, eta_j, r = 1, block = block_j)
+        Psj = self.get_Ps(xi_j, eta_j, r=1, block=block_j)
 
         # multiply each of the N matrices to get Qij:
-        Qij = np.einsum('nij, njk -> nik', Psj, Psi_inv)
+        Qij = np.einsum("nij, njk -> nik", Psj, Psi_inv)
 
-        return(Qij)
+        return Qij
 
-
-    def get_Q(self, lat, r, inverse = False):
+    def get_Q(self, lat, r, inverse=False):
         """
         Calculate the matrices that convert from not normalized spherical
         components to normalized spherical vector components::
@@ -720,18 +764,17 @@ class CSProjection:
         """
         lat, r = map(np.ravel, np.broadcast_arrays(lat, r))
 
-        Q = np.zeros((lat.size, 3, 3), dtype = np.float64)
+        Q = np.zeros((lat.size, 3, 3), dtype=np.float64)
         Q[:, 0, 0] = r * np.cos(np.deg2rad(lat))
         Q[:, 1, 1] = r
         Q[:, 2, 2] = 1
 
         if inverse:
-            return(arrayutils.invert_3D_matrices(Q))
+            return arrayutils.invert_3D_matrices(Q)
         else:
-            return(Q)
+            return Q
 
-
-    def get_Diff(self, N, coordinate = 'xi', Ns = 1, Ni = 4, order = 1):
+    def get_Diff(self, N, coordinate="xi", Ns=1, Ni=4, order=1):
         """
         Calculate matrix that differentiates a scalar field, defined on a
         ``(6, N, N)`` grid, with respect to ``xi`` or ``eta``.
@@ -762,50 +805,64 @@ class CSProjection:
             ``derivative = D.dot(f)``, where ``f`` is the scalar field.
 
         """
-        if coordinate not in ['xi', 'eta', 'both']:
-            raise ValueError('coordinate must be either "xi", "eta", or "both". Not {}'.format(coordinate))
+        if coordinate not in ["xi", "eta", "both"]:
+            raise ValueError(
+                'coordinate must be either "xi", "eta", or "both". Not {}'.format(
+                    coordinate
+                )
+            )
 
         if Ns < order:
-            raise ValueError('Ns must be >= order. You gave {} and {}'.format(Ns, order))
+            raise ValueError(
+                "Ns must be >= order. You gave {} and {}".format(Ns, order)
+            )
 
         shape = (6, N, N)
         size = 6 * N * N
-        h = self.xi(1, N) - self.xi(0, N) # step size between each grid cell
+        h = self.xi(1, N) - self.xi(0, N)  # step size between each grid cell
 
-        k, i, j = map(np.ravel, np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing = 'ij'))
+        k, i, j = map(
+            np.ravel,
+            np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij"),
+        )
 
         # set up differentiation stencil
-        stencil_points  = np.hstack((np.r_[-Ns:0], np.r_[1:Ns + 1]))
+        stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
         Nsp = len(stencil_points)
-        stencil_weight = diffutils.stencil(stencil_points, order = 1, h = h) # 1st order differentiation
+        stencil_weight = diffutils.stencil(
+            stencil_points, order=1, h=h
+        )  # 1st order differentiation
 
-        i_diff           = np.hstack([i + _ for _ in stencil_points])
-        j_diff           = np.hstack([j + _ for _ in stencil_points])
+        i_diff = np.hstack([i + _ for _ in stencil_points])
+        j_diff = np.hstack([j + _ for _ in stencil_points])
         k_const, i_const, j_const = np.tile(k, Nsp), np.tile(i, Nsp), np.tile(j, Nsp)
-        weights  = np.repeat(stencil_weight, size)
+        weights = np.repeat(stencil_weight, size)
 
         rows = np.tile(np.ravel_multi_index((k, i, j), shape), Nsp)
-        if coordinate in ['xi', 'both']:
-            Dxi = self.get_interpolation_matrix(k_const, i_diff , j_const, N, Ni, rows = rows, weights = weights)
-        if coordinate in ['eta', 'both']:
-            Deta = self.get_interpolation_matrix(k_const, i_const, j_diff , N, Ni, rows = rows, weights = weights)
+        if coordinate in ["xi", "both"]:
+            Dxi = self.get_interpolation_matrix(
+                k_const, i_diff, j_const, N, Ni, rows=rows, weights=weights
+            )
+        if coordinate in ["eta", "both"]:
+            Deta = self.get_interpolation_matrix(
+                k_const, i_const, j_diff, N, Ni, rows=rows, weights=weights
+            )
 
-        if coordinate == 'both':
-            return(Dxi, Deta)
-        if coordinate == 'xi':
-            return(Dxi)
-        if coordinate == 'eta':
-            return(Deta)
+        if coordinate == "both":
+            return (Dxi, Deta)
+        if coordinate == "xi":
+            return Dxi
+        if coordinate == "eta":
+            return Deta
 
-
-    def get_interpolation_matrix(self, k, i, j, N, Ni, weights = None, rows = None):
+    def get_interpolation_matrix(self, k, i, j, N, Ni, weights=None, rows=None):
         """
         Calculate a sparse matrix D that interpolates from grid points in
-        a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`). 
+        a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`).
 
         `D` will have ``6*N**2`` columns that refer to the ``(6, N, N)``
         grid points, spanning the 6 blocks in the cubed sphere, with
-        duplicate points on the boundaries. 
+        duplicate points on the boundaries.
 
         Parameters
         ----------
@@ -833,7 +890,7 @@ class CSProjection:
             The row index of each element in `k`, `i`, `j`. Different
             elements of `k`, `i`, `j` can be put in the same row. If not
             specified, each element in `k`, `i`, `j` will be given its own
-            row. 
+            row.
 
         Returns
         -------
@@ -848,7 +905,7 @@ class CSProjection:
         """
 
         if Ni > N:
-            raise ValueError('Ni must be <= N')
+            raise ValueError("Ni must be <= N")
         k, i, j = map(np.ravel, [k, i, j])
 
         shape = (6, N, N)
@@ -861,64 +918,110 @@ class CSProjection:
             weights = np.ones(k.size)
         weights = weights / Ni
 
-        h = self.xi(1, N) - self.xi(0, N) # step size between each grid cell
+        h = self.xi(1, N) - self.xi(0, N)  # step size between each grid cell
 
-        cols = np.full(k.size, -1, dtype = np.int64) # array that will contain column indices
+        # array that will contain column indices
+        cols = np.full(k.size, -1, dtype=np.int64)
 
         # find new indices that do not exceed block dimensions (but are possibly floats):
         xi, eta = self.xi(i, N), self.eta(j, N)
-        r, theta, phi = self.cube2spherical(xi, eta, k, r = 1., deg = True)
+        r, theta, phi = self.cube2spherical(xi, eta, k, r=1.0, deg=True)
         new_xi, new_eta, new_k = self.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
-        
+
         # all index pairs should have at least one integer in a uniform cubed sphere grid:
-        assert np.all((np.isclose(new_i - np.rint(new_i), 0) | np.isclose(new_j - np.rint(new_j), 0)))
+        assert np.all(
+            (
+                np.isclose(new_i - np.rint(new_i), 0)
+                | np.isclose(new_j - np.rint(new_j), 0)
+            )
+        )
 
         # Fill in column indices for the index pairs that are both integers:
-        ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(new_j - np.rint(new_j), 0)
-        cols[ii_integers] = np.ravel_multi_index((new_k[ii_integers], np.rint(new_i[ii_integers]).astype(np.int64), np.rint(new_j[ii_integers]).astype(np.int64)), shape)
+        ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(
+            new_j - np.rint(new_j), 0
+        )
+        cols[ii_integers] = np.ravel_multi_index(
+            (
+                new_k[ii_integers],
+                np.rint(new_i[ii_integers]).astype(np.int64),
+                np.rint(new_j[ii_integers]).astype(np.int64),
+            ),
+            shape,
+        )
 
         # The rest of the index pairs need interpolation. Find the indices where it is needed:
         i_is_float = ~np.isclose(np.rint(new_i) - new_i, 0)
         j_is_float = ~np.isclose(np.rint(new_j) - new_j, 0)
 
-        assert sum(i_is_float & j_is_float) == 0 # no new index pair should have two floats
-        assert sum(i_is_float | j_is_float) == sum(cols == -1) # all missing columns match indices where i or j are float
+        # no new index pair should have two floats
+        assert sum(i_is_float & j_is_float) == 0
+        # all missing columns match indices where i or j are float
+        assert sum(i_is_float | j_is_float) == sum(cols == -1)
 
         j_floats = new_j[j_is_float].reshape((-1, 1))
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
         # define the (integer) points which will be used to interpolate:
         interpolation_points = np.arange(Ni).reshape((1, -1))
-        j_interpolation_points = arrayutils.constrain_values(interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis = 1)
-        i_interpolation_points = arrayutils.constrain_values(interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis = 1)
+        j_interpolation_points = arrayutils.constrain_values(
+            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1,
+            0,
+            N - 1,
+            axis=1,
+        )
+        i_interpolation_points = arrayutils.constrain_values(
+            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1,
+            0,
+            N - 1,
+            axis=1,
+        )
 
         # calculate barycentric weights wj (Berrut & Trefethen, 2004):
         j_distances = j_floats - j_interpolation_points
         i_distances = i_floats - i_interpolation_points
-        w = (-1)**interpolation_points * binom(Ni - 1, interpolation_points)
-        w_i = w / i_distances / np.sum(w / i_distances, axis = 1).reshape( (-1, 1) )
-        w_j = w / j_distances / np.sum(w / j_distances, axis = 1).reshape( (-1, 1) )
+        w = (-1) ** interpolation_points * binom(Ni - 1, interpolation_points)
+        w_i = w / i_distances / np.sum(w / i_distances, axis=1).reshape((-1, 1))
+        w_j = w / j_distances / np.sum(w / j_distances, axis=1).reshape((-1, 1))
 
         # expand the column, row, and weight arrays to allow for interpolation weights (just duplicating where no interpolation is required)
-        stacked_weights = np.tile(weights, (Ni, 1)).T 
-        stacked_cols    = np.tile(cols   , (Ni, 1)).T
-        stacked_rows    = np.tile(rows   , (Ni, 1)).T
+        stacked_weights = np.tile(weights, (Ni, 1)).T
+        stacked_cols = np.tile(cols, (Ni, 1)).T
+        stacked_rows = np.tile(rows, (Ni, 1)).T
 
         # specify the columns and weights where interpolation is required:
-        stacked_cols[   i_is_float] = np.ravel_multi_index((np.tile(new_k[i_is_float], (Ni, 1)).T, i_interpolation_points                                , np.rint(np.tile(new_j[i_is_float], (Ni, 1))).astype(np.int64).T), shape)
-        stacked_cols[   j_is_float] = np.ravel_multi_index((np.tile(new_k[j_is_float], (Ni, 1)).T, np.rint(np.tile(new_i[j_is_float], (Ni, 1))).astype(np.int64).T, j_interpolation_points                                ), shape)
+        stacked_cols[i_is_float] = np.ravel_multi_index(
+            (
+                np.tile(new_k[i_is_float], (Ni, 1)).T,
+                i_interpolation_points,
+                np.rint(np.tile(new_j[i_is_float], (Ni, 1))).astype(np.int64).T,
+            ),
+            shape,
+        )
+        stacked_cols[j_is_float] = np.ravel_multi_index(
+            (
+                np.tile(new_k[j_is_float], (Ni, 1)).T,
+                np.rint(np.tile(new_i[j_is_float], (Ni, 1))).astype(np.int64).T,
+                j_interpolation_points,
+            ),
+            shape,
+        )
         stacked_weights[i_is_float] = stacked_weights[i_is_float] * w_i * Ni
         stacked_weights[j_is_float] = stacked_weights[j_is_float] * w_j * Ni
 
-        D = coo_matrix((stacked_weights.flatten(), (stacked_rows.flatten(), stacked_cols.flatten()) ), shape = (rows.max() + 1, size))
-        D.count_nonzero() # get rid of duplicates (I think... maybe this doesn't do anything)
+        D = coo_matrix(
+            (
+                stacked_weights.flatten(),
+                (stacked_rows.flatten(), stacked_cols.flatten()),
+            ),
+            shape=(rows.max() + 1, size),
+        )
+        D.count_nonzero()  # get rid of duplicates (I think... maybe this doesn't do anything)
 
         return D
 
-
     def block(self, lon, lat):
-        """ Find the block that points belong to.
+        """Find the block that points belong to.
 
         Find which block the input coordinates belong to.
 
@@ -945,32 +1048,36 @@ class CSProjection:
         xyz = np.vstack((np.cos(ph) * np.sin(th), np.sin(th) * np.sin(ph), np.cos(th)))
 
         # Define face midpoint xyz coordinates
-        face_midpoints = np.array([
-            [1, 0, 0],  # 'I'
-            [0, 1, 0],  # 'II'
-            [-1, 0, 0], # 'III'
-            [0, -1, 0], # 'IV'
-            [0, 0, 1],  # 'V'
-            [0, 0, -1]  # 'VI'
-        ])
+        face_midpoints = np.array(
+            [
+                [1, 0, 0],  # 'I'
+                [0, 1, 0],  # 'II'
+                [-1, 0, 0],  # 'III'
+                [0, -1, 0],  # 'IV'
+                [0, 0, 1],  # 'V'
+                [0, 0, -1],  # 'VI'
+            ]
+        )
 
         # Calculate Euclidean distances to each face midpoint
         distances = np.empty((6, xyz.shape[1]))
         for i in range(6):
-            distances[i] = np.linalg.norm(xyz - face_midpoints[i].reshape((3, 1)), axis = 0)
+            distances[i] = np.linalg.norm(
+                xyz - face_midpoints[i].reshape((3, 1)), axis=0
+            )
 
         # Assign points to the block with the smallest face midpoint distance
         safety_distance = 1e-10
-        blocks = np.zeros(xyz.shape[1], dtype = int)
+        blocks = np.zeros(xyz.shape[1], dtype=int)
         for i in range(6):
             blocks[distances[i] < np.choose(blocks, distances) - safety_distance] = i
 
         return blocks
 
-    def geo2cube(self, lon, lat, block = None):
+    def geo2cube(self, lon, lat, block=None):
         """
         Convert from geocentric coordinates to cube coords (`xi`, `eta`).
-        
+
         Input parameters must have same shape. Output will have same
         shape.
 
@@ -1013,37 +1120,37 @@ class CSProjection:
 
         # calculate X and Y according to Ronchi et al., equations 1->
         theta, phi = np.deg2rad(90 - lat), np.deg2rad(lon)
-        X[block == 0] =      np.tan(phi[block == 0])
+        X[block == 0] = np.tan(phi[block == 0])
         X[block == 1] = -1 / np.tan(phi[block == 1])
-        X[block == 2] =      np.tan(phi[block == 2])
+        X[block == 2] = np.tan(phi[block == 2])
         X[block == 3] = -1 / np.tan(phi[block == 3])
-        X[block == 4] =  np.tan(theta[block == 4]) * np.sin(phi[block == 4])
+        X[block == 4] = np.tan(theta[block == 4]) * np.sin(phi[block == 4])
         X[block == 5] = -np.tan(theta[block == 5]) * np.sin(phi[block == 5])
- 
-        Y[block == 0] =  1 / (np.tan(theta[block == 0]) * np.cos(phi[block == 0]))
-        Y[block == 1] =  1 / (np.tan(theta[block == 1]) * np.sin(phi[block == 1]))
+
+        Y[block == 0] = 1 / (np.tan(theta[block == 0]) * np.cos(phi[block == 0]))
+        Y[block == 1] = 1 / (np.tan(theta[block == 1]) * np.sin(phi[block == 1]))
         Y[block == 2] = -1 / (np.tan(theta[block == 2]) * np.cos(phi[block == 2]))
         Y[block == 3] = -1 / (np.tan(theta[block == 3]) * np.sin(phi[block == 3]))
-        Y[block == 4] =     -np.tan(theta[block == 4]) * np.cos(phi[block == 4])
-        Y[block == 5] =     -np.tan(theta[block == 5]) * np.cos(phi[block == 5])
+        Y[block == 4] = -np.tan(theta[block == 4]) * np.cos(phi[block == 4])
+        Y[block == 5] = -np.tan(theta[block == 5]) * np.cos(phi[block == 5])
 
         xi, eta = np.arctan(X), np.arctan(Y)
 
         return xi.reshape(shape), eta.reshape(shape), block.reshape(shape)
 
+    def get_projected_coastlines(self, resolution="50m"):
+        """Generate coastlines in projected coordinates."""
 
-    def get_projected_coastlines(self, resolution = '50m'):
-        """ Generate coastlines in projected coordinates. """
-
-        coastlines = np.load(datapath + 'coastlines_' + resolution + '.npz')
+        coastlines = np.load(datapath + "coastlines_" + resolution + ".npz")
         for key in coastlines:
             lat, lon = coastlines[key]
             yield self.geo2cube(lon, lat)
 
+    def interpolate_vector_components(
+        self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
+    ):
+        """Interpolate vector_components defined on theta, phi to given spherical coordinates
 
-    def interpolate_vector_components(self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs):
-        """ Interpolate vector_components defined on theta, phi to given spherical coordinates
-    
         Broadcasting rules apply for input and output separately
 
 
@@ -1060,7 +1167,7 @@ class CSProjection:
         phi: array
             array of coordinates for vector components
         theta_target: array
-            array of target coordinates. 
+            array of target coordinates.
         phi_target: array
             array of target coordinates
 
@@ -1075,11 +1182,19 @@ class CSProjection:
         """
 
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
-        #xi, eta, block = np.broadcast_arrays(xi, eta, block)
+        # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
-        u_east, u_north, u_r, theta, phi = np.broadcast_arrays(u_east, u_north, u_r, theta, phi)
-        u_east, u_north, u_r, theta, phi = u_east.flatten(), u_north.flatten(), u_r.flatten(), theta.flatten(), phi.flatten()
+        u_east, u_north, u_r, theta, phi = np.broadcast_arrays(
+            u_east, u_north, u_r, theta, phi
+        )
+        u_east, u_north, u_r, theta, phi = (
+            u_east.flatten(),
+            u_north.flatten(),
+            u_r.flatten(),
+            theta.flatten(),
+            phi.flatten(),
+        )
 
         # define vectors that point at all the original points:
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
@@ -1087,50 +1202,68 @@ class CSProjection:
 
         # convert vector components to cubed sphere
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
-        Ps = self.get_Ps(u_xi, u_eta, r = 1, block = u_block)
-        Q  = self.get_Q(90 - theta, r = 1, inverse = True)
-        Ps_normalized = np.einsum('nij, njk -> nik', Ps, Q)
+        Ps = self.get_Ps(u_xi, u_eta, r=1, block=u_block)
+        Q = self.get_Q(90 - theta, r=1, inverse=True)
+        Ps_normalized = np.einsum("nij, njk -> nik", Ps, Q)
         u_vec_sph = np.vstack((u_east, u_north, u_r))
-        u_vec = np.einsum('nij, nj -> ni', Ps_normalized, u_vec_sph.T).T
+        u_vec = np.einsum("nij, nj -> ni", Ps_normalized, u_vec_sph.T).T
 
-        interpolated_u1 = np.empty_like(block, dtype = np.float64)
-        interpolated_u2 = np.empty_like(block, dtype = np.float64)
-        interpolated_u3 = np.empty_like(block, dtype = np.float64)
-
+        interpolated_u1 = np.empty_like(block, dtype=np.float64)
+        interpolated_u2 = np.empty_like(block, dtype=np.float64)
+        interpolated_u3 = np.empty_like(block, dtype=np.float64)
 
         # loop over blocks and interpolate on each block:
         for i in range(6):
 
             # express vector components with respect to block i:
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
-            u_vec_i = np.einsum('nij, nj -> ni', Qij, u_vec.T).T
+            u_vec_i = np.einsum("nij, nj -> ni", Qij, u_vec.T).T
 
             # filter points whose position vectors have anti-parallel component to center of the block
-            _, th, ph = self.cube2spherical(0, 0, i, deg = False)
-            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape((-1, 1))
-            mask = np.sum(r0 * r, axis = 0) > 0
+            _, th, ph = self.cube2spherical(0, 0, i, deg=False)
+            r0 = np.hstack(
+                (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
+            ).reshape((-1, 1))
+            mask = np.sum(r0 * r, axis=0) > 0
 
-            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block = i)
+            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)
 
-            interpolated_u1[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[0][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
-            interpolated_u2[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[1][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
-            interpolated_u3[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, u_vec_i[2][mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+            interpolated_u1[block == i] = griddata(
+                np.vstack((xi_[mask], eta_[mask])).T,
+                u_vec_i[0][mask],
+                np.vstack((xi[block == i], eta[block == i])).T,
+                **kwargs
+            )
+            interpolated_u2[block == i] = griddata(
+                np.vstack((xi_[mask], eta_[mask])).T,
+                u_vec_i[1][mask],
+                np.vstack((xi[block == i], eta[block == i])).T,
+                **kwargs
+            )
+            interpolated_u3[block == i] = griddata(
+                np.vstack((xi_[mask], eta_[mask])).T,
+                u_vec_i[2][mask],
+                np.vstack((xi[block == i], eta[block == i])).T,
+                **kwargs
+            )
 
         # convert back to spherical:
-        r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg = True)
+        r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg=True)
         u = np.vstack((interpolated_u1, interpolated_u2, interpolated_u3))
-        Q      = self.get_Q(90 - theta_out, r = 1, inverse = False)
-        Ps_inv = self.get_Ps(xi, eta, r = 1, block = block, inverse = True)
-        Ps_normalized_inv = np.einsum('nij, njk -> nik', Q, Ps_inv)
-        u_east_int, u_north_int, u_r_int = np.einsum('nij, nj -> ni', Ps_normalized_inv, u.T).T
+        Q = self.get_Q(90 - theta_out, r=1, inverse=False)
+        Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
+        Ps_normalized_inv = np.einsum("nij, njk -> nik", Q, Ps_inv)
+        u_east_int, u_north_int, u_r_int = np.einsum(
+            "nij, nj -> ni", Ps_normalized_inv, u.T
+        ).T
 
         return u_east_int, u_north_int, u_r_int
 
+    def interpolate_scalar(
+        self, scalar, theta, phi, theta_target, phi_target, **kwargs
+    ):
+        """Interpolate vector_components defined on theta, phi to given spherical coordinates
 
-
-    def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
-        """ Interpolate vector_components defined on theta, phi to given spherical coordinates
-    
         Broadcasting rules apply for input and output separately
 
 
@@ -1143,7 +1276,7 @@ class CSProjection:
         phi: array
             array of coordinates for vector components
         theta_target: array
-            array of target coordinates. 
+            array of target coordinates.
         phi_target: array
             array of target coordinates
 
@@ -1158,7 +1291,7 @@ class CSProjection:
         """
 
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
-        #xi, eta, block = np.broadcast_arrays(xi, eta, block)
+        # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
         scalar, theta, phi = np.broadcast_arrays(scalar, theta, phi)
@@ -1168,23 +1301,28 @@ class CSProjection:
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
-        interpolated_scalar = np.empty_like(block, dtype = np.float64)
-
+        interpolated_scalar = np.empty_like(block, dtype=np.float64)
 
         # loop over blocks and interpolate on each block:
         for i in range(6):
 
             # filter points whose position vectors have anti-parallel component to center of the block
-            _, th, ph = self.cube2spherical(0, 0, i, deg = False)
-            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape((-1, 1))
-            mask = np.sum(r0 * r, axis = 0) > 0
+            _, th, ph = self.cube2spherical(0, 0, i, deg=False)
+            r0 = np.hstack(
+                (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
+            ).reshape((-1, 1))
+            mask = np.sum(r0 * r, axis=0) > 0
 
-            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block = i)
+            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)
 
-            interpolated_scalar[block == i] = griddata(np.vstack((xi_[mask], eta_[mask])).T, scalar[mask], np.vstack((xi[block == i], eta[block == i])).T, **kwargs)
+            interpolated_scalar[block == i] = griddata(
+                np.vstack((xi_[mask], eta_[mask])).T,
+                scalar[mask],
+                np.vstack((xi[block == i], eta[block == i])).T,
+                **kwargs
+            )
 
-        return( interpolated_scalar )
-
+        return interpolated_scalar
 
 
 csp = CSProjection()

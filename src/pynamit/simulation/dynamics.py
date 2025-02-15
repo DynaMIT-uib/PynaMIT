@@ -28,9 +28,10 @@ import scipy.sparse as sp
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
+
 class Dynamics(object):
     """Simulate 2D ionospheric dynamics.
-    
+
     This class implements a height-integrated model of ionospheric electrodynamics,
     including field-aligned currents (FACs), Hall and Pedersen conductances, and
     neutral winds. The simulation can evolve in time and compute steady states.
@@ -68,7 +69,7 @@ class Dynamics(object):
     vector_jr : bool, optional
         Use vector representation for radial current, by default True
     vector_conductance : bool, optional
-        Use vector representation for conductances, by default True  
+        Use vector representation for conductances, by default True
     vector_u : bool, optional
         Use vector representation for neutral wind, by default True
     t0 : str, optional
@@ -96,16 +97,28 @@ class Dynamics(object):
         Whether steady states are being saved
     """
 
-    def __init__(self, dataset_filename_prefix='simulation', Nmax=20, Mmax=20,
-                 Ncs=30, RI=RE + 110.e3, mainfield_kind='dipole',
-                 mainfield_epoch=2020, mainfield_B0=None,
-                 FAC_integration_steps=np.logspace(np.log10(RE + 110.e3),
-                                                 np.log10(4 * RE), 11),
-                 ignore_PFAC=False, connect_hemispheres=False,
-                 latitude_boundary=50, ih_constraint_scaling=1e-5,
-                 PFAC_matrix=None, vector_jr=True, vector_conductance=True,
-                 vector_u=True, t0='2020-01-01 00:00:00',
-                 save_steady_states=True):
+    def __init__(
+        self,
+        dataset_filename_prefix="simulation",
+        Nmax=20,
+        Mmax=20,
+        Ncs=30,
+        RI=RE + 110.0e3,
+        mainfield_kind="dipole",
+        mainfield_epoch=2020,
+        mainfield_B0=None,
+        FAC_integration_steps=np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11),
+        ignore_PFAC=False,
+        connect_hemispheres=False,
+        latitude_boundary=50,
+        ih_constraint_scaling=1e-5,
+        PFAC_matrix=None,
+        vector_jr=True,
+        vector_conductance=True,
+        vector_u=True,
+        t0="2020-01-01 00:00:00",
+        save_steady_states=True,
+    ):
         """
         Initialize the Dynamics class with the given parameters.
 
@@ -142,7 +155,7 @@ class Dynamics(object):
         vector_jr : bool, optional
             Use vector representation for radial current, by default True
         vector_conductance : bool, optional
-            Use vector representation for conductances, by default True  
+            Use vector representation for conductances, by default True
         vector_u : bool, optional
             Use vector representation for neutral wind, by default True
         t0 : str, optional
@@ -153,68 +166,83 @@ class Dynamics(object):
         self.dataset_filename_prefix = dataset_filename_prefix
 
         # Store setting arguments in xarray dataset
-        settings = xr.Dataset(attrs = {
-            'Nmax':                   Nmax,
-            'Mmax':                   Mmax,
-            'Ncs':                    Ncs,
-            'RI':                     RI,
-            'latitude_boundary':      latitude_boundary,
-            'ignore_PFAC':            int(ignore_PFAC),
-            'connect_hemispheres':    int(connect_hemispheres),
-            'FAC_integration_steps':  FAC_integration_steps,
-            'ih_constraint_scaling':  ih_constraint_scaling,
-            'mainfield_kind':         mainfield_kind,
-            'mainfield_epoch':        mainfield_epoch,
-            'mainfield_B0':           0 if mainfield_B0 is None else mainfield_B0,
-            'vector_jr':              int(vector_jr),
-            'vector_conductance':     int(vector_conductance),
-            'vector_u':               int(vector_u),
-            't0':                     t0,
-            'save_steady_states':     int(save_steady_states),
-        })
+        settings = xr.Dataset(
+            attrs={
+                "Nmax": Nmax,
+                "Mmax": Mmax,
+                "Ncs": Ncs,
+                "RI": RI,
+                "latitude_boundary": latitude_boundary,
+                "ignore_PFAC": int(ignore_PFAC),
+                "connect_hemispheres": int(connect_hemispheres),
+                "FAC_integration_steps": FAC_integration_steps,
+                "ih_constraint_scaling": ih_constraint_scaling,
+                "mainfield_kind": mainfield_kind,
+                "mainfield_epoch": mainfield_epoch,
+                "mainfield_B0": 0 if mainfield_B0 is None else mainfield_B0,
+                "vector_jr": int(vector_jr),
+                "vector_conductance": int(vector_conductance),
+                "vector_u": int(vector_u),
+                "t0": t0,
+                "save_steady_states": int(save_steady_states),
+            }
+        )
 
         # Overwrite settings with any settings existing on file
-        settings_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(self.dataset_filename_prefix + '_settings.ncdf')
+        settings_on_file = (
+            self.dataset_filename_prefix is not None
+        ) and os.path.exists(self.dataset_filename_prefix + "_settings.ncdf")
         if settings_on_file:
-            settings = xr.load_dataset(self.dataset_filename_prefix + '_settings.ncdf')
+            settings = xr.load_dataset(self.dataset_filename_prefix + "_settings.ncdf")
 
         # Load PFAC matrix if it exists on file
-        PFAC_matrix_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(self.dataset_filename_prefix + '_PFAC_matrix.ncdf')
+        PFAC_matrix_on_file = (
+            self.dataset_filename_prefix is not None
+        ) and os.path.exists(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
         if PFAC_matrix_on_file:
-            PFAC_matrix = xr.load_dataarray(self.dataset_filename_prefix + '_PFAC_matrix.ncdf')
+            PFAC_matrix = xr.load_dataarray(
+                self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
+            )
 
         self.RI = settings.RI
 
-        self.mainfield = Mainfield(kind = settings.mainfield_kind,
-                                   epoch = settings.mainfield_epoch,
-                                   hI = (settings.RI - RE) * 1e-3,
-                                   B0 = None if settings.mainfield_B0 == 0 else settings.mainfield_B0)
+        self.mainfield = Mainfield(
+            kind=settings.mainfield_kind,
+            epoch=settings.mainfield_epoch,
+            hI=(settings.RI - RE) * 1e-3,
+            B0=None if settings.mainfield_B0 == 0 else settings.mainfield_B0,
+        )
 
         self.csp = CSProjection(settings.Ncs)
-        self.state_grid = Grid(theta = self.csp.arr_theta, phi = self.csp.arr_phi)
+        self.state_grid = Grid(theta=self.csp.arr_theta, phi=self.csp.arr_phi)
 
         self.bases = {
-            'state':        SHBasis(settings.Nmax, settings.Mmax),
-            'steady_state': SHBasis(settings.Nmax, settings.Mmax),
-            'jr':           SHBasis(settings.Nmax, settings.Mmax),
-            'conductance':  SHBasis(settings.Nmax, settings.Mmax, Nmin = 0),
-            'u':            SHBasis(settings.Nmax, settings.Mmax),
+            "state": SHBasis(settings.Nmax, settings.Mmax),
+            "steady_state": SHBasis(settings.Nmax, settings.Mmax),
+            "jr": SHBasis(settings.Nmax, settings.Mmax),
+            "conductance": SHBasis(settings.Nmax, settings.Mmax, Nmin=0),
+            "u": SHBasis(settings.Nmax, settings.Mmax),
         }
 
         self.vector_storage = {
-            'state':        True,
-            'steady_state': True,
-            'jr':           bool(settings.vector_jr),
-            'conductance':  bool(settings.vector_conductance),
-            'u':            bool(settings.vector_u),
+            "state": True,
+            "steady_state": True,
+            "jr": bool(settings.vector_jr),
+            "conductance": bool(settings.vector_conductance),
+            "u": bool(settings.vector_u),
         }
 
         self.vars = {
-            'state':        {'m_ind': 'scalar', 'm_imp': 'scalar', 'Phi': 'scalar', 'W': 'scalar'},
-            'steady_state': {'m_ind': 'scalar'},
-            'jr':           {'jr': 'scalar'},
-            'conductance':  {'etaP': 'scalar', 'etaH': 'scalar'},
-            'u':            {'u': 'tangential'},
+            "state": {
+                "m_ind": "scalar",
+                "m_imp": "scalar",
+                "Phi": "scalar",
+                "W": "scalar",
+            },
+            "steady_state": {"m_ind": "scalar"},
+            "jr": {"jr": "scalar"},
+            "conductance": {"etaP": "scalar", "etaH": "scalar"},
+            "u": {"u": "tangential"},
         }
 
         self.basis_multiindices = {}
@@ -224,50 +252,80 @@ class Dynamics(object):
                 basis_index_names = self.bases[key].index_names
             else:
                 basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
-                basis_index_names = ['theta', 'phi']
+                basis_index_names = ["theta", "phi"]
 
-            if all(self.vars[key][var] == 'scalar' for var in self.vars[key]):
-                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(basis_index_arrays, names = basis_index_names)
-            elif all(self.vars[key][var] == 'tangential' for var in self.vars[key]):
-                self.basis_multiindices[key] = pd.MultiIndex.from_arrays([np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))], names = basis_index_names)
+            if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
+                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
+                    basis_index_arrays, names=basis_index_names
+                )
+            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
+                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
+                    [
+                        np.tile(basis_index_arrays[i], 2)
+                        for i in range(len(basis_index_arrays))
+                    ],
+                    names=basis_index_names,
+                )
             else:
-                raise ValueError('Mixed scalar and tangential input (unsupported), or unknown input type')
+                raise ValueError(
+                    "Mixed scalar and tangential input (unsupported), or unknown input type"
+                )
 
         # Initialize the state of the ionosphere
-        self.state = State(self.bases,
-                           self.mainfield,
-                           self.state_grid,
-                           settings,
-                           PFAC_matrix = PFAC_matrix)
+        self.state = State(
+            self.bases,
+            self.mainfield,
+            self.state_grid,
+            settings,
+            PFAC_matrix=PFAC_matrix,
+        )
 
         self.timeseries = {}
         self.load_timeseries()
 
-        if 'state' in self.timeseries.keys():
-            self.current_time = np.max(self.timeseries['state'].time.values) # latest time in state time series
-            self.select_timeseries_data('state')
+        if "state" in self.timeseries.keys():
+            # latest time in state time series
+            self.current_time = np.max(self.timeseries["state"].time.values)
+            self.select_timeseries_data("state")
         else:
             self.current_time = np.float64(0)
-            self.state.set_model_coeffs(m_ind = np.zeros(self.bases['state'].index_length))
+            self.state.set_model_coeffs(
+                m_ind=np.zeros(self.bases["state"].index_length)
+            )
 
         if self.dataset_filename_prefix is None:
-            self.dataset_filename_prefix = 'simulation'
+            self.dataset_filename_prefix = "simulation"
 
         if not settings_on_file:
-            self.save_dataset(settings, 'settings')
-            print('Saved settings to {}_settings.ncdf'.format(self.dataset_filename_prefix), flush = True)
+            self.save_dataset(settings, "settings")
+            print(
+                "Saved settings to {}_settings.ncdf".format(
+                    self.dataset_filename_prefix
+                ),
+                flush=True,
+            )
 
         if not PFAC_matrix_on_file:
-            self.save_dataset(self.state.m_imp_to_B_pol, 'PFAC_matrix')
-            print('Saved PFAC matrix to {}_PFAC_matrix.ncdf'.format(self.dataset_filename_prefix), flush = True)
+            self.save_dataset(self.state.m_imp_to_B_pol, "PFAC_matrix")
+            print(
+                "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(
+                    self.dataset_filename_prefix
+                ),
+                flush=True,
+            )
 
         self.save_steady_states = bool(settings.save_steady_states)
 
-
-    def evolve_to_time(self, t, dt=np.float64(5e-4), sampling_step_interval=200,
-                      saving_sample_interval=10, quiet=False):
+    def evolve_to_time(
+        self,
+        t,
+        dt=np.float64(5e-4),
+        sampling_step_interval=200,
+        saving_sample_interval=10,
+        quiet=False,
+    ):
         """Evolve the simulation state to a target time.
-        
+
         Updates the ionospheric state by time-stepping the equations forward.
         State variables are sampled and saved at specified intervals.
 
@@ -278,17 +336,17 @@ class Dynamics(object):
         dt : float, optional
             Time step size in seconds, by default 5e-4
         sampling_step_interval : int, optional
-            Number of steps between state sampling, by default 200  
+            Number of steps between state sampling, by default 200
         saving_sample_interval : int, optional
             Number of samples between saves, by default 10
         quiet : bool, optional
             Suppress progress messages, by default False
         """
         # Will be set to True when the corresponding time series is different from the one saved on disk
-        self.save_jr          = False
+        self.save_jr = False
         self.save_conductance = False
-        self.save_u           = False
- 
+        self.save_u = False
+
         count = 0
         while True:
             self.select_input_data()
@@ -300,51 +358,87 @@ class Dynamics(object):
                 self.state.update_m_imp()
 
                 current_state_dataset = xr.Dataset(
-                    data_vars = {
-                        self.bases['state'].short_name + '_m_ind': (['time', 'i'], self.state.m_ind.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_m_imp': (['time', 'i'], self.state.m_imp.coeffs.reshape((1, -1))),
-                        self.bases['state'].short_name + '_Phi':   (['time', 'i'], self.state.E.coeffs[0].reshape((1, -1))),
-                        self.bases['state'].short_name + '_W':     (['time', 'i'], self.state.E.coeffs[1].reshape((1, -1))),
+                    data_vars={
+                        self.bases["state"].short_name
+                        + "_m_ind": (
+                            ["time", "i"],
+                            self.state.m_ind.coeffs.reshape((1, -1)),
+                        ),
+                        self.bases["state"].short_name
+                        + "_m_imp": (
+                            ["time", "i"],
+                            self.state.m_imp.coeffs.reshape((1, -1)),
+                        ),
+                        self.bases["state"].short_name
+                        + "_Phi": (
+                            ["time", "i"],
+                            self.state.E.coeffs[0].reshape((1, -1)),
+                        ),
+                        self.bases["state"].short_name
+                        + "_W": (
+                            ["time", "i"],
+                            self.state.E.coeffs[1].reshape((1, -1)),
+                        ),
                     },
-                    coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['state'], dim = 'i').merge({'time': [self.current_time]})
+                    coords=xr.Coordinates.from_pandas_multiindex(
+                        self.basis_multiindices["state"], dim="i"
+                    ).merge({"time": [self.current_time]}),
                 )
 
-                self.add_to_timeseries(current_state_dataset, 'state')
+                self.add_to_timeseries(current_state_dataset, "state")
 
                 if self.save_steady_states:
                     # Calculate and append current steady state to time series
                     steady_state_m_ind = self.state.steady_state_m_ind()
                     steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
-                    steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
-
-                    current_steady_state_dataset = xr.Dataset(
-                        data_vars = {
-                            self.bases['steady_state'].short_name + '_m_ind': (['i'], steady_state_m_ind),
-                            self.bases['steady_state'].short_name + '_m_imp': (['i'], steady_state_m_imp),
-                            self.bases['steady_state'].short_name + '_Phi':   (['i'], steady_state_E_coeffs[0]),
-                            self.bases['steady_state'].short_name + '_W':     (['i'], steady_state_E_coeffs[1]),
-                        },
-                        coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices['steady_state'], dim = 'i').merge({'time': [self.current_time]})
+                    steady_state_E_coeffs = self.state.calculate_E_coeffs(
+                        steady_state_m_ind
                     )
 
-                    self.add_to_timeseries(current_steady_state_dataset, 'steady_state')
+                    current_steady_state_dataset = xr.Dataset(
+                        data_vars={
+                            self.bases["steady_state"].short_name
+                            + "_m_ind": (["i"], steady_state_m_ind),
+                            self.bases["steady_state"].short_name
+                            + "_m_imp": (["i"], steady_state_m_imp),
+                            self.bases["steady_state"].short_name
+                            + "_Phi": (["i"], steady_state_E_coeffs[0]),
+                            self.bases["steady_state"].short_name
+                            + "_W": (["i"], steady_state_E_coeffs[1]),
+                        },
+                        coords=xr.Coordinates.from_pandas_multiindex(
+                            self.basis_multiindices["steady_state"], dim="i"
+                        ).merge({"time": [self.current_time]}),
+                    )
+
+                    self.add_to_timeseries(current_steady_state_dataset, "steady_state")
 
                 # Save state and steady state time series
-                if (count % (sampling_step_interval * saving_sample_interval) == 0):
-                    self.save_timeseries('state')
+                if count % (sampling_step_interval * saving_sample_interval) == 0:
+                    self.save_timeseries("state")
 
                     if quiet:
                         pass
                     else:
-                        print('Saved state at t = {:.2f} s'.format(self.current_time), end = '\n' if self.save_steady_states else '\r', flush = True)
+                        print(
+                            "Saved state at t = {:.2f} s".format(self.current_time),
+                            end="\n" if self.save_steady_states else "\r",
+                            flush=True,
+                        )
 
                     if self.save_steady_states:
-                        self.save_timeseries('steady_state')
+                        self.save_timeseries("steady_state")
 
                         if quiet:
                             pass
                         else:
-                            print('Saved steady state at t = {:.2f} s'.format(self.current_time), end = '\x1b[F', flush = True)
+                            print(
+                                "Saved steady state at t = {:.2f} s".format(
+                                    self.current_time
+                                ),
+                                end="\x1b[F",
+                                flush=True,
+                            )
 
             next_time = self.current_time + dt
 
@@ -352,14 +446,13 @@ class Dynamics(object):
                 if quiet:
                     pass
                 else:
-                    print('\n\n')
+                    print("\n\n")
                 break
 
             self.state.evolve_m_ind(dt)
             self.current_time = next_time
 
             count += 1
-
 
     def impose_steady_state(self):
         """
@@ -368,12 +461,22 @@ class Dynamics(object):
 
         self.select_input_data()
 
-        self.state.set_model_coeffs(m_ind = self.state.steady_state_m_ind())
+        self.state.set_model_coeffs(m_ind=self.state.steady_state_m_ind())
 
         self.state.update_m_imp()
 
-
-    def set_FAC(self, FAC, lat=None, lon=None, theta=None, phi=None, time=None, weights=None, reg_lambda=None, pinv_rtol=1e-15):
+    def set_FAC(
+        self,
+        FAC,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
         """
         Set the field-aligned current at the given coordinate points.
 
@@ -398,12 +501,34 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse. Default is 1e-15.
         """
-        FAC_b_evaluator = FieldEvaluator(self.mainfield, Grid(lat = lat, lon = lon, theta = theta, phi = phi), self.RI)
+        FAC_b_evaluator = FieldEvaluator(
+            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.RI
+        )
 
-        self.set_jr(FAC * FAC_b_evaluator.br, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
+        self.set_jr(
+            FAC * FAC_b_evaluator.br,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
 
-
-    def set_jr(self, jr, lat=None, lon=None, theta=None, phi=None, time=None, weights=None, reg_lambda=None, pinv_rtol=1e-15):
+    def set_jr(
+        self,
+        jr,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
         """
         Specify radial current at ``self.state_grid.theta``, ``self.state_grid.phi``.
 
@@ -429,13 +554,35 @@ class Dynamics(object):
             Relative tolerance for the pseudo-inverse. Default is 1e-15.
         """
         input_data = {
-            'jr': [np.atleast_2d(jr)],
+            "jr": [np.atleast_2d(jr)],
         }
 
-        self.set_input('jr', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
+        self.set_input(
+            "jr",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
 
-
-    def set_conductance(self, Hall, Pedersen, lat=None, lon=None, theta=None, phi=None, time=None, weights=None, reg_lambda=None, pinv_rtol=1e-15):
+    def set_conductance(
+        self,
+        Hall,
+        Pedersen,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
         """
         Specify Hall and Pedersen conductance at ``self.state_grid.theta``, ``self.state_grid.phi``.
 
@@ -466,21 +613,42 @@ class Dynamics(object):
         Pedersen = np.atleast_2d(Pedersen)
 
         input_data = {
-            'etaP': [np.empty_like(Pedersen)],
-            'etaH': [np.empty_like(Hall)],
+            "etaP": [np.empty_like(Pedersen)],
+            "etaH": [np.empty_like(Hall)],
         }
 
         # Convert to resistivity
-        for i in range(max(input_data['etaP'][0].shape[0], 1)):
-            input_data['etaP'][0][i] = Pedersen[i] / (Hall[i]**2 + Pedersen[i]**2)
+        for i in range(max(input_data["etaP"][0].shape[0], 1)):
+            input_data["etaP"][0][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        for i in range(max(input_data['etaH'][0].shape[0], 1)):
-            input_data['etaH'][0][i] = Hall[i] / (Hall[i]**2 + Pedersen[i]**2)
+        for i in range(max(input_data["etaH"][0].shape[0], 1)):
+            input_data["etaH"][0][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.set_input('conductance', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
+        self.set_input(
+            "conductance",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
 
-
-    def set_u(self, u_theta, u_phi, lat=None, lon=None, theta=None, phi=None, time=None, weights=None, reg_lambda=None):
+    def set_u(
+        self,
+        u_theta,
+        u_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+    ):
         """
         Set neutral wind theta and phi components.
 
@@ -506,13 +674,35 @@ class Dynamics(object):
             Regularization parameters for the least squares solver. Default is None.
         """
         input_data = {
-            'u': [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
+            "u": [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
         }
 
-        self.set_input('u', input_data, lat = lat, lon = lon, theta = theta, phi = phi, time = time, weights = weights, reg_lambda = reg_lambda, pinv_rtol = 1e-15)
+        self.set_input(
+            "u",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=1e-15,
+        )
 
-
-    def set_input(self, key, input_data, lat=None, lon=None, theta=None, phi=None, time=None, weights=None, reg_lambda=None, pinv_rtol=1e-15):
+    def set_input(
+        self,
+        key,
+        input_data,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
         """
         Set input data.
 
@@ -539,17 +729,45 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse. Default is 1e-15.
         """
-        input_grid = Grid(lat = lat, lon = lon, theta = theta, phi = phi)
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
 
-        if not hasattr(self.state, 'input_basis_evaluators'):
+        if not hasattr(self.state, "input_basis_evaluators"):
             self.input_basis_evaluators = {}
 
-        if not (key in self.input_basis_evaluators.keys() and np.allclose(input_grid.theta, self.input_basis_evaluators[key].grid.theta, rtol = 0.0, atol = FLOAT_ERROR_MARGIN) and np.allclose(input_grid.phi, self.input_basis_evaluators[key].grid.phi, rtol = 0.0, atol = FLOAT_ERROR_MARGIN)):
-            self.input_basis_evaluators[key] = BasisEvaluator(self.bases[key], input_grid, weights = weights, reg_lambda = reg_lambda, pinv_rtol = pinv_rtol)
+        if not (
+            key in self.input_basis_evaluators.keys()
+            and np.allclose(
+                input_grid.theta,
+                self.input_basis_evaluators[key].grid.theta,
+                rtol=0.0,
+                atol=FLOAT_ERROR_MARGIN,
+            )
+            and np.allclose(
+                input_grid.phi,
+                self.input_basis_evaluators[key].grid.phi,
+                rtol=0.0,
+                atol=FLOAT_ERROR_MARGIN,
+            )
+        ):
+            self.input_basis_evaluators[key] = BasisEvaluator(
+                self.bases[key],
+                input_grid,
+                weights=weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
 
         if time is None:
-            if any([input_data[var][component].shape[0] > 1 for var in input_data.keys() for component in range(len(input_data[var]))]):
-                raise ValueError('Time must be specified if the input data is given for multiple time values.')
+            if any(
+                [
+                    input_data[var][component].shape[0] > 1
+                    for var in input_data.keys()
+                    for component in range(len(input_data[var]))
+                ]
+            ):
+                raise ValueError(
+                    "Time must be specified if the input data is given for multiple time values."
+                )
             time = self.current_time
 
         time = np.atleast_1d(time)
@@ -559,34 +777,69 @@ class Dynamics(object):
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    grid_value_array = np.array([input_data[var][component][time_index] for component in range(len(input_data[var]))])
+                    grid_value_array = np.array(
+                        [
+                            input_data[var][component][time_index]
+                            for component in range(len(input_data[var]))
+                        ]
+                    )
                     if len(input_data[var]) == 1:
                         grid_values = grid_value_array[0]
                     else:
                         grid_values = grid_value_array
-                    vector = Vector(self.bases[key], basis_evaluator = self.input_basis_evaluators[key], grid_values = grid_values, type = self.vars[key][var])
+                    vector = Vector(
+                        self.bases[key],
+                        basis_evaluator=self.input_basis_evaluators[key],
+                        grid_values=grid_values,
+                        type=self.vars[key][var],
+                    )
 
-                    processed_data[self.bases[key].short_name + '_' + var] = (['time', 'i'], vector.coeffs.reshape((1, -1)))
+                    processed_data[self.bases[key].short_name + "_" + var] = (
+                        ["time", "i"],
+                        vector.coeffs.reshape((1, -1)),
+                    )
 
                 else:
                     # Interpolate to state_grid
-                    if self.vars[key][var] == 'scalar':
-                        interpolated_data = csp.interpolate_scalar(input_data[var][0][time_index], input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                    elif self.vars[key][var] == 'tangential':
-                        interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(input_data[var][1][time_index], -input_data[var][0][time_index], np.zeros_like(input_data[var][1][time_index]), input_grid.theta, input_grid.phi, self.state_grid.theta, self.state_grid.phi)
-                        interpolated_data = np.hstack((-interpolated_north, interpolated_east)) # convert to theta, phi
+                    if self.vars[key][var] == "scalar":
+                        interpolated_data = csp.interpolate_scalar(
+                            input_data[var][0][time_index],
+                            input_grid.theta,
+                            input_grid.phi,
+                            self.state_grid.theta,
+                            self.state_grid.phi,
+                        )
+                    elif self.vars[key][var] == "tangential":
+                        interpolated_east, interpolated_north, _ = (
+                            csp.interpolate_vector_components(
+                                input_data[var][1][time_index],
+                                -input_data[var][0][time_index],
+                                np.zeros_like(input_data[var][1][time_index]),
+                                input_grid.theta,
+                                input_grid.phi,
+                                self.state_grid.theta,
+                                self.state_grid.phi,
+                            )
+                        )
+                        interpolated_data = np.hstack(
+                            (-interpolated_north, interpolated_east)
+                        )  # convert to theta, phi
 
-                    processed_data['GRID_' + var] = (['time', 'i'], interpolated_data.reshape((1, -1)))
+                    processed_data["GRID_" + var] = (
+                        ["time", "i"],
+                        interpolated_data.reshape((1, -1)),
+                    )
 
             dataset = xr.Dataset(
-                data_vars = processed_data,
-                coords = xr.Coordinates.from_pandas_multiindex(self.basis_multiindices[key], dim = 'i').merge({'time': [time[time_index]]})
+                data_vars=processed_data,
+                coords=xr.Coordinates.from_pandas_multiindex(
+                    self.basis_multiindices[key], dim="i"
+                ).merge({"time": [time[time_index]]}),
             )
 
             self.add_to_timeseries(dataset, key)
 
         self.save_timeseries(key)
-
 
     def add_to_timeseries(self, dataset, key):
         """
@@ -600,10 +853,15 @@ class Dynamics(object):
             Key for the time series.
         """
         if key not in self.timeseries.keys():
-            self.timeseries[key] = dataset.sortby('time')
+            self.timeseries[key] = dataset.sortby("time")
         else:
-            self.timeseries[key] = xr.concat([self.timeseries[key].drop_sel(time = dataset.time, errors = 'ignore'), dataset], dim = 'time').sortby('time')
-
+            self.timeseries[key] = xr.concat(
+                [
+                    self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"),
+                    dataset,
+                ],
+                dim="time",
+            ).sortby("time")
 
     def select_timeseries_data(self, key, interpolation=False):
         """
@@ -623,63 +881,117 @@ class Dynamics(object):
         """
         input_selected = False
 
-        if np.any(self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN):
+        if np.any(
+            self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN
+        ):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
             else:
-                short_name = 'GRID'
+                short_name = "GRID"
 
             current_data = {}
 
             # Select latest data before the current time
-            dataset_before = self.timeseries[key].sel(time = [self.current_time + FLOAT_ERROR_MARGIN], method = 'ffill')
+            dataset_before = self.timeseries[key].sel(
+                time=[self.current_time + FLOAT_ERROR_MARGIN], method="ffill"
+            )
 
             for var in self.vars[key]:
-                current_data[var] = dataset_before[short_name + '_' + var].values.flatten()
+                current_data[var] = dataset_before[
+                    short_name + "_" + var
+                ].values.flatten()
 
             # If requested, add linear interpolation correction
-            if interpolation and (key != 'state') and np.any(self.timeseries[key].time.values > self.current_time + FLOAT_ERROR_MARGIN):
-                dataset_after = self.timeseries[key].sel(time = [self.current_time + FLOAT_ERROR_MARGIN], method = 'bfill')
+            if (
+                interpolation
+                and (key != "state")
+                and np.any(
+                    self.timeseries[key].time.values
+                    > self.current_time + FLOAT_ERROR_MARGIN
+                )
+            ):
+                dataset_after = self.timeseries[key].sel(
+                    time=[self.current_time + FLOAT_ERROR_MARGIN], method="bfill"
+                )
                 for var in self.vars[key]:
-                    current_data[var] +=  (self.current_time - dataset_before.time.item()) / (dataset_after.time.item() - dataset_before.time.item()) * (dataset_after[short_name + '_' + var].values.flatten() - dataset_before[short_name + '_' + var].values.flatten())
+                    current_data[var] += (
+                        (self.current_time - dataset_before.time.item())
+                        / (dataset_after.time.item() - dataset_before.time.item())
+                        * (
+                            dataset_after[short_name + "_" + var].values.flatten()
+                            - dataset_before[short_name + "_" + var].values.flatten()
+                        )
+                    )
 
         else:
             # No data available before the current time
             return input_selected
 
-        if not hasattr(self, 'previous_data'):
+        if not hasattr(self, "previous_data"):
             self.previous_data = {}
 
         # Update state if is the first data selection or if the data has changed since the last selection
-        if (not all([var in self.previous_data.keys() for var in self.vars[key]]) or (not all([np.allclose(current_data[var], self.previous_data[var], rtol = FLOAT_ERROR_MARGIN, atol = 0.0) for var in self.vars[key]]))):
-            if key == 'state':
-                self.state.set_model_coeffs(m_ind = current_data['m_ind'])
-                self.state.set_model_coeffs(m_imp = current_data['m_imp'])
-                self.state.E = Vector(basis = self.bases[key], coeffs = np.array([current_data['Phi'], current_data['W']]), type = 'tangential')
+        if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
+            not all(
+                [
+                    np.allclose(
+                        current_data[var],
+                        self.previous_data[var],
+                        rtol=FLOAT_ERROR_MARGIN,
+                        atol=0.0,
+                    )
+                    for var in self.vars[key]
+                ]
+            )
+        ):
+            if key == "state":
+                self.state.set_model_coeffs(m_ind=current_data["m_ind"])
+                self.state.set_model_coeffs(m_imp=current_data["m_imp"])
+                self.state.E = Vector(
+                    basis=self.bases[key],
+                    coeffs=np.array([current_data["Phi"], current_data["W"]]),
+                    type="tangential",
+                )
 
-            if key == 'jr':
+            if key == "jr":
                 if self.vector_storage[key]:
-                    jr = Vector(basis = self.bases[key], coeffs = current_data['jr'], type = self.vars[key]['jr'])
+                    jr = Vector(
+                        basis=self.bases[key],
+                        coeffs=current_data["jr"],
+                        type=self.vars[key]["jr"],
+                    )
                 else:
-                    jr = current_data['jr']
+                    jr = current_data["jr"]
 
                 self.state.set_jr(jr)
 
-            elif key == 'conductance':
+            elif key == "conductance":
                 if self.vector_storage[key]:
-                    etaP = Vector(basis = self.bases[key], coeffs = current_data['etaP'], type = self.vars[key]['etaP'])
-                    etaH = Vector(basis = self.bases[key], coeffs = current_data['etaH'], type = self.vars[key]['etaH'])
+                    etaP = Vector(
+                        basis=self.bases[key],
+                        coeffs=current_data["etaP"],
+                        type=self.vars[key]["etaP"],
+                    )
+                    etaH = Vector(
+                        basis=self.bases[key],
+                        coeffs=current_data["etaH"],
+                        type=self.vars[key]["etaH"],
+                    )
                 else:
-                    etaP = current_data['etaP']
-                    etaH = current_data['etaH']
+                    etaP = current_data["etaP"]
+                    etaH = current_data["etaH"]
 
                 self.state.set_conductance(etaP, etaH)
 
-            elif key == 'u':
+            elif key == "u":
                 if self.vector_storage[key]:
-                    u = Vector(basis = self.bases[key], coeffs = current_data['u'].reshape((2, -1)), type = self.vars[key]['u'])
+                    u = Vector(
+                        basis=self.bases[key],
+                        coeffs=current_data["u"].reshape((2, -1)),
+                        type=self.vars[key]["u"],
+                    )
                 else:
-                    u = current_data['u'].reshape((2, -1))
+                    u = current_data["u"].reshape((2, -1))
 
                 self.state.set_u(u)
 
@@ -696,12 +1008,11 @@ class Dynamics(object):
         """
         timeseries_keys = list(self.timeseries.keys())
 
-        if 'state' in timeseries_keys:
-            timeseries_keys.remove('state')
+        if "state" in timeseries_keys:
+            timeseries_keys.remove("state")
         if timeseries_keys is not None:
             for key in timeseries_keys:
-                self.select_timeseries_data(key, interpolation = False)
-
+                self.select_timeseries_data(key, interpolation=False)
 
     def save_dataset(self, dataset, name):
         """
@@ -714,17 +1025,16 @@ class Dynamics(object):
         name : str
             Name of the dataset.
         """
-        filename = self.dataset_filename_prefix + '_' + name + '.ncdf'
+        filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
 
         try:
-            dataset.to_netcdf(filename + '.tmp')
-            os.rename(filename + '.tmp', filename)
+            dataset.to_netcdf(filename + ".tmp")
+            os.rename(filename + ".tmp", filename)
 
         except Exception as e:
-            if os.path.exists(filename + '.tmp'):
-                os.remove(filename + '.tmp')
+            if os.path.exists(filename + ".tmp"):
+                os.remove(filename + ".tmp")
             raise e
-
 
     def load_dataset(self, name):
         """
@@ -740,13 +1050,12 @@ class Dynamics(object):
         xarray.Dataset or None
             Loaded dataset, or None if the file does not exist.
         """
-        filename = self.dataset_filename_prefix + '_' + name + '.ncdf'
+        filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
 
         if os.path.exists(filename):
             return xr.load_dataset(filename)
         else:
             return None
-
 
     def save_timeseries(self, key):
         """
@@ -758,14 +1067,13 @@ class Dynamics(object):
             Key for the time series.
         """
 
-        self.save_dataset(self.timeseries[key].reset_index('i'), key)
-
+        self.save_dataset(self.timeseries[key].reset_index("i"), key)
 
     def load_timeseries(self):
         """
         Load all time series that exist on file.
         """
-        if (self.dataset_filename_prefix is not None):
+        if self.dataset_filename_prefix is not None:
 
             for key in self.vars.keys():
                 dataset = self.load_dataset(key)
@@ -774,12 +1082,21 @@ class Dynamics(object):
                     if self.vector_storage[key]:
                         basis_index_names = self.bases[key].index_names
                     else:
-                        basis_index_names = ['theta', 'phi']
+                        basis_index_names = ["theta", "phi"]
 
-                    basis_multiindex = pd.MultiIndex.from_arrays([dataset[basis_index_names[i]].values for i in range(len(basis_index_names))], names = basis_index_names)
-                    coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim = 'i').merge({'time': dataset.time.values})
-                    self.timeseries[key] = dataset.drop_vars(basis_index_names).assign_coords(coords)
-
+                    basis_multiindex = pd.MultiIndex.from_arrays(
+                        [
+                            dataset[basis_index_names[i]].values
+                            for i in range(len(basis_index_names))
+                        ],
+                        names=basis_index_names,
+                    )
+                    coords = xr.Coordinates.from_pandas_multiindex(
+                        basis_multiindex, dim="i"
+                    ).merge({"time": dataset.time.values})
+                    self.timeseries[key] = dataset.drop_vars(
+                        basis_index_names
+                    ).assign_coords(coords)
 
     def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
         """
@@ -797,30 +1114,43 @@ class Dynamics(object):
         scipy.sparse.csr_matrix
             Matrix that returns the radial curl.
         """
-        Dxi, Deta = self.csp.get_Diff(self.csp.N, coordinate = 'both', Ns = stencil_size, Ni = interpolation_points, order = 1)
+        Dxi, Deta = self.csp.get_Diff(
+            self.csp.N,
+            coordinate="both",
+            Ns=stencil_size,
+            Ni=interpolation_points,
+            order=1,
+        )
         sqrtg = np.sqrt(self.csp.detg)
         g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
         g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
         g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
 
         # matrix that operates on column vector of u1, u2 and produces radial curl
-        D_curlr_u1u2 = sp.hstack(((Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
-                                  (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled))))
+        D_curlr_u1u2 = sp.hstack(
+            (
+                (Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
+                (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled)),
+            )
+        )
 
         # matrix that transforms theta, phi to u1, u2:
-        Ps_dense = self.csp.get_Ps(self.csp.arr_xi, self.csp.arr_eta, block = self.csp.arr_block) # N x 3 x 3
-        # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north), 
+        Ps_dense = self.csp.get_Ps(
+            self.csp.arr_xi, self.csp.arr_eta, block=self.csp.arr_block
+        )  # N x 3 x 3
+        # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north),
         # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
-        rr, rrcosl = self.RI, self.RI * np.cos(np.deg2rad(self.state_grid.lat)) # normalization factors
-        Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr    ) 
-        Ps01 = sp.diags( Ps_dense[:, 0, 0] / rrcosl) 
-        Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr    ) 
-        Ps11 = sp.diags( Ps_dense[:, 1, 0] / rrcosl)
+        rr, rrcosl = self.RI, self.RI * np.cos(
+            np.deg2rad(self.state_grid.lat)
+        )  # normalization factors
+        Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr)
+        Ps01 = sp.diags(Ps_dense[:, 0, 0] / rrcosl)
+        Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr)
+        Ps11 = sp.diags(Ps_dense[:, 1, 0] / rrcosl)
         # stack:
         Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
 
         return D_curlr_u1u2.dot(Ps)
-
 
     @property
     def fd_curl_matrix(self):
@@ -832,11 +1162,10 @@ class Dynamics(object):
         scipy.sparse.csr_matrix
             Finite difference curl matrix.
         """
-        if not hasattr(self, '_fd_curl_matrix'):
+        if not hasattr(self, "_fd_curl_matrix"):
             self._fd_curl_matrix = self.calculate_fd_curl_matrix()
 
-        return(self._fd_curl_matrix)
-
+        return self._fd_curl_matrix
 
     @property
     def sh_curl_matrix(self):
@@ -848,11 +1177,15 @@ class Dynamics(object):
         numpy.ndarray
             Spherical harmonic curl matrix.
         """
-        if not hasattr(self, '_sh_curl_matrix'):
+        if not hasattr(self, "_sh_curl_matrix"):
             # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components on grid via Helmholtz decomposition
-            G_df = self.state.basis_evaluator.G_helmholtz_inv[self.state.basis.index_length:, :]
+            G_df = self.state.basis_evaluator.G_helmholtz_inv[
+                self.state.basis.index_length :, :
+            ]
 
             # Multiply with Laplacian and evaluation matrix to get the curl matrix
-            self._sh_curl_matrix = self.state.basis_evaluator.G.dot(self.state.basis.laplacian().reshape((-1, 1)) * G_df)
+            self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
+                self.state.basis.laplacian().reshape((-1, 1)) * G_df
+            )
 
-        return(self._sh_curl_matrix)
+        return self._sh_curl_matrix

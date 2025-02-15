@@ -13,11 +13,13 @@ Classes
 SHKeys
     Container for spherical harmonic expansion indices n and m.
 """
+
 import numpy as np
+
 
 class SHKeys(object):
     """Container for spherical harmonic expansion indices.
-    
+
     A container for ``n`` and ``m``, the indices of the terms in a spherical
     harmonic expansion.
 
@@ -58,9 +60,9 @@ class SHKeys(object):
         self.make_arrays()
 
     def __getitem__(self, index):
-        if index == 'n':
+        if index == "n":
             return [key[0] for key in self.keys]
-        if index == 'm':
+        if index == "m":
             return [key[1] for key in self.keys]
 
         return self.keys[index]
@@ -73,19 +75,19 @@ class SHKeys(object):
         return len(self.keys)
 
     def __repr__(self):
-        return ''.join(['n, m\n'] + [str(key)[1:-1] + '\n' for key in self.keys])[:-1]
+        return "".join(["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys])[:-1]
 
     def __str__(self):
-        return ''.join(['n, m\n'] + [str(key)[1:-1] + '\n' for key in self.keys])[:-1]
+        return "".join(["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys])[:-1]
 
     def set_Nmin(self, Nmin):
         """Set minimum n value.
-        
+
         Parameters
         ----------
         Nmin : int
             Minimum value for n index
-            
+
         Returns
         -------
         self : SHKeys
@@ -97,12 +99,12 @@ class SHKeys(object):
 
     def set_Mmin(self, Mmin):
         """Set minimum absolute m value.
-        
+
         Parameters
         ----------
         Mmin : int
             Minimum absolute value for m index
-            
+
         Returns
         -------
         self : SHKeys
@@ -114,7 +116,7 @@ class SHKeys(object):
 
     def MleN(self):
         """Filter keys to ensure |m| ≤ n.
-        
+
         Returns
         -------
         self : SHKeys
@@ -126,7 +128,7 @@ class SHKeys(object):
 
     def NminusModd(self):
         """Filter keys to keep only odd n-m differences.
-        
+
         Returns
         -------
         self : SHKeys
@@ -138,7 +140,7 @@ class SHKeys(object):
 
     def NminusMeven(self):
         """Filter keys to keep only even n-m differences.
-        
+
         Returns
         -------
         self : SHKeys
@@ -150,9 +152,9 @@ class SHKeys(object):
 
     def negative_m(self):
         """Add negative m values to the keys.
-        
+
         For each existing key with m≠0, adds a corresponding key with -m.
-        
+
         Returns
         -------
         self : SHKeys
@@ -163,15 +165,15 @@ class SHKeys(object):
             keys.append(key)
             if key[1] != 0:
                 keys.append((key[0], -key[1]))
-        
+
         self.keys = tuple(keys)
         self.make_arrays()
-        
+
         return self
 
     def make_arrays(self):
         """Create arrays of n and m indices.
-        
+
         Creates n and m arrays with shape (1, len(keys)) for vectorized operations.
         """
         if len(self) > 0:
@@ -198,15 +200,15 @@ def schmidt_normalization_factors(nm_tuples):
         Vector of Schmidt normalization factors for the given spherical
         harmonic indices.
     """
-    S = np.empty(len(nm_tuples), dtype = np.float64)
+    S = np.empty(len(nm_tuples), dtype=np.float64)
 
     # Calculate the Schmidt normalization factors
-    S[0] = 1.
+    S[0] = 1.0
     for nm in range(1, len(nm_tuples)):
         n, m = nm_tuples[nm]
         if m == 0:
-            S[nm] = S[nm_tuples.index((n - 1, 0))] * (2. * n - 1.) / n
+            S[nm] = S[nm_tuples.index((n - 1, 0))] * (2.0 * n - 1.0) / n
         else:
-            factor = np.sqrt((n - m + 1.) * (int(m == 1) + 1.) / (n + m))
+            factor = np.sqrt((n - m + 1.0) * (int(m == 1) + 1.0) / (n + m))
             S[nm] = S[nm_tuples.index((n, m - 1))] * factor
     return S

@@ -11,10 +11,11 @@ Grid
 
 import numpy as np
 
+
 class Grid(object):
     """Two-dimensional coordinate grid representation.
-    
-    Manages coordinates in both geographic (latitude/longitude) and spherical 
+
+    Manages coordinates in both geographic (latitude/longitude) and spherical
     (colatitude/longitude) coordinate systems with automatic conversion between them.
 
     Parameters
@@ -27,7 +28,7 @@ class Grid(object):
         Spherical colatitude coordinates in degrees (0° at North pole)
     phi : array-like, optional
         Spherical longitude coordinates in degrees
-        
+
     Attributes
     ----------
     lat : ndarray
@@ -40,13 +41,13 @@ class Grid(object):
         Flattened array of longitude values in degrees (same as lon)
     size : int
         Total number of grid points
-        
+
     Notes
     -----
     Must provide either lat or theta, and either lon or phi coordinates.
     All coordinate arrays are automatically broadcast to match shapes and
     flattened for internal storage.
-    
+
     Raises
     ------
     ValueError
@@ -59,7 +60,7 @@ class Grid(object):
         grid is initialized from `lat` or `theta` and `lon` or `phi`
         coordinates.
         """
-    
+
         if lat is not None:
             self.lat = lat
             self.theta = 90 - self.lat
@@ -67,7 +68,9 @@ class Grid(object):
             self.theta = theta
             self.lat = 90 - self.theta
         else:
-            raise ValueError("Latitude or theta must be provided to initialize the grid.")
+            raise ValueError(
+                "Latitude or theta must be provided to initialize the grid."
+            )
 
         if lon is not None:
             self.lon = lon
@@ -76,7 +79,9 @@ class Grid(object):
             self.phi = phi
             self.lon = phi
         else:
-            raise ValueError("Longitude or phi must be provided to initialize the grid.")
+            raise ValueError(
+                "Longitude or phi must be provided to initialize the grid."
+            )
 
         self.lat, self.lon = np.broadcast_arrays(self.lat, self.lon)
         self.theta, self.phi = np.broadcast_arrays(self.theta, self.phi)

@@ -11,9 +11,10 @@ FlattenedArray
 
 import math
 
+
 class FlattenedArray(object):
     """Represents multidimensional arrays in flattened form.
-    
+
     Converts between multidimensional and flattened array representations while
     maintaining the ability to reshape back to original dimensions. Allows flattening
     specified numbers of dimensions from start and/or end of array.
@@ -59,19 +60,26 @@ class FlattenedArray(object):
         """
 
         if n_leading_flattened is None and n_trailing_flattened is None:
-            raise ValueError('Either n_leading_flattened or n_trailing_flattened must be specified.')
+            raise ValueError(
+                "Either n_leading_flattened or n_trailing_flattened must be specified."
+            )
         elif n_leading_flattened is not None and n_trailing_flattened is not None:
             if n_leading_flattened + n_trailing_flattened != full_array.ndim:
-                raise ValueError('n_leading_flattened + n_trailing_flattened must be equal to the number of dimensions of the array.')
+                raise ValueError(
+                    "n_leading_flattened + n_trailing_flattened must be equal to the number of dimensions of the array."
+                )
         elif n_trailing_flattened is not None:
             n_leading_flattened = full_array.ndim - n_trailing_flattened
         elif n_leading_flattened is not None:
             n_trailing_flattened = full_array.ndim - n_leading_flattened
         else:
-            raise ValueError('This should not happen.')
+            raise ValueError("This should not happen.")
 
         self.full_array = full_array
-        self.full_shapes = (full_array.shape[:n_leading_flattened], full_array.shape[n_leading_flattened:])
+        self.full_shapes = (
+            full_array.shape[:n_leading_flattened],
+            full_array.shape[n_leading_flattened:],
+        )
 
         self.shapes = (math.prod(self.full_shapes[0]), math.prod(self.full_shapes[1]))
         self.array = full_array.reshape(self.shapes)

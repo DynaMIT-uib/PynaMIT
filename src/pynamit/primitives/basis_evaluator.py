@@ -12,6 +12,7 @@ BasisEvaluator
 import numpy as np
 from pynamit.math.least_squares import LeastSquares
 
+
 class BasisEvaluator(object):
     """
     Object for transforming between expansions in a given basis and grid values. Can be used for both scalar and horizontal vector fields, where the latter is represented by basis expansion coefficients of the curl-free and divergence-free parts.
@@ -50,12 +51,12 @@ class BasisEvaluator(object):
         array
             Matrix that evaluates the basis expansion on the grid.
         """
-        if not hasattr(self, '_G'):
+        if not hasattr(self, "_G"):
             if self.basis.caching:
-                if not hasattr(self, '_cache'):
-                    self._G, self._cache = self.basis.get_G(self.grid, cache_out = True)
+                if not hasattr(self, "_cache"):
+                    self._G, self._cache = self.basis.get_G(self.grid, cache_out=True)
                 else:
-                    self._G = self.basis.get_G(self.grid, cache_in = self._cache)
+                    self._G = self.basis.get_G(self.grid, cache_in=self._cache)
             else:
                 self._G = self.basis.get_G(self.grid)
 
@@ -71,14 +72,18 @@ class BasisEvaluator(object):
         array
             Matrix that evaluates the theta derivative of the basis expansion on the grid.
         """
-        if not hasattr(self, '_G_th'):
+        if not hasattr(self, "_G_th"):
             if self.basis.caching:
-                if not hasattr(self, '_cache'):
-                    self._G_th, self._cache = self.basis.get_G(self.grid, derivative = 'theta', cache_out = True)
+                if not hasattr(self, "_cache"):
+                    self._G_th, self._cache = self.basis.get_G(
+                        self.grid, derivative="theta", cache_out=True
+                    )
                 else:
-                    self._G_th = self.basis.get_G(self.grid, derivative = 'theta', cache_in = self._cache)
+                    self._G_th = self.basis.get_G(
+                        self.grid, derivative="theta", cache_in=self._cache
+                    )
             else:
-                self._G_th = self.basis.get_G(self.grid, derivative = 'theta')
+                self._G_th = self.basis.get_G(self.grid, derivative="theta")
 
         return self._G_th
 
@@ -92,14 +97,18 @@ class BasisEvaluator(object):
         array
             Matrix that evaluates the phi derivative of the basis expansion on the grid.
         """
-        if not hasattr(self, '_G_ph'):
+        if not hasattr(self, "_G_ph"):
             if self.basis.caching:
-                if not hasattr(self, '_cache'):
-                    self._G_ph, self._cache = self.basis.get_G(self.grid, derivative = 'phi', cache_out = True)
+                if not hasattr(self, "_cache"):
+                    self._G_ph, self._cache = self.basis.get_G(
+                        self.grid, derivative="phi", cache_out=True
+                    )
                 else:
-                    self._G_ph = self.basis.get_G(self.grid, derivative = 'phi', cache_in = self._cache)
+                    self._G_ph = self.basis.get_G(
+                        self.grid, derivative="phi", cache_in=self._cache
+                    )
             else:
-                self._G_ph = self.basis.get_G(self.grid, derivative = 'phi')
+                self._G_ph = self.basis.get_G(self.grid, derivative="phi")
 
         return self._G_ph
 
@@ -113,7 +122,7 @@ class BasisEvaluator(object):
         array
             Matrix that evaluates the horizontal gradient of the basis expansion on the grid.
         """
-        if not hasattr(self, '_G_grad'):
+        if not hasattr(self, "_G_grad"):
             self._G_grad = np.array([self.G_th, self.G_ph])
 
         return self._G_grad
@@ -128,7 +137,7 @@ class BasisEvaluator(object):
         array
             Matrix that evaluates r cross the horizontal gradient of the basis expansion on the grid.
         """
-        if not hasattr(self, '_G_rxgrad'):
+        if not hasattr(self, "_G_rxgrad"):
             self._G_rxgrad = np.array([-self.G_ph, self.G_th])
 
         return self._G_rxgrad
@@ -143,7 +152,7 @@ class BasisEvaluator(object):
         array
             Inverse of the ``G_rxgrad`` matrix.
         """
-        if not hasattr(self, '_G_rxgrad_inv'):
+        if not hasattr(self, "_G_rxgrad_inv"):
             self._G_rxgrad_inv = np.linalg.pinv(self.G_rxgrad)
         return self._G_rxgrad_inv
 
@@ -157,8 +166,8 @@ class BasisEvaluator(object):
         array
             Matrix that evaluates the Helmholtz decomposition of a horizontal vector field on the grid.
         """
-        if not hasattr(self, '_G_helmholtz'):
-            self._G_helmholtz = np.stack([-self.G_grad, self.G_rxgrad], axis = 2)
+        if not hasattr(self, "_G_helmholtz"):
+            self._G_helmholtz = np.stack([-self.G_grad, self.G_rxgrad], axis=2)
         return self._G_helmholtz
 
     @property
@@ -171,7 +180,7 @@ class BasisEvaluator(object):
         array
             Regularization matrix.
         """
-        if not hasattr(self, '_L'):
+        if not hasattr(self, "_L"):
             if self.reg_lambda is None:
                 self._L = None
             else:
@@ -189,12 +198,26 @@ class BasisEvaluator(object):
         array
             Regularization matrix for the Helmholtz decomposition.
         """
-        if not hasattr(self, '_L_helmholtz'):
+        if not hasattr(self, "_L_helmholtz"):
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
-                L_cf = np.stack([np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)), np.zeros((self.basis.index_length, self.basis.index_length))], axis = 1)
-                L_df = np.stack([np.zeros((self.basis.index_length, self.basis.index_length)), np.diag((self.basis.n + 1)/2)], axis = 1)
+                L_cf = np.stack(
+                    [
+                        np.diag(
+                            self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)
+                        ),
+                        np.zeros((self.basis.index_length, self.basis.index_length)),
+                    ],
+                    axis=1,
+                )
+                L_df = np.stack(
+                    [
+                        np.zeros((self.basis.index_length, self.basis.index_length)),
+                        np.diag((self.basis.n + 1) / 2),
+                    ],
+                    axis=1,
+                )
 
                 self._L_helmholtz = np.array([L_cf, L_df])
 
@@ -210,8 +233,15 @@ class BasisEvaluator(object):
         LeastSquares
             Least squares solver for finding the basis expansion coefficients of a scalar field.
         """
-        if not hasattr(self, '_least_squares'):
-            self._least_squares = LeastSquares(self.G, 1, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L, pinv_rtol = self.pinv_rtol)
+        if not hasattr(self, "_least_squares"):
+            self._least_squares = LeastSquares(
+                self.G,
+                1,
+                weights=self.weights,
+                reg_lambda=self.reg_lambda,
+                reg_L=self.L,
+                pinv_rtol=self.pinv_rtol,
+            )
 
         return self._least_squares
 
@@ -225,11 +255,17 @@ class BasisEvaluator(object):
         LeastSquares
             Least squares solver for finding the basis expansion coefficients of the curl-free and divergence-free parts of a vector field.
         """
-        if not hasattr(self, '_least_squares_helmholtz'):
-            self._least_squares_helmholtz = LeastSquares(self.G_helmholtz, 2, weights = self.weights, reg_lambda = self.reg_lambda, reg_L = self.L_helmholtz, pinv_rtol = self.pinv_rtol)
+        if not hasattr(self, "_least_squares_helmholtz"):
+            self._least_squares_helmholtz = LeastSquares(
+                self.G_helmholtz,
+                2,
+                weights=self.weights,
+                reg_lambda=self.reg_lambda,
+                reg_L=self.L_helmholtz,
+                pinv_rtol=self.pinv_rtol,
+            )
 
         return self._least_squares_helmholtz
-
 
     def least_squares_solution(self, grid_values):
         """
@@ -246,7 +282,7 @@ class BasisEvaluator(object):
             Coefficients in the basis.
         """
         return self.least_squares.solve(grid_values)[0]
-    
+
     def least_squares_solution_helmholtz(self, grid_values):
         """
         Return the least squares solution for the two sets of coefficients representing the curl-free and divergence-free components of a horizontal vector field in the given basis.
@@ -282,9 +318,9 @@ class BasisEvaluator(object):
             Values at the grid points.
         """
 
-        if derivative == 'theta':
+        if derivative == "theta":
             return np.dot(self.G_th, coeffs)
-        elif derivative == 'phi':
+        elif derivative == "phi":
             return np.dot(self.G_ph, coeffs)
         elif helmholtz:
             return np.tensordot(self.G_helmholtz, coeffs, 2)

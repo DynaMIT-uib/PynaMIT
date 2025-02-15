@@ -2,7 +2,7 @@ import numpy as np
 
 
 def get_3D_determinants(M):
-    """ Calculate determinants of 3D matrices.
+    """Calculate determinants of 3D matrices.
 
     Parameters
     ----------
@@ -18,52 +18,61 @@ def get_3D_determinants(M):
 
     # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
     if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
-        raise ValueError('get_3D_determinants: Input must have shape (N, 3, 3)')
+        raise ValueError("get_3D_determinants: Input must have shape (N, 3, 3)")
 
-    det =   M[:, 0, 0] * M[:, 1, 1] * M[:, 2, 2] - M[:, 0, 0] * M[:, 1, 2] * M[:, 2, 1] \
-          - M[:, 0, 1] * M[:, 1, 0] * M[:, 2, 2] + M[:, 0, 1] * M[:, 1, 2] * M[:, 2, 0] \
-          + M[:, 0, 2] * M[:, 1, 0] * M[:, 2, 1] - M[:, 0, 2] * M[:, 1, 1] * M[:, 2, 0]
+    det = (
+        M[:, 0, 0] * M[:, 1, 1] * M[:, 2, 2]
+        - M[:, 0, 0] * M[:, 1, 2] * M[:, 2, 1]
+        - M[:, 0, 1] * M[:, 1, 0] * M[:, 2, 2]
+        + M[:, 0, 1] * M[:, 1, 2] * M[:, 2, 0]
+        + M[:, 0, 2] * M[:, 1, 0] * M[:, 2, 1]
+        - M[:, 0, 2] * M[:, 1, 1] * M[:, 2, 0]
+    )
 
     return det
 
 
 def invert_3D_matrices(M):
-        """ Calculate inverse of 3D matrices.
+    """Calculate inverse of 3D matrices.
 
-        Parameters
-        ----------
-        M : array
-            Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
-            invertible matrices.
+    Parameters
+    ----------
+    M : array
+        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
+        invertible matrices.
 
-        Returns
-        -------
-        Minv : array
-            Array with inverse matrices, shape ``(N, 3, 3)``.
+    Returns
+    -------
+    Minv : array
+        Array with inverse matrices, shape ``(N, 3, 3)``.
 
-        """
+    """
 
-        # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
-        if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
-            raise ValueError('invert_3D_matrices: Input must have shape (N, 3, 3)')
+    # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
+    if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
+        raise ValueError("invert_3D_matrices: Input must have shape (N, 3, 3)")
 
-        det = get_3D_determinants(M)
+    det = get_3D_determinants(M)
 
-        if np.any(np.isclose(det, 0)): # check that the matrices are invertible
-            raise ValueError('invert_3D_matrices: The following matrices are not invertible:', str(np.isclose(det, 0).nonzero()[0]))
+    if np.any(np.isclose(det, 0)):  # check that the matrices are invertible
+        raise ValueError(
+            "invert_3D_matrices: The following matrices are not invertible:",
+            str(np.isclose(det, 0).nonzero()[0]),
+        )
 
-        Minv = np.empty(M.shape)
-        Minv[:, 0, 0] =  M[:, 1, 1] * M[:, 2, 2] - M[:, 1, 2] * M[:, 2, 1]
-        Minv[:, 0, 1] = -M[:, 0, 1] * M[:, 2, 2] + M[:, 0, 2] * M[:, 2, 1]
-        Minv[:, 0, 2] =  M[:, 0, 1] * M[:, 1, 2] - M[:, 0, 2] * M[:, 1, 1]
-        Minv[:, 1, 0] = -M[:, 1, 0] * M[:, 2, 2] + M[:, 1, 2] * M[:, 2, 0]
-        Minv[:, 1, 1] =  M[:, 0, 0] * M[:, 2, 2] - M[:, 0, 2] * M[:, 2, 0]
-        Minv[:, 1, 2] = -M[:, 0, 0] * M[:, 1, 2] + M[:, 0, 2] * M[:, 1, 0]
-        Minv[:, 2, 0] =  M[:, 1, 0] * M[:, 2, 1] - M[:, 1, 1] * M[:, 2, 0]
-        Minv[:, 2, 1] = -M[:, 0, 0] * M[:, 2, 1] + M[:, 0, 1] * M[:, 2, 0]
-        Minv[:, 2, 2] =  M[:, 0, 0] * M[:, 1, 1] - M[:, 0, 1] * M[:, 1, 0]
+    Minv = np.empty(M.shape)
+    Minv[:, 0, 0] = M[:, 1, 1] * M[:, 2, 2] - M[:, 1, 2] * M[:, 2, 1]
+    Minv[:, 0, 1] = -M[:, 0, 1] * M[:, 2, 2] + M[:, 0, 2] * M[:, 2, 1]
+    Minv[:, 0, 2] = M[:, 0, 1] * M[:, 1, 2] - M[:, 0, 2] * M[:, 1, 1]
+    Minv[:, 1, 0] = -M[:, 1, 0] * M[:, 2, 2] + M[:, 1, 2] * M[:, 2, 0]
+    Minv[:, 1, 1] = M[:, 0, 0] * M[:, 2, 2] - M[:, 0, 2] * M[:, 2, 0]
+    Minv[:, 1, 2] = -M[:, 0, 0] * M[:, 1, 2] + M[:, 0, 2] * M[:, 1, 0]
+    Minv[:, 2, 0] = M[:, 1, 0] * M[:, 2, 1] - M[:, 1, 1] * M[:, 2, 0]
+    Minv[:, 2, 1] = -M[:, 0, 0] * M[:, 2, 1] + M[:, 0, 1] * M[:, 2, 0]
+    Minv[:, 2, 2] = M[:, 0, 0] * M[:, 1, 1] - M[:, 0, 1] * M[:, 1, 0]
 
-        return Minv / det.reshape((M.shape[0], 1, 1))
+    return Minv / det.reshape((M.shape[0], 1, 1))
+
 
 def constrain_values(arr, vmin, vmax, axis):
     """
@@ -89,12 +98,14 @@ def constrain_values(arr, vmin, vmax, axis):
 
     """
 
-    amin = arr.min(axis = axis, keepdims = True)
-    amax = arr.max(axis = axis, keepdims = True)
+    amin = arr.min(axis=axis, keepdims=True)
+    amax = arr.max(axis=axis, keepdims=True)
 
     if np.any(amax - amin > vmax - vmin):
-        raise ValueError('clip_array: Elements of arr span too large range compared to vmin and vmax')
+        raise ValueError(
+            "clip_array: Elements of arr span too large range compared to vmin and vmax"
+        )
 
     a_shifted = arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
 
-    return(a_shifted)
+    return a_shifted
