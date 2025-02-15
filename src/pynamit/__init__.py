@@ -1,8 +1,8 @@
 """
-PynaMIT: A Python package for numerical simulations of the ionosphere.
+PynaMIT: A Python package for numerical simulations of ionospheric dynamics
+induced by field-aligned currents and horizontal neutral winds.
 
 This package includes modules for simulation, visualization, and various utilities.
-The dynamics are induced by field-aligned currents and horizontal neutral winds.
 
 Attributes
 ----------
