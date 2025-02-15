@@ -1,8 +1,33 @@
 """
-PynaMIT: A Python package for numerical simulations of the ionosphere,
-with dynamics induced by field-aligned currents and horizontal neutral winds.
+PynaMIT: A Python package for numerical simulations of the ionosphere.
 
 This package includes modules for simulation, visualization, and various utilities.
+The dynamics are induced by field-aligned currents and horizontal neutral winds.
+
+Attributes
+----------
+BasisEvaluator : class
+    Class for evaluating basis functions.
+CSProjection : class
+    Class for cubed sphere projections.
+Dynamics : class
+    Class for simulating ionospheric dynamics.
+FieldEvaluator : class
+    Class for evaluating fields.
+Grid : class
+    Class for grid management.
+Mainfield : class
+    Class for main field evaluation.
+PynamEye : class
+    Class for visualization.
+SHBasis : class
+    Class for spherical harmonics basis functions.
+Vector : class
+    Class for storing vector data and defining vector operations.
+debugplot : function
+    Function for debug plotting.
+globalplot : function
+    Function for global plotting.
 """
 
 from .cubed_sphere.cubed_sphere import CSProjection
