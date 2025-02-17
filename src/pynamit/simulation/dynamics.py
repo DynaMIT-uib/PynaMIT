@@ -1,100 +1,47 @@
-"""Two-dimensional ionospheric dynamics simulation.
+"""
+Module for simulating magnetosphere-ionosphere coupling dynamics.
 
-This module provides the Dynamics class for simulating ionospheric currents
-and electric fields in a 2D height-integrated model.
-
-Classes
--------
-Dynamics
-    Simulates 2D ionospheric dynamics with field-aligned currents, conductances,
-    and neutral winds.
+This module contains the Dynamics class which handles the simulation of
+ionospheric currents and electromagnetic fields in response to field-aligned
+currents and neutral winds.
 """
 
+import os
 import numpy as np
-import xarray as xr
 import pandas as pd
-from pynamit.simulation.mainfield import Mainfield
-from pynamit.spherical_harmonics.sh_basis import SHBasis
+import scipy.sparse as sp
+import xarray as xr
+from pynamit.cubed_sphere.cubed_sphere import CSProjection
+from pynamit.math.constants import RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.cubed_sphere.cubed_sphere import csp
-from pynamit.cubed_sphere.cubed_sphere import CSProjection
-from pynamit.primitives.vector import Vector
-import os
 from pynamit.primitives.grid import Grid
+from pynamit.primitives.vector import Vector
+from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
-from pynamit.math.constants import RE
-import scipy.sparse as sp
+from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
 class Dynamics(object):
-    """Simulate 2D ionospheric dynamics.
+    """
+    A class for simulating magnetosphere-ionosphere coupling dynamics.
 
-    This class implements a height-integrated model of ionospheric electrodynamics,
-    including field-aligned currents (FACs), Hall and Pedersen conductances, and
-    neutral winds. The simulation can evolve in time and compute steady states.
-
-    Parameters
-    ----------
-    dataset_filename_prefix : str, optional
-        Prefix for saving dataset files, by default 'simulation'
-    Nmax : int, optional
-        Maximum spherical harmonic degree, by default 20
-    Mmax : int, optional
-        Maximum spherical harmonic order, by default 20
-    Ncs : int, optional
-        Number of cubed sphere grid points per edge, by default 30
-    RI : float, optional
-        Ionospheric radius in meters, by default RE + 110e3
-    mainfield_kind : {'dipole', 'igrf'}, optional
-        Type of main magnetic field model, by default 'dipole'
-    mainfield_epoch : int, optional
-        Epoch year for main field model, by default 2020
-    mainfield_B0 : float, optional
-        Main field strength at ground in Tesla, by default None
-    FAC_integration_steps : array-like, optional
-        Integration radii for FAC poloidal field calculation
-    ignore_PFAC : bool, optional
-        Whether to ignore FAC poloidal fields, by default False
-    connect_hemispheres : bool, optional
-        Whether hemispheres are electrically connected, by default False
-    latitude_boundary : float, optional
-        Simulation boundary latitude in degrees, by default 50
-    ih_constraint_scaling : float, optional
-        Scaling for ionospheric height constraint, by default 1e-5
-    PFAC_matrix : array-like, optional
-        Pre-computed FAC poloidal field matrix, by default None
-    vector_jr : bool, optional
-        Use vector representation for radial current, by default True
-    vector_conductance : bool, optional
-        Use vector representation for conductances, by default True
-    vector_u : bool, optional
-        Use vector representation for neutral wind, by default True
-    t0 : str, optional
-        Start time in UTC format, by default '2020-01-01 00:00:00'
-    save_steady_states : bool, optional
-        Whether to save computed steady states, by default True
+    Manages the temporal evolution of the state of the ionosphere in response
+    to field-aligned currents and neutral winds. Saves and loads simulation
+    data to and from NetCDF files.
 
     Attributes
     ----------
-    RI : float
-        Ionospheric shell radius in meters
-    mainfield : Mainfield
-        Main magnetic field model
-    csp : CSProjection
-        Cubed sphere projection for the grid
-    state_grid : Grid
-        Computational grid for state variables
-    bases : dict
-        Spherical harmonic bases for different quantities
-    state : State
-        Current state of the simulation
     current_time : float
-        Current simulation time in seconds
-    save_steady_states : bool
-        Whether steady states are being saved
+        Current simulation time in seconds.
+    state : State
+        Current state of the system.
+    RI : float
+        Radius of the ionosphere in meters.
+    mainfield : Mainfield
+        Main magnetic field model.
     """
 
     def __init__(
@@ -120,7 +67,7 @@ class Dynamics(object):
         save_steady_states=True,
     ):
         """
-        Initialize the Dynamics class with the given parameters.
+        Initialize the Dynamics class.
 
         Parameters
         ----------
@@ -134,7 +81,7 @@ class Dynamics(object):
             Number of cubed sphere grid points per edge, by default 30
         RI : float, optional
             Ionospheric radius in meters, by default RE + 110e3
-        mainfield_kind : {'dipole', 'igrf'}, optional
+        mainfield_kind : {'dipole', 'igrf',  'radial'}, optional
             Type of main magnetic field model, by default 'dipole'
         mainfield_epoch : int, optional
             Epoch year for main field model, by default 2020
@@ -149,9 +96,9 @@ class Dynamics(object):
         latitude_boundary : float, optional
             Simulation boundary latitude in degrees, by default 50
         ih_constraint_scaling : float, optional
-            Scaling for ionospheric height constraint, by default 1e-5
+            Scaling for interhemispheric coupling constraint, by default 1e-5
         PFAC_matrix : array-like, optional
-            Pre-computed FAC poloidal field matrix, by default None
+            Matrix giving polodial field of FACs, by default None
         vector_jr : bool, optional
             Use vector representation for radial current, by default True
         vector_conductance : bool, optional
@@ -161,7 +108,7 @@ class Dynamics(object):
         t0 : str, optional
             Start time in UTC format, by default '2020-01-01 00:00:00'
         save_steady_states : bool, optional
-            Whether to save computed steady states, by default True
+            Whether to calculate and save steady states, by default True
         """
         self.dataset_filename_prefix = dataset_filename_prefix
 
@@ -324,23 +271,21 @@ class Dynamics(object):
         saving_sample_interval=10,
         quiet=False,
     ):
-        """Evolve the simulation state to a target time.
-
-        Updates the ionospheric state by time-stepping the equations forward.
-        State variables are sampled and saved at specified intervals.
+        """
+        Evolve the system state to a specified time.
 
         Parameters
         ----------
         t : float
-            Target time to evolve to in seconds
+            Target time to evolve to in seconds.
         dt : float, optional
-            Time step size in seconds, by default 5e-4
+            Time step size in seconds, by default 5e-4.
         sampling_step_interval : int, optional
-            Number of steps between state sampling, by default 200
+            Number of steps between samples, by default 200.
         saving_sample_interval : int, optional
-            Number of samples between saves, by default 10
+            Number of samples between saves, by default 10.
         quiet : bool, optional
-            Suppress progress messages, by default False
+            Whether to suppress progress output, by default False.
         """
         # Will be set to True when the corresponding time series is different from the one saved on disk
         self.save_jr = False
@@ -455,10 +400,7 @@ class Dynamics(object):
             count += 1
 
     def impose_steady_state(self):
-        """
-        Set the system's state to the steady state.
-        """
-
+        """Calculate and impose a steady state solution."""
         self.select_input_data()
 
         self.state.set_model_coeffs(m_ind=self.state.steady_state_m_ind())
@@ -478,28 +420,28 @@ class Dynamics(object):
         pinv_rtol=1e-15,
     ):
         """
-        Set the field-aligned current at the given coordinate points.
+        Set field-aligned current (FAC) input.
+
+        Converts FAC to radial current density by multiplying with the radial
+        component of the main field, and sets the radial current density as
+        input.
 
         Parameters
         ----------
         FAC : array-like
-            Field-aligned current values.
-        lat : array-like, optional
-            Latitudes of the points. Default is None.
-        lon : array-like, optional
-            Longitudes of the points. Default is None.
-        theta : array-like, optional
-            Colatitudes of the points. Default is None.
-        phi : array-like, optional
-            Longitudes of the points. Default is None.
+            Field-aligned current density in A/m².
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional 
+            Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time values. Default is None.
+            Time points for the FAC data.
         weights : array-like, optional
-            Weights for the least squares solver. Default is None.
-        reg_lambda : array-like, optional
-            Regularization parameters for the least squares solver. Default is None.
+            Weights for the FAC data points.
+        reg_lambda : float, optional
+            Regularization parameter for the least squares solver.
         pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse. Default is 1e-15.
+            Relative tolerance for the pseudo-inverse, by default 1e-15.
         """
         FAC_b_evaluator = FieldEvaluator(
             self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.RI
@@ -530,28 +472,24 @@ class Dynamics(object):
         pinv_rtol=1e-15,
     ):
         """
-        Specify radial current at ``self.state_grid.theta``, ``self.state_grid.phi``.
+        Set radial current density input.
 
         Parameters
         ----------
         jr : array-like
-            Radial current values in A/m^2.
-        lat : array-like, optional
-            Latitudes of the points. Default is None.
-        lon : array-like, optional
-            Longitudes of the points. Default is None.
-        theta : array-like, optional
-            Colatitudes of the points. Default is None.
-        phi : array-like, optional
-            Longitudes of the points. Default is None.
+            Radial current density in A/m².
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time values. Default is None.
+            Time points for the current data.
         weights : array-like, optional
-            Weights for the least squares solver. Default is None.
-        reg_lambda : array-like, optional
-            Regularization parameters for the least squares solver. Default is None.
+            Weights for the current data points.
+        reg_lambda : float, optional
+            Regularization parameter.
         pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse. Default is 1e-15.
+            Relative tolerance for the pseudo-inverse.
         """
         input_data = {
             "jr": [np.atleast_2d(jr)],
@@ -584,30 +522,26 @@ class Dynamics(object):
         pinv_rtol=1e-15,
     ):
         """
-        Specify Hall and Pedersen conductance at ``self.state_grid.theta``, ``self.state_grid.phi``.
+        Set Hall and Pedersen conductance values.
 
         Parameters
         ----------
         Hall : array-like
-            Hall conductance values.
+            Hall conductance in siemens.
         Pedersen : array-like
-            Pedersen conductance values.
-        lat : array-like, optional
-            Latitudes of the points. Default is None.
-        lon : array-like, optional
-            Longitudes of the points. Default is None.
-        theta : array-like, optional
-            Colatitudes of the points. Default is None.
-        phi : array-like, optional
-            Longitudes of the points. Default is None.
+            Pedersen conductance in siemens.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time values. Default is None.
+            Time points for the conductance data.
         weights : array-like, optional
-            Weights for the least squares solver. Default is None.
-        reg_lambda : array-like, optional
-            Regularization parameters for the least squares solver. Default is None.
+            Weights for the conductance data points.
+        reg_lambda : float, optional
+            Regularization parameter.
         pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse. Default is 1e-15.
+            Relative tolerance for the pseudo-inverse.
         """
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
@@ -650,28 +584,24 @@ class Dynamics(object):
         reg_lambda=None,
     ):
         """
-        Set neutral wind theta and phi components.
+        Set neutral wind velocities.
 
         Parameters
         ----------
         u_theta : array-like
-            Theta component of the neutral wind.
+            Meridional (south) wind velocity in m/s.
         u_phi : array-like
-            Phi component of the neutral wind.
-        lat : array-like, optional
-            Latitudes of the points. Default is None.
-        lon : array-like, optional
-            Longitudes of the points. Default is None.
-        theta : array-like, optional
-            Colatitudes of the points. Default is None.
-        phi : array-like, optional
-            Longitudes of the points. Default is None.
+            Zonal (east) wind velocity in m/s.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time values. Default is None.
+            Time points for the wind data.
         weights : array-like, optional
-            Weights for the least squares solver. Default is None.
-        reg_lambda : array-like, optional
-            Regularization parameters for the least squares solver. Default is None.
+            Weights for the wind data points.
+        reg_lambda : float, optional
+            Regularization parameter.
         """
         input_data = {
             "u": [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
@@ -704,30 +634,31 @@ class Dynamics(object):
         pinv_rtol=1e-15,
     ):
         """
-        Set input data.
+        Set input data for the simulation.
 
         Parameters
         ----------
         key : str
-            Key for the input data.
+            The type of input data ('jr', 'conductance', or 'u').
         input_data : dict
-            Dictionary of input data arrays.
-        lat : array-like, optional
-            Latitudes of the points. Default is None.
-        lon : array-like, optional
-            Longitudes of the points. Default is None.
-        theta : array-like, optional
-            Colatitudes of the points. Default is None.
-        phi : array-like, optional
-            Longitudes of the points. Default is None.
+            Dictionary containing the input data arrays.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time values. Default is None.
+            Time points for the input data.
         weights : array-like, optional
-            Weights for the least squares solver. Default is None.
-        reg_lambda : array-like, optional
-            Regularization parameters for the least squares solver. Default is None.
+            Weights for the input data points.
+        reg_lambda : float, optional
+            Regularization parameter.
         pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse. Default is 1e-15.
+            Relative tolerance for pseudo-inverse.
+
+        Raises
+        ------
+        ValueError
+            If neither (lat, lon) nor (theta, phi) coordinates are provided.
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
 
@@ -802,7 +733,7 @@ class Dynamics(object):
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
-                        interpolated_data = csp.interpolate_scalar(
+                        interpolated_data = self.csp.interpolate_scalar(
                             input_data[var][0][time_index],
                             input_grid.theta,
                             input_grid.phi,
@@ -811,7 +742,7 @@ class Dynamics(object):
                         )
                     elif self.vars[key][var] == "tangential":
                         interpolated_east, interpolated_north, _ = (
-                            csp.interpolate_vector_components(
+                            self.csp.interpolate_vector_components(
                                 input_data[var][1][time_index],
                                 -input_data[var][0][time_index],
                                 np.zeros_like(input_data[var][1][time_index]),
@@ -843,14 +774,17 @@ class Dynamics(object):
 
     def add_to_timeseries(self, dataset, key):
         """
-        Add a dataset to the time series.
+        Add a dataset to the timeseries.
+
+        Creates a new timeseries if one doesn't exist, otherwise concatenates
+        the new data along the time dimension.
 
         Parameters
         ----------
         dataset : xarray.Dataset
-            Dataset to add to the time series.
+            Dataset containing the timeseries data.
         key : str
-            Key for the time series.
+            The key identifying the type of data ('state', 'jr', 'conductance', or 'u').
         """
         if key not in self.timeseries.keys():
             self.timeseries[key] = dataset.sortby("time")
@@ -1016,14 +950,14 @@ class Dynamics(object):
 
     def save_dataset(self, dataset, name):
         """
-        Save dataset to file.
+        Save a dataset to NetCDF file.
 
         Parameters
         ----------
-        dataset : xarray.Dataset
-            Dataset to save.
+        dataset : xarray.Dataset or xarray.DataArray
+            The dataset to save.
         name : str
-            Name of the dataset.
+            Name to use in the filename.
         """
         filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
 
@@ -1059,14 +993,13 @@ class Dynamics(object):
 
     def save_timeseries(self, key):
         """
-        Save time series to file.
+        Save a timeseries to NetCDF file.
 
         Parameters
         ----------
         key : str
-            Key for the time series.
+            The key identifying which timeseries to save.
         """
-
         self.save_dataset(self.timeseries[key].reset_index("i"), key)
 
     def load_timeseries(self):
@@ -1154,38 +1087,21 @@ class Dynamics(object):
 
     @property
     def fd_curl_matrix(self):
-        """
-        Finite difference curl matrix.
-
-        Returns
-        -------
-        scipy.sparse.csr_matrix
-            Finite difference curl matrix.
-        """
+        """Matrix for finite difference curl calculation."""
         if not hasattr(self, "_fd_curl_matrix"):
             self._fd_curl_matrix = self.calculate_fd_curl_matrix()
-
         return self._fd_curl_matrix
 
     @property
     def sh_curl_matrix(self):
-        """
-        Calculate matrix that returns the radial curl when operating on a column vector of (theta, phi) vector components, using spherical harmonic analysis.
-
-        Returns
-        -------
-        numpy.ndarray
-            Spherical harmonic curl matrix.
-        """
+        """Matrix for spherical harmonic curl calculation."""
         if not hasattr(self, "_sh_curl_matrix"):
-            # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components on grid via Helmholtz decomposition
+            # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components
             G_df = self.state.basis_evaluator.G_helmholtz_inv[
                 self.state.basis.index_length :, :
             ]
-
             # Multiply with Laplacian and evaluation matrix to get the curl matrix
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
                 self.state.basis.laplacian().reshape((-1, 1)) * G_df
             )
-
         return self._sh_curl_matrix
