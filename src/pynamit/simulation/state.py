@@ -1,12 +1,6 @@
 """Ionospheric state representation and evolution.
 
-This module provides the State class for managing the ionospheric electrodynamic
-state, including currents, fields, and conductances.
-
-Classes
--------
-State
-    Manages ionospheric electrodynamic state variables and their evolution.
+This module provides a class for managing the ionospheric electrodynamic state, including currents, electric fields, conductances, and magnetic field perturbations.
 """
 
 import numpy as np
@@ -25,72 +19,49 @@ J_MAPPING = True
 
 
 class State(object):
-    """Manages ionospheric electrodynamic state.
-
-    Handles the representation and evolution of ionospheric currents, electric fields,
-    conductances, and magnetic field perturbations. Supports both vector and grid-based
-    representations of quantities.
-
-    Parameters
-    ----------
-    bases : dict
-        Spherical harmonic bases for different quantities:
-        - 'state': for state variables
-        - 'jr': for radial current
-        - 'conductance': for conductivity
-        - 'u': for neutral wind
-    mainfield : Mainfield
-        Main magnetic field model
-    grid : Grid
-        Spatial grid for computations
-    settings : object
-        Configuration settings containing:
-        - RI : float
-            Ionospheric radius in meters
-        - latitude_boundary : float
-            Simulation boundary latitude in degrees
-        - ignore_PFAC : bool
-            Whether to ignore FAC poloidal fields
-        - connect_hemispheres : bool
-            Whether hemispheres are electrically connected
-        - FAC_integration_steps : array-like
-            Radii for FAC poloidal field integration
-        - ih_constraint_scaling : float
-            Ionospheric height constraint scaling
-        - vector_jr : bool
-            Use vector representation for radial current
-        - vector_conductance : bool
-            Use vector representation for conductances
-        - vector_u : bool
-            Use vector representation for neutral wind
-    PFAC_matrix : array-like, optional
-        Pre-computed FAC poloidal field matrix, by default None
+    """Manages ionospheric electrodynamic state variables and their evolution.
 
     Attributes
     ----------
-    basis : SHBasis
-        Main state variable basis
-    jr_basis : SHBasis
-        Radial current basis
-    conductance_basis : SHBasis
-        Conductance basis
-    u_basis : SHBasis
-        Neutral wind basis
+    basis : Basis
+        Main state variable basis.
+    jr_basis : Basis
+        Radial current basis.
+    conductance_basis : Basis
+        Conductance basis.
+    u_basis : Basis
+        Neutral wind basis.
     grid : Grid
-        Computational grid
+        Computational grid.
     mainfield : Mainfield
-        Main magnetic field model
+        Main magnetic field model.
     m_ind : FieldExpansion
-        Induced magnetic field coefficients
+        Induced magnetic field coefficients.
     m_imp : FieldExpansion
-        Imposed magnetic field coefficients
+        Imposed magnetic field coefficients.
     E : FieldExpansion
-        Electric field vector
+        Electric field expansion (tangential).
+    ... (other attributes as defined in the implementation) ...
     """
-
     def __init__(self, bases, mainfield, grid, settings, PFAC_matrix=None):
-        """
-        Initialize the state of the ionosphere.
+        """Initialize the ionospheric state.
+
+        Parameters
+        ----------
+        bases : dict
+            Dictionary of bases with keys:
+            - 'state': for state variables
+            - 'jr': for radial current
+            - 'conductance': for conductivity
+            - 'u': for neutral wind
+        mainfield : Mainfield
+            Main magnetic field model.
+        grid : Grid
+            Spatial grid for computations.
+        settings : object
+            Configuration settings containing parameters such as RI, latitude_boundary, ignore_PFAC, connect_hemispheres, FAC_integration_steps, ih_constraint_scaling, vector_jr, vector_conductance, and vector_u.
+        PFAC_matrix : array-like, optional
+            Pre-computed FAC poloidal field matrix, by default None.
         """
         self.basis = bases["state"]
         self.jr_basis = bases["jr"]

@@ -1,11 +1,6 @@
 """PynamEye module
 
 This module contains the PynamEye class for visualizing simulation results.
-
-Classes
--------
-PynamEye
-    A class for visualizing simulation results.
 """
 
 import os
@@ -29,39 +24,24 @@ from pynamit.math.constants import RE, mu0
 
 
 class PynamEye(object):
-    """
-    A class for visualizing simulation results.
+    """A class for visualizing simulation results.
 
-    Parameters
+    Attributes
     ----------
-    filename_prefix : str
-        Filename prefix for the simulation save files that will be visualized.
-    t : int, optional
-        Simulation time in seconds. Default is 0.
-    Nlat : int, optional
-        Number of grid points between -90 and 90 degrees latitude evaluated for visualization. Default is 60.
-    Nlon : int, optional
-        Number of grid points between -180 and 180 degrees longitude evaluated for visualization. Default is 100.
-    NCS_plot : int, optional
-        Number of grid points for the cubed sphere plot. Default is 10.
-    mlatlim : int, optional
-        Magnetic latitude limit. Default is 50.
-    steady_state : bool, optional
-        Whether to use steady state data. Default is False.
+    datasets : dict
+        Dictionary holding simulation datasets loaded from file(s).
+    mainfield : Mainfield
+        An instance of the Mainfield class representing the magnetic field model in use.
+    global_grid : Grid
+        Global grid used for evaluations.
+    evaluator : dict
+        Dictionary of BasisEvaluator instances for different regions.
+    conductance_evaluator : dict
+        Dictionary of BasisEvaluator instances for conductance evaluations across regions.
+    ...additional attributes as needed...
     """
-
-    def __init__(
-        self,
-        filename_prefix,
-        t=0,
-        Nlat=60,
-        Nlon=100,
-        NCS_plot=10,
-        mlatlim=50,
-        steady_state=False,
-    ):
-        """
-        Initialize the PynamEye object.
+    def __init__(self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=False):
+        """Initialize the PynamEye object.
 
         Parameters
         ----------
@@ -70,9 +50,9 @@ class PynamEye(object):
         t : int, optional
             Simulation time in seconds. Default is 0.
         Nlat : int, optional
-            Number of grid points between -90 and 90 degrees latitude evaluated for visualization. Default is 60.
+            Number of grid points between -90 and 90 degrees latitude for visualization. Default is 60.
         Nlon : int, optional
-            Number of grid points between -180 and 180 degrees longitude evaluated for visualization. Default is 100.
+            Number of grid points between -180 and 180 degrees longitude for visualization. Default is 100.
         NCS_plot : int, optional
             Number of grid points for the cubed sphere plot. Default is 10.
         mlatlim : int, optional

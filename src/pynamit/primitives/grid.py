@@ -15,20 +15,6 @@ import numpy as np
 class Grid(object):
     """Two-dimensional coordinate grid representation.
 
-    Manages coordinates in both geographic (latitude/longitude) and spherical
-    (colatitude/longitude) coordinate systems with automatic conversion between them.
-
-    Parameters
-    ----------
-    lat : array-like, optional
-        Geographic latitude coordinates in degrees
-    lon : array-like, optional
-        Geographic longitude coordinates in degrees
-    theta : array-like, optional
-        Spherical colatitude coordinates in degrees (0° at North pole)
-    phi : array-like, optional
-        Spherical longitude coordinates in degrees
-
     Attributes
     ----------
     lat : ndarray
@@ -55,10 +41,29 @@ class Grid(object):
     """
 
     def __init__(self, lat=None, lon=None, theta=None, phi=None):
-        """
-        Initialize the object for storing the two-dimensional grid. The
-        grid is initialized from `lat` or `theta` and `lon` or `phi`
-        coordinates.
+        """Initialize the grid object from coordinate inputs.
+
+        Parameters
+        ----------
+        lat : array-like, optional
+            Geographic latitude coordinates in degrees.
+        lon : array-like, optional
+            Geographic longitude coordinates in degrees.
+        theta : array-like, optional
+            Spherical colatitude coordinates in degrees.
+        phi : array-like, optional
+            Spherical longitude coordinates in degrees.
+
+        Notes
+        -----
+        Either lat or theta must be provided, and either lon or phi must be provided.
+        All coordinate arrays are automatically broadcast to match shapes and flattened
+        for internal storage.
+        
+        Raises
+        ------
+        ValueError
+            If neither lat/theta or lon/phi coordinates are provided.
         """
 
         if lat is not None:

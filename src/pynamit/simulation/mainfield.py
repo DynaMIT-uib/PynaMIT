@@ -1,19 +1,15 @@
 """Main magnetic field models.
 
-This module provides implementations of different magnetic field models including
-dipole, IGRF, and radial fields, with coordinate transformations and field line
-tracing capabilities.
+This module provides implementations of different magnetic field models including dipole, IGRF, and radial fields. These models provide coordinate transformations and field line tracing capabilities.
 
-Models
-------
-- dipole : Dipole magnetic field using IGRF coefficients for moment
-- igrf : International Geomagnetic Reference Field in geocentric coordinates
-- radial : Radial field lines with configurable magnitude
+Notes
+-----
+Available models:
+- dipole: Dipole magnetic field using IGRF coefficients for moment.
+- igrf: International Geomagnetic Reference Field in geocentric coordinates (with geodetic conversion ignored).
+- radial: Radial field lines with configurable magnitude.
 
-Classes
--------
-Mainfield
-    Main magnetic field model with coordinate transformations.
+The models use different coordinate systems: dipole uses dipole coordinates, IGRF uses geocentric coordinates, and radial uses simple radial field lines. For IGRF, geodetic height is approximated as h = r - RE.
 """
 
 import ppigrf
@@ -27,42 +23,29 @@ from pynamit.math.constants import RE
 class Mainfield(object):
     """Main magnetic field model implementation.
 
-    Provides magnetic field calculations, coordinate transformations, and field
-    line tracing for different field models.
-
-    Parameters
-    ----------
-    kind : {'dipole', 'igrf', 'radial'}, optional
-        Type of magnetic field model, by default 'dipole'
-    epoch : int, optional
-        Decimal year for field coefficients, by default 2020
-    hI : float, optional
-        Ionospheric height in km, by default 0.0
-    B0 : float, optional
-        Field magnitude at ground for radial model in Tesla.
-        If None, uses reference field for epoch.
-
     Attributes
     ----------
     kind : str
-        Active field model type
+        Active field model type.
     dpl : dipole.Dipole
-        Dipole field instance (if kind='dipole')
+        Dipole field instance (if kind=='dipole').
     apx : apexpy.Apex
-        Apex coordinate transformer (if kind='igrf')
-
-    Notes
-    -----
-    The different models use different coordinate systems:
-
-    - dipole: Uses dipole coordinates, input parameters must match
-    - igrf: Uses geocentric coordinates, geodetic conversion ignored
-    - radial: Simple radial field lines
-
-    For IGRF, geodetic height is approximated as h = r - RE
+        Apex coordinate transformer (if kind=='igrf').
     """
-
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):
+        """Initialize a Mainfield instance.
+
+        Parameters
+        ----------
+        kind : {'dipole', 'igrf', 'radial'}, optional
+            Type of magnetic field model. Default is 'dipole'.
+        epoch : int, optional
+            Decimal year for field coefficients. Default is 2020.
+        hI : float, optional
+            Ionospheric height in km. Default is 0.0.
+        B0 : float, optional
+            Field magnitude at ground for radial model in Tesla. If None, uses reference field for epoch.
+        """
         if kind.lower() not in ["radial", "dipole", "igrf"]:
             raise ValueError("kind must be either radial, dipole or igrf")
 

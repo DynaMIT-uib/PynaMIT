@@ -19,17 +19,6 @@ class SHBasis(object):
     A class to store information about a spherical harmonic basis and to
     generate matrices for evaluating the spherical harmonics at a given grid.
 
-    Parameters
-    ----------
-    Nmax : int
-        Maximum degree of the spherical harmonics
-    Mmax : int
-        Maximum order of the spherical harmonics
-    Nmin : int, optional
-        Minimum degree of the spherical harmonics, by default 1
-    schmidt_normalization : bool, optional
-        Whether to use Schmidt semi-normalization, by default True
-
     Attributes
     ----------
     cnm : SHKeys
@@ -53,8 +42,20 @@ class SHBasis(object):
     caching : bool
         Whether caching is enabled
     """
-
     def __init__(self, Nmax, Mmax, Nmin=1, schmidt_normalization=True):
+        """Initialize the SHBasis instance.
+
+        Parameters
+        ----------
+        Nmax : int
+            Maximum degree of the spherical harmonics.
+        Mmax : int
+            Maximum order of the spherical harmonics.
+        Nmin : int, optional
+            Minimum degree of the spherical harmonics, by default 1.
+        schmidt_normalization : bool, optional
+            Whether to use Schmidt semi-normalization, by default True.
+        """
         # Make a set of all spherical harmonic keys up to Nmax, Mmax
         all_keys = SHKeys(Nmax, Mmax)
 

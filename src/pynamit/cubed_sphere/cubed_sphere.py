@@ -1,32 +1,17 @@
-"""Cubed sphere projection and differential calculus.
+"""Cubed Sphere Projection and Differential Calculus.
 
-This module provides a comprehensive implementation of the cubed sphere grid system. The
-implementation is based on the work of Liang Yin et al. (2017) and provides tools for
-coordinate transformations, vector field manipulations, and numerical operations on the
-cubed sphere.
+This module provides an implementation of the cubed sphere grid system based on Liang Yin et al. (2017). It includes tools for coordinate transformations, vector field interpolation and manipulation, numerical differentiation, and visualization utilities. The cubed sphere grid divides a sphere into six faces of a circumscribed cube, offering nearly uniform resolution and avoiding pole singularities.
 
-The cubed sphere grid system divides a sphere into 6 faces of a circumscribed cube,
-providing a nearly uniform grid resolution and avoiding pole singularities that are
-present in spherical coordinates.
+Notes
+-----
+Important features:
+- Implements coordinate transformations between geocentric and cubed sphere coordinates.
+- Provides interpolation and transformation for scalar and vector fields.
+- Performs numerical differentiation on the cubed sphere grid.
+- Offers visualization utilities such as coastline projections.
 
-Key Features
------------
-- Coordinate transformations between geocentric and cubed sphere coordinates
-- Scalar and vector field interpolation and transformation
-- Numerical differentiation on the cubed sphere grid
-- Tools for visualization including coastline projections
-
-References
-----------
-.. [1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
-       Parallel numerical simulation of the thermal convection in the Earth's outer core
-       on the cubed-sphere.
-       Geophysical Journal International, 209(3), 1934–1954
-       https://doi.org/10.1093/gji/ggx125
-
-Block Structure
---------------
-The cube faces are arranged as follows::
+Block structure:
+    The cubed sphere grid is organized into six faces as shown below, which defines the block structure of the grid:
 
           _______
           |     |
@@ -40,12 +25,18 @@ The cube faces are arranged as follows::
           |_____|
 
 Block indices:
-    - 0 = I   : Equator
-    - 1 = II  : Equator
-    - 2 = III : Equator
-    - 3 = IV  : Equator
-    - 4 = V   : North pole
-    - 5 = VI  : South pole
+  - 0 = I   : Equator
+  - 1 = II  : Equator
+  - 2 = III : Equator
+  - 3 = IV  : Equator
+  - 4 = V   : North Pole
+  - 5 = VI  : South Pole
+
+References
+----------
+[1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
+    Parallel numerical simulation of the thermal convection in the Earth's outer core on the cubed-sphere.
+    Geophysical Journal International, 209(3), 1934–1954. DOI: 10.1093/gji/ggx125
 """
 
 import numpy as np

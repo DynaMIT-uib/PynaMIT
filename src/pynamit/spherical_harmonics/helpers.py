@@ -19,21 +19,13 @@ import numpy as np
 
 class SHKeys(object):
     """Container for spherical harmonic expansion indices.
-
     A container for ``n`` and ``m``, the indices of the terms in a spherical
     harmonic expansion.
-
-    Parameters
-    ----------
-    Nmax : int
-        Maximum value for n index
-    Mmax : int
-        Maximum value for m index
 
     Attributes
     ----------
     keys : tuple
-        Tuple of (n,m) index pairs
+        Tuple of (n, m) index pairs
     n : ndarray
         Array of n indices, shape (1, len(keys))
     m : ndarray
@@ -43,14 +35,21 @@ class SHKeys(object):
     -----
     Container can be generated with::
         keys = SHKeys(Nmax, Mmax)
-
     The object provides dictionary-like access:
         - keys['n'] returns a list of n values
         - keys['m'] returns a list of m values
-        - keys[i] returns the i-th (n,m) tuple
+        - keys[i] returns the i-th (n, m) tuple
     """
-
     def __init__(self, Nmax, Mmax):
+        """Initialize the SHKeys instance.
+
+        Parameters
+        ----------
+        Nmax : int
+            Maximum value for n index.
+        Mmax : int
+            Maximum value for m index.
+        """
         keys = []
         for n in range(Nmax + 1):
             for m in range(min(Mmax, n) + 1):

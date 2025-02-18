@@ -1,26 +1,6 @@
 """Visualization utilities for simulation results.
 
-This module provides plotting functions for visualizing ionospheric simulation
-results, including global maps, debug plots, and time series visualizations.
-
-Functions
----------
-cs_interpolate
-    Interpolate data from cubed sphere to regular grid
-globalplot
-    Create global map visualization with optional parameters
-debugplot
-    Generate diagnostic plots of simulation state
-compare_AMPS_jr_and_CF_currents
-    Compare AMPERE and curl-free current distributions
-plot_AMPS_Br
-    Visualize AMPERE radial magnetic field
-show_jr_and_conductance
-    Display radial current and conductance distributions
-make_colorbars
-    Generate standalone colorbars for figure templates
-time_dependent_plot
-    Create time series visualizations of simulation evolution
+This module provides plotting functions for visualizing ionospheric simulation results, including global maps, diagnostic plots, and time series visualizations.
 """
 
 import numpy as np

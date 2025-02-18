@@ -17,23 +17,36 @@ class BasisEvaluator(object):
     """
     Object for transforming between expansions in a given basis and grid values. Can be used for both scalar and horizontal vector fields, where the latter is represented by basis expansion coefficients of the curl-free and divergence-free parts.
 
-    Parameters
+    Attributes
     ----------
     basis : Basis
         Basis object representing the basis of the field.
     grid : Grid
         Grid object representing the spatial grid.
     weights : array-like, optional
-        Weights for the least squares solver. Default is None.
+        Weights for the least squares solver.
     reg_lambda : float, optional
-        Regularization parameter for the least squares solver. Default is None.
+        Regularization parameter for the least squares solver.
     pinv_rtol : float, optional
-        Relative tolerance for the pseudo-inverse. Default is 1e-15.
+        Relative tolerance for the pseudo-inverse.
     """
 
     def __init__(self, basis, grid, weights=None, reg_lambda=None, pinv_rtol=1e-15):
         """
         Initialize the BasisEvaluator object.
+
+        Parameters
+        ----------
+        basis : Basis
+            Basis object representing the basis of the field.
+        grid : Grid
+            Grid object representing the spatial grid.
+        weights : array-like, optional
+            Weights for the least squares solver. Default is None.
+        reg_lambda : float, optional
+            Regularization parameter for the least squares solver. Default is None.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse. Default is 1e-15.
         """
         self.basis = basis
         self.grid = grid
