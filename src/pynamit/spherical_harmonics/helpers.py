@@ -40,6 +40,7 @@ class SHKeys(object):
         - keys['m'] returns a list of m values
         - keys[i] returns the i-th (n, m) tuple
     """
+
     def __init__(self, Nmax, Mmax):
         """Initialize the SHKeys instance.
 

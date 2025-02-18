@@ -13,11 +13,11 @@ FieldExpansion
 
 class FieldExpansion(object):
     """Represents scalar or vector fields in basis expansions.
-    
+
     This class stores and manages expansion coefficients for scalar and tangential
     vector fields and provides methods for conversion between coefficient and grid
     representations.
-    
+
     Attributes
     ----------
     basis : Basis
@@ -27,13 +27,19 @@ class FieldExpansion(object):
     field_type : str
         Type of the field, either 'scalar' or 'tangential'.
     """
+
     def __init__(
-        self, basis, coeffs=None, basis_evaluator=None, grid_values=None, field_type="scalar"
+        self,
+        basis,
+        coeffs=None,
+        basis_evaluator=None,
+        grid_values=None,
+        field_type="scalar",
     ):
         """
         Initialize the field expansion with the provided basis and either coefficients or
         grid values in combination with a basis evaluator for conversion to coefficients.
-        
+
         Parameters
         ----------
         basis : Basis

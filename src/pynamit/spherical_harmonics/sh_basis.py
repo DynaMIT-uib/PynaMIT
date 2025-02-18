@@ -42,6 +42,7 @@ class SHBasis(object):
     caching : bool
         Whether caching is enabled
     """
+
     def __init__(self, Nmax, Mmax, Nmin=1, schmidt_normalization=True):
         """Initialize the SHBasis instance.
 

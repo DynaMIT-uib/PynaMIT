@@ -59,7 +59,7 @@ class CSProjection:
     divides a sphere into 6 faces of a circumscribed cube, providing nearly
     uniform grid resolution and avoiding pole singularities.
 
-    Each face uses a local (xi,eta) coordinate system mapped to global spherical 
+    Each face uses a local (xi,eta) coordinate system mapped to global spherical
     coordinates (theta,phi). The implementation follows methods from Yin et al. (2017).
 
     Attributes
@@ -110,20 +110,20 @@ class CSProjection:
                 raise TypeError("N must be an integer")
             if N % 2 != 0:
                 raise ValueError("Cubed sphere grid dimension must be even")
-            
+
             self.N = N
             k, i, j = self.get_gridpoints(N)
-            
+
             # Initialize grid points, skipping duplicates at boundaries
             self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_block = k[:, :-1, :-1].flatten()
-            
+
             # Convert to spherical coordinates
             _, self.arr_theta, self.arr_phi = self.cube2spherical(
                 self.arr_xi, self.arr_eta, self.arr_block, deg=True
             )
-            
+
             # Calculate grid cell areas
             step = np.diff(self.xi(np.array([0, 1]), N))[0]
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
@@ -197,7 +197,7 @@ class CSProjection:
         """Calculate eta coordinate for grid index.
 
         Maps index j=0 to -π/4 and j=N to π/4, providing the eta coordinate
-        in the cubed sphere grid system. This function is mathematically 
+        in the cubed sphere grid system. This function is mathematically
         identical to xi() but is provided separately for code clarity.
 
         Parameters
@@ -1076,44 +1076,48 @@ class CSProjection:
         """
         lon, lat = np.broadcast_arrays(lon, lat)
         lat, lon = lat.flatten(), lon.flatten()
-        
+
         # Convert to spherical coordinates in radians
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
-        
+
         # Calculate Cartesian coordinates of input points
-        xyz = np.vstack((
-            np.cos(ph) * np.sin(th),  # x
-            np.sin(th) * np.sin(ph),  # y
-            np.cos(th)                # z
-        ))
-        
+        xyz = np.vstack(
+            (
+                np.cos(ph) * np.sin(th),  # x
+                np.sin(th) * np.sin(ph),  # y
+                np.cos(th),  # z
+            )
+        )
+
         # Define face midpoint xyz coordinates
-        face_midpoints = np.array([
-            [1, 0, 0],   # I   (0°)
-            [0, 1, 0],   # II  (90°)
-            [-1, 0, 0],  # III (180°)
-            [0, -1, 0],  # IV  (270°)
-            [0, 0, 1],   # V   (North)
-            [0, 0, -1]   # VI  (South)
-        ])
-        
+        face_midpoints = np.array(
+            [
+                [1, 0, 0],  # I   (0°)
+                [0, 1, 0],  # II  (90°)
+                [-1, 0, 0],  # III (180°)
+                [0, -1, 0],  # IV  (270°)
+                [0, 0, 1],  # V   (North)
+                [0, 0, -1],  # VI  (South)
+            ]
+        )
+
         # Calculate distances to each face midpoint
         distances = np.empty((6, xyz.shape[1]))
         for i in range(6):
             distances[i] = np.linalg.norm(
                 xyz - face_midpoints[i].reshape((3, 1)), axis=0
             )
-        
+
         # Small offset to prevent numerical ambiguity at block boundaries
         safety_distance = 1e-10
-        
+
         # Initialize blocks array
         blocks = np.zeros(xyz.shape[1], dtype=int)
-        
+
         # Assign points to blocks with smallest face midpoint distance
         for i in range(6):
             blocks[distances[i] < np.choose(blocks, distances) - safety_distance] = i
-            
+
         return blocks
 
     def geo2cube(self, lon, lat, block=None):

@@ -8,6 +8,7 @@ import numpy as np
 d2r = np.pi / 180
 r2d = 180 / np.pi
 
+
 def sph_to_car(sph, deg=True):
     """
     Convert from spherical to Cartesian coordinates.
@@ -28,11 +29,14 @@ def sph_to_car(sph, deg=True):
     """
     r, theta, phi = sph
     conv = 1.0 if not deg else d2r
-    return np.vstack((
-        r * np.sin(theta * conv) * np.cos(phi * conv),
-        r * np.sin(theta * conv) * np.sin(phi * conv),
-        r * np.cos(theta * conv)
-    ))
+    return np.vstack(
+        (
+            r * np.sin(theta * conv) * np.cos(phi * conv),
+            r * np.sin(theta * conv) * np.sin(phi * conv),
+            r * np.cos(theta * conv),
+        )
+    )
+
 
 def car_to_sph(car, deg=True):
     """
@@ -58,6 +62,7 @@ def car_to_sph(car, deg=True):
     theta = np.arccos(z / r) * conv
     phi = ((np.arctan2(y, x) * 180 / np.pi) % 360) / 180 * np.pi * conv
     return np.vstack((r, theta, phi))
+
 
 def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     """
@@ -89,21 +94,27 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     """
     lat, lon = lat.flatten(), lon.flatten()
     conv = 1.0 if not deg else d2r
-    xyz = np.vstack((
-        np.cos(lat * conv) * np.cos(lon * conv),
-        np.cos(lat * conv) * np.sin(lon * conv),
-        np.sin(lat * conv)
-    ))
-    new_z = np.array([
-        np.cos(z_lat * conv) * np.cos(z_lon * conv),
-        np.cos(z_lat * conv) * np.sin(z_lon * conv),
-        np.sin(z_lat * conv)
-    ])
-    new_x = np.array([
-        np.cos(x_lat * conv) * np.cos(x_lon * conv),
-        np.cos(x_lat * conv) * np.sin(x_lon * conv),
-        np.sin(x_lat * conv)
-    ])
+    xyz = np.vstack(
+        (
+            np.cos(lat * conv) * np.cos(lon * conv),
+            np.cos(lat * conv) * np.sin(lon * conv),
+            np.sin(lat * conv),
+        )
+    )
+    new_z = np.array(
+        [
+            np.cos(z_lat * conv) * np.cos(z_lon * conv),
+            np.cos(z_lat * conv) * np.sin(z_lon * conv),
+            np.sin(z_lat * conv),
+        ]
+    )
+    new_x = np.array(
+        [
+            np.cos(x_lat * conv) * np.cos(x_lon * conv),
+            np.cos(x_lat * conv) * np.sin(x_lon * conv),
+            np.sin(x_lat * conv),
+        ]
+    )
     new_y = np.cross(new_z, new_x)
     new_x, new_y, new_z = new_x.flatten(), new_y.flatten(), new_z.flatten()
     if not np.isclose(np.linalg.norm(new_y), 1):
@@ -111,7 +122,8 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     r = np.vstack((new_x, new_y, new_z))
     xyz = r.dot(xyz)
     _, colat, lon = car_to_sph(xyz, deg=deg)
-    return (90 - colat, lon) if deg else (np.pi/2 - colat, lon)
+    return (90 - colat, lon) if deg else (np.pi / 2 - colat, lon)
+
 
 def enu_to_ecef(v, lon, lat, reverse=False):
     """
@@ -138,10 +150,17 @@ def enu_to_ecef(v, lon, lat, reverse=False):
     phi = lon * d2r
     theta = (90 - lat) * d2r
     unit_east = np.vstack((-np.sin(phi), np.cos(phi), np.zeros_like(phi))).T
-    unit_north = np.vstack(( -np.cos(theta) * np.cos(phi), -np.cos(theta) * np.sin(phi), np.sin(theta) )).T
-    unit_up = np.vstack(( np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta) )).T
-    enu_to_ecef_or_reverse = np.stack((unit_east, unit_north, unit_up), axis=1 if reverse else 2)
+    unit_north = np.vstack(
+        (-np.cos(theta) * np.cos(phi), -np.cos(theta) * np.sin(phi), np.sin(theta))
+    ).T
+    unit_up = np.vstack(
+        (np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta))
+    ).T
+    enu_to_ecef_or_reverse = np.stack(
+        (unit_east, unit_north, unit_up), axis=1 if reverse else 2
+    )
     return np.einsum("nij, nj -> ni", enu_to_ecef_or_reverse, v)
+
 
 def ecef_to_enu(v, lon, lat):
     """
@@ -164,6 +183,7 @@ def ecef_to_enu(v, lon, lat):
         An N x 3 array of vector components in ENU coordinates.
     """
     return enu_to_ecef(v, lon, lat, reverse=True)
+
 
 def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     """
@@ -264,6 +284,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
     return east, north
 
+
 def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     """
     Convert geographic coordinates and ENU vector components to a local coordinate system.
@@ -347,6 +368,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
         A_local_enu[0].reshape(shape),
         A_local_enu[1].reshape(shape),
     )
+
 
 if __name__ == "__main__":
 

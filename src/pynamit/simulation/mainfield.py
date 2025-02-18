@@ -32,6 +32,7 @@ class Mainfield(object):
     apx : apexpy.Apex
         Apex coordinate transformer (if kind=='igrf').
     """
+
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):
         """Initialize a Mainfield instance.
 

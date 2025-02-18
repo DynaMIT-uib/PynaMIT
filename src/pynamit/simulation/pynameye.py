@@ -40,7 +40,17 @@ class PynamEye(object):
         Dictionary of BasisEvaluator instances for conductance evaluations across regions.
     ...additional attributes as needed...
     """
-    def __init__(self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=False):
+
+    def __init__(
+        self,
+        filename_prefix,
+        t=0,
+        Nlat=60,
+        Nlon=100,
+        NCS_plot=10,
+        mlatlim=50,
+        steady_state=False,
+    ):
         """Initialize the PynamEye object.
 
         Parameters

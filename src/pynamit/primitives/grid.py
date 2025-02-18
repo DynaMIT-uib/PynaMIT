@@ -59,7 +59,7 @@ class Grid(object):
         Either lat or theta must be provided, and either lon or phi must be provided.
         All coordinate arrays are automatically broadcast to match shapes and flattened
         for internal storage.
-        
+
         Raises
         ------
         ValueError

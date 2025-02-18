@@ -432,7 +432,7 @@ class Dynamics(object):
             Field-aligned current density in A/m².
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
-        theta, phi : array-like, optional 
+        theta, phi : array-like, optional
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the FAC data.

@@ -43,6 +43,7 @@ class State(object):
         Electric field expansion (tangential).
     ... (other attributes as defined in the implementation) ...
     """
+
     def __init__(self, bases, mainfield, grid, settings, PFAC_matrix=None):
         """Initialize the ionospheric state.
 
@@ -333,9 +334,13 @@ class State(object):
             raise Exception("Invalid keyword. See documentation")
 
         if key == "m_ind":
-            self.m_ind = FieldExpansion(self.basis, kwargs["m_ind"], field_type="scalar")
+            self.m_ind = FieldExpansion(
+                self.basis, kwargs["m_ind"], field_type="scalar"
+            )
         elif key == "m_imp":
-            self.m_imp = FieldExpansion(self.basis, kwargs["m_imp"], field_type="scalar")
+            self.m_imp = FieldExpansion(
+                self.basis, kwargs["m_imp"], field_type="scalar"
+            )
         else:
             raise Exception("This should not happen")
 
