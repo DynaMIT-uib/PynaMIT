@@ -1,13 +1,13 @@
-"""Least squares solver for multi-dimensional arrays.
+"""Least Squares Solver for Multi-dimensional Arrays
 
-This module provides solvers for weighted regularized least squares problems
-with multiple constraints and array-valued variables.
+This module provides solvers for weighted regularized least squares problems with
+multiple constraints and array-valued variables. The LeastSquares class solves problems
+of the form:
 
-Classes
--------
-LeastSquares
-    Solves weighted regularized least squares problems with multiple constraints.
-"""
+    min_x Σᵢ (||Wᵢ(Aᵢx - bᵢ)||² + λᵢ||Lᵢx||²)
+
+by handling multiple constraints simultaneously and supporting per-constraint weights
+and regularization."""
 
 import numpy as np
 from pynamit.math.flattened_array import FlattenedArray

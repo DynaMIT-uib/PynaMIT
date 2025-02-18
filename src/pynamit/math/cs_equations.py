@@ -1,12 +1,9 @@
-"""
-Cubed sphere equations.
+"""Cubed Sphere Equations
 
-This module contains the CSEquations class for equations related to cubed sphere coordinates.
-
-Classes
--------
-CSEquations
-    A class for equations related to cubed sphere coordinates.
+This module contains the CSEquations class which provides equations for computing
+quantities on cubed sphere grids. It encapsulates operations such as metric tensor
+calculations, coordinate transformations, and differential operators used in
+cubed sphere coordinate computations.
 """
 
 import numpy as np

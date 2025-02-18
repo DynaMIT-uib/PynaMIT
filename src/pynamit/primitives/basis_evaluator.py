@@ -1,12 +1,8 @@
-"""
-Basis evaluator.
+"""Basis Evaluator Utilities
 
-This module contains the BasisEvaluator class for transforming between expansions in a given basis and grid values.
-
-Classes
--------
-BasisEvaluator
-    A class for transforming between expansions in a given basis and grid values.
+This module provides the BasisEvaluator class and related functions for evaluating basis function
+representations of fields. It handles conversion between basis coefficients and grid values to enable
+field reconstruction and analysis.
 """
 
 import numpy as np

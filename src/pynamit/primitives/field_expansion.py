@@ -1,13 +1,9 @@
-"""Field representation in terms of basis expansions.
+"""Field Expansion Utilities
 
-This module provides the FieldExpansion class for representing scalar and vector fields
-in terms of basis function expansions with transformations between expansion coefficient
-and grid representations.
-
-Classes
--------
-FieldExpansion
-    Represents fields in terms of basis function expansions.
+This module provides the FieldExpansion class for representing scalar and tangential fields
+in basis function expansions. It handles conversion between expansion coefficients and grid
+values with support for both direct least-squares inversion and Helmholtz decomposition for
+tangential fields.
 """
 
 

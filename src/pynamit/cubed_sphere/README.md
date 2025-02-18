@@ -1,2 +1,0 @@
-# cubedsphere
-Cubed sphere coordinates

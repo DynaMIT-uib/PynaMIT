@@ -1,27 +1,8 @@
-"""
-Tensor operations.
-This module contains functions for performing various tensor operations.
-Functions
----------
-tensor_product
-    Compute the product of two matrices, contracting the last indices of the first tensor with the first indices of the second tensor.
-tensor_pinv
-    Compute the Moore-Penrose pseudoinverse of a tensor.
-tensor_pinv_positive_semidefinite
-    Compute the Moore-Penrose pseudoinverse of a positive semidefinite tensor.
-tensor_transpose
-    Transpose a tensor.
-tensor_scale_left
-    Perform element-wise scaling of the first indices of a tensor by another tensor.
-tensor_scale_right
-    Perform element-wise scaling of the last indices of a tensor by another tensor.
-tensor_outer
-    Compute the outer product of two tensors.
-tensor_svd
-    Compute the singular value decomposition of a tensor.
-pinv_positive_semidefinite
-    Return the pseudoinverse of a positive semidefinite matrix.
-"""
+"""Tensor Operations
+
+This module provides functions for performing various tensor operations including
+tensor products, pseudoinverses, transpositions, scaling, outer products, and singular value
+decompositions."""
 
 import numpy as np
 

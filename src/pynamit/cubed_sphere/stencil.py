@@ -1,3 +1,9 @@
+"""Stencil Utilities for Cubed Sphere Calculations
+
+This module provides functions for computing finite difference stencils used
+in numerical differentiation on cubed sphere grids.
+"""
+
 import numpy as np
 from itertools import combinations_with_replacement
 from functools import reduce

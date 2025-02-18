@@ -1,13 +1,9 @@
-"""Magnetic field evaluation utilities.
+"""Magnetic Field Evaluation Utilities
 
-This module provides tools for evaluating magnetic field components and derived
-quantities on spatial grids, including transformations between different
-coordinate systems.
-
-Classes
--------
-FieldEvaluator
-    Evaluates magnetic field quantities and coordinate transformations on grids.
+This module provides tools for evaluating magnetic field components and performing
+coordinate transformations on spatial grids. The FieldEvaluator class computes magnetic
+field quantities and handles conversions between spherical, field-aligned, and magnetic
+apex coordinate systems.
 """
 
 import numpy as np

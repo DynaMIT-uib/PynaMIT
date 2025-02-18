@@ -1,12 +1,9 @@
-"""Array dimension flattening utilities.
+"""Array Flattening Utilities
 
-This module provides tools for converting between multidimensional and flattened
-array representations while preserving the ability to reshape back to the original form.
-
-Classes
--------
-FlattenedArray
-    Represents multidimensional arrays in flattened form with reshaping capability.
+This module provides tools for converting between multidimensional and flattened array
+representations while preserving the ability to reshape back to the original form.
+The FlattenedArray class encapsulates a multidimensional array in a flattened form with
+reshaping capability.
 """
 
 import math

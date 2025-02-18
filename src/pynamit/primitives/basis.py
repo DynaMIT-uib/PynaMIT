@@ -1,11 +1,8 @@
-"""Abstract base class for basis representations.
+"""Basis Function Utilities
 
-This module defines the abstract base class for all basis representations in PynaMIT.
-
-Classes
--------
-Basis
-    Abstract base class defining interface for basis representations.
+This module provides classes and functions for working with basis functions used for
+field representation and expansion in PynaMIT. It defines the Basis class and related
+utilities for evaluating and manipulating basis coefficients in the PynaMIT package.
 """
 
 from abc import ABC, abstractmethod

@@ -1,12 +1,6 @@
-"""Grid coordinate system representation.
+"""Spatial Grid Utilities
 
-This module provides the Grid class for managing two-dimensional coordinate grids
-in both geographic (lat/lon) and spherical (theta/phi) coordinate systems.
-
-Classes
--------
-Grid
-    Two-dimensional coordinate grid with automatic coordinate conversion.
+This module provides the Grid class for representing spatial grids used in PynaMIT. It supports generating grid representations for the evaluation of magnetic fields and simulation data in PynaMIT.
 """
 
 import numpy as np

@@ -1,3 +1,10 @@
+"""Default Run Script for PynaMIT
+
+This module provides the function run_pynamit() which sets up and runs a default PynaMIT simulation.
+It is primarily used for testing purposes and as a starting point for simulation scripts.
+"""
+
+
 def run_pynamit(
     final_time=100,
     plotsteps=200,

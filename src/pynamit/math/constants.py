@@ -1,14 +1,7 @@
-"""
-Physical constants.
+"""Physical Constants
 
-This module contains variables representing physical constants (in SI units).
-
-Constants
----------
-mu0 : float
-    Permeability of free space (H/m).
-RE : float
-    Mean radius of the Earth (m).
+This module defines physical constants in SI units used across the PynaMIT package.
+For example, it provides the permeability of free space and the mean radius of the Earth.
 """
 
 from math import pi

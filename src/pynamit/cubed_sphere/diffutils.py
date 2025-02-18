@@ -1,6 +1,7 @@
-"""
-diffutils
+"""Finite Difference Utilities for Cubed Sphere Calculations
 
+This module provides functions to compute finite difference stencils and other
+numerical differentiation coefficients needed for cubed sphere grid operations in PynaMIT.
 """
 
 import numpy as np
