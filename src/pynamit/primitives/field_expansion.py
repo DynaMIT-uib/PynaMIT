@@ -1,85 +1,62 @@
-"""Vector field representation in basis expansions.
+"""Field representation in terms of basis expansions.
 
-This module provides the Vector class for representing scalar and vector fields
-in terms of basis function expansions with transformations between coefficient
+This module provides the FieldExpansion class for representing scalar and vector fields
+in terms of basis function expansions with transformations between expansion coefficient
 and grid representations.
 
 Classes
 -------
-Vector
+FieldExpansion
     Represents fields in terms of basis function expansions.
 """
 
 
-class Vector(object):
-    """Represents scalar and vector fields in basis expansions.
-
-    Stores and manages coefficients of scalar or tangential vector fields
-    represented in terms of basis functions, with methods for converting
-    between coefficient and grid representations.
-
-    Parameters
-    ----------
-    basis : Basis
-        Basis functions for field representation
-    coeffs : array-like, optional
-        Expansion coefficients, by default None
-    basis_evaluator : BasisEvaluator, optional
-        Evaluator for grid-coefficient conversions, by default None
-    grid_values : array-like, optional
-        Field values on grid points, by default None
-    type : {'scalar', 'tangential'}, optional
-        Type of field representation, by default 'scalar'
-
+class FieldExpansion(object):
+    """Represents scalar or vector fields in basis expansions.
+    
+    This class stores and manages expansion coefficients for scalar and tangential
+    vector fields and provides methods for conversion between coefficient and grid
+    representations.
+    
     Attributes
     ----------
     basis : Basis
-        Basis functions used for representation
+        Basis object representing the basis of the field.
     coeffs : ndarray
-        Expansion coefficients
-    _type : str
-        Field type ('scalar' or 'tangential')
-
-    Notes
-    -----
-    Must provide either coeffs directly or both basis_evaluator and grid_values
-    for coefficient computation. The basis_evaluator handles transformations
-    between coefficient and grid representations.
-
-    Raises
-    ------
-    ValueError
-        If type is invalid or if insufficient initialization parameters
+        Expansion coefficients of the field for the given basis.
+    field_type : str
+        Type of the field, either 'scalar' or 'tangential'.
     """
-
     def __init__(
-        self, basis, coeffs=None, basis_evaluator=None, grid_values=None, type="scalar"
+        self, basis, coeffs=None, basis_evaluator=None, grid_values=None, field_type="scalar"
     ):
         """
-        Initialize the object for storing the coefficients of a vector
-        field in a basis. The `basis` object must be provided, along with
-        either the `coeffs` or the `grid_values` in combination with a
-        `basis_evaluator` object for converting the grid values to basis
-        coefficients.
-
+        Initialize the field expansion with the provided basis and either coefficients or
+        grid values in combination with a basis evaluator for conversion to coefficients.
+        
         Parameters
         ----------
         basis : Basis
             Basis object representing the basis of the field.
         coeffs : array-like, optional
-            Coefficients of the field in the basis. Default is None.
+            Expansion coefficients of the field for the given basis. Default is None.
         basis_evaluator : BasisEvaluator, optional
-            BasisEvaluator object for converting grid values to basis coefficients. Default is None.
+            BasisEvaluator object for converting between basis coefficients and grid values. Default is None.
         grid_values : array-like, optional
             Values of the field on the grid. Default is None.
-        type : str, optional
+        field_type : str, optional
             Type of the field ('scalar' or 'tangential'). Default is 'scalar'.
+
+        Raises
+        ------
+        ValueError
+            If `field_type` is invalid or if insufficient initialization parameters are provided.
         """
-        if type not in ["scalar", "tangential"]:
-            raise ValueError("Type must be either 'scalar' or 'tangential'.")
+        if field_type not in ["scalar", "tangential"]:
+            raise ValueError("field type must be either 'scalar' or 'tangential'.")
 
         self.basis = basis
-        self._type = type
+        self.field_type = field_type
 
         if coeffs is not None:
             self.coeffs = coeffs
@@ -111,9 +88,9 @@ class Vector(object):
         - scalar: Direct least squares inversion
         - tangential: Helmholtz decomposition based inversion
         """
-        if self._type == "scalar":
+        if self.field_type == "scalar":
             return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
-        elif self._type == "tangential":
+        elif self.field_type == "tangential":
             return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
 
     def to_grid(self, basis_evaluator):
@@ -134,9 +111,9 @@ class Vector(object):
         For tangential fields, reconstructs vector components
         from Helmholtz decomposition.
         """
-        if self._type == "scalar":
+        if self.field_type == "scalar":
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=False)
-        elif self._type == "tangential":
+        elif self.field_type == "tangential":
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=True)
 
     def regularization_term(self, basis_evaluator):
@@ -158,7 +135,7 @@ class Vector(object):
         - scalar: Smoothness penalty on scalar field
         - tangential: Separate penalties on Helmholtz components
         """
-        if self._type == "scalar":
+        if self.field_type == "scalar":
             return basis_evaluator.regularization_term(self.coeffs, helmholtz=False)
-        elif self._type == "tangential":
+        elif self.field_type == "tangential":
             return basis_evaluator.regularization_term(self.coeffs, helmholtz=True)

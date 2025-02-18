@@ -19,7 +19,7 @@ from dipole import Dipole
 from polplot import Polarplot
 import datetime
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.vector import Vector
+from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.cubed_sphere.cubed_sphere import CSProjection
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.simulation.mainfield import Mainfield
@@ -278,11 +278,11 @@ class PynamEye(object):
         ) + self.etaH_on_grid * (self.bH_10 * Jth)
 
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
-        self.u = Vector(
+        self.u = FieldExpansion(
             self.basis,
             basis_evaluator=self.evaluator["num"],
             coeffs=self.u_coeffs,
-            type="tangential",
+            field_type="tangential",
         )
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(
             self.u.to_grid(basis_evaluator=self.evaluator["num"]), 2
@@ -606,8 +606,8 @@ class PynamEye(object):
                 kwargs[key] = self.joule_defaults[key]
 
         # calculate electric field
-        e_coeffs = Vector(
-            self.basis, coeffs=np.array([self.m_Phi, self.m_W]), type="tangential"
+        e_coeffs = FieldExpansion(
+            self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
         )
         E = e_coeffs.to_grid(self.evaluator[region]) / self.RI
         print("todo: is the scaling as expected?")

@@ -55,7 +55,7 @@ if CONDUCTANCE:
 
     input_grid_values = hall
     input_weights = None
-    vector_type = 'scalar'
+    field_type = 'scalar'
     nmin = 0
 
     interpolated_data = csp.interpolate_scalar(hall, input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
@@ -71,7 +71,7 @@ if WIND:
     input_grid_values = np.array([u_theta, u_phi])
     #input_weights = np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1))
     input_weights = None
-    vector_type = 'tangential'
+    field_type = 'tangential'
     nmin = 1
 
     interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
@@ -85,7 +85,7 @@ if CURRENT:
 
     input_grid_values = np.array([-jn, je])
     input_weights = None
-    vector_type = 'tangential'
+    field_type = 'tangential'
     nmin = 1
 
     interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(je, jn, np.zeros_like(je), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
@@ -119,7 +119,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         input_basis_evaluator = pynamit.BasisEvaluator(sh_basis, input_grid, weights = input_weights, reg_lambda = reg_lambda, pinv_rtol = rtol)
         output_basis_evaluator = pynamit.BasisEvaluator(sh_basis, output_grid, weights = output_weights, reg_lambda = reg_lambda, pinv_rtol = rtol)
 
-        input_sh = pynamit.Vector(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = input_grid_values, type = vector_type)
+        input_sh = pynamit.FieldExpansion(sh_basis, basis_evaluator = input_basis_evaluator, grid_values = input_grid_values, field_type = field_type)
 
         print("Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax, Mmax, reg_lambda))
 
@@ -137,7 +137,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
         if SH_COMPARISON:
-            cs_interpolated_output_sh = pynamit.Vector(sh_basis, basis_evaluator = output_basis_evaluator, grid_values = interpolated_data, type = vector_type)
+            cs_interpolated_output_sh = pynamit.FieldExpansion(sh_basis, basis_evaluator = output_basis_evaluator, grid_values = interpolated_data, field_type = field_type)
             relative_coeff_errors.append(np.linalg.norm(cs_interpolated_output_sh.coeffs - input_sh.coeffs)/np.linalg.norm(cs_interpolated_output_sh.coeffs))
             print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
 
@@ -150,11 +150,11 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 grid_cs_ax.title.set_text("Cubed sphere")
                 grid_sh_ax.set_title("Spherical harmonics")
 
-                if vector_type == 'scalar':
+                if field_type == 'scalar':
                     # Scatter plot scalar field
                     grid_cs_ax.scatter(lon, lat, c = cs_interpolated_output, cmap = 'viridis', transform=ccrs.PlateCarree())
                     grid_sh_ax.scatter(lon, lat, c = sh_interpolated_output, cmap = 'viridis', transform=ccrs.PlateCarree())
-                elif vector_type == 'tangential':
+                elif field_type == 'tangential':
                     # Quiver plot tangential vector field
                     cs_quiver = grid_cs_ax.quiver(lon, lat, np.split(cs_interpolated_output, 2)[1].flatten(), -np.split(cs_interpolated_output, 2)[0].flatten(), color='blue', transform=ccrs.PlateCarree())
                     grid_sh_ax.quiver(lon, lat, np.split(sh_interpolated_output, 2)[1].flatten(), -np.split(sh_interpolated_output, 2)[0].flatten(), color='red', scale = cs_quiver.scale, transform=ccrs.PlateCarree())
@@ -169,10 +169,10 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
                 coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
 
-                if vector_type == 'scalar':
+                if field_type == 'scalar':
                     coeff_cs_ax.plot(abs_coeff_cs, label = "CS")
                     coeff_sh_ax.plot(abs_coeff_sh, label = "SH")
-                elif vector_type == 'tangential':
+                elif field_type == 'tangential':
                     # Plot curl free and divergence free coefficients
                     coeff_cs_ax.plot(abs_coeff_cs[0], label = "CF")
                     coeff_cs_ax.plot(abs_coeff_cs[1], label = "DF")

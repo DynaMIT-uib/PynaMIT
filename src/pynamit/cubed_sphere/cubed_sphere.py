@@ -12,7 +12,7 @@ present in spherical coordinates.
 Key Features
 -----------
 - Coordinate transformations between geocentric and cubed sphere coordinates
-- Vector field interpolation and transformation
+- Scalar and vector field interpolation and transformation
 - Numerical differentiation on the cubed sphere grid
 - Tools for visualization including coastline projections
 

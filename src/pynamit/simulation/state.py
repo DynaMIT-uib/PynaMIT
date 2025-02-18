@@ -13,9 +13,9 @@ import numpy as np
 import xarray as xr
 from pynamit.math.constants import mu0, RE
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.vector import Vector
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares import LeastSquares
 
@@ -80,11 +80,11 @@ class State(object):
         Computational grid
     mainfield : Mainfield
         Main magnetic field model
-    m_ind : Vector
+    m_ind : FieldExpansion
         Induced magnetic field coefficients
-    m_imp : Vector
+    m_imp : FieldExpansion
         Imposed magnetic field coefficients
-    E : Vector
+    E : FieldExpansion
         Electric field vector
     """
 
@@ -362,9 +362,9 @@ class State(object):
             raise Exception("Invalid keyword. See documentation")
 
         if key == "m_ind":
-            self.m_ind = Vector(self.basis, kwargs["m_ind"], type="scalar")
+            self.m_ind = FieldExpansion(self.basis, kwargs["m_ind"], field_type="scalar")
         elif key == "m_imp":
-            self.m_imp = Vector(self.basis, kwargs["m_imp"], type="scalar")
+            self.m_imp = FieldExpansion(self.basis, kwargs["m_imp"], field_type="scalar")
         else:
             raise Exception("This should not happen")
 
@@ -456,7 +456,7 @@ class State(object):
 
         Parameters
         ----------
-        jr : array-like or Vector
+        jr : array-like or FieldExpansion
             Radial current density in A/m² at grid points or as vector coefficients
         """
         if self.vector_jr:
@@ -470,7 +470,7 @@ class State(object):
 
         Parameters
         ----------
-        u : array-like or Vector
+        u : array-like or FieldExpansion
             Neutral wind components.
         """
         self.neutral_wind = True
@@ -485,9 +485,9 @@ class State(object):
 
         Parameters
         ----------
-        etaP : array-like or Vector
+        etaP : array-like or FieldExpansion
             Pedersen conductance in S
-        etaH : array-like or Vector
+        etaH : array-like or FieldExpansion
             Hall conductance in S
         """
         self.conductance = True
@@ -629,7 +629,7 @@ class State(object):
         Update the coefficients for the electric potential and the induction electric field.
         """
         E_coeffs = self.calculate_E_coeffs(self.m_ind.coeffs)
-        self.E = Vector(self.basis, coeffs=E_coeffs, type="tangential")
+        self.E = FieldExpansion(self.basis, coeffs=E_coeffs, field_type="tangential")
 
     def evolve_m_ind(self, dt):
         """Evolve induced magnetic field coefficients.

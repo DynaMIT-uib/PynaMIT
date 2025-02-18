@@ -16,7 +16,7 @@ from pynamit.math.constants import RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.vector import Vector
+from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -718,11 +718,11 @@ class Dynamics(object):
                         grid_values = grid_value_array[0]
                     else:
                         grid_values = grid_value_array
-                    vector = Vector(
+                    vector = FieldExpansion(
                         self.bases[key],
                         basis_evaluator=self.input_basis_evaluators[key],
                         grid_values=grid_values,
-                        type=self.vars[key][var],
+                        field_type=self.vars[key][var],
                     )
 
                     processed_data[self.bases[key].short_name + "_" + var] = (
@@ -881,18 +881,18 @@ class Dynamics(object):
             if key == "state":
                 self.state.set_model_coeffs(m_ind=current_data["m_ind"])
                 self.state.set_model_coeffs(m_imp=current_data["m_imp"])
-                self.state.E = Vector(
+                self.state.E = FieldExpansion(
                     basis=self.bases[key],
                     coeffs=np.array([current_data["Phi"], current_data["W"]]),
-                    type="tangential",
+                    field_type="tangential",
                 )
 
             if key == "jr":
                 if self.vector_storage[key]:
-                    jr = Vector(
+                    jr = FieldExpansion(
                         basis=self.bases[key],
                         coeffs=current_data["jr"],
-                        type=self.vars[key]["jr"],
+                        field_type=self.vars[key]["jr"],
                     )
                 else:
                     jr = current_data["jr"]
@@ -901,15 +901,15 @@ class Dynamics(object):
 
             elif key == "conductance":
                 if self.vector_storage[key]:
-                    etaP = Vector(
+                    etaP = FieldExpansion(
                         basis=self.bases[key],
                         coeffs=current_data["etaP"],
-                        type=self.vars[key]["etaP"],
+                        field_type=self.vars[key]["etaP"],
                     )
-                    etaH = Vector(
+                    etaH = FieldExpansion(
                         basis=self.bases[key],
                         coeffs=current_data["etaH"],
-                        type=self.vars[key]["etaH"],
+                        field_type=self.vars[key]["etaH"],
                     )
                 else:
                     etaP = current_data["etaP"]
@@ -919,10 +919,10 @@ class Dynamics(object):
 
             elif key == "u":
                 if self.vector_storage[key]:
-                    u = Vector(
+                    u = FieldExpansion(
                         basis=self.bases[key],
                         coeffs=current_data["u"].reshape((2, -1)),
-                        type=self.vars[key]["u"],
+                        field_type=self.vars[key]["u"],
                     )
                 else:
                     u = current_data["u"].reshape((2, -1))

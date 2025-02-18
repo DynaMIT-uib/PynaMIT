@@ -22,7 +22,7 @@ PynamEye : class
     Class for visualization.
 SHBasis : class
     Class for spherical harmonics basis functions.
-Vector : class
+FieldExpansion : class
     Class for storing vector data and defining vector operations.
 debugplot : function
     Function for debug plotting.
@@ -33,8 +33,8 @@ globalplot : function
 from .cubed_sphere.cubed_sphere import CSProjection
 from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.field_evaluator import FieldEvaluator
+from .primitives.field_expansion import FieldExpansion
 from .primitives.grid import Grid
-from .primitives.vector import Vector
 from .simulation.dynamics import Dynamics
 from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
@@ -46,11 +46,11 @@ __all__ = [
     "CSProjection",
     "Dynamics",
     "FieldEvaluator",
+    "FieldExpansion",
     "Grid",
     "Mainfield",
     "PynamEye",
     "SHBasis",
-    "Vector",
     "debugplot",
     "globalplot",
 ]
