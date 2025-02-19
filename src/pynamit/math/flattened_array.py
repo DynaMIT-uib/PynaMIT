@@ -78,5 +78,8 @@ class FlattenedArray(object):
             full_array.shape[n_leading_flattened:],
         )
 
-        self.shapes = (math.prod(self.full_shapes[0]), math.prod(self.full_shapes[1]))
+        self.shapes = (
+            math.prod(self.full_shapes[0]),
+            math.prod(self.full_shapes[1]),
+        )
         self.array = full_array.reshape(self.shapes)

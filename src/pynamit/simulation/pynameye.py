@@ -287,7 +287,8 @@ class PynamEye(object):
         Eph -= uxB_phi
 
         self.m_Phi, self.m_W = np.split(
-            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True), 2
+            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True),
+            2,
         )
         self.m_Phi = self.m_Phi * self.RI
         self.m_W = self.m_W * self.RI
@@ -312,14 +313,23 @@ class PynamEye(object):
             "levels": np.linspace(-100, 100, 22) * 1e-9,
             "extend": "both",
         }
-        self.eqJ_defaults = {"colors": "black", "levels": np.r_[-610:620:20] * 1e3}
+        self.eqJ_defaults = {
+            "colors": "black",
+            "levels": np.r_[-610:620:20] * 1e3,
+        }
         self.jr_defaults = {
             "cmap": plt.cm.bwr,
             "levels": np.linspace(-0.95, 0.95, 22) * 1e-6,
             "extend": "both",
         }
-        self.Phi_defaults = {"colors": "black", "levels": np.r_[-211.5:220:3] * 1e3}
-        self.W_defaults = {"colors": "orange", "levels": self.Phi_defaults["levels"]}
+        self.Phi_defaults = {
+            "colors": "black",
+            "levels": np.r_[-211.5:220:3] * 1e3,
+        }
+        self.W_defaults = {
+            "colors": "orange",
+            "levels": self.Phi_defaults["levels"],
+        }
 
     def set_time(self, t, steady_state=False):
         """
@@ -371,7 +381,8 @@ class PynamEye(object):
         )
         self.m_u = np.vstack(
             np.split(
-                self.datasets["u"].SH_u.sel(time=self.t, method="nearest").values, 2
+                self.datasets["u"].SH_u.sel(time=self.t, method="nearest").values,
+                2,
             )
         )
         self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
@@ -572,7 +583,10 @@ class PynamEye(object):
                     "ignore",
                     message="No contour levels were found within the data range.",
                 )
-                lon, lat = self.global_vector_grid.lon, self.global_vector_grid.lat
+                lon, lat = (
+                    self.global_vector_grid.lon,
+                    self.global_vector_grid.lat,
+                )
                 return ax.quiver(
                     lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs
                 )
@@ -599,7 +613,9 @@ class PynamEye(object):
 
         # calculate electric field
         e_coeffs = FieldExpansion(
-            self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
+            self.basis,
+            coeffs=np.array([self.m_Phi, self.m_W]),
+            field_type="tangential",
         )
         E = e_coeffs.to_grid(self.evaluator[region]) / self.RI
         print("todo: is the scaling as expected?")

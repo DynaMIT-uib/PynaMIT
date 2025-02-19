@@ -143,7 +143,10 @@ def run_pynamit(
         dynamics.impose_steady_state()
 
     dynamics.evolve_to_time(
-        t=final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=plotsteps
+        t=final_time,
+        dt=dt,
+        sampling_step_interval=1,
+        saving_sample_interval=plotsteps,
     )
 
     return dynamics

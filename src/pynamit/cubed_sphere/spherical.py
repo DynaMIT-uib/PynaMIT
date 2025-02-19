@@ -151,10 +151,18 @@ def enu_to_ecef(v, lon, lat, reverse=False):
     theta = (90 - lat) * d2r
     unit_east = np.vstack((-np.sin(phi), np.cos(phi), np.zeros_like(phi))).T
     unit_north = np.vstack(
-        (-np.cos(theta) * np.cos(phi), -np.cos(theta) * np.sin(phi), np.sin(theta))
+        (
+            -np.cos(theta) * np.cos(phi),
+            -np.cos(theta) * np.sin(phi),
+            np.sin(theta),
+        )
     ).T
     unit_up = np.vstack(
-        (np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta))
+        (
+            np.sin(theta) * np.cos(phi),
+            np.sin(theta) * np.sin(phi),
+            np.cos(theta),
+        )
     ).T
     enu_to_ecef_or_reverse = np.stack(
         (unit_east, unit_north, unit_up), axis=1 if reverse else 2
@@ -234,10 +242,18 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
     # ECEF position vectors:
     ecef_p1 = np.vstack(
-        (np.cos(lat1) * np.cos(lon1), np.cos(lat1) * np.sin(lon1), np.sin(lat1))
+        (
+            np.cos(lat1) * np.cos(lon1),
+            np.cos(lat1) * np.sin(lon1),
+            np.sin(lat1),
+        )
     )
     ecef_p2 = np.vstack(
-        (np.cos(lat2) * np.cos(lon2), np.cos(lat2) * np.sin(lon2), np.sin(lat2))
+        (
+            np.cos(lat2) * np.cos(lon2),
+            np.cos(lat2) * np.sin(lon2),
+            np.sin(lat2),
+        )
     )
 
     # Check if tangent is well defined:
@@ -269,7 +285,11 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
                 )
             ).T,
             np.vstack(
-                (np.cos(lon1) * np.cos(lat1), np.sin(lon1) * np.cos(lat1), np.sin(lat1))
+                (
+                    np.cos(lon1) * np.cos(lat1),
+                    np.sin(lon1) * np.cos(lat1),
+                    np.sin(lat1),
+                )
             ).T,
         )
     )
@@ -321,7 +341,12 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     try:
         lat, lon, Ae, An = np.broadcast_arrays(lat, lon, Ae, An)
         shape = lat.shape
-        lat, lon, Ae, An = lat.flatten(), lon.flatten(), Ae.flatten(), An.flatten()
+        lat, lon, Ae, An = (
+            lat.flatten(),
+            lon.flatten(),
+            Ae.flatten(),
+            An.flatten(),
+        )
     except ValueError:
         raise Exception("Input arrays have inconsistent shapes")
     lat, lon = lat.flatten(), lon.flatten()

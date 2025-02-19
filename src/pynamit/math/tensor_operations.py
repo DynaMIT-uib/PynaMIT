@@ -32,7 +32,8 @@ def tensor_product(A, B, n_contracted):
     last_dims = B.shape[n_contracted:]
 
     AB = np.dot(
-        A.reshape((np.prod(first_dims), -1)), B.reshape((-1, np.prod(last_dims)))
+        A.reshape((np.prod(first_dims), -1)),
+        B.reshape((-1, np.prod(last_dims))),
     ).reshape((first_dims + last_dims))
 
     return AB

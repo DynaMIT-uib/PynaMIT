@@ -855,7 +855,11 @@ class CSBasis:
 
         i_diff = np.hstack([i + _ for _ in stencil_points])
         j_diff = np.hstack([j + _ for _ in stencil_points])
-        k_const, i_const, j_const = np.tile(k, Nsp), np.tile(i, Nsp), np.tile(j, Nsp)
+        k_const, i_const, j_const = (
+            np.tile(k, Nsp),
+            np.tile(i, Nsp),
+            np.tile(j, Nsp),
+        )
         weights = np.repeat(stencil_weight, size)
 
         rows = np.tile(np.ravel_multi_index((k, i, j), shape), Nsp)

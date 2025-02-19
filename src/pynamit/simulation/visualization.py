@@ -338,7 +338,12 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         gax_j.set_title(title)
 
     plt.subplots_adjust(
-        top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185
+        top=0.89,
+        bottom=0.095,
+        left=0.025,
+        right=0.95,
+        hspace=0.0,
+        wspace=0.185,
     )
     if filename is not None:
         fig.savefig(filename)
@@ -674,7 +679,13 @@ def make_colorbars():
 
 
 def time_dependent_plot(
-    dynamics, fig_directory, filecount, lon0, plt_grid, pltshape, plt_state_evaluator
+    dynamics,
+    fig_directory,
+    filecount,
+    lon0,
+    plt_grid,
+    pltshape,
+    plt_state_evaluator,
 ):
     """Create time series visualization frame.
 

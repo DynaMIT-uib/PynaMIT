@@ -198,7 +198,10 @@ class Dynamics(object):
                 basis_index_arrays = self.bases[key].index_arrays
                 basis_index_names = self.bases[key].index_names
             else:
-                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
+                basis_index_arrays = [
+                    self.state_grid.theta,
+                    self.state_grid.phi,
+                ]
                 basis_index_names = ["theta", "phi"]
 
             if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
@@ -444,7 +447,9 @@ class Dynamics(object):
             Relative tolerance for the pseudo-inverse, by default 1e-15.
         """
         FAC_b_evaluator = FieldEvaluator(
-            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.RI
+            self.mainfield,
+            Grid(lat=lat, lon=lon, theta=theta, phi=phi),
+            self.RI,
         )
 
         self.set_jr(
@@ -845,7 +850,8 @@ class Dynamics(object):
                 )
             ):
                 dataset_after = self.timeseries[key].sel(
-                    time=[self.current_time + FLOAT_ERROR_MARGIN], method="bfill"
+                    time=[self.current_time + FLOAT_ERROR_MARGIN],
+                    method="bfill",
                 )
                 for var in self.vars[key]:
                     current_data[var] += (
@@ -1069,7 +1075,9 @@ class Dynamics(object):
 
         # matrix that transforms theta, phi to u1, u2:
         Ps_dense = self.cs_basis.get_Ps(
-            self.cs_basis.arr_xi, self.cs_basis.arr_eta, block=self.cs_basis.arr_block
+            self.cs_basis.arr_xi,
+            self.cs_basis.arr_eta,
+            block=self.cs_basis.arr_block,
         )  # N x 3 x 3
         # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north),
         # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:

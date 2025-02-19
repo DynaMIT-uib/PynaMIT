@@ -291,7 +291,10 @@ class State(object):
                     )
 
                     m_imp_to_JS_shifted = np.einsum(
-                        "ij,jk->ijk", jr_to_JS_shifted, m_imp_to_jr, optimize=True
+                        "ij,jk->ijk",
+                        jr_to_JS_shifted,
+                        m_imp_to_jr,
+                        optimize=True,
                     )
 
                     # Matrix that calculates the contribution to the poloidal coefficients from the horizontal current components at r_k[i]
