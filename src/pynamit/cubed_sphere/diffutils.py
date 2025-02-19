@@ -46,7 +46,7 @@ def stencil(evaluation_points, order=1, h=1, fraction=False):
         `h` is ignored - and you should multiply the denominator by
         ``h**order`` to get the coefficients.
 
-    Note
+    Notes
     ----
     Algorithm based on Taylor series expansion. See this page for
     explanation:
@@ -84,7 +84,7 @@ def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
 
         c[i] * f(x + dx[i], y + dy[i])
 
-    Note
+    Notes
     ----
     This function is based on Taylor series expansion (see docs for rough
     summary).
