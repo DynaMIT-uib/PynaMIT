@@ -1,9 +1,8 @@
-"""Array Utilities for Cubed Sphere Calculations
+"""Array Utilities
 
-This module provides utility functions for performing array operations such as
-computing determinants and inverses of 3D matrices, as well as constraining
-array values within specified bounds. These functions support cubed sphere grid
-calculations in PynaMIT.
+This module provides utility functions for performing array operations
+such as computing determinants and inverses of 3D matrices, as well as
+constraining array values within specified bounds.
 """
 
 import numpy as np

@@ -1,17 +1,23 @@
 """Cubed Sphere Projection and Differential Calculus.
 
-This module provides an implementation of the cubed sphere grid system based on Liang Yin et al. (2017). It includes tools for coordinate transformations, vector field interpolation and manipulation, numerical differentiation, and visualization utilities. The cubed sphere grid divides a sphere into six faces of a circumscribed cube, offering nearly uniform resolution and avoiding pole singularities.
+This module provides an implementation of the cubed sphere grid system
+based on Liang Yin et al. (2017). It includes tools for coordinate
+transformations, vector field interpolation and manipulation, numerical
+differentiation, and visualization utilities. The cubed sphere grid
+divides a sphere into six faces of a circumscribed cube, offering nearly
+uniform resolution and avoiding pole singularities.
 
 Notes
 -----
 Important features:
-- Implements coordinate transformations between geocentric and cubed sphere coordinates.
+- Implements coordinate transformations between geocentric and cubed
+  sphere coordinates.
 - Provides interpolation and transformation for scalar and vector fields.
 - Performs numerical differentiation on the cubed sphere grid.
 - Offers visualization utilities such as coastline projections.
 
-Block structure:
-    The cubed sphere grid is organized into six faces as shown below, which defines the block structure of the grid:
+The cubed sphere grid is organized into six faces as shown below, which
+defines the block structure of the grid:
 
           _______
           |     |
@@ -35,8 +41,9 @@ Block indices:
 References
 ----------
 [1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
-    Parallel numerical simulation of the thermal convection in the Earth's outer core on the cubed-sphere.
-    Geophysical Journal International, 209(3), 1934–1954. DOI: 10.1093/gji/ggx125
+    Parallel numerical simulation of the thermal convection in the Earth's
+    outer core on the cubed-sphere. Geophysical Journal International,
+    209(3), 1934–1954. DOI: 10.1093/gji/ggx125
 """
 
 import numpy as np
@@ -54,10 +61,10 @@ datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 class CSProjection:
     """Cubed sphere projection manager for ionospheric simulations.
 
-    This class provides a comprehensive implementation of coordinate transformations
-    and calculations in the cubed sphere grid system. The cubed sphere grid
-    divides a sphere into 6 faces of a circumscribed cube, providing nearly
-    uniform grid resolution and avoiding pole singularities.
+    This class provides a comprehensive implementation of coordinate
+    transformations and calculations in the cubed sphere grid system. The
+    cubed sphere grid divides a sphere into 6 faces of a circumscribed
+    cube, providing nearly uniform grid resolution and avoiding pole singularities.
 
     Each face uses a local (xi,eta) coordinate system mapped to global spherical
     coordinates (theta,phi). The implementation follows methods from Yin et al. (2017).
@@ -1371,6 +1378,3 @@ class CSProjection:
             )
 
         return interpolated_scalar
-
-
-csp = CSProjection()
