@@ -1,12 +1,6 @@
-"""
-Spherical harmonic basis.
+"""Spherical harmonic basis.
 
 This module contains the SHBasis class for storing and evaluating spherical harmonics.
-
-Classes
--------
-SHBasis
-    Store and evaluate spherical harmonic basis functions at given grid points.
 """
 
 import numpy as np

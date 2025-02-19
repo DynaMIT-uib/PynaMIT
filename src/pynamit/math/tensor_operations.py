@@ -2,7 +2,8 @@
 
 This module provides functions for performing various tensor operations including
 tensor products, pseudoinverses, transpositions, scaling, outer products, and singular value
-decompositions."""
+decompositions.
+"""
 
 import numpy as np
 

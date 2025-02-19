@@ -1,4 +1,4 @@
-"""Array Utilities
+"""Array utilities
 
 This module provides utility functions for performing array operations
 such as computing determinants and inverses of 3D matrices, as well as

@@ -30,7 +30,9 @@ class CSEquations(object):
         # np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
         self.sqrtg = np.sqrt(cs_basis.detg)
         # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Ps = cs_basis.get_Ps(cs_basis.arr_xi, cs_basis.arr_eta, 1, cs_basis.arr_block)
+        self.Ps = cs_basis.get_Ps(
+            cs_basis.arr_xi, cs_basis.arr_eta, 1, cs_basis.arr_block
+        )
         # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
         self.Qi = cs_basis.get_Q(90 - cs_basis.arr_theta, RI, inverse=True)
 

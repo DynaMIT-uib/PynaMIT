@@ -1,17 +1,8 @@
-"""
-Spherical harmonic analysis helpers.
+"""Spherical harmonic analysis helpers.
 
-This module contains helpers for spherical harmonic analysis.
-
-Functions
----------
-schmidt_normalization_factors
-    Return vector of Schmidt semi-normalization factors for spherical harmonic terms.
-
-Classes
--------
-SHKeys
-    Container for spherical harmonic expansion indices n and m.
+This module contains helpers for spherical harmonic analysis, including
+a container for spherical harmonic expansion indices and a function to
+calculate Schmidt semi-normalization factors.
 """
 
 import numpy as np

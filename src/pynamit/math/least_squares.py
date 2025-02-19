@@ -7,7 +7,8 @@ of the form:
     min_x Σᵢ (||Wᵢ(Aᵢx - bᵢ)||² + λᵢ||Lᵢx||²)
 
 by handling multiple constraints simultaneously and supporting per-constraint weights
-and regularization."""
+and regularization.
+"""
 
 import numpy as np
 from pynamit.math.flattened_array import FlattenedArray

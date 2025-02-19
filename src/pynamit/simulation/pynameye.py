@@ -223,7 +223,9 @@ class PynamEye(object):
 
             # reproduce numerical grid used in the simulation
             self.cs_basis = CSBasis(self.datasets["settings"].Ncs)
-            self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
+            self.state_grid = Grid(
+                theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi
+            )
 
             self.evaluator["num"] = BasisEvaluator(self.basis, self.state_grid)
             self.conductance_evaluator["num"] = BasisEvaluator(
