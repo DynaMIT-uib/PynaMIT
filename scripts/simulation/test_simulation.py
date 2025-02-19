@@ -73,7 +73,7 @@ dynamics.state.update_E()
 #snm = SHKeys(Nmax, Mmax).setNmin(1).MleN().Mge(1)
 #cS =  (2 * cnm.n.T + 1) / (4 * np.pi * RI**2) #pynamit.get_Schmidt_normalization(cnm).T
 #sS =  (2 * snm.n.T + 1) / (4 * np.pi * RI**2) #pynamit.get_Schmidt_normalization(snm).T
-#Ginv = dynamics.Gnum.T * np.vstack((cS, sS)) * dynamics.csp.unit_area
+#Ginv = dynamics.Gnum.T * np.vstack((cS, sS)) * dynamics.cs_basis.unit_area
 #gg = Ginv.dot(dynamics.Gnum)
 
 ## SET UP PLOTTING GRID AND EVALUATORS

@@ -1,49 +1,8 @@
-"""Cubed Sphere Projection and Differential Calculus.
+"""Cubed sphere basis module.
 
-This module provides an implementation of the cubed sphere grid system
-based on Liang Yin et al. (2017). It includes tools for coordinate
-transformations, vector field interpolation and manipulation, numerical
-differentiation, and visualization utilities. The cubed sphere grid
-divides a sphere into six faces of a circumscribed cube, offering nearly
-uniform resolution and avoiding pole singularities.
-
-Notes
------
-Important features:
-- Implements coordinate transformations between geocentric and cubed
-  sphere coordinates.
-- Provides interpolation and transformation for scalar and vector fields.
-- Performs numerical differentiation on the cubed sphere grid.
-- Offers visualization utilities such as coastline projections.
-
-The cubed sphere grid is organized into six faces as shown below, which
-defines the block structure of the grid:
-
-          _______
-          |     |
-          |  V  |
-    ______|_____|____________
-    |     |     |     |     |
-    | IV  |  I  | II  | III |
-    |_____|_____|_____|_____|
-          |     |
-          | VI  |
-          |_____|
-
-Block indices:
-  - 0 = I   : Equator
-  - 1 = II  : Equator
-  - 2 = III : Equator
-  - 3 = IV  : Equator
-  - 4 = V   : North Pole
-  - 5 = VI  : South Pole
-
-References
-----------
-[1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
-    Parallel numerical simulation of the thermal convection in the Earth's
-    outer core on the cubed-sphere. Geophysical Journal International,
-    209(3), 1934–1954. DOI: 10.1093/gji/ggx125
+This module provides the CSBasis class, which implements the cubed sphere
+grid system together with related tools for numerical differentiation,
+interpolation, and visualization.
 """
 
 import numpy as np
@@ -58,16 +17,17 @@ d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
-class CSProjection:
-    """Cubed sphere projection manager for ionospheric simulations.
+class CSBasis:
+    """Cubed sphere basis.
 
-    This class provides a comprehensive implementation of coordinate
-    transformations and calculations in the cubed sphere grid system. The
-    cubed sphere grid divides a sphere into 6 faces of a circumscribed
-    cube, providing nearly uniform grid resolution and avoiding pole singularities.
-
-    Each face uses a local (xi,eta) coordinate system mapped to global spherical
-    coordinates (theta,phi). The implementation follows methods from Yin et al. (2017).
+    This module provides an implementation of the cubed sphere grid system
+    following methods from Yin et al. (2017). The cubed sphere grid divides a
+    sphere into six faces of a circumscribed cube, providing nearly uniform
+    grid resolution and avoiding pole singularities. Each face uses a local
+    (xi, eta) coordinate system mapped to global spherical coordinates
+    (theta, phi). It includes tools for coordinate transformations, scalar
+    and vector field interpolation and manipulation, numerical
+    differentiation, and visualization utilities.
 
     Attributes
     ----------
@@ -91,10 +51,41 @@ class CSProjection:
         Determinant of metric tensor
     unit_area : ndarray
         Area of each grid cell
+
+    Notes
+    -----
+    The cubed sphere grid is organized into six faces as shown below, which
+    defines the block structure of the grid:
+
+          _______
+          |     |
+          |  V  |
+    ______|_____|____________
+    |     |     |     |     |
+    | IV  |  I  | II  | III |
+    |_____|_____|_____|_____|
+          |     |
+          | VI  |
+          |_____|
+
+    Block indices:
+      - 0 = I   : Equator
+      - 1 = II  : Equator
+      - 2 = III : Equator
+      - 3 = IV  : Equator
+      - 4 = V   : North Pole
+      - 5 = VI  : South Pole
+
+    References
+    ----------
+    [1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
+        Parallel numerical simulation of the thermal convection in the Earth's
+        outer core on the cubed-sphere. Geophysical Journal International,
+        209(3), 1934–1954. DOI: 10.1093/gji/ggx125
     """
 
     def __init__(self, N=None):
-        """Initialize the cubed sphere projection manager.
+        """Initialize the cubed sphere basis.
 
         If N is provided, initializes arrays for a grid with N×N cells on each cube face.
         The total number of grid points will be 6×N×N after removing duplicates at

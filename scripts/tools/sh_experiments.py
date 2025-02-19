@@ -24,14 +24,14 @@ assert date.year % 5 == 0  # since I'm grabbing IGRF coefficients without interp
 ### CONDUCTANCE EXPERIMENT
 cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, Nmin = 0)
 
-csp = pynamit.CSProjection(Ncs)
-conductance_lat = 90 - csp.arr_theta
-conductance_lon = csp.arr_phi
+cs_basis = pynamit.CSBasis(Ncs)
+conductance_lat = 90 - cs_basis.arr_theta
+conductance_lon = cs_basis.arr_phi
 hall, pedersen = conductance.hardy_EUV(conductance_lon, conductance_lat, Kp, date, starlight = 1, dipole = False)
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 
-G = cbasis.get_G(pynamit.Grid(theta = csp.arr_theta, phi = csp.arr_phi))
+G = cbasis.get_G(pynamit.Grid(theta = cs_basis.arr_theta, phi = cs_basis.arr_phi))
 d = etaH
 
 m_plain = np.linalg.lstsq(G, d, rcond = 0)[0]

@@ -34,8 +34,8 @@ d = dipole.Dipole(date.year)
 noon_lon = d.mlt2mlon(12, date) # noon longitude
 
 ## CS PROJECTION
-csp = pynamit.CSProjection(Ncs)
-output_grid = pynamit.Grid(theta = csp.arr_theta, phi = csp.arr_phi)
+cs_basis = pynamit.CSBasis(Ncs)
+output_grid = pynamit.Grid(theta = cs_basis.arr_theta, phi = cs_basis.arr_phi)
 output_weights = None
 
 # Regular grid from PyHWM14
@@ -58,7 +58,7 @@ if CONDUCTANCE:
     field_type = 'scalar'
     nmin = 0
 
-    interpolated_data = csp.interpolate_scalar(hall, input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
+    interpolated_data = cs_basis.interpolate_scalar(hall, input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
 
 if WIND:
     ## WIND INPUT
@@ -74,7 +74,7 @@ if WIND:
     field_type = 'tangential'
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
+    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(u_phi, -u_theta, np.zeros_like(u_phi), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
     interpolated_data = np.array([-interpolated_north, interpolated_east]) # convert to theta, phi
 
 if CURRENT:
@@ -88,7 +88,7 @@ if CURRENT:
     field_type = 'tangential'
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = csp.interpolate_vector_components(je, jn, np.zeros_like(je), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
+    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(je, jn, np.zeros_like(je), input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi)
     interpolated_data = np.array([-interpolated_north, interpolated_east]) # convert to theta, phi
 
 

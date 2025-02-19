@@ -15,7 +15,7 @@ from polplot import Polarplot
 import datetime
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
-from pynamit.cubed_sphere.cubed_sphere import CSProjection
+from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.primitives.field_evaluator import FieldEvaluator
@@ -104,12 +104,12 @@ class PynamEye(object):
         )
 
         # Set up cubed sphere grid for vector plotting
-        self.vector_csp = CSProjection(NCS_plot)
-        k, i, j = self.vector_csp.get_gridpoints(NCS_plot)
+        self.vector_cs_basis = CSBasis(NCS_plot)
+        k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
         # crop to skip duplicate points
-        arr_xi = self.vector_csp.xi(i[:, :-1, :-1] + 0.5, NCS_plot).flatten()
-        arr_eta = self.vector_csp.eta(j[:, :-1, :-1] + 0.5, NCS_plot).flatten()
-        _, arr_theta, arr_phi = self.vector_csp.cube2spherical(
+        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).flatten()
+        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).flatten()
+        _, arr_theta, arr_phi = self.vector_cs_basis.cube2spherical(
             arr_xi, arr_eta, k[:, :-1, :-1].flatten(), deg=True
         )
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
@@ -222,8 +222,8 @@ class PynamEye(object):
             self.m_imp_to_B_pol = PFAC.reshape((nn, nn))
 
             # reproduce numerical grid used in the simulation
-            self.csp = CSProjection(self.datasets["settings"].Ncs)
-            self.state_grid = Grid(theta=self.csp.arr_theta, phi=self.csp.arr_phi)
+            self.cs_basis = CSBasis(self.datasets["settings"].Ncs)
+            self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
 
             self.evaluator["num"] = BasisEvaluator(self.basis, self.state_grid)
             self.conductance_evaluator["num"] = BasisEvaluator(

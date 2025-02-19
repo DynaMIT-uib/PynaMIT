@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import xarray as xr
-from pynamit.cubed_sphere.cubed_sphere import CSProjection
+from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
@@ -160,8 +160,8 @@ class Dynamics(object):
             B0=None if settings.mainfield_B0 == 0 else settings.mainfield_B0,
         )
 
-        self.csp = CSProjection(settings.Ncs)
-        self.state_grid = Grid(theta=self.csp.arr_theta, phi=self.csp.arr_phi)
+        self.cs_basis = CSBasis(settings.Ncs)
+        self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
 
         self.bases = {
             "state": SHBasis(settings.Nmax, settings.Mmax),
@@ -733,7 +733,7 @@ class Dynamics(object):
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
-                        interpolated_data = self.csp.interpolate_scalar(
+                        interpolated_data = self.cs_basis.interpolate_scalar(
                             input_data[var][0][time_index],
                             input_grid.theta,
                             input_grid.phi,
@@ -742,7 +742,7 @@ class Dynamics(object):
                         )
                     elif self.vars[key][var] == "tangential":
                         interpolated_east, interpolated_north, _ = (
-                            self.csp.interpolate_vector_components(
+                            self.cs_basis.interpolate_vector_components(
                                 input_data[var][1][time_index],
                                 -input_data[var][0][time_index],
                                 np.zeros_like(input_data[var][1][time_index]),
@@ -1047,17 +1047,17 @@ class Dynamics(object):
         scipy.sparse.csr_matrix
             Matrix that returns the radial curl.
         """
-        Dxi, Deta = self.csp.get_Diff(
-            self.csp.N,
+        Dxi, Deta = self.cs_basis.get_Diff(
+            self.cs_basis.N,
             coordinate="both",
             Ns=stencil_size,
             Ni=interpolation_points,
             order=1,
         )
-        sqrtg = np.sqrt(self.csp.detg)
-        g11_scaled = sp.diags(self.csp.g[:, 0, 0] / sqrtg)
-        g12_scaled = sp.diags(self.csp.g[:, 0, 1] / sqrtg)
-        g22_scaled = sp.diags(self.csp.g[:, 1, 1] / sqrtg)
+        sqrtg = np.sqrt(self.cs_basis.detg)
+        g11_scaled = sp.diags(self.cs_basis.g[:, 0, 0] / sqrtg)
+        g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / sqrtg)
+        g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / sqrtg)
 
         # matrix that operates on column vector of u1, u2 and produces radial curl
         D_curlr_u1u2 = sp.hstack(
@@ -1068,8 +1068,8 @@ class Dynamics(object):
         )
 
         # matrix that transforms theta, phi to u1, u2:
-        Ps_dense = self.csp.get_Ps(
-            self.csp.arr_xi, self.csp.arr_eta, block=self.csp.arr_block
+        Ps_dense = self.cs_basis.get_Ps(
+            self.cs_basis.arr_xi, self.cs_basis.arr_eta, block=self.cs_basis.arr_block
         )  # N x 3 x 3
         # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north),
         # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:

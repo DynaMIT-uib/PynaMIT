@@ -1,5 +1,5 @@
 """ 
-Testing of the cubedsphere CSProjection class
+Testing of the cubedsphere CSBasis class
 
 1) Conversions to / from cubed sphere, Cartesian, and spherical coordinates
 2) Conversions to / from cubed sphere, Cartesians, and spherical components
@@ -10,13 +10,13 @@ Testing of the cubedsphere CSProjection class
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pynamit.cubed_sphere import cubed_sphere
+from pynamit.cubed_sphere import cs_basis
 from pynamit.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
 from importlib import reload
 import cartopy.crs as ccrs
-reload(cubed_sphere)
+reload(cs_basis)
 
-p = cubed_sphere.CSProjection()
+p = cs_basis.CSBasis()
 
 def test_projection():
 

@@ -134,7 +134,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 if COMPARE_TO_SECS:
     print('Building SECS matrices. This takes some time (and memory) because of global grids...')
-    secsI = -jr * dynamics.csp.unit_area * RI**2 # SECS amplitudes are downward current density times area
+    secsI = -jr * dynamics.cs_basis.unit_area * RI**2 # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = dynamics.state_grid.lat, dynamics.state_grid.lon

@@ -19,7 +19,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
 
     Parameters
     ----------
-    projection : CSProjection
+    projection : CSBasis
         Cubed sphere projection object
     inlat : array-like
         Latitude coordinates of input data
@@ -359,10 +359,10 @@ if __name__ == "__main__":
     import cubed_sphere
 
     Ncs = 30
-    csp = cubed_sphere.CSProjection(Ncs)  # cubed sphere projection object
-    k, i, j = csp.get_gridpoints(Ncs)
-    xi, eta = csp.xi(i, Ncs), csp.eta(j, Ncs)
-    _, theta, phi = csp.cube2spherical(xi, eta, k, deg=True)
+    cs_basis = cubed_sphere.CSBasis(Ncs)  # cubed sphere projection object
+    k, i, j = cs_basis.get_gridpoints(Ncs)
+    xi, eta = cs_basis.xi(i, Ncs), cs_basis.eta(j, Ncs)
+    _, theta, phi = cs_basis.cube2spherical(xi, eta, k, deg=True)
 
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
@@ -383,8 +383,8 @@ if __name__ == "__main__":
         phi, 90 - theta, Kp, date, starlight=1, dipole=True
     )
 
-    hall_plt = cs_interpolate(csp, 90 - theta, phi, hall, lat, lon)
-    pede_plt = cs_interpolate(csp, 90 - theta, phi, pedersen, lat, lon)
+    hall_plt = cs_interpolate(cs_basis, 90 - theta, phi, hall, lat, lon)
+    pede_plt = cs_interpolate(cs_basis, 90 - theta, phi, pedersen, lat, lon)
 
     globalplot(lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100))
 
@@ -574,7 +574,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
     plt_grid = Grid(lat=lat, lon=lon)
     hall_plt = cs_interpolate(
-        csp,
+        cs_basis,
         conductance_grid.lat,
         conductance_grid.lon,
         hall,
@@ -582,7 +582,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
         plt_grid.lon,
     )
     pede_plt = cs_interpolate(
-        csp,
+        cs_basis,
         conductance_grid.lat,
         conductance_grid.lon,
         pedersen,

@@ -15,24 +15,24 @@ class CSEquations(object):
 
     Parameters
     ----------
-    csp : object
-        Cubed sphere projection object.
+    cs_basis : CSBasis
+        Cubed sphere basis object.
     RI : float
         Radius of the sphere.
     """
 
-    def __init__(self, csp, RI):
+    def __init__(self, cs_basis, RI):
         """
         Initialize the CSEquations object.
         """
-        # self.Dxi, self.Deta = csp.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
-        self.g = csp.g  # csp.get_metric_tensor(xi, eta, 1, covariant = True)
+        # self.Dxi, self.Deta = cs_basis.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
+        self.g = cs_basis.g  # cs_basis.get_metric_tensor(xi, eta, 1, covariant = True)
         # np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
-        self.sqrtg = np.sqrt(csp.detg)
+        self.sqrtg = np.sqrt(cs_basis.detg)
         # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Ps = csp.get_Ps(csp.arr_xi, csp.arr_eta, 1, csp.arr_block)
+        self.Ps = cs_basis.get_Ps(cs_basis.arr_xi, cs_basis.arr_eta, 1, cs_basis.arr_block)
         # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
-        self.Qi = csp.get_Q(90 - csp.arr_theta, RI, inverse=True)
+        self.Qi = cs_basis.get_Q(90 - cs_basis.arr_theta, RI, inverse=True)
 
         self.g12 = self.g[:, 0, 1]
         self.g22 = self.g[:, 1, 1]
