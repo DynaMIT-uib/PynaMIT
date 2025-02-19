@@ -45,8 +45,8 @@ def invert_3D_matrices(M):
     Parameters
     ----------
     M : array
-        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
-        invertible matrices.
+        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D invertible
+        matrices.
 
     Returns
     -------
@@ -83,8 +83,8 @@ def invert_3D_matrices(M):
 
 def constrain_values(arr, vmin, vmax, axis):
     """
-    Constrain the values of `arr` to be between `vmin` and `vmax` by
-    adding a constant along a given axis.
+    Constrain the values of `arr` to be between `vmin` and `vmax` by adding
+    a constant along a given axis.
 
     Parameters
     ----------
@@ -100,8 +100,8 @@ def constrain_values(arr, vmin, vmax, axis):
     Returns
     -------
     a_shifted: array
-        ``a + constant``, where ``constant`` is chosen so that all
-        elements of `a_shifted` is ``>= vmin`` and ``<= vmax`` (if possible).
+        ``a + constant``, where ``constant`` is chosen so that all elements of
+        `a_shifted` is ``>= vmin`` and ``<= vmax`` (if possible).
 
     """
 

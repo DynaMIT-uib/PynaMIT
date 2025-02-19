@@ -32,7 +32,8 @@ class CSBasis:
     Attributes
     ----------
     N : int
-        Number of grid cells per cube edge (only set if N provided in constructor)
+        Number of grid cells per cube edge (only set if N provided in
+        constructor)
     arr_xi : ndarray
         Xi coordinates of grid points, in radians
     arr_eta : ndarray
@@ -87,9 +88,9 @@ class CSBasis:
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 
-        If N is provided, initializes arrays for a grid with N×N cells on each cube face.
-        The total number of grid points will be 6×N×N after removing duplicates at
-        block boundaries.
+        If N is provided, initializes arrays for a grid with N×N cells on each
+        cube face. The total number of grid points will be 6×N×N after
+        removing duplicates at block boundaries.
 
         Parameters
         ----------
@@ -163,8 +164,8 @@ class CSBasis:
     def xi(self, i, N):
         """Calculate xi coordinate for grid index.
 
-        Maps index i=0 to -π/4 and i=N to π/4, providing the xi coordinate
-        in the cubed sphere grid system.
+        Maps index i=0 to -π/4 and i=N to π/4, providing the xi coordinate in
+        the cubed sphere grid system.
 
         Parameters
         ----------
@@ -194,8 +195,8 @@ class CSBasis:
     def eta(self, j, N):
         """Calculate eta coordinate for grid index.
 
-        Maps index j=0 to -π/4 and j=N to π/4, providing the eta coordinate
-        in the cubed sphere grid system. This function is mathematically
+        Maps index j=0 to -π/4 and j=N to π/4, providing the eta coordinate in
+        the cubed sphere grid system. This function is mathematically
         identical to xi() but is provided separately for code clarity.
 
         Parameters
@@ -263,14 +264,15 @@ class CSBasis:
         Returns
         -------
         g : ndarray
-            Metric tensor components with shape (N,3,3) where N is number
+            Metric tensor components with shape (N,3,3) where N is the number
             of input points. Last two dimensions are tensor indices.
 
         Notes
         -----
         Implements equation (12) from Yin et al. (2017).
+
         The metric tensor relates coordinate differentials to distances:
-        ds² = gᵢⱼ dxⁱdxʲ
+            ds² = gᵢⱼ dxⁱdxʲ
         """
         xi, eta, r = map(
             np.ravel, np.broadcast_arrays(xi, eta, r)
@@ -306,14 +308,11 @@ class CSBasis:
             return arrayutils.invert_3D_matrices(g)
 
     def cube2cartesian(self, xi, eta, r=1, block=0):
-        """
-        Calculate Cartesian x, y, z coordinates (ECEF) of given
-        points.
+        """Calculate Cartesian x, y, z coordinates (ECEF) of given points.
 
         Output will have same unit as `r`.
 
-        Calculations based on equations from Appendix A of Yin et al.
-        (2017).
+        Calculations based on equations from Appendix A of Yin et al. (2017).
 
         Parameters
         ----------
@@ -329,14 +328,14 @@ class CSBasis:
         Returns
         -------
         x: array
-            Array of Cartesian x coordinates, shape determined by
-            input according to broadcasting rules.
+            Array of Cartesian x coordinates, shape determined by input
+            according to broadcasting rules.
         y: array
-            Array of Cartesian y coordinates, shape determined by
-            input according to broadcasting rules.
+            Array of Cartesian y coordinates, shape determined by input
+            according to broadcasting rules.
         z: array
-            Array of Cartesian z coordinates, shape determined by
-            input according to broadcasting rules.
+            Array of Cartesian z coordinates, shape determined by input
+            according to broadcasting rules.
 
         """
 
@@ -421,11 +420,10 @@ class CSBasis:
 
     def get_Pc(self, xi, eta, r=1, block=0, inverse=False):
         """
-        Calculate elements of transformation matrix `Pc` at all input
-        points.
+        Calculate elements of transformation matrix `Pc` at all input points.
 
-        The `Pc` matrix transforms Cartesian components ``(ux, uy, uz)``
-        to contravariant components in a cubed sphere coordinate system::
+        The `Pc` matrix transforms Cartesian components ``(ux, uy, uz)`` to
+        contravariant components in a cubed sphere coordinate system::
 
             |u1| = |P00 P01 P02| |ux|
             |u2| = |P10 P11 P12| |uy|
@@ -433,8 +431,8 @@ class CSBasis:
 
         The output, `Pc`, will have shape ``(N, 3, 3)``.
 
-        Calculations based on equations from Appendix A of Yin et al.
-        (2017), with similar notation.
+        Calculations based on equations from Appendix A of Yin et al. (2017),
+        with similar notation.
 
         Parameters
         ----------
@@ -452,11 +450,10 @@ class CSBasis:
         Returns
         -------
         Pc: array
-            Transformation matrices `Pc`, one for each point described by
-            the input parameters (using broadcasting rules). For ``N``
-            such points, `Pc` will have shape ``(N, 3, 3)``, where the
-            last two dimensions refer to column and row of the matrix.
-
+            Transformation matrices `Pc`, one for each point described by the
+            input parameters (using broadcasting rules). For ``N`` such
+            points, `Pc` will have shape ``(N, 3, 3)``, where the last two
+            dimensions refer to column and row of the matrix.
         """
 
         xi, et, r, block = map(
@@ -547,8 +544,7 @@ class CSBasis:
 
     def get_Ps(self, xi, eta, r=1, block=0, inverse=False):
         """
-        Calculate elements of transformation matrix `Ps` at all input
-        points.
+        Calculate elements of transformation matrix `Ps` at all input points.
 
         The `Ps` matrix transforms vector components
         ``(u_east, u_north, u_r)`` to contravariant components in a cubed
@@ -560,10 +556,10 @@ class CSBasis:
 
         The output, `Ps`, will have shape ``(N, 3, 3)``.
 
-        Calculations based on equations from Appendix A of Yin et al.
-        (2017), with similar notation, except that ``lambda`` and ``phi``
-        is replaced with ``east`` and ``north`` (here, ``phi`` means
-        longitude, and not latitude as in the Yin paper).
+        Calculations based on equations from Appendix A of Yin et al. (2017),
+        with similar notation, except that ``lambda`` and ``phi`` is replaced
+        with ``east`` and ``north`` (here, ``phi`` means longitude, and not
+        latitude as in the Yin paper).
 
         Parameters
         ----------
@@ -581,11 +577,10 @@ class CSBasis:
         Returns
         -------
         Ps: array
-            Transformation matrices `Ps`, one for each point described by
-            the input parameters (using broadcasting rules). For ``N``
-            such points, `Ps` will have shape ``(N, 3, 3)``, where the
-            last two dimensions refer to column and row of the matrix.
-
+            Transformation matrices `Ps`, one for each point described by the
+            input parameters (using broadcasting rules). For ``N`` such
+            points, `Ps` will have shape ``(N, 3, 3)``, where the last two
+            dimensions refer to column and row of the matrix.
         """
 
         xi, et, r, block = map(
@@ -701,15 +696,15 @@ class CSBasis:
 
     def get_Qij(self, xi, eta, block_i, block_j):
         """
-        Calculate matrix `Qij` that transforms contravariant vector
-        components from `block_i` to `block_j`.
+        Calculate matrix `Qij` that transforms contravariant vector components
+        from block `block_i` to `block_j`.
 
-        Calculations are done via transformation to spherical coordinates,
-        as suggested by Yin et al. See equations (66) and (67) in their
+        Calculations are done via transformation to spherical coordinates, as
+        suggested by Yin et al. (2017) See equations (66) and (67) in their
         paper.
 
-        It works like this, where ``(u1, u2, u_3)`` refer to
-        contravariant vector components::
+        It works like this, where ``(u1, u2, u3)`` refer to contravariant
+        vector components in the cubed sphere coordinate systems::
 
             |u1_j|      |u1_i|
             |u2_j| = Qij|u2_i|
@@ -730,11 +725,10 @@ class CSBasis:
         Returns
         -------
         Qij: array
-            Transformation matrices `Qij`, one for each point described by
-            the input parameters (using broadcasting rules). For ``N``
-            such points, `Qij` will have shape ``(N, 3, 3)``, where the
-            last two dimensions refer to column and row of the matrix.
-
+            Transformation matrices `Qij`, one for each point described by the
+            input parameters (using broadcasting rules). For ``N`` such
+            points, `Qij` will have shape ``(N, 3, 3)``, where the last two
+            dimensions refer to column and row of the matrix.
         """
 
         xi_i, eta_i, block_i, block_j = map(
@@ -806,24 +800,22 @@ class CSBasis:
         coordinate: string, {'xi', 'eta', 'both'}, default = 'xi'
             Which coordinate to differentiate with respect to.
         Ns: int, optional, default = 1
-            Differentiation stencil size. Default gives first order
-            central difference.
+            Differentiation stencil size. Default gives first order central
+            difference.
         Ni: int, optional
             Number of points to use for interpolation for points in the
             stencil that fall on non-integer grid points on neighboring
-            block.
+            blocks.
         order: int, optional, default = 1
-            Order of differentiation. Default gives first order
-            derivative. Make sure that ``Ns >= order``.
+            Order of differentiation. Default gives first order derivative.
+            Make sure that ``Ns >= order``.
 
         Returns
         -------
         D: sparse matrix
-            Sparse ``(6*N*N, 6*N*N)`` matrix that calculates the
-            derivative of a scalar field with respect to ``xi``, ``eta``,
-            or both (in which case two matrices will be returned), as
+            Sparse ``(6*N*N, 6*N*N)`` matrix that calculates the derivative
+            of a scalar field with respect to ``xi`` or ``eta`` as
             ``derivative = D.dot(f)``, where ``f`` is the scalar field.
-
         """
         if coordinate not in ["xi", "eta", "both"]:
             raise ValueError(
@@ -884,9 +876,9 @@ class CSBasis:
         Calculate a sparse matrix D that interpolates from grid points in
         a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`).
 
-        `D` will have ``6*N**2`` columns that refer to the ``(6, N, N)``
-        grid points, spanning the 6 blocks in the cubed sphere, with
-        duplicate points on the boundaries.
+        `D` will have ``6*N**2`` columns that refer to the ``(6, N, N)`` grid
+        points, spanning the 6 blocks in the cubed sphere, with duplicate
+        points on the boundaries.
 
         Parameters
         ----------
@@ -897,35 +889,34 @@ class CSBasis:
             Integer indices that refer to the ``xi``-direction (but can be
             negative or ``>= N``). Will be flattened.
         j: array-like
-            Integer indices that refer to the ``eta``-direction (but can
-            be negative or ``>= N``). Will be flattened.
+            Integer indices that refer to the ``eta``-direction (but can be
+            negative or ``>= N``). Will be flattened.
         N: int
             Number of grid points.
         Ni: int
             Number of interpolation points. Must be ``<= N`` (usually 4 is
-            ok).
+            an appropriate value).
         weights: array-like, optional
-            If different values of `k`, `i`, `j` are assigned to the same
-            row, the corresponding element will have value 1 (or whatever
-            the interpolation dictates) unless weights is specified. For
+            If different values of `k`, `i`, `j` are assigned to the same row,
+            the corresponding element will have value 1 (or whatever the
+            interpolation dictates) unless weights is specified. For
             differentiation, use weights to specify the stencil
             coefficients.
         rows: array-like, optional
-            The row index of each element in `k`, `i`, `j`. Different
-            elements of `k`, `i`, `j` can be put in the same row. If not
+            The row index of each element in `k`, `i`, `j`. Different elements
+            of `k`, `i`, `j` can be put in the same row. If not
             specified, each element in `k`, `i`, `j` will be given its own
             row.
 
         Returns
         -------
         D: sparse matrix
-            ``(rows.max() + 1 by 6*N*N)`` matrix that, when multiplied by
-            a vector containing a scalar field on the ``6*N*N`` grid
-            points, produces interpolated values at the given grid points.
-            The grid points may be outside the cube blocks, for example
-            they can be negative (actually that's the point, if not this
-            function wouldn't be needed).
-
+            ``(rows.max() + 1 by 6*N*N)`` matrix that, when multiplied by a
+            vector containing a scalar field on the ``6*N*N`` grid points,
+            produces interpolated values at the given grid points. The grid
+            points may be outside the cube blocks, for example they can be
+            negative (actually that's the point, if not this function
+            wouldn't be needed).
         """
 
         if Ni > N:
@@ -1047,10 +1038,12 @@ class CSBasis:
         return D
 
     def block(self, lon, lat):
-        """Determine which cube face (block) contains given spherical coordinates.
+        """
+        Determine which cube face (block) contains given spherical
+        coordinates.
 
-        For each input point, determines which of the six cube faces is closest
-        by calculating distances to face midpoints in Cartesian space.
+        For each input point, determines which of the six cube faces is
+        closest by calculating distances to face midpoints in Cartesian space.
 
         Parameters
         ----------
@@ -1126,8 +1119,7 @@ class CSBasis:
         """
         Convert from geocentric coordinates to cube coords (`xi`, `eta`).
 
-        Input parameters must have same shape. Output will have same
-        shape.
+        Input parameters must have same shape. Output will have same shape.
 
         Parameters
         ----------
@@ -1136,9 +1128,9 @@ class CSBasis:
         lat: array
             Geocentric latitude(s) to convert to cube coords, in degrees.
         block: array-like, optional
-            Option to specify cube block. If ``None``, it will be
-            calculated. If specified, be careful because the function will
-            map points at opposite side of the sphere to specified block.
+            Option to specify cube block. If ``None``, it will be calculated.
+            If specified, be careful because the function will map points at
+            opposite side of the sphere to specified block.
 
         Returns
         -------
@@ -1198,9 +1190,10 @@ class CSBasis:
         self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
     ):
         """
-        Interpolate vector components defined on theta, phi to given spherical coordinates
+        Interpolate vector components defined on (theta, phi) to given
+        spherical coordinates.
 
-        Broadcasting rules apply for input and output separately
+        Broadcasting rules apply for input and output separately.
 
 
         Parameters
@@ -1221,8 +1214,8 @@ class CSBasis:
             Array of target coordinates
 
         **kwargs
-            Passed to scipy.interpolate.griddata which performs the interpolation
-            on each block
+            Passed to scipy.interpolate.griddata which performs the
+            interpolation on each block
 
         Returns
         -------
@@ -1312,7 +1305,8 @@ class CSBasis:
         self, scalar, theta, phi, theta_target, phi_target, **kwargs
     ):
         """
-        Interpolate scalar values defined on theta, phi to given spherical coordinates
+        Interpolate scalar values defined on theta, phi to given spherical
+        coordinates
 
         Broadcasting rules apply for input and output separately
 
@@ -1331,8 +1325,8 @@ class CSBasis:
             Array of target coordinates
 
         **kwargs
-            Passed to scipy.interpolate.griddata which performs the interpolation
-            on each block
+            Passed to scipy.interpolate.griddata which performs the
+            interpolation on each block
 
         Returns
         -------
