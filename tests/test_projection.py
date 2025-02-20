@@ -2,8 +2,8 @@
 
 1) Conversions to / from cubed sphere, Cartesian, and spherical
 coordinates 2) Conversions to / from cubed sphere, Cartesians, and
-spherical components 3) Plot cubed sphere grid and vector components in
-Cartesian 3D and on Cartopy projeciton 4) Plot eastward and northward
+spherical components 3) Plot cubed sphere grid and vector components
+in Cartesian 3D and on Cartopy projection 4) Plot eastward and northward
 vector fields on cubed sphere blocks
 """
 
@@ -22,9 +22,10 @@ p = cs_basis.CSBasis()
 
 
 def test_projection():
-
-    ### 1) Test conversions to / from cubed sphere, Cartesians, and spherical coordinates
-    #####################################################################################
+    """Test cubed sphere functionality."""
+    ### 1) Test conversions to / from cubed sphere, Cartesian, and
+    ###    spherical coordinates
+    ##############################################################
     N = 5000  # number of test points
     xx, yy, zz = (
         2 * np.random.random(N) - 1,
@@ -49,9 +50,8 @@ def test_projection():
         90 - np.rad2deg(theta) - lat, 0
     ) & np.allclose(np.rad2deg(phi) - lon, 0)
     print(
-        "Conversion from (lon, lat, block) to (xi, eta) and back works: {}".format(
-            geo2cube2spherical_works
-        )
+        "Conversion from (lon, lat, block) to (xi, eta) and back works: "
+        f"{geo2cube2spherical_works}"
     )
 
     assert geo2cube2spherical_works
@@ -63,15 +63,15 @@ def test_projection():
         & np.allclose(z - zz, 0)
     )
     print(
-        "Conversion from (x, y, z, block ) to (xi, eta) and back works: {}".format(
-            geo2cube2cartesian_works
-        )
+        "Conversion from (x, y, z, block ) to (xi, eta) and back works: "
+        f"{geo2cube2cartesian_works}"
     )
 
     assert geo2cube2cartesian_works
 
-    ### 2) Test conversions to / from cubed sphere, Cartesians, and spherical components
-    ####################################################################################
+    ### 2) Test conversions to / from cubed sphere, Cartesian, and
+    ###    spherical components
+    ##############################################################
     N = xx.size
     Axyz = 2 * np.random.random((3, N)) - 1  # (3, N) random vector components
 
@@ -89,37 +89,37 @@ def test_projection():
 
     cubed2cartesian_works = np.allclose(Axyz - Axyz_, 0)
     print(
-        "Converting vector components between cubed sphere and Cartesian give consistent results: {}".format(
-            cubed2cartesian_works
-        )
+        "Converting vector components between cubed sphere and Cartesian give "
+        f"consistent results: {cubed2cartesian_works}"
     )
     cubed2spherical_works = np.allclose(A_ - A, 0)
     print(
-        "Converting vector components between cubed sphere and spherical give consistent results: {}".format(
-            cubed2spherical_works
-        )
+        "Converting vector components between cubed sphere and spherical give "
+        f"consistent results: {cubed2spherical_works}"
     )
     norm_consistent = np.allclose(
         np.linalg.norm(Asph_normed, axis=0) - np.linalg.norm(Axyz, axis=0), 0
     )
     print(
-        "Cartesian and normalizd spherical vectors have the same norm: {}".format(
-            norm_consistent
-        )
+        "Cartesian and normalized spherical vectors have the same norm: "
+        f"{norm_consistent}"
     )
 
     assert cubed2cartesian_works
     assert cubed2spherical_works
     assert norm_consistent
 
-    ### 3) Plot cubed sphere grid and vector components in Cartesian 3D and on Cartopy projeciton
-    #############################################################################################
+    ### 3) Plot CS grid and vector components in Cartesian 3D and on
+    ###    Cartopy projection
+    ################################################################
     print(
-        "Plotting cubed sphere grid and vector components in Cartesian 3D and on Cartopy projection"
+        "Plotting cubed sphere grid and vector components in Cartesian 3D and "
+        "on Cartopy projection"
     )
 
     phi0, lat0 = 0, 0
-    N = 16  # number of grid points in each direction per block (should be even)
+    # Number of grid points in each direction per block (should be even)
+    N = 16
 
     fig = plt.figure(figsize=(12, 8))
     axxyz1 = fig.add_subplot(233, projection="3d")
@@ -243,7 +243,7 @@ def test_projection():
             color=C,
         )
 
-    # make Cartesian plots prettier:
+    # Make Cartesian plots prettier
     for ax in [axxyz1, axxyz2]:
         ax.set_axis_off()
         ax.set_xlim(-1, 1)
@@ -264,7 +264,7 @@ def test_projection():
     # axxyz1.set_title(r'$\xi$ direction')
     # axxyz2.set_title(r'$\eta$ direction')
 
-    # link the two 3D axes so that if I rotate one, the other will adjust in the same way:
+    # Link two 3D axes so that if one rotates, the other does too
     def on_move(event):
         if event.inaxes == axxyz2:
             axxyz1.view_init(elev=axxyz2.elev, azim=axxyz2.azim)
@@ -278,8 +278,8 @@ def test_projection():
 
     plt.tight_layout()
 
-    ### 4) Plot eastward and northward vector fields on cubed sphere blocks
-    ########################################################################
+    ### 4) Plot eastward and northward vector fields on CS blocks
+    #############################################################
     print(
         "Plotting eastward and northward vector fields on cubed sphere blocks"
     )
@@ -323,8 +323,22 @@ def test_projection():
         axes[1, block].set_title("block " + str(block) + ", northward")
 
         for ax in axes.T[block]:
-            # cs = ax.contour(xihd, etahd, la, levels = np.r_[-80:90:10], colors = 'lightgrey', linewidths = 1, zorder = 0)
-            # ax.clabel(cs, cs.levels, inline = True, fmt = lambda x: r'{:.0f}$^\circ$N'.format(x), zorder = 0)
+            # cs = ax.contour(
+            #    xihd,
+            #    etahd,
+            #    la,
+            #    levels=np.r_[-80:90:10],
+            #    colors="lightgrey",
+            #    linewidths=1,
+            #    zorder=0,
+            # )
+            # ax.clabel(
+            #    cs,
+            #    cs.levels,
+            #    inline=True,
+            #    fmt=lambda x: r"{:.0f}$^\circ$N".format(x),
+            #    zorder=0,
+            # )
             for lo_ in np.r_[-180:180:30]:
                 la_ = np.linspace(-90, 90, 181)
                 f = p.block(lo_, la_)

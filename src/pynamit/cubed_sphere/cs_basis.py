@@ -839,7 +839,7 @@ class CSBasis:
         if coordinate not in ["xi", "eta", "both"]:
             raise ValueError(
                 'coordinate must be either "xi", "eta", or "both". Not '
-                f' {coordinate}.'
+                f" {coordinate}."
             )
 
         if Ns < order:
@@ -1239,7 +1239,7 @@ class CSBasis:
         phi,
         theta_target,
         phi_target,
-        **kwargs
+        **kwargs,
     ):
         """Interpolate vector components.
 
@@ -1328,19 +1328,19 @@ class CSBasis:
                 np.vstack((xi_[mask], eta_[mask])).T,
                 u_vec_i[0][mask],
                 np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs
+                **kwargs,
             )
             interpolated_u2[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
                 u_vec_i[1][mask],
                 np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs
+                **kwargs,
             )
             interpolated_u3[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
                 u_vec_i[2][mask],
                 np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs
+                **kwargs,
             )
 
         # Convert back to spherical:
@@ -1421,7 +1421,7 @@ class CSBasis:
                 np.vstack((xi_[mask], eta_[mask])).T,
                 scalar[mask],
                 np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs
+                **kwargs,
             )
 
         return interpolated_scalar

@@ -1,3 +1,5 @@
+"""Grid-based steady state initialization test."""
+
 import os
 import tempfile
 import pytest
@@ -7,6 +9,7 @@ import numpy as np
 
 
 def test_steady_state_init_grid():
+    """Test grid-based simulation with steady state initialization."""
     # Arrange
     expected_coeff_norm = 1.5871318027885973e-07
     expected_coeff_max = 4.0088023617913045e-09
@@ -54,7 +57,7 @@ def test_steady_state_init_grid():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    # pyHWM uses single precision, so we need to relax tolerances for wind tests
+    # pyHWM uses single precision, tolerances relaxed for wind tests
     assert actual_coeff_norm == pytest.approx(
         expected_coeff_norm, abs=0.0, rel=1e-5
     )

@@ -1,3 +1,4 @@
+"""Dipole, PFAC, and HC test."""
 import os
 import tempfile
 import pytest
@@ -7,6 +8,7 @@ import numpy as np
 
 
 def test_2d_dipole_pfac_hc():
+    """Test 2D simulation with dipole, PFAC, and HC."""
     # Arrange
     expected_coeff_norm = 8.435033502506688e-08
     expected_coeff_max = 1.1767227657913303e-09

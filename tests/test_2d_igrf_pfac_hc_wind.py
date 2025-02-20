@@ -1,3 +1,4 @@
+"""IGRF, PFAC, HC, and wind test."""
 import os
 import tempfile
 import pytest
@@ -7,6 +8,7 @@ import numpy as np
 
 
 def test_2d_igrf_pfac_hc_wind():
+    """Test 2D simulation with IGRF, PFAC, HC, and wind."""
     # Arrange
     expected_coeff_norm = 9.966975271445825e-08
     expected_coeff_max = 1.8384103097086273e-09
@@ -50,7 +52,7 @@ def test_2d_igrf_pfac_hc_wind():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    # pyHWM uses single precision, so we need to relax tolerances for wind tests
+    # pyHWM uses single precision, tolerances relaxed for wind tests
     assert actual_coeff_norm == pytest.approx(
         expected_coeff_norm, abs=0.0, rel=1e-5
     )

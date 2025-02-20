@@ -60,7 +60,7 @@ def invert_3D_matrices(M):
 
     det = get_3D_determinants(M)
 
-    #Ccheck that the matrices are invertible
+    # Ccheck that the matrices are invertible
     if np.any(np.isclose(det, 0)):
         raise ValueError(
             "invert_3D_matrices: The following matrices are not invertible:",

@@ -1,6 +1,4 @@
-"""Testing differentiation on internal grid points (not including ghost
-cells)
-"""
+"""Testing internal grid point differentiation (excluding ghosts)."""
 
 import matplotlib.pyplot as plt
 from scipy.sparse import coo_matrix
@@ -13,13 +11,15 @@ import pytest
 
 
 @pytest.mark.skip(
-    reason="Differentiation must be re-implemented now that grid is cell centered"
+    reason="Differentiation must be re-implemented now that grid is "
+    "cell centered"
 )
 def test_differentiation():
-    # set up projection and make a grid (not using the grid class)
+    """Test cubed sphere differentiation."""
+    # Set up projection and make a grid (not using the grid class)
     R = 6371.2e3
     p = cs_basis.CSBasis()
-    N = 40  # number of grid points in each direction per block
+    N = 40  # Number of grid points in each direction per block
     dxi = np.pi / 2 / (N - 1)
     # deta = np.pi / 2 / (N - 1)
     block, xi, eta = np.meshgrid(
@@ -30,11 +30,11 @@ def test_differentiation():
     )
     r, theta, phi = p.cube2spherical(xi, eta, r=R, block=block, deg=True)
 
-    # calculate IGRF potential and spherical vector components at the grid points
+    # Calculate IGRF potential and spherical vector components on grid
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
     Br, Btheta, Bphi = igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1))
 
-    # - sanity check differentiate V wrt to R and get back Br
+    # Differentiate V with respect to R, sanity check if Br is recovered
     rs = np.array([-2, -1, 0, 1, 2]) * 1e3 + R
     Vs = np.vstack(
         [igrf_V(rr, theta, phi, datetime.datetime(2020, 1, 1)) for rr in rs]
@@ -45,12 +45,12 @@ def test_differentiation():
     Br_num_matches_Br = np.allclose(Br_num.flatten() - Br.flatten(), 0)
 
     print(
-        "Testing differentiation on grid points that are internal to the blocks:"
+        "Testing differentiation on grid points that are internal to "
+        "the blocks:"
     )
     print(
-        "Numerically calculated Br     matches Br     calculated with spherical harmonics: {}".format(
-            Br_num_matches_Br
-        )
+        "Numerically calculated Br     matches Br     calculated with "
+        f"spherical harmonics: {Br_num_matches_Br}"
     )
 
     assert Br_num_matches_Br
@@ -58,7 +58,18 @@ def test_differentiation():
     # differentiate wrt to xi and eta
     stencil_points = [-2, -1, 0, 1, 2]
     stencil = diffutils.stencil(np.array(stencil_points) * dxi)
-    # dxi_dxi = reduce(lambda x, y: x+ y, [stencil[i] * xi [:, 2 + stencil_points[i] :  (N - 2) + stencil_points[i], 2     :                            -2] for i in range(len(stencil_points))])
+    # dxi_dxi = reduce(
+    #    lambda x, y: x + y,
+    #    [
+    #        stencil[i]
+    #        * xi[
+    #            :,
+    #            2 + stencil_points[i] : (N - 2) + stencil_points[i],
+    #            2:-2,
+    #        ]
+    #        for i in range(len(stencil_points))
+    #    ],
+    # )
     dV_dxi = reduce(
         lambda x, y: x + y,
         [
@@ -68,7 +79,18 @@ def test_differentiation():
         ],
     )
 
-    # det_det = reduce(lambda x, y: x+ y, [stencil[i] * eta[:, 2                     :            -2, 2 + stencil_points[i] :  (N - 2) + stencil_points[i]] for i in range(len(stencil_points))])
+    # det_det = reduce(
+    #    lambda x, y: x + y,
+    #    [
+    #        stencil[i]
+    #        * eta[
+    #            :,
+    #            2:-2,
+    #            2 + stencil_points[i] : (N - 2) + stencil_points[i],
+    #        ]
+    #        for i in range(len(stencil_points))
+    #    ],
+    # )
     dV_det = reduce(
         lambda x, y: x + y,
         [
@@ -112,14 +134,12 @@ def test_differentiation():
     )
 
     print(
-        "Numerically calculated Btheta matches Btheta calculated with spherical harmonics: {}".format(
-            Btheta_num_matches_Btheta
-        )
+        "Numerically calculated Btheta matches Btheta calculated with "
+        f"spherical harmonics: {Btheta_num_matches_Btheta}"
     )
     print(
-        "Numerically calculated Bphi   matches Bphi   calculated with spherical harmonics: {}".format(
-            Bphi_num_matches_Bphi
-        )
+        "Numerically calculated Bphi   matches Bphi   calculated with "
+        f"spherical harmonics: {Bphi_num_matches_Bphi}"
     )
 
     assert Btheta_num_matches_Btheta
@@ -177,16 +197,20 @@ def test_differentiation():
         - 2 * Br_num[:, 2:-2, 2:-2] / R
     )
     # radial = dV2_dr2[:, 2:-2, 2:-2] - 2 * Br_num[:, 2:-2, 2:-2] / R
-    # horizontal = gc[:, 0, 0].reshape((1, N - 4, N - 4)) * dV2_dxi2 + gc[:, 1, 1].reshape((1, N - 4, N - 4)) * dV2_det2 + 2 * gc[:, 0, 1].reshape((1, N - 4, N - 4)) * dV2_dxideta
+    # horizontal = (
+    #    gc[:, 0, 0].reshape((1, N - 4, N - 4)) * dV2_dxi2
+    #    + gc[:, 1, 1].reshape((1, N - 4, N - 4)) * dV2_det2
+    #    + 2 * gc[:, 0, 1].reshape((1, N - 4, N - 4)) * dV2_dxideta
+    # )
 
     del2V_is_small = np.allclose(del2V, 0)
     print(
-        "You have discovered magnetic monopoles: {} (which is {})".format(
-            not del2V_is_small, "good" if del2V_is_small else "bad"
-        )
+        f"You have discovered magnetic monopoles: {not del2V_is_small} "
+        f'(which is {"good" if del2V_is_small else "bad"})'
     )
     print(
-        "Is del2V really small though? It doesnt seem to get smaller when increasing the resolution..."
+        "Is del2V really small though? It doesnt seem to get smaller "
+        "when increasing the resolution..."
     )
 
     assert del2V_is_small
@@ -199,21 +223,22 @@ def test_differentiation():
     size = np.prod(shape)
 
     p = cs_basis.CSBasis()
-    h = p.xi(1, N) - p.xi(0, N)  # step size between each grid cell
+    h = p.xi(1, N) - p.xi(0, N)  # Step size between each grid cell
 
-    # with ij indexing, (i, xi) vary along the first (numpy vertical) axis, and (j, eta) along the second (numpy horizontal) axis.
+    # With ij indexing, (i, xi) vary along the first (numpy vertical)
+    # axis, and (j, eta) along the second (numpy horizontal) axis.
     k, i, j = np.meshgrid(
         np.arange(6), np.arange(N), np.arange(N), indexing="ij"
     )
 
-    # indices for inner grid cells, for which no interpolation is required
+    # Indices for inner grid cells, no interpolation needed
     k_inner, i_inner, j_inner = (
         k[:, Ns:-Ns, Ns:-Ns],
         i[:, Ns:-Ns, Ns:-Ns],
         j[:, Ns:-Ns, Ns:-Ns],
     )
 
-    # set up differentiation stencil
+    # Set up differentiation stencil
     stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
     Nsp = len(stencil_points)
     stencil_weight1 = diffutils.stencil(
@@ -234,13 +259,25 @@ def test_differentiation():
     weights2 = np.repeat(stencil_weight2, k_inner.size)
     cols_xi = np.ravel_multi_index((k_const, i_diff, j_const), shape)
     cols_eta = np.ravel_multi_index((k_const, i_const, j_diff), shape)
-    # cols_xi_2d  = np.ravel_multi_index((k_const, i_diff , j_diff ), shape)
-    # cols_eta_2d = np.ravel_multi_index((k_const, i_diff , j_diff ), shape)
+    # cols_xi_2d = np.ravel_multi_index(
+    #    (k_const, i_diff, j_diff), shape
+    # )
+    # cols_eta_2d = np.ravel_multi_index(
+    #    (k_const, i_diff, j_diff), shape
+    # )
 
-    # cols = ravel_multi_index_cs(k, i, j, shape) -- some will have -1's, and those should be interpolated...?
-    # interpolation_points, weights = get_interpolation_kernel(k[cols == -1], i[cols == -1], j[cols == -1])
-    # cols.insert() <- this could be done by expnadning cols to 2D - with one dimension the same size as the interpolation kernel. It would create lots of duplicate values, that would be summed in the sparse matrix in the end.
-    # -- so if I want to get a function value at 3, -3, -5, I can call get_interpoaltion_kernel and from the output construct a matrix that interpolates to these points...
+    # cols = ravel_multi_index_cs(k, i, j, shape)
+    # Some will have -1's, and those should be interpolated...?
+    # interpolation_points, weights = get_interpolation_kernel(
+    #    k[cols == -1], i[cols == -1], j[cols == -1]
+    # )
+    # The following could be done by expanding cols to 2D, with one
+    # dimension the same size as the interpolation kernel. It would
+    # create lots of duplicate values, that would be summed in the
+    # sparse matrix in the end. So, if I want to get a function value
+    # at 3, -3, -5, I can call get_interpolation_kernel and from the
+    # output construct a matrix that interpolates to these points...
+    # cols.insert()
 
     rows = np.tile(
         np.ravel_multi_index(
@@ -254,7 +291,7 @@ def test_differentiation():
     Dxi2 = coo_matrix((weights2, (rows, cols_xi)), shape=(size, size))
     Deta2 = coo_matrix((weights2, (rows, cols_eta)), shape=(size, size))
 
-    # to test it, recalculate IGRF values in the grid chosen for the differentiation:
+    # For testing, recalculate IGRF values on the differentiation grid
     xi, eta = p.xi(i, N), p.eta(j, N)
     r, theta, phi = p.cube2spherical(xi, eta, r=R, block=k, deg=True)
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).flatten()
@@ -291,30 +328,31 @@ def test_differentiation():
         0,
     )
 
-    # compare the values on the inner grid cells (the numerical derivatives are all zero on the cells that would require ghost cells)
+    # Compare values on inner grid cells (all numerical derivatives are
+    # zero on cells requiring ghost cells)
     print(
-        "Using sparse differentiation matrix: Numerically calculated Btheta matches Btheta calculated with spherical harmonics: {}".format(
-            sparse_Btheta_matches_Btheta
-        )
+        "Using sparse differentiation matrix: Numerically calculated Btheta "
+        "matches Btheta calculated with spherical harmonics: "
+        f"{sparse_Btheta_matches_Btheta}"
     )
     print(
-        "Using sparse differentiation matrix: Numerically calculated Bphi   matches Bphi   calculated with spherical harmonics: {}".format(
-            sparse_Bphi_matches_Bphi
-        )
+        "Using sparse differentiation matrix: Numerically calculated Bphi   "
+        "matches Bphi   calculated with spherical harmonics: "
+        f"{sparse_Bphi_matches_Bphi}"
     )
 
     assert sparse_Btheta_matches_Btheta
     assert sparse_Bphi_matches_Bphi
 
     print("\nTesting differention on FULL grid, using interpolation matrix")
-    Ni = 4  # number of interpolation points
+    Ni = 4  # Number of interpolation points
     shape = (6, N, N)
     size = 6 * N * N
 
     k, i, j = p.get_gridpoints(N)
     kk, ii, jj = p.get_gridpoints(N, flat=True)
 
-    # get differentiation matrices:
+    # Get differentiation matrices:
     Dxi, Deta = p.get_Diff(N, coordinate="both", Ns=Ns, Ni=Ni, order=1)
 
     xi, eta = p.xi(ii, N), p.eta(jj, N)
@@ -342,14 +380,12 @@ def test_differentiation():
     north_matches_Btheta = np.all(np.isclose(u_north + Btheta, 0))
 
     print(
-        "Numerically calculated eastward  components consistent with SH: {}".format(
-            east_matches_Bphi
-        )
+        "Numerically calculated eastward components consistent with SH: "
+        "{east_matches_Bphi}"
     )
     print(
-        "Numerically calculated northward components consistent with SH: {}".format(
-            north_matches_Btheta
-        )
+        "Numerically calculated northward components consistent with SH: "
+        f"{north_matches_Btheta}"
     )
 
     assert east_matches_Bphi
@@ -362,7 +398,8 @@ def test_differentiation():
 
     h = p.xi(1, N) - p.xi(0, N)  # step size between each grid cell
 
-    # make a stencil that has a cross + first diagonal points (no clue what is a good idea here)
+    # Make a stencil that has a cross + first diagonal points
+    # (not sure what is a good idea here)
     stencil_i = np.hstack(
         (stencil_points, np.zeros(2 * Ns), np.array([-1, -1, 1, 1]))
     )
@@ -374,10 +411,10 @@ def test_differentiation():
         stencil_i / h, stencil_j / h, derivative="xy"
     )
 
-    # get matrices for second order differentation along single dimension:
+    # Matrices for second order differentation along single dimension
     Dxi2, Deta2 = p.get_Diff(N, coordinate="both", Ns=Ns, Ni=Ni, order=2)
 
-    # construct cross-term derivative
+    # Construct cross-term derivative
     i_diff = np.hstack([i + _ for _ in stencil_i])
     j_diff = np.hstack([j + _ for _ in stencil_j])
     k_const = np.tile(k, len(stencil_i))
