@@ -163,7 +163,7 @@ def tensor_scale_left(scaling_tensor, A):
         Scaled tensor.
     """
     first_dims = scaling_tensor.shape
-    last_dims = A.shape[len(first_dims) :]
+    last_dims = A.shape[len(first_dims):]
 
     A_scaled = scaling_tensor.reshape((np.prod(first_dims), 1)) * A.reshape(
         (np.prod(first_dims), np.prod(last_dims))

@@ -859,7 +859,7 @@ class CSBasis:
         )
 
         # Set up differentiation stencil
-        stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
+        stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1: Ns + 1]))
         Nsp = len(stencil_points)
         stencil_weight = diffutils.stencil(
             stencil_points, order=1, h=h

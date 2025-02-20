@@ -1139,7 +1139,7 @@ class Dynamics(object):
         """
         if not hasattr(self, "_sh_curl_matrix"):
             G_df_inv = self.state.basis_evaluator.G_helmholtz_inv[
-                self.state.basis.index_length :, :
+                self.state.basis.index_length:, :
             ]
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
                 self.state.basis.laplacian().reshape((-1, 1)) * G_df_inv

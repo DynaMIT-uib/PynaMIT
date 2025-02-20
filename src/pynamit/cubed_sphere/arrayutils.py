@@ -21,12 +21,15 @@ def get_3D_determinants(M):
     -------
     det : array
         Array with determinants, shape ``(N)``.
+
+    Raises
+    ------
+    ValueError
+        If the input array is not 3D or if the last two axes are not
+        3 x 3.
     """
-    # Make sure that M is 3D and that the last two axes are 3 x 3
     if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
-        raise ValueError(
-            "get_3D_determinants: Input must have shape (N, 3, 3)"
-        )
+        raise ValueError("Input array must have shape (N, 3, 3).")
 
     det = (
         M[:, 0, 0] * M[:, 1, 1] * M[:, 2, 2]
@@ -53,18 +56,21 @@ def invert_3D_matrices(M):
     -------
     Minv : array
         Array with inverse matrices, shape ``(N, 3, 3)``.
-    """
-    # Make sure that M is 3D and that the last two axes are 3 x 3
-    if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
-        raise ValueError("invert_3D_matrices: Input must have shape (N, 3, 3)")
 
+    Raises
+    ------
+    ValueError
+        If the input array is not 3D, if the last two axes are not
+        3 x 3, or if any of the matrices are not invertible.
+    """
+    if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
+        raise ValueError("Input array must have shape (N, 3, 3).")
     det = get_3D_determinants(M)
 
-    # Ccheck that the matrices are invertible
     if np.any(np.isclose(det, 0)):
         raise ValueError(
-            "invert_3D_matrices: The following matrices are not invertible:",
-            str(np.isclose(det, 0).nonzero()[0]),
+            "The following matrices are not invertible: "
+            f"{np.where(np.isclose(det, 0))[0]}."
         )
 
     Minv = np.empty(M.shape)
@@ -104,14 +110,19 @@ def constrain_values(arr, vmin, vmax, axis):
         ``a + constant``, where ``constant`` is chosen so that all
         elements of `a_shifted` is ``>= vmin`` and ``<= vmax`` (if
         possible).
+
+    Raises
+    ------
+    ValueError
+        If the range of `arr` is too large compared to `vmin` and
+        `vmax`.
     """
     amin = arr.min(axis=axis, keepdims=True)
     amax = arr.max(axis=axis, keepdims=True)
 
     if np.any(amax - amin > vmax - vmin):
         raise ValueError(
-            "clip_array: Elements of arr span too large range compared "
-            "to vmin and vmax"
+            "Range of array values is too large compared to vmin and vmax."
         )
 
     a_shifted = (
