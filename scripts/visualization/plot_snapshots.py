@@ -31,7 +31,7 @@ if GLOBAL_TIMESERIES:
     fig_E = plt.figure(figsize = (14, 10))
     fig_B = plt.figure(figsize = (14, 10))
     fig_Q = plt.figure(figsize = (14, 10))
-    
+
     for i, t in enumerate(ts):
         a.set_time(t + DT)
         ax_E = fig_E.add_subplot(shape[0], shape[1], i + 1, projection = a.get_global_projection())
@@ -82,7 +82,7 @@ if POLAR_TIMESERIES:
 
         a.set_time(t + DT)
 
-        
+
         # Define a subplot for the pair in two adjacent columns
         ax_left_E  = polplot.Polarplot(fig_E.add_subplot(gs_E[row, col * 2])     ) # First axis (left)
         ax_right_E = polplot.Polarplot(fig_E.add_subplot(gs_E[row, col * 2 + 1]) )# Second axis (right)
@@ -95,7 +95,7 @@ if POLAR_TIMESERIES:
         a.plot_electric_field_stream_function(ax_left_E, region = 'north', linewidths = 1)
         a.plot_electric_potential(ax_right_E, region = 'south', linewidths = .5)
         a.plot_electric_field_stream_function(ax_right_E, region = 'south', linewidths = 1)
-        
+
         a.plot_Br(ax_left_B, region = 'north').set_edgecolor('face')
         a.plot_equivalent_current(ax_left_B, region = 'north', linewidths = .5)
         a.plot_Br(ax_right_B, region = 'south').set_edgecolor('face')
@@ -110,12 +110,12 @@ if POLAR_TIMESERIES:
             if i == 0: # write some labels
                 ax_left.writeLATlabels(backgroundcolor = (0, 0, 0, 0), color = 'black')
                 ax_right.writeLATlabels(backgroundcolor = (0, 0, 0, 0), north = False, color = 'black')
-                ax_left.write(minlat, 12, '12', verticalalignment = 'bottom', horizontalalignment = 'center', ignore_plot_limits=True)        
-                ax_left.write(minlat, 18, '18', verticalalignment = 'center', horizontalalignment = 'right', ignore_plot_limits=True)        
-                ax_left.write(minlat, 0,  '00', verticalalignment = 'top', horizontalalignment = 'center', ignore_plot_limits=True)        
-                ax_right.write(minlat, 12, '12', verticalalignment = 'bottom', horizontalalignment = 'center', ignore_plot_limits=True)        
-                ax_right.write(minlat, 6, '06', verticalalignment = 'center', horizontalalignment = 'left', ignore_plot_limits=True)        
-                ax_right.write(minlat, 0,  '00', verticalalignment = 'top', horizontalalignment = 'center', ignore_plot_limits=True)        
+                ax_left.write(minlat, 12, '12', verticalalignment = 'bottom', horizontalalignment = 'center', ignore_plot_limits=True)
+                ax_left.write(minlat, 18, '18', verticalalignment = 'center', horizontalalignment = 'right', ignore_plot_limits=True)
+                ax_left.write(minlat, 0,  '00', verticalalignment = 'top', horizontalalignment = 'center', ignore_plot_limits=True)
+                ax_right.write(minlat, 12, '12', verticalalignment = 'bottom', horizontalalignment = 'center', ignore_plot_limits=True)
+                ax_right.write(minlat, 6, '06', verticalalignment = 'center', horizontalalignment = 'left', ignore_plot_limits=True)
+                ax_right.write(minlat, 0,  '00', verticalalignment = 'top', horizontalalignment = 'center', ignore_plot_limits=True)
 
     for fig in [fig_E, fig_B, fig_Q]:
         # Manually adjust the position of the pairs
@@ -141,7 +141,7 @@ if POLAR_TIMESERIES:
 
 
 if EQUATORIAL_EFIELD:
-    mlt  = np.linspace(0, 24, 361) % 24 
+    mlt  = np.linspace(0, 24, 361) % 24
     dl = np.diff(mlt)[0] * 15 * np.pi / 180 * a.RI
     mlat = np.full_like(mlt, 0)
     d = dipole.Dipole(a.time.year)

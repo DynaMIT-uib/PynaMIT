@@ -1,7 +1,7 @@
 import os
-os.environ["MKL_NUM_THREADS"] = "185" 
-os.environ["NUMEXPR_NUM_THREADS"] = "185" 
-os.environ["OMP_NUM_THREADS"] = "185" 
+os.environ["MKL_NUM_THREADS"] = "185"
+os.environ["NUMEXPR_NUM_THREADS"] = "185"
+os.environ["OMP_NUM_THREADS"] = "185"
 import numpy as np
 import pynamit
 from lompe import conductance

@@ -1,6 +1,8 @@
 """Visualization utilities for simulation results.
 
-This module provides plotting functions for visualizing ionospheric simulation results, including global maps, diagnostic plots, and time series visualizations.
+This module provides plotting functions for visualizing ionospheric
+simulation results, including global maps, diagnostic plots, and time
+series visualizations.
 """
 
 import numpy as np
@@ -34,7 +36,9 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     kwargs : dict
         Additional arguments for griddata interpolation
     """
-    inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
+    inlat, inlon, values = map(
+        np.ravel, np.broadcast_arrays(inlat, inlon, values)
+    )
     in_r = np.vstack(
         (
             np.cos(np.deg2rad(inlat)) * np.cos(np.deg2rad(inlon)),
@@ -44,7 +48,9 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     )
 
     outlon, outlat = np.broadcast_arrays(outlon, outlat)
-    shape = outlon.shape  # get the shape so we can reshape the result in the end
+    shape = (
+        outlon.shape
+    )  # get the shape so we can reshape the result in the end
     outlon, outlat = outlon.flatten(), outlat.flatten()
 
     result = np.zeros_like(outlon) - 1
@@ -164,8 +170,8 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
 def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     """Generate diagnostic plots of simulation state.
 
-    Creates visualizations of radial magnetic field, field-aligned currents,
-    and equivalent current function for debugging.
+    Creates visualizations of radial magnetic field, field-aligned
+    currents, and equivalent current function for debugging.
 
     Parameters
     ----------
@@ -180,7 +186,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
     Notes
     -----
-    Generates plots on a 50x90 lat-lon grid interpolated from simulation grid.
+    Generates plots on a 50x90 lat-lon grid interpolated from
+    simulation grid.
+
     Shows:
     - Radial magnetic field (Br)
     - Field-aligned currents normalized by radial field
@@ -207,8 +215,12 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     paxs_B = Polarplot(plt.subplot2grid((4, 4), (0, 1)))
     paxn_j = Polarplot(plt.subplot2grid((4, 4), (0, 2)))
     paxs_j = Polarplot(plt.subplot2grid((4, 4), (0, 3)))
-    gax_B = plt.subplot2grid((4, 2), (1, 0), projection=global_projection, rowspan=2)
-    gax_j = plt.subplot2grid((4, 2), (1, 1), projection=global_projection, rowspan=2)
+    gax_B = plt.subplot2grid(
+        (4, 2), (1, 0), projection=global_projection, rowspan=2
+    )
+    gax_j = plt.subplot2grid(
+        (4, 2), (1, 1), projection=global_projection, rowspan=2
+    )
     ax_1 = plt.subplot2grid((4, 3), (3, 0))
     ax_2 = plt.subplot2grid((4, 3), (3, 1))
     ax_3 = plt.subplot2grid((4, 3), (3, 2))
@@ -298,7 +310,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     )
     ax_2.set_ylabel(r"$j_\parallel$ [A/m$^2$] at conjugate points")
 
-    # scatter plot of Ed1 and Ed2 vs corresponding values at conjugate points
+    # Scatter plot of Ed1 and Ed2 vs conjugate point values
     cu_cp = (
         dynamics.state.u_phi_cp * dynamics.state.aup_cp
         + dynamics.state.u_theta_cp * dynamics.state.aut_cp
@@ -326,8 +338,12 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
     c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
     c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
+    Ed1_ll, Ed2_ll = np.split(
+        c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2
+    )
+    Ed1_cp, Ed2_cp = np.split(
+        c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2
+    )
     ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
     ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
     ax_3.set_xlabel("$E_{d_i}$")
@@ -369,7 +385,9 @@ if __name__ == "__main__":
     xi, eta = cs_basis.xi(i, Ncs), cs_basis.eta(j, Ncs)
     _, theta, phi = cs_basis.cube2spherical(xi, eta, k, deg=True)
 
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(
+        -180, 180, Ncs * 4
+    )
     lat, lon = np.meshgrid(lat, lon)
 
     from lompe import conductance
@@ -391,12 +409,13 @@ if __name__ == "__main__":
     hall_plt = cs_interpolate(cs_basis, 90 - theta, phi, hall, lat, lon)
     pede_plt = cs_interpolate(cs_basis, 90 - theta, phi, pedersen, lat, lon)
 
-    globalplot(lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100))
+    globalplot(
+        lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100)
+    )
 
 
 def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
-    """
-    Compare AMPS jr and curl-free currents.
+    """Compare AMPS jr and curl-free currents.
 
     Parameters
     ----------
@@ -418,7 +437,9 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
 
     # Define grid used for plotting
     Ncs = 30
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(
+        -180, 180, Ncs * 4
+    )
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
 
@@ -469,15 +490,21 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
 
-    m_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlat, lon=lon))
+    m_state_evaluator = BasisEvaluator(
+        dynamics.state_basis, Grid(lat=mlat, lon=lon)
+    )
     jr = dynamics.get_jr(m_state_evaluator) * 1e6
 
-    mv_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlatv, lon=lonv))
+    mv_state_evaluator = BasisEvaluator(
+        dynamics.state_basis, Grid(lat=mlatv, lon=lonv)
+    )
     js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
     jn = -js
 
     jrn, jrs = np.split(jr, 2)
-    paxes[2].contourf(mn_grid.lat, mn_grid.lon, jrn, levels=levels, cmap=plt.cm.bwr)
+    paxes[2].contourf(
+        mn_grid.lat, mn_grid.lon, jrn, levels=levels, cmap=plt.cm.bwr
+    )
     paxes[2].quiver(
         mnv_grid.lat,
         mnv_grid.lon,
@@ -486,7 +513,9 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         scale=SCALE,
         color="black",
     )
-    paxes[3].contourf(mn_grid.lat, mn_grid.lon, jrs, levels=levels, cmap=plt.cm.bwr)
+    paxes[3].contourf(
+        mn_grid.lat, mn_grid.lon, jrs, levels=levels, cmap=plt.cm.bwr
+    )
     paxes[3].quiver(
         mnv_grid.lat,
         mnv_grid.lon,
@@ -514,8 +543,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
 
 
 def plot_AMPS_Br(a):
-    """
-    Plot AMPS Br.
+    """Plot AMPS Br.
 
     Parameters
     ----------
@@ -552,8 +580,7 @@ def plot_AMPS_Br(a):
 
 
 def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
-    """
-    Show jr and conductance.
+    """Show jr and conductance.
 
     Parameters
     ----------
@@ -573,7 +600,9 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
     # Define grid used for plotting
     Ncs = 30
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(
+        -180, 180, Ncs * 4
+    )
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
 
@@ -626,9 +655,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
 
 def make_colorbars():
-    """
-    Create colorbars for the plots.
-    """
+    """Create colorbars for the plots."""
     levels = np.linspace(-0.9, 0.9, 22)  # color levels for jr muA/m^2
     c_levels = np.linspace(0, 20, 100)  # color levels for conductance
     Blevels = np.linspace(-300, 300, 22) * 1e-9  # color levels for Br
@@ -689,8 +716,8 @@ def time_dependent_plot(
 ):
     """Create time series visualization frame.
 
-    Generates and saves a single frame for time-dependent visualization of
-    simulation evolution.
+    Generates and saves a single frame for time-dependent
+    visualization of simulation evolution.
 
     Parameters
     ----------
@@ -741,8 +768,22 @@ def time_dependent_plot(
     # W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
     nnn = plt_grid.lat.flatten() > 50
     sss = plt_grid.lat.flatten() < -50
-    # paxn.contour(plt_grid.lat.flatten()[nnn], (plt_grid.lon.flatten() - lon0)[nnn] / 15, W  [nnn], colors = 'black', levels = Wlevels, linewidths = .5)
-    # paxs.contour(plt_grid.lat.flatten()[sss], (plt_grid.lon.flatten() - lon0)[sss] / 15, W  [sss], colors = 'black', levels = Wlevels, linewidths = .5)
+    # paxn.contour(
+    #    plt_grid.lat.flatten()[nnn],
+    #    (plt_grid.lon.flatten() - lon0)[nnn] / 15,
+    #    W[nnn],
+    #    colors="black",
+    #    levels=Wlevels,
+    #    linewidths=0.5,
+    # )
+    # paxs.contour(
+    #    plt_grid.lat.flatten()[sss],
+    #    (plt_grid.lon.flatten() - lon0)[sss] / 15,
+    #    W[sss],
+    #    colors="black",
+    #    levels=Wlevels,
+    #    linewidths=0.5,
+    # )
     paxn.contour(
         plt_grid.lat[nnn],
         (plt_grid.lon - lon0)[nnn] / 15,

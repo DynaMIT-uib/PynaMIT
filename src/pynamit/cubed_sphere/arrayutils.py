@@ -1,4 +1,4 @@
-"""Array utilities
+"""Array utilities.
 
 This module provides utility functions for performing array operations
 such as computing determinants and inverses of 3D matrices, as well as
@@ -14,18 +14,19 @@ def get_3D_determinants(M):
     Parameters
     ----------
     M : array
-        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D matrices.
+        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
+        matrices.
 
     Returns
     -------
     det : array
         Array with determinants, shape ``(N)``.
-
     """
-
-    # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
+    # Make sure that M is 3D and that the last two axes are 3 x 3
     if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
-        raise ValueError("get_3D_determinants: Input must have shape (N, 3, 3)")
+        raise ValueError(
+            "get_3D_determinants: Input must have shape (N, 3, 3)"
+        )
 
     det = (
         M[:, 0, 0] * M[:, 1, 1] * M[:, 2, 2]
@@ -45,23 +46,22 @@ def invert_3D_matrices(M):
     Parameters
     ----------
     M : array
-        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D invertible
-        matrices.
+        Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
+        invertible matrices.
 
     Returns
     -------
     Minv : array
         Array with inverse matrices, shape ``(N, 3, 3)``.
-
     """
-
-    # make sure that M is 3-dimensional and that the last two axes are 3 x 3:
+    # Make sure that M is 3D and that the last two axes are 3 x 3
     if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
         raise ValueError("invert_3D_matrices: Input must have shape (N, 3, 3)")
 
     det = get_3D_determinants(M)
 
-    if np.any(np.isclose(det, 0)):  # check that the matrices are invertible
+    #Ccheck that the matrices are invertible
+    if np.any(np.isclose(det, 0)):
         raise ValueError(
             "invert_3D_matrices: The following matrices are not invertible:",
             str(np.isclose(det, 0).nonzero()[0]),
@@ -82,37 +82,40 @@ def invert_3D_matrices(M):
 
 
 def constrain_values(arr, vmin, vmax, axis):
-    """
-    Constrain the values of `arr` to be between `vmin` and `vmax` by adding
-    a constant along a given axis.
+    """Constrain values of an array.
+
+    Constrains the values of `arr` to be between `vmin` and `vmax` by
+    adding a constant along a given axis.
 
     Parameters
     ----------
-    arr: array
+    arr : array
         Array to be clipped.
-    vmin: scalar
+    vmin : scalar
         Minimum allowed value in result array `a_shifted`.
-    vmax: scalar
+    vmax : scalar
         Maximum allowed value in result array `a_shifted`.
-    axis: integer
+    axis : integer
         Axis along which to add a constant.
 
     Returns
     -------
-    a_shifted: array
-        ``a + constant``, where ``constant`` is chosen so that all elements of
-        `a_shifted` is ``>= vmin`` and ``<= vmax`` (if possible).
-
+    a_shifted : array
+        ``a + constant``, where ``constant`` is chosen so that all
+        elements of `a_shifted` is ``>= vmin`` and ``<= vmax`` (if
+        possible).
     """
-
     amin = arr.min(axis=axis, keepdims=True)
     amax = arr.max(axis=axis, keepdims=True)
 
     if np.any(amax - amin > vmax - vmin):
         raise ValueError(
-            "clip_array: Elements of arr span too large range compared to vmin and vmax"
+            "clip_array: Elements of arr span too large range compared "
+            "to vmin and vmax"
         )
 
-    a_shifted = arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
+    a_shifted = (
+        arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
+    )
 
     return a_shifted

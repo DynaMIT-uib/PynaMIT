@@ -1,4 +1,4 @@
-""" script for testing various things with spherical harmonics """
+"""script for testing various things with spherical harmonics"""
 
 import numpy as np
 import pynamit
@@ -58,7 +58,7 @@ m_regularized = np.linalg.lstsq(GTG + alpha * R, GTd, rcond = 0)[0]
 
 
 if False:
-    hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
+    hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3.,
                              glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour, day = date.timetuple().tm_yday)
     u_phi   =  hwm14Obj.Uwind
     u_theta = -hwm14Obj.Vwind

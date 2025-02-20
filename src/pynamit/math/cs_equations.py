@@ -1,55 +1,148 @@
-"""Cubed Sphere Equations
+"""Cubed sphere equations module.
 
-This module contains the CSEquations class which provides equations for computing
-quantities on cubed sphere grids. It encapsulates operations such as metric tensor
-calculations, coordinate transformations, and differential operators used in
-cubed sphere coordinate computations.
+This module contains the CSEquations class which provides equations
+related to cubed sphere coordinates.
 """
 
 import numpy as np
 
 
 class CSEquations(object):
-    """
-    Equations related to cubed sphere coordinates.
+    """Equations related to cubed sphere coordinates.
 
-    Parameters
+    This class provides equations for computing quantities on cubed
+    sphere grids. It encapsulates operations such as metric tensor
+    calculations, coordinate transformations, and differential operators
+    used in cubed sphere coordinate computations.
+
+    Attributes
     ----------
     cs_basis : CSBasis
         Cubed sphere basis object.
     RI : float
         Radius of the sphere.
+    D : array
+        Differential operator matrix, where the first index is the
+        direction (0 for xi, 1 for eta).
+    g : array
+        Metric tensor.
+    sqrt_detg : array
+        Square root of the determinant of the metric tensor.
+    Ps : array
+        Matrix to convert from (u^east, u^north, u^up) to
+        (u^1, u^2, u^3), as defined in equation A1 in Yin et al. (2017).
+    Qi : array
+        Matrix to convert from physical (north, east, radial) to
+        (u^east, u^north, u^up), as defined in equation A1 in Yin et al.
+        (2017).
     """
 
     def __init__(self, cs_basis, RI):
-        """
-        Initialize the CSEquations object.
-        """
-        # self.Dxi, self.Deta = cs_basis.get_Diff(Ncs, coordinate = 'both') # differentiation matrices in xi and eta directions
-        self.g = cs_basis.g  # cs_basis.get_metric_tensor(xi, eta, 1, covariant = True)
-        # np.sqrt(cubedsphere.arrayutils.get_3D_determinants(self.g))
-        self.sqrtg = np.sqrt(cs_basis.detg)
-        # matrices to convert from u^east, u^north, u^up to u^1 ,u^2, u^3 (A1 in Yin)
-        self.Ps = cs_basis.get_Ps(
-            cs_basis.arr_xi, cs_basis.arr_eta, 1, cs_basis.arr_block
-        )
-        # matrices to convert from physical north, east, radial to u^east, u^north, u^up (A1 in Yin)
-        self.Qi = cs_basis.get_Q(90 - cs_basis.arr_theta, RI, inverse=True)
+        """Initialize the CSEquations object.
 
-        self.g12 = self.g[:, 0, 1]
-        self.g22 = self.g[:, 1, 1]
-        self.g11 = self.g[:, 0, 0]
+        Parameters
+        ----------
+        cs_basis : CSBasis
+            Cubed sphere basis object.
+        RI : float
+            Radius of the sphere.
+        """
+        self.cs_basis = cs_basis
+        self.RI = RI
+
+    @property
+    def D(self):
+        """Differential operator matrix.
+
+        Returns
+        -------
+        array
+            Differential operator matrix, where the first index is the
+            direction (0 for xi, 1 for eta).
+        """
+        if not hasattr(self, "_D"):
+            self._D = self.cs_basis.get_Diff(
+                self.cs_basis.Ncs, coordinate="both"
+            )
+        return self._D
+
+    @property
+    def g(self):
+        """Metric tensor.
+
+        Returns
+        -------
+        array
+            Metric tensor.
+        """
+        if not hasattr(self, "_g"):
+            self._g = self.cs_basis.g
+        return self._g
+
+    @property
+    def sqrt_detg(self):
+        """Square root of the determinant of the metric tensor.
+
+        Returns
+        -------
+        array
+            Square root of the determinant of the metric tensor.
+        """
+        if not hasattr(self, "_sqrt_detg"):
+            self._sqrt_detg = np.sqrt(self.cs_basis.detg)
+        return self._sqrt_detg
+
+    @property
+    def Ps(self):
+        """Ps matrix.
+
+        Returns
+        -------
+        array
+            Matrix to convert from (u^east, u^north, u^up) to
+            (u^1, u^2, u^3), as defined in equation A1 in Yin et al.
+            (2017).
+        """
+        if not hasattr(self, "_Ps"):
+            self._Ps = self.cs_basis.get_Ps(
+                self.cs_basis.arr_xi,
+                self.cs_basis.arr_eta,
+                1,
+                self.cs_basis.arr_block,
+            )
+        return self._Ps
+
+    @property
+    def Qi(self):
+        """Qi matrix.
+
+        Returns
+        -------
+        array
+            Matrix to convert from physical (north, east, radial) to
+            (u^east, u^north, u^up), as defined in equation A1 in Yin et
+            al. (2017).
+        """
+        if not hasattr(self, "_Qi"):
+            self._Qi = self.cs_basis.get_Q(
+                90 - self.cs_basis.arr_theta, self.RI, inverse=True
+            )
+        return self._Qi
 
     def curlr(self, u1, u2):
-        """
-        Construct a matrix that calculates the radial curl using B6 in Yin et al.
+        """Calculate radial curl of vector field.
+
+        Calculates the radial curl of a vector field in cubed sphere
+        components using equation B6 in Yin et al. (2017).
 
         Parameters
         ----------
         u1 : array-like
-            First contravarient component of the vector field in cubed sphere components.
+            First contravariant component of the vector field in cubed
+            sphere components.
         u2 : array-like
-            Second contravarient component of the vector field in cubed sphere components.
+            Second contravariant component of the vector field in cubed
+            sphere components.
 
         Returns
         -------
@@ -58,32 +151,38 @@ class CSEquations(object):
         """
         return (
             1
-            / self.sqrtg
+            / self.sqrt_detg
             * (
-                self.Dxi.dot(self.g12 * u1 + self.g22 * u2)
-                - self.Deta.dot(self.g11 * u1 + self.g12 * u2)
+                self.D[0].dot(self.g[:, 0, 1] * u1 + self.g[:, 1, 1] * u2)
+                - self.D[1].dot(self.g[:, 0, 0] * u1 + self.g[:, 0, 1] * u2)
             )
         )
 
     def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
-        """
-        Convert from ``(east, north, up)`` to ``(u^1, u^2, u^3)`` (ref. Yin).
+        """Convert from spherical to contravariant cubed sphere.
+
+        Converts from ``(east, north, up)`` to ``(u^1, u^2, u^3)`` (ref.
+        Yin, 2017).
 
         The input must match the CS grid.
 
         Parameters
         ----------
         Ar : array-like
-            Radial component of the vector field.
+            Radial component of the vector field. Must match the
+            dimensions of the cubed sphere grid.
         Atheta : array-like
-            Latitudinal component of the vector field.
+            Latitudinal component of the vector field. Must match the
+            dimensions of the cubed sphere grid.
         Aphi : array-like
-            Longitudinal component of the vector field.
+            Longitudinal component of the vector field. Must match the
+            dimensions of the cubed sphere grid.
 
         Returns
         -------
         u1, u2, u3 : arrays
-            Contravariant components of the vector field in cubed sphere coordinates.
+            Contravariant components of the vector field in cubed sphere
+            coordinates.
         """
         east = Aphi
         north = -Atheta

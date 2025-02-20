@@ -1,9 +1,7 @@
-"""Array Flattening Utilities
+"""Flattened array module.
 
-This module provides tools for converting between multidimensional and flattened array
-representations while preserving the ability to reshape back to the original form.
-The FlattenedArray class encapsulates a multidimensional array in a flattened form with
-reshaping capability.
+This module contains the FlattenedArray class for representing
+multidimensional arrays in flattened form.
 """
 
 import math
@@ -12,18 +10,8 @@ import math
 class FlattenedArray(object):
     """Represents multidimensional arrays in flattened form.
 
-    Converts between multidimensional and flattened array representations while
-    maintaining the ability to reshape back to original dimensions. Allows flattening
-    specified numbers of dimensions from start and/or end of array.
-
-    Parameters
-    ----------
-    full_array : array-like
-        The multidimensional array to be flattened
-    n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis
-    n_trailing_flattened : int, optional
-        Number of trailing dimensions to flatten into last axis
+    Encapsulates a multidimensional array in flattened form while
+    maintaining the ability to reference the original shape.
 
     Attributes
     ----------
@@ -35,35 +23,46 @@ class FlattenedArray(object):
         Shape after flattening (n_first, n_last)
     array : array-like
         Flattened array of shape `shapes`
-
-    Notes
-    -----
-    Must specify at least one of n_leading_flattened or n_trailing_flattened.
-    If both are specified, they must sum to the total number of dimensions.
-
-    Raises
-    ------
-    ValueError
-        If neither or invalid combination of n_leading_flattened/last specified
     """
 
-    def __init__(self, full_array, n_leading_flattened=None, n_trailing_flattened=None):
-        """
-        Initialize a FlattenedArray object from the multidimensional array
-        `full_array` and at least one of `n_leading_flattened` or
-        `n_trailing_flattened`, specifying the number of first or last
-        dimensions to flatten, respectively.
+    def __init__(
+        self, full_array, n_leading_flattened=None, n_trailing_flattened=None
+    ):
+        """Initialize a FlattenedArray object.
 
-        """
+        Parameters
+        ----------
+        full_array : array-like
+            The multidimensional array to be flattened
+        n_leading_flattened : int, optional
+            Number of leading dimensions to flatten into first axis
+        n_trailing_flattened : int, optional
+            Number of trailing dimensions to flatten into last axis
 
+        Raises
+        ------
+        ValueError
+            If neither or invalid combination of `n_leading_flattened`
+            and `n_trailing_flattened` is specified.
+
+        Notes
+        -----
+        If both `n_leading_flattened` and `n_trailing_flattened` are
+        specified, they must sum to the total number of dimensions.
+        """
         if n_leading_flattened is None and n_trailing_flattened is None:
             raise ValueError(
-                "Either n_leading_flattened or n_trailing_flattened must be specified."
+                "Either n_leading_flattened or n_trailing_flattened must be "
+                "specified."
             )
-        elif n_leading_flattened is not None and n_trailing_flattened is not None:
+        elif (
+            n_leading_flattened is not None
+            and n_trailing_flattened is not None
+        ):
             if n_leading_flattened + n_trailing_flattened != full_array.ndim:
                 raise ValueError(
-                    "n_leading_flattened + n_trailing_flattened must be equal to the number of dimensions of the array."
+                    "n_leading_flattened + n_trailing_flattened must be equal "
+                    "to the number of dimensions of the array."
                 )
         elif n_trailing_flattened is not None:
             n_leading_flattened = full_array.ndim - n_trailing_flattened

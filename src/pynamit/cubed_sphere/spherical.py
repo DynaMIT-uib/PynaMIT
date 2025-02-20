@@ -1,6 +1,8 @@
 """Spherical Coordinate Utilities.
 
-This module provides functions for converting between spherical and Cartesian coordinates, transforming coordinate systems, and other operations performed in spherical coordinates.
+This module provides functions for converting between spherical and
+Cartesian coordinates, transforming coordinate systems, and other
+operations performed in spherical coordinates.
 """
 
 import numpy as np
@@ -10,17 +12,19 @@ r2d = 180 / np.pi
 
 
 def sph_to_car(sph, deg=True):
-    """
-    Convert from spherical to Cartesian coordinates.
+    """Convert from spherical to Cartesian coordinates.
 
-    Converts a 3 x N array representing spherical coordinates to a 3 x N array of Cartesian coordinates.
+    Converts a 3 x N array representing spherical coordinates to a 3 x N
+    array of Cartesian coordinates.
 
     Parameters
     ----------
     sph : array-like
-        A 3 x N array containing the spherical coordinates [r, colatitude, longitude].
+        A 3 x N array containing the spherical coordinates
+        [r, colatitude, longitude].
     deg : bool, optional
-        If True, the input angles are in degrees; otherwise in radians. Default is True.
+        If True, the input angles are in degrees; otherwise in radians.
+        Default is True.
 
     Returns
     -------
@@ -39,22 +43,24 @@ def sph_to_car(sph, deg=True):
 
 
 def car_to_sph(car, deg=True):
-    """
-    Convert from Cartesian to spherical coordinates.
+    """Convert from Cartesian to spherical coordinates.
 
-    Converts a 3 x N array representing Cartesian coordinates to a 3 x N array of spherical coordinates.
+    Converts a 3 x N array representing Cartesian coordinates to a 3 x N
+    array of spherical coordinates.
 
     Parameters
     ----------
     car : array-like
         A 3 x N array containing the Cartesian coordinates [x, y, z].
     deg : bool, optional
-        If True, the output angles are in degrees; otherwise in radians. Default is True.
+        If True, the output angles are in degrees; otherwise in radians.
+        Default is True.
 
     Returns
     -------
     ndarray
-        A 3 x N array containing the spherical coordinates [r, colatitude, longitude].
+        A 3 x N array containing the spherical coordinates
+        [r, colatitude, longitude].
     """
     x, y, z = car
     conv = 1.0 if not deg else r2d
@@ -65,10 +71,10 @@ def car_to_sph(car, deg=True):
 
 
 def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
-    """
-    Transform spherical coordinates from one system to another.
+    """Transform spherical coordinates from one system to another.
 
-    Given input latitudes and longitudes, computes the corresponding coordinates in a new spherical system defined by new x and z axes.
+    Given input latitudes and longitudes, computes the corresponding
+    coordinates in a new spherical system defined by new x and z axes.
 
     Parameters
     ----------
@@ -85,12 +91,14 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     z_lon : float
         Longitude of the new z-axis.
     deg : bool, optional
-        If True, the input and output angles are in degrees; otherwise in radians. Default is True.
+        If True, the input and output angles are in degrees, otherwise
+        in radians. Default is True.
 
     Returns
     -------
     tuple of ndarray
-        A tuple containing the transformed latitude and longitude in the new coordinate system.
+        A tuple containing the transformed latitude and longitude in the
+        new coordinate system.
     """
     lat, lon = lat.flatten(), lon.flatten()
     conv = 1.0 if not deg else d2r
@@ -118,7 +126,9 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     new_y = np.cross(new_z, new_x)
     new_x, new_y, new_z = new_x.flatten(), new_y.flatten(), new_z.flatten()
     if not np.isclose(np.linalg.norm(new_y), 1):
-        raise ValueError("x and z coordinates do not define orthogonal directions")
+        raise ValueError(
+            "x and z coordinates do not define orthogonal directions"
+        )
     r = np.vstack((new_x, new_y, new_z))
     xyz = r.dot(xyz)
     _, colat, lon = car_to_sph(xyz, deg=deg)
@@ -126,26 +136,29 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
 
 
 def enu_to_ecef(v, lon, lat, reverse=False):
-    """
-    Convert between ENU and ECEF coordinate systems.
+    """Convert between ENU and ECEF coordinate systems.
 
-    Converts an array of vector components from East-North-Up (ENU) to Earth-Centered Earth-Fixed (ECEF) coordinates, or vice versa if reverse is True.
+    Converts an array of vector components from East-North-Up (ENU) to
+    Earth-Centered Earth-Fixed (ECEF) coordinates, or vice versa if
+    `reverse` is True.
 
     Parameters
     ----------
     v : array-like
-        An N x 3 array of vector components in ENU (or ECEF if reverse is True).
+        An N x 3 array of vector components in ENU (or ECEF if `reverse`
+        is True).
     lon : array-like
         An array of longitudes in degrees.
     lat : array-like
         An array of latitudes in degrees.
     reverse : bool, optional
-        If True, converts from ECEF to ENU; otherwise, from ENU to ECEF. Default is False.
+        If True, converts from ECEF to ENU; otherwise, from ENU to ECEF.
+        Default is False.
 
     Returns
     -------
     ndarray
-        An N x 3 array of vector components in the target coordinate system.
+        An N x 3 array of vector components in target coordinate system.
     """
     phi = lon * d2r
     theta = (90 - lat) * d2r
@@ -171,10 +184,10 @@ def enu_to_ecef(v, lon, lat, reverse=False):
 
 
 def ecef_to_enu(v, lon, lat):
-    """
-    Convert vectors from ECEF to ENU coordinates.
+    """Convert vectors from ECEF to ENU coordinates.
 
-    Convenience wrapper around enu_to_ecef() with the reverse flag set to True.
+    Convenience wrapper around enu_to_ecef() with the reverse flag set
+    to True.
 
     Parameters
     ----------
@@ -194,10 +207,10 @@ def ecef_to_enu(v, lon, lat):
 
 
 def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
-    """
-    Calculate the tangential unit vector on a sphere.
+    """Calculate the tangential unit vector on a sphere.
 
-    Computes a unit vector tangent to the sphere at the point (lat1, lon1) pointing towards (lat2, lon2).
+    Computes a unit vector tangent to the sphere at the point
+    (lat1, lon1) pointing towards (lat2, lon2).
 
     Parameters
     ----------
@@ -210,24 +223,29 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     lon2 : array-like
         Longitude(s) of the target point.
     degrees : bool, optional
-        If True, inputs are in degrees; otherwise, in radians. Default is True.
+        If True, inputs are in degrees; otherwise, in radians. Default
+        is True.
 
     Returns
     -------
     tuple of ndarray
-        A tuple (east, north) representing the eastward and northward components of the tangential unit vector.
+        A tuple (east, north) representing the eastward and northward
+        components of the tangential unit vector.
 
     Raises
     ------
     ValueError
-        If input arrays do not have the same shape or if the tangent is undefined (points nearly identical or antipodal).
+        If input arrays do not have the same shape or if the tangent is
+        undefined (points nearly identical or antipodal).
     """
     if not (lat1.shape == lon1.shape == lat2.shape == lon2.shape):
-        raise ValueError("tangent_vector: input coordinates do not have equal shapes")
+        raise ValueError(
+            "tangent_vector: input coordinates do not have equal shapes"
+        )
 
     shape = lat1.shape
 
-    # convert to radians if necessary, and flatten:
+    # Convert to radians if necessary, and flatten
     if degrees:
 
         def converter(x):
@@ -240,7 +258,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
     lat1, lon1, lat2, lon2 = list(map(converter, (lat1, lon1, lat2, lon2)))
 
-    # ECEF position vectors:
+    # ECEF position vectors
     ecef_p1 = np.vstack(
         (
             np.cos(lat1) * np.cos(lon1),
@@ -256,24 +274,28 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
         )
     )
 
-    # Check if tangent is well defined:
+    # Check if tangent is well defined
     if np.any(np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0)):
-        points = np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0).nonzero()[0]
+        points = np.isclose(
+            np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0
+        ).nonzero()[0]
         raise ValueError(
-            "tangent_vector: input coordinates at nearly identical or antipodal points; tangent not defined\n flattened coordinates: %s"
-            % points
+            "tangent_vector: input coordinates at nearly identical or "
+            "antipodal points; tangent not defined\n flattened "
+            "coordinates: %s" % points
         )
 
-    # Non-tangential difference vector (3, N):
+    # Non-tangential difference vector (3, N)
     dp = ecef_p2 - ecef_p1
 
-    # Subtract normal part of the vectors to make tangential vector in ECEF coordinates:
+    # Subtract normal part of vectors to make tangential vector in ECEF
+    # coordinates
     ecef_t = dp - np.sum(dp * ecef_p1, axis=0) * ecef_p1
 
     # Normalize:
     ecef_t = ecef_t / np.linalg.norm(ecef_t, axis=0)
 
-    # Convert ecef_t to enu_t, by constructing N rotation matrices:
+    # Convert ecef_t to enu_t, by constructing N rotation matrices
     R = np.dstack(
         (
             np.vstack((-np.sin(lon1), np.cos(lon1), 0 * lat1)).T,
@@ -298,7 +320,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     # Third coordinate (up) is zero, since normal part was removed
     enu_t = enu_t[:2]
 
-    # Extract east and north components, reshape to original shape and return stacked
+    # Extract east and north components, reshape to original shape
     east = enu_t[0].reshape(shape)
     north = enu_t[1].reshape(shape)
 
@@ -306,10 +328,10 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
 
 def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
-    """
-    Convert geographic coordinates and ENU vector components to a local coordinate system.
+    """Convert geographic coordinates to local coordinates.
 
-    Transforms input geographic coordinates and east/north components to a local system where (lon0, lat0) defines the new pole.
+    Transforms input geographic coordinates and east/north components to
+    a local system where (lon0, lat0) defines the new pole.
 
     Parameters
     ----------
@@ -326,12 +348,14 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     lat0 : float
         Latitude of the new pole in degrees.
     inverse : bool, optional
-        If True, performs the inverse transformation (local to geographic). Default is False.
+        If True, performs the inverse transformation (local to
+        geographic). Default is False.
 
     Returns
     -------
     tuple of ndarray
-        A tuple (local_lat, local_lon, Ae_local, An_local) with transformed coordinates and vectors.
+        A tuple (local_lat, local_lon, Ae_local, An_local) with
+        transformed coordinates and vectors.
 
     Raises
     ------
@@ -384,7 +408,9 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     # Rotate normalized vectors to ecef
     A_geo_ecef = enu_to_ecef((A_geo_enu / A).T, lon, lat)
     A_local_ecef = Rgeo_to_local.dot(A_geo_ecef.T)
-    A_local_enu = ecef_to_enu(A_local_ecef.T, lon_local, 90 - colat_local).T * A
+    A_local_enu = (
+        ecef_to_enu(A_local_ecef.T, lon_local, 90 - colat_local).T * A
+    )
 
     # Return coords and vector components:
     return (
@@ -408,10 +434,14 @@ if __name__ == "__main__":
     lon = np.random.random(30) * 360
     print(
         "This number should be small: ",
-        np.max(enu_to_ecef(enu_to_ecef(v, lat, lon), lat, lon, reverse=True) - v) ** 2,
+        np.max(
+            enu_to_ecef(enu_to_ecef(v, lat, lon), lat, lon, reverse=True) - v
+        )
+        ** 2,
     )
 
-    # Testing the geo2local function by comparing it to equivalent code in Dipole module
+    # Testing geo2local function by comparison to equivalent code in
+    # Dipole module
     from dipole import Dipole
 
     d = Dipole(2010)
@@ -426,7 +456,9 @@ if __name__ == "__main__":
     # Test vector components
     Ae, An = np.random.random((2, sum(r <= 1)))
 
-    newlat, newlon, neweast, newnorth = geo2local(90 - colat, lon, Ae, An, lon0, lat0)
+    newlat, newlon, neweast, newnorth = geo2local(
+        90 - colat, lon, Ae, An, lon0, lat0
+    )
     cdlat, cdlon, cdeast, cdnorth = d.geo2mag(90 - colat, lon, Ae=Ae, An=An)
     assert np.all(np.isclose(cdlat - newlat, 0))
     assert np.all(np.isclose(cdlon - newlon, 0))

@@ -1,13 +1,15 @@
-"""Least Squares Solver for Multi-dimensional Arrays
+"""Least squares module.
 
-This module provides solvers for weighted regularized least squares problems with
-multiple constraints and array-valued variables. The LeastSquares class solves problems
-of the form:
+This module contains the LeastSquares class for solving
+multi-dimensional least squares problems with multiple constraints.
+This module provides solvers for weighted regularized least squares
+problems with multiple constraints and array-valued variables. The
+LeastSquares class solves problems of the form:
 
     min_x Σᵢ (||Wᵢ(Aᵢx - bᵢ)||² + λᵢ||Lᵢx||²)
 
-by handling multiple constraints simultaneously and supporting per-constraint weights
-and regularization.
+by handling multiple constraints simultaneously and supporting
+per-constraint weights and regularization.
 """
 
 import numpy as np
@@ -15,7 +17,7 @@ from pynamit.math.flattened_array import FlattenedArray
 
 
 class LeastSquares:
-    """Solver for multi-dimensional least squares problems.
+    """Object for multi-constraint multi-dimensional least squares.
 
     Solves problems of the form:
     min_x Σᵢ (||Wᵢ(Aᵢx - bᵢ)||² + λᵢ||Lᵢx||²)
@@ -26,21 +28,6 @@ class LeastSquares:
     - bᵢ : Data vector
     - Lᵢ : Regularization operator
     - λᵢ : Regularization parameter
-
-    Parameters
-    ----------
-    A : list of ndarray or ndarray
-        Forward operator array(s). Single array or list of arrays.
-    solution_dims : int
-        Number of dimensions in solution space
-    weights : list of ndarray or ndarray, optional
-        Weight array(s) for each constraint
-    reg_lambda : list of float or float, optional
-        Regularization parameter(s) for each constraint
-    reg_L : list of ndarray or ndarray, optional
-        Regularization operator array(s)
-    pinv_rtol : float, optional
-        Relative tolerance for pseudoinverse, by default 1e-15
 
     Attributes
     ----------
@@ -80,6 +67,23 @@ class LeastSquares:
         reg_L=None,
         pinv_rtol=1e-15,
     ):
+        """Initialize the least squares solver.
+
+        Parameters
+        ----------
+        A : list of ndarray or ndarray
+            Forward operator array(s). Single array or list of arrays.
+        solution_dims : int
+            Number of dimensions in solution space
+        weights : list of ndarray or ndarray, optional
+            Weight array(s) for each constraint
+        reg_lambda : list of float or float, optional
+            Regularization parameter(s) for each constraint
+        reg_L : list of ndarray or ndarray, optional
+            Regularization operator array(s)
+        pinv_rtol : float, optional
+            Relative tolerance for pseudoinverse, by default 1e-15
+        """
         self.solution_dims = solution_dims
 
         if isinstance(A, list):
@@ -123,13 +127,13 @@ class LeastSquares:
         Returns
         -------
         list of FlattenedArray
-            Flattened versions of input arrays
+            Containers of input arrays containing flattened indices
 
         Notes
         -----
-        Creates FlattenedArray objects that efficiently handle high-dimensional
-        array operations while preserving the ability to reshape back to
-        original dimensions.
+        Creates FlattenedArray objects to efficiently handle
+        multidimensional array operations via flattened indices,
+        while also preserving the original indices.
         """
         if n_leading_flattened is None:
             n_leading_flattened = [None] * self.n_arrays
@@ -184,7 +188,9 @@ class LeastSquares:
 
         for i in range(self.n_arrays):
             if b_list[i] is not None:
-                solution[i] = np.dot(self.ATWA_plus_R_inv_ATW[i], b_list[i].array)
+                solution[i] = np.dot(
+                    self.ATWA_plus_R_inv_ATW[i], b_list[i].array
+                )
 
                 if len(b_list[i].shapes) == 2:
                     solution[i] = solution[i].reshape(
@@ -213,7 +219,9 @@ class LeastSquares:
             self._ATW = []
             for i in range(self.n_arrays):
                 if self.weights[i] is not None:
-                    self._ATW.append((self.weights[i].array * self.A[i].array).T)
+                    self._ATW.append(
+                        (self.weights[i].array * self.A[i].array).T
+                    )
                 else:
                     self._ATW.append(self.A[i].array.T)
 
@@ -230,7 +238,10 @@ class LeastSquares:
         """
         if not hasattr(self, "_ATWA"):
             self._ATWA = sum(
-                [np.dot(self.ATW[i], self.A[i].array) for i in range(self.n_arrays)]
+                [
+                    np.dot(self.ATW[i], self.A[i].array)
+                    for i in range(self.n_arrays)
+                ]
             )
 
         return self._ATWA
@@ -252,7 +263,9 @@ class LeastSquares:
             ATWA_plus_R = self.ATWA.copy()
             for i in range(self.n_arrays):
                 if self.reg_lambda[i] is not None:
-                    ATWA_plus_R += np.dot(self.reg_L[i].array.T, self.reg_L[i].array)
+                    ATWA_plus_R += np.dot(
+                        self.reg_L[i].array.T, self.reg_L[i].array
+                    )
 
             self._ATWA_plus_R_inv = np.linalg.pinv(
                 ATWA_plus_R, rcond=self.pinv_rtol, hermitian=True
@@ -271,7 +284,8 @@ class LeastSquares:
         """
         if not hasattr(self, "_ATWA_plus_R_inv_ATW"):
             self._ATWA_plus_R_inv_ATW = [
-                np.dot(self.ATWA_plus_R_inv, self.ATW[i]) for i in range(self.n_arrays)
+                np.dot(self.ATWA_plus_R_inv, self.ATW[i])
+                for i in range(self.n_arrays)
             ]
 
         return self._ATWA_plus_R_inv_ATW

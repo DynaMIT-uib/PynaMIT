@@ -1,4 +1,4 @@
-""" Script to check if the interhemispheric connection works """
+"""Script to check if the interhemispheric connection works"""
 
 from importlib import reload
 import pynamit
@@ -73,7 +73,7 @@ jr[np.abs(jr_lat) < 50] = 0 # filter low latitude jr
 dynamics.set_jr(jr, lat = jr_lat, lon = jr_lon)
 
 ## WIND INPUT
-hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3., 
+hwm14Obj = pyhwm2014.HWM142D(alt=110., ap=[35, 35], glatlim=[-89., 88.], glatstp = 3.,
                              glonlim=[-180., 180.], glonstp = 8., option = 6, verbose = False, ut = date.hour, day = date.timetuple().tm_yday)
 
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
@@ -144,7 +144,7 @@ if SIMULATE:
             filecount +=1
             title = 't = {:.3} s'.format(time)
             Br = dynamics.state.get_Br(plt_state_evaluator)
-            fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
+            fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True,
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
             W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
@@ -163,7 +163,7 @@ if SIMULATE:
             break
 
 else:
-    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape), returnplot = True, 
+    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape), returnplot = True,
                                                levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
 

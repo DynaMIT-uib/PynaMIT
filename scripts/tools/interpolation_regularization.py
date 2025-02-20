@@ -219,7 +219,7 @@ if L_CURVE:
 
     for i, reg_lambda_val in enumerate(reg_lambda_values):
         plt.annotate(f'{reg_lambda_val:.1e}',
-                     (sh_resiudal_norms[i], sh_norms[i]), 
+                     (sh_resiudal_norms[i], sh_norms[i]),
                      textcoords="offset points", xytext=(5,5), ha='center')
 
     plt.show()

@@ -1,18 +1,19 @@
-"""Tensor Operations
+"""Tensor Operations.
 
-This module provides functions for performing various tensor operations including
-tensor products, pseudoinverses, transpositions, scaling, outer products, and singular value
-decompositions.
+This module provides functions for performing various tensor operations
+including tensor products, pseudoinverses, transpositions, scaling,
+outer products, and singular value decompositions.
 """
 
 import numpy as np
 
 
 def tensor_product(A, B, n_contracted):
-    """
-    Compute the product of two matrices `A` and `B`, contracting the last
-    `n_contracted` indices of the tensor `A` with the first `n_contracted`
-    indices of the tensor `B`.
+    """Product of two tensors.
+
+    Compute the product of two tensors `A` and `B`, contracting the last
+    `n_contracted` indices of the tensor `A` with the first
+    `n_contracted` indices of the tensor `B`.
 
     Parameters
     ----------
@@ -26,7 +27,7 @@ def tensor_product(A, B, n_contracted):
     Returns
     -------
     array-like
-        Product of the two tensors.
+        Product of the two tensors `A` and `B`.
     """
     first_dims = A.shape[:n_contracted]
     last_dims = B.shape[n_contracted:]
@@ -40,17 +41,19 @@ def tensor_product(A, B, n_contracted):
 
 
 def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
-    """
-    Compute the Moore-Penrose pseudoinverse of the tensor `A`, by treating
-    the first `n_leading_flattened` indices and the remaining indices as
-    flat indices.
+    """Moore-Penrose pseudoinverse of a tensor.
+
+    Computes the Moore-Penrose pseudoinverse of the tensor `A`, by
+    treating the first `n_leading_flattened` indices and the remaining
+    indices as flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default is 2.
+        Number of leading dimensions to flatten into first axis. Default
+        is 2.
     rtol : float, optional
         Relative tolerance for small singular values. Default is 1e-15.
     hermitian : bool, optional
@@ -76,17 +79,19 @@ def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
 def tensor_pinv_positive_semidefinite(
     A, n_leading_flattened=2, rtol=1e-15, condition_number=False
 ):
-    """
-    Compute the Moore-Penrose pseudoinverse of the positive semidefinite
-    tensor `A`, by treating the first `n_leading_flattened` indices and the
-    remaining indices as flat indices.
+    """Moore-Penrose pseudoinverse of a positive semidefinite tensor.
+
+    Computes the Moore-Penrose pseudoinverse of the positive
+    semidefinite tensor `A`, by treating the first `n_leading_flattened`
+    indices and the remaining indices as flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default is 2.
+        Number of leading dimensions to flatten into first axis.
+        Default is 2.
     rtol : float, optional
         Relative tolerance for small singular values. Default is 1e-15.
     condition_number : bool, optional
@@ -110,16 +115,18 @@ def tensor_pinv_positive_semidefinite(
 
 
 def tensor_transpose(A, n_leading_flattened=2):
-    """
-    Transpose a tensor, by treating the first `n_leading_flattened` indices
-    and the remaining indices as flat indices.
+    """Transpose a tensor.
+
+    Transposes a tensor by treating the first `n_leading_flattened`
+    indices and the remaining indices as flat indices.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default is 2.
+        Number of leading dimensions to flatten into first axis. Default
+        is 2.
 
     Returns
     -------
@@ -129,18 +136,19 @@ def tensor_transpose(A, n_leading_flattened=2):
     first_dims = A.shape[:n_leading_flattened]
     last_dims = A.shape[n_leading_flattened:]
 
-    A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape(
-        (last_dims + first_dims)
-    )
+    A_transposed = A.reshape(
+        (np.prod(first_dims), np.prod(last_dims))
+    ).T.reshape((last_dims + first_dims))
 
     return A_transposed
 
 
 def tensor_scale_left(scaling_tensor, A):
-    """
-    Perform the element-wise scaling of the first indices of the tensor
-    `A` by the `scaling_tensor` tensor, by treating these indices as flat
-    indices.
+    """Element-wise scaling of the first indices of a tensor.
+
+    Performs the element-wise scaling of the array corresponding to the
+    first indices of the tensor `A` by the array `scaling_tensor`, by
+    by treating the array indices as flat indices.
 
     Parameters
     ----------
@@ -165,9 +173,11 @@ def tensor_scale_left(scaling_tensor, A):
 
 
 def tensor_scale_right(A, scaling_tensor):
-    """
-    Perform the element-wise scaling of the last indices of the tensor `A`
-    by the array `scaling_tensor`.
+    """Element-wise scaling of the last indices of a tensor.
+
+    Performs the element-wise scaling of the array corresponding to the
+    last indices of the tensor `A` by the array `scaling_tensor`, by
+    treating the array indices as flat indices.
 
     Parameters
     ----------
@@ -192,10 +202,12 @@ def tensor_scale_right(A, scaling_tensor):
 
 
 def tensor_outer(A, B, n_leading_flattened):
-    """
-    Compute the outer product of two tensors `A` and `B` by treating the
-    first `n_leading_flattened` indices of `A` and `B` and the remaining
-    indices of each tensor as flat indices.
+    """Outer product of two tensors.
+
+    Computes the outer product of two tensors `A` and `B` by treating
+    the first `n_leading_flattened` indices of `A` and `B` and the
+    remaining indices of each tensor as flat indices, and computing the
+    corresponding matrix outer product with numpy.einsum.
 
     Parameters
     ----------
@@ -220,7 +232,9 @@ def tensor_outer(A, B, n_leading_flattened):
     first_B_dims = B.shape[:n_leading_flattened]
 
     if first_A_dims != first_B_dims:
-        raise ValueError("First dimensions of outer product tensors do not match.")
+        raise ValueError(
+            "First dimensions of outer product tensors do not match."
+        )
 
     last_A_dims = A.shape[n_leading_flattened:]
     last_B_dims = B.shape[n_leading_flattened:]
@@ -243,19 +257,22 @@ def tensor_svd(
     hermitian=False,
     rtol=1e-15,
 ):
-    """
-    Compute the singular value decomposition of the tensor `A`, by
+    """Singular value decomposition of a tensor.
+
+    Compute the singular value decomposition of the tensor `A` by
     treating the first `n_leading_flattened` indices and the remaining
-    indices as flat indices.
+    indices as flat indices, and calling the numpy.linalg.svd function.
 
     Parameters
     ----------
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default is 2.
+        Number of leading dimensions to flatten into first axis. Default
+        is 2.
     full_matrices : bool, optional
-        Whether to compute full-sized U and VT matrices. Default is True.
+        Whether to compute full-sized U and VT matrices. Default is
+        True.
     compute_uv : bool, optional
         Whether to compute U and VT matrices. Default is True.
     hermitian : bool, optional
@@ -296,18 +313,12 @@ def tensor_svd(
 
 
 def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
-    """
-    Return the pseudoinverse of the positive semidefinite matrix `A` and,
-    if requested, print its condition number.
-
-    Note: this is very similar to what numpy.linalg.pinv does when the
-    argument hermitian = True is specified, so we can just use that
-    function instead.
+    """Pseudoinverse of a positive semidefinite matrix.
 
     Parameters
     ----------
     A : array-like
-        Input matrix.
+        Positive semidefinite matrix.
     rtol : float, optional
         Relative tolerance for small eigenvalues. Default is 1e-15.
     condition_number : bool, optional
@@ -316,12 +327,25 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
     Returns
     -------
     array-like
-        Pseudoinverse of the matrix.
+        Pseudoinverse of the matrix `A`.
+
+    Notes
+    -----
+    This is very similar to what numpy.linalg.pinv does when the
+    argument ``hermitian = True`` is specified, so we can just use that
+    function instead.
+
+    If there are no zero eigenvalues, the filtered eigenvectors array is
+    a full contiguous view of the original array. Otherwise, the view's
+    memory address and shape are adjusted to avoid unnecessary data
+    copies.
     """
-    # For a symmetric positive semidefinite matrix, its eigenvalues are equal to its singular values.
+    # For a symmetric positive semidefinite matrix, its eigenvalues are
+    # equal to its singular values.
     eigenvalues, eigenvectors = np.linalg.eigh(A)
 
-    # Filter out small eigenvalues using a relative tolerance, following the convention of numpy.linalg.pinv.
+    # Filter out small eigenvalues using a relative tolerance, following
+    # numpy.linalg.pinv conventions.
     if rtol:
         mask = eigenvalues > rtol * eigenvalues[-1]
     else:
@@ -333,9 +357,6 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
         first_nonzero = len(eigenvalues)
 
     filtered_eigenvalues = eigenvalues[first_nonzero:]
-
-    # If there are no zero eigenvalues, the filtered eigenvectors array is a full contiguous view of the original array.
-    # Otherwise, the view's memory address and shape are adjusted to avoid unnecessary data copies.
     filtered_eigenvectors = eigenvectors[:, first_nonzero:]
 
     if condition_number:
@@ -345,7 +366,7 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
             )
         )
 
-    # Compute the pseudoinverse using the filtered eigenvalues and eigenvectors.
+    # Compute pseudoinverse using filtered eigenvalues and eigenvectors.
     return np.einsum(
         "ij, j, jk -> ik",
         filtered_eigenvectors,

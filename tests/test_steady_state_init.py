@@ -5,10 +5,11 @@ import pytest
 from pynamit.default_run import run_pynamit
 import numpy as np
 
+
 def test_steady_state_init():
     # Arrange
     expected_coeff_norm = 1.5952972070799788e-07
-    expected_coeff_max =  3.641989541460848e-09
+    expected_coeff_max = 3.641989541460848e-09
     expected_coeff_min = -3.426046864570524e-09
     expected_n_coeffs = 201
 
@@ -17,24 +18,31 @@ def test_steady_state_init():
         os.mkdir(temp_dir)
 
     # Act
-    dynamics = run_pynamit(final_time = 0.1,
-                           dt = 5e-4,
-                           Nmax = 5,
-                           Mmax = 3,
-                           Ncs = 18,
-                           mainfield_kind = 'dipole',
-                           fig_directory = temp_dir,
-                           ignore_PFAC = False,
-                           connect_hemispheres = True,
-                           latitude_boundary = 50,
-                           wind = True,
-                           steady_state = True,
-                           vector_jr = True,
-                           vector_conductance = True,
-                           vector_u = True)
+    dynamics = run_pynamit(
+        final_time=0.1,
+        dt=5e-4,
+        Nmax=5,
+        Mmax=3,
+        Ncs=18,
+        mainfield_kind="dipole",
+        fig_directory=temp_dir,
+        ignore_PFAC=False,
+        connect_hemispheres=True,
+        latitude_boundary=50,
+        wind=True,
+        steady_state=True,
+        vector_jr=True,
+        vector_conductance=True,
+        vector_u=True,
+    )
 
     # Assert
-    coeff_array = np.hstack((dynamics.timeseries['state']['SH_m_ind'].values, dynamics.timeseries['state']['SH_m_imp'].values))
+    coeff_array = np.hstack(
+        (
+            dynamics.timeseries["state"]["SH_m_ind"].values,
+            dynamics.timeseries["state"]["SH_m_imp"].values,
+        )
+    )
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
@@ -47,7 +55,15 @@ def test_steady_state_init():
     print("actual_n_coeffs: ", actual_n_coeffs)
 
     # pyHWM uses single precision, so we need to relax tolerances for wind tests
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert actual_coeff_norm == pytest.approx(
+        expected_coeff_norm, abs=0.0, rel=1e-5
+    )
+    assert actual_coeff_max == pytest.approx(
+        expected_coeff_max, abs=0.0, rel=1e-5
+    )
+    assert actual_coeff_min == pytest.approx(
+        expected_coeff_min, abs=0.0, rel=1e-5
+    )
+    assert actual_n_coeffs == pytest.approx(
+        expected_n_coeffs, abs=0.0, rel=1e-5
+    )

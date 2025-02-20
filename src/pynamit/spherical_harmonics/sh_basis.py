@@ -1,17 +1,22 @@
 """Spherical harmonic basis.
 
-This module contains the SHBasis class for storing and evaluating spherical harmonics.
+This module contains the SHBasis class for storing and evaluating
+spherical harmonics.
 """
 
 import numpy as np
-from pynamit.spherical_harmonics.helpers import SHKeys, schmidt_normalization_factors
+from pynamit.spherical_harmonics.helpers import (
+    SHKeys,
+    schmidt_normalization_factors,
+)
 
 
 class SHBasis(object):
     """Store and evaluate spherical harmonic basis functions.
 
-    A class to store information about a spherical harmonic basis and to
-    generate matrices for evaluating the spherical harmonics at a given grid.
+    A class to store information about a spherical harmonic basis and
+    to generate matrices for evaluating the spherical harmonics at a
+    given grid.
 
     Attributes
     ----------
@@ -66,10 +71,12 @@ class SHBasis(object):
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
 
-        # Make the Schmidt normalization factors for the spherical harmonics
+        # Make the spherical harmonic Schmidt normalization factors
         self.schmidt_normalization = schmidt_normalization
         if self.schmidt_normalization:
-            self.schmidt_factors = schmidt_normalization_factors(self.nm_tuples)
+            self.schmidt_factors = schmidt_normalization_factors(
+                self.nm_tuples
+            )
 
         # Set the general properties of the basis
         self.short_name = "SH"
@@ -100,7 +107,8 @@ class SHBasis(object):
         cache_in : ndarray, optional
             Cached Legendre functions, by default None
         cache_out : bool, optional
-            Whether to return cached Legendre functions, by default False
+            Whether to return cached Legendre functions, by default
+            False
 
         Returns
         -------
@@ -136,8 +144,12 @@ class SHBasis(object):
                 dP = dP_unnormalized * self.schmidt_factors
 
         if derivative is None:
-            Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
-            Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
+            Gc = P[:, self.cnm_filter] * np.cos(
+                phi.reshape((-1, 1)) * self.cnm.m
+            )
+            Gs = P[:, self.snm_filter] * np.sin(
+                phi.reshape((-1, 1)) * self.snm.m
+            )
         elif derivative == "phi":
             Gc = (
                 -P[:, self.cnm_filter]
@@ -152,11 +164,16 @@ class SHBasis(object):
                 / np.sin(theta.reshape((-1, 1)))
             )
         elif derivative == "theta":
-            Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
-            Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
+            Gc = dP[:, self.cnm_filter] * np.cos(
+                phi.reshape((-1, 1)) * self.cnm.m
+            )
+            Gs = dP[:, self.snm_filter] * np.sin(
+                phi.reshape((-1, 1)) * self.snm.m
+            )
         else:
             raise Exception(
-                f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.'
+                f'Invalid derivative "{derivative}". '
+                'Expected: "phi", "theta", or None.'
             )
 
         if cache_out:
@@ -167,8 +184,8 @@ class SHBasis(object):
     def legendre(self, theta):
         """Calculate associated Legendre functions.
 
-        Uses algorithm from "Spacecraft Attitude Determination and Control"
-        by James Richard Wertz.
+        Uses algorithm from "Spacecraft Attitude Determination and
+        Control" by James Richard Wertz.
 
         Parameters
         ----------
@@ -192,10 +209,14 @@ class SHBasis(object):
         for nm in range(1, len(self.nm_tuples)):
             n, m = self.nm_tuples[nm]
             if n == m:
-                P[:, nm] = sin_theta * P[:, self.nm_tuples.index((n - 1, m - 1))]
+                P[:, nm] = (
+                    sin_theta * P[:, self.nm_tuples.index((n - 1, m - 1))]
+                )
             else:
                 if n > m:
-                    P[:, nm] = cos_theta * P[:, self.nm_tuples.index((n - 1, m))]
+                    P[:, nm] = (
+                        cos_theta * P[:, self.nm_tuples.index((n - 1, m))]
+                    )
                 if n > m + 1:
                     Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
                     P[:, nm] -= Knm * P[:, self.nm_tuples.index((n - 2, m))]
@@ -205,8 +226,9 @@ class SHBasis(object):
     def legendre_derivative(self, theta, P=None):
         """Calculate derivatives of associated Legendre functions.
 
-        Computes d/dθ of the associated Legendre functions using algorithm from
-        "Spacecraft Attitude Determination and Control" by James Richard Wertz.
+        Computes d/dθ of the associated Legendre functions using
+        algorithm from "Spacecraft Attitude Determination and Control"
+        by James Richard Wertz.
 
         Parameters
         ----------
@@ -267,9 +289,10 @@ class SHBasis(object):
         return -self.n * (self.n + 1) / r**2
 
     def d_dr_V_external(self, r=1.0):
-        """
-        Calculate the vector that represents the radial derivative of the
-        spherical harmonic coefficients for an external potential.
+        """Calculate radial derivative of external potential.
+
+        Calculates the vector that represents the radial derivative of
+        the spherical harmonic coefficients for an external potential.
 
         Parameters
         ----------
@@ -279,14 +302,16 @@ class SHBasis(object):
         Returns
         -------
         array
-            The radial derivative of the spherical harmonic coefficients for an external potential.
+            The radial derivative of the spherical harmonic
+            coefficients for an external potential.
         """
         return self.n / r
 
     def d_dr_V_internal(self, r=1.0):
-        """
-        Calculate the vector that represents the radial derivative of the
-        spherical harmonic coefficients for an internal potential.
+        """Calculate radial derivative of internal potential.
+
+        Calculates the vector that represents the radial derivative of
+        the spherical harmonic coefficients for an internal potential.
 
         Parameters
         ----------
@@ -296,17 +321,20 @@ class SHBasis(object):
         Returns
         -------
         array
-            The radial derivative of the spherical harmonic coefficients for an internal potential.
+            The radial derivative of the spherical harmonic
+            coefficients for an internal potential.
         """
         return -(self.n + 1) / r
 
     def radial_shift_V_external(self, start, end):
-        """
-        Calculate the vector that represents a shift of the reference
-        radius for the spherical harmonics for an external potential, from
-        `start` to `end`. Corresponds to the spherical harmonic functions
-        with `end` as the reference radius divided by the the spherical
-        harmonic functions with `start` as the reference radius.
+        """Calculate radial shift of external potential.
+
+        Calculates the vector that represents a shift of the reference
+        radius for the spherical harmonics for an external potential,
+        from `start` to `end`. Corresponds to the spherical harmonic
+        functions with `end` as the reference radius divided by the
+        spherical harmonic functions with `start` as the reference
+        radius.
 
         Parameters
         ----------
@@ -324,11 +352,13 @@ class SHBasis(object):
 
     @property
     def V_external_to_delta_V(self):
-        """Convert external potential coefficients to internal-external difference.
+        """
+        Convert external coefficients to internal-external difference.
 
-        Calculates multiplicative factors to convert spherical harmonic coefficients
-        for an external potential to coefficients for internal-external potential
-        difference, assuming continuous first-order radial derivative across surface.
+        Calculates multiplicative factors to convert spherical harmonic
+        coefficients for an external potential to coefficients for
+        internal-external potential difference, assuming continuous
+        first-order radial derivative across surface.
 
         Returns
         -------

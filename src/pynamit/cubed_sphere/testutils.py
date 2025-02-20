@@ -1,34 +1,35 @@
-"""Test Utilities for Cubed Sphere Calculations
+"""Test Utilities for Cubed Sphere Calculations.
 
-This module provides helper functions for testing and validating components
-of the cubed sphere implementation, including coordinate projection adjustments
-for visualizations using Plate Carree projections.
+This module provides helper functions for testing and validating
+components of the cubed sphere implementation, including coordinate
+projection adjustments for visualizations using Plate Carree
+projections.
 """
 
 import numpy as np
 
 
 def Geocentric_to_PlateCarree_vector_components(east, north, latitude):
-    """
-    Convert east north vector components to Plate Carree projection
+    """Convert east north vector components to Plate Carree projection.
 
-    This function is intended to be used with Cartopy, which does not give
-    reasonable results if you just call quiver directly. Maybe it will change
-    in future versions...
+    This function is intended to be used with Cartopy, which does not
+    give reasonable results if you just call quiver directly. Maybe it
+    will change in future versions...
 
     Parameters
     ----------
-    east: array-like
+    east : array-like
         eastward components
-    north: array-like
+    north : array-like
         westward components
-    latitude: array-like
+    latitude : array-like
         latitude of each vector
+
     Returns
     -------
-    east: array
+    east : array
         corrected eastward components
-    north: array
+    north : array
         corrected northward components
     """
     magnitude = np.sqrt(east**2 + north**2)

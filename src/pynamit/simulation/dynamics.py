@@ -1,9 +1,8 @@
-"""
-Module for simulating magnetosphere-ionosphere coupling dynamics.
+"""Module for simulating magnetosphere-ionosphere coupling dynamics.
 
 This module contains the Dynamics class which handles the simulation of
-ionospheric currents and electromagnetic fields in response to field-aligned
-currents and neutral winds.
+ionospheric currents and electromagnetic fields in response to field-
+aligned currents and neutral winds.
 """
 
 import os
@@ -25,12 +24,12 @@ FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
 class Dynamics(object):
-    """
-    A class for simulating magnetosphere-ionosphere coupling dynamics.
+    """Class for simulating dynamic MIT coupling.
 
-    Manages the temporal evolution of the state of the ionosphere in response
-    to field-aligned currents and neutral winds. Saves and loads simulation
-    data to and from NetCDF files.
+    Manages the temporal evolution of the state of the ionosphere in
+    response to field-aligned currents and neutral winds, giving rise
+    to dynamic magnetosphere-ionosphere-thermosphere (MIT) coupling.
+    Saves and loads simulation data to and from NetCDF files.
 
     Attributes
     ----------
@@ -54,7 +53,9 @@ class Dynamics(object):
         mainfield_kind="dipole",
         mainfield_epoch=2020,
         mainfield_B0=None,
-        FAC_integration_steps=np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11),
+        FAC_integration_steps=np.logspace(
+            np.log10(RE + 110.0e3), np.log10(4 * RE), 11
+        ),
         ignore_PFAC=False,
         connect_hemispheres=False,
         latitude_boundary=50,
@@ -66,8 +67,7 @@ class Dynamics(object):
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
     ):
-        """
-        Initialize the Dynamics class.
+        """Initialize the Dynamics class.
 
         Parameters
         ----------
@@ -92,15 +92,18 @@ class Dynamics(object):
         ignore_PFAC : bool, optional
             Whether to ignore FAC poloidal fields, by default False
         connect_hemispheres : bool, optional
-            Whether hemispheres are electrically connected, by default False
+            Whether hemispheres are electrically connected, by
+            default False
         latitude_boundary : float, optional
             Simulation boundary latitude in degrees, by default 50
         ih_constraint_scaling : float, optional
-            Scaling for interhemispheric coupling constraint, by default 1e-5
+            Scaling for interhemispheric coupling constraint, by
+            default 1e-5
         PFAC_matrix : array-like, optional
             Matrix giving polodial field of FACs, by default None
         vector_jr : bool, optional
-            Use vector representation for radial current, by default True
+            Use vector representation for radial current, by default
+            True
         vector_conductance : bool, optional
             Use vector representation for conductances, by default True
         vector_u : bool, optional
@@ -140,12 +143,16 @@ class Dynamics(object):
             self.dataset_filename_prefix is not None
         ) and os.path.exists(self.dataset_filename_prefix + "_settings.ncdf")
         if settings_on_file:
-            settings = xr.load_dataset(self.dataset_filename_prefix + "_settings.ncdf")
+            settings = xr.load_dataset(
+                self.dataset_filename_prefix + "_settings.ncdf"
+            )
 
         # Load PFAC matrix if it exists on file
         PFAC_matrix_on_file = (
             self.dataset_filename_prefix is not None
-        ) and os.path.exists(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
+        ) and os.path.exists(
+            self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
+        )
         if PFAC_matrix_on_file:
             PFAC_matrix = xr.load_dataarray(
                 self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
@@ -161,7 +168,9 @@ class Dynamics(object):
         )
 
         self.cs_basis = CSBasis(settings.Ncs)
-        self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
+        self.state_grid = Grid(
+            theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi
+        )
 
         self.bases = {
             "state": SHBasis(settings.Nmax, settings.Mmax),
@@ -208,7 +217,9 @@ class Dynamics(object):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     basis_index_arrays, names=basis_index_names
                 )
-            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
+            elif all(
+                self.vars[key][var] == "tangential" for var in self.vars[key]
+            ):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     [
                         np.tile(basis_index_arrays[i], 2)
@@ -218,7 +229,8 @@ class Dynamics(object):
                 )
             else:
                 raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or unknown input type"
+                    "Mixed scalar and tangential input (unsupported), or "
+                    "unknown input type"
                 )
 
         # Initialize the state of the ionosphere
@@ -274,8 +286,7 @@ class Dynamics(object):
         saving_sample_interval=10,
         quiet=False,
     ):
-        """
-        Evolve the system state to a specified time.
+        """Evolve the system state to a specified time.
 
         Parameters
         ----------
@@ -290,7 +301,7 @@ class Dynamics(object):
         quiet : bool, optional
             Whether to suppress progress output, by default False.
         """
-        # Will be set to True when the corresponding time series is different from the one saved on disk
+        # Changed to True when time series differs from the one on disk
         self.save_jr = False
         self.save_conductance = False
         self.save_u = False
@@ -336,9 +347,11 @@ class Dynamics(object):
                 self.add_to_timeseries(current_state_dataset, "state")
 
                 if self.save_steady_states:
-                    # Calculate and append current steady state to time series
+                    # Calculate steady state and append to time series
                     steady_state_m_ind = self.state.steady_state_m_ind()
-                    steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
+                    steady_state_m_imp = self.state.calculate_m_imp(
+                        steady_state_m_ind
+                    )
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(
                         steady_state_m_ind
                     )
@@ -359,17 +372,24 @@ class Dynamics(object):
                         ).merge({"time": [self.current_time]}),
                     )
 
-                    self.add_to_timeseries(current_steady_state_dataset, "steady_state")
+                    self.add_to_timeseries(
+                        current_steady_state_dataset, "steady_state"
+                    )
 
                 # Save state and steady state time series
-                if count % (sampling_step_interval * saving_sample_interval) == 0:
+                if (
+                    count % (sampling_step_interval * saving_sample_interval)
+                    == 0
+                ):
                     self.save_timeseries("state")
 
                     if quiet:
                         pass
                     else:
                         print(
-                            "Saved state at t = {:.2f} s".format(self.current_time),
+                            "Saved state at t = {:.2f} s".format(
+                                self.current_time
+                            ),
                             end="\n" if self.save_steady_states else "\r",
                             flush=True,
                         )
@@ -422,12 +442,11 @@ class Dynamics(object):
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """
-        Set field-aligned current (FAC) input.
+        """Set field-aligned current (FAC) input.
 
-        Converts FAC to radial current density by multiplying with the radial
-        component of the main field, and sets the radial current density as
-        input.
+        Converts FAC to radial current density by multiplying with the
+        radial component of the main field, and sets the radial current
+        density as input.
 
         Parameters
         ----------
@@ -476,8 +495,7 @@ class Dynamics(object):
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """
-        Set radial current density input.
+        """Set radial current density input.
 
         Parameters
         ----------
@@ -526,8 +544,7 @@ class Dynamics(object):
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """
-        Set Hall and Pedersen conductance values.
+        """Set Hall and Pedersen conductance values.
 
         Parameters
         ----------
@@ -558,10 +575,14 @@ class Dynamics(object):
 
         # Convert to resistivity
         for i in range(max(input_data["etaP"][0].shape[0], 1)):
-            input_data["etaP"][0][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+            input_data["etaP"][0][i] = Pedersen[i] / (
+                Hall[i] ** 2 + Pedersen[i] ** 2
+            )
 
         for i in range(max(input_data["etaH"][0].shape[0], 1)):
-            input_data["etaH"][0][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+            input_data["etaH"][0][i] = Hall[i] / (
+                Hall[i] ** 2 + Pedersen[i] ** 2
+            )
 
         self.set_input(
             "conductance",
@@ -588,8 +609,7 @@ class Dynamics(object):
         weights=None,
         reg_lambda=None,
     ):
-        """
-        Set neutral wind velocities.
+        """Set neutral wind velocities.
 
         Parameters
         ----------
@@ -638,8 +658,7 @@ class Dynamics(object):
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """
-        Set input data for the simulation.
+        """Set input data for the simulation.
 
         Parameters
         ----------
@@ -663,7 +682,8 @@ class Dynamics(object):
         Raises
         ------
         ValueError
-            If neither (lat, lon) nor (theta, phi) coordinates are provided.
+            If neither (lat, lon) nor (theta, phi) coordinates are
+            provided.
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
 
@@ -702,7 +722,8 @@ class Dynamics(object):
                 ]
             ):
                 raise ValueError(
-                    "Time must be specified if the input data is given for multiple time values."
+                    "Time must be specified if the input data is given for "
+                    "multiple time values."
                 )
             time = self.current_time
 
@@ -778,33 +799,34 @@ class Dynamics(object):
         self.save_timeseries(key)
 
     def add_to_timeseries(self, dataset, key):
-        """
-        Add a dataset to the timeseries.
+        """Add a dataset to the timeseries.
 
-        Creates a new timeseries if one doesn't exist, otherwise concatenates
-        the new data along the time dimension.
+        Creates a new timeseries if one doesn't exist, otherwise
+        concatenates the new data along the time dimension.
 
         Parameters
         ----------
         dataset : xarray.Dataset
             Dataset containing the timeseries data.
         key : str
-            The key identifying the type of data ('state', 'jr', 'conductance', or 'u').
+            The key identifying the type of data ('state', 'jr',
+            'conductance', or 'u').
         """
         if key not in self.timeseries.keys():
             self.timeseries[key] = dataset.sortby("time")
         else:
             self.timeseries[key] = xr.concat(
                 [
-                    self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"),
+                    self.timeseries[key].drop_sel(
+                        time=dataset.time, errors="ignore"
+                    ),
                     dataset,
                 ],
                 dim="time",
             ).sortby("time")
 
     def select_timeseries_data(self, key, interpolation=False):
-        """
-        Select time series data corresponding to the latest time.
+        """Select time series data corresponding to the latest time.
 
         Parameters
         ----------
@@ -821,7 +843,8 @@ class Dynamics(object):
         input_selected = False
 
         if np.any(
-            self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN
+            self.timeseries[key].time.values
+            <= self.current_time + FLOAT_ERROR_MARGIN
         ):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
@@ -856,10 +879,17 @@ class Dynamics(object):
                 for var in self.vars[key]:
                     current_data[var] += (
                         (self.current_time - dataset_before.time.item())
-                        / (dataset_after.time.item() - dataset_before.time.item())
+                        / (
+                            dataset_after.time.item()
+                            - dataset_before.time.item()
+                        )
                         * (
-                            dataset_after[short_name + "_" + var].values.flatten()
-                            - dataset_before[short_name + "_" + var].values.flatten()
+                            dataset_after[
+                                short_name + "_" + var
+                            ].values.flatten()
+                            - dataset_before[
+                                short_name + "_" + var
+                            ].values.flatten()
                         )
                     )
 
@@ -870,8 +900,10 @@ class Dynamics(object):
         if not hasattr(self, "previous_data"):
             self.previous_data = {}
 
-        # Update state if is the first data selection or if the data has changed since the last selection
-        if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
+        # Update state if first call or difference with last selection
+        if not all(
+            [var in self.previous_data.keys() for var in self.vars[key]]
+        ) or (
             not all(
                 [
                     np.allclose(
@@ -943,9 +975,7 @@ class Dynamics(object):
         return input_selected
 
     def select_input_data(self):
-        """
-        Select input data corresponding to the latest time.
-        """
+        """Select input data corresponding to the latest time."""
         timeseries_keys = list(self.timeseries.keys())
 
         if "state" in timeseries_keys:
@@ -955,8 +985,7 @@ class Dynamics(object):
                 self.select_timeseries_data(key, interpolation=False)
 
     def save_dataset(self, dataset, name):
-        """
-        Save a dataset to NetCDF file.
+        """Save a dataset to NetCDF file.
 
         Parameters
         ----------
@@ -977,8 +1006,7 @@ class Dynamics(object):
             raise e
 
     def load_dataset(self, name):
-        """
-        Load dataset from file.
+        """Load dataset from file.
 
         Parameters
         ----------
@@ -998,8 +1026,7 @@ class Dynamics(object):
             return None
 
     def save_timeseries(self, key):
-        """
-        Save a timeseries to NetCDF file.
+        """Save a timeseries to NetCDF file.
 
         Parameters
         ----------
@@ -1009,9 +1036,7 @@ class Dynamics(object):
         self.save_dataset(self.timeseries[key].reset_index("i"), key)
 
     def load_timeseries(self):
-        """
-        Load all time series that exist on file.
-        """
+        """Load all time series that exist on file."""
         if self.dataset_filename_prefix is not None:
 
             for key in self.vars.keys():
@@ -1038,8 +1063,10 @@ class Dynamics(object):
                     ).assign_coords(coords)
 
     def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
-        """
-        Calculate matrix that returns the radial curl, using finite differences when operated on a column vector of (theta, phi) vector components.
+        """Calculate matrix that returns the radial curl.
+
+        Calculate matrix that maps column vector of (theta, phi) vector
+        to its radial curl, using finite differences.
 
         Parameters
         ----------
@@ -1065,7 +1092,7 @@ class Dynamics(object):
         g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / sqrtg)
         g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / sqrtg)
 
-        # matrix that operates on column vector of u1, u2 and produces radial curl
+        # Matrix that gives radial curl from column vector of u1, u2
         D_curlr_u1u2 = sp.hstack(
             (
                 (Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
@@ -1073,14 +1100,16 @@ class Dynamics(object):
             )
         )
 
-        # matrix that transforms theta, phi to u1, u2:
+        # Matrix that transforms theta, phi to u1, u2
         Ps_dense = self.cs_basis.get_Ps(
             self.cs_basis.arr_xi,
             self.cs_basis.arr_eta,
             block=self.cs_basis.arr_block,
-        )  # N x 3 x 3
-        # extract relevant elements, rearrange so that the matrix operates on (theta, phi) and not (east, north),
-        # and insert in sparse diagonal matrices. Also include the normalization from the Q matrix in Yin et al.:
+        )
+
+        # Extract relevant elements, rearrange matrix to map from
+        # (theta, phi) and not (east, north). Also include Q matrix
+        # normalization from Yin et al. (2017).
         rr, rrcosl = self.RI, self.RI * np.cos(
             np.deg2rad(self.state_grid.lat)
         )  # normalization factors
@@ -1102,14 +1131,17 @@ class Dynamics(object):
 
     @property
     def sh_curl_matrix(self):
-        """Matrix for spherical harmonic curl calculation."""
+        """Matrix for spherical harmonic curl calculation.
+
+        Matrix that gets divergence-free SH coefficients from vectors
+        of (theta, phi)-components, constructed from Laplacian matrix
+        and (inverse) evaluation matrices.
+        """
         if not hasattr(self, "_sh_curl_matrix"):
-            # Matrix that gets divergence free SH coefficients from vector of (theta, phi)-components
-            G_df = self.state.basis_evaluator.G_helmholtz_inv[
+            G_df_inv = self.state.basis_evaluator.G_helmholtz_inv[
                 self.state.basis.index_length :, :
             ]
-            # Multiply with Laplacian and evaluation matrix to get the curl matrix
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
-                self.state.basis.laplacian().reshape((-1, 1)) * G_df
+                self.state.basis.laplacian().reshape((-1, 1)) * G_df_inv
             )
         return self._sh_curl_matrix

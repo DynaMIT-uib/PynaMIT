@@ -65,11 +65,11 @@ for state_data in state_data_list:
             axes[jj[i], ii[i]].set_title('MLT$ = ' + str(mlt[ii[i], jj[i]]) + '$')
 
         if ii[i] == Ncols - 1:
-            axes[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + '^\circ$', rotation=270, labelpad=15)
+            axes[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + r'^\circ$', rotation=270, labelpad=15)
 
             #axes[jj[i], ii[i]].set_title('mlat = ' + str(mlat[ii[i], jj[i]]), loc = 'right')
             axes[jj[i], ii[i]].yaxis.set_label_position("right")
-    
+
 
 
 fig, axes = plt.subplots(ncols = 5, nrows = 5, sharex = True)
@@ -122,11 +122,11 @@ for p, state_data in zip(periods, state_data_list):
             axesphi[jj[i], ii[i]].set_title('MLT$ = ' + str(mlt[ii[i], jj[i]]) + '$')
 
         if ii[i] == Ncols - 1:
-            axesw[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + '^\circ$', rotation=270, labelpad=15)
+            axesw[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + r'^\circ$', rotation=270, labelpad=15)
             axesw[jj[i], ii[i]].yaxis.set_label_position("right")
-            axesA[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + '^\circ$', rotation=270, labelpad=15)
+            axesA[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + r'^\circ$', rotation=270, labelpad=15)
             axesA[jj[i], ii[i]].yaxis.set_label_position("right")
-            axesphi[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + '^\circ$', rotation=270, labelpad=15)
+            axesphi[jj[i], ii[i]].set_ylabel('mlat$ = ' + str(mlat[ii[i], jj[i]]) + r'^\circ$', rotation=270, labelpad=15)
             axesphi[jj[i], ii[i]].yaxis.set_label_position("right")
 
 

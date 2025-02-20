@@ -1,15 +1,21 @@
 """Main magnetic field models.
 
-This module provides implementations of different magnetic field models including dipole, IGRF, and radial fields. These models provide coordinate transformations and field line tracing capabilities.
+This module provides implementations of different magnetic field models
+including dipole, IGRF, and radial fields. These models provide
+coordinate transformations and field line tracing capabilities.
 
 Notes
 -----
 Available models:
 - dipole: Dipole magnetic field using IGRF coefficients for moment.
-- igrf: International Geomagnetic Reference Field in geocentric coordinates (with geodetic conversion ignored).
+- igrf: International Geomagnetic Reference Field in geocentric
+  coordinates (with geodetic conversion ignored).
 - radial: Radial field lines with configurable magnitude.
 
-The models use different coordinate systems: dipole uses dipole coordinates, IGRF uses geocentric coordinates, and radial uses simple radial field lines. For IGRF, geodetic height is approximated as h = r - RE.
+The models use different coordinate systems: dipole uses dipole
+coordinates, IGRF uses geocentric coordinates, and radial uses simple
+radial field lines. For IGRF, geodetic height is approximated as
+``h = r - RE``.
 """
 
 import ppigrf
@@ -45,14 +51,15 @@ class Mainfield(object):
         hI : float, optional
             Ionospheric height in km. Default is 0.0.
         B0 : float, optional
-            Field magnitude at ground for radial model in Tesla. If None, uses reference field for epoch.
+            Field magnitude at ground for radial model in Tesla. If
+            None, uses reference field for epoch.
         """
         if kind.lower() not in ["radial", "dipole", "igrf"]:
             raise ValueError("kind must be either radial, dipole or igrf")
 
         self.kind = kind.lower()
 
-        # define the magnetic field and mapping functions for the different options:
+        # Define magnetic field and mapping functions for chosen model
         if self.kind == "dipole":
             self.dpl = dipole.Dipole(epoch)
 
@@ -110,8 +117,7 @@ class Mainfield(object):
         return self._Bfunc(r, theta, phi)
 
     def get_sinI(self, r, theta, phi):
-        """
-        Calculate sin inclination angle.
+        """Calculate sin inclination angle.
 
         Defined as the angle of the magnetic field with nadir.
         Broadcasting rules apply.
@@ -122,11 +128,11 @@ class Mainfield(object):
             Radius [m] of the points where the magnetic field is to be
             evaluated.
         theta : array-like
-            Colatitude [deg] of the points where the magnetic field is to
-            be evaluated.
+            Colatitude [deg] of the points where the magnetic field is
+            to be evaluated.
         phi : array-like
-            Longitude [deg] of the points where the magnetic field is to
-            be evaluated.
+            Longitude [deg] of the points where the magnetic field is
+            to be evaluated.
 
         Returns
         -------
@@ -183,7 +189,9 @@ class Mainfield(object):
 
         elif self.kind == "igrf":  # Use apexpy to map along IGRF
             mlat, mlon = self.apx.geo2apex(90 - theta, phi, (r - RE) * 1e-3)
-            lat_out, phi_out, _ = self.apx.apex2geo(mlat, mlon, (r_dest - RE) * 1e-3)
+            lat_out, phi_out, _ = self.apx.apex2geo(
+                mlat, mlon, (r_dest - RE) * 1e-3
+            )
             theta_out = 90 - lat_out
 
         return (theta_out, phi_out)
@@ -210,16 +218,16 @@ class Mainfield(object):
         phi_conj : ndarray
             Conjugate point longitude in degrees
 
+        Raises
+        ------
+        ValueError
+            If called with radial field model
+
         Notes
         -----
         Not defined for radial field model.
         For dipole, conjugate points are at (180°-θ,φ).
         For IGRF, uses apex coordinate transformations.
-
-        Raises
-        ------
-        ValueError
-            If called with radial field model
         """
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
 
@@ -314,8 +322,10 @@ class Mainfield(object):
             e3[2] = _e3[0]  # phi
 
         if self.kind == "igrf":
-            _, _, _, _, _, _, _d1, _d2, _d3, _e1, _e2, _e3 = self.apx.basevectors_apex(
-                90 - theta, phi, (r - RE) * 1e-3, coords="geo"
+            _, _, _, _, _, _, _d1, _d2, _d3, _e1, _e2, _e3 = (
+                self.apx.basevectors_apex(
+                    90 - theta, phi, (r - RE) * 1e-3, coords="geo"
+                )
             )
             # transform vectors from east north up to r, theta phi:
             d1[0] = _d1[2]  # radial
@@ -340,8 +350,7 @@ class Mainfield(object):
         return (d1, d2, d3, e1, e2, e3)
 
     def dip_equator(self, phi, theta=90):
-        """
-        Calculate the co-latitude of the dip equator (or another magnetic latitude) at given phi.
+        """Calculate colatitude of given magnetic latitude at phi.
 
         Parameters
         ----------
@@ -369,6 +378,6 @@ class Mainfield(object):
             # lat of evenly spaced points
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh)
             # interpolate to phi:
-            return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(
-                phi.shape
-            )
+            return (
+                np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)
+            ).reshape(phi.shape)

@@ -1,8 +1,9 @@
-"""Basis Evaluator Utilities
+"""Basis Evaluator Utilities.
 
-This module provides the BasisEvaluator class and related functions for evaluating basis function
-representations of fields. It handles conversion between basis coefficients and grid values to enable
-field reconstruction and analysis.
+This module provides the BasisEvaluator class and related functions for
+evaluating basis function representations of fields. It handles
+conversion between basis coefficients and grid values to enable field
+reconstruction and analysis.
 """
 
 import numpy as np
@@ -10,8 +11,14 @@ from pynamit.math.least_squares import LeastSquares
 
 
 class BasisEvaluator(object):
-    """
-    Object for transforming between expansions in a given basis and grid values. Can be used for both scalar and horizontal vector fields, where the latter is represented by basis expansion coefficients of the curl-free and divergence-free parts.
+    """Object for evaluating basis expansions on a grid.
+
+    This class provides methods for evaluating basis expansions on a
+    grid and also for solving least squares problems to find the basis
+    expansion coefficients corresponding to given grid values. The class
+    can be used for both scalar and horizontal vector fields, where the
+    latter is represented by basis expansion coefficients of the
+    curl-free and divergence-free parts (Helmholtz decomposition).
 
     Attributes
     ----------
@@ -27,9 +34,10 @@ class BasisEvaluator(object):
         Relative tolerance for the pseudo-inverse.
     """
 
-    def __init__(self, basis, grid, weights=None, reg_lambda=None, pinv_rtol=1e-15):
-        """
-        Initialize the BasisEvaluator object.
+    def __init__(
+        self, basis, grid, weights=None, reg_lambda=None, pinv_rtol=1e-15
+    ):
+        """Initialize the BasisEvaluator object.
 
         Parameters
         ----------
@@ -40,7 +48,8 @@ class BasisEvaluator(object):
         weights : array-like, optional
             Weights for the least squares solver. Default is None.
         reg_lambda : float, optional
-            Regularization parameter for the least squares solver. Default is None.
+            Regularization parameter for the least squares solver.
+            Default is None.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse. Default is 1e-15.
         """
@@ -52,18 +61,19 @@ class BasisEvaluator(object):
 
     @property
     def G(self):
-        """
-        The matrix that corresponds to evaluating the basis expansion on the given grid.
+        """Evaluation matrix.
 
         Returns
         -------
         array
-            Matrix that evaluates the basis expansion on the grid.
+            Matrix that evaluates a basis expansion on the grid.
         """
         if not hasattr(self, "_G"):
             if self.basis.caching:
                 if not hasattr(self, "_cache"):
-                    self._G, self._cache = self.basis.get_G(self.grid, cache_out=True)
+                    self._G, self._cache = self.basis.get_G(
+                        self.grid, cache_out=True
+                    )
                 else:
                     self._G = self.basis.get_G(self.grid, cache_in=self._cache)
             else:
@@ -73,13 +83,13 @@ class BasisEvaluator(object):
 
     @property
     def G_th(self):
-        """
-        The matrix that corresponds to evaluating the theta derivative of the basis expansion on the given grid.
+        """Matrix evaluating the theta derivative.
 
         Returns
         -------
         array
-            Matrix that evaluates the theta derivative of the basis expansion on the grid.
+            Matrix that evaluates the theta derivative of a basis
+            expansion on the grid.
         """
         if not hasattr(self, "_G_th"):
             if self.basis.caching:
@@ -98,13 +108,13 @@ class BasisEvaluator(object):
 
     @property
     def G_ph(self):
-        """
-        The matrix that corresponds to evaluating the phi derivative of the basis expansion on the given grid.
+        """Matrix evaluating the phi derivative.
 
         Returns
         -------
         array
-            Matrix that evaluates the phi derivative of the basis expansion on the grid.
+            Matrix that evaluates the phi derivative of a basis
+            expansion on the grid.
         """
         if not hasattr(self, "_G_ph"):
             if self.basis.caching:
@@ -123,13 +133,14 @@ class BasisEvaluator(object):
 
     @property
     def G_grad(self):
-        """
-        The matrix that corresponds to evaluating the horizontal gradient of the basis expansion on the given grid.
+        """Matrix evaluating the horizontal gradient.
 
         Returns
         -------
         array
-            Matrix that evaluates the horizontal gradient of the basis expansion on the grid.
+            Matrix that evaluates the horizontal gradient of a basis
+            expansion on the grid.
+
         """
         if not hasattr(self, "_G_grad"):
             self._G_grad = np.array([self.G_th, self.G_ph])
@@ -138,13 +149,13 @@ class BasisEvaluator(object):
 
     @property
     def G_rxgrad(self):
-        """
-        The matrix that corresponds to evaluating r cross the horizontal gradient of the basis expansion on the given grid.
+        """Matrix evaluating r-hat cross horizontal gradient.
 
         Returns
         -------
         array
-            Matrix that evaluates r cross the horizontal gradient of the basis expansion on the grid.
+            Matrix that evaluates the radial unit vector cross the
+            horizontal gradient of a basis expansion on the grid.
         """
         if not hasattr(self, "_G_rxgrad"):
             self._G_rxgrad = np.array([-self.G_ph, self.G_th])
@@ -153,13 +164,14 @@ class BasisEvaluator(object):
 
     @property
     def G_rxgrad_inv(self):
-        """
-        Return the inverse of the ``G_rxgrad`` matrix.
+        """Matrix evaluating r-hat cross horizontal gradient inverse.
 
         Returns
         -------
         array
-            Inverse of the ``G_rxgrad`` matrix.
+            Matrix that is the pseudoinverse of the matrix that
+            evaluates the radial unit vector cross the horizontal
+            gradient of a basis expansion on the grid.
         """
         if not hasattr(self, "_G_rxgrad_inv"):
             self._G_rxgrad_inv = np.linalg.pinv(self.G_rxgrad)
@@ -167,13 +179,14 @@ class BasisEvaluator(object):
 
     @property
     def G_helmholtz(self):
-        """
-        The matrix that corresponds to evaluating the Helmholtz decomposition of a horizontal vector field, represented by basis expansion coefficients of the curl-free and divergence-free parts, on the given grid.
+        """Matrix evaluating horizontal vector field expansions.
 
         Returns
         -------
         array
-            Matrix that evaluates the Helmholtz decomposition of a horizontal vector field on the grid.
+            Matrix that evaluates the expansions representing the
+            curl-free and divergence-free parts of a horizontal vector
+            field on the grid.
         """
         if not hasattr(self, "_G_helmholtz"):
             self._G_helmholtz = np.stack([-self.G_grad, self.G_rxgrad], axis=2)
@@ -181,13 +194,14 @@ class BasisEvaluator(object):
 
     @property
     def L(self):
-        """
-        The regularization matrix.
+        """Regularization matrix for scalar fields.
 
         Returns
         -------
         array
-            Regularization matrix.
+            Regularization matrix for the least squares problem of
+            finding the basis expansion coefficients representing a
+            scalar field.
         """
         if not hasattr(self, "_L"):
             if self.reg_lambda is None:
@@ -199,13 +213,15 @@ class BasisEvaluator(object):
 
     @property
     def L_helmholtz(self):
-        """
-        The regularization matrix for the Helmholtz decomposition into basis expansion coefficients representing the curl-free and divergence-free parts of a vector field.
+        """Regularization matrix for horizontal vector fields.
 
         Returns
         -------
         array
-            Regularization matrix for the Helmholtz decomposition.
+            Regularization matrix for the least squares problem of
+            finding the basis expansion coefficients representing the
+            curl-free and divergence-free parts of a horizontal vector
+            field.
         """
         if not hasattr(self, "_L_helmholtz"):
             if self.reg_lambda is None:
@@ -214,15 +230,21 @@ class BasisEvaluator(object):
                 L_cf = np.stack(
                     [
                         np.diag(
-                            self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)
+                            self.basis.n
+                            * (self.basis.n + 1)
+                            / (2 * self.basis.n + 1)
                         ),
-                        np.zeros((self.basis.index_length, self.basis.index_length)),
+                        np.zeros(
+                            (self.basis.index_length, self.basis.index_length)
+                        ),
                     ],
                     axis=1,
                 )
                 L_df = np.stack(
                     [
-                        np.zeros((self.basis.index_length, self.basis.index_length)),
+                        np.zeros(
+                            (self.basis.index_length, self.basis.index_length)
+                        ),
                         np.diag((self.basis.n + 1) / 2),
                     ],
                     axis=1,
@@ -234,13 +256,13 @@ class BasisEvaluator(object):
 
     @property
     def least_squares(self):
-        """
-        The least squares solver for finding the basis expansion coefficients of a scalar field.
+        """Least squares solver for scalar fields.
 
         Returns
         -------
         LeastSquares
-            Least squares solver for finding the basis expansion coefficients of a scalar field.
+            Least squares solver for finding the basis expansion
+            coefficients of a scalar field.
         """
         if not hasattr(self, "_least_squares"):
             self._least_squares = LeastSquares(
@@ -256,13 +278,14 @@ class BasisEvaluator(object):
 
     @property
     def least_squares_helmholtz(self):
-        """
-        The least squares solver for finding the basis expansion coefficients of the curl-free and divergence-free parts of a vector field.
+        """Least squares solver for horizontal vector fields.
 
         Returns
         -------
         LeastSquares
-            Least squares solver for finding the basis expansion coefficients of the curl-free and divergence-free parts of a vector field.
+            Least squares solver for finding the basis expansion
+            coefficients of the curl-free and divergence-free parts of
+            a horizontal vector field.
         """
         if not hasattr(self, "_least_squares_helmholtz"):
             self._least_squares_helmholtz = LeastSquares(
@@ -277,8 +300,7 @@ class BasisEvaluator(object):
         return self._least_squares_helmholtz
 
     def least_squares_solution(self, grid_values):
-        """
-        Return the least squares solution for the coefficients representing a scalar field in the given basis.
+        """Least squares decomposition of a scalar field.
 
         Parameters
         ----------
@@ -288,13 +310,13 @@ class BasisEvaluator(object):
         Returns
         -------
         ndarray
-            Coefficients in the basis.
+            Least squares solution for the coefficients representing a
+            scalar field in the basis.
         """
         return self.least_squares.solve(grid_values)[0]
 
     def least_squares_solution_helmholtz(self, grid_values):
-        """
-        Return the least squares solution for the two sets of coefficients representing the curl-free and divergence-free components of a horizontal vector field in the given basis.
+        """Least squares decomposition of a horizontal vector field.
 
         Parameters
         ----------
@@ -304,13 +326,14 @@ class BasisEvaluator(object):
         Returns
         -------
         ndarray
-            Coefficients in the basis.
+            Least-squares solution for the coefficients representing
+            the curl-free and divergence-free components of a
+            horizontal vector field in the basis.
         """
         return self.least_squares_helmholtz.solve(grid_values)[0]
 
     def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):
-        """
-        Transform basis coefficients to grid values.
+        """Transform basis coefficients to grid values.
 
         Parameters
         ----------
@@ -319,14 +342,14 @@ class BasisEvaluator(object):
         derivative : str, optional
             Derivative to evaluate ('theta' or 'phi'). Default is None.
         helmholtz : bool, optional
-            Whether to use the Helmholtz decomposition. Default is False.
+            Whether to use the Helmholtz decomposition. Default is
+            False.
 
         Returns
         -------
         ndarray
             Values at the grid points.
         """
-
         if derivative == "theta":
             return np.dot(self.G_th, coeffs)
         elif derivative == "phi":
@@ -337,15 +360,15 @@ class BasisEvaluator(object):
             return np.dot(self.G, coeffs)
 
     def grid_to_basis(self, grid_values, helmholtz=False):
-        """
-        Transform grid values to basis coefficients.
+        """Transform grid values to basis coefficients.
 
         Parameters
         ----------
         grid_values : ndarray
             Values at the grid points.
         helmholtz : bool, optional
-            Whether to use the Helmholtz decomposition. Default is False.
+            Whether to use the Helmholtz decomposition. Default is
+            False.
 
         Returns
         -------
@@ -359,15 +382,15 @@ class BasisEvaluator(object):
             return self.least_squares_solution(grid_values)
 
     def regularization_term(self, coeffs, helmholtz=False):
-        """
-        Return the regularization term.
+        """Return the regularization term.
 
         Parameters
         ----------
         coeffs : ndarray
             Coefficients in the basis.
         helmholtz : bool, optional
-            Whether to use the Helmholtz decomposition. Default is False.
+            Whether to use the Helmholtz decomposition. Default is
+            False.
 
         Returns
         -------
@@ -381,8 +404,10 @@ class BasisEvaluator(object):
             return np.dot(coeffs, np.dot(self.L, coeffs))
 
     def scaled_G(self, factor):
-        """
-        Return the scaled G matrix. The factor can be a matrix with the same shape as G, in which case the scaling is done element-wise.
+        """Return the scaled G matrix.
+
+        The factor can be a matrix with the same
+        shape as G, in which case the scaling is done element-wise.
 
         Parameters
         ----------

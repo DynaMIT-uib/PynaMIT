@@ -1,4 +1,4 @@
-""" Script to running and debugging pynamit simulation """
+"""Script to running and debugging pynamit simulation"""
 
 from importlib import reload
 import pynamit
@@ -104,7 +104,7 @@ while True:
         filecount +=1
         title = 't = {:.3} s'.format(time)
         Br = dynamics.state.get_Br(plt_state_evaluator)
-        fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
+        fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True,
                                                    levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
         W = dynamics.state.get_W(plt_state_evaluator) * 1e-3

@@ -1,7 +1,8 @@
-"""Default Run Script for PynaMIT
+"""Default Run Script for PynaMIT.
 
-This module provides the function run_pynamit() which sets up and runs a default PynaMIT simulation.
-It is primarily used for testing purposes and as a starting point for simulation scripts.
+This module provides the function run_pynamit() which sets up and runs a
+default PynaMIT simulation. It is primarily used for testing purposes
+and as a starting point for simulation scripts.
 """
 
 
@@ -23,8 +24,7 @@ def run_pynamit(
     vector_conductance=True,
     vector_u=True,
 ):
-    """
-    Run a default PynaMIT simulation with the given parameters.
+    """Run a default PynaMIT simulation with the given parameters.
 
     Parameters
     ----------
@@ -39,13 +39,15 @@ def run_pynamit(
     Mmax : int, optional
         The maximum order of the spherical harmonics. Default is 20.
     Ncs : int, optional
-        The number of grid points in the cubed sphere grid. Default is 30.
+        The number of grid points in the cubed sphere grid. Default is
+        30.
     mainfield_kind : str, optional
         The type of main field model. Default is 'dipole'.
     fig_directory : str, optional
         The directory to save the figures. Default is './figs'.
     ignore_PFAC : bool, optional
-        Whether to ignore the poloidal field-aligned currents. Default is True.
+        Whether to ignore the poloidal field-aligned currents. Default
+        is True.
     connect_hemispheres : bool, optional
         Whether to connect the hemispheres. Default is False.
     latitude_boundary : float, optional
@@ -55,16 +57,19 @@ def run_pynamit(
     steady_state : bool, optional
         Whether to impose a steady state. Default is False.
     vector_jr : bool, optional
-        Whether to use vector representation for radial current. Default is True.
+        Whether to use vector representation for radial current. Default
+        is True.
     vector_conductance : bool, optional
-        Whether to use vector representation for conductance. Default is True.
+        Whether to use vector representation for conductance. Default is
+        True.
     vector_u : bool, optional
         Whether to use vector representation for wind. Default is True.
 
     Returns
     -------
     dynamics : Dynamics
-        The dynamics object for performing the simulation and handling the simulation results.
+        The dynamics object for performing the simulation and handling
+        the simulation results.
     """
     import datetime
     import numpy as np
@@ -103,7 +108,9 @@ def run_pynamit(
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
     )
-    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
+    dynamics.set_conductance(
+        hall, pedersen, lat=conductance_lat, lon=conductance_lon
+    )
 
     # jr INPUT
     jr_lat = dynamics.state_grid.lat
@@ -129,7 +136,9 @@ def run_pynamit(
             day=date.timetuple().tm_yday,
         )
         u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
-        u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
+        u_lat, u_lon = np.meshgrid(
+            hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij"
+        )
 
         dynamics.set_u(
             u_theta=u_theta,

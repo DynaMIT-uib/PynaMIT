@@ -1,8 +1,9 @@
-"""Field Expansion Utilities
+"""Field Expansion Utilities.
 
-This module provides the FieldExpansion class for representing scalar and tangential fields
-in basis function expansions. It handles conversion between expansion coefficients and grid
-values with support for both direct least-squares inversion and Helmholtz decomposition for
+This module provides the FieldExpansion class for representing scalar
+and tangential fields in basis function expansions. It handles
+conversion between expansion coefficients and grid values with support
+for both direct least-squares inversion and Helmholtz decomposition for
 tangential fields.
 """
 
@@ -10,9 +11,9 @@ tangential fields.
 class FieldExpansion(object):
     """Represents scalar or vector fields in basis expansions.
 
-    This class stores and manages expansion coefficients for scalar and tangential
-    vector fields and provides methods for conversion between coefficient and grid
-    representations.
+    This class stores and manages expansion coefficients for scalar and
+    tangential vector fields and provides methods for conversion
+    between coefficient and grid representations.
 
     Attributes
     ----------
@@ -32,30 +33,38 @@ class FieldExpansion(object):
         grid_values=None,
         field_type="scalar",
     ):
-        """
-        Initialize the field expansion with the provided basis and either coefficients or
-        grid values in combination with a basis evaluator for conversion to coefficients.
+        """Initialize the field expansion.
+
+        Initializes the expansion with the provided basis and either
+        coefficients or grid values in combination with a basis
+        evaluator for conversion to coefficients.
 
         Parameters
         ----------
         basis : Basis
             Basis object representing the basis of the field.
         coeffs : array-like, optional
-            Expansion coefficients of the field for the given basis. Default is None.
+            Expansion coefficients of the field for the given basis.
+            Default is None.
         basis_evaluator : BasisEvaluator, optional
-            BasisEvaluator object for converting between basis coefficients and grid values. Default is None.
+            BasisEvaluator object for converting between basis
+            coefficients and grid values. Default is None.
         grid_values : array-like, optional
             Values of the field on the grid. Default is None.
         field_type : str, optional
-            Type of the field ('scalar' or 'tangential'). Default is 'scalar'.
+            Type of the field ('scalar' or 'tangential'). Default is
+            'scalar'.
 
         Raises
         ------
         ValueError
-            If `field_type` is invalid or if insufficient initialization parameters are provided.
+            If `field_type` is invalid or if insufficient
+            initialization parameters are provided.
         """
         if field_type not in ["scalar", "tangential"]:
-            raise ValueError("field type must be either 'scalar' or 'tangential'.")
+            raise ValueError(
+                "field type must be either 'scalar' or 'tangential'."
+            )
 
         self.basis = basis
         self.field_type = field_type
@@ -66,7 +75,8 @@ class FieldExpansion(object):
             self.coeffs = self.coeffs_from_grid(basis_evaluator, grid_values)
         else:
             raise ValueError(
-                "Either coeffs or basis evaluator and grid values must be provided."
+                "Either coeffs or basis evaluator and grid values must"
+                " be provided."
             )
 
     def coeffs_from_grid(self, basis_evaluator, grid_values):
@@ -86,8 +96,9 @@ class FieldExpansion(object):
 
         Notes
         -----
-        Uses different inversion methods for scalar vs tangential fields:
-        - scalar: Direct least squares inversion
+        Uses different least squares inversion methods for scalar and
+        tangential fields:
+        - scalar: Direct inversion
         - tangential: Helmholtz decomposition based inversion
         """
         if self.field_type == "scalar":
@@ -138,6 +149,10 @@ class FieldExpansion(object):
         - tangential: Separate penalties on Helmholtz components
         """
         if self.field_type == "scalar":
-            return basis_evaluator.regularization_term(self.coeffs, helmholtz=False)
+            return basis_evaluator.regularization_term(
+                self.coeffs, helmholtz=False
+            )
         elif self.field_type == "tangential":
-            return basis_evaluator.regularization_term(self.coeffs, helmholtz=True)
+            return basis_evaluator.regularization_term(
+                self.coeffs, helmholtz=True
+            )

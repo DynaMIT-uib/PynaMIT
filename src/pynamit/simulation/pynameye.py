@@ -1,6 +1,7 @@
-"""PynamEye module
+"""PynamEye module.
 
-This module contains the PynamEye class for visualizing simulation results.
+This module contains the PynamEye class for visualizing simulation
+results.
 """
 
 import os
@@ -31,13 +32,15 @@ class PynamEye(object):
     datasets : dict
         Dictionary holding simulation datasets loaded from file(s).
     mainfield : Mainfield
-        An instance of the Mainfield class representing the magnetic field model in use.
+        An instance of the Mainfield class representing the magnetic
+        field model in use.
     global_grid : Grid
         Global grid used for evaluations.
     evaluator : dict
         Dictionary of BasisEvaluator instances for different regions.
     conductance_evaluator : dict
-        Dictionary of BasisEvaluator instances for conductance evaluations across regions.
+        Dictionary of BasisEvaluator instances for conductance
+        evaluations across regions.
     ...additional attributes as needed...
     """
 
@@ -56,22 +59,28 @@ class PynamEye(object):
         Parameters
         ----------
         filename_prefix : str
-            Filename prefix for the simulation save files that will be visualized.
+            Filename prefix for the simulation save files that will be
+            visualized.
         t : int, optional
             Simulation time in seconds. Default is 0.
         Nlat : int, optional
-            Number of grid points between -90 and 90 degrees latitude for visualization. Default is 60.
+            Number of grid points between -90 and 90 degrees latitude
+            for visualization. Default is 60.
         Nlon : int, optional
-            Number of grid points between -180 and 180 degrees longitude for visualization. Default is 100.
+            Number of grid points between -180 and 180 degrees
+            longitude for visualization. Default is 100.
         NCS_plot : int, optional
-            Number of grid points for the cubed sphere plot. Default is 10.
+            Number of grid points for the cubed sphere plot. Default is
+            10.
         mlatlim : int, optional
             Magnetic latitude limit. Default is 50.
         steady_state : bool, optional
             Whether to use steady state data. Default is False.
         """
         keys = ["settings", "conductance", "state", "u"]
-        filename_suffix = dict(zip(keys, ["_settings", "_conductance", "_state", "_u"]))
+        filename_suffix = dict(
+            zip(keys, ["_settings", "_conductance", "_state", "_u"])
+        )
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -107,8 +116,12 @@ class PynamEye(object):
         self.vector_cs_basis = CSBasis(NCS_plot)
         k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
         # crop to skip duplicate points
-        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).flatten()
-        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).flatten()
+        arr_xi = self.vector_cs_basis.xi(
+            i[:, :-1, :-1] + 0.5, NCS_plot
+        ).flatten()
+        arr_eta = self.vector_cs_basis.eta(
+            j[:, :-1, :-1] + 0.5, NCS_plot
+        ).flatten()
         _, arr_theta, arr_phi = self.vector_cs_basis.cube2spherical(
             arr_xi, arr_eta, k[:, :-1, :-1].flatten(), deg=True
         )
@@ -125,7 +138,9 @@ class PynamEye(object):
         self.conductance_basis = SHBasis(cNmax, cMmax, Nmin=0)
 
         # Basis evaluator for wind
-        self.u_basis_evaluator = BasisEvaluator(self.basis, self.global_vector_grid)
+        self.u_basis_evaluator = BasisEvaluator(
+            self.basis, self.global_vector_grid
+        )
 
         # Set up global grid and basis evaluators:
         self.evaluator = {}
@@ -151,7 +166,9 @@ class PynamEye(object):
         if (
             settings.mainfield_kind.lower() == "igrf"
         ):  # define a grid, then mask depending on mlatmin
-            self.apx = apexpy.Apex(self.t0.year, refh=(settings.RI - RE) * 1e-3)
+            self.apx = apexpy.Apex(
+                self.t0.year, refh=(settings.RI - RE) * 1e-3
+            )
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
                 self.mlat, self.mlon, (settings.RI - RE) * 1e-3
             )
@@ -160,8 +177,12 @@ class PynamEye(object):
             )
             self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
             self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
-            self.evaluator["north"] = BasisEvaluator(self.basis, self.polar_grid_n)
-            self.evaluator["south"] = BasisEvaluator(self.basis, self.polar_grid_s)
+            self.evaluator["north"] = BasisEvaluator(
+                self.basis, self.polar_grid_n
+            )
+            self.evaluator["south"] = BasisEvaluator(
+                self.basis, self.polar_grid_s
+            )
             self.conductance_evaluator["north"] = BasisEvaluator(
                 self.conductance_basis, self.polar_grid_n
             )
@@ -170,12 +191,16 @@ class PynamEye(object):
             )
         else:  # assume simulations are done in magnetic coordinates:
             self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
-            self.evaluator["north"] = BasisEvaluator(self.basis, self.polar_grid)
+            self.evaluator["north"] = BasisEvaluator(
+                self.basis, self.polar_grid
+            )
             self.evaluator["south"] = self.evaluator["north"]
             self.conductance_evaluator["north"] = BasisEvaluator(
                 self.conductance_basis, self.polar_grid
             )
-            self.conductance_evaluator["south"] = self.conductance_evaluator["north"]
+            self.conductance_evaluator["south"] = self.conductance_evaluator[
+                "north"
+            ]
 
         self.B_parameters_calculated = False
 
@@ -200,7 +225,9 @@ class PynamEye(object):
             )
             self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
             self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
-            self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[region] + np.tensordot(
+            self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[
+                region
+            ] + np.tensordot(
                 self.G_B_pol_to_JS[region], self.m_imp_to_B_pol, 1
             )
 
@@ -208,11 +235,11 @@ class PynamEye(object):
         self.set_time(t)
 
     def derive_E_from_B(self):
-        """
-        Re-calculate E coefficients from B coefficients.
+        """Re-calculate E coefficients from B coefficients.
 
-        If B coefficients are not manipulated, this should have no meaningful effect. Calling this function
-        can be expensive with high resolutions due to matrix inversion.
+        If B coefficients are not manipulated, this should have no
+        meaningful effect. Calling this function can be expensive with
+        high resolutions due to matrix inversion.
         """
         print("does not work. Rewrite")
         if not self.B_parameters_calculated:
@@ -233,7 +260,9 @@ class PynamEye(object):
             )
 
             # evaluate elelctric field on that grid
-            self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
+            self.b_evaluator = FieldEvaluator(
+                self.mainfield, self.state_grid, self.RI
+            )
             self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
             self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
             self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
@@ -243,7 +272,9 @@ class PynamEye(object):
             self.bH_10 = -self.b_evaluator.br
 
             self.G_B_pol_to_JS = (
-                -self.evaluator["num"].G_rxgrad * self.basis.V_external_to_delta_V / mu0
+                -self.evaluator["num"].G_rxgrad
+                * self.basis.V_external_to_delta_V
+                / mu0
             )
             self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
@@ -254,13 +285,21 @@ class PynamEye(object):
             self.B_parameters_calculated = True
 
         # calculate electric field values on state_grid:
-        Js_ind, Je_ind = np.split(self.G_m_ind_to_JS.dot(self.m_ind), 2, axis=0)
-        Js_imp, Je_imp = np.split(self.G_m_imp_to_JS.dot(self.m_imp), 2, axis=0)
+        Js_ind, Je_ind = np.split(
+            self.G_m_ind_to_JS.dot(self.m_ind), 2, axis=0
+        )
+        Js_imp, Je_imp = np.split(
+            self.G_m_imp_to_JS.dot(self.m_imp), 2, axis=0
+        )
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
-        etaP_on_grid = self.conductance_evaluator["num"].basis_to_grid(self.m_etaP)
-        # etaH_on_grid =  self.conductance_evaluator['num'].basis_to_grid(self.m_etaH)
+        etaP_on_grid = self.conductance_evaluator["num"].basis_to_grid(
+            self.m_etaP
+        )
+        # etaH_on_grid =self.conductance_evaluator['num'].basis_to_grid(
+        #    self.m_etaH
+        # )
 
         Eth = etaP_on_grid * (
             self.bP_00 * Jth + self.bP_01 * Jph
@@ -287,16 +326,16 @@ class PynamEye(object):
         Eph -= uxB_phi
 
         self.m_Phi, self.m_W = np.split(
-            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True),
+            self.evaluator["num"].grid_to_basis(
+                np.array([Eth, Eph]), helmholtz=True
+            ),
             2,
         )
         self.m_Phi = self.m_Phi * self.RI
         self.m_W = self.m_W * self.RI
 
     def _define_defaults(self):
-        """
-        Define default settings for various plots.
-        """
+        """Define default settings for various plots."""
         self.wind_defaults = {"color": "black", "scale": 1e3}
         self.conductance_defaults = {
             "cmap": plt.cm.viridis,
@@ -332,8 +371,7 @@ class PynamEye(object):
         }
 
     def set_time(self, t, steady_state=False):
-        """
-        Set time for PynamEye object in seconds.
+        """Set time for PynamEye object in seconds.
 
         Parameters
         ----------
@@ -348,25 +386,37 @@ class PynamEye(object):
         #
         for ds in ["state", "u", "conductance"]:
             if not np.any(
-                np.isclose(self.t - np.atleast_1d(self.datasets[ds].time.values), 0)
+                np.isclose(
+                    self.t - np.atleast_1d(self.datasets[ds].time.values), 0
+                )
             ):
-                new_time = sorted(list(self.datasets[ds].time.values) + [self.t])
+                new_time = sorted(
+                    list(self.datasets[ds].time.values) + [self.t]
+                )
                 self.datasets[ds] = (
                     self.datasets[ds].reindex(time=new_time).ffill(dim="time")
                 )
 
         self.m_ind = (
-            self.datasets["state"].SH_m_ind.sel(time=self.t, method="nearest").values
+            self.datasets["state"]
+            .SH_m_ind.sel(time=self.t, method="nearest")
+            .values
         )
         self.m_imp = (
-            self.datasets["state"].SH_m_imp.sel(time=self.t, method="nearest").values
+            self.datasets["state"]
+            .SH_m_imp.sel(time=self.t, method="nearest")
+            .values
         )
         self.m_W = (
-            self.datasets["state"].SH_W.sel(time=self.t, method="nearest").values
+            self.datasets["state"]
+            .SH_W.sel(time=self.t, method="nearest")
+            .values
             * self.RI
         )
         self.m_Phi = (
-            self.datasets["state"].SH_Phi.sel(time=self.t, method="nearest").values
+            self.datasets["state"]
+            .SH_Phi.sel(time=self.t, method="nearest")
+            .values
             * self.RI
         )
         self.m_etaP = (
@@ -381,7 +431,9 @@ class PynamEye(object):
         )
         self.m_u = np.vstack(
             np.split(
-                self.datasets["u"].SH_u.sel(time=self.t, method="nearest").values,
+                self.datasets["u"]
+                .SH_u.sel(time=self.t, method="nearest")
+                .values,
                 2,
             )
         )
@@ -397,14 +449,14 @@ class PynamEye(object):
 
         if np.any(np.isnan(self.m_ind)):
             print(
-                "induced magnetic field coefficients at t = {:.2f} s are nans".format(t)
+                f"induced magnetic field coefficients at t = {t, :.2f}"
+                " s are nans"
             )
 
         return self
 
     def get_global_projection(self):
-        """
-        Get the global projection for plotting.
+        """Get the global projection for plotting.
 
         Returns
         -------
@@ -413,14 +465,15 @@ class PynamEye(object):
         """
         noon_longitude = self.dp.mlt2mlon(12, self.time)
 
-        if self.datasets["settings"].mainfield_kind == "igrf":  # convert to geographic
+        if (
+            self.datasets["settings"].mainfield_kind == "igrf"
+        ):  # convert to geographic
             _, noon_longitude, _ = self.apx.apex2geo(0, noon_longitude, 0)
 
         return ccrs.PlateCarree(central_longitude=noon_longitude)
 
     def jazz_global_plot(self, ax, draw_labels=True, draw_coastlines=True):
-        """
-        Add coastlines and coordinates to the global plot.
+        """Add coastlines and coordinates to the global plot.
 
         Parameters
         ----------
@@ -474,8 +527,7 @@ class PynamEye(object):
         )
 
     def _plot_contour(self, values, ax, region="global", **kwargs):
-        """
-        Plot contour.
+        """Plot contour.
 
         Parameters
         ----------
@@ -484,7 +536,8 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contour.
         """
@@ -495,29 +548,36 @@ class PynamEye(object):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="No contour levels were found within the data range.",
+                    message=(
+                        "No contour levels were found within the "
+                        "data range.",
+                    ),
                 )
-                return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
+                return ax.ax.contour(
+                    xx, yy, values.reshape(self.mlat.shape), **kwargs
+                )
         elif region == "global":
             assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="No contour levels were found within the data range.",
+                    message=(
+                        "No contour levels were found within the "
+                        "data range.",
+                    ),
                 )
                 return ax.contour(
                     self.lon,
                     self.lat,
                     values.reshape(self.lon.shape),
                     transform=ccrs.PlateCarree(),
-                    **kwargs
+                    **kwargs,
                 )
         else:
             raise ValueError("region must be either global, north, or south")
 
     def _plot_filled_contour(self, values, ax, region="global", **kwargs):
-        """
-        Plot filled contour.
+        """Plot filled contour.
 
         Parameters
         ----------
@@ -526,7 +586,8 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contourf.
         """
@@ -537,29 +598,36 @@ class PynamEye(object):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="No contour levels were found within the data range.",
+                    message=(
+                        "No contour levels were found within the "
+                        "data range.",
+                    ),
                 )
-                return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
+                return ax.ax.contourf(
+                    xx, yy, values.reshape(self.mlat.shape), **kwargs
+                )
         elif region == "global":
             assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="No contour levels were found within the data range.",
+                    message=(
+                        "No contour levels were found within the "
+                        "data range.",
+                    ),
                 )
                 return ax.contourf(
                     self.lon,
                     self.lat,
                     values.reshape(self.lon.shape),
                     transform=ccrs.PlateCarree(),
-                    **kwargs
+                    **kwargs,
                 )
         else:
             raise ValueError("region must be either global, north, or south")
 
     def _quiver(self, east, north, ax, region="global", **kwargs):
-        """
-        Quiver plot.
+        """Quiver plot.
 
         Parameters
         ----------
@@ -570,7 +638,8 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to quiver.
         """
@@ -581,37 +650,46 @@ class PynamEye(object):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="No contour levels were found within the data range.",
+                    message=(
+                        "No contour levels were found within the "
+                        "data range.",
+                    ),
                 )
                 lon, lat = (
                     self.global_vector_grid.lon,
                     self.global_vector_grid.lat,
                 )
                 return ax.quiver(
-                    lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs
+                    lon,
+                    lat,
+                    east,
+                    north,
+                    transform=ccrs.PlateCarree(),
+                    **kwargs,
                 )
         else:
             raise ValueError("region must be either global, north, or south")
 
     def plot_joule(self, ax, region="global", **kwargs):
-        """
-        Plot Joule heating.
+        """Plot Joule heating.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.conductance_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.joule_defaults[key]
 
-        # calculate electric field
+        # Calculate electric field
         e_coeffs = FieldExpansion(
             self.basis,
             coeffs=np.array([self.m_Phi, self.m_W]),
@@ -620,23 +698,22 @@ class PynamEye(object):
         E = e_coeffs.to_grid(self.evaluator[region]) / self.RI
         print("todo: is the scaling as expected?")
 
-        # calculate current
+        # Calculate current
         JS_imp = self.G_m_imp_to_JS[region].dot(self.m_imp)
         JS_ind = self.G_m_ind_to_JS[region].dot(self.m_ind)
         JS = np.split(JS_imp + JS_ind, 2)  # theta and phi components
 
-        # calculate Joule heating
+        # Calculate Joule heating
         Q = JS[0] * E[0] + JS[1] * E[1]
         self._Q = Q
         self._E = E
         self._JS = JS
 
-        # plot:
+        # Plot
         return self._plot_filled_contour(Q, ax, region, **kwargs)
 
     def plot_conductance(self, ax, hp="h", region="global", **kwargs):
-        """
-        Plot conductance.
+        """Plot conductance.
 
         Parameters
         ----------
@@ -645,17 +722,23 @@ class PynamEye(object):
         hp : str, optional
             'h' for Hall, 'p' for Pedersen. Default is 'h'.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.conductance_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.conductance_defaults[key]
 
-        etaP_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
-        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
+        etaP_on_grid = self.conductance_evaluator[region].basis_to_grid(
+            self.m_etaP
+        )
+        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(
+            self.m_etaP
+        )
 
         if "h":
             Sigma = etaH_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
@@ -667,109 +750,124 @@ class PynamEye(object):
         return self._plot_filled_contour(Sigma, ax, region, **kwargs)
 
     def plot_wind(self, ax, region="global", **kwargs):
-        """
-        Plot wind vector field.
+        """Plot wind vector field.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to quiver.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.wind_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.wind_defaults[key]
 
-        utheta, uphi = self.u_basis_evaluator.basis_to_grid(self.m_u, helmholtz=True)
+        utheta, uphi = self.u_basis_evaluator.basis_to_grid(
+            self.m_u, helmholtz=True
+        )
 
         return self._quiver(uphi, -utheta, ax, region, **kwargs)
 
     def plot_Br(self, ax, region="global", **kwargs):
-        """
-        Plot Br.
+        """Plot Br.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.Br_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
-        Br = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Br)
+        Br = self.evaluator[region].basis_to_grid(
+            self.m_ind * self.m_ind_to_Br
+        )
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
     def plot_equivalent_current(self, ax, region="global", **kwargs):
-        """
-        Plot equivalent current.
+        """Plot equivalent current.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contour.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.eqJ_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.eqJ_defaults[key]
 
-        Jeq = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Jeq)
+        Jeq = self.evaluator[region].basis_to_grid(
+            self.m_ind * self.m_ind_to_Jeq
+        )
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
 
     def plot_jr(self, ax, region="global", **kwargs):
-        """
-        Plot jr.
+        """Plot jr.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.jr_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.jr_defaults[key]
 
-        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
+        jr = self.evaluator[region].basis_to_grid(
+            self.m_imp * self.m_imp_to_jr
+        )
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
-    def plot_electric_potential(self, ax, region="global", from_B=False, **kwargs):
-        """
-        Plot electric potential.
+    def plot_electric_potential(
+        self, ax, region="global", from_B=False, **kwargs
+    ):
+        """Plot electric potential.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         from_B : bool, optional
             Whether to derive from B coefficients. Default is False.
         **kwargs
             Additional keyword arguments passed to contour.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.Phi_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.Phi_defaults[key]
@@ -778,20 +876,23 @@ class PynamEye(object):
 
         return self._plot_contour(Phi, ax, region, **kwargs)
 
-    def plot_electric_field_stream_function(self, ax, region="global", **kwargs):
-        """
-        Plot electric field stream function (the inductive part).
+    def plot_electric_field_stream_function(
+        self, ax, region="global", **kwargs
+    ):
+        """Plot electric field stream function (the inductive part).
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default is 'global'.
+            The region to plot ('global', 'north', or 'south'). Default
+            is 'global'.
         **kwargs
             Additional keyword arguments passed to contour.
         """
-        # populate kwargs with default values if not specificed in function call:
+        # Populate kwargs with default values if not specificed in
+        # function call
         for key in self.W_defaults:
             if key not in kwargs.keys():
                 kwargs[key] = self.W_defaults[key]
@@ -801,8 +902,7 @@ class PynamEye(object):
         return self._plot_contour(W, ax, region, **kwargs)
 
     def make_multipanel_output_figure(self, label=None):
-        """
-        Create a multipanel output figure.
+        """Create a multipanel output figure.
 
         Parameters
         ----------

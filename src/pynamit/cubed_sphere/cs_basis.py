@@ -1,8 +1,8 @@
 """Cubed sphere basis module.
 
-This module provides the CSBasis class, which implements the cubed sphere
-grid system together with related tools for numerical differentiation,
-interpolation, and visualization.
+This module provides the CSBasis class, which implements the cubed
+sphere grid system together with related tools for numerical
+differentiation, interpolation, and visualization.
 """
 
 import numpy as np
@@ -20,14 +20,15 @@ datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 class CSBasis:
     """Cubed sphere basis.
 
-    This module provides an implementation of the cubed sphere grid system
-    following methods from Yin et al. (2017). The cubed sphere grid divides a
-    sphere into six faces of a circumscribed cube, providing nearly uniform
-    grid resolution and avoiding pole singularities. Each face uses a local
-    (xi, eta) coordinate system mapped to global spherical coordinates
-    (theta, phi). It includes tools for coordinate transformations, scalar
-    and vector field interpolation and manipulation, numerical
-    differentiation, and visualization utilities.
+    This module provides an implementation of the cubed sphere grid
+    system following methods from Yin et al. (2017). The cubed sphere
+    grid divides a sphere into six faces of a circumscribed cube,
+    providing nearly uniform grid resolution and avoiding pole
+    singularities. Each face uses a local (xi, eta) coordinate system
+    mapped to global spherical coordinates (theta, phi). It includes
+    tools for coordinate transformations, scalar and vector field
+    interpolation and manipulation, numerical differentiation, and
+    visualization utilities.
 
     Attributes
     ----------
@@ -55,8 +56,8 @@ class CSBasis:
 
     Notes
     -----
-    The cubed sphere grid is organized into six faces as shown below, which
-    defines the block structure of the grid:
+    The cubed sphere grid is organized into six faces as shown below,
+    which defines the block structure of the grid:
 
           _______
           |     |
@@ -79,23 +80,25 @@ class CSBasis:
 
     References
     ----------
-    [1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai (2017)
-        Parallel numerical simulation of the thermal convection in the Earth's
-        outer core on the cubed-sphere. Geophysical Journal International,
-        209(3), 1934–1954. DOI: 10.1093/gji/ggx125
+    [1] Liang Yin, Chao Yang, Shi-Zhuang Ma, Ji-Zu Huang, Ying Cai
+        (2017) Parallel numerical simulation of the thermal convection
+        in the Earth's outer core on the cubed-sphere. Geophysical
+        Journal International, 209(3), 1934–1954.
+        DOI: 10.1093/gji/ggx125
     """
 
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 
-        If N is provided, initializes arrays for a grid with N×N cells on each
-        cube face. The total number of grid points will be 6×N×N after
-        removing duplicates at block boundaries.
+        If N is provided, initializes arrays for a grid with N×N cells
+        on each cube face. The total number of grid points will be 6×N×N
+        after removing duplicates at block boundaries.
 
         Parameters
         ----------
         N : int, optional
-            Number of grid cells per cube edge. Must be even if provided.
+            Number of grid cells per cube edge. Must be even if
+            provided.
 
         Raises
         ------
@@ -164,8 +167,8 @@ class CSBasis:
     def xi(self, i, N):
         """Calculate xi coordinate for grid index.
 
-        Maps index i=0 to -π/4 and i=N to π/4, providing the xi coordinate in
-        the cubed sphere grid system.
+        Maps index i=0 to -π/4 and i=N to π/4, providing the xi
+        coordinate in the cubed sphere grid system.
 
         Parameters
         ----------
@@ -195,9 +198,10 @@ class CSBasis:
     def eta(self, j, N):
         """Calculate eta coordinate for grid index.
 
-        Maps index j=0 to -π/4 and j=N to π/4, providing the eta coordinate in
-        the cubed sphere grid system. This function is mathematically
-        identical to xi() but is provided separately for code clarity.
+        Maps index j=0 to -π/4 and j=N to π/4, providing the eta
+        coordinate in the cubed sphere grid system. This function is
+        mathematically identical to xi() but is provided separately for
+        code clarity.
 
         Parameters
         ----------
@@ -241,7 +245,6 @@ class CSBasis:
         ndarray
             Delta values with shape determined by broadcasting rules
         """
-
         xi, eta = np.broadcast_arrays(xi, eta)
 
         return 1 + np.tan(xi) ** 2 + np.tan(eta) ** 2
@@ -258,14 +261,15 @@ class CSBasis:
         r : array-like, optional
             Radial coordinates, by default 1
         covariant : bool, optional
-            If True, return covariant components, else contravariant,
-            by default True
+            If True, return covariant components, else contravariant, by
+            default True
 
         Returns
         -------
         g : ndarray
-            Metric tensor components with shape (N,3,3) where N is the number
-            of input points. Last two dimensions are tensor indices.
+            Metric tensor components with shape (N,3,3) where N is the
+            number of input points. Last two dimensions are tensor
+            indices.
 
         Notes
         -----
@@ -308,37 +312,36 @@ class CSBasis:
             return arrayutils.invert_3D_matrices(g)
 
     def cube2cartesian(self, xi, eta, r=1, block=0):
-        """Calculate Cartesian x, y, z coordinates (ECEF) of given points.
+        """Calculate Cartesian ECEF coordinates of given points.
 
         Output will have same unit as `r`.
 
-        Calculations based on equations from Appendix A of Yin et al. (2017).
+        Calculations based on equations from Appendix A of Yin et al.
+        (2017).
 
         Parameters
         ----------
-        xi: array-like
+        xi : array-like
             Array of xi coordinates in radians.
-        eta: array-like
+        eta : array-like
             Array of eta coordinates in radians.
         r : array-like, optional, default = 1
             Array of radii.
-        block: array-like, optional, default = 0
+        block : array-like, optional, default = 0
             Array of block indices.
 
         Returns
         -------
-        x: array
+        x : array
             Array of Cartesian x coordinates, shape determined by input
             according to broadcasting rules.
-        y: array
+        y : array
             Array of Cartesian y coordinates, shape determined by input
             according to broadcasting rules.
-        z: array
+        z : array
             Array of Cartesian z coordinates, shape determined by input
             according to broadcasting rules.
-
         """
-
         xi, eta, r, block = np.broadcast_arrays(xi, eta, r, block)
         delta = self.get_delta(xi, eta)
         x, y, z = np.empty_like(xi), np.empty_like(xi), np.empty_like(xi)
@@ -419,11 +422,14 @@ class CSBasis:
         return (r, theta, phi)
 
     def get_Pc(self, xi, eta, r=1, block=0, inverse=False):
-        """
-        Calculate elements of transformation matrix `Pc` at all input points.
+        """Get Pc matrix.
 
-        The `Pc` matrix transforms Cartesian components ``(ux, uy, uz)`` to
-        contravariant components in a cubed sphere coordinate system::
+        Calculates elements of transformation matrix `Pc` at all input
+        points.
+
+        The `Pc` matrix transforms Cartesian components ``(ux, uy, uz)``
+        to contravariant components in a cubed sphere coordinate
+        system::
 
             |u1| = |P00 P01 P02| |ux|
             |u2| = |P10 P11 P12| |uy|
@@ -431,31 +437,32 @@ class CSBasis:
 
         The output, `Pc`, will have shape ``(N, 3, 3)``.
 
-        Calculations based on equations from Appendix A of Yin et al. (2017),
-        with similar notation.
+        Calculations based on equations from Appendix A of Yin et al.
+        (2017), with similar notation.
 
         Parameters
         ----------
-        xi: array-like
+        xi : array-like
             Array of xi coordinates, in radians.
-        eta: array-like
+        eta : array-like
             Array of eta coordinates, in radians.
         r : array-like, optional, default = 1
             Array of radii.
-        block: array-like, optional, default = 0
+        block : array-like, optional, default = 0
             Array of block indices.
-        inverse: bool, optional
-            Set to ``True`` if you want the inverse transformation matrix.
+        inverse : bool, optional
+            Set to ``True`` if you want the inverse transformation
+            matrix.
 
         Returns
         -------
-        Pc: array
-            Transformation matrices `Pc`, one for each point described by the
-            input parameters (using broadcasting rules). For ``N`` such
-            points, `Pc` will have shape ``(N, 3, 3)``, where the last two
-            dimensions refer to column and row of the matrix.
+        Pc : array
+            Transformation matrices `Pc`, one for each point described
+            by the input parameters (using broadcasting rules). For
+            ``N`` such points, `Pc` will have shape ``(N, 3, 3)``, where
+            the last two dimensions refer to column and row of the
+            matrix.
         """
-
         xi, et, r, block = map(
             np.ravel, np.broadcast_arrays(xi, eta, r, block)
         )  # broadcast and flatten
@@ -543,12 +550,14 @@ class CSBasis:
             return Pc
 
     def get_Ps(self, xi, eta, r=1, block=0, inverse=False):
-        """
-        Calculate elements of transformation matrix `Ps` at all input points.
+        """Get Ps matrix.
+
+        Calculates elements of transformation matrix `Ps` at all input.
+        points.
 
         The `Ps` matrix transforms vector components
-        ``(u_east, u_north, u_r)`` to contravariant components in a cubed
-        sphere coordinate system::
+        ``(u_east, u_north, u_r)`` to contravariant components in a
+        cubed sphere coordinate system::
 
             |u1| = |P00 P01 P02| |u_east|
             |u2| = |P10 P11 P12| |u_north|
@@ -556,33 +565,34 @@ class CSBasis:
 
         The output, `Ps`, will have shape ``(N, 3, 3)``.
 
-        Calculations based on equations from Appendix A of Yin et al. (2017),
-        with similar notation, except that ``lambda`` and ``phi`` is replaced
-        with ``east`` and ``north`` (here, ``phi`` means longitude, and not
-        latitude as in the Yin paper).
+        Calculations based on equations from Appendix A of Yin et al.
+        (2017), with similar notation, except that ``lambda`` and
+        ``phi`` is replaced with ``east`` and ``north`` (here, ``phi``
+        means longitude, and not latitude as in Yin et al., 2017).
 
         Parameters
         ----------
-        xi: array-like
+        xi : array-like
             Array of xi coordinates, in radians.
-        eta: array-like
+        eta : array-like
             Array of eta coordinates, in radians.
         r : array-like, optional, default = 1
             Array of radii.
-        block: array-like, optional, default = 0
+        block : array-like, optional, default = 0
             Array of block indices.
-        inverse: bool, optional
-            Set to ``True`` if you want the inverse transformation matrix.
+        inverse : bool, optional
+            Set to ``True`` if you want the inverse transformation
+            matrix.
 
         Returns
         -------
-        Ps: array
-            Transformation matrices `Ps`, one for each point described by the
-            input parameters (using broadcasting rules). For ``N`` such
-            points, `Ps` will have shape ``(N, 3, 3)``, where the last two
-            dimensions refer to column and row of the matrix.
+        Ps : array
+            Transformation matrices `Ps`, one for each point described
+            by the input parameters (using broadcasting rules). For
+            ``N`` such points, `Ps` will have shape ``(N, 3, 3)``, where
+            the last two dimensions refer to column and row of the
+            matrix.
         """
-
         xi, et, r, block = map(
             np.ravel, np.broadcast_arrays(xi, eta, r, block)
         )  # broadcast and flatten
@@ -695,42 +705,46 @@ class CSBasis:
             return Ps
 
     def get_Qij(self, xi, eta, block_i, block_j):
-        """
-        Calculate matrix `Qij` that transforms contravariant vector components
-        from block `block_i` to `block_j`.
+        """Get Qij matrix.
 
-        Calculations are done via transformation to spherical coordinates, as
-        suggested by Yin et al. (2017) See equations (66) and (67) in their
-        paper.
+        Calculates matrix `Qij` that transforms contravariant vector
+        components from block `block_i` to `block_j`.
 
-        It works like this, where ``(u1, u2, u3)`` refer to contravariant
-        vector components in the cubed sphere coordinate systems::
+        Calculations are done via transformation to spherical
+        coordinates, as suggested by Yin et al. (2017) See equations
+        (66) and (67) in their paper.
+
+        It works like this, where ``(u1, u2, u3)`` refer to
+        contravariant vector components in the cubed sphere coordinate
+        system::
 
             |u1_j|      |u1_i|
             |u2_j| = Qij|u2_i|
             |u3_j|      |u3_i|
 
-
         Parameters
         ----------
-        xi: array-like
-            Array of xi coordinates on block given by `block_i`, in radians.
-        eta: array-like
-            Array of eta coordinates on block given by `block_i`, in radians.
-        block_i: array-like, optional
-            Indices of block(s) from which to transform vector components.
-        block_j: array-like, optional
+        xi : array-like
+            Array of xi coordinates on block given by `block_i`, in
+            radians.
+        eta : array-like
+            Array of eta coordinates on block given by `block_i`, in
+            radians.
+        block_i : array-like, optional
+            Indices of block(s) from which to transform vector
+            components.
+        block_j : array-like, optional
             Indices of block(s) to which to transform vector components.
 
         Returns
         -------
-        Qij: array
-            Transformation matrices `Qij`, one for each point described by the
-            input parameters (using broadcasting rules). For ``N`` such
-            points, `Qij` will have shape ``(N, 3, 3)``, where the last two
-            dimensions refer to column and row of the matrix.
+        Qij : array
+            Transformation matrices `Qij`, one for each point described
+            by the input parameters (using broadcasting rules). For
+            ``N`` such points, `Qij` will have shape ``(N, 3, 3)``,
+            where the last two dimensions refer to column and row of the
+            matrix.
         """
-
         xi_i, eta_i, block_i, block_j = map(
             np.ravel, np.broadcast_arrays(xi, eta, block_i, block_j)
         )  # broadcast and flatten
@@ -738,7 +752,9 @@ class CSBasis:
         Psi_inv = self.get_Ps(xi_i, eta_i, r=1, block=block_i, inverse=True)
 
         # Find the xi, eta coordinates on block j
-        r, theta, phi = self.cube2spherical(xi_i, eta_i, r=1, block=block_i, deg=True)
+        r, theta, phi = self.cube2spherical(
+            xi_i, eta_i, r=1, block=block_i, deg=True
+        )
         xi_j, eta_j, _ = self.geo2cube(phi, 90 - theta, block=block_j)
 
         # Calculate Ps relative to block j
@@ -750,8 +766,9 @@ class CSBasis:
         return Qij
 
     def get_Q(self, lat, r, inverse=False):
-        """
-        Calculate the matrices that convert from unnormalized spherical
+        """Get Q matrix.
+
+        Calculates the matrices that convert from unnormalized spherical
         components to normalized spherical vector components::
 
             |u_east_normalized |    |u_east |
@@ -762,19 +779,19 @@ class CSBasis:
 
         Parameters
         ----------
-        lat: array
+        lat : array
             Array of latitudes, in degrees.
-        r: array
+        r : array
             Array of radii.
-        inverse: bool, optional
-            Set to ``True`` if you want the inverse transformation matrix.
+        inverse : bool, optional
+            Set to ``True`` if you want the inverse transformation
+            matrix.
 
         Returns
         -------
-        Q: array
+        Q : array
             ``(N, 3, 3)`` array, where ``N`` is the size implied by
             broadcasting the input.
-
         """
         lat, r = map(np.ravel, np.broadcast_arrays(lat, r))
 
@@ -789,39 +806,40 @@ class CSBasis:
             return Q
 
     def get_Diff(self, N, coordinate="xi", Ns=1, Ni=4, order=1):
-        """
-        Calculate matrix that differentiates a scalar field, defined on a
-        ``(6, N, N)`` grid, with respect to ``xi`` or ``eta``.
+        """Get scalar field differentiation matrix.
+
+        Calculate matrix that differentiates a scalar field, defined on
+        a ``(6, N, N)`` grid, with respect to ``xi`` or ``eta``.
 
         Parameters
         ----------
-        N: int
+        N : int
             Number of grid cells in each dimension on each block.
-        coordinate: string, {'xi', 'eta', 'both'}, default = 'xi'
+        coordinate : string, {'xi', 'eta', 'both'}, default = 'xi'
             Which coordinate to differentiate with respect to.
-        Ns: int, optional, default = 1
-            Differentiation stencil size. Default gives first order central
-            difference.
-        Ni: int, optional
+        Ns : int, optional, default = 1
+            Differentiation stencil size. Default gives first order
+            central difference.
+        Ni : int, optional
             Number of points to use for interpolation for points in the
             stencil that fall on non-integer grid points on neighboring
             blocks.
-        order: int, optional, default = 1
-            Order of differentiation. Default gives first order derivative.
-            Make sure that ``Ns >= order``.
+        order : int, optional, default = 1
+            Order of differentiation. Default gives first order
+            derivative. Make sure that ``Ns >= order``.
 
         Returns
         -------
-        D: sparse matrix
-            Sparse ``(6*N*N, 6*N*N)`` matrix that calculates the derivative
-            of a scalar field with respect to ``xi`` or ``eta`` as
-            ``derivative = D.dot(f)``, where ``f`` is the scalar field.
+        D : sparse matrix
+            Sparse ``(6*N*N, 6*N*N)`` matrix that calculates the
+            derivative of a scalar field with respect to ``xi`` or
+            ``eta`` as ``derivative = D.dot(f)``, where ``f`` is the
+            scalar field.
         """
         if coordinate not in ["xi", "eta", "both"]:
             raise ValueError(
-                'coordinate must be either "xi", "eta", or "both". Not {}'.format(
-                    coordinate
-                )
+                'coordinate must be either "xi", "eta", or "both". Not '
+                f' {coordinate}.'
             )
 
         if Ns < order:
@@ -835,7 +853,9 @@ class CSBasis:
 
         k, i, j = map(
             np.ravel,
-            np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij"),
+            np.meshgrid(
+                np.arange(6), np.arange(N), np.arange(N), indexing="ij"
+            ),
         )
 
         # Set up differentiation stencil
@@ -871,54 +891,56 @@ class CSBasis:
         if coordinate == "eta":
             return Deta
 
-    def get_interpolation_matrix(self, k, i, j, N, Ni, weights=None, rows=None):
-        """
-        Calculate a sparse matrix D that interpolates from grid points in
-        a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`).
+    def get_interpolation_matrix(
+        self, k, i, j, N, Ni, weights=None, rows=None
+    ):
+        """Get matrix for grid to cubed sphere interpolation.
 
-        `D` will have ``6*N**2`` columns that refer to the ``(6, N, N)`` grid
-        points, spanning the 6 blocks in the cubed sphere, with duplicate
-        points on the boundaries.
+        Calculates a sparse matrix D that interpolates from grid points
+        in a ``(6, N, N)`` grid to the indices (`k`, `i`, `j`).
+
+        `D` will have ``6*N**2`` columns that refer to the ``(6, N, N)``
+        grid points, spanning the 6 blocks in the cubed sphere, with
+        duplicate points on the boundaries.
 
         Parameters
         ----------
-        k: array-like
-            Integer indices that refer to cube block. Must be ``>= 0`` and
-            ``<= 5``. Will be flattened.
-        i: array-like
-            Integer indices that refer to the ``xi``-direction (but can be
-            negative or ``>= N``). Will be flattened.
-        j: array-like
-            Integer indices that refer to the ``eta``-direction (but can be
-            negative or ``>= N``). Will be flattened.
-        N: int
+        k : array-like
+            Integer indices that refer to cube block. Must be ``>= 0``
+            and ``<= 5``. Will be flattened.
+        i : array-like
+            Integer indices that refer to the ``xi``-direction (but can
+            be negative or ``>= N``). Will be flattened.
+        j : array-like
+            Integer indices that refer to the ``eta``-direction (but can
+            be negative or ``>= N``). Will be flattened.
+        N : int
             Number of grid points.
-        Ni: int
-            Number of interpolation points. Must be ``<= N`` (usually 4 is
-            an appropriate value).
-        weights: array-like, optional
-            If different values of `k`, `i`, `j` are assigned to the same row,
-            the corresponding element will have value 1 (or whatever the
-            interpolation dictates) unless weights is specified. For
-            differentiation, use weights to specify the stencil
-            coefficients.
-        rows: array-like, optional
-            The row index of each element in `k`, `i`, `j`. Different elements
-            of `k`, `i`, `j` can be put in the same row. If not
-            specified, each element in `k`, `i`, `j` will be given its own
-            row.
+        Ni : int
+            Number of interpolation points. Must be ``<= N`` (4 is
+            often appropriate).
+        weights : array-like, optional
+            If different values of `k`, `i`, `j` are assigned to the
+            same row, the corresponding element will have value 1 (or
+            whatever the interpolation dictates) unless weights is
+            specified. For differentiation, use weights to specify the
+            stencil coefficients.
+        rows : array-like, optional
+            The row index of each element in `k`, `i`, `j`. Different
+            elements of `k`, `i`, `j` can be put in the same row. If not
+            specified, each element in `k`, `i`, `j` will be given its
+            own row.
 
         Returns
         -------
-        D: sparse matrix
-            ``(rows.max() + 1 by 6*N*N)`` matrix that, when multiplied by a
-            vector containing a scalar field on the ``6*N*N`` grid points,
-            produces interpolated values at the given grid points. The grid
-            points may be outside the cube blocks, for example they can be
-            negative (actually that's the point, if not this function
-            wouldn't be needed).
+        D : sparse matrix
+            ``(rows.max() + 1 by 6*N*N)`` matrix that, when multiplied
+            by a vector containing a scalar field on the ``6*N*N`` grid
+            points, produces interpolated values at the given grid
+            points. The grid points may be outside the cube blocks, for
+            example they can be negative (actually that's the point,
+            otherwise this function wouldn't be needed).
         """
-
         if Ni > N:
             raise ValueError("Ni must be <= N")
         k, i, j = map(np.ravel, [k, i, j])
@@ -939,13 +961,13 @@ class CSBasis:
         # Array that will contain column indices
         cols = np.full(k.size, -1, dtype=np.int64)
 
-        # Find new indices that do not exceed block dimensions (but are possibly floats):
+        # Find new indices inside block dimensions (possibly floats)
         xi, eta = self.xi(i, N), self.eta(j, N)
         r, theta, phi = self.cube2spherical(xi, eta, k, r=1.0, deg=True)
         new_xi, new_eta, new_k = self.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
 
-        # All index pairs should have at least one integer in a uniform cubed sphere grid:
+        # Uniform CS grids need at least one integer in each index pair
         assert np.all(
             (
                 np.isclose(new_i - np.rint(new_i), 0)
@@ -953,7 +975,7 @@ class CSBasis:
             )
         )
 
-        # Fill in column indices for the index pairs that are both integers:
+        # Fill in column indices for index pairs that are both integers
         ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(
             new_j - np.rint(new_j), 0
         )
@@ -966,7 +988,8 @@ class CSBasis:
             shape,
         )
 
-        # The rest of the index pairs need interpolation. Find the indices where it is needed:
+        # The rest of the index pairs need interpolation. Find these
+        # indices.
         i_is_float = ~np.isclose(np.rint(new_i) - new_i, 0)
         j_is_float = ~np.isclose(np.rint(new_j) - new_j, 0)
 
@@ -978,7 +1001,7 @@ class CSBasis:
         j_floats = new_j[j_is_float].reshape((-1, 1))
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
-        # Define the (integer) points which will be used to interpolate:
+        # Define the (integer) points which will be used to interpolate
         interpolation_points = np.arange(Ni).reshape((1, -1))
         j_interpolation_points = arrayutils.constrain_values(
             interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1,
@@ -993,31 +1016,41 @@ class CSBasis:
             axis=1,
         )
 
-        # Calculate barycentric weights wj (Berrut & Trefethen, 2004):
+        # Calculate barycentric weights wj (Berrut & Trefethen, 2004)
         j_distances = j_floats - j_interpolation_points
         i_distances = i_floats - i_interpolation_points
         w = (-1) ** interpolation_points * binom(Ni - 1, interpolation_points)
-        w_i = w / i_distances / np.sum(w / i_distances, axis=1).reshape((-1, 1))
-        w_j = w / j_distances / np.sum(w / j_distances, axis=1).reshape((-1, 1))
+        w_i = (
+            w / i_distances / np.sum(w / i_distances, axis=1).reshape((-1, 1))
+        )
+        w_j = (
+            w / j_distances / np.sum(w / j_distances, axis=1).reshape((-1, 1))
+        )
 
-        # Expand the column, row, and weight arrays to allow for interpolation weights (just duplicating where no interpolation is required)
+        # Expand column, row, and weight arrays to allow for
+        # interpolation weights (duplication where no interpolation
+        # is required)
         stacked_weights = np.tile(weights, (Ni, 1)).T
         stacked_cols = np.tile(cols, (Ni, 1)).T
         stacked_rows = np.tile(rows, (Ni, 1)).T
 
-        # Specify the columns and weights where interpolation is required:
+        # Specify columns and weights where interpolation is required
         stacked_cols[i_is_float] = np.ravel_multi_index(
             (
                 np.tile(new_k[i_is_float], (Ni, 1)).T,
                 i_interpolation_points,
-                np.rint(np.tile(new_j[i_is_float], (Ni, 1))).astype(np.int64).T,
+                np.rint(np.tile(new_j[i_is_float], (Ni, 1)))
+                .astype(np.int64)
+                .T,
             ),
             shape,
         )
         stacked_cols[j_is_float] = np.ravel_multi_index(
             (
                 np.tile(new_k[j_is_float], (Ni, 1)).T,
-                np.rint(np.tile(new_i[j_is_float], (Ni, 1))).astype(np.int64).T,
+                np.rint(np.tile(new_i[j_is_float], (Ni, 1)))
+                .astype(np.int64)
+                .T,
                 j_interpolation_points,
             ),
             shape,
@@ -1032,18 +1065,19 @@ class CSBasis:
             ),
             shape=(rows.max() + 1, size),
         )
-        # Get rid of duplicates (I think... maybe this doesn't do anything)
+        # Get rid of duplicates (maybe this doesn't do anything?)
         D.count_nonzero()
 
         return D
 
     def block(self, lon, lat):
-        """
-        Determine which cube face (block) contains given spherical
+        """Determine which cube face (block) contains given spherical.
+
         coordinates.
 
         For each input point, determines which of the six cube faces is
-        closest by calculating distances to face midpoints in Cartesian space.
+        closest by calculating distances to face midpoints in Cartesian
+        space.
 
         Parameters
         ----------
@@ -1065,9 +1099,9 @@ class CSBasis:
 
         Notes
         -----
-        The method uses Euclidean distances to face midpoints in Cartesian
-        space to determine block membership. This ensures unique block
-        assignment even for points near block boundaries.
+        The method uses Euclidean distances to face midpoints in
+        Cartesian space to determine block membership. This ensures
+        unique block assignment even for points near block boundaries.
         """
         lon, lat = np.broadcast_arrays(lon, lat)
         lat, lon = lat.flatten(), lon.flatten()
@@ -1103,7 +1137,7 @@ class CSBasis:
                 xyz - face_midpoints[i].reshape((3, 1)), axis=0
             )
 
-        # Small offset to prevent numerical ambiguity at block boundaries
+        # Small offset to prevent assignment ambiguity at boundaries
         safety_distance = 1e-10
 
         # Initialize blocks array
@@ -1111,38 +1145,41 @@ class CSBasis:
 
         # Assign points to blocks with smallest face midpoint distance
         for i in range(6):
-            blocks[distances[i] < np.choose(blocks, distances) - safety_distance] = i
+            blocks[
+                distances[i] < np.choose(blocks, distances) - safety_distance
+            ] = i
 
         return blocks
 
     def geo2cube(self, lon, lat, block=None):
-        """
-        Convert from geocentric coordinates to cube coords (`xi`, `eta`).
+        """Convert geocentric coordinates to cube coordinates.
 
-        Input parameters must have same shape. Output will have same shape.
+        Input parameters must have same shape. Output will have same
+        shape.
 
         Parameters
         ----------
-        lon: array
-            Geocentric longitude(s) to convert to cube coords, in degrees.
-        lat: array
-            Geocentric latitude(s) to convert to cube coords, in degrees.
-        block: array-like, optional
-            Option to specify cube block. If ``None``, it will be calculated.
-            If specified, be careful because the function will map points at
-            opposite side of the sphere to specified block.
+        lon : array
+            Geocentric longitude(s) to convert to cube coords, in
+            degrees.
+        lat : array
+            Geocentric latitude(s) to convert to cube coords, in
+            degrees.
+        block : array-like, optional
+            Option to specify cube block. If ``None``, it will be
+            calculated. If specified, be careful because the function
+            will map points at opposite side of the sphere to specified
+            block.
 
         Returns
         -------
-        xi: array
+        xi : array
             `xi`, as defined in Ronchi et al. Unit is radians.
-        eta: array
+        eta : array
             `eta`, as defined in Ronchi et al. Unit is radians.
-        block: array
+        block : array
             Index of the block that `xi`, `eta` belongs to.
-
         """
-
         lon, lat = np.broadcast_arrays(lon, lat)
         shape = lon.shape
         N = lon.size
@@ -1167,10 +1204,18 @@ class CSBasis:
         X[block == 4] = np.tan(theta[block == 4]) * np.sin(phi[block == 4])
         X[block == 5] = -np.tan(theta[block == 5]) * np.sin(phi[block == 5])
 
-        Y[block == 0] = 1 / (np.tan(theta[block == 0]) * np.cos(phi[block == 0]))
-        Y[block == 1] = 1 / (np.tan(theta[block == 1]) * np.sin(phi[block == 1]))
-        Y[block == 2] = -1 / (np.tan(theta[block == 2]) * np.cos(phi[block == 2]))
-        Y[block == 3] = -1 / (np.tan(theta[block == 3]) * np.sin(phi[block == 3]))
+        Y[block == 0] = 1 / (
+            np.tan(theta[block == 0]) * np.cos(phi[block == 0])
+        )
+        Y[block == 1] = 1 / (
+            np.tan(theta[block == 1]) * np.sin(phi[block == 1])
+        )
+        Y[block == 2] = -1 / (
+            np.tan(theta[block == 2]) * np.cos(phi[block == 2])
+        )
+        Y[block == 3] = -1 / (
+            np.tan(theta[block == 3]) * np.sin(phi[block == 3])
+        )
         Y[block == 4] = -np.tan(theta[block == 4]) * np.cos(phi[block == 4])
         Y[block == 5] = -np.tan(theta[block == 5]) * np.cos(phi[block == 5])
 
@@ -1180,37 +1225,44 @@ class CSBasis:
 
     def get_projected_coastlines(self, resolution="50m"):
         """Generate coastlines in projected coordinates."""
-
         coastlines = np.load(datapath + "coastlines_" + resolution + ".npz")
         for key in coastlines:
             lat, lon = coastlines[key]
             yield self.geo2cube(lon, lat)
 
     def interpolate_vector_components(
-        self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
+        self,
+        u_east,
+        u_north,
+        u_r,
+        theta,
+        phi,
+        theta_target,
+        phi_target,
+        **kwargs
     ):
-        """
-        Interpolate vector components defined on (theta, phi) to given
+        """Interpolate vector components.
+
+        Interpolates vector components defined on (theta, phi) to given
         spherical coordinates.
 
         Broadcasting rules apply for input and output separately.
 
-
         Parameters
         ----------
-        u_east: array
+        u_east : array
             Array of eastward components
-        u_north: array
+        u_north : array
             Array of northward components
-        u_r: array
+        u_r : array
             Array of radial components
-        theta: array
+        theta : array
             Array of coordinates for components
-        phi: array
+        phi : array
             Array of coordinates for vector components
-        theta_target: array
+        theta_target : array
             Array of target coordinates.
-        phi_target: array
+        phi_target : array
             Array of target coordinates
 
         **kwargs
@@ -1219,10 +1271,9 @@ class CSBasis:
 
         Returns
         -------
-        interpolated_vector: array
+        interpolated_vector : array
             3 x N vector of interpolated components, east, north, up
         """
-
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
@@ -1240,7 +1291,9 @@ class CSBasis:
 
         # Define vectors that point at all the original points:
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
-        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+        r = np.vstack(
+            (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
+        )
 
         # Convert vector components to cubed sphere
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
@@ -1261,7 +1314,8 @@ class CSBasis:
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
             u_vec_i = np.einsum("nij, nj -> ni", Qij, u_vec.T).T
 
-            # Filter points whose position vectors have anti-parallel component to center of the block
+            # Filter points whose position vectors have component
+            # anti-parallel to center of the block
             _, th, ph = self.cube2spherical(0, 0, i, deg=False)
             r0 = np.hstack(
                 (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
@@ -1290,7 +1344,9 @@ class CSBasis:
             )
 
         # Convert back to spherical:
-        r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg=True)
+        r_out, theta_out, phi_out = self.cube2spherical(
+            xi, eta, block, deg=True
+        )
         u = np.vstack((interpolated_u1, interpolated_u2, interpolated_u3))
         Q = self.get_Q(90 - theta_out, r=1, inverse=False)
         Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
@@ -1304,24 +1360,24 @@ class CSBasis:
     def interpolate_scalar(
         self, scalar, theta, phi, theta_target, phi_target, **kwargs
     ):
-        """
-        Interpolate scalar values defined on theta, phi to given spherical
-        coordinates
+        """Interpolate scalar values.
+
+        Interpolate scalar values defined on (`theta`, `phi`) to given
+        spherical coordinates.
 
         Broadcasting rules apply for input and output separately
 
-
         Parameters
         ----------
-        scalar: array
+        scalar : array
             Array of scalar values
-        theta: array
+        theta : array
             Array of coordinates for components
-        phi: array
+        phi : array
             Array of coordinates for vector components
-        theta_target: array
+        theta_target : array
             Array of target coordinates.
-        phi_target: array
+        phi_target : array
             Array of target coordinates
 
         **kwargs
@@ -1330,10 +1386,9 @@ class CSBasis:
 
         Returns
         -------
-        interpolated_scalar: array
+        interpolated_scalar : array
             N-element array of interpolated components (east, north, up)
         """
-
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
@@ -1343,14 +1398,17 @@ class CSBasis:
 
         # Define vectors that point at all the original points:
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
-        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+        r = np.vstack(
+            (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
+        )
 
         interpolated_scalar = np.empty_like(block, dtype=np.float64)
 
         # Loop over blocks and interpolate on each block:
         for i in range(6):
 
-            # Filter points whose position vectors have anti-parallel component to center of the block
+            # Filter points whose position vectors have component
+            # anti-parallel to center of the block
             _, th, ph = self.cube2spherical(0, 0, i, deg=False)
             r0 = np.hstack(
                 (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))

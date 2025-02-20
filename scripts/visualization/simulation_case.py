@@ -37,7 +37,7 @@ paxs4 = Polarplot( plt.subplot2grid((4, 62), (3, 2 + 20*1), colspan = 20, projec
 cbar_axes = [plt.subplot2grid((4, 62), (i, 0)) for i in range(3)]
 
 
-for ax in [gax1, gax2, gax3, gax4]: 
+for ax in [gax1, gax2, gax3, gax4]:
     a.jazz_global_plot(ax)
 
 for i, ax in enumerate([paxn1.ax, paxs1.ax, gax1, paxn2.ax, paxs2.ax, gax2, paxn3.ax, paxs3.ax, gax3, paxn4.ax, paxs4.ax, gax4]):
@@ -74,7 +74,7 @@ levels = a.jr_defaults['levels'] * 1e6
 xx, zz = np.vstack((np.zeros(levels.size), np.ones(levels.size))).T, np.vstack((levels, levels)).T
 cbar_axes[0].contourf(xx, zz, zz, levels = levels, cmap = a.jr_defaults['cmap'])
 cbar_axes[0].set_xticks([])
-cbar_axes[0].set_ylabel('$\mu$A/m$^2$')
+cbar_axes[0].set_ylabel(r'$\mu$A/m$^2$')
 
 levels = conductance_levels
 xx, zz = np.vstack((np.zeros(levels.size), np.ones(levels.size))).T, np.vstack((levels, levels)).T
@@ -102,9 +102,9 @@ paxs1.writeLTlabels()
 gax1.set_title('Input horizontal wind')
 gax2.set_title('Input Hall conductance')
 
-paxn3.ax.set_title('Steady state $B_r(r=R)$ and $\Psi$')
-paxs3.ax.set_title('Steady state $B_r(r=R)$ and $\Psi$')
-gax3    .set_title('Steady state $B_r(r=R)$ and $\Psi$')
+paxn3.ax.set_title(r'Steady state $B_r(r=R)$ and $\Psi$')
+paxs3.ax.set_title(r'Steady state $B_r(r=R)$ and $\Psi$')
+gax3    .set_title(r'Steady state $B_r(r=R)$ and $\Psi$')
 
 paxn4.ax.set_title('Steady state electric potential')
 paxs4.ax.set_title('Steady state electric potential')

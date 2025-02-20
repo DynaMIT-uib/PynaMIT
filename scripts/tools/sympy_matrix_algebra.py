@@ -1,4 +1,4 @@
-""" Construct constraint matrices and output resulting LaTeX code or Python code """
+"""Construct constraint matrices and output resulting LaTeX code or Python code"""
 
 import sympy as sp
 #sp.init_printing(use_unicode=True)

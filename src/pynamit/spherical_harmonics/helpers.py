@@ -10,8 +10,9 @@ import numpy as np
 
 class SHKeys(object):
     """Container for spherical harmonic expansion indices.
-    A container for ``n`` and ``m``, the indices of the terms in a spherical
-    harmonic expansion.
+
+    A container for ``n`` and ``m``, the indices of the terms in a
+    spherical harmonic expansion.
 
     Attributes
     ----------
@@ -51,6 +52,19 @@ class SHKeys(object):
         self.make_arrays()
 
     def __getitem__(self, index):
+        """Return the key at the given index or a list of n or m values.
+
+        Parameters
+        ----------
+        index : int, str
+            Index of the key to return, or 'n' or 'm' to return a list
+            of n or m values.
+
+        Returns
+        -------
+        key : tuple, list
+            The key at the given index or a list of n or m values.
+        """
         if index == "n":
             return [key[0] for key in self.keys]
         if index == "m":
@@ -59,17 +73,49 @@ class SHKeys(object):
         return self.keys[index]
 
     def __iter__(self):
+        """Return an iterator over the keys.
+
+        Returns
+        -------
+        key : tuple
+            The next key in the container.
+        """
         for key in self.keys:
             yield key
 
     def __len__(self):
+        """Return the number of keys in the container.
+
+        Returns
+        -------
+        n_keys : int
+            Number of keys in the container.
+        """
         return len(self.keys)
 
     def __repr__(self):
-        return "".join(["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys])[:-1]
+        """Return an official string representing the SHKeys instance.
+
+        Returns
+        -------
+        str
+            String representation of the SHKeys instance.
+        """
+        return "".join(
+            ["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys]
+        )[:-1]
 
     def __str__(self):
-        return "".join(["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys])[:-1]
+        """Return an informal string representing the SHKeys instance.
+
+        Returns
+        -------
+        str
+            String representation of the SHKeys instance.
+        """
+        return "".join(
+            ["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys]
+        )[:-1]
 
     def set_Nmin(self, Nmin):
         """Set minimum n value.
@@ -125,7 +171,9 @@ class SHKeys(object):
         self : SHKeys
             Modified instance with filtered keys where n-|m| is odd
         """
-        self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 1])
+        self.keys = tuple(
+            [key for key in self.keys if (key[0] - abs(key[1])) % 2 == 1]
+        )
         self.make_arrays()
         return self
 
@@ -137,14 +185,17 @@ class SHKeys(object):
         self : SHKeys
             Modified instance with filtered keys where n-|m| is even
         """
-        self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 0])
+        self.keys = tuple(
+            [key for key in self.keys if (key[0] - abs(key[1])) % 2 == 0]
+        )
         self.make_arrays()
         return self
 
     def negative_m(self):
         """Add negative m values to the keys.
 
-        For each existing key with m≠0, adds a corresponding key with -m.
+        For each existing key with m≠0, adds a corresponding key with
+        -m.
 
         Returns
         -------
@@ -165,7 +216,8 @@ class SHKeys(object):
     def make_arrays(self):
         """Create arrays of n and m indices.
 
-        Creates n and m arrays with shape (1, len(keys)) for vectorized operations.
+        Creates n and m arrays with shape (1, len(keys)) for vectorized
+        operations.
         """
         if len(self) > 0:
             self.n = np.array(self)[:, 0].reshape(1, -1)
@@ -176,8 +228,9 @@ class SHKeys(object):
 
 
 def schmidt_normalization_factors(nm_tuples):
-    """
-    Return vector of Schmidt semi-normalization factors for spherical
+    """Return Schmidt semi-normalization factors.
+
+    Returns vector Schmidt semi-normalization factors for spherical
     harmonic terms with given indices.
 
     Parameters

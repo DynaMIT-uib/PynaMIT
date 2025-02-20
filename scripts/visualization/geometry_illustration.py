@@ -63,7 +63,7 @@ for t in th:
         ax.plot(x, y, color = 'C4', linewidth = .5)
     else:
         ax.plot(x, y, color = 'C3', linewidth = .5)
-    
+
 
 
 
@@ -113,7 +113,7 @@ ax.text(RI / np.sqrt(2), RI / np.sqrt(2), '$r = R$', rotation = -45, ha = 'cente
 
 
 # for cc in ccc.collections:
-#     cc.remove() 
+#     cc.remove()
 
 # ax.plot(RI * x, RI *  np.cos(a), linewidth = 5, color = 'C0')
 # ax.text((RI + d) * x[-5], (RI    ) *  np.cos(a[-5]), r'$R  $     ', rotation = -np.rad2deg(a[-5]), ha = 'left', va = 'center', size = textsize, color = 'C0', bbox=dict(facecolor='white', edgecolor='none', pad = 1))

@@ -1,6 +1,8 @@
-"""Spatial Grid Utilities
+"""Spatial Grid Utilities.
 
-This module provides the Grid class for representing spatial grids used in PynaMIT. It supports generating grid representations for the evaluation of magnetic fields and simulation data in PynaMIT.
+This module provides the Grid class for representing spatial grids used
+in PynaMIT. It supports generating grid representations for the
+evaluation of magnetic fields and simulation data in PynaMIT.
 """
 
 import numpy as np
@@ -24,14 +26,8 @@ class Grid(object):
 
     Notes
     -----
-    Must provide either lat or theta, and either lon or phi coordinates.
-    All coordinate arrays are automatically broadcast to match shapes and
-    flattened for internal storage.
-
-    Raises
-    ------
-    ValueError
-        If neither lat/theta or lon/phi coordinates are provided
+    All coordinate arrays are automatically broadcast to match shapes
+    and flattened for internal storage.
     """
 
     def __init__(self, lat=None, lon=None, theta=None, phi=None):
@@ -48,18 +44,17 @@ class Grid(object):
         phi : array-like, optional
             Spherical longitude coordinates in degrees.
 
-        Notes
-        -----
-        Either lat or theta must be provided, and either lon or phi must be provided.
-        All coordinate arrays are automatically broadcast to match shapes and flattened
-        for internal storage.
-
         Raises
         ------
         ValueError
-            If neither lat/theta or lon/phi coordinates are provided.
-        """
+            If neither `lat`/`theta` or `lon`/`phi` coordinates are
+            provided.
 
+        Notes
+        -----
+        Either `lat` or `theta` must be provided, and either `lon` or
+        `phi` must be provided.
+        """
         if lat is not None:
             self.lat = lat
             self.theta = 90 - self.lat

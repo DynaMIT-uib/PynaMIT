@@ -6,7 +6,7 @@ from pynamit import Mainfield
 RE = 6371.2e3
 
 ### PLOT A GRID OF COORDS AT 3RE AND THE SAME COORDS MAPPED TO 1RE:
-r = 3 * RE 
+r = 3 * RE
 r_dest = RE
 fig, axes = plt.subplots(ncols = 3, figsize = (15, 5))
 paxes = [polplot.Polarplot(ax) for ax in axes]

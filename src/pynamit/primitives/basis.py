@@ -1,8 +1,9 @@
-"""Basis Function Utilities
+"""Basis Function Utilities.
 
-This module provides classes and functions for working with basis functions used for
-field representation and expansion in PynaMIT. It defines the Basis class and related
-utilities for evaluating and manipulating basis coefficients in the PynaMIT package.
+This module provides classes and functions for working with basis
+functions used for field representation and expansion in PynaMIT. It
+defines the Basis class and related utilities for evaluating and
+manipulating basis coefficients in the PynaMIT package.
 """
 
 from abc import ABC, abstractmethod
@@ -12,12 +13,8 @@ class Basis(ABC):
     """Abstract base class for basis representations.
 
     Defines the interface for representing fields in different bases and
-    evaluating basis coefficients on grids. Implementations should provide
-    methods for evaluation and derivatives of coefficients.
-
-    Notes
-    -----
-    Subclasses must implement all abstract methods and properties.
+    evaluating basis coefficients on grids. Implementations should
+    provide methods for evaluation and derivatives of coefficients.
 
     Attributes
     ----------
@@ -33,6 +30,10 @@ class Basis(ABC):
         Minimum required sampling points in phi direction
     caching : bool
         Whether basis evaluations can be cached
+
+    Notes
+    -----
+    Subclasses must implement all abstract methods and properties.
     """
 
     @property

@@ -53,8 +53,8 @@ if FAC:
     axes[2].set_title('FAC at\n$t>0$ s, south', size = 14)
 
 
-    
-    
+
+
 
     plt.tight_layout()
     plt.savefig('figures/FAC_step.png', dpi = 200)
@@ -160,7 +160,7 @@ if TIMESERIES:
     for t in ts:
         a.set_time(t)
         a.make_multipanel_output_figure(label = 't = {:.1f} s'.format(t))
-        
+
         plt.savefig('tmp/fig{:.2f}.png'.format(t))
 
 

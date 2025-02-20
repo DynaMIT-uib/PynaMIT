@@ -1,6 +1,8 @@
 """Ionospheric state representation and evolution.
 
-This module provides a class for managing the ionospheric electrodynamic state, including currents, electric fields, conductances, and magnetic field perturbations.
+This module provides a class for managing the ionospheric electrodynamic
+state, including currents, electric fields, conductances, and magnetic
+field perturbations.
 """
 
 import numpy as np
@@ -19,7 +21,7 @@ J_MAPPING = True
 
 
 class State(object):
-    """Manages ionospheric electrodynamic state variables and their evolution.
+    """Manages electrodynamic state of the ionosphere.
 
     Attributes
     ----------
@@ -60,7 +62,10 @@ class State(object):
         grid : Grid
             Spatial grid for computations.
         settings : object
-            Configuration settings containing parameters such as RI, latitude_boundary, ignore_PFAC, connect_hemispheres, FAC_integration_steps, ih_constraint_scaling, vector_jr, vector_conductance, and vector_u.
+            Configuration settings containing parameters such as RI,
+            latitude_boundary, ignore_PFAC, connect_hemispheres,
+            FAC_integration_steps, ih_constraint_scaling, vector_jr,
+            vector_conductance, and vector_u.
         PFAC_matrix : array-like, optional
             Pre-computed FAC poloidal field matrix, by default None.
         """
@@ -88,7 +93,8 @@ class State(object):
         # Initialize grid-related objects
         self.grid = grid
 
-        # Note that these BasisEvaluator objects cannot be used for inverses, as they do not include regularization and weights
+        # Note that these BasisEvaluator objects cannot be used for
+        # inverses, as they do not include regularization and weights
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         self.jr_basis_evaluator = BasisEvaluator(self.jr_basis, self.grid)
         self.conductance_basis_evaluator = BasisEvaluator(
@@ -104,7 +110,9 @@ class State(object):
             )
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
+            self.cp_b_evaluator = FieldEvaluator(
+                mainfield, self.cp_grid, self.RI
+            )
 
         # Spherical harmonic conversion factors
         self.m_ind_to_Br = -self.RI * self.basis.d_dr_V_external(self.RI)
@@ -116,16 +124,17 @@ class State(object):
         )  # The same as d_dr_internal
         self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.V_external_to_delta_V
 
+        # RI comes from scaling in the V potential
         B_pol_to_J_df_coeffs = (
             -self.RI * self.basis.V_external_to_delta_V / mu0
-        )  # RI comes from the scaling in the V potential
-        # RI comes from the scaling in the T potential
+        )
+        # RI comes from scaling in the T potential
         B_tor_to_J_cf_coeffs = self.RI / mu0
-        # 1 / RI comes from the scaling in the theta/phi components of the gradient
+        # 1/RI comes from scaling in the gradient theta/phi components
         self.G_B_pol_to_JS = (
             self.basis_evaluator.G_rxgrad * B_pol_to_J_df_coeffs / self.RI
         )
-        # 1 / RI comes from the scaling in the theta/phi components of the gradient
+        # 1/RI comes from scaling in the gradient theta/phi components
         self.G_B_tor_to_JS = (
             -self.basis_evaluator.G_grad * B_tor_to_J_cf_coeffs / self.RI
         )
@@ -134,7 +143,7 @@ class State(object):
             self.G_B_pol_to_JS, self.m_imp_to_B_pol.values, 1
         )
 
-        # Construct the matrix elements used to calculate the electric field
+        # Construct the matrix elements for electric field calculations
         self.bP = np.array(
             [
                 [
@@ -202,7 +211,9 @@ class State(object):
                 optimize=True,
             )
             self.u_coeffs_to_E_coeffs_direct = (
-                self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
+                self.basis_evaluator.least_squares_solution_helmholtz(
+                    u_coeffs_to_uxB
+                )
             )
         else:
             self.u_to_E_coeffs_direct = np.einsum(
@@ -211,10 +222,12 @@ class State(object):
                     0
                 ].reshape(
                     (
-                        self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[1]
-                        + self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[
+                        self.basis_evaluator.least_squares_helmholtz.A[
                             0
-                        ]
+                        ].full_shapes[1]
+                        + self.basis_evaluator.least_squares_helmholtz.A[
+                            0
+                        ].full_shapes[0]
                     )
                 ),
                 self.bu,
@@ -224,7 +237,8 @@ class State(object):
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.prepare_triple_product_tensors()
 
-        # Conductance and neutral wind should be set after state initialization
+        # Conductance and neutral wind should be set after state
+        # initialization
         self.neutral_wind = False
         self.conductance = False
 
@@ -232,10 +246,13 @@ class State(object):
 
     @property
     def m_imp_to_B_pol(self):
-        """
-        Return matrix that maps self.m_imp to a poloidal field corresponding to a ionospheric current sheet that shields the region under the ionosphere from the poloidal field of inclined FACs.
+        """Matrix that maps m_imp to corresponding poloidal field.
 
-        Uses the method by Engels and Olsen 1998, Eq. 13 to account for the poloidal part of magnetic field for FACs.
+        to a ionospheric current sheet that shields the region under
+        the ionosphere from the poloidal field of inclined FACs.
+
+        Uses the method by Engels and Olsen 1998, Eq. 13 to account for
+        the poloidal part of magnetic field for FACs.
 
         Returns
         -------
@@ -245,7 +262,9 @@ class State(object):
         if not hasattr(self, "_m_imp_to_B_pol"):
 
             self._m_imp_to_B_pol = xr.DataArray(
-                data=np.zeros((self.basis.index_length, self.basis.index_length)),
+                data=np.zeros(
+                    (self.basis.index_length, self.basis.index_length)
+                ),
                 coords={
                     "i": np.arange(self.basis.index_length),
                     "j": np.arange(self.basis.index_length),
@@ -264,7 +283,8 @@ class State(object):
 
                 for i in range(r_k.size):
                     print(
-                        f"Calculating matrix for poloidal field of inclined FACs. Progress: {i+1}/{r_k.size}",
+                        "Calculating matrix for poloidal field of "
+                        f"inclined FACs. Progress: {i+1}/{r_k.size}",
                         end="\r" if i < (r_k.size - 1) else "\n",
                         flush=True,
                     )
@@ -274,15 +294,21 @@ class State(object):
                     )
                     mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
 
-                    # Matrix that gives jr at mapped grid from toroidal coefficients, shifts to r_k[i], and extracts horizontal current components
+                    # Matrix that gives jr at mapped grid from toroidal
+                    # coefficients, shifts to r_k[i], and extracts
+                    # horizontal current components
                     shifted_b_evaluator = FieldEvaluator(
                         self.mainfield, self.grid, r_k[i]
                     )
                     mapped_b_evaluator = FieldEvaluator(
                         self.mainfield, mapped_grid, self.RI
                     )
-                    mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-                    m_imp_to_jr = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr)
+                    mapped_basis_evaluator = BasisEvaluator(
+                        self.basis, mapped_grid
+                    )
+                    m_imp_to_jr = mapped_basis_evaluator.scaled_G(
+                        self.m_imp_to_jr
+                    )
                     jr_to_JS_shifted = np.array(
                         [
                             shifted_b_evaluator.Btheta / mapped_b_evaluator.Br,
@@ -297,15 +323,21 @@ class State(object):
                         optimize=True,
                     )
 
-                    # Matrix that calculates the contribution to the poloidal coefficients from the horizontal current components at r_k[i]
-                    B_pol_shifted_to_B_pol = self.basis.radial_shift_V_external(
-                        r_k[i], self.RI
-                    ).reshape((-1, 1, 1))
+                    # Matrix that calculates the contribution to the
+                    # poloidal coefficients from the horizontal current
+                    # components at r_k[i]
+                    B_pol_shifted_to_B_pol = (
+                        self.basis.radial_shift_V_external(
+                            r_k[i], self.RI
+                        ).reshape((-1, 1, 1))
+                    )
                     JS_shifted_to_B_pol = (
                         JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
                     )
 
-                    # Integration step, negative sign is to create a poloidal field that shields the region under the ionosphere from the FAC poloidal field
+                    # Integration step, negative sign is to create a
+                    # poloidal field that shields the region under the
+                    # ionosphere from the FAC poloidal field
                     self._m_imp_to_B_pol -= Delta_k[i] * np.tensordot(
                         JS_shifted_to_B_pol, m_imp_to_JS_shifted, 2
                     )
@@ -313,24 +345,24 @@ class State(object):
         return self._m_imp_to_B_pol
 
     def set_model_coeffs(self, **kwargs):
-        """
-        Set model coefficients.
+        """Set model coefficients.
 
-        Set model coefficients based on the coefficients given as argument.
-        This function accepts one (and only one) set of coefficients.
+        Set model coefficients based on the coefficients given as
+        argument. This function accepts one (and only one) set of
+        coefficients.
 
         Parameters
         ----------
         **kwargs : dict
-            Keyword arguments specifying the coefficients to set. Valid values are 'm_ind' and 'm_imp'.
+            Keyword arguments specifying the coefficients to set. Valid
+            values are 'm_ind' and 'm_imp'.
         """
         valid_kws = ["m_ind", "m_imp"]
 
         if len(kwargs) != 1:
             raise Exception(
-                "Expected one and only one keyword argument, you provided {}".format(
-                    len(kwargs)
-                )
+                "Expected one and only one keyword argument, you "
+                f"provided {len(kwargs)}"
             )
         key = list(kwargs.keys())[0]
         if key not in valid_kws:
@@ -348,11 +380,10 @@ class State(object):
             raise Exception("This should not happen")
 
     def initialize_constraints(self):
-        """
-        Initialize constraints.
-        """
+        """Initialize constraints."""
         jr_coeffs_to_j_apex = (
-            self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
+            self.b_evaluator.radial_to_apex.reshape((-1, 1))
+            * self.basis_evaluator.G
         )
         self.jr_coeffs_to_j_apex = jr_coeffs_to_j_apex.copy()
 
@@ -363,7 +394,8 @@ class State(object):
                 )
             if self.mainfield.kind == "radial":
                 raise ValueError(
-                    "Hemispheres can not be connected with radial magnetic field"
+                    "Hemispheres can not be connected with radial "
+                    "magnetic field"
                 )
 
             if J_MAPPING:
@@ -371,9 +403,9 @@ class State(object):
                     self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
                     * self.cp_basis_evaluator.G
                 )
-                self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[
+                self.jr_coeffs_to_j_apex[
                     self.ll_mask
-                ]
+                ] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
             if E_MAPPING:
                 E_coeffs_to_E_apex = np.einsum(
@@ -389,22 +421,25 @@ class State(object):
                     optimize=True,
                 )
                 self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
-                    (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
+                    (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[
+                        :, self.ll_mask
+                    ]
                 )
 
     def calculate_m_imp(self, m_ind):
-        """
-        Calculate m_imp.
+        """Calculate m_imp.
 
         Parameters
         ----------
         m_ind : array
-            Coefficients for induced part of magnetic field perturbation.
+            Coefficients for induced part of magnetic field
+            perturbation.
 
         Returns
         -------
         array
-            Coefficients for imposed part of magnetic field perturbation.
+            Coefficients for imposed part of magnetic field
+            perturbation.
         """
         if self.vector_jr:
             m_imp = self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
@@ -416,17 +451,20 @@ class State(object):
 
             if self.neutral_wind:
                 if self.vector_u:
-                    m_imp += np.tensordot(self.u_coeffs_to_m_imp, self.u.coeffs, 2)
+                    m_imp += np.tensordot(
+                        self.u_coeffs_to_m_imp, self.u.coeffs, 2
+                    )
                 else:
                     m_imp += np.tensordot(self.u_to_m_imp, self.u_on_grid, 2)
 
         return m_imp
 
     def update_m_imp(self):
-        """
-        Impose constraints, if any. Leads to a contribution to m_imp from m_ind if the hemispheres are connected.
-        """
+        """Impose constraints, if any.
 
+        Leads to a contribution to m_imp from m_ind if the hemispheres
+        are connected.
+        """
         m_imp = self.calculate_m_imp(self.m_ind.coeffs)
         self.set_model_coeffs(m_imp=m_imp)
 
@@ -436,7 +474,8 @@ class State(object):
         Parameters
         ----------
         jr : array-like or FieldExpansion
-            Radial current density in A/m² at grid points or as vector coefficients
+            Radial current density in A/m² at grid points or as vector
+            coefficients
         """
         if self.vector_jr:
             self.jr = jr
@@ -444,8 +483,7 @@ class State(object):
             self.jr_on_grid = jr
 
     def set_u(self, u):
-        """
-        Set neutral wind theta and phi components.
+        """Set neutral wind theta and phi components.
 
         Parameters
         ----------
@@ -508,8 +546,10 @@ class State(object):
                     G_m_ind_to_E_direct
                 )
             )
-            m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
-                G_m_imp_to_E_direct
+            m_imp_to_E_coeffs = (
+                self.basis_evaluator.least_squares_solution_helmholtz(
+                    G_m_imp_to_E_direct
+                )
             )
 
         # jr constraints
@@ -521,7 +561,9 @@ class State(object):
         if self.connect_hemispheres and E_MAPPING:
             # Low-latitude E constraints
             constraint_matrices.append(
-                np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E_coeffs, 2)
+                np.tensordot(
+                    self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E_coeffs, 2
+                )
                 * self.ih_constraint_scaling
             )
             coeffs_to_constraint_vectors.append(
@@ -529,27 +571,37 @@ class State(object):
             )
 
         constraints_least_squares = LeastSquares(constraint_matrices, 1)
-        coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
+        coeffs_to_m_imp = constraints_least_squares.solve(
+            coeffs_to_constraint_vectors
+        )
 
         # jr matrices
         if self.vector_jr:
             self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(
                 self.jr_coeffs_to_jr_coeffs_state
             )
-            self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
+            self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(
+                self.jr_coeffs_to_m_imp
+            )
         else:
             self.jr_to_m_imp = coeffs_to_m_imp[0].dot(self.G_jr_state_pinv)
             self.jr_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
 
-        # m_ind matrices, negative sign is from moving the induction terms to the right hand side of E - E^cp = 0 (in apex coordinates)
+        # m_ind matrices
+        # Negative sign is from moving the induction terms to the right
+        # hand side of E - E^cp = 0 (in apex coordinates)
         self.m_ind_to_E_coeffs = m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres and E_MAPPING:
             self.m_ind_to_m_imp = np.tensordot(
                 coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2
             )
-            self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
+            self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(
+                self.m_ind_to_m_imp
+            )
 
-        # u matrices, negative sign is from moving the wind terms to the right hand side of E - E^cp = 0 (in apex coordinates)
+        # u matrices
+        # negative sign is from moving the wind terms to the right hand
+        # side of E - E^cp = 0 (in apex coordinates)
         if self.vector_u:
             self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
             if self.connect_hemispheres and E_MAPPING:
@@ -573,13 +625,13 @@ class State(object):
         self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
     def calculate_E_coeffs(self, m_ind):
-        """
-        Calculate the coefficients for the electric field.
+        """Calculate the coefficients for the electric field.
 
         Parameters
         ----------
         m_ind : array
-            Coefficients for induced part of magnetic field perturbation.
+            Coefficients for induced part of magnetic field
+            perturbation.
 
         Returns
         -------
@@ -597,18 +649,24 @@ class State(object):
 
         if self.neutral_wind:
             if self.vector_u:
-                E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
+                E_coeffs += np.tensordot(
+                    self.u_coeffs_to_E_coeffs, self.u.coeffs, 2
+                )
             else:
                 E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
 
         return E_coeffs
 
     def update_E(self):
-        """
-        Update the coefficients for the electric potential and the induction electric field.
+        """Update electric field coefficients.
+
+        The coefficients represent the electric potential and the
+        electric stream function.
         """
         E_coeffs = self.calculate_E_coeffs(self.m_ind.coeffs)
-        self.E = FieldExpansion(self.basis, coeffs=E_coeffs, field_type="tangential")
+        self.E = FieldExpansion(
+            self.basis, coeffs=E_coeffs, field_type="tangential"
+        )
 
     def evolve_m_ind(self, dt):
         """Evolve induced magnetic field coefficients.
@@ -620,13 +678,14 @@ class State(object):
         dt : float
             Time step size in seconds
         """
-        new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
+        new_m_ind = (
+            self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
+        )
 
         self.set_model_coeffs(m_ind=new_m_ind)
 
     def get_Br(self, _basis_evaluator):
-        """
-        Calculate ``Br``.
+        """Calculate ``Br``.
 
         Parameters
         ----------
@@ -638,27 +697,31 @@ class State(object):
         array
             Radial magnetic field.
         """
-        return _basis_evaluator.basis_to_grid(self.m_ind.coeffs * self.m_ind_to_Br)
+        return _basis_evaluator.basis_to_grid(
+            self.m_ind.coeffs * self.m_ind_to_Br
+        )
 
     def get_JS(self):  # for now, JS is always returned on self.grid!
-        """
-        Calculate ionospheric sheet current.
+        """Calculate ionospheric sheet current.
 
         Returns
         -------
         tuple of arrays
             Theta and phi components of the ionospheric sheet current.
         """
-        Js_ind, Je_ind = np.split(self.G_m_ind_to_JS.dot(self.m_ind.coeffs), 2, axis=0)
-        Js_imp, Je_imp = np.split(self.G_m_imp_to_JS.dot(self.m_imp.coeffs), 2, axis=0)
+        Js_ind, Je_ind = np.split(
+            self.G_m_ind_to_JS.dot(self.m_ind.coeffs), 2, axis=0
+        )
+        Js_imp, Je_imp = np.split(
+            self.G_m_imp_to_JS.dot(self.m_imp.coeffs), 2, axis=0
+        )
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
         return (Jth, Jph)
 
     def get_jr(self, _basis_evaluator):
-        """
-        Calculate radial current.
+        """Calculate radial current.
 
         Parameters
         ----------
@@ -670,11 +733,12 @@ class State(object):
         array
             Radial current.
         """
-        return _basis_evaluator.basis_to_grid(self.m_imp.coeffs * self.m_imp_to_jr)
+        return _basis_evaluator.basis_to_grid(
+            self.m_imp.coeffs * self.m_imp_to_jr
+        )
 
     def get_Jeq(self, _basis_evaluator):
-        """
-        Calculate equivalent current function.
+        """Calculate equivalent current function.
 
         Parameters
         ----------
@@ -686,11 +750,12 @@ class State(object):
         array
             Equivalent current function.
         """
-        return _basis_evaluator.basis_to_grid(self.m_ind.coeffs * self.m_ind_to_Jeq)
+        return _basis_evaluator.basis_to_grid(
+            self.m_ind.coeffs * self.m_ind_to_Jeq
+        )
 
     def get_Phi(self, _basis_evaluator):
-        """
-        Calculate Phi.
+        """Calculate Phi.
 
         Parameters
         ----------
@@ -705,8 +770,7 @@ class State(object):
         return _basis_evaluator.basis_to_grid(self.E.coeffs[:, 1])
 
     def get_W(self, _basis_evaluator):
-        """
-        Calculate the induction electric field scalar.
+        """Calculate the induction electric field scalar.
 
         Parameters
         ----------
@@ -736,8 +800,7 @@ class State(object):
         return self.E.to_grid(_basis_evaluator)
 
     def steady_state_m_ind(self):
-        """
-        Calculate coefficients for induced field in steady state.
+        """Calculate coefficients for induced field in steady state.
 
         Returns
         -------
@@ -755,15 +818,16 @@ class State(object):
                     self.u_coeffs_to_E_coeffs, self.u.coeffs, 2
                 )
             else:
-                E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
+                E_coeffs_noind += np.tensordot(
+                    self.u_to_E_coeffs, self.u_on_grid, 2
+                )
 
         m_ind = -self.m_ind_to_E_cf_inv.dot(E_coeffs_noind[1])
 
         return m_ind
 
     def prepare_triple_product_tensors(self, plot=True):
-        """
-        Prepare tensors for triple product calculation.
+        """Prepare tensors for triple product calculation.
 
         Parameters
         ----------
@@ -777,7 +841,9 @@ class State(object):
             optimize=True,
         )
         self.etaP_m_ind_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaP_m_ind_to_E)
+            self.basis_evaluator.least_squares_solution_helmholtz(
+                etaP_m_ind_to_E
+            )
         )
 
         etaH_m_ind_to_E = np.einsum(
@@ -787,7 +853,9 @@ class State(object):
             optimize=True,
         )
         self.etaH_m_ind_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaH_m_ind_to_E)
+            self.basis_evaluator.least_squares_solution_helmholtz(
+                etaH_m_ind_to_E
+            )
         )
 
         etaP_m_imp_to_E = np.einsum(
@@ -797,7 +865,9 @@ class State(object):
             optimize=True,
         )
         self.etaP_m_imp_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaP_m_imp_to_E)
+            self.basis_evaluator.least_squares_solution_helmholtz(
+                etaP_m_imp_to_E
+            )
         )
 
         etaH_m_imp_to_E = np.einsum(
@@ -807,7 +877,9 @@ class State(object):
             optimize=True,
         )
         self.etaH_m_imp_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaH_m_imp_to_E)
+            self.basis_evaluator.least_squares_solution_helmholtz(
+                etaH_m_imp_to_E
+            )
         )
 
         if plot:

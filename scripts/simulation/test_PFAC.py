@@ -1,4 +1,4 @@
-""" Script to check if the PFAC calculation gives a reasonable result """
+"""Script to check if the PFAC calculation gives a reasonable result"""
 
 from importlib import reload
 import pynamit
@@ -77,7 +77,7 @@ Br = G_Br.dot(dynamics.state.m_imp_to_B_pol.dot(dynamics.state.m_imp.coeffs))
 
 if SIMULATE_DYNAMIC_RESPONSE:
 
-    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape), returnplot = True, 
+    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape), returnplot = True,
                                                levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
     plt.savefig('figs/PFAC_steady_state.png')
@@ -112,7 +112,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
             filecount +=1
             title = 't = {:.3} s'.format(time)
             Br = dynamics.state.get_Br(plt_state_evaluator)
-            fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True, 
+            fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br.reshape(plt_grid.lat.shape) , title = title, returnplot = True,
                                                        levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
             W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
@@ -145,7 +145,7 @@ if COMPARE_TO_SECS:
 
     Br_SECS = Gu.dot(secsI)
 
-    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br_SECS.reshape(plt_grid.lat.shape), returnplot = True, 
+    fig, paxn, paxs, axg =  pynamit.globalplot(plt_grid.lon, plt_grid.lat, Br_SECS.reshape(plt_grid.lat.shape), returnplot = True,
                                                levels = Blevels, cmap = 'bwr', noon_longitude = lon0, extend = 'both')
 
     fig, ax = plt.subplots(figsize = (10, 10))
