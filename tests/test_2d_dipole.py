@@ -1,4 +1,5 @@
 """Dipole test."""
+
 import os
 import tempfile
 import pytest

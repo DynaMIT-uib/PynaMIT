@@ -1,4 +1,5 @@
 """Figure layout."""
+
 import matplotlib.pyplot as plt
 import numpy as np
 from polplot import Polarplot

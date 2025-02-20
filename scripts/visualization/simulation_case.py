@@ -1,4 +1,5 @@
 """Visualize the simulation case."""
+
 import numpy as np
 import pynamit
 import matplotlib.pyplot as plt

@@ -48,9 +48,9 @@ class CSBasis:
     arr_area : ndarray
         Grid cell areas normalized to unit sphere
     g : ndarray
-        Metric tensor components
-    detg : ndarray
-        Determinant of metric tensor
+        Metric tensor
+    sqrt_detg : ndarray
+        Square root of determinant of the metric tensor
     unit_area : ndarray
         Area of each grid cell
 
@@ -129,8 +129,8 @@ class CSBasis:
             # Calculate grid cell areas
             step = np.diff(self.xi(np.array([0, 1]), N))[0]
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
-            self.detg = arrayutils.get_3D_determinants(self.g)
-            self.unit_area = step**2 * np.sqrt(self.detg)
+            self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
+            self.unit_area = step**2 * self.sqrt_detg
 
     def get_gridpoints(self, N, flat=False):
         """Generate grid point indices for given resolution.

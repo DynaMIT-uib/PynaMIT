@@ -1,4 +1,5 @@
 """Plot stuff."""
+
 # visualization
 
 import pynamit

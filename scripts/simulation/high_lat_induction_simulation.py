@@ -1,4 +1,5 @@
 """Simulate induction at high latitudes."""
+
 import os
 
 os.environ["MKL_NUM_THREADS"] = "185"

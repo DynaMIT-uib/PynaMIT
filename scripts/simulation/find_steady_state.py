@@ -1,4 +1,5 @@
 """Find the steady state solution."""
+
 import numpy as np
 import pynamit
 from lompe import conductance

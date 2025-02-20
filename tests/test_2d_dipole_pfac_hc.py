@@ -1,4 +1,5 @@
 """Dipole, PFAC, and HC test."""
+
 import os
 import tempfile
 import pytest

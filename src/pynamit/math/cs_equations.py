@@ -24,10 +24,6 @@ class CSEquations(object):
     D : array
         Differential operator matrix, where the first index is the
         direction (0 for xi, 1 for eta).
-    g : array
-        Metric tensor.
-    sqrt_detg : array
-        Square root of the determinant of the metric tensor.
     Ps : array
         Matrix to convert from (u^east, u^north, u^up) to
         (u^1, u^2, u^3), as defined in equation A1 in Yin et al. (2017).
@@ -65,32 +61,6 @@ class CSEquations(object):
                 self.cs_basis.Ncs, coordinate="both"
             )
         return self._D
-
-    @property
-    def g(self):
-        """Metric tensor.
-
-        Returns
-        -------
-        array
-            Metric tensor.
-        """
-        if not hasattr(self, "_g"):
-            self._g = self.cs_basis.g
-        return self._g
-
-    @property
-    def sqrt_detg(self):
-        """Square root of the determinant of the metric tensor.
-
-        Returns
-        -------
-        array
-            Square root of the determinant of the metric tensor.
-        """
-        if not hasattr(self, "_sqrt_detg"):
-            self._sqrt_detg = np.sqrt(self.cs_basis.detg)
-        return self._sqrt_detg
 
     @property
     def Ps(self):
@@ -151,10 +121,16 @@ class CSEquations(object):
         """
         return (
             1
-            / self.sqrt_detg
+            / self.cs_basis.sqrt_detg
             * (
-                self.D[0].dot(self.g[:, 0, 1] * u1 + self.g[:, 1, 1] * u2)
-                - self.D[1].dot(self.g[:, 0, 0] * u1 + self.g[:, 0, 1] * u2)
+                self.D[0].dot(
+                    self.cs_basis.g[:, 0, 1] * u1
+                    + self.cs_basis.g[:, 1, 1] * u2
+                )
+                - self.D[1].dot(
+                    self.cs_basis.g[:, 0, 0] * u1
+                    + self.cs_basis.g[:, 0, 1] * u2
+                )
             )
         )
 

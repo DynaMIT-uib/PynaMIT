@@ -1,4 +1,5 @@
 """Simple test."""
+
 import numpy as np
 import pynamit
 from lompe import conductance

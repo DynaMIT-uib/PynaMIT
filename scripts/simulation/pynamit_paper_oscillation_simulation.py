@@ -1,4 +1,5 @@
 """Simulate oscillations for the PynaMIT paper."""
+
 import numpy as np
 import pynamit
 from lompe import conductance

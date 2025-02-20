@@ -1,4 +1,5 @@
 """Ground magnetic field time series visualization."""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr

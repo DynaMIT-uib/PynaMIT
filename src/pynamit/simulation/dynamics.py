@@ -1087,12 +1087,18 @@ class Dynamics(object):
             Ni=interpolation_points,
             order=1,
         )
-        sqrtg = np.sqrt(self.cs_basis.detg)
-        g11_scaled = sp.diags(self.cs_basis.g[:, 0, 0] / sqrtg)
-        g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / sqrtg)
-        g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / sqrtg)
 
-        # Matrix that gives radial curl from column vector of u1, u2
+        g11_scaled = sp.diags(
+            self.cs_basis.g[:, 0, 0] / self.cs_basis.sqrt_detg
+        )
+        g12_scaled = sp.diags(
+            self.cs_basis.g[:, 0, 1] / self.cs_basis.sqrt_detg
+        )
+        g22_scaled = sp.diags(
+            self.cs_basis.g[:, 1, 1] / self.cs_basis.sqrt_detg
+        )
+
+        # Matrix that gives radial curl from column vector of (u1, u2)
         D_curlr_u1u2 = sp.hstack(
             (
                 (Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
@@ -1100,7 +1106,7 @@ class Dynamics(object):
             )
         )
 
-        # Matrix that transforms theta, phi to u1, u2
+        # Matrix that transforms (theta, phi) to (u1, u2)
         Ps_dense = self.cs_basis.get_Ps(
             self.cs_basis.arr_xi,
             self.cs_basis.arr_eta,
@@ -1109,16 +1115,24 @@ class Dynamics(object):
 
         # Extract relevant elements, rearrange matrix to map from
         # (theta, phi) and not (east, north). Also include Q matrix
-        # normalization from Yin et al. (2017).
-        rr, rrcosl = self.RI, self.RI * np.cos(
-            np.deg2rad(self.state_grid.lat)
-        )  # normalization factors
-        Ps00 = sp.diags(-Ps_dense[:, 0, 1] / rr)
-        Ps01 = sp.diags(Ps_dense[:, 0, 0] / rrcosl)
-        Ps10 = sp.diags(-Ps_dense[:, 1, 1] / rr)
-        Ps11 = sp.diags(Ps_dense[:, 1, 0] / rrcosl)
-        # stack:
-        Ps = sp.vstack((sp.hstack((Ps00, Ps01)), sp.hstack((Ps10, Ps11))))
+        # normalization factors from Yin et al. (2017).
+        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state_grid.lat))
+        Ps = sp.vstack(
+            (
+                sp.hstack(
+                    (
+                        sp.diags(-Ps_dense[:, 0, 1] / self.RI),
+                        sp.diags(Ps_dense[:, 0, 0] / RI_cos_lat),
+                    )
+                ),
+                sp.hstack(
+                    (
+                        sp.diags(-Ps_dense[:, 1, 1] / self.RI),
+                        sp.diags(Ps_dense[:, 1, 0] / RI_cos_lat),
+                    )
+                ),
+            )
+        )
 
         return D_curlr_u1u2.dot(Ps)
 

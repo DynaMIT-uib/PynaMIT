@@ -1,4 +1,5 @@
 """Simulate wind induction in the ionosphere."""
+
 import numpy as np
 import pynamit
 from lompe import conductance

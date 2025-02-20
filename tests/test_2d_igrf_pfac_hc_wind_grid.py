@@ -1,4 +1,5 @@
 """Grid-based IGRF, PFAC, HC, and wind test."""
+
 # Arrange
 import os
 import tempfile

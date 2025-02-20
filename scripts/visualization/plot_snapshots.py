@@ -1,4 +1,5 @@
 """Snapshot plotting."""
+
 # visualization
 
 import pynamit

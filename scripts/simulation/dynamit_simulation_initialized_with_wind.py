@@ -1,4 +1,5 @@
 """Simulation with initialized wind input."""
+
 import numpy as np
 import pynamit
 from lompe import conductance
