@@ -1,21 +1,7 @@
-"""Main magnetic field models.
+"""Mainfield module.
 
-This module provides implementations of different magnetic field models
-including dipole, IGRF, and radial fields. These models provide
-coordinate transformations and field line tracing capabilities.
-
-Notes
------
-Available models:
-- dipole: Dipole magnetic field using IGRF coefficients for moment.
-- igrf: International Geomagnetic Reference Field in geocentric
-  coordinates (with geodetic conversion ignored).
-- radial: Radial field lines with configurable magnitude.
-
-The models use different coordinate systems: dipole uses dipole
-coordinates, IGRF uses geocentric coordinates, and radial uses simple
-radial field lines. For IGRF, geodetic height is approximated as
-``h = r - RE``.
+This module contains the Mainfield class for main magnetic field
+representation.
 """
 
 import ppigrf
@@ -27,7 +13,16 @@ from pynamit.math.constants import RE
 
 
 class Mainfield(object):
-    """Main magnetic field model implementation.
+    """Class for representing the main magnetic field.
+
+    Provides implementations of different magnetic field models,
+    providing field components, coordinate mapping, and basis vectors.
+
+    Available models:
+    - dipole: Dipole magnetic field using IGRF coefficients for moment.
+    - igrf: International Geomagnetic Reference Field in geocentric
+      coordinates (with geodetic conversion ignored).
+    - radial: Radial field lines with configurable magnitude.
 
     Attributes
     ----------
@@ -37,6 +32,13 @@ class Mainfield(object):
         Dipole field instance (if kind=='dipole').
     apx : apexpy.Apex
         Apex coordinate transformer (if kind=='igrf').
+
+    Notes
+    -----
+    The models use different coordinate systems: dipole uses dipole
+    coordinates, IGRF uses geocentric coordinates, and radial uses
+    simple radial field lines. For IGRF, geodetic height is approximated
+    as ``h = r - RE``.
     """
 
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):

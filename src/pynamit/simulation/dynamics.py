@@ -1,8 +1,7 @@
-"""Module for simulating magnetosphere-ionosphere coupling dynamics.
+"""Dynamics module.
 
-This module contains the Dynamics class which handles the simulation of
-ionospheric currents and electromagnetic fields in response to
-field-aligned currents and neutral winds.
+This module contains the Dynamics class for simulating dynamic MIT
+coupling.
 """
 
 import os

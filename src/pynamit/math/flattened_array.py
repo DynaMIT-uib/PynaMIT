@@ -8,7 +8,7 @@ import math
 
 
 class FlattenedArray(object):
-    """Represents multidimensional arrays in flattened form.
+    """Class for representing multidimensional arrays in flattened form.
 
     Encapsulates a multidimensional array in flattened form while
     maintaining the ability to reference the original shape.

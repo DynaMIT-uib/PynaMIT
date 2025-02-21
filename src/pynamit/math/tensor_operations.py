@@ -1,6 +1,6 @@
-"""Tensor Operations.
+"""Tensor operations module.
 
-This module provides functions for performing various tensor operations
+This module contains functions for performing various tensor operations
 including tensor products, pseudoinverses, transpositions, scaling,
 outer products, and singular value decompositions.
 """

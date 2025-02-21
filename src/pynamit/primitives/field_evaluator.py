@@ -1,6 +1,6 @@
 """Field evaluator module.
 
-This module provides the FieldEvaluator class, which evaluates magnetic
+This module contains the FieldEvaluator class for evaluating magnetic
 field quantities on spatial grids.
 """
 
@@ -8,7 +8,7 @@ import numpy as np
 
 
 class FieldEvaluator(object):
-    """Evaluates magnetic field quantities on spatial grids.
+    """Class for evaluating magnetic field quantities on spatial grids.
 
     Computes magnetic field quantities and handles conversions between
     vector components in different coordinate systems and construction

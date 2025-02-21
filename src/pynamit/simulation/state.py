@@ -1,8 +1,7 @@
-"""Ionospheric state representation and evolution.
+"""State module.
 
-This module provides a class for managing the ionospheric electrodynamic
-state, including currents, electric fields, conductances, and magnetic
-field perturbations.
+This module contains the State class for managing the electrodynamic
+state of the ionosphere.
 """
 
 import numpy as np
@@ -21,7 +20,10 @@ J_MAPPING = True
 
 
 class State(object):
-    """Manages electrodynamic state of the ionosphere.
+    """Class for managing the electrodynamic state of the ionosphere.
+
+    Manages the ionospheric electrodynamic state, including the model
+    parameters and the relationships between the physical quantities.
 
     Attributes
     ----------

@@ -1,7 +1,7 @@
 """Least squares module.
 
-This module contains the LeastSquares class for solving multi-constraint
-multi-dimensional least squares problems.
+This module contains the LeastSquares class for multi-constraint
+multi-dimensional least squares.
 """
 
 import numpy as np
@@ -9,7 +9,7 @@ from pynamit.math.flattened_array import FlattenedArray
 
 
 class LeastSquares:
-    """Object for multi-constraint multi-dimensional least squares.
+    """Class for multi-constraint multi-dimensional least squares.
 
     Solves problems of the form::
 

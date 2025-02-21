@@ -1,4 +1,4 @@
-"""Physical Constants.
+"""Physical constants.
 
 This module defines physical constants in SI units used across the
 PynaMIT package. For example, it provides the permeability of free space

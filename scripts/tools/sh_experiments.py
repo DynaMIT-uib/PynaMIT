@@ -12,8 +12,8 @@ Ncs = 30
 RI = (6371.2 + 110) * 1e3
 
 Kp = 3
-ckeys = pynamit.sha.helpers.SHKeys(Nmax, Mmax).MleN()
-skeys = pynamit.sha.helpers.SHKeys(Nmax, Mmax).MleN().Mge(1)
+ckeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN()
+skeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN().Mge(1)
 ubasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax)
 
 
@@ -103,7 +103,7 @@ if False:
 
     igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
 
-    igrf_keys = pynamit.sha.helpers.SHKeys(_n.max(), _m.max()).setNmin(1).MleN()
+    igrf_keys = pynamit.sha.helpers.SHIndices(_n.max(), _m.max()).setNmin(1).MleN()
 
     # Calculate u x B numerically on grid (we evaluate on the ground):
     ph = np.deg2rad(u_lon).reshape((-1, 1))

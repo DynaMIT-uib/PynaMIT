@@ -1,6 +1,6 @@
 """Visualization utilities for simulation results.
 
-This module provides plotting functions for visualizing ionospheric
+This module contains plotting functions for visualizing ionospheric
 simulation results, including global maps, diagnostic plots, and time
 series visualizations.
 """

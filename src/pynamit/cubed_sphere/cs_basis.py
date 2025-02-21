@@ -1,8 +1,7 @@
 """Cubed sphere basis module.
 
-This module provides the CSBasis class, which implements the cubed
-sphere grid system together with related tools for numerical
-differentiation, interpolation, and visualization.
+This module provides the CSBasis class for representing the cubed sphere
+basis.
 """
 
 import numpy as np
@@ -18,7 +17,7 @@ datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
 class CSBasis:
-    """Cubed sphere basis.
+    """Class for representing cubed sphere bases.
 
     This module provides an implementation of the cubed sphere grid
     system following methods from Yin et al. (2017). The cubed sphere

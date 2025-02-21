@@ -25,7 +25,7 @@ from pynamit.math.constants import RE, mu0
 
 
 class PynamEye(object):
-    """A class for visualizing simulation results.
+    """Class for visualizing simulation results.
 
     Attributes
     ----------

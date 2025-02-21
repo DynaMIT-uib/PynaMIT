@@ -73,8 +73,8 @@ dynamics.state.update_E()
 
 # make an integration matrix
 
-# cnm = SHKeys(Nmax, Mmax).setNmin(1).MleN()
-# snm = SHKeys(Nmax, Mmax).setNmin(1).MleN().Mge(1)
+# cnm = SHIndices(Nmax, Mmax).setNmin(1).MleN()
+# snm = SHIndices(Nmax, Mmax).setNmin(1).MleN().Mge(1)
 # Equivalent to pynamit.get_Schmidt_normalization(cnm).T?
 # cS =  (2 * cnm.n.T + 1) / (4 * np.pi * RI**2)
 # Equivalent to pynamit.get_Schmidt_normalization(snm).T?

@@ -1,15 +1,14 @@
-"""Spatial Grid Utilities.
+"""Grid module.
 
-This module provides the Grid class for representing spatial grids used
-in PynaMIT. It supports generating grid representations for the
-evaluation of magnetic fields and simulation data in PynaMIT.
+This module contains the Grid class for representing two-dimensional
+coordinate grids.
 """
 
 import numpy as np
 
 
 class Grid(object):
-    """Two-dimensional coordinate grid representation.
+    """Class for representing two-dimensional coordinate grids.
 
     Attributes
     ----------

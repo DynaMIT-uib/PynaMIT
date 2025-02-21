@@ -5,11 +5,11 @@ spherical harmonics.
 """
 
 import numpy as np
-from pynamit.spherical_harmonics.helpers import SHKeys, schmidt_normalization_factors
+from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_normalization_factors
 
 
 class SHBasis(object):
-    """Store and evaluate spherical harmonic basis functions.
+    """Class for representing spherical harmonic bases.
 
     A class to store information about a spherical harmonic basis and to
     generate matrices for evaluating the spherical harmonics at a given
@@ -17,10 +17,10 @@ class SHBasis(object):
 
     Attributes
     ----------
-    cnm : SHKeys
-        Keys for cosine terms.
-    snm : SHKeys
-        Keys for sine terms.
+    cnm : SHIndices
+        Indices for cosine terms.
+    snm : SHIndices
+        Indices for sine terms.
     n : ndarray
         Array of degree values.
     m : ndarray
@@ -53,31 +53,32 @@ class SHBasis(object):
         schmidt_normalization : bool, optional
             Whether to use Schmidt semi-normalization, by default True.
         """
-        # Make a set of all spherical harmonic keys up to Nmax, Mmax
-        all_keys = SHKeys(Nmax, Mmax)
+        # Make a set of all spherical harmonic index pairs up to
+        # (Nmax, Mmax)
+        all_index_pairs = SHIndices(Nmax, Mmax)
 
-        # Make separate sets of spherical harmonic keys for cos and sin
-        # terms, and remove n < Nmin terms and m = 0 sin terms
-        self.cnm = SHKeys(Nmax, Mmax).set_Nmin(Nmin)
-        self.snm = SHKeys(Nmax, Mmax).set_Nmin(Nmin).set_Mmin(1)
+        # Make separate sets of spherical harmonic indices for cos and
+        # sin terms, and remove n < Nmin terms and m = 0 sin terms
+        self.cnm = SHIndices(Nmax, Mmax).set_Nmin(Nmin)
+        self.snm = SHIndices(Nmax, Mmax).set_Nmin(Nmin).set_Mmin(1)
 
-        self.cnm_filter = [(key in self.cnm) for key in all_keys]
-        self.snm_filter = [(key in self.snm) for key in all_keys]
+        self.cnm_filter = [(index_pair in self.cnm) for index_pair in all_index_pairs]
+        self.snm_filter = [(index_pair in self.snm) for index_pair in all_index_pairs]
 
-        self.nm_tuples = list(all_keys)
+        self.index_pairs = list(all_index_pairs)
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
 
         # Make the spherical harmonic Schmidt normalization factors
         self.schmidt_normalization = schmidt_normalization
         if self.schmidt_normalization:
-            self.schmidt_factors = schmidt_normalization_factors(self.nm_tuples)
+            self.schmidt_factors = schmidt_normalization_factors(self.index_pairs)
 
         # Set the general properties of the basis
         self.short_name = "SH"
 
         self.index_names = ["n", "m"]
-        self.index_length = len(self.cnm.keys) + len(self.snm.keys)
+        self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
         self.index_arrays = [self.n, self.m]
 
         self.minimum_phi_sampling = 2 * Mmax + 1
@@ -190,18 +191,18 @@ class SHBasis(object):
         cos_theta = np.cos(theta)
 
         # Calculate the Legendre functions
-        P = np.empty((theta.size, len(self.nm_tuples)), dtype=np.float64)
+        P = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         P[:, 0] = np.ones_like(theta, dtype=np.float64)
-        for nm in range(1, len(self.nm_tuples)):
-            n, m = self.nm_tuples[nm]
+        for nm in range(1, len(self.index_pairs)):
+            n, m = self.index_pairs[nm]
             if n == m:
-                P[:, nm] = sin_theta * P[:, self.nm_tuples.index((n - 1, m - 1))]
+                P[:, nm] = sin_theta * P[:, self.index_pairs.index((n - 1, m - 1))]
             else:
                 if n > m:
-                    P[:, nm] = cos_theta * P[:, self.nm_tuples.index((n - 1, m))]
+                    P[:, nm] = cos_theta * P[:, self.index_pairs.index((n - 1, m))]
                 if n > m + 1:
                     Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
-                    P[:, nm] -= Knm * P[:, self.nm_tuples.index((n - 2, m))]
+                    P[:, nm] -= Knm * P[:, self.index_pairs.index((n - 2, m))]
 
         return P
 
@@ -234,24 +235,24 @@ class SHBasis(object):
             P = self.legendre(theta)
 
         # Calculate the derivatives of the Legendre functions
-        dP = np.empty((theta.size, len(self.nm_tuples)), dtype=np.float64)
+        dP = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         dP[:, 0] = np.zeros_like(theta, dtype=np.float64)
-        for nm in range(1, len(self.nm_tuples)):
-            n, m = self.nm_tuples[nm]
+        for nm in range(1, len(self.index_pairs)):
+            n, m = self.index_pairs[nm]
             if n == m:
                 dP[:, nm] = (
-                    sin_theta * dP[:, self.nm_tuples.index((n - 1, m - 1))]
-                    + cos_theta * P[:, self.nm_tuples.index((n - 1, m - 1))]
+                    sin_theta * dP[:, self.index_pairs.index((n - 1, m - 1))]
+                    + cos_theta * P[:, self.index_pairs.index((n - 1, m - 1))]
                 )
             else:
                 if n > m:
                     dP[:, nm] = (
-                        cos_theta * dP[:, self.nm_tuples.index((n - 1, m))]
-                        - sin_theta * P[:, self.nm_tuples.index((n - 1, m))]
+                        cos_theta * dP[:, self.index_pairs.index((n - 1, m))]
+                        - sin_theta * P[:, self.index_pairs.index((n - 1, m))]
                     )
                 if n > m + 1:
                     Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
-                    dP[:, nm] -= Knm * dP[:, self.nm_tuples.index((n - 2, m))]
+                    dP[:, nm] -= Knm * dP[:, self.index_pairs.index((n - 2, m))]
 
         return dP
 

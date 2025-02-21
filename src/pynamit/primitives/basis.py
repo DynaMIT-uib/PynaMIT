@@ -1,6 +1,6 @@
 """Basis Function Utilities.
 
-This module defines the abstract Basis class for basis representations
+This module contains the abstract Basis class for basis representations
 of fields.
 """
 
@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 
 
 class Basis(ABC):
-    """Abstract base class for basis representations of fields.
+    """Abstract class for basis representations of fields.
 
     Defines the interface for different basis representations of fields,
     including functions for evaluating basis functions and their
