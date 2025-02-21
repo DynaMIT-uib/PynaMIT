@@ -26,10 +26,10 @@ rk = RI / np.cos(np.deg2rad(np.r_[0:70:1])) ** 2
 date = datetime.datetime(2001, 6, 1, 0, 0)
 Kp = 4
 d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # noon longitude
-noon_mlon = d.mlt2mlon(12, date)  # noon longitude
+noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
+noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -47,7 +47,7 @@ dynamics = pynamit.Dynamics(
 
 print(datetime.datetime.now(), "made dynamics object")
 
-## CONDUCTANCE INPUT
+# Get and set conductance input.
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
@@ -58,13 +58,13 @@ dynamics.set_conductance(
 )
 
 print(datetime.datetime.now(), "setting jr")
-## jr INPUT
+# Set zero jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 dynamics.set_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon)
 
 print(datetime.datetime.now(), "setting wind")
-## WIND INPUT
+# Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],
@@ -96,7 +96,7 @@ dynamics.state.set_coeffs(m_ind=mv)
 print(datetime.datetime.now(), "simulating")
 dynamics.evolve_to_time(0)
 
-# set jr:
+# Get and set jr input.
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)

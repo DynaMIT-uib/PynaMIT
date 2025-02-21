@@ -20,10 +20,10 @@ rk = RI / np.cos(np.deg2rad(np.r_[0:70:5])) ** 2
 date = datetime.datetime(2001, 5, 12, 21, 0)
 Kp = 5
 d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # noon longitude
-noon_mlon = d.mlt2mlon(12, date)  # noon longitude
+noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
+noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -40,7 +40,7 @@ dynamics = pynamit.Dynamics(
 
 print("made dynamics object")
 
-## CONDUCTANCE INPUT
+# Get and set conductance input.
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
@@ -48,7 +48,7 @@ hall, pedersen = conductance.hardy_EUV(
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-## jr INPUT
+# Get and set jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
@@ -60,7 +60,7 @@ jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
 dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-## WIND INPUT
+# Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],

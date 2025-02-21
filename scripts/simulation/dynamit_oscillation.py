@@ -23,7 +23,7 @@ JR_PERIOD = 20.0
 
 PLOT_SCALING = False
 
-WIND_FACTOR = 1  # scale wind by this factor
+WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
 Nmax, Mmax, Ncs = 50, 50, 50
@@ -37,10 +37,10 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     date = datetime.datetime(2001, 5, 12, 17, 0)
     d = dipole.Dipole(date.year)
-    noon_longitude = d.mlt2mlon(12, date)  # noon longitude
-    noon_mlon = d.mlt2mlon(12, date)  # noon longitude
+    noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
+    noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
-    ## SET UP SIMULATION OBJECT
+    # Set up simulation object.
     dynamics = pynamit.Dynamics(
         dataset_filename_prefix=dataset_filename_prefix,
         Nmax=Nmax,
@@ -57,7 +57,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     )
 
     print("Setting wind", flush=True)
-    ## WIND INPUT
+    # Get and set wind input.
     hwm14Obj = pyhwm2014.HWM142D(
         alt=110.0,
         ap=[35, 35],
@@ -94,37 +94,35 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     # )
 
     print("Setting conductance", flush=True)
-    ## CONDUCTANCE INPUT
+    # Get and set conductance input.
     conductance_lat = dynamics.state_grid.lat
     conductance_lon = dynamics.state_grid.lon
 
     sza = conductance.sunlight.sza(conductance_lat, conductance_lon, date, degrees=True)
     hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
-    hall_EUV, pedersen_EUV = (
-        np.sqrt(hall_EUV**2 + 1),
-        np.sqrt(pedersen_EUV**2 + 1),
-    )  # add starlight
+    # Add starlight.
+    hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
     dynamics.set_conductance(
         hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon
     )
 
-    ## jr STATIC INPUT
+    # Get and set static jr input.
     jr_lat = dynamics.state_grid.lat
     jr_lon = dynamics.state_grid.lon
     apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
     mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
     mlt = d.mlon2mlt(mlon, date)
-    _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
+    _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
     jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
-    jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
+    jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
     if STEADY_STATE_INITIALIZATION:
         dynamics.set_jr(jr=jr, lat=jr_lat, lon=jr_lon)
 
         dynamics.impose_steady_state()
 
-    # Create array that will store all jr values
+    # Create array that will store all jr values.
     time_values = np.arange(
         0,
         FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN,

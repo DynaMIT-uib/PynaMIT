@@ -13,7 +13,7 @@ RE = 6371.2e3
 RI = RE + 110e3
 latitude_boundary = 40
 
-WIND_FACTOR = 1  # scale wind by this factor
+WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
 dataset_filename_prefix = "long_step"
@@ -23,10 +23,10 @@ print(len(rk))
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
 d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # noon longitude
-noon_mlon = d.mlt2mlon(12, date)  # noon longitude
+noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
+noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -42,19 +42,19 @@ dynamics = pynamit.Dynamics(
     t0=str(date),
 )
 
-## jr INPUT
+# Get and set jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
-_, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
+_, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
-jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
+jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-## WIND INPUT
+# Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],
@@ -88,7 +88,7 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 #     weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
 # )
 
-## CONDUCTANCE GRID
+# Get and set conductance input.
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 

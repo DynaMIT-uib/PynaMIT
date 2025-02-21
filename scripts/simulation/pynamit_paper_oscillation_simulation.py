@@ -11,13 +11,11 @@ import datetime
 import pyamps
 import apexpy
 
-#################################
-# oscillation simulation settings
+# Set oscillation simulation settings.
 PERIODS = [50, 25, 10, 5, 1]
-TAPERING_TIME = 200.0  # time for ramping up amplitude of oscillations
-NUMBER_OF_OSCILLATIONS = 2  # periods to simulate after tapering
+TAPERING_TIME = 200.0  # Time for ramping up amplitude of oscillations
+NUMBER_OF_OSCILLATIONS = 2  # Periods to simulate after tapering
 FLOAT_ERROR_MARGIN = 1e-6
-#################################
 
 
 dataset_filename_prefix = "data/pynamit_paper_oscillations"
@@ -30,12 +28,12 @@ rk = RI / np.cos(np.deg2rad(np.r_[0:70:1])) ** 2
 date = datetime.datetime(2001, 6, 1, 0, 0)
 Kp = 4
 d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # noon longitude
-noon_mlon = d.mlt2mlon(12, date)  # noon longitude
+noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
+noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 print(datetime.datetime.now(), "making dynamics object", flush=True)
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -53,7 +51,7 @@ dynamics = pynamit.Dynamics(
 
 print(datetime.datetime.now(), "made dynamics object", flush=True)
 
-## INPUT: Conductance
+# Get and set conductance input.
 print(datetime.datetime.now(), "setting conductance", flush=True)
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
@@ -65,21 +63,21 @@ dynamics.set_conductance(
     hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.001
 )
 
-## INPUT: Jr
+# Get and set jr input.
 print(datetime.datetime.now(), "setting Jr at t=0", flush=True)
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=date.year)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
-_, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
+_, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
 a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
-jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
+jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
 dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-## INPUT: Wind
+# Get and set wind input.
 print(datetime.datetime.now(), "setting wind", flush=True)
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
@@ -107,13 +105,13 @@ dynamics.set_u(
 )
 
 
-## SIMULATE OSCILLATIONS
+# Simulate oscillations.
 last_simulation_time = 0
 for period in PERIODS:
     jr_sampling_dt = period / 50
     simulation_duration = TAPERING_TIME + NUMBER_OF_OSCILLATIONS * period
 
-    # Create scaled jr values
+    # Create scaled jr values.
     time_values = np.arange(
         0,
         simulation_duration + jr_sampling_dt - FLOAT_ERROR_MARGIN,
@@ -133,7 +131,6 @@ for period in PERIODS:
         time=last_simulation_time + time_values,
     )
 
-    ## IMPOSE STEADY STATE
     print(
         datetime.datetime.now(),
         "Imposing steady state before simulating period {} s".format(period),
