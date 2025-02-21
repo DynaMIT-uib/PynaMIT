@@ -384,7 +384,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
 
 
 if __name__ == "__main__":
-    # Testing ENU/ECEF conversion.
+    # Test ENU/ECEF conversion.
     v = np.array([[1, 1, 0], [1, 0, 0]])
     lat = np.array([-90, 0])
     lon = np.array([0.0, 0])
@@ -398,8 +398,8 @@ if __name__ == "__main__":
         np.max(enu_to_ecef(enu_to_ecef(v, lat, lon), lat, lon, reverse=True) - v) ** 2,
     )
 
-    # Testing geo2local function by comparison to equivalent code in
-    # Dipole module.
+    # Test geo2local function by comparison to equivalent code in Dipole
+    # module.
     from dipole import Dipole
 
     d = Dipole(2010)
