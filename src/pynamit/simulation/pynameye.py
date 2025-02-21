@@ -67,8 +67,8 @@ class PynamEye(object):
             Number of grid points between -90 and 90 degrees latitude
             for visualization. Default is 60.
         Nlon : int, optional
-            Number of grid points between -180 and 180 degrees
-            longitude for visualization. Default is 100.
+            Number of grid points between -180 and 180 degrees longitude
+            for visualization. Default is 100.
         NCS_plot : int, optional
             Number of grid points for the cubed sphere plot. Default is
             10.
@@ -215,7 +215,7 @@ class PynamEye(object):
         self.set_time(t)
 
     def derive_E_from_B(self):
-        """Re-calculate E coefficients from B coefficients.
+        """Derive E coefficients from B coefficients.
 
         If B coefficients are not manipulated, this should have no
         meaningful effect. Calling this function can be expensive with
@@ -227,7 +227,7 @@ class PynamEye(object):
             nn = int(np.sqrt(PFAC.size))
             self.m_imp_to_B_pol = PFAC.reshape((nn, nn))
 
-            # reproduce numerical grid used in the simulation
+            # Reproduce numerical grid used in the simulation
             self.cs_basis = CSBasis(self.datasets["settings"].Ncs)
             self.state_grid = Grid(
                 theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi
@@ -238,7 +238,7 @@ class PynamEye(object):
                 self.conductance_basis, self.state_grid
             )
 
-            # evaluate elelctric field on that grid
+            # Evaluate elelctric field on that grid
             self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
             self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
             self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
@@ -259,7 +259,7 @@ class PynamEye(object):
 
             self.B_parameters_calculated = True
 
-        # calculate electric field values on state_grid:
+        # Calculate electric field values on state_grid
         Js_ind, Je_ind = np.split(self.G_m_ind_to_JS.dot(self.m_ind), 2, axis=0)
         Js_imp, Je_imp = np.split(self.G_m_imp_to_JS.dot(self.m_imp), 2, axis=0)
 

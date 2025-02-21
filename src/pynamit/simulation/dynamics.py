@@ -1,8 +1,8 @@
 """Module for simulating magnetosphere-ionosphere coupling dynamics.
 
 This module contains the Dynamics class which handles the simulation of
-ionospheric currents and electromagnetic fields in response to field-
-aligned currents and neutral winds.
+ionospheric currents and electromagnetic fields in response to
+field-aligned currents and neutral winds.
 """
 
 import os
@@ -27,9 +27,9 @@ class Dynamics(object):
     """Class for simulating dynamic MIT coupling.
 
     Manages the temporal evolution of the state of the ionosphere in
-    response to field-aligned currents and neutral winds, giving rise
-    to dynamic magnetosphere-ionosphere-thermosphere (MIT) coupling.
-    Saves and loads simulation data to and from NetCDF files.
+    response to field-aligned currents and neutral winds, giving rise to
+    dynamic magnetosphere-ionosphere-thermosphere (MIT) coupling. Saves
+    and loads simulation data to and from NetCDF files.
 
     Attributes
     ----------
@@ -70,46 +70,47 @@ class Dynamics(object):
         Parameters
         ----------
         dataset_filename_prefix : str, optional
-            Prefix for saving dataset files, by default 'simulation'
+            Prefix for saving dataset files, by default 'simulation'.
         Nmax : int, optional
-            Maximum spherical harmonic degree, by default 20
+            Maximum spherical harmonic degree, by default 20.
         Mmax : int, optional
-            Maximum spherical harmonic order, by default 20
+            Maximum spherical harmonic order, by default 20.
         Ncs : int, optional
-            Number of cubed sphere grid points per edge, by default 30
+            Number of cubed sphere grid points per edge, by default 30.
         RI : float, optional
-            Ionospheric radius in meters, by default RE + 110e3
+            Ionospheric radius in meters, by default RE + 110e3.
         mainfield_kind : {'dipole', 'igrf',  'radial'}, optional
-            Type of main magnetic field model, by default 'dipole'
+            Type of main magnetic field model, by default 'dipole'.
         mainfield_epoch : int, optional
-            Epoch year for main field model, by default 2020
+            Epoch year for main field model, by default 2020.
         mainfield_B0 : float, optional
-            Main field strength at ground in Tesla, by default None
+            Main field strength at ground in Tesla, by default None.
         FAC_integration_steps : array-like, optional
-            Integration radii for FAC poloidal field calculation
+            Integration radii for FAC poloidal field calculation.
         ignore_PFAC : bool, optional
-            Whether to ignore FAC poloidal fields, by default False
+            Whether to ignore FAC poloidal fields, by default False.
         connect_hemispheres : bool, optional
-            Whether hemispheres are electrically connected, by
-            default False
+            Whether hemispheres are electrically connected, by default
+            False.
         latitude_boundary : float, optional
-            Simulation boundary latitude in degrees, by default 50
+            Simulation boundary latitude in degrees, by default 50.
         ih_constraint_scaling : float, optional
-            Scaling for interhemispheric coupling constraint, by
-            default 1e-5
+            Scaling for interhemispheric coupling constraint, by default
+            1e-5.
         PFAC_matrix : array-like, optional
-            Matrix giving polodial field of FACs, by default None
+            Matrix giving polodial field of FACs, by default None.
         vector_jr : bool, optional
             Use vector representation for radial current, by default
-            True
+            True.
         vector_conductance : bool, optional
-            Use vector representation for conductances, by default True
+            Use vector representation for conductances, by default True.
         vector_u : bool, optional
-            Use vector representation for neutral wind, by default True
+            Use vector representation for neutral wind, by default True.
         t0 : str, optional
-            Start time in UTC format, by default '2020-01-01 00:00:00'
+            Start time in UTC format, by default '2020-01-01 00:00:00'.
         save_steady_states : bool, optional
-            Whether to calculate and save steady states, by default True
+            Whether to calculate and save steady states, by default
+            True.
         """
         self.dataset_filename_prefix = dataset_filename_prefix
 
@@ -216,8 +217,8 @@ class Dynamics(object):
                 )
             else:
                 raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or "
-                    "unknown input type"
+                    "Mixed scalar and tangential input (unsupported), or invalid input "
+                    "type"
                 )
 
         # Initialize the state of the ionosphere
@@ -527,9 +528,9 @@ class Dynamics(object):
         Parameters
         ----------
         Hall : array-like
-            Hall conductance in siemens.
+            Hall conductance.
         Pedersen : array-like
-            Pedersen conductance in siemens.
+            Pedersen conductance.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -691,8 +692,8 @@ class Dynamics(object):
                 ]
             ):
                 raise ValueError(
-                    "Time must be specified if the input data is given for "
-                    "multiple time values."
+                    "Time must be specified if the input data is given for multiple "
+                    "time values."
                 )
             time = self.current_time
 
@@ -770,7 +771,7 @@ class Dynamics(object):
     def add_to_timeseries(self, dataset, key):
         """Add a dataset to the timeseries.
 
-        Creates a new timeseries if one doesn't exist, otherwise
+        Creates a new timeseries if one does not exist, otherwise
         concatenates the new data along the time dimension.
 
         Parameters
@@ -1094,9 +1095,9 @@ class Dynamics(object):
     def sh_curl_matrix(self):
         """Matrix for spherical harmonic curl calculation.
 
-        Matrix that gets divergence-free SH coefficients from vectors
-        of (theta, phi)-components, constructed from Laplacian matrix
-        and (inverse) evaluation matrices.
+        Matrix that gets divergence-free SH coefficients from vectors of
+        (theta, phi)-components, constructed from Laplacian matrix and
+        (inverse) evaluation matrices.
         """
         if not hasattr(self, "_sh_curl_matrix"):
             G_df_pinv = (

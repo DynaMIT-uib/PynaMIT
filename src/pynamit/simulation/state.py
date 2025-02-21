@@ -238,11 +238,12 @@ class State(object):
     def m_imp_to_B_pol(self):
         """Matrix that maps m_imp to corresponding poloidal field.
 
-        to a ionospheric current sheet that shields the region under
-        the ionosphere from the poloidal field of inclined FACs.
+        Maps m_imp to a corresponding poloidal field that that shields
+        the region under the ionosphere from the poloidal field of
+        inclined FACs.
 
-        Uses the method by Engels and Olsen 1998, Eq. 13 to account for
-        the poloidal part of magnetic field for FACs.
+        Based on Engels and Olsen (1998), in particular the method in
+        equation (13).
 
         Returns
         -------
@@ -334,17 +335,23 @@ class State(object):
         **kwargs : dict
             Keyword arguments specifying the coefficients to set. Valid
             values are 'm_ind' and 'm_imp'.
+
+        Raises
+        ------
+        ValueError
+            If more than one keyword argument is provided or if the
+            keyword is invalid.
         """
         valid_kws = ["m_ind", "m_imp"]
 
         if len(kwargs) != 1:
-            raise Exception(
+            raise ValueError(
                 "Expected one and only one keyword argument, you "
                 f"provided {len(kwargs)}"
             )
         key = list(kwargs.keys())[0]
         if key not in valid_kws:
-            raise Exception("Invalid keyword. See documentation")
+            raise ValueError("Invalid keyword. See documentation")
 
         if key == "m_ind":
             self.m_ind = FieldExpansion(
@@ -634,7 +641,7 @@ class State(object):
         Parameters
         ----------
         dt : float
-            Time step size in seconds
+            Time step size in seconds.
         """
         new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
@@ -736,12 +743,12 @@ class State(object):
         Parameters
         ----------
         _basis_evaluator : BasisEvaluator
-            Evaluator for computing field on grid
+            Evaluator for computing field on grid.
 
         Returns
         -------
         ndarray
-            Electric field components (Etheta, Ephi) on grid points
+            Electric field components (Etheta, Ephi) on grid points.
         """
         return self.E.to_grid(_basis_evaluator)
 

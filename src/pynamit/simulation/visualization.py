@@ -22,19 +22,19 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     Parameters
     ----------
     projection : CSBasis
-        Cubed sphere projection object
+        Cubed sphere projection object.
     inlat : array-like
-        Latitude coordinates of input data
+        Latitude coordinates of input data.
     inlon : array-like
-        Longitude coordinates of input data
+        Longitude coordinates of input data.
     values : array-like
-        Field values to interpolate
+        Field values to interpolate.
     outlat : array-like
-        Latitude coordinates of output grid
+        Latitude coordinates of output grid.
     outlon : array-like
-        Longitude coordinates of output grid
+        Longitude coordinates of output grid.
     kwargs : dict
-        Additional arguments for griddata interpolation
+        Additional arguments for griddata interpolation.
     """
     inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
     in_r = np.vstack(
@@ -80,28 +80,28 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     Parameters
     ----------
     lon : array-like
-        Longitude coordinates in degrees
+        Longitude coordinates in degrees.
     lat : array-like
-        Latitude coordinates in degrees
+        Latitude coordinates in degrees.
     data : array-like
-        Field values to plot, must broadcast with lon/lat
+        Field values to plot, must broadcast with lon/lat.
     title : str, optional
-        Plot title
+        Title for the plot.
     returnplot : bool, optional
-        If True, return figure and axes objects, by default False
+        If True, return figure and axes objects, by default False.
     levels : array-like, optional
-        Contour level boundaries, by default None for automatic
+        Contour level boundaries, by default None for automatic levels.
     cmap : str, optional
-        Matplotlib colormap name, by default 'viridis'
+        Matplotlib colormap name, by default 'viridis'.
     noon_longitude : float, optional
-        Longitude of local noon meridian, by default 0
+        Longitude of local noon meridian, by default 0.
     extend : {'neither', 'both', 'min', 'max'}, optional
-        How to extend colormap at ends, by default 'both'
+        How to extend colormap at ends, by default 'both'.
 
     Returns
     -------
     tuple, optional
-        (figure, axes) if returnplot=True
+        (figure, axes) if `returnplot` is ``True``.
     """
     fig = plt.figure(figsize=(10, 10))
 
@@ -172,13 +172,13 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     Parameters
     ----------
     dynamics : Dynamics
-        Simulation dynamics object containing current state
+        Simulation dynamics object containing time series data.
     title : str, optional
-        Plot title
+        Plot title.
     filename : str, optional
-        If provided, save plot to this file
+        If provided, save plot to this file.
     noon_longitude : float, optional
-        Longitude of local noon meridian, by default 0
+        Longitude of local noon meridian, by default 0.
 
     Notes
     -----
@@ -186,9 +186,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     simulation grid.
 
     Shows:
-    - Radial magnetic field (Br)
-    - Field-aligned currents normalized by radial field
-    - Equivalent current function
+    - Radial magnetic field (Br).
+    - Field-aligned currents normalized by radial field.
+    - Equivalent current function.
     """
     B_kwargs = {
         "cmap": plt.cm.bwr,
@@ -676,30 +676,30 @@ def time_dependent_plot(
 ):
     """Create time series visualization frame.
 
-    Generates and saves a single frame for time-dependent
-    visualization of simulation evolution.
+    Generates and saves a single frame for time-dependent visualization
+    of simulation results.
 
     Parameters
     ----------
     dynamics : Dynamics
-        Simulation dynamics object with current state
+        Simulation dynamics object with current state.
     fig_directory : str
-        Directory to save output frames
+        Directory for saving output frames.
     filecount : int
-        Frame number for filename
+        Frame number for filename.
     lon0 : float
-        Reference longitude for local time
+        Reference longitude for local time.
     plt_grid : Grid
-        Grid for visualization interpolation
+        Grid for visualization interpolation.
     pltshape : tuple
-        Shape of plotting grid (nlat, nlon)
+        Shape of plotting grid (nlat, nlon).
     plt_state_evaluator : BasisEvaluator
-        Evaluator for computing fields on plot grid
+        Evaluator for computing fields on plot grid.
 
     Notes
     -----
-    Saves frame as PNG with radial field colored contours and
-    electric potential contour lines in both hemispheres.
+    Saves frame as PNG with radial field colored contours and electric
+    potential contour lines in both hemispheres.
     """
     import os
 

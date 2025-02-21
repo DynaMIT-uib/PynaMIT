@@ -94,30 +94,30 @@ class Mainfield(object):
         Parameters
         ----------
         r : array-like
-            Radius in meters
+            Radius in meters.
         theta : array-like
-            Colatitude in degrees
+            Colatitude in degrees.
         phi : array-like
-            Longitude in degrees
+            Longitude in degrees.
 
         Returns
         -------
         Br : ndarray
-            Radial component in Tesla
+            Radial component of the magnetic field.
         Btheta : ndarray
-            Southward component in Tesla
+            Southward component of the magnetic field.
         Bphi : ndarray
-            Eastward component in Tesla
+            Eastward component of the magnetic field.
 
         Notes
         -----
-        Arrays are broadcast to common shape. Output components
-        are in spherical coordinate basis (r̂, θ̂, φ̂).
+        Arrays are broadcast to common shape. Output components are in
+        spherical coordinate basis.
         """
         return self._Bfunc(r, theta, phi)
 
     def get_sinI(self, r, theta, phi):
-        """Calculate sin inclination angle.
+        """Calculate sine of the inclination angle.
 
         Defined as the angle of the magnetic field with nadir.
         Broadcasting rules apply.
@@ -152,26 +152,27 @@ class Mainfield(object):
         Parameters
         ----------
         r_dest : float
-            Destination radius in meters
+            Destination radius in meters.
         r : array-like
-            Starting radius in meters
+            Starting radius in meters.
         theta : array-like
-            Starting colatitude in degrees
+            Starting colatitude in degrees.
         phi : array-like
-            Starting longitude in degrees
+            Starting longitude in degrees.
 
         Returns
         -------
         theta_out : ndarray
-            Mapped colatitude in degrees
+            Mapped colatitude in degrees.
         phi_out : ndarray
-            Mapped longitude in degrees
+            Mapped longitude in degrees.
 
         Notes
         -----
-        For IGRF, uses apex coordinates for field line tracing.
-        For dipole, uses analytic dipole field line equation.
-        For radial, angular coordinates unchanged.
+        Implementation differs by model type:
+        - IGRF: Uses apex coordinates.
+        - Dipole: Uses analytic dipole field line equation.
+        - Radial: Angular coordinates unchanged.
         """
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
 
@@ -203,29 +204,30 @@ class Mainfield(object):
         Parameters
         ----------
         r : array-like
-            Radius in meters
+            Radius in meters.
         theta : array-like
-            Colatitude in degrees
+            Colatitude in degrees.
         phi : array-like
-            Longitude in degrees
+            Longitude in degrees.
 
         Returns
         -------
         theta_conj : ndarray
-            Conjugate point colatitude in degrees
+            Conjugate point colatitude in degrees.
         phi_conj : ndarray
-            Conjugate point longitude in degrees
+            Conjugate point longitude in degrees.
 
         Raises
         ------
         ValueError
-            If called with radial field model
+            If called with radial field model.
 
         Notes
         -----
-        Not defined for radial field model.
-        For dipole, conjugate points are at (180°-θ,φ).
-        For IGRF, uses apex coordinate transformations.
+        Implementation differs by model type:
+        - IGRF: Uses apex coordinate transformations.
+        - Dipole: Conjugate points are at (180°-`theta`, `phi`).
+        - Radial: Not defined.
         """
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
 
@@ -257,26 +259,27 @@ class Mainfield(object):
         Parameters
         ----------
         r : array-like
-            Radius in meters
+            Radius in meters.
         theta : array-like
-            Colatitude in degrees
+            Colatitude in degrees.
         phi : array-like
-            Longitude in degrees
+            Longitude in degrees.
 
         Returns
         -------
         d1, d2, d3 : ndarray
-            Contravariant basis vectors, shape (3,N)
+            Contravariant basis vectors, shape (3,N).
         e1, e2, e3 : ndarray
-            Covariant basis vectors, shape (3,N)
+            Covariant basis vectors, shape (3,N).
 
         Notes
         -----
-        Vector components are in spherical coordinates (r,θ,φ).
+        Vector components are in spherical coordinates.
+
         Implementation differs by model type:
-        - dipole: Uses analytic dipole expressions
-        - igrf: Uses apex coordinate transformations
-        - radial: Uses simple orthonormal vectors
+        - IGRF: Uses apex coordinate transformations.
+        - Dipole: Uses analytic dipole expressions.
+        - Radial: Uses simple orthonormal vectors.
         """
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
         size = r.size
