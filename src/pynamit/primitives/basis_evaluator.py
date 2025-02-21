@@ -42,12 +42,11 @@ class BasisEvaluator(object):
         grid : Grid
             Grid object representing the spatial grid.
         weights : array-like, optional
-            Weights for the least squares solver. Default is None.
+            Weights for the least squares solver.
         reg_lambda : float, optional
             Regularization parameter for the least squares solver.
-            Default is None.
         pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse. Default is 1e-15.
+            Relative tolerance for the pseudo-inverse.
         """
         self.basis = basis
         self.grid = grid
@@ -328,10 +327,9 @@ class BasisEvaluator(object):
         coeffs : ndarray
             Coefficients in the basis.
         derivative : str, optional
-            Derivative to evaluate ('theta' or 'phi'). Default is None.
+            Derivative to evaluate ('theta' or 'phi').
         helmholtz : bool, optional
-            Whether to use the Helmholtz decomposition. Default is
-            False.
+            Whether to use the Helmholtz decomposition.
 
         Returns
         -------
@@ -355,8 +353,7 @@ class BasisEvaluator(object):
         grid_values : ndarray
             Values at the grid points.
         helmholtz : bool, optional
-            Whether to use the Helmholtz decomposition. Default is
-            False.
+            Whether to use the Helmholtz decomposition.
 
         Returns
         -------
@@ -377,8 +374,7 @@ class BasisEvaluator(object):
         coeffs : ndarray
             Coefficients in the basis.
         helmholtz : bool, optional
-            Whether to use the Helmholtz decomposition. Default is
-            False.
+            Whether to use the Helmholtz decomposition.
 
         Returns
         -------

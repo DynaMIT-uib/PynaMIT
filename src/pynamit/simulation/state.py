@@ -69,7 +69,7 @@ class State(object):
             FAC_integration_steps, ih_constraint_scaling, vector_jr,
             vector_conductance, and vector_u.
         PFAC_matrix : array-like, optional
-            Pre-computed FAC poloidal field matrix, by default None.
+            Pre-computed FAC poloidal field matrix.
         """
         self.basis = bases["state"]
         self.jr_basis = bases["jr"]
@@ -785,7 +785,7 @@ class State(object):
         Parameters
         ----------
         plot : bool, optional
-            Whether to plot the tensors. Default is True.
+            Whether to plot the tensors.
         """
         etaP_m_ind_to_E = np.einsum(
             "ijk,jl->ijkl",

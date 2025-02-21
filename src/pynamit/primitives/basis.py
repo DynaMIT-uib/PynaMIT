@@ -82,7 +82,7 @@ class Basis(ABC):
             Spatial grid for evaluation.
         derivative : {None, 'theta', 'phi'}, optional
             Type of derivative to evaluate:
-            - None: evaluate basis functions (default)
+            - None: evaluate basis functions
             - 'theta': evaluate derivative with respect to theta
             - 'phi': evaluate derivative with respect to phi
 

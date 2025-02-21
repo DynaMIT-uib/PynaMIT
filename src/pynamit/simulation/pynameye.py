@@ -62,20 +62,19 @@ class PynamEye(object):
             Filename prefix for the simulation save files that will be
             visualized.
         t : int, optional
-            Simulation time in seconds. Default is 0.
+            Simulation time in seconds.
         Nlat : int, optional
             Number of grid points between -90 and 90 degrees latitude
-            for visualization. Default is 60.
+            for visualization.
         Nlon : int, optional
             Number of grid points between -180 and 180 degrees longitude
-            for visualization. Default is 100.
+            for visualization.
         NCS_plot : int, optional
-            Number of grid points for the cubed sphere plot. Default is
-            10.
+            Number of grid points for the cubed sphere plot.
         mlatlim : int, optional
-            Magnetic latitude limit. Default is 50.
+            Magnetic latitude limit. 
         steady_state : bool, optional
-            Whether to use steady state data. Default is False.
+            Whether to use steady state data.
         """
         keys = ["settings", "conductance", "state", "u"]
         filename_suffix = dict(zip(keys, ["_settings", "_conductance", "_state", "_u"]))
@@ -335,7 +334,7 @@ class PynamEye(object):
         t : int
             Simulation time in seconds.
         steady_state : bool, optional
-            Whether to use steady state data. Default is False.
+            Whether to use steady state data.
         """
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
@@ -417,9 +416,9 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes
             The axis to plot on.
         draw_labels : bool, optional
-            Whether to draw labels. Default is True.
+            Whether to draw labels.
         draw_coastlines : bool, optional
-            Whether to draw coastlines. Default is True.
+            Whether to draw coastlines.
         """
         if draw_coastlines:
             ax.coastlines(zorder=2, color="grey")
@@ -473,8 +472,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contour.
         """
@@ -515,8 +513,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contourf.
         """
@@ -559,8 +556,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to quiver.
         """
@@ -588,8 +584,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contourf.
         """
@@ -628,10 +623,9 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         hp : str, optional
-            'h' for Hall, 'p' for Pedersen. Default is 'h'.
+            'h' for Hall, 'p' for Pedersen.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contourf.
         """
@@ -661,8 +655,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to quiver.
         """
@@ -684,8 +677,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contourf.
         """
@@ -707,8 +699,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contour.
         """
@@ -730,8 +721,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contourf.
         """
@@ -753,10 +743,9 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         from_B : bool, optional
-            Whether to derive from B coefficients. Default is False.
+            Whether to derive from B coefficients.
         **kwargs
             Additional keyword arguments passed to contour.
         """
@@ -778,8 +767,7 @@ class PynamEye(object):
         ax : matplotlib.axes.Axes or Polarplot
             The axis to plot on.
         region : str, optional
-            The region to plot ('global', 'north', or 'south'). Default
-            is 'global'.
+            The region to plot ('global', 'north', or 'south').
         **kwargs
             Additional keyword arguments passed to contour.
         """
@@ -799,7 +787,7 @@ class PynamEye(object):
         Parameters
         ----------
         label : str, optional
-            Label for the figure. Default is None.
+            Label for the figure.
 
         Returns
         -------

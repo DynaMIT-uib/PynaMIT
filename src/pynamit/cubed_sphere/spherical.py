@@ -24,7 +24,6 @@ def sph_to_car(sph, deg=True):
         (r, colatitude, longitude).
     deg : bool, optional
         If True, the input angles are in degrees; otherwise in radians.
-        Default is True.
 
     Returns
     -------
@@ -54,7 +53,6 @@ def car_to_sph(car, deg=True):
         A 3 x N array containing the Cartesian coordinates (x, y, z).
     deg : bool, optional
         If True, the output angles are in degrees; otherwise in radians.
-        Default is True.
 
     Returns
     -------
@@ -92,7 +90,7 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
         Longitude of the new z-axis.
     deg : bool, optional
         If ``True``, the input and output angles are in degrees,
-        otherwise in radians. Default is ``True``.
+        otherwise in radians.
 
     Returns
     -------
@@ -151,7 +149,6 @@ def enu_to_ecef(v, lon, lat, reverse=False):
         An array of latitudes in degrees.
     reverse : bool, optional
         If True, converts from ECEF to ENU; otherwise, from ENU to ECEF.
-        Default is False.
 
     Returns
     -------
@@ -214,7 +211,6 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
         Longitude(s) of the target point.
     degrees : bool, optional
         If ``True``, inputs are in degrees, otherwise, in radians.
-        Default is True.
 
     Returns
     -------
@@ -322,7 +318,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
         Latitude of the new pole in degrees.
     inverse : bool, optional
         If True, performs the inverse transformation (local to
-        geographic). Default is False.
+        geographic).
 
     Returns
     -------

@@ -42,15 +42,13 @@ class FieldExpansion(object):
             Basis object representing the basis of the field.
         coeffs : array-like, optional
             Expansion coefficients of the field for the given basis.
-            Default is None.
         basis_evaluator : BasisEvaluator, optional
             BasisEvaluator object for converting between basis
-            coefficients and grid values. Default is None.
+            coefficients and grid values.
         grid_values : array-like, optional
-            Values of the field on the grid. Default is None.
+            Values of the field on the grid.
         field_type : str, optional
-            Type of the field ('scalar' or 'tangential'). Default is
-            'scalar'.
+            Type of the field ('scalar' or 'tangential').
 
         Raises
         ------

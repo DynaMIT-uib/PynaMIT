@@ -51,12 +51,11 @@ def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default
-        is 2.
+        Number of leading dimensions to flatten into first axis.
     rtol : float, optional
-        Relative tolerance for small singular values. Default is 1e-15.
+        Relative tolerance for small singular values.
     hermitian : bool, optional
-        Whether the matrix is Hermitian. Default is False.
+        Whether the matrix is Hermitian.
 
     Returns
     -------
@@ -90,11 +89,10 @@ def tensor_pinv_positive_semidefinite(
         Input tensor.
     n_leading_flattened : int, optional
         Number of leading dimensions to flatten into first axis.
-        Default is 2.
     rtol : float, optional
-        Relative tolerance for small singular values. Default is 1e-15.
+        Relative tolerance for small singular values.
     condition_number : bool, optional
-        Whether to print the condition number. Default is False.
+        Whether to print the condition number.
 
     Returns
     -------
@@ -124,8 +122,7 @@ def tensor_transpose(A, n_leading_flattened=2):
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default
-        is 2.
+        Number of leading dimensions to flatten into first axis.
 
     Returns
     -------
@@ -265,17 +262,15 @@ def tensor_svd(
     A : array-like
         Input tensor.
     n_leading_flattened : int, optional
-        Number of leading dimensions to flatten into first axis. Default
-        is 2.
+        Number of leading dimensions to flatten into first axis.
     full_matrices : bool, optional
-        Whether to compute full-sized U and VT matrices. Default is
-        True.
+        Whether to compute full-sized U and VT matrices.
     compute_uv : bool, optional
-        Whether to compute U and VT matrices. Default is True.
+        Whether to compute U and VT matrices.
     hermitian : bool, optional
-        Whether the matrix is Hermitian. Default is False.
+        Whether the matrix is Hermitian.
     rtol : float, optional
-        Relative tolerance for small singular values. Default is 1e-15.
+        Relative tolerance for small singular values.
 
     Returns
     -------
@@ -318,9 +313,9 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
     A : array-like
         Positive semidefinite matrix.
     rtol : float, optional
-        Relative tolerance for small eigenvalues. Default is 1e-15.
+        Relative tolerance for small eigenvalues.
     condition_number : bool, optional
-        Whether to print the condition number. Default is False.
+        Whether to print the condition number.
 
     Returns
     -------

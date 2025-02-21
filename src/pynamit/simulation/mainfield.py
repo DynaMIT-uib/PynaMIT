@@ -47,11 +47,11 @@ class Mainfield(object):
         Parameters
         ----------
         kind : {'dipole', 'igrf', 'radial'}, optional
-            Type of magnetic field model. Default is 'dipole'.
+            Type of magnetic field model.
         epoch : int, optional
-            Decimal year for field coefficients. Default is 2020.
+            Decimal year for field coefficients.
         hI : float, optional
-            Ionospheric height in km. Default is 0.0.
+            Ionospheric height in km.
         B0 : float, optional
             Field magnitude at ground for radial model in Tesla. If
             None, uses reference field for epoch.
@@ -78,7 +78,7 @@ class Mainfield(object):
                 return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
 
         elif self.kind == "radial":
-            # use Dipole B0 as default
+            # Use Dipole B0 as default
             B0 = dipole.Dipole(epoch).B0 if B0 is None else B0
 
             def _Bfunc(r, theta, phi):
@@ -358,7 +358,7 @@ class Mainfield(object):
         phi : array-like
             Longitude [deg] at which to calculate the dip equator.
         theta : float, optional
-            Magnetic latitude. Default is 90.
+            Magnetic latitude.
 
         Returns
         -------

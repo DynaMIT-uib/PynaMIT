@@ -29,41 +29,37 @@ def run_pynamit(
     Parameters
     ----------
     final_time : float, optional
-        The final time of the simulation in seconds. Default is 100.
+        The final time of the simulation in seconds.
     plotsteps : int, optional
-        The number of steps between each plot. Default is 200.
+        The number of steps between each plot.
     dt : float, optional
-        The time step for the simulation. Default is 5e-4.
+        The time step for the simulation.
     Nmax : int, optional
-        The maximum degree of the spherical harmonics. Default is 20.
+        The maximum degree of the spherical harmonics.
     Mmax : int, optional
-        The maximum order of the spherical harmonics. Default is 20.
+        The maximum order of the spherical harmonics.
     Ncs : int, optional
-        The number of grid points in the cubed sphere grid. Default is
-        30.
+        The number of grid points in the cubed sphere grid.
     mainfield_kind : str, optional
-        The type of main field model. Default is 'dipole'.
+        The type of main field model.
     fig_directory : str, optional
-        The directory to save the figures. Default is './figs'.
+        The directory to save the figures.
     ignore_PFAC : bool, optional
-        Whether to ignore the poloidal field-aligned currents. Default
-        is True.
+        Whether to ignore the poloidal field-aligned currents.
     connect_hemispheres : bool, optional
-        Whether to connect the hemispheres. Default is False.
+        Whether to connect the hemispheres.
     latitude_boundary : float, optional
-        The latitude boundary for the simulation. Default is 50.
+        The latitude boundary for the simulation.
     wind : bool, optional
-        Whether to include wind in the simulation. Default is False.
+        Whether to include wind in the simulation.
     steady_state : bool, optional
-        Whether to impose a steady state. Default is False.
+        Whether to impose a steady state.
     vector_jr : bool, optional
-        Whether to use vector representation for radial current. Default
-        is True.
+        Whether to use vector representation for radial current.
     vector_conductance : bool, optional
-        Whether to use vector representation for conductance. Default is
-        True.
+        Whether to use vector representation for conductance.
     vector_u : bool, optional
-        Whether to use vector representation for wind. Default is True.
+        Whether to use vector representation for wind.
 
     Returns
     -------

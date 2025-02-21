@@ -75,7 +75,7 @@ class LeastSquares:
         reg_L : list of ndarray or ndarray, optional
             Regularization operator array(s).
         pinv_rtol : float, optional
-            Relative tolerance for pseudoinverse, by default 1e-15.
+            Relative tolerance for pseudoinverse.
         """
         self.solution_dims = solution_dims
 

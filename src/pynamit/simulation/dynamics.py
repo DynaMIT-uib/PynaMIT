@@ -69,47 +69,43 @@ class Dynamics(object):
         Parameters
         ----------
         dataset_filename_prefix : str, optional
-            Prefix for saving dataset files, by default 'simulation'.
+            Prefix for saving dataset files.
         Nmax : int, optional
-            Maximum spherical harmonic degree, by default 20.
+            Maximum spherical harmonic degree.
         Mmax : int, optional
-            Maximum spherical harmonic order, by default 20.
+            Maximum spherical harmonic order.
         Ncs : int, optional
-            Number of cubed sphere grid points per edge, by default 30.
+            Number of cubed sphere grid points per edge.
         RI : float, optional
-            Ionospheric radius in meters, by default RE + 110e3.
+            Ionospheric radius in meters.
         mainfield_kind : {'dipole', 'igrf',  'radial'}, optional
-            Type of main magnetic field model, by default 'dipole'.
+            Type of main magnetic field model.
         mainfield_epoch : int, optional
-            Epoch year for main field model, by default 2020.
+            Epoch year for main field model.
         mainfield_B0 : float, optional
-            Main field strength at ground in Tesla, by default None.
+            Main field strength.
         FAC_integration_steps : array-like, optional
             Integration radii for FAC poloidal field calculation.
         ignore_PFAC : bool, optional
-            Whether to ignore FAC poloidal fields, by default False.
+            Whether to ignore FAC poloidal fields.
         connect_hemispheres : bool, optional
-            Whether hemispheres are electrically connected, by default
-            False.
+            Whether hemispheres are electrically connected.
         latitude_boundary : float, optional
-            Simulation boundary latitude in degrees, by default 50.
+            Simulation boundary latitude in degrees.
         ih_constraint_scaling : float, optional
-            Scaling for interhemispheric coupling constraint, by default
-            1e-5.
+            Scaling for interhemispheric coupling constraint.
         PFAC_matrix : array-like, optional
-            Matrix giving polodial field of FACs, by default None.
+            Matrix giving polodial field of FACs.
         vector_jr : bool, optional
-            Use vector representation for radial current, by default
-            True.
+            Use vector representation for radial current.
         vector_conductance : bool, optional
-            Use vector representation for conductances, by default True.
+            Use vector representation for conductances.
         vector_u : bool, optional
-            Use vector representation for neutral wind, by default True.
+            Use vector representation for neutral wind.
         t0 : str, optional
-            Start time in UTC format, by default '2020-01-01 00:00:00'.
+            Start time in UTC format.
         save_steady_states : bool, optional
-            Whether to calculate and save steady states, by default
-            True.
+            Whether to calculate and save steady states.
         """
         self.dataset_filename_prefix = dataset_filename_prefix
 
@@ -280,13 +276,13 @@ class Dynamics(object):
         t : float
             Target time to evolve to in seconds.
         dt : float, optional
-            Time step size in seconds, by default 5e-4.
+            Time step size in seconds.
         sampling_step_interval : int, optional
-            Number of steps between samples, by default 200.
+            Number of steps between samples.
         saving_sample_interval : int, optional
-            Number of samples between saves, by default 10.
+            Number of samples between saves.
         quiet : bool, optional
-            Whether to suppress progress output, by default False.
+            Whether to suppress progress output.
         """
         # Changed to True when time series differs from the one on disk
         self.save_jr = False
@@ -445,7 +441,7 @@ class Dynamics(object):
         reg_lambda : float, optional
             Regularization parameter for the least squares solver.
         pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse, by default 1e-15.
+            Relative tolerance for the pseudo-inverse.
         """
         FAC_b_evaluator = FieldEvaluator(
             self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.RI
@@ -800,7 +796,7 @@ class Dynamics(object):
         key : str
             Key for the time series.
         interpolation : bool, optional
-            Whether to use linear interpolation. Default is False.
+            Whether to use linear interpolation.
 
         Returns
         -------
@@ -1026,9 +1022,9 @@ class Dynamics(object):
         Parameters
         ----------
         stencil_size : int, optional
-            Size of the finite difference stencil. Default is 1.
+            Size of the finite difference stencil.
         interpolation_points : int, optional
-            Number of interpolation points. Default is 4.
+            Number of interpolation points.
 
         Returns
         -------

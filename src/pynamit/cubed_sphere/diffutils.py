@@ -39,9 +39,9 @@ def stencil(evaluation_points, order=1, h=1, fraction=False):
     evaluation_points : array_like
         Evaluation points in regular grid. e.g. ``[-1, 0, 1]`` for
         central difference or ``[-1, 0]`` for backward difference.
-    order : integer, optional, default = 1
-        Order of the derivative, default gives a first order derivative.
-    h : scalar, optional, default = 1
+    order : integer, optional
+        Order of the derivative.
+    h : scalar, optional
         Step size in seconds.
     fraction : bool, optional
         Set to ``True`` to return coefficients as integer numerators and

@@ -115,17 +115,17 @@ class CSBasis:
             self.N = N
             k, i, j = self.get_gridpoints(N)
 
-            # Initialize grid points, skipping duplicates at boundaries
+            # Initialize grid points, skipping duplicates at boundaries.
             self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_block = k[:, :-1, :-1].flatten()
 
-            # Convert to spherical coordinates
+            # Convert to spherical coordinates.
             _, self.arr_theta, self.arr_phi = self.cube2spherical(
                 self.arr_xi, self.arr_eta, self.arr_block, deg=True
             )
 
-            # Calculate grid cell areas
+            # Calculate grid cell areas.
             step = np.diff(self.xi(np.array([0, 1]), N))[0]
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
             self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
@@ -139,7 +139,7 @@ class CSBasis:
         N : int
             Number of grid cells per edge (N+1 points).
         flat : bool, optional
-            Whether to return flattened arrays, by default False.
+            Whether to return flattened arrays.
 
         Returns
         -------
@@ -264,10 +264,10 @@ class CSBasis:
         eta : array-like
             Eta coordinates in radians.
         r : array-like, optional
-            Radial coordinates, by default 1.
+            Radial coordinates.
         covariant : bool, optional
             If ``True`` return covariant components, otherwise return
-            contravariant components, by default ``True``.
+            contravariant components.
 
         Returns
         -------
@@ -276,9 +276,10 @@ class CSBasis:
             number of input points. Last two dimensions are tensor
             indices.
         """
+        # Broadcast and flatten.
         xi, eta, r = map(
             np.ravel, np.broadcast_arrays(xi, eta, r)
-        )  # broadcast and flatten
+        )
         delta = self.get_delta(xi, eta)
 
         g = np.empty((xi.size, 3, 3))
@@ -323,9 +324,9 @@ class CSBasis:
             Array of xi coordinates in radians.
         eta : array-like
             Array of eta coordinates in radians.
-        r : array-like, optional, default = 1
+        r : array-like, optional
             Array of radii.
-        block : array-like, optional, default = 0
+        block : array-like, optional
             Array of block indices.
 
         Returns
@@ -393,9 +394,9 @@ class CSBasis:
         block : array-like
             Block indices (0-5)
         r : float or array-like, optional
-            Radial coordinates, by default 1.
+            Radial coordinates.
         deg : bool, optional
-            Return angles in degrees if True, by default False.
+            Return angles in degrees if True, otherwise radians.
 
         Returns
         -------
@@ -443,9 +444,9 @@ class CSBasis:
             Array of xi coordinates, in radians.
         eta : array-like
             Array of eta coordinates, in radians.
-        r : array-like, optional, default = 1
+        r : array-like, optional
             Array of radii.
-        block : array-like, optional, default = 0
+        block : array-like, optional
             Array of block indices.
         inverse : bool, optional
             Set to ``True`` if you want the inverse transformation
@@ -573,9 +574,9 @@ class CSBasis:
             Array of xi coordinates, in radians.
         eta : array-like
             Array of eta coordinates, in radians.
-        r : array-like, optional, default = 1
+        r : array-like, optional
             Array of radii.
-        block : array-like, optional, default = 0
+        block : array-like, optional
             Array of block indices.
         inverse : bool, optional
             Set to ``True`` if you want the inverse transformation
@@ -810,18 +811,17 @@ class CSBasis:
         ----------
         N : int
             Number of grid cells in each dimension on each block.
-        coordinate : string, {'xi', 'eta', 'both'}, default = 'xi'
+        coordinate : string, {'xi', 'eta', 'both'}
             Which coordinate to differentiate with respect to.
-        Ns : int, optional, default = 1
-            Differentiation stencil size. Default gives first order
-            central difference.
+        Ns : int, optional
+            Differentiation stencil size.
         Ni : int, optional
             Number of points to use for interpolation for points in the
             stencil that fall on non-integer grid points on neighboring
             blocks.
-        order : int, optional, default = 1
-            Order of differentiation. Default gives first order
-            derivative. Make sure that ``Ns >= order``.
+        order : int, optional
+            Order of differentiation. Make sure that ``Ns >= order``.
+            Currently only first order differentiation is supported.
 
         Returns
         -------
@@ -835,7 +835,9 @@ class CSBasis:
         ------
         ValueError
             If `coordinate` is not 'xi', 'eta', or 'both'.
-            If `Ns` is less than `order
+            If `Ns` is less than `order.
+        NotImplementedError
+            If `order` is not 1.
         """
         if coordinate not in ["xi", "eta", "both"]:
             raise ValueError(
@@ -846,6 +848,9 @@ class CSBasis:
             raise ValueError(
                 "Ns must be >= order. You gave {} and {}".format(Ns, order)
             )
+
+        if order != 1:
+            raise NotImplementedError("Only first order differentiation is supported.")
 
         shape = (6, N, N)
         size = 6 * N * N

@@ -49,9 +49,9 @@ class SHBasis(object):
         Mmax : int
             Maximum order of the spherical harmonics.
         Nmin : int, optional
-            Minimum degree of the spherical harmonics, by default 1.
+            Minimum degree of the spherical harmonics.
         schmidt_normalization : bool, optional
-            Whether to use Schmidt semi-normalization, by default True.
+            Whether to use Schmidt semi-normalization.
         """
         # Make a set of all spherical harmonic index pairs up to
         # (Nmax, Mmax)
@@ -97,14 +97,13 @@ class SHBasis(object):
             Grid object with latitudes and longitudes for evaluation.
         derivative : {None, 'phi', 'theta'}, optional
             Type of derivative to compute:
-            - None: Evaluate spherical harmonics (default).
+            - None: Evaluate spherical harmonics.
             - 'phi': Compute eastward derivative.
             - 'theta': Compute southward derivative.
         cache_in : ndarray, optional
-            Cached Legendre functions, by default None.
+            Cached Legendre functions.
         cache_out : bool, optional
-            Whether to return cached Legendre functions, by default
-            False.
+            Whether to return cached Legendre functions.
 
         Returns
         -------
@@ -218,7 +217,7 @@ class SHBasis(object):
         theta : array-like
             Colatitude in radians.
         P : ndarray, optional
-            Pre-computed Legendre functions, by default None.
+            Pre-computed Legendre functions.
 
         Returns
         -------
@@ -262,7 +261,7 @@ class SHBasis(object):
         Parameters
         ----------
         r : float, optional
-            Radius, by default 1.0.
+            Radius.
 
         Returns
         -------
@@ -280,7 +279,7 @@ class SHBasis(object):
         Parameters
         ----------
         r : float, optional
-            Radius. Default is 1.0.
+            Radius.
 
         Returns
         -------
@@ -299,7 +298,7 @@ class SHBasis(object):
         Parameters
         ----------
         r : float, optional
-            Radius. Default is 1.0.
+            Radius.
 
         Returns
         -------

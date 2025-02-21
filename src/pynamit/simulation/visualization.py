@@ -46,18 +46,18 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     )
 
     outlon, outlat = np.broadcast_arrays(outlon, outlat)
-    shape = outlon.shape  # get the shape so we can reshape the result in the end
+    shape = outlon.shape  # Get the shape so we can reshape the result in the end
     outlon, outlat = outlon.flatten(), outlat.flatten()
 
     result = np.zeros_like(outlon) - 1
 
     xi_o, eta_o, block_o = projection.geo2cube(outlon, outlat)
 
-    # go through each block:
+    # Go through each block
     for i in range(6):
-        jjj = block_o == i  # these are the points we want to specify
+        jjj = block_o == i # these are the points we want to specify
 
-        # find the points that are on the right side:
+        # Find the points that are on the right side
         _, th0, ph0 = projection.cube2spherical(0, 0, i)
         r0 = np.array(
             [np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)]
@@ -85,19 +85,13 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
         Latitude coordinates in degrees.
     data : array-like
         Field values to plot, must broadcast with lon/lat.
-    title : str, optional
-        Title for the plot.
-    returnplot : bool, optional
-        If True, return figure and axes objects, by default False.
-    levels : array-like, optional
-        Contour level boundaries, by default None for automatic levels.
-    cmap : str, optional
-        Matplotlib colormap name, by default 'viridis'.
     noon_longitude : float, optional
-        Longitude of local noon meridian, by default 0.
-    extend : {'neither', 'both', 'min', 'max'}, optional
-        How to extend colormap at ends, by default 'both'.
-
+        Longitude of local noon meridian.
+    scatter : bool, optional
+        If True, plot data as scatter points.
+    **kwargs : dict
+        Additional arguments, such as title, save, returnplot, and
+        arguments passed to scatter or contourf.
     Returns
     -------
     tuple, optional
@@ -178,7 +172,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     filename : str, optional
         If provided, save plot to this file.
     noon_longitude : float, optional
-        Longitude of local noon meridian, by default 0.
+        Longitude of local noon meridian.
 
     Notes
     -----
