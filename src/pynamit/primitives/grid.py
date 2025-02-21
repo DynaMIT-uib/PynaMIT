@@ -14,15 +14,15 @@ class Grid(object):
     Attributes
     ----------
     lat : ndarray
-        Flattened array of latitude values in degrees
+        Flattened array of latitude values in degrees.
     lon : ndarray
-        Flattened array of longitude values in degrees
+        Flattened array of longitude values in degrees.
     theta : ndarray
-        Flattened array of colatitude values in degrees
+        Flattened array of colatitude values in degrees.
     phi : ndarray
-        Flattened array of longitude values in degrees (same as lon)
+        Flattened array of longitude values in degrees (same as lon).
     size : int
-        Total number of grid points
+        Total number of grid points.
 
     Notes
     -----

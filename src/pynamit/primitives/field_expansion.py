@@ -12,8 +12,8 @@ class FieldExpansion(object):
     """Represents scalar or vector fields in basis expansions.
 
     This class stores and manages expansion coefficients for scalar and
-    tangential vector fields and provides methods for conversion
-    between coefficient and grid representations.
+    tangential vector fields and provides methods for conversion between
+    coefficient and grid representations.
 
     Attributes
     ----------
@@ -58,8 +58,8 @@ class FieldExpansion(object):
         Raises
         ------
         ValueError
-            If `field_type` is invalid or if insufficient
-            initialization parameters are provided.
+            If `field_type` is invalid or if insufficient initialization
+            parameters are provided.
         """
         if field_type not in ["scalar", "tangential"]:
             raise ValueError("field type must be either 'scalar' or 'tangential'.")
@@ -82,14 +82,14 @@ class FieldExpansion(object):
         Parameters
         ----------
         basis_evaluator : BasisEvaluator
-            Evaluator for grid-coefficient conversions
+            Evaluator for grid-coefficient conversions.
         grid_values : array-like
-            Field values on grid points
+            Field values on grid points.
 
         Returns
         -------
         ndarray
-            Computed basis coefficients
+            Computed basis coefficients.
 
         Notes
         -----
@@ -109,17 +109,18 @@ class FieldExpansion(object):
         Parameters
         ----------
         basis_evaluator : BasisEvaluator
-            Evaluator for coefficient-grid conversions
+            Evaluator for coefficient-grid conversions.
 
         Returns
         -------
         ndarray
-            Field values on grid points
+            Field values on grid points.
 
         Notes
         -----
-        For tangential fields, reconstructs vector components
-        from Helmholtz decomposition.
+        For tangential fields, reconstructs vector components from
+        Helmholtz decomposition terms evaluated on the grid. For scalar
+        fields, directly evaluates basis functions on the grid.
         """
         if self.field_type == "scalar":
             return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=False)
@@ -132,17 +133,17 @@ class FieldExpansion(object):
         Parameters
         ----------
         basis_evaluator : BasisEvaluator
-            Evaluator containing regularization parameters
+            Evaluator containing regularization parameters.
 
         Returns
         -------
         float
-            Value of regularization penalty term
+            Value of regularization penalty term.
 
         Notes
         -----
         Form of regularization depends on field type:
-        - scalar: Smoothness penalty on scalar field
+        - scalar: Single penalty on scalar field
         - tangential: Separate penalties on Helmholtz components
         """
         if self.field_type == "scalar":

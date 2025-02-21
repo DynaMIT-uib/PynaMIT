@@ -18,27 +18,27 @@ class FieldEvaluator(object):
     Attributes
     ----------
     field : Mainfield
-        Main magnetic field model
+        Main magnetic field model.
     grid : Grid
-        Evaluation grid
+        Evaluation grid.
     r : float
-        Evaluation radius
+        Evaluation radius.
     Br : ndarray
-        Radial magnetic field component
+        Radial magnetic field component.
     Btheta : ndarray
-        Colatitudinal magnetic field component
+        Colatitudinal magnetic field component.
     Bphi : ndarray
-        Longitudinal magnetic field component
+        Longitudinal magnetic field component.
     B_magnitude : ndarray
-        Magnetic field magnitude
+        Magnetic field magnitude.
     br, btheta, bphi : ndarray
-        Unit vector components in spherical coordinates
-    e1r, e1t, e1p : ndarray
-        First magnetic apex basis vector components
-    e2r, e2t, e2p : ndarray
-        Second magnetic apex basis vector components
-    e3r, e3t, e3p : ndarray
-        Third magnetic apex basis vector components
+        Unit vector components in spherical coordinates.
+    e1r, e1theta, e1phi : ndarray
+        e1 magnetic apex basis vector components.
+    e2r, e2theta, e2phi : ndarray
+        e2 magnetic apex basis vector components.
+    e3r, e3theta, e3phi : ndarray
+        e3 magnetic apex basis vector components.
     """
 
     def __init__(self, field, grid, r):
@@ -47,11 +47,11 @@ class FieldEvaluator(object):
         Parameters
         ----------
         field : Mainfield
-            Main magnetic field model
+            Main magnetic field model.
         grid : Grid
-            Spatial grid for evaluations
+            Spatial grid for evaluations.
         r : float
-            Evaluation radius in meters
+            Evaluation radius in meters.
         """
         self.field = field
         self.grid = grid
@@ -64,7 +64,7 @@ class FieldEvaluator(object):
         Returns
         -------
         ndarray
-            Magnetic field vector components [Br, Bθ, Bφ] with shape
+            Magnetic field vector components (Br, Bθ, Bφ) with shape
             (3, N) where N is number of grid points.
         """
         if not hasattr(self, "_grid_values"):
@@ -185,7 +185,7 @@ class FieldEvaluator(object):
         return self.basevectors[3][0]
 
     @property
-    def e1t(self):
+    def e1theta(self):
         """Theta component of the e1 magnetic apex basis vector.
 
         Returns
@@ -196,7 +196,7 @@ class FieldEvaluator(object):
         return self.basevectors[3][1]
 
     @property
-    def e1p(self):
+    def e1phi(self):
         """Phi component of the e1 magnetic apex basis vector.
 
         Returns
@@ -218,7 +218,7 @@ class FieldEvaluator(object):
         return self.basevectors[4][0]
 
     @property
-    def e2t(self):
+    def e2theta(self):
         """Theta component of the e2 magnetic apex basis vector.
 
         Returns
@@ -229,7 +229,7 @@ class FieldEvaluator(object):
         return self.basevectors[4][1]
 
     @property
-    def e2p(self):
+    def e2phi(self):
         """Phi component of the e2 magnetic apex basis vector.
 
         Returns
@@ -251,7 +251,7 @@ class FieldEvaluator(object):
         return self.basevectors[5][0]
 
     @property
-    def e3t(self):
+    def e3theta(self):
         """Theta component of the e3 magnetic apex basis vector.
 
         Returns
@@ -262,7 +262,7 @@ class FieldEvaluator(object):
         return self.basevectors[5][1]
 
     @property
-    def e3p(self):
+    def e3phi(self):
         """Phi component of the e3 magnetic apex basis vector.
 
         Returns
@@ -309,7 +309,10 @@ class FieldEvaluator(object):
         """
         if not hasattr(self, "_field_orthogonal_to_apex"):
             self._field_orthogonal_to_apex = np.array(
-                [[self.e1r, self.e1t, self.e1p], [self.e2r, self.e2t, self.e2p]]
+                [
+                    [self.e1r, self.e1theta, self.e1phi],
+                    [self.e2r, self.e2theta, self.e2phi],
+                ]
             )
 
         return self._field_orthogonal_to_apex
@@ -372,7 +375,9 @@ class FieldEvaluator(object):
             the field.
         """
         if not hasattr(self, "_field_parallel_to_apex"):
-            self._field_parallel_to_apex = np.array([[self.e3r, self.e3t, self.e3p]])
+            self._field_parallel_to_apex = np.array(
+                [[self.e3r, self.e3theta, self.e3phi]]
+            )
 
         return self._field_parallel_to_apex
 

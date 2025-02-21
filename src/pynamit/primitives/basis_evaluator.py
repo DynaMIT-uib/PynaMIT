@@ -316,9 +316,9 @@ class BasisEvaluator(object):
         Returns
         -------
         ndarray
-            Least-squares solution for the coefficients representing
-            the curl-free and divergence-free components of a
-            horizontal vector field in the basis.
+            Least-squares solution for the coefficients representing the
+            curl-free and divergence-free components of a horizontal
+            vector field in the basis.
         """
         return self.least_squares_helmholtz.solve(grid_values)[0]
 
@@ -396,8 +396,8 @@ class BasisEvaluator(object):
     def scaled_G(self, factor):
         """Return the scaled G matrix.
 
-        The factor can be a matrix with the same
-        shape as G, in which case the scaling is done element-wise.
+        The factor can be a matrix with the same shape as G, in which
+        case the scaling is done element-wise.
 
         Parameters
         ----------
