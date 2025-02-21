@@ -11,32 +11,32 @@ from pynamit.spherical_harmonics.helpers import SHKeys, schmidt_normalization_fa
 class SHBasis(object):
     """Store and evaluate spherical harmonic basis functions.
 
-    A class to store information about a spherical harmonic basis and
-    to generate matrices for evaluating the spherical harmonics at a
-    given grid.
+    A class to store information about a spherical harmonic basis and to
+    generate matrices for evaluating the spherical harmonics at a given
+    grid.
 
     Attributes
     ----------
     cnm : SHKeys
-        Keys for cosine terms
+        Keys for cosine terms.
     snm : SHKeys
-        Keys for sine terms
+        Keys for sine terms.
     n : ndarray
-        Array of degree values
+        Array of degree values.
     m : ndarray
-        Array of order values
+        Array of order values.
     schmidt_factors : ndarray
-        Schmidt normalization factors if enabled
+        Schmidt normalization factors if enabled.
     short_name : str
-        Identifier for the basis ('SH')
+        Identifier for the basis ('SH').
     index_names : list
-        Names of the indices ['n', 'm']
+        Names of the indices ['n', 'm'].
     index_length : int
-        Total number of basis functions
+        Total number of basis functions.
     minimum_phi_sampling : int
-        Minimum number of longitude points needed
+        Minimum number of longitude points needed.
     caching : bool
-        Whether caching is enabled
+        Whether caching is enabled.
     """
 
     def __init__(self, Nmax, Mmax, Nmin=1, schmidt_normalization=True):
@@ -93,32 +93,32 @@ class SHBasis(object):
         Parameters
         ----------
         grid : Grid
-            Grid object with latitudes and longitudes for evaluation
+            Grid object with latitudes and longitudes for evaluation.
         derivative : {None, 'phi', 'theta'}, optional
             Type of derivative to compute:
-            - None: evaluate spherical harmonics (default)
-            - 'phi': compute eastward derivative
-            - 'theta': compute southward derivative
+            - None: Evaluate spherical harmonics (default).
+            - 'phi': Compute eastward derivative.
+            - 'theta': Compute southward derivative.
         cache_in : ndarray, optional
-            Cached Legendre functions, by default None
+            Cached Legendre functions, by default None.
         cache_out : bool, optional
             Whether to return cached Legendre functions, by default
-            False
+            False.
 
         Returns
         -------
         ndarray
             Evaluation matrix of shape (N, M) where:
-            - N is the size from broadcasting grid.lon and grid.lat
-            - M is the number of spherical harmonic terms
-            Cosine terms come first, followed by sine terms
+            - N is the size from broadcasting grid.lon and grid.lat.
+            - M is the number of spherical harmonic terms.
+            Cosine terms come first, followed by sine terms.
         ndarray, optional
-            Cached Legendre functions if cache_out=True
+            Cached Legendre functions if `cache_out` is ``True``.
 
         Raises
         ------
         Exception
-            If derivative is not one of {None, 'phi', 'theta'}
+            If derivative is not one of {None, 'phi', 'theta'}.
         """
         # Convert the grid coordinates to radians
         phi = np.deg2rad(grid.phi)
@@ -176,15 +176,15 @@ class SHBasis(object):
         Parameters
         ----------
         theta : array-like
-            Colatitude in radians
+            Colatitude in radians.
 
         Returns
         -------
         ndarray
             Legendre functions evaluated at theta.
             Shape is (n_theta, n_sh) where:
-            - n_theta: number of colatitude points
-            - n_sh: number of spherical harmonics
+            - n_theta: Number of colatitude points.
+            - n_sh: Number of spherical harmonics.
         """
         sin_theta = np.sin(theta)
         cos_theta = np.cos(theta)
@@ -215,17 +215,17 @@ class SHBasis(object):
         Parameters
         ----------
         theta : array-like
-            Colatitude in radians
+            Colatitude in radians.
         P : ndarray, optional
-            Pre-computed Legendre functions, by default None
+            Pre-computed Legendre functions, by default None.
 
         Returns
         -------
         ndarray
             Derivatives of Legendre functions evaluated at theta.
             Shape is (n_theta, n_sh) where:
-            - n_theta: number of colatitude points
-            - n_sh: number of spherical harmonics
+            - n_theta: Number of colatitude points.
+            - n_sh: Number of spherical harmonics.
         """
         sin_theta = np.sin(theta)
         cos_theta = np.cos(theta)
@@ -261,12 +261,12 @@ class SHBasis(object):
         Parameters
         ----------
         r : float, optional
-            Radius, by default 1.0
+            Radius, by default 1.0.
 
         Returns
         -------
         ndarray
-            Angular Laplacian values for each harmonic term
+            Angular Laplacian values for each harmonic term.
         """
         return -self.n * (self.n + 1) / r**2
 
@@ -284,8 +284,8 @@ class SHBasis(object):
         Returns
         -------
         array
-            The radial derivative of the spherical harmonic
-            coefficients for an external potential.
+            The radial derivative of the spherical harmonic coefficients
+            for an external potential.
         """
         return self.n / r
 
@@ -303,8 +303,8 @@ class SHBasis(object):
         Returns
         -------
         array
-            The radial derivative of the spherical harmonic
-            coefficients for an internal potential.
+            The radial derivative of the spherical harmonic coefficients
+            for an internal potential.
         """
         return -(self.n + 1) / r
 
@@ -345,7 +345,7 @@ class SHBasis(object):
         Returns
         -------
         ndarray
-            Multiplicative conversion factors for each harmonic term
+            Multiplicative conversion factors for each harmonic term.
         """
         if not hasattr(self, "_V_external_to_delta_V"):
             self._V_external_to_delta_V = -(2 * self.n + 1) / (self.n + 1)

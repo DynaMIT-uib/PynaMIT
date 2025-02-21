@@ -17,11 +17,11 @@ class SHKeys(object):
     Attributes
     ----------
     keys : tuple
-        Tuple of (n, m) index pairs
+        Tuple of (n, m) index pairs.
     n : ndarray
-        Array of n indices, shape (1, len(keys))
+        Array of n indices, shape (1, len(keys)).
     m : ndarray
-        Array of m indices, shape (1, len(keys))
+        Array of m indices, shape (1, len(keys)).
 
     Notes
     -----
@@ -119,12 +119,12 @@ class SHKeys(object):
         Parameters
         ----------
         Nmin : int
-            Minimum value for n index
+            Minimum value for n index.
 
         Returns
         -------
         self : SHKeys
-            Modified instance with filtered keys
+            Modified instance with filtered keys.
         """
         self.keys = tuple([key for key in self.keys if key[0] >= Nmin])
         self.make_arrays()
@@ -136,12 +136,12 @@ class SHKeys(object):
         Parameters
         ----------
         Mmin : int
-            Minimum absolute value for m index
+            Minimum absolute value for m index.
 
         Returns
         -------
         self : SHKeys
-            Modified instance with filtered keys
+            Modified instance with filtered keys.
         """
         self.keys = tuple([key for key in self.keys if abs(key[1]) >= Mmin])
         self.make_arrays()
@@ -153,7 +153,7 @@ class SHKeys(object):
         Returns
         -------
         self : SHKeys
-            Modified instance with filtered keys
+            Modified instance with filtered keys.
         """
         self.keys = tuple([key for key in self.keys if abs(key[1]) <= key[0]])
         self.make_arrays()
@@ -165,7 +165,7 @@ class SHKeys(object):
         Returns
         -------
         self : SHKeys
-            Modified instance with filtered keys where n-|m| is odd
+            Modified instance with filtered keys where n-|m| is odd.
         """
         self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 1])
         self.make_arrays()
@@ -177,7 +177,7 @@ class SHKeys(object):
         Returns
         -------
         self : SHKeys
-            Modified instance with filtered keys where n-|m| is even
+            Modified instance with filtered keys where n-|m| is even.
         """
         self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 0])
         self.make_arrays()
@@ -192,7 +192,7 @@ class SHKeys(object):
         Returns
         -------
         self : SHKeys
-            Modified instance with added negative m keys
+            Modified instance with added negative m keys.
         """
         keys = []
         for key in self.keys:
