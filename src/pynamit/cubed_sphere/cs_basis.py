@@ -302,10 +302,10 @@ class CSBasis:
         g[:, 2, 2] = 1
 
         if covariant:
-            # Return covariant components
+            # Return covariant components.
             return g
         else:
-            # Return contravariant components
+            # Return contravariant components.
             return arrayutils.invert_3D_matrices(g)
 
     def cube2cartesian(self, xi, eta, r=1, block=0):
@@ -343,32 +343,32 @@ class CSBasis:
         delta = self.get_delta(xi, eta)
         x, y, z = np.empty_like(xi), np.empty_like(xi), np.empty_like(xi)
 
-        # Block 0 (A2)
+        # Calculate block 0 (A2).
         iii = block == 0
         x[iii] = r[iii] / np.sqrt(delta[iii])
         y[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
         z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
-        # Block 1 (A6)
+        # Calculate block 1 (A6).
         iii = block == 1
         x[iii] = -r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
         y[iii] = r[iii] / np.sqrt(delta[iii])
         z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
-        # Block 2 (A10)
+        # Calculate block 2 (A10).
         iii = block == 2
         x[iii] = -r[iii] / np.sqrt(delta[iii])
         y[iii] = -r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
         z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
-        # Block 3 (A14)
+        # Calculate block 3 (A14).
         iii = block == 3
         x[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
         y[iii] = -r[iii] / np.sqrt(delta[iii])
         z[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
-        # Block 4 (A18)
+        # Calculate block 4 (A18).
         iii = block == 4
         x[iii] = -r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
         y[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
         z[iii] = r[iii] / np.sqrt(delta[iii])
-        # Block 5 (A22)
+        # Calculate block 5 (A22).
         iii = block == 5
         x[iii] = r[iii] * np.tan(eta[iii]) / np.sqrt(delta[iii])
         y[iii] = r[iii] * np.tan(xi[iii]) / np.sqrt(delta[iii])
@@ -459,16 +459,17 @@ class CSBasis:
             the last two dimensions refer to column and row of the
             matrix.
         """
+        # Broadcast and flatten.
         xi, et, r, block = map(
             np.ravel, np.broadcast_arrays(xi, eta, r, block)
-        )  # broadcast and flatten
+        )
         delta = self.get_delta(xi, et)
         Pc = np.empty((delta.size, 3, 3))
 
         rsec2xi = r / np.cos(xi) ** 2
         rsec2et = r / np.cos(et) ** 2
 
-        # Block 0
+        # Calculate block 0.
         iii = block == 0
         Pc[iii, 0, 0] = -np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
         Pc[iii, 0, 1] = np.sqrt(delta[iii]) / rsec2xi[iii]
@@ -480,7 +481,7 @@ class CSBasis:
         Pc[iii, 2, 1] = np.tan(xi[iii]) / np.sqrt(delta[iii])
         Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
-        # Block 1
+        # Calculate block 1.
         iii = block == 1
         Pc[iii, 0, 0] = -np.sqrt(delta[iii]) / rsec2xi[iii]
         Pc[iii, 0, 1] = -np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
@@ -492,7 +493,7 @@ class CSBasis:
         Pc[iii, 2, 1] = 1 / np.sqrt(delta[iii])
         Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
-        # Block 2
+        # Calculate block 2.
         iii = block == 2
         Pc[iii, 0, 0] = np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
         Pc[iii, 0, 1] = -np.sqrt(delta[iii]) / rsec2xi[iii]
@@ -504,7 +505,7 @@ class CSBasis:
         Pc[iii, 2, 1] = -np.tan(xi[iii]) / np.sqrt(delta[iii])
         Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
-        # Block 3
+        # Calculate block 3.
         iii = block == 3
         Pc[iii, 0, 0] = np.sqrt(delta[iii]) / rsec2xi[iii]
         Pc[iii, 0, 1] = np.sqrt(delta[iii]) * np.tan(xi[iii]) / rsec2xi[iii]
@@ -516,7 +517,7 @@ class CSBasis:
         Pc[iii, 2, 1] = -1 / np.sqrt(delta[iii])
         Pc[iii, 2, 2] = np.tan(et[iii]) / np.sqrt(delta[iii])
 
-        # Block 4
+        # Calculate block 4.
         iii = block == 4
         Pc[iii, 0, 0] = 0
         Pc[iii, 0, 1] = np.sqrt(delta[iii]) / rsec2xi[iii]
@@ -528,7 +529,7 @@ class CSBasis:
         Pc[iii, 2, 1] = np.tan(xi[iii]) / np.sqrt(delta[iii])
         Pc[iii, 2, 2] = 1 / np.sqrt(delta[iii])
 
-        # Block 5
+        # Calculate block 5.
         iii = block == 5
         Pc[iii, 0, 0] = 0
         Pc[iii, 0, 1] = np.sqrt(delta[iii]) / rsec2xi[iii]
@@ -589,13 +590,14 @@ class CSBasis:
             the last two dimensions refer to column and row of the
             matrix.
         """
+        # Broadcast and flatten.
         xi, et, r, block = map(
             np.ravel, np.broadcast_arrays(xi, eta, r, block)
-        )  # broadcast and flatten
+        )
         delta = self.get_delta(xi, et)
         Ps = np.empty((delta.size, 3, 3))
 
-        # Block 0
+        # Calculate block 0.
         iii = block == 0
         Ps[iii, 0, 0] = 1
         Ps[iii, 0, 1] = 0
@@ -609,7 +611,7 @@ class CSBasis:
         Ps[iii, 2, 1] = 0
         Ps[iii, 2, 2] = 1
 
-        # Block 1
+        # Calculate block 1.
         iii = block == 1
         Ps[iii, 0, 0] = 1
         Ps[iii, 0, 1] = 0
@@ -623,7 +625,7 @@ class CSBasis:
         Ps[iii, 2, 1] = 0
         Ps[iii, 2, 2] = 1
 
-        # Block 2
+        # Calculate block 2.
         iii = block == 2
         Ps[iii, 0, 0] = 1
         Ps[iii, 0, 1] = 0
@@ -637,7 +639,7 @@ class CSBasis:
         Ps[iii, 2, 1] = 0
         Ps[iii, 2, 2] = 1
 
-        # Block 3
+        # Calculate block 3.
         iii = block == 3
         Ps[iii, 0, 0] = 1
         Ps[iii, 0, 1] = 0
@@ -651,7 +653,7 @@ class CSBasis:
         Ps[iii, 2, 1] = 0
         Ps[iii, 2, 2] = 1
 
-        # Block 4
+        # Calculate block 4.
         iii = block == 4
         Ps[iii, 0, 0] = -(np.cos(xi[iii]) ** 2) * np.tan(et[iii])
         Ps[iii, 0, 1] = (
@@ -673,7 +675,7 @@ class CSBasis:
         Ps[iii, 2, 1] = 0
         Ps[iii, 2, 2] = 1
 
-        # Block 5
+        # Calculate block 5.
         iii = block == 5
         Ps[iii, 0, 0] = np.cos(xi[iii]) ** 2 * np.tan(et[iii])
         Ps[iii, 0, 1] = (
@@ -741,20 +743,21 @@ class CSBasis:
             where the last two dimensions refer to column and row of the
             matrix.
         """
+        # Broadcast and flatten.
         xi_i, eta_i, block_i, block_j = map(
             np.ravel, np.broadcast_arrays(xi, eta, block_i, block_j)
-        )  # broadcast and flatten
+        )
 
         Psi_inv = self.get_Ps(xi_i, eta_i, r=1, block=block_i, inverse=True)
 
-        # Find the xi, eta coordinates on block j
+        # Find the xi, eta coordinates on block j.
         r, theta, phi = self.cube2spherical(xi_i, eta_i, r=1, block=block_i, deg=True)
         xi_j, eta_j, _ = self.geo2cube(phi, 90 - theta, block=block_j)
 
-        # Calculate Ps relative to block j
+        # Calculate Ps relative to block j.
         Psj = self.get_Ps(xi_j, eta_j, r=1, block=block_j)
 
-        # Multiply each of the N matrices to get Qij:
+        # Multiply each of the N matrices to get Qij.
         Qij = np.einsum("nij, njk -> nik", Psj, Psi_inv)
 
         return Qij
@@ -852,18 +855,17 @@ class CSBasis:
 
         shape = (6, N, N)
         size = 6 * N * N
-        # Step size between each grid cell.
-        h = self.xi(1, N) - self.xi(0, N)
+
+        h = self.xi(1, N) - self.xi(0, N) # Step size between each grid cell
 
         k, i, j = map(
             np.ravel,
             np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij"),
         )
 
-        # Set up differentiation stencil.
+        # Set up differentiation stencil for first order derivative.
         stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
         Nsp = len(stencil_points)
-        # First order differentiation.
         stencil_weight = diffutils.stencil(stencil_points, order=1, h=h)
 
         i_diff = np.hstack([i + _ for _ in stencil_points])
