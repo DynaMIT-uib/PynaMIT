@@ -277,9 +277,7 @@ class CSBasis:
             indices.
         """
         # Broadcast and flatten.
-        xi, eta, r = map(
-            np.ravel, np.broadcast_arrays(xi, eta, r)
-        )
+        xi, eta, r = map(np.ravel, np.broadcast_arrays(xi, eta, r))
         delta = self.get_delta(xi, eta)
 
         g = np.empty((xi.size, 3, 3))
@@ -854,19 +852,19 @@ class CSBasis:
 
         shape = (6, N, N)
         size = 6 * N * N
-        h = self.xi(1, N) - self.xi(0, N)  # step size between each grid cell
+        # Step size between each grid cell.
+        h = self.xi(1, N) - self.xi(0, N)
 
         k, i, j = map(
             np.ravel,
             np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij"),
         )
 
-        # Set up differentiation stencil
+        # Set up differentiation stencil.
         stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
         Nsp = len(stencil_points)
-        stencil_weight = diffutils.stencil(
-            stencil_points, order=1, h=h
-        )  # 1st order differentiation
+        # First order differentiation.
+        stencil_weight = diffutils.stencil(stencil_points, order=1, h=h)
 
         i_diff = np.hstack([i + _ for _ in stencil_points])
         j_diff = np.hstack([j + _ for _ in stencil_points])
@@ -952,19 +950,17 @@ class CSBasis:
             weights = np.ones(k.size)
         weights = weights / Ni
 
-        # Step size between each grid cell
-        h = self.xi(1, N) - self.xi(0, N)
+        h = self.xi(1, N) - self.xi(0, N)  # Step size between each grid cell
 
-        # Array that will contain column indices
         cols = np.full(k.size, -1, dtype=np.int64)
 
-        # Find new indices inside block dimensions (possibly floats)
+        # Find new indices inside block dimensions (possibly floats).
         xi, eta = self.xi(i, N), self.eta(j, N)
         r, theta, phi = self.cube2spherical(xi, eta, k, r=1.0, deg=True)
         new_xi, new_eta, new_k = self.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
 
-        # Uniform CS grids need at least one integer in each index pair
+        # Uniform CS grids need at least one integer in each index pair.
         assert np.all(
             (
                 np.isclose(new_i - np.rint(new_i), 0)
@@ -972,7 +968,7 @@ class CSBasis:
             )
         )
 
-        # Fill in column indices for index pairs that are both integers
+        # Fill in column indices for index pairs that are both integers.
         ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(
             new_j - np.rint(new_j), 0
         )
@@ -990,15 +986,15 @@ class CSBasis:
         i_is_float = ~np.isclose(np.rint(new_i) - new_i, 0)
         j_is_float = ~np.isclose(np.rint(new_j) - new_j, 0)
 
-        # No new index pair should have two floats
+        # No new index pair should have two floats.
         assert sum(i_is_float & j_is_float) == 0
-        # All missing columns match indices where i or j are float
+        # All missing columns match indices where i or j are float.
         assert sum(i_is_float | j_is_float) == sum(cols == -1)
 
         j_floats = new_j[j_is_float].reshape((-1, 1))
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
-        # Define the (integer) points which will be used to interpolate
+        # Define the (integer) points which will be used to interpolate.
         interpolation_points = np.arange(Ni).reshape((1, -1))
         j_interpolation_points = arrayutils.constrain_values(
             interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1,
@@ -1013,7 +1009,7 @@ class CSBasis:
             axis=1,
         )
 
-        # Calculate barycentric weights wj (Berrut & Trefethen, 2004)
+        # Calculate barycentric weights wj (Berrut & Trefethen, 2004).
         j_distances = j_floats - j_interpolation_points
         i_distances = i_floats - i_interpolation_points
         w = (-1) ** interpolation_points * binom(Ni - 1, interpolation_points)
@@ -1022,12 +1018,12 @@ class CSBasis:
 
         # Expand column, row, and weight arrays to allow for
         # interpolation weights (duplication where no interpolation
-        # is required)
+        # is required).
         stacked_weights = np.tile(weights, (Ni, 1)).T
         stacked_cols = np.tile(cols, (Ni, 1)).T
         stacked_rows = np.tile(rows, (Ni, 1)).T
 
-        # Specify columns and weights where interpolation is required
+        # Specify columns and weights where interpolation is required.
         stacked_cols[i_is_float] = np.ravel_multi_index(
             (
                 np.tile(new_k[i_is_float], (Ni, 1)).T,
@@ -1054,7 +1050,7 @@ class CSBasis:
             ),
             shape=(rows.max() + 1, size),
         )
-        # Get rid of duplicates (maybe this doesn't do anything?)
+        # Get rid of duplicates (maybe this doesn't do anything?).
         D.count_nonzero()
 
         return D
@@ -1093,10 +1089,10 @@ class CSBasis:
         lon, lat = np.broadcast_arrays(lon, lat)
         lat, lon = lat.flatten(), lon.flatten()
 
-        # Convert to spherical coordinates in radians
+        # Convert to spherical coordinates in radians.
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
 
-        # Calculate Cartesian coordinates of input points
+        # Calculate Cartesian coordinates of input points.
         xyz = np.vstack(
             (
                 np.cos(ph) * np.sin(th),  # x
@@ -1105,7 +1101,7 @@ class CSBasis:
             )
         )
 
-        # Define face midpoint xyz coordinates
+        # Define face midpoint xyz coordinates.
         face_midpoints = np.array(
             [
                 [1, 0, 0],  # I   (0°)
@@ -1117,20 +1113,19 @@ class CSBasis:
             ]
         )
 
-        # Calculate distances to each face midpoint
+        # Calculate distances to each face midpoint.
         distances = np.empty((6, xyz.shape[1]))
         for i in range(6):
             distances[i] = np.linalg.norm(
                 xyz - face_midpoints[i].reshape((3, 1)), axis=0
             )
 
-        # Small offset to prevent assignment ambiguity at boundaries
-        safety_distance = 1e-10
+        safety_distance = 1e-10  # To prevent ambiguous assignment at boundaries
 
-        # Initialize blocks array
+        # Initialize blocks array.
         blocks = np.zeros(xyz.shape[1], dtype=int)
 
-        # Assign points to blocks with smallest face midpoint distance
+        # Assign points to blocks with smallest face midpoint distance.
         for i in range(6):
             blocks[distances[i] < np.choose(blocks, distances) - safety_distance] = i
 
@@ -1169,7 +1164,7 @@ class CSBasis:
         shape = lon.shape
         N = lon.size
 
-        # Find the correct block for each point
+        # Find the correct block for each point.
         if block is None:
             block = self.block(lon, lat)
         else:
@@ -1177,10 +1172,10 @@ class CSBasis:
 
         block, lon, lat = block.flatten(), lon.flatten(), lat.flatten()
 
-        # Prepare parameters
+        # Prepare parameters.
         X, Y, xi, eta = np.empty(N), np.empty(N), np.empty(N), np.empty(N)
 
-        # Calculate X and Y according to Ronchi et al. (1996)
+        # Calculate X and Y according to Ronchi et al. (1996).
         theta, phi = np.deg2rad(90 - lat), np.deg2rad(lon)
         X[block == 0] = np.tan(phi[block == 0])
         X[block == 1] = -1 / np.tan(phi[block == 1])
@@ -1258,11 +1253,11 @@ class CSBasis:
             phi.flatten(),
         )
 
-        # Define vectors that point at all the original points
+        # Define vectors that point to all the original points.
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
-        # Convert vector components to cubed sphere
+        # Convert vector components to cubed sphere coordinates.
         u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
         Ps = self.get_Ps(u_xi, u_eta, r=1, block=u_block)
         Q = self.get_Q(90 - theta, r=1, inverse=True)
@@ -1274,14 +1269,14 @@ class CSBasis:
         interpolated_u2 = np.empty_like(block, dtype=np.float64)
         interpolated_u3 = np.empty_like(block, dtype=np.float64)
 
-        # Loop over blocks and interpolate on each block
+        # Loop over blocks and interpolate on each block.
         for i in range(6):
-            # Express vector components with respect to block i
+            # Express vector components with respect to block i.
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
             u_vec_i = np.einsum("nij, nj -> ni", Qij, u_vec.T).T
 
             # Filter points whose position vectors have component
-            # anti-parallel to center of the block
+            # anti-parallel to center of the block.
             _, th, ph = self.cube2spherical(0, 0, i, deg=False)
             r0 = np.hstack(
                 (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
@@ -1309,7 +1304,7 @@ class CSBasis:
                 **kwargs,
             )
 
-        # Convert back to spherical
+        # Convert back to spherical.
         _, theta_out, _ = self.cube2spherical(xi, eta, block, deg=True)
         u = np.vstack((interpolated_u1, interpolated_u2, interpolated_u3))
         Q = self.get_Q(90 - theta_out, r=1, inverse=False)
@@ -1360,16 +1355,16 @@ class CSBasis:
         scalar, theta, phi = np.broadcast_arrays(scalar, theta, phi)
         scalar, theta, phi = scalar.flatten(), theta.flatten(), phi.flatten()
 
-        # Define vectors that point at all the original points
+        # Define vectors that point to all the original points.
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
         interpolated_scalar = np.empty_like(block, dtype=np.float64)
 
-        # Loop over blocks and interpolate on each block
+        # Loop over blocks and interpolate on each block.
         for i in range(6):
             # Filter points whose position vectors have component
-            # anti-parallel to center of the block
+            # anti-parallel to center of the block.
             _, th, ph = self.cube2spherical(0, 0, i, deg=False)
             r0 = np.hstack(
                 (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))

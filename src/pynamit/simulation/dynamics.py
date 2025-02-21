@@ -132,14 +132,14 @@ class Dynamics(object):
             }
         )
 
-        # Overwrite settings with any settings existing on file
+        # Overwrite settings with any settings existing on file.
         settings_on_file = (
             self.dataset_filename_prefix is not None
         ) and os.path.exists(self.dataset_filename_prefix + "_settings.ncdf")
         if settings_on_file:
             settings = xr.load_dataset(self.dataset_filename_prefix + "_settings.ncdf")
 
-        # Load PFAC matrix if it exists on file
+        # Load PFAC matrix if it exists on file.
         PFAC_matrix_on_file = (
             self.dataset_filename_prefix is not None
         ) and os.path.exists(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
@@ -216,7 +216,7 @@ class Dynamics(object):
                     "type"
                 )
 
-        # Initialize the state of the ionosphere
+        # Initialize the state of the ionosphere.
         self.state = State(
             self.bases,
             self.mainfield,
@@ -229,7 +229,7 @@ class Dynamics(object):
         self.load_timeseries()
 
         if "state" in self.timeseries.keys():
-            # latest time in state time series
+            # Select last data in state time series.
             self.current_time = np.max(self.timeseries["state"].time.values)
             self.select_timeseries_data("state")
         else:
@@ -284,7 +284,7 @@ class Dynamics(object):
         quiet : bool, optional
             Whether to suppress progress output.
         """
-        # Changed to True when time series differs from the one on disk
+        # Logicals are True when time series differ from ones on disk.
         self.save_jr = False
         self.save_conductance = False
         self.save_u = False
@@ -296,7 +296,7 @@ class Dynamics(object):
             self.state.update_E()
 
             if count % sampling_step_interval == 0:
-                # Append current state to time series
+                # Append current state to time series.
                 self.state.update_m_imp()
 
                 current_state_dataset = xr.Dataset(
@@ -326,7 +326,7 @@ class Dynamics(object):
                 self.add_to_timeseries(current_state_dataset, "state")
 
                 if self.save_steady_states:
-                    # Calculate steady state and append to time series
+                    # Calculate steady state and append to time series.
                     steady_state_m_ind = self.state.steady_state_m_ind()
                     steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(
@@ -359,7 +359,7 @@ class Dynamics(object):
 
                     self.add_to_timeseries(current_steady_state_dataset, "steady_state")
 
-                # Save state and steady state time series
+                # Save state and steady state time series.
                 if count % (sampling_step_interval * saving_sample_interval) == 0:
                     self.save_timeseries("state")
 
@@ -544,7 +544,7 @@ class Dynamics(object):
 
         input_data = {"etaP": [np.empty_like(Pedersen)], "etaH": [np.empty_like(Hall)]}
 
-        # Convert to resistivity
+        # Convert to resistivity.
         for i in range(max(input_data["etaP"][0].shape[0], 1)):
             input_data["etaP"][0][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
@@ -815,7 +815,7 @@ class Dynamics(object):
 
             current_data = {}
 
-            # Select latest data before the current time
+            # Select latest data before the current time.
             dataset_before = self.timeseries[key].sel(
                 time=[self.current_time + FLOAT_ERROR_MARGIN], method="ffill"
             )
@@ -825,7 +825,7 @@ class Dynamics(object):
                     short_name + "_" + var
                 ].values.flatten()
 
-            # If requested, add linear interpolation correction
+            # If requested, add linear interpolation correction.
             if (
                 interpolation
                 and (key != "state")
@@ -848,13 +848,13 @@ class Dynamics(object):
                     )
 
         else:
-            # No data available before the current time
+            # No data is available from before the current time.
             return input_selected
 
         if not hasattr(self, "previous_data"):
             self.previous_data = {}
 
-        # Update state if first call or difference with last selection
+        # Update state if first call or difference with last selection.
         if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
             not all(
                 [
@@ -1043,7 +1043,7 @@ class Dynamics(object):
         g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / self.cs_basis.sqrt_detg)
         g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / self.cs_basis.sqrt_detg)
 
-        # Matrix that gives radial curl from column vector of (u1, u2)
+        # Construct matrix that gives radial curl from (u1, u2).
         D_curlr_u1u2 = sp.hstack(
             (
                 (Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
@@ -1051,7 +1051,7 @@ class Dynamics(object):
             )
         )
 
-        # Matrix that transforms (theta, phi) to (u1, u2)
+        # Construct matrix that transforms (theta, phi) to (u1, u2).
         Ps_dense = self.cs_basis.get_Ps(
             self.cs_basis.arr_xi, self.cs_basis.arr_eta, block=self.cs_basis.arr_block
         )

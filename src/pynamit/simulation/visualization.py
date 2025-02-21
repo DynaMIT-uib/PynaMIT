@@ -46,18 +46,19 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     )
 
     outlon, outlat = np.broadcast_arrays(outlon, outlat)
-    shape = outlon.shape  # Get the shape so we can reshape the result in the end
+    # Get the shape so we can reshape the result in the end.
+    shape = outlon.shape
     outlon, outlat = outlon.flatten(), outlat.flatten()
 
     result = np.zeros_like(outlon) - 1
 
     xi_o, eta_o, block_o = projection.geo2cube(outlon, outlat)
 
-    # Go through each block
+    # Go through each block.
     for i in range(6):
-        jjj = block_o == i # these are the points we want to specify
+        jjj = block_o == i  # These are the points we want to specify
 
-        # Find the points that are on the right side
+        # Find the points that are on the right side.
         _, th0, ph0 = projection.cube2spherical(0, 0, i)
         r0 = np.array(
             [np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)]
@@ -113,7 +114,6 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     else:
         returnplot = False
 
-    # global plot:
     global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
     ax = fig.add_subplot(2, 1, 2, projection=global_projection)
     ax.coastlines(zorder=2, color="grey")
@@ -196,7 +196,6 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         "extend": "both",
     }
 
-    # MAP PROJECTION:
     global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
 
     fig = plt.figure(figsize=(15, 13))
@@ -214,7 +213,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     for ax in [gax_B, gax_j]:
         ax.coastlines(zorder=2, color="grey")
 
-    # SET UP PLOTTING GRID AND EVALUATORS
+    # Set up plotting grid and evaluators.
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
@@ -224,7 +223,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         dynamics.state.mainfield, plt_grid, dynamics.state.RI
     )
 
-    # CALCULATE VALUES TO PLOT
+    # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (
         plt_state_evaluator.G.dot(
@@ -238,7 +237,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
     )
 
-    # GLOBAL PLOTS
+    # Make global plots.
     gax_B.contourf(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
@@ -261,29 +260,29 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         **FAC_kwargs,
     )
 
-    # POLAR PLOTS
+    # Make polar plots.
     mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
 
-    # north:
+    # Make north plot.
     iii = lat > 50
     paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
     paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
-    # south:
+    # Make south plot.
     iii = lat < -50
     paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
     paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
-    # scatter plot high latitude jr
+    # Make scatter plot of high latitude jr.
     iii = np.abs(dynamics.state_grid.lat) > dynamics.state.latitude_boundary
     jrmax = np.max(np.abs(dynamics.state.jr))
     ax_1.scatter(dynamics.state.jr, jr_mod[iii])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
     ax_1.set_xlabel("Input ")
 
-    # scatter plot FACs at conjugate points
+    # Make scatter plot of FACs at conjugate points.
     j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
     j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
     j_par_max = np.max(np.abs(j_par_ll))
@@ -296,7 +295,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     )
     ax_2.set_ylabel(r"$j_\parallel$ [A/m$^2$] at conjugate points")
 
-    # Scatter plot of Ed1 and Ed2 vs conjugate point values
+    # Make scatter plot of Ed1 and Ed2 vs conjugate point values.
     cu_cp = (
         dynamics.state.u_phi_cp * dynamics.state.aup_cp
         + dynamics.state.u_theta_cp * dynamics.state.aut_cp
@@ -356,7 +355,7 @@ if __name__ == "__main__":
     import cubed_sphere
 
     Ncs = 30
-    cs_basis = cubed_sphere.CSBasis(Ncs)  # cubed sphere projection object
+    cs_basis = cubed_sphere.CSBasis(Ncs)
     k, i, j = cs_basis.get_gridpoints(Ncs)
     xi, eta = cs_basis.xi(i, Ncs), cs_basis.eta(j, Ncs)
     _, theta, phi = cs_basis.cube2spherical(xi, eta, k, deg=True)
@@ -368,13 +367,12 @@ if __name__ == "__main__":
     import dipole
     import datetime
 
-    # specify a time and Kp (for conductance):
+    # Specify a time and Kp (for conductance).
     date = datetime.datetime(2001, 5, 12, 21, 45)
     Kp = 5
     d = dipole.Dipole(date.year)
 
-    # noon longitude
-    lon0 = d.mlt2mlon(12, date)
+    lon0 = d.mlt2mlon(12, date)  # Noon longitude
 
     hall, pedersen = conductance.hardy_EUV(
         phi, 90 - theta, Kp, date, starlight=1, dipole=True
@@ -402,12 +400,12 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     lon0 : float
         Noon longitude.
     """
-    # compare jr and curl-free currents:
+    # Compare jr and curl-free currents.
     _, axes = plt.subplots(ncols=2, nrows=2)
     SCALE = 1e3
-    levels = np.linspace(-0.9, 0.9, 22)  # color levels for jr muA/m^2
+    levels = np.linspace(-0.9, 0.9, 22)  # Color levels for jr (muA/m^2)
 
-    # Define grid used for plotting
+    # Define grid used for plotting.
     Ncs = 30
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
@@ -512,7 +510,7 @@ def plot_AMPS_Br(a):
     a : pyAMPS
         pyAMPS object.
     """
-    Blevels = np.linspace(-300, 300, 22) * 1e-9  # color levels for Br
+    Blevels = np.linspace(-300, 300, 22) * 1e-9  # Color levels for Br
     _, axes = plt.subplots(ncols=2, figsize=(10, 5))
     paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
 
@@ -557,10 +555,10 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
     lon0 : float
         Noon longitude.
     """
-    levels = np.linspace(-0.9, 0.9, 22)  # color levels for jr muA/m^2
-    c_levels = np.linspace(0, 20, 100)  # color levels for conductance
+    levels = np.linspace(-0.9, 0.9, 22)  # Color levels for jr (muA/m^2)
+    c_levels = np.linspace(0, 20, 100)  # Color levels for conductance
 
-    # Define grid used for plotting
+    # Define grid used for plotting.
     Ncs = 30
     lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
@@ -616,11 +614,11 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
 def make_colorbars():
     """Create colorbars for the plots."""
-    levels = np.linspace(-0.9, 0.9, 22)  # color levels for jr muA/m^2
-    c_levels = np.linspace(0, 20, 100)  # color levels for conductance
-    Blevels = np.linspace(-300, 300, 22) * 1e-9  # color levels for Br
+    levels = np.linspace(-0.9, 0.9, 22)  # Color levels for jr (muA/m^2)
+    c_levels = np.linspace(0, 20, 100)  # Color levels for conductance
+    Blevels = np.linspace(-300, 300, 22) * 1e-9  # Color levels for Br
 
-    # conductance:
+    # Make conductance colorbar.
     _, axc = plt.subplots(figsize=(1, 10))
     cz, co = np.zeros_like(c_levels), np.ones_like(c_levels)
     axc.contourf(
@@ -635,7 +633,7 @@ def make_colorbars():
     plt.savefig("conductance_colorbar.png")
     plt.close()
 
-    # jr and Br:
+    # Make jr colorbar.
     _, axf = plt.subplots(figsize=(2, 10))
     fz, fo = np.zeros_like(levels), np.ones_like(levels)
     axf.contourf(
@@ -648,6 +646,7 @@ def make_colorbars():
     axf.set_ylabel(r"$\mu$A/m$^2$", size=16)
     axf.set_xticks([])
 
+    # Make Br colorbar.
     axB = axf.twinx()
     Bz, Bo = np.zeros_like(Blevels), np.ones_like(Blevels)
     axB.contourf(
@@ -697,8 +696,8 @@ def time_dependent_plot(
     """
     import os
 
-    Blevels = np.linspace(-300, 300, 22) * 1e-9  # color levels for Br
-    Philevels = np.r_[-212.5:212.5:5]  # color levels for Phi
+    Blevels = np.linspace(-300, 300, 22) * 1e-9  # Color levels for Br
+    Philevels = np.r_[-212.5:212.5:5]  # Color levels for Phi
 
     fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
     title = "t = {:.3} s".format(dynamics.current_time)

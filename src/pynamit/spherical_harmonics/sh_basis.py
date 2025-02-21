@@ -54,11 +54,11 @@ class SHBasis(object):
             Whether to use Schmidt semi-normalization.
         """
         # Make a set of all spherical harmonic index pairs up to
-        # (Nmax, Mmax)
+        # (Nmax, Mmax).
         all_index_pairs = SHIndices(Nmax, Mmax)
 
         # Make separate sets of spherical harmonic indices for cos and
-        # sin terms, and remove n < Nmin terms and m = 0 sin terms
+        # sin terms, and remove n < Nmin terms and m = 0 sin terms.
         self.cnm = SHIndices(Nmax, Mmax).set_Nmin(Nmin)
         self.snm = SHIndices(Nmax, Mmax).set_Nmin(Nmin).set_Mmin(1)
 
@@ -69,12 +69,12 @@ class SHBasis(object):
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
 
-        # Make the spherical harmonic Schmidt normalization factors
+        # Make the spherical harmonic Schmidt normalization factors.
         self.schmidt_normalization = schmidt_normalization
         if self.schmidt_normalization:
             self.schmidt_factors = schmidt_normalization_factors(self.index_pairs)
 
-        # Set the general properties of the basis
+        # Set the general properties of the basis.
         self.short_name = "SH"
 
         self.index_names = ["n", "m"]
@@ -120,11 +120,11 @@ class SHBasis(object):
         Exception
             If derivative is not one of {None, 'phi', 'theta'}.
         """
-        # Convert the grid coordinates to radians
+        # Convert the grid coordinates to radians.
         phi = np.deg2rad(grid.phi)
         theta = np.deg2rad(grid.theta)
 
-        # Get the Legendre functions and their derivatives
+        # Get the Legendre functions and their derivatives.
         if cache_in is not None:
             P_unnormalized = cache_in
         else:
@@ -189,7 +189,7 @@ class SHBasis(object):
         sin_theta = np.sin(theta)
         cos_theta = np.cos(theta)
 
-        # Calculate the Legendre functions
+        # Calculate the Legendre functions.
         P = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         P[:, 0] = np.ones_like(theta, dtype=np.float64)
         for nm in range(1, len(self.index_pairs)):
@@ -233,7 +233,7 @@ class SHBasis(object):
         if P is None:
             P = self.legendre(theta)
 
-        # Calculate the derivatives of the Legendre functions
+        # Calculate the derivatives of the Legendre functions.
         dP = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         dP[:, 0] = np.zeros_like(theta, dtype=np.float64)
         for nm in range(1, len(self.index_pairs)):

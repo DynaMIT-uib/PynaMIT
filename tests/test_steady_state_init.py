@@ -10,7 +10,7 @@ import numpy as np
 
 def test_steady_state_init():
     """Test simulation with steady state initialization."""
-    # Arrange
+    # Arrange.
     expected_coeff_norm = 1.5952972070799788e-07
     expected_coeff_max = 3.641989541460848e-09
     expected_coeff_min = -3.426046864570524e-09
@@ -20,7 +20,7 @@ def test_steady_state_init():
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
 
-    # Act
+    # Act.
     dynamics = run_pynamit(
         final_time=0.1,
         dt=5e-4,
@@ -39,7 +39,7 @@ def test_steady_state_init():
         vector_u=True,
     )
 
-    # Assert
+    # Assert.
     coeff_array = np.hstack(
         (
             dynamics.timeseries["state"]["SH_m_ind"].values,
@@ -57,7 +57,7 @@ def test_steady_state_init():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    # pyHWM uses single precision, tolerances relaxed for wind tests
+    # pyHWM uses single precision, relax tolerances for wind tests.
     assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)

@@ -61,7 +61,7 @@ class Mainfield(object):
 
         self.kind = kind.lower()
 
-        # Define magnetic field and mapping functions for chosen model
+        # Define magnetic field and mapping functions for chosen model.
         if self.kind == "dipole":
             self.dpl = dipole.Dipole(epoch)
 
@@ -78,7 +78,7 @@ class Mainfield(object):
                 return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
 
         elif self.kind == "radial":
-            # Use Dipole B0 as default
+            # Use Dipole B0 as default.
             B0 = dipole.Dipole(epoch).B0 if B0 is None else B0
 
             def _Bfunc(r, theta, phi):
@@ -143,7 +143,6 @@ class Mainfield(object):
         """
         B = np.vstack(self.get_B(r, theta, phi))
 
-        # return -Br/B0
         return -B[0] / np.linalg.norm(B, axis=0)
 
     def map_coords(self, r_dest, r, theta, phi):
@@ -178,19 +177,23 @@ class Mainfield(object):
         """
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
 
-        if self.kind == "radial":  # the angular coordinates are the same
+        if self.kind == "radial":
+            # Angular coordinates are kept the same.
             theta_out = theta
             phi_out = phi
 
-        if self.kind == "dipole":  # Map from r to r_dest for dipole field:
+        if self.kind == "dipole":
+            # Map from r to r_dest for dipole field.
             hemisphere = np.sign(90 - theta)
             la_ = 90 - np.rad2deg(
                 np.arcsin(np.sin(np.deg2rad(theta)) * np.sqrt(r_dest / r))
             )
             theta_out = 90 - hemisphere * la_
-            phi_out = phi  # longitude is the same
+            # Longitude is kept the same.
+            phi_out = phi
 
-        elif self.kind == "igrf":  # Use apexpy to map along IGRF
+        elif self.kind == "igrf":
+            # Use apexpy to map along IGRF field lines.
             mlat, mlon = self.apx.geo2apex(90 - theta, phi, (r - RE) * 1e-3)
             lat_out, phi_out, _ = self.apx.apex2geo(mlat, mlon, (r_dest - RE) * 1e-3)
             theta_out = 90 - lat_out
@@ -239,10 +242,7 @@ class Mainfield(object):
             )
 
         if self.kind == "dipole":
-            theta_conj, phi_conj = (
-                180 - theta,
-                phi,
-            )  # assuming dipole coordinates are used
+            theta_conj, phi_conj = (180 - theta, phi)
 
         if self.kind == "igrf":
             h = (r - RE) * 1e-3
@@ -304,49 +304,49 @@ class Mainfield(object):
             _d1, _d2, _d3, _e1, _e2, _e3 = self.dpl.get_apex_base_vectors(
                 90 - theta, r * 1e-3, R=RE * 1e-3
             )
-            # transform vectors from east north up to r, theta phi:
-            d1[0] = _d1[2]  # radial
-            d2[0] = _d2[2]  # radial
-            d3[0] = _d3[2]  # radial
-            e1[0] = _e1[2]  # radial
-            e2[0] = _e2[2]  # radial
-            e3[0] = _e3[2]  # radial
-            d1[1] = -_d1[1]  # theta
-            d2[1] = -_d2[1]  # theta
-            d3[1] = -_d3[1]  # theta
-            e1[1] = -_e1[1]  # theta
-            e2[1] = -_e2[1]  # theta
-            e3[1] = -_e3[1]  # theta
-            d1[2] = _d1[0]  # phi
-            d2[2] = _d2[0]  # phi
-            d3[2] = _d3[0]  # phi
-            e1[2] = _e1[0]  # phi
-            e2[2] = _e2[0]  # phi
-            e3[2] = _e3[0]  # phi
+            # Transform vectors from east north up to r, theta phi.
+            d1[0] = _d1[2]  # Radial
+            d2[0] = _d2[2]  # Radial
+            d3[0] = _d3[2]  # Radial
+            e1[0] = _e1[2]  # Radial
+            e2[0] = _e2[2]  # Radial
+            e3[0] = _e3[2]  # Radial
+            d1[1] = -_d1[1]  # Theta
+            d2[1] = -_d2[1]  # Theta
+            d3[1] = -_d3[1]  # Theta
+            e1[1] = -_e1[1]  # Theta
+            e2[1] = -_e2[1]  # Theta
+            e3[1] = -_e3[1]  # Theta
+            d1[2] = _d1[0]  # Phi
+            d2[2] = _d2[0]  # Phi
+            d3[2] = _d3[0]  # Phi
+            e1[2] = _e1[0]  # Phi
+            e2[2] = _e2[0]  # Phi
+            e3[2] = _e3[0]  # Phi
 
         if self.kind == "igrf":
             _, _, _, _, _, _, _d1, _d2, _d3, _e1, _e2, _e3 = self.apx.basevectors_apex(
                 90 - theta, phi, (r - RE) * 1e-3, coords="geo"
             )
-            # transform vectors from east north up to r, theta phi:
-            d1[0] = _d1[2]  # radial
-            d1[1] = -_d1[1]  # theta
-            d1[2] = _d1[0]  # phi
-            d2[0] = _d2[2]  # radial
-            d2[1] = -_d2[1]  # theta
-            d2[2] = _d2[0]  # phi
-            d3[0] = _d3[2]  # radial
-            d3[1] = -_d3[1]  # theta
-            d3[2] = _d3[0]  # phi
-            e1[0] = _e1[2]  # radial
-            e1[1] = -_e1[1]  # theta
-            e1[2] = _e1[0]  # phi
-            e2[0] = _e2[2]  # radial
-            e2[1] = -_e2[1]  # theta
-            e2[2] = _e2[0]  # phi
-            e3[0] = _e3[2]  # radial
-            e3[1] = -_e3[1]  # theta
-            e3[2] = _e3[0]  # phi
+            # Transform vectors from east north up to r, theta phi.
+            d1[0] = _d1[2]  # Radial
+            d1[1] = -_d1[1]  # Theta
+            d1[2] = _d1[0]  # Phi
+            d2[0] = _d2[2]  # Radial
+            d2[1] = -_d2[1]  # Theta
+            d2[2] = _d2[0]  # Phi
+            d3[0] = _d3[2]  # Radial
+            d3[1] = -_d3[1]  # Theta
+            d3[2] = _d3[0]  # Phi
+            e1[0] = _e1[2]  # Radial
+            e1[1] = -_e1[1]  # Theta
+            e1[2] = _e1[0]  # Phi
+            e2[0] = _e2[2]  # Radial
+            e2[1] = -_e2[1]  # Theta
+            e2[2] = _e2[0]  # Phi
+            e3[0] = _e3[2]  # Radial
+            e3[1] = -_e3[1]  # Theta
+            e3[2] = _e3[0]  # Phi
 
         return (d1, d2, d3, e1, e2, e3)
 
@@ -376,9 +376,9 @@ class Mainfield(object):
 
         if self.kind == "igrf":
             mlon = np.linspace(0, 360, 360)
-            # lat of evenly spaced points
+            # Calculate latitude of evenly spaced points.
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh)
-            # interpolate to phi:
+            # Interpolate to phi.
             return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(
                 phi.shape
             )

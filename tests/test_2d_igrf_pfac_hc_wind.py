@@ -10,7 +10,7 @@ import numpy as np
 
 def test_2d_igrf_pfac_hc_wind():
     """Test 2D simulation with IGRF, PFAC, HC, and wind."""
-    # Arrange
+    # Arrange.
     expected_coeff_norm = 9.966975271445825e-08
     expected_coeff_max = 1.8384103097086273e-09
     expected_coeff_min = -2.929062527961898e-09
@@ -20,7 +20,7 @@ def test_2d_igrf_pfac_hc_wind():
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
 
-    # Act
+    # Act.
     dynamics = run_pynamit(
         final_time=0.1,
         dt=5e-4,
@@ -35,7 +35,7 @@ def test_2d_igrf_pfac_hc_wind():
         wind=True,
     )
 
-    # Assert
+    # Assert.
     coeff_array = np.hstack(
         (
             dynamics.timeseries["state"]["SH_m_ind"].values,
@@ -53,7 +53,7 @@ def test_2d_igrf_pfac_hc_wind():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    # pyHWM uses single precision, tolerances relaxed for wind tests
+    # pyHWM uses single precision, relax tolerances for wind tests.
     assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)

@@ -64,7 +64,7 @@ def stencil(evaluation_points, order=1, h=1, fraction=False):
 
         https://web.media.mit.edu/~crtaylor/calculator.html
     """
-    # Calculate coefficients:
+    # Calculate coefficients.
     evaluation_points = np.array(evaluation_points).flatten().reshape((1, -1))
     p = np.arange(evaluation_points.size).reshape((-1, 1))
     d = np.zeros(evaluation_points.size)
@@ -73,7 +73,7 @@ def stencil(evaluation_points, order=1, h=1, fraction=False):
     coeffs = np.linalg.inv(evaluation_points**p).dot(d)
 
     if fraction:
-        # Format nicely:
+        # Format nicely.
         fracs = [Fraction(c).limit_denominator() for c in coeffs]
         denominators = [c.denominator for c in fracs]
         numerators = [c.numerator for c in fracs]
@@ -134,7 +134,7 @@ def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
     assert dx.size == dy.size
 
-    NN = 4  # how high derivative terms to include when making the design matrix
+    NN = 4  # How high derivative terms to include when making the design matrix
     keys = ["_"]
     values = [np.ones_like(dx)]
 

@@ -10,7 +10,7 @@ import numpy as np
 
 def test_2d_dipole_pfac():
     """Test 2D simulation with dipole and PFAC."""
-    # Arrange
+    # Arrange.
     expected_coeff_norm = 1.2338235680727685e-07
     expected_coeff_max = 7.073347099604905e-10
     expected_coeff_min = -4.889223822681359e-09
@@ -20,7 +20,7 @@ def test_2d_dipole_pfac():
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
 
-    # Act
+    # Act.
     dynamics = run_pynamit(
         final_time=0.1,
         dt=5e-4,
@@ -32,7 +32,7 @@ def test_2d_dipole_pfac():
         ignore_PFAC=False,
     )
 
-    # Assert
+    # Assert.
     coeff_array = np.hstack(
         (
             dynamics.timeseries["state"]["SH_m_ind"].values,

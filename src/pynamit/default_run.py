@@ -78,7 +78,7 @@ def run_pynamit(
     from pynamit.simulation.dynamics import Dynamics
     from pynamit.math.constants import RE
 
-    # Initialize the 2D ionosphere object at 110 km altitude
+    # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
     dynamics = Dynamics(
         dataset_filename_prefix=None,
@@ -97,7 +97,7 @@ def run_pynamit(
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
 
-    # CONDUCTANCE INPUT
+    # Get and set conductance input.
     conductance_lat = dynamics.state_grid.lat
     conductance_lon = dynamics.state_grid.lon
     Kp = 5
@@ -106,16 +106,17 @@ def run_pynamit(
     )
     dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-    # jr INPUT
+    # Get and set jr input.
     jr_lat = dynamics.state_grid.lat
     jr_lon = dynamics.state_grid.lon
     d = dipole.Dipole(date.year)
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
     jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
-    jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
+    # Filter low latitude jr.
+    jr[np.abs(jr_lat) < 50] = 0
     dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-    # WIND INPUT
+    # Get and set wind input.
     if wind:
         hwm14Obj = pyhwm2014.HWM142D(
             alt=110.0,

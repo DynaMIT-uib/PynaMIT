@@ -271,7 +271,7 @@ def schmidt_normalization_factors(index_pairs):
     """
     S = np.empty(len(index_pairs), dtype=np.float64)
 
-    # Calculate the Schmidt normalization factors
+    # Calculate the Schmidt normalization factors.
     S[0] = 1.0
     for nm in range(1, len(index_pairs)):
         n, m = index_pairs[nm]

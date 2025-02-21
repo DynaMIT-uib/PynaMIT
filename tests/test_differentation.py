@@ -15,7 +15,7 @@ import pytest
 )
 def test_differentiation():
     """Test cubed sphere differentiation."""
-    # Set up projection and make a grid (not using the grid class)
+    # Set up projection and make a grid (not using the grid class).
     R = 6371.2e3
     p = cs_basis.CSBasis()
     N = 40  # Number of grid points in each direction per block
@@ -29,11 +29,11 @@ def test_differentiation():
     )
     r, theta, phi = p.cube2spherical(xi, eta, r=R, block=block, deg=True)
 
-    # Calculate IGRF potential and spherical vector components on grid
+    # Calculate IGRF potential and spherical vector components on grid.
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
     Br, Btheta, Bphi = igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1))
 
-    # Differentiate V with respect to R, sanity check if Br is recovered
+    # Differentiate V with respect to R, check if Br is recovered.
     rs = np.array([-2, -1, 0, 1, 2]) * 1e3 + R
     Vs = np.vstack([igrf_V(rr, theta, phi, datetime.datetime(2020, 1, 1)) for rr in rs])
     r_stencil = diffutils.stencil(rs - R)
@@ -49,7 +49,7 @@ def test_differentiation():
 
     assert Br_num_matches_Br
 
-    # differentiate wrt to xi and eta
+    # Differentiate with respect to xi and eta.
     stencil_points = [-2, -1, 0, 1, 2]
     stencil = diffutils.stencil(np.array(stencil_points) * dxi)
     # dxi_dxi = reduce(
@@ -92,7 +92,7 @@ def test_differentiation():
         ],
     )
 
-    # calcualte the contravariant components of the gradient:
+    # Calculate the contravariant components of the gradient.
     gc = p.get_metric_tensor(
         xi[0, 2:-2, 2:-2], eta[0, 2:-2, 2:-2], r=R, covariant=False
     )
@@ -137,7 +137,7 @@ def test_differentiation():
     assert Btheta_num_matches_Btheta
     assert Bphi_num_matches_Bphi
 
-    # Now to calculate the Laplacian of V:
+    # Calculate the Laplacian of V.
     stencil2 = diffutils.stencil(np.array(stencil_points) * dxi, order=2)
 
     dV2_dxi2 = reduce(
@@ -157,11 +157,11 @@ def test_differentiation():
         ],
     )
 
-    # second-order derivative of the radial component:
+    # Calculate second-order derivative of the radial component.
     r_stencil2 = diffutils.stencil(rs - R, order=2)
     dV2_dr2 = np.sum(Vs * r_stencil2.reshape((-1, 1, 1, 1)), axis=0)
 
-    # construct a 2D stencil for calculating cross-derivative
+    # Construct a 2D stencil for calculating cross-derivative.
     stencil_cross = diffutils.get_2D_stencil_coefficients(
         np.array(stencil_points) * dxi, np.array(stencil_points) * dxi, derivative="xy"
     )
@@ -178,7 +178,7 @@ def test_differentiation():
         ],
     )
 
-    # stitch it together:
+    # Stitch it together.
     del2V = (
         gc[:, 0, 0].reshape((1, N - 4, N - 4)) * dV2_dxi2
         + gc[:, 1, 1].reshape((1, N - 4, N - 4)) * dV2_det2
@@ -206,7 +206,7 @@ def test_differentiation():
     assert del2V_is_small
 
     ####
-    # Trying to do the same, only with differentiation matrices
+    # Try to do the same, only with differentiation matrices.
 
     Ns = 2
     shape = (6, N, N)
@@ -215,18 +215,17 @@ def test_differentiation():
     p = cs_basis.CSBasis()
     h = p.xi(1, N) - p.xi(0, N)  # Step size between each grid cell
 
-    # With ij indexing, (i, xi) vary along the first (numpy vertical)
+    # For ij indexing, (i, xi) vary along the first (numpy vertical)
     # axis, and (j, eta) along the second (numpy horizontal) axis.
     k, i, j = np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij")
 
-    # Indices for inner grid cells, no interpolation needed
     k_inner, i_inner, j_inner = (
         k[:, Ns:-Ns, Ns:-Ns],
         i[:, Ns:-Ns, Ns:-Ns],
         j[:, Ns:-Ns, Ns:-Ns],
-    )
+    )  # Indices for inner grid cells, no interpolation needed
 
-    # Set up differentiation stencil
+    # Set up differentiation stencil.
     stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
     Nsp = len(stencil_points)
     stencil_weight1 = diffutils.stencil(
@@ -279,7 +278,7 @@ def test_differentiation():
     Dxi2 = coo_matrix((weights2, (rows, cols_xi)), shape=(size, size))
     Deta2 = coo_matrix((weights2, (rows, cols_eta)), shape=(size, size))
 
-    # For testing, recalculate IGRF values on the differentiation grid
+    # For testing, recalculate IGRF values on the differentiation grid.
     xi, eta = p.xi(i, N), p.eta(j, N)
     r, theta, phi = p.cube2spherical(xi, eta, r=R, block=k, deg=True)
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).flatten()
@@ -317,7 +316,7 @@ def test_differentiation():
     )
 
     # Compare values on inner grid cells (all numerical derivatives are
-    # zero on cells requiring ghost cells)
+    # zero on cells requiring ghost cells).
     print(
         "Using sparse differentiation matrix: Numerically calculated Btheta "
         "matches Btheta calculated with spherical harmonics: "
@@ -340,7 +339,7 @@ def test_differentiation():
     k, i, j = p.get_gridpoints(N)
     kk, ii, jj = p.get_gridpoints(N, flat=True)
 
-    # Get differentiation matrices:
+    # Get differentiation matrices.
     Dxi, Deta = p.get_Diff(N, coordinate="both", Ns=Ns, Ni=Ni, order=1)
 
     xi, eta = p.xi(ii, N), p.eta(jj, N)
@@ -384,10 +383,10 @@ def test_differentiation():
     stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
     Nsp = len(stencil_points)
 
-    h = p.xi(1, N) - p.xi(0, N)  # step size between each grid cell
+    h = p.xi(1, N) - p.xi(0, N)  # Step size between each grid cell
 
     # Make a stencil that has a cross + first diagonal points
-    # (not sure what is a good idea here)
+    # (not sure what is a good idea here).
     stencil_i = np.hstack((stencil_points, np.zeros(2 * Ns), np.array([-1, -1, 1, 1])))
     stencil_j = np.hstack((np.zeros(2 * Ns), stencil_points, np.array([-1, 1, -1, 1])))
 
@@ -395,10 +394,10 @@ def test_differentiation():
         stencil_i / h, stencil_j / h, derivative="xy"
     )
 
-    # Matrices for second order differentation along single dimension
+    # Construct matrices for single direction second order derivatives.
     Dxi2, Deta2 = p.get_Diff(N, coordinate="both", Ns=Ns, Ni=Ni, order=2)
 
-    # Construct cross-term derivative
+    # Construct cross-term derivative.
     i_diff = np.hstack([i + _ for _ in stencil_i])
     j_diff = np.hstack([j + _ for _ in stencil_j])
     k_const = np.tile(k, len(stencil_i))

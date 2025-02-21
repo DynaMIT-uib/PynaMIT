@@ -21,9 +21,8 @@ p = cs_basis.CSBasis()
 
 def test_projection():
     """Test cubed sphere functionality."""
-    ### 1) Test conversions to / from cubed sphere, Cartesian, and
-    ###    spherical coordinates
-    ##############################################################
+    # Test conversions to / from cubed sphere, Cartesian, and spherical
+    # coordinates.
     N = 5000  # number of test points
     xx, yy, zz = (
         2 * np.random.random(N) - 1,
@@ -65,9 +64,8 @@ def test_projection():
 
     assert geo2cube2cartesian_works
 
-    ### 2) Test conversions to / from cubed sphere, Cartesian, and
-    ###    spherical components
-    ##############################################################
+    # Test conversions to / from cubed sphere, Cartesian, and spherical
+    # components.
     N = xx.size
     Axyz = 2 * np.random.random((3, N)) - 1  # (3, N) random vector components
 
@@ -105,17 +103,15 @@ def test_projection():
     assert cubed2spherical_works
     assert norm_consistent
 
-    ### 3) Plot CS grid and vector components in Cartesian 3D and on
-    ###    Cartopy projection
-    ################################################################
+    # Plot cubed sphere grid and vector components in Cartesian 3D and
+    # on Cartopy projection.
     print(
         "Plotting cubed sphere grid and vector components in Cartesian 3D and "
         "on Cartopy projection"
     )
 
     phi0, lat0 = 0, 0
-    # Number of grid points in each direction per block (should be even)
-    N = 16
+    N = 16  # Number of grid points in each direction per block (should be even)
 
     fig = plt.figure(figsize=(12, 8))
     axxyz1 = fig.add_subplot(233, projection="3d")
@@ -145,18 +141,16 @@ def test_projection():
     for i in range(6):
         C = "C" + str(i)
 
-        # Spherical / Cartopy:
-        # --------------------
+        # Plot spherical coordinates using cartopy.
         r, theta, phi = p.cube2spherical(xi, eta, block=i)
         lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
         lon, lat = np.rad2deg(phi).flatten(), 90 - np.rad2deg(theta).flatten()
         Ps_inv = p.get_Ps(xi, eta, r=1, block=i, inverse=True)
+        # Multiply Ps_inv by Q to get normalized vector components.
         Q = p.get_Q(lat, r.flatten())
-        Ps_normalized = np.einsum(
-            "nij, njk -> nik", Q, Ps_inv
-        )  # multiply Ps_inv by Q to get normalized vector components
+        Ps_normalized = np.einsum("nij, njk -> nik", Q, Ps_inv)
 
-        # xi-direction:
+        # Project in xi-direction.
         Aeast, Anorth, Ar = np.einsum("nij, nj -> ni", Ps_normalized, Axis).T
         assert np.all(np.isclose(Ar, 0))
         # norms = np.sqrt(Aeast**2 + Anorth**2)
@@ -167,7 +161,7 @@ def test_projection():
         axg1.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
         axg2.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
 
-        # eta-direction:
+        # Project in eta-direction.
         Aeast, Anorth, Ar = np.einsum("nij, nj -> ni", Ps_normalized, Aetas).T
         assert np.all(np.isclose(Ar, 0))
 
@@ -198,8 +192,7 @@ def test_projection():
                     transform=ccrs.Geodetic(),
                 )
 
-        # Cartesian 3D:
-        # -------------
+        # Plot Cartesian 3D coordinates.
         x, y, z = p.cube2cartesian(xi, eta, block=i)
         axxyz1.scatter(x, y, z, c=C, s=5)
         axxyz2.scatter(x, y, z, c=C, s=5)
@@ -215,7 +208,7 @@ def test_projection():
             x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C
         )
 
-    # Make Cartesian plots prettier
+    # Make Cartesian plots prettier.
     for ax in [axxyz1, axxyz2]:
         ax.set_axis_off()
         ax.set_xlim(-1, 1)
@@ -236,7 +229,7 @@ def test_projection():
     # axxyz1.set_title(r'$\xi$ direction')
     # axxyz2.set_title(r'$\eta$ direction')
 
-    # Link two 3D axes so that if one rotates, the other does too
+    # Link two 3D axes so that if one rotates, the other does too.
     def on_move(event):
         if event.inaxes == axxyz2:
             axxyz1.view_init(elev=axxyz2.elev, azim=axxyz2.azim)
@@ -250,8 +243,7 @@ def test_projection():
 
     plt.tight_layout()
 
-    ### 4) Plot eastward and northward vector fields on CS blocks
-    #############################################################
+    # Plot eastward and northward vector fields on cubed sphere blocks.
     print("Plotting eastward and northward vector fields on cubed sphere blocks")
     fig, axes = plt.subplots(nrows=2, ncols=6, figsize=(18, 6))
 
@@ -317,7 +309,7 @@ def test_projection():
         ax.set_xlim(-np.pi / 4, np.pi / 4)
         ax.set_ylim(-np.pi / 4, np.pi / 4)
 
-    # 5) Plot grid with ghost cells on a map
+    # Plot grid with ghost cells on a map.
     fig = plt.figure(figsize=(12, 12))
     ax = fig.add_subplot(projection=cartopyprojection1)
     ax.coastlines(zorder=3)
@@ -337,11 +329,11 @@ def test_projection():
     )
     xi_, eta_ = np.meshgrid(xi_larger, eta_larger)
 
-    for i in range(6):  # plot the main grid on each block:
+    for i in range(6):
+        # Plot the main grid on each block.
         C = "C" + str(i)
 
-        # Spherical / Cartopy:
-        # --------------------
+        # Plot spherical coordinates using cartopy.
         r, theta, phi = p.cube2spherical(xi, eta, block=i)
         lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
 

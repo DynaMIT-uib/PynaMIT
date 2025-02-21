@@ -10,7 +10,7 @@ import numpy as np
 
 def test_2d_dipole_pfac_hc():
     """Test 2D simulation with dipole, PFAC, and HC."""
-    # Arrange
+    # Arrange.
     expected_coeff_norm = 8.435033502506688e-08
     expected_coeff_max = 1.1767227657913303e-09
     expected_coeff_min = -3.060712711975163e-09
@@ -20,7 +20,7 @@ def test_2d_dipole_pfac_hc():
     if not os.path.exists(temp_dir):
         os.mkdir(temp_dir)
 
-    # Act
+    # Act.
     dynamics = run_pynamit(
         final_time=0.1,
         dt=5e-4,
@@ -34,7 +34,7 @@ def test_2d_dipole_pfac_hc():
         latitude_boundary=50,
     )
 
-    # Assert
+    # Assert.
     coeff_array = np.hstack(
         (
             dynamics.timeseries["state"]["SH_m_ind"].values,

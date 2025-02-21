@@ -229,7 +229,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
     shape = lat1.shape
 
-    # Convert to radians if necessary, and flatten
+    # Convert to radians if necessary, and flatten.
     if degrees:
 
         def converter(x):
@@ -242,7 +242,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
     lat1, lon1, lat2, lon2 = list(map(converter, (lat1, lon1, lat2, lon2)))
 
-    # ECEF position vectors
+    # Construct ECEF position vectors.
     ecef_p1 = np.vstack(
         (np.cos(lat1) * np.cos(lon1), np.cos(lat1) * np.sin(lon1), np.sin(lat1))
     )
@@ -250,7 +250,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
         (np.cos(lat2) * np.cos(lon2), np.cos(lat2) * np.sin(lon2), np.sin(lat2))
     )
 
-    # Check if tangent is well defined
+    # Check if tangent is well defined.
     if np.any(np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0)):
         points = np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0).nonzero()[0]
         raise ValueError(
@@ -258,17 +258,16 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
             "tangent not defined\nFlattened coordinates: %s" % points
         )
 
-    # Non-tangential difference vector (3, N)
-    dp = ecef_p2 - ecef_p1
+    dp = ecef_p2 - ecef_p1  # Non-tangential difference vector (3, N)
 
     # Subtract normal part of vectors to make tangential vector in ECEF
-    # coordinates
+    # coordinates.
     ecef_t = dp - np.sum(dp * ecef_p1, axis=0) * ecef_p1
 
-    # Normalize:
+    # Normalize.
     ecef_t = ecef_t / np.linalg.norm(ecef_t, axis=0)
 
-    # Convert ecef_t to enu_t, by constructing N rotation matrices
+    # Convert ecef_t to enu_t, by constructing N rotation matrices.
     R = np.dstack(
         (
             np.vstack((-np.sin(lon1), np.cos(lon1), 0 * lat1)).T,
@@ -286,10 +285,10 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     )
 
     enu_t = np.einsum("lji, jl->il", R, ecef_t)
-    # Third coordinate (up) is zero, since normal part was removed
+    # Third coordinate (up) is zero, since normal part was removed.
     enu_t = enu_t[:2]
 
-    # Extract east and north components, reshape to original shape
+    # Extract east and north components, reshape to original shape.
     east = enu_t[0].reshape(shape)
     north = enu_t[1].reshape(shape)
 
@@ -338,7 +337,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     except ValueError:
         raise Exception("Input arrays have inconsistent shapes")
     lat, lon = lat.flatten(), lon.flatten()
-    # Make rotation matrix from geo to local
+    # Make matrix that rotates from geo to local.
     Z = np.array(
         [
             np.cos(np.deg2rad(lat0)) * np.cos(np.deg2rad(lon0)),
@@ -351,30 +350,31 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     Y = Zgeo_x_Z / np.linalg.norm(Zgeo_x_Z)
     X = np.cross(Y, Z)
 
-    # Rotation matrix from geographic to local (ECEF)
+    # Make matrix that rotates from geographic to local (ECEF).
     Rgeo_to_local = np.vstack((X, Y, Z))
 
-    if inverse:  # Transpose rotation matrix to get inverse operation
+    if inverse:
+        # Transpose rotation matrix to get inverse operation.
         Rgeo_to_local = Rgeo_to_local.T
 
-    # Convert input to ECEF:
+    # Convert input to ECEF.
     colat = 90 - lat
     r_geo = sph_to_car(np.vstack((np.ones_like(colat), colat, lon)), deg=True)
 
-    # Rotate:
+    # Rotate.
     r_local = Rgeo_to_local.dot(r_geo)
 
-    # Convert result back to spherical:
+    # Convert result back to spherical.
     _, colat_local, lon_local = car_to_sph(r_local, deg=True)
 
     A_geo_enu = np.vstack((Ae, An, np.zeros(Ae.size)))
     A = np.sqrt(Ae**2 + An**2)
-    # Rotate normalized vectors to ecef
+    # Rotate normalized vectors to ECEF.
     A_geo_ecef = enu_to_ecef((A_geo_enu / A).T, lon, lat)
     A_local_ecef = Rgeo_to_local.dot(A_geo_ecef.T)
     A_local_enu = ecef_to_enu(A_local_ecef.T, lon_local, 90 - colat_local).T * A
 
-    # Return coords and vector components:
+    # Return coordinates and vector components.
     return (
         90 - colat_local.reshape(shape),
         lon_local.reshape(shape),
@@ -384,7 +384,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
 
 
 if __name__ == "__main__":
-    # TESTING ENU/ECEF CONVERSION:
+    # Testing ENU/ECEF conversion.
     v = np.array([[1, 1, 0], [1, 0, 0]])
     lat = np.array([-90, 0])
     lon = np.array([0.0, 0])
@@ -399,19 +399,19 @@ if __name__ == "__main__":
     )
 
     # Testing geo2local function by comparison to equivalent code in
-    # Dipole module
+    # Dipole module.
     from dipole import Dipole
 
     d = Dipole(2010)
     lat0, lon0 = d.north_pole
 
-    # Test points:
+    # Test points.
     x, y, z = np.random.random((3, 1000)) * 2 - 1
     r = x**2 + y**2 + z**2
     x, y, z = x[r <= 1], y[r <= 1], z[r <= 1]
     r, colat, lon = car_to_sph(np.vstack((x, y, z)))
 
-    # Test vector components
+    # Test vector components.
     Ae, An = np.random.random((2, sum(r <= 1)))
 
     newlat, newlon, neweast, newnorth = geo2local(90 - colat, lon, Ae, An, lon0, lat0)
@@ -421,7 +421,7 @@ if __name__ == "__main__":
     assert np.all(np.isclose(neweast - cdeast, 0))
     assert np.all(np.isclose(newnorth - cdnorth, 0))
 
-    # Check that converting back works:
+    # Check that converting back works.
     lat2, lon2, Ae2, An2 = geo2local(
         newlat, newlon, neweast, newnorth, lon0, lat0, inverse=True
     )
