@@ -5,10 +5,7 @@ spherical harmonics.
 """
 
 import numpy as np
-from pynamit.spherical_harmonics.helpers import (
-    SHKeys,
-    schmidt_normalization_factors,
-)
+from pynamit.spherical_harmonics.helpers import SHKeys, schmidt_normalization_factors
 
 
 class SHBasis(object):
@@ -74,9 +71,7 @@ class SHBasis(object):
         # Make the spherical harmonic Schmidt normalization factors
         self.schmidt_normalization = schmidt_normalization
         if self.schmidt_normalization:
-            self.schmidt_factors = schmidt_normalization_factors(
-                self.nm_tuples
-            )
+            self.schmidt_factors = schmidt_normalization_factors(self.nm_tuples)
 
         # Set the general properties of the basis
         self.short_name = "SH"
@@ -144,12 +139,8 @@ class SHBasis(object):
                 dP = dP_unnormalized * self.schmidt_factors
 
         if derivative is None:
-            Gc = P[:, self.cnm_filter] * np.cos(
-                phi.reshape((-1, 1)) * self.cnm.m
-            )
-            Gs = P[:, self.snm_filter] * np.sin(
-                phi.reshape((-1, 1)) * self.snm.m
-            )
+            Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
+            Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         elif derivative == "phi":
             Gc = (
                 -P[:, self.cnm_filter]
@@ -164,16 +155,11 @@ class SHBasis(object):
                 / np.sin(theta.reshape((-1, 1)))
             )
         elif derivative == "theta":
-            Gc = dP[:, self.cnm_filter] * np.cos(
-                phi.reshape((-1, 1)) * self.cnm.m
-            )
-            Gs = dP[:, self.snm_filter] * np.sin(
-                phi.reshape((-1, 1)) * self.snm.m
-            )
+            Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
+            Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         else:
             raise Exception(
-                f'Invalid derivative "{derivative}". '
-                'Expected: "phi", "theta", or None.'
+                f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.'
             )
 
         if cache_out:
@@ -209,14 +195,10 @@ class SHBasis(object):
         for nm in range(1, len(self.nm_tuples)):
             n, m = self.nm_tuples[nm]
             if n == m:
-                P[:, nm] = (
-                    sin_theta * P[:, self.nm_tuples.index((n - 1, m - 1))]
-                )
+                P[:, nm] = sin_theta * P[:, self.nm_tuples.index((n - 1, m - 1))]
             else:
                 if n > m:
-                    P[:, nm] = (
-                        cos_theta * P[:, self.nm_tuples.index((n - 1, m))]
-                    )
+                    P[:, nm] = cos_theta * P[:, self.nm_tuples.index((n - 1, m))]
                 if n > m + 1:
                     Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
                     P[:, nm] -= Knm * P[:, self.nm_tuples.index((n - 2, m))]

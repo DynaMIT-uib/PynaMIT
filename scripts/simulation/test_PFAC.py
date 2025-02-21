@@ -54,9 +54,7 @@ conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
-dynamics.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 ## jr INPUT
 jr_lat = dynamics.state_grid.lat
@@ -77,14 +75,11 @@ lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
 plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
 
-G_Br = plt_state_evaluator.scaled_G(
-    dynamics.state.m_ind_to_Br / dynamics.state.RI
-)
+G_Br = plt_state_evaluator.scaled_G(dynamics.state.m_ind_to_Br / dynamics.state.RI)
 Br = G_Br.dot(dynamics.state.m_imp_to_B_pol.dot(dynamics.state.m_imp.coeffs))
 
 
 if SIMULATE_DYNAMIC_RESPONSE:
-
     fig, paxn, paxs, axg = pynamit.globalplot(
         plt_grid.lon,
         plt_grid.lat,
@@ -113,7 +108,6 @@ if SIMULATE_DYNAMIC_RESPONSE:
     filecount = 1
     time = 0
     while True:
-
         dynamics.state.evolve_Br(dt)
         time = time + dt
         coeffs.append(dynamics.state.m_ind.coeffs)
@@ -131,9 +125,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
                 time,
                 (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3],
             )
-            fn = os.path.join(
-                fig_directory, "PFAC_" + str(filecount).zfill(3) + ".png"
-            )
+            fn = os.path.join(fig_directory, "PFAC_" + str(filecount).zfill(3) + ".png")
             filecount += 1
             title = "t = {:.3} s".format(time)
             Br = dynamics.state.get_Br(plt_state_evaluator)

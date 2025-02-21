@@ -54,15 +54,7 @@ def test_2d_igrf_pfac_hc_wind():
     print("actual_n_coeffs: ", actual_n_coeffs)
 
     # pyHWM uses single precision, tolerances relaxed for wind tests
-    assert actual_coeff_norm == pytest.approx(
-        expected_coeff_norm, abs=0.0, rel=1e-5
-    )
-    assert actual_coeff_max == pytest.approx(
-        expected_coeff_max, abs=0.0, rel=1e-5
-    )
-    assert actual_coeff_min == pytest.approx(
-        expected_coeff_min, abs=0.0, rel=1e-5
-    )
-    assert actual_n_coeffs == pytest.approx(
-        expected_n_coeffs, abs=0.0, rel=1e-5
-    )
+    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
+    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
+    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
+    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)

@@ -189,9 +189,7 @@ class Mainfield(object):
 
         elif self.kind == "igrf":  # Use apexpy to map along IGRF
             mlat, mlon = self.apx.geo2apex(90 - theta, phi, (r - RE) * 1e-3)
-            lat_out, phi_out, _ = self.apx.apex2geo(
-                mlat, mlon, (r_dest - RE) * 1e-3
-            )
+            lat_out, phi_out, _ = self.apx.apex2geo(mlat, mlon, (r_dest - RE) * 1e-3)
             theta_out = 90 - lat_out
 
         return (theta_out, phi_out)
@@ -322,10 +320,8 @@ class Mainfield(object):
             e3[2] = _e3[0]  # phi
 
         if self.kind == "igrf":
-            _, _, _, _, _, _, _d1, _d2, _d3, _e1, _e2, _e3 = (
-                self.apx.basevectors_apex(
-                    90 - theta, phi, (r - RE) * 1e-3, coords="geo"
-                )
+            _, _, _, _, _, _, _d1, _d2, _d3, _e1, _e2, _e3 = self.apx.basevectors_apex(
+                90 - theta, phi, (r - RE) * 1e-3, coords="geo"
             )
             # transform vectors from east north up to r, theta phi:
             d1[0] = _d1[2]  # radial
@@ -378,6 +374,6 @@ class Mainfield(object):
             # lat of evenly spaced points
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh)
             # interpolate to phi:
-            return (
-                np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)
-            ).reshape(phi.shape)
+            return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(
+                phi.shape
+            )

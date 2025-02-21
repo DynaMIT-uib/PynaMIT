@@ -13,15 +13,11 @@ import apexpy
 
 periods = [50, 25, 10, 5, 1]
 state_data_list = [
-    xr.load_dataset(
-        "../simulation/oscillations/" + str(p).zfill(2) + "s_state.ncdf"
-    )
+    xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_state.ncdf")
     for p in periods
 ]
 settings_list = [
-    xr.load_dataset(
-        "../simulation/oscillations/" + str(p).zfill(2) + "s_settings.ncdf"
-    )
+    xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_settings.ncdf")
     for p in periods
 ]
 
@@ -66,16 +62,12 @@ for state_data in state_data_list:
     m_ind = state_data.SH_m_ind.values.T
 
     Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
-    Bh = (-ground_evaluator.G_grad * m_ind_to_Bh_ground.reshape((1, -1))).dot(
-        m_ind
-    )
+    Bh = (-ground_evaluator.G_grad * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
     Btheta, Bphi = np.split(Bh, 2, axis=0)
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
     for i in range(len(glat)):
-        axes[jj[i], ii[i]].plot(
-            state_data.time.values, Br[i] * 1e9, label="$B_r$"
-        )
+        axes[jj[i], ii[i]].plot(state_data.time.values, Br[i] * 1e9, label="$B_r$")
         # ax.plot(
         #    state_data.time.values,
         #    Btheta[i] * 1e9,
@@ -87,9 +79,7 @@ for state_data in state_data_list:
         #    label="$B_\phi$"
         # )
         if jj[i] == 0:
-            axes[jj[i], ii[i]].set_title(
-                "MLT$ = " + str(mlt[ii[i], jj[i]]) + "$"
-            )
+            axes[jj[i], ii[i]].set_title("MLT$ = " + str(mlt[ii[i], jj[i]]) + "$")
 
         if ii[i] == Ncols - 1:
             axes[jj[i], ii[i]].set_ylabel(
@@ -112,9 +102,7 @@ for state_data in state_data_list:
 
     for i in range(25):
         axes.flatten()[i].plot(
-            state_data.time.values,
-            state_data["SH_m_imp"].values[:, i],
-            label="$B_r$",
+            state_data.time.values, state_data["SH_m_imp"].values[:, i], label="$B_r$"
         )
 
 
@@ -145,9 +133,7 @@ for p, state_data in zip(periods, state_data_list):
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
     for i in range(len(glat)):
         axesw[jj[i], ii[i]].plot(t, Br[i] * 1e9, label="$B_r$")
-        axesw[jj[i], ii[i]].plot(
-            t, G_fourier.dot(m.T[i]) * 1e9, linestyle="--"
-        )
+        axesw[jj[i], ii[i]].plot(t, G_fourier.dot(m.T[i]) * 1e9, linestyle="--")
         axesA[jj[i], ii[i]].scatter(p, A[i] * 1e9, color="black", marker="x")
         axesphi[jj[i], ii[i]].scatter(p, phi[i], color="black")
 
@@ -163,15 +149,9 @@ for p, state_data in zip(periods, state_data_list):
         # )
 
         if jj[i] == 0:
-            axesw[jj[i], ii[i]].set_title(
-                "MLT$ = " + str(mlt[ii[i], jj[i]]) + "$"
-            )
-            axesA[jj[i], ii[i]].set_title(
-                "MLT$ = " + str(mlt[ii[i], jj[i]]) + "$"
-            )
-            axesphi[jj[i], ii[i]].set_title(
-                "MLT$ = " + str(mlt[ii[i], jj[i]]) + "$"
-            )
+            axesw[jj[i], ii[i]].set_title("MLT$ = " + str(mlt[ii[i], jj[i]]) + "$")
+            axesA[jj[i], ii[i]].set_title("MLT$ = " + str(mlt[ii[i], jj[i]]) + "$")
+            axesphi[jj[i], ii[i]].set_title("MLT$ = " + str(mlt[ii[i], jj[i]]) + "$")
 
         if ii[i] == Ncols - 1:
             axesw[jj[i], ii[i]].set_ylabel(

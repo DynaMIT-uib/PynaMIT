@@ -78,9 +78,7 @@ class PynamEye(object):
             Whether to use steady state data. Default is False.
         """
         keys = ["settings", "conductance", "state", "u"]
-        filename_suffix = dict(
-            zip(keys, ["_settings", "_conductance", "_state", "_u"])
-        )
+        filename_suffix = dict(zip(keys, ["_settings", "_conductance", "_state", "_u"]))
 
         # load the file with simulation settings:
         self.datasets = {}
@@ -116,12 +114,8 @@ class PynamEye(object):
         self.vector_cs_basis = CSBasis(NCS_plot)
         k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
         # crop to skip duplicate points
-        arr_xi = self.vector_cs_basis.xi(
-            i[:, :-1, :-1] + 0.5, NCS_plot
-        ).flatten()
-        arr_eta = self.vector_cs_basis.eta(
-            j[:, :-1, :-1] + 0.5, NCS_plot
-        ).flatten()
+        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).flatten()
+        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).flatten()
         _, arr_theta, arr_phi = self.vector_cs_basis.cube2spherical(
             arr_xi, arr_eta, k[:, :-1, :-1].flatten(), deg=True
         )
@@ -138,9 +132,7 @@ class PynamEye(object):
         self.conductance_basis = SHBasis(cNmax, cMmax, Nmin=0)
 
         # Basis evaluator for wind
-        self.u_basis_evaluator = BasisEvaluator(
-            self.basis, self.global_vector_grid
-        )
+        self.u_basis_evaluator = BasisEvaluator(self.basis, self.global_vector_grid)
 
         # Set up global grid and basis evaluators:
         self.evaluator = {}
@@ -166,9 +158,7 @@ class PynamEye(object):
         if (
             settings.mainfield_kind.lower() == "igrf"
         ):  # define a grid, then mask depending on mlatmin
-            self.apx = apexpy.Apex(
-                self.t0.year, refh=(settings.RI - RE) * 1e-3
-            )
+            self.apx = apexpy.Apex(self.t0.year, refh=(settings.RI - RE) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
                 self.mlat, self.mlon, (settings.RI - RE) * 1e-3
             )
@@ -177,12 +167,8 @@ class PynamEye(object):
             )
             self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
             self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
-            self.evaluator["north"] = BasisEvaluator(
-                self.basis, self.polar_grid_n
-            )
-            self.evaluator["south"] = BasisEvaluator(
-                self.basis, self.polar_grid_s
-            )
+            self.evaluator["north"] = BasisEvaluator(self.basis, self.polar_grid_n)
+            self.evaluator["south"] = BasisEvaluator(self.basis, self.polar_grid_s)
             self.conductance_evaluator["north"] = BasisEvaluator(
                 self.conductance_basis, self.polar_grid_n
             )
@@ -191,16 +177,12 @@ class PynamEye(object):
             )
         else:  # assume simulations are done in magnetic coordinates:
             self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
-            self.evaluator["north"] = BasisEvaluator(
-                self.basis, self.polar_grid
-            )
+            self.evaluator["north"] = BasisEvaluator(self.basis, self.polar_grid)
             self.evaluator["south"] = self.evaluator["north"]
             self.conductance_evaluator["north"] = BasisEvaluator(
                 self.conductance_basis, self.polar_grid
             )
-            self.conductance_evaluator["south"] = self.conductance_evaluator[
-                "north"
-            ]
+            self.conductance_evaluator["south"] = self.conductance_evaluator["north"]
 
         self.B_parameters_calculated = False
 
@@ -225,9 +207,7 @@ class PynamEye(object):
             )
             self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
             self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
-            self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[
-                region
-            ] + np.tensordot(
+            self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[region] + np.tensordot(
                 self.G_B_pol_to_JS[region], self.m_imp_to_B_pol, 1
             )
 
@@ -243,7 +223,6 @@ class PynamEye(object):
         """
         print("does not work. Rewrite")
         if not self.B_parameters_calculated:
-
             PFAC = self.datasets["settings"].PFAC_matrix
             nn = int(np.sqrt(PFAC.size))
             self.m_imp_to_B_pol = PFAC.reshape((nn, nn))
@@ -260,9 +239,7 @@ class PynamEye(object):
             )
 
             # evaluate elelctric field on that grid
-            self.b_evaluator = FieldEvaluator(
-                self.mainfield, self.state_grid, self.RI
-            )
+            self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
             self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
             self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
             self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
@@ -272,9 +249,7 @@ class PynamEye(object):
             self.bH_10 = -self.b_evaluator.br
 
             self.G_B_pol_to_JS = (
-                -self.evaluator["num"].G_rxgrad
-                * self.basis.V_external_to_delta_V
-                / mu0
+                -self.evaluator["num"].G_rxgrad * self.basis.V_external_to_delta_V / mu0
             )
             self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
@@ -285,18 +260,12 @@ class PynamEye(object):
             self.B_parameters_calculated = True
 
         # calculate electric field values on state_grid:
-        Js_ind, Je_ind = np.split(
-            self.G_m_ind_to_JS.dot(self.m_ind), 2, axis=0
-        )
-        Js_imp, Je_imp = np.split(
-            self.G_m_imp_to_JS.dot(self.m_imp), 2, axis=0
-        )
+        Js_ind, Je_ind = np.split(self.G_m_ind_to_JS.dot(self.m_ind), 2, axis=0)
+        Js_imp, Je_imp = np.split(self.G_m_imp_to_JS.dot(self.m_imp), 2, axis=0)
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
-        etaP_on_grid = self.conductance_evaluator["num"].basis_to_grid(
-            self.m_etaP
-        )
+        etaP_on_grid = self.conductance_evaluator["num"].basis_to_grid(self.m_etaP)
         # etaH_on_grid =self.conductance_evaluator['num'].basis_to_grid(
         #    self.m_etaH
         # )
@@ -326,10 +295,7 @@ class PynamEye(object):
         Eph -= uxB_phi
 
         self.m_Phi, self.m_W = np.split(
-            self.evaluator["num"].grid_to_basis(
-                np.array([Eth, Eph]), helmholtz=True
-            ),
-            2,
+            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True), 2
         )
         self.m_Phi = self.m_Phi * self.RI
         self.m_W = self.m_W * self.RI
@@ -352,23 +318,14 @@ class PynamEye(object):
             "levels": np.linspace(-100, 100, 22) * 1e-9,
             "extend": "both",
         }
-        self.eqJ_defaults = {
-            "colors": "black",
-            "levels": np.r_[-610:620:20] * 1e3,
-        }
+        self.eqJ_defaults = {"colors": "black", "levels": np.r_[-610:620:20] * 1e3}
         self.jr_defaults = {
             "cmap": plt.cm.bwr,
             "levels": np.linspace(-0.95, 0.95, 22) * 1e-6,
             "extend": "both",
         }
-        self.Phi_defaults = {
-            "colors": "black",
-            "levels": np.r_[-211.5:220:3] * 1e3,
-        }
-        self.W_defaults = {
-            "colors": "orange",
-            "levels": self.Phi_defaults["levels"],
-        }
+        self.Phi_defaults = {"colors": "black", "levels": np.r_[-211.5:220:3] * 1e3}
+        self.W_defaults = {"colors": "orange", "levels": self.Phi_defaults["levels"]}
 
     def set_time(self, t, steady_state=False):
         """Set time for PynamEye object in seconds.
@@ -386,37 +343,25 @@ class PynamEye(object):
         #
         for ds in ["state", "u", "conductance"]:
             if not np.any(
-                np.isclose(
-                    self.t - np.atleast_1d(self.datasets[ds].time.values), 0
-                )
+                np.isclose(self.t - np.atleast_1d(self.datasets[ds].time.values), 0)
             ):
-                new_time = sorted(
-                    list(self.datasets[ds].time.values) + [self.t]
-                )
+                new_time = sorted(list(self.datasets[ds].time.values) + [self.t])
                 self.datasets[ds] = (
                     self.datasets[ds].reindex(time=new_time).ffill(dim="time")
                 )
 
         self.m_ind = (
-            self.datasets["state"]
-            .SH_m_ind.sel(time=self.t, method="nearest")
-            .values
+            self.datasets["state"].SH_m_ind.sel(time=self.t, method="nearest").values
         )
         self.m_imp = (
-            self.datasets["state"]
-            .SH_m_imp.sel(time=self.t, method="nearest")
-            .values
+            self.datasets["state"].SH_m_imp.sel(time=self.t, method="nearest").values
         )
         self.m_W = (
-            self.datasets["state"]
-            .SH_W.sel(time=self.t, method="nearest")
-            .values
+            self.datasets["state"].SH_W.sel(time=self.t, method="nearest").values
             * self.RI
         )
         self.m_Phi = (
-            self.datasets["state"]
-            .SH_Phi.sel(time=self.t, method="nearest")
-            .values
+            self.datasets["state"].SH_Phi.sel(time=self.t, method="nearest").values
             * self.RI
         )
         self.m_etaP = (
@@ -431,10 +376,7 @@ class PynamEye(object):
         )
         self.m_u = np.vstack(
             np.split(
-                self.datasets["u"]
-                .SH_u.sel(time=self.t, method="nearest")
-                .values,
-                2,
+                self.datasets["u"].SH_u.sel(time=self.t, method="nearest").values, 2
             )
         )
         self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
@@ -448,10 +390,7 @@ class PynamEye(object):
             )
 
         if np.any(np.isnan(self.m_ind)):
-            print(
-                f"induced magnetic field coefficients at t = {t, :.2f}"
-                " s are nans"
-            )
+            print(f"induced magnetic field coefficients at t = {(t,):.2f} s are nans")
 
         return self
 
@@ -465,9 +404,7 @@ class PynamEye(object):
         """
         noon_longitude = self.dp.mlt2mlon(12, self.time)
 
-        if (
-            self.datasets["settings"].mainfield_kind == "igrf"
-        ):  # convert to geographic
+        if self.datasets["settings"].mainfield_kind == "igrf":  # convert to geographic
             _, noon_longitude, _ = self.apx.apex2geo(0, noon_longitude, 0)
 
         return ccrs.PlateCarree(central_longitude=noon_longitude)
@@ -548,23 +485,15 @@ class PynamEye(object):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message=(
-                        "No contour levels were found within the "
-                        "data range.",
-                    ),
+                    message=("No contour levels were found within the data range.",),
                 )
-                return ax.ax.contour(
-                    xx, yy, values.reshape(self.mlat.shape), **kwargs
-                )
+                return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == "global":
             assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message=(
-                        "No contour levels were found within the "
-                        "data range.",
-                    ),
+                    message=("No contour levels were found within the data range.",),
                 )
                 return ax.contour(
                     self.lon,
@@ -598,23 +527,15 @@ class PynamEye(object):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message=(
-                        "No contour levels were found within the "
-                        "data range.",
-                    ),
+                    message=("No contour levels were found within the data range.",),
                 )
-                return ax.ax.contourf(
-                    xx, yy, values.reshape(self.mlat.shape), **kwargs
-                )
+                return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == "global":
             assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message=(
-                        "No contour levels were found within the "
-                        "data range.",
-                    ),
+                    message=("No contour levels were found within the data range.",),
                 )
                 return ax.contourf(
                     self.lon,
@@ -650,22 +571,11 @@ class PynamEye(object):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message=(
-                        "No contour levels were found within the "
-                        "data range.",
-                    ),
+                    message=("No contour levels were found within the data range.",),
                 )
-                lon, lat = (
-                    self.global_vector_grid.lon,
-                    self.global_vector_grid.lat,
-                )
+                lon, lat = (self.global_vector_grid.lon, self.global_vector_grid.lat)
                 return ax.quiver(
-                    lon,
-                    lat,
-                    east,
-                    north,
-                    transform=ccrs.PlateCarree(),
-                    **kwargs,
+                    lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs
                 )
         else:
             raise ValueError("region must be either global, north, or south")
@@ -691,9 +601,7 @@ class PynamEye(object):
 
         # Calculate electric field
         e_coeffs = FieldExpansion(
-            self.basis,
-            coeffs=np.array([self.m_Phi, self.m_W]),
-            field_type="tangential",
+            self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
         )
         E = e_coeffs.to_grid(self.evaluator[region]) / self.RI
         print("todo: is the scaling as expected?")
@@ -733,12 +641,8 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.conductance_defaults[key]
 
-        etaP_on_grid = self.conductance_evaluator[region].basis_to_grid(
-            self.m_etaP
-        )
-        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(
-            self.m_etaP
-        )
+        etaP_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
+        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
 
         if "h":
             Sigma = etaH_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
@@ -768,9 +672,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.wind_defaults[key]
 
-        utheta, uphi = self.u_basis_evaluator.basis_to_grid(
-            self.m_u, helmholtz=True
-        )
+        utheta, uphi = self.u_basis_evaluator.basis_to_grid(self.m_u, helmholtz=True)
 
         return self._quiver(uphi, -utheta, ax, region, **kwargs)
 
@@ -793,9 +695,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
-        Br = self.evaluator[region].basis_to_grid(
-            self.m_ind * self.m_ind_to_Br
-        )
+        Br = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Br)
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -818,9 +718,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.eqJ_defaults[key]
 
-        Jeq = self.evaluator[region].basis_to_grid(
-            self.m_ind * self.m_ind_to_Jeq
-        )
+        Jeq = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Jeq)
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
 
@@ -843,15 +741,11 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.jr_defaults[key]
 
-        jr = self.evaluator[region].basis_to_grid(
-            self.m_imp * self.m_imp_to_jr
-        )
+        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
-    def plot_electric_potential(
-        self, ax, region="global", from_B=False, **kwargs
-    ):
+    def plot_electric_potential(self, ax, region="global", from_B=False, **kwargs):
         """Plot electric potential.
 
         Parameters
@@ -876,9 +770,7 @@ class PynamEye(object):
 
         return self._plot_contour(Phi, ax, region, **kwargs)
 
-    def plot_electric_field_stream_function(
-        self, ax, region="global", **kwargs
-    ):
+    def plot_electric_field_stream_function(self, ax, region="global", **kwargs):
         """Plot electric field stream function (the inductive part).
 
         Parameters

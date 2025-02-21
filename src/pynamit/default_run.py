@@ -108,9 +108,7 @@ def run_pynamit(
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
     )
-    dynamics.set_conductance(
-        hall, pedersen, lat=conductance_lat, lon=conductance_lon
-    )
+    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
     # jr INPUT
     jr_lat = dynamics.state_grid.lat
@@ -136,9 +134,7 @@ def run_pynamit(
             day=date.timetuple().tm_yday,
         )
         u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
-        u_lat, u_lon = np.meshgrid(
-            hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij"
-        )
+        u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
         dynamics.set_u(
             u_theta=u_theta,
@@ -152,10 +148,7 @@ def run_pynamit(
         dynamics.impose_steady_state()
 
     dynamics.evolve_to_time(
-        t=final_time,
-        dt=dt,
-        sampling_step_interval=1,
-        saving_sample_interval=plotsteps,
+        t=final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=plotsteps
     )
 
     return dynamics

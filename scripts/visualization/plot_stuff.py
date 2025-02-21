@@ -12,9 +12,7 @@ import matplotlib.pyplot as plt
 #    "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/"
 #    "wind_step"
 # )
-path = (
-    "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/long_step"
-)
+path = "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/long_step"
 a = pynamit.PynamEye(path)
 
 
@@ -70,14 +68,10 @@ if TS_ILLUSTRATION:
 
     for t, pax in zip(ts, paxes):
         a.set_time(t)
-        a.plot_Br(
-            pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9
-        )
+        a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
-        pax.ax.set_title(
-            "t={} s".format(t if t < 1 else t - 1), size=22, pad=-10
-        )
+        pax.ax.set_title("t={} s".format(t if t < 1 else t - 1), size=22, pad=-10)
 
         pax.writeLATlabels(backgroundcolor=(0, 0, 0, 0))
         pax.writeLTlabels()
@@ -93,9 +87,7 @@ if SS_ILLUSTRATION:
 
     for t, pax in zip(ts, paxes):
         a.set_time(t)
-        a.plot_Br(
-            pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9
-        )
+        a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
         pax.ax.set_title("t=0 s" if t == 0 else "$t>0$ s", size=22, pad=-10)
@@ -217,9 +209,7 @@ if LONG_TS_POLAR_E:
         ax.ax.set_title("t={} s".format(t))
 
     plt.tight_layout()
-    plt.savefig(
-        "figures/long_ts_electric_field_" + LONG_TS_POLAR_E + ".png", dpi=200
-    )
+    plt.savefig("figures/long_ts_electric_field_" + LONG_TS_POLAR_E + ".png", dpi=200)
     plt.show()
 
 

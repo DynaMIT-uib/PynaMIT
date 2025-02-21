@@ -10,9 +10,7 @@ vector fields on cubed sphere blocks
 import matplotlib.pyplot as plt
 import numpy as np
 from pynamit.cubed_sphere import cs_basis
-from pynamit.cubed_sphere.testutils import (
-    Geocentric_to_PlateCarree_vector_components,
-)
+from pynamit.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
 from importlib import reload
 import cartopy.crs as ccrs
 
@@ -58,9 +56,7 @@ def test_projection():
 
     x, y, z = p.cube2cartesian(xi, eta, r=rr, block=block)
     geo2cube2cartesian_works = (
-        np.allclose(x - xx, 0)
-        & np.allclose(y - yy, 0)
-        & np.allclose(z - zz, 0)
+        np.allclose(x - xx, 0) & np.allclose(y - yy, 0) & np.allclose(z - zz, 0)
     )
     print(
         "Conversion from (x, y, z, block ) to (xi, eta) and back works: "
@@ -168,12 +164,8 @@ def test_projection():
         Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
             Aeast.flatten(), Anorth.flatten(), lat
         )
-        axg1.quiver(
-            lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C
-        )
-        axg2.quiver(
-            lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C
-        )
+        axg1.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
+        axg2.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
 
         # eta-direction:
         Aeast, Anorth, Ar = np.einsum("nij, nj -> ni", Ps_normalized, Aetas).T
@@ -182,17 +174,11 @@ def test_projection():
         Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
             Aeast.flatten(), Anorth.flatten(), lat
         )
-        axg3.quiver(
-            lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C
-        )
-        axg4.quiver(
-            lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C
-        )
+        axg3.quiver(lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
+        axg4.quiver(lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
 
         for ax in [axg1, axg2, axg3, axg4]:
-            ax.scatter(
-                lon, lat, color=C, transform=ccrs.PlateCarree(), s=5, zorder=60
-            )
+            ax.scatter(lon, lat, color=C, transform=ccrs.PlateCarree(), s=5, zorder=60)
 
             for k in range(N):
                 ax.plot(
@@ -221,26 +207,12 @@ def test_projection():
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Axis).T
         axxyz1.quiver(
-            x.flatten(),
-            y.flatten(),
-            z.flatten(),
-            Ax,
-            Ay,
-            Az,
-            length=1e-1,
-            color=C,
+            x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C
         )
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Aetas).T
         axxyz2.quiver(
-            x.flatten(),
-            y.flatten(),
-            z.flatten(),
-            Ax,
-            Ay,
-            Az,
-            length=1e-1,
-            color=C,
+            x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C
         )
 
     # Make Cartesian plots prettier
@@ -280,23 +252,18 @@ def test_projection():
 
     ### 4) Plot eastward and northward vector fields on CS blocks
     #############################################################
-    print(
-        "Plotting eastward and northward vector fields on cubed sphere blocks"
-    )
+    print("Plotting eastward and northward vector fields on cubed sphere blocks")
     fig, axes = plt.subplots(nrows=2, ncols=6, figsize=(18, 6))
 
     xihd, etahd = np.meshgrid(
-        np.linspace(-np.pi / 4, np.pi / 4, 400),
-        np.linspace(-np.pi / 4, np.pi / 4, 400),
+        np.linspace(-np.pi / 4, np.pi / 4, 400), np.linspace(-np.pi / 4, np.pi / 4, 400)
     )
 
     Aeast = np.vstack((ones, zeros, zeros))
     Anorth = np.vstack((zeros, ones, zeros))
 
     for block in range(6):
-        r_hd, theta_hd, phi_hd = p.cube2spherical(
-            xihd, etahd, r=1, block=block
-        )
+        r_hd, theta_hd, phi_hd = p.cube2spherical(xihd, etahd, r=1, block=block)
         la = 90 - np.rad2deg(theta_hd)
         lo = np.rad2deg(phi_hd)
 
@@ -312,12 +279,8 @@ def test_projection():
         axes[0, block].scatter(xi, eta, c="grey", zorder=1, s=5)
         axes[1, block].scatter(xi, eta, c="grey", zorder=1, s=5)
 
-        axes[0, block].quiver(
-            xi.flatten(), eta.flatten(), Ae[0], Ae[1], scale=15
-        )
-        axes[1, block].quiver(
-            xi.flatten(), eta.flatten(), An[0], An[1], scale=15
-        )
+        axes[0, block].quiver(xi.flatten(), eta.flatten(), Ae[0], Ae[1], scale=15)
+        axes[1, block].quiver(xi.flatten(), eta.flatten(), An[0], An[1], scale=15)
 
         axes[0, block].set_title("block " + str(block) + ", eastward")
         axes[1, block].set_title("block " + str(block) + ", northward")
@@ -360,8 +323,7 @@ def test_projection():
     ax.coastlines(zorder=3)
 
     xi, eta = np.meshgrid(
-        np.linspace(-np.pi / 4, np.pi / 4, N),
-        np.linspace(-np.pi / 4, np.pi / 4, N),
+        np.linspace(-np.pi / 4, np.pi / 4, N), np.linspace(-np.pi / 4, np.pi / 4, N)
     )
     dxi = np.diff(xi[0])[0]
     det = np.diff(eta[:, 0])[0]
@@ -369,9 +331,7 @@ def test_projection():
     N_extra = 5
     extra_xi = np.arange(1, N_extra + 1) * dxi
     extra_eta = np.arange(1, N_extra + 1) * det
-    xi_larger = np.hstack(
-        (xi[0, 0] - extra_xi[::-1], xi[0, :], xi[0, -1] + extra_xi)
-    )
+    xi_larger = np.hstack((xi[0, 0] - extra_xi[::-1], xi[0, :], xi[0, -1] + extra_xi))
     eta_larger = np.hstack(
         (eta[0, 0] - extra_eta[::-1], eta[:, 0], eta[-1, 0] + extra_eta)
     )

@@ -70,14 +70,13 @@ if False:
     )
     u_phi = hwm14Obj.Uwind
     u_theta = -hwm14Obj.Vwind
-    u_lat, u_lon = np.meshgrid(
-        hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij"
-    )
+    u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
     ugrid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
-    Gphi, Gtheta = ubasis.get_G(ugrid, derivative="phi"), ubasis.get_G(
-        ugrid, derivative="theta"
+    Gphi, Gtheta = (
+        ubasis.get_G(ugrid, derivative="phi"),
+        ubasis.get_G(ugrid, derivative="theta"),
     )
     G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
     G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()
@@ -104,16 +103,12 @@ if False:
 
     igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
 
-    igrf_keys = (
-        pynamit.sha.helpers.SHKeys(_n.max(), _m.max()).setNmin(1).MleN()
-    )
+    igrf_keys = pynamit.sha.helpers.SHKeys(_n.max(), _m.max()).setNmin(1).MleN()
 
     # Calculate u x B numerically on grid (we evaluate on the ground):
     ph = np.deg2rad(u_lon).reshape((-1, 1))
     P, dP = np.split(
-        igrf_basis.legendre(_n.max(), _m.max(), 90 - u_lat, keys=igrf_keys),
-        2,
-        axis=1,
+        igrf_basis.legendre(_n.max(), _m.max(), 90 - u_lat, keys=igrf_keys), 2, axis=1
     )
     G_Br = np.hstack(
         (

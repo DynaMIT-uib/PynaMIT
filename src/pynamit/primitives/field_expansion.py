@@ -62,9 +62,7 @@ class FieldExpansion(object):
             initialization parameters are provided.
         """
         if field_type not in ["scalar", "tangential"]:
-            raise ValueError(
-                "field type must be either 'scalar' or 'tangential'."
-            )
+            raise ValueError("field type must be either 'scalar' or 'tangential'.")
 
         self.basis = basis
         self.field_type = field_type
@@ -75,8 +73,7 @@ class FieldExpansion(object):
             self.coeffs = self.coeffs_from_grid(basis_evaluator, grid_values)
         else:
             raise ValueError(
-                "Either coeffs or basis evaluator and grid values must"
-                " be provided."
+                "Either coeffs or basis evaluator and grid values must be provided."
             )
 
     def coeffs_from_grid(self, basis_evaluator, grid_values):
@@ -149,10 +146,6 @@ class FieldExpansion(object):
         - tangential: Separate penalties on Helmholtz components
         """
         if self.field_type == "scalar":
-            return basis_evaluator.regularization_term(
-                self.coeffs, helmholtz=False
-            )
+            return basis_evaluator.regularization_term(self.coeffs, helmholtz=False)
         elif self.field_type == "tangential":
-            return basis_evaluator.regularization_term(
-                self.coeffs, helmholtz=True
-            )
+            return basis_evaluator.regularization_term(self.coeffs, helmholtz=True)

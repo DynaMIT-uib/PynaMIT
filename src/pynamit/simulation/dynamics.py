@@ -53,9 +53,7 @@ class Dynamics(object):
         mainfield_kind="dipole",
         mainfield_epoch=2020,
         mainfield_B0=None,
-        FAC_integration_steps=np.logspace(
-            np.log10(RE + 110.0e3), np.log10(4 * RE), 11
-        ),
+        FAC_integration_steps=np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11),
         ignore_PFAC=False,
         connect_hemispheres=False,
         latitude_boundary=50,
@@ -143,16 +141,12 @@ class Dynamics(object):
             self.dataset_filename_prefix is not None
         ) and os.path.exists(self.dataset_filename_prefix + "_settings.ncdf")
         if settings_on_file:
-            settings = xr.load_dataset(
-                self.dataset_filename_prefix + "_settings.ncdf"
-            )
+            settings = xr.load_dataset(self.dataset_filename_prefix + "_settings.ncdf")
 
         # Load PFAC matrix if it exists on file
         PFAC_matrix_on_file = (
             self.dataset_filename_prefix is not None
-        ) and os.path.exists(
-            self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
-        )
+        ) and os.path.exists(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
         if PFAC_matrix_on_file:
             PFAC_matrix = xr.load_dataarray(
                 self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
@@ -168,9 +162,7 @@ class Dynamics(object):
         )
 
         self.cs_basis = CSBasis(settings.Ncs)
-        self.state_grid = Grid(
-            theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi
-        )
+        self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
 
         self.bases = {
             "state": SHBasis(settings.Nmax, settings.Mmax),
@@ -207,19 +199,14 @@ class Dynamics(object):
                 basis_index_arrays = self.bases[key].index_arrays
                 basis_index_names = self.bases[key].index_names
             else:
-                basis_index_arrays = [
-                    self.state_grid.theta,
-                    self.state_grid.phi,
-                ]
+                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
                 basis_index_names = ["theta", "phi"]
 
             if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     basis_index_arrays, names=basis_index_names
                 )
-            elif all(
-                self.vars[key][var] == "tangential" for var in self.vars[key]
-            ):
+            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     [
                         np.tile(basis_index_arrays[i], 2)
@@ -318,23 +305,19 @@ class Dynamics(object):
 
                 current_state_dataset = xr.Dataset(
                     data_vars={
-                        self.bases["state"].short_name
-                        + "_m_ind": (
+                        self.bases["state"].short_name + "_m_ind": (
                             ["time", "i"],
                             self.state.m_ind.coeffs.reshape((1, -1)),
                         ),
-                        self.bases["state"].short_name
-                        + "_m_imp": (
+                        self.bases["state"].short_name + "_m_imp": (
                             ["time", "i"],
                             self.state.m_imp.coeffs.reshape((1, -1)),
                         ),
-                        self.bases["state"].short_name
-                        + "_Phi": (
+                        self.bases["state"].short_name + "_Phi": (
                             ["time", "i"],
                             self.state.E.coeffs[0].reshape((1, -1)),
                         ),
-                        self.bases["state"].short_name
-                        + "_W": (
+                        self.bases["state"].short_name + "_W": (
                             ["time", "i"],
                             self.state.E.coeffs[1].reshape((1, -1)),
                         ),
@@ -349,47 +332,46 @@ class Dynamics(object):
                 if self.save_steady_states:
                     # Calculate steady state and append to time series
                     steady_state_m_ind = self.state.steady_state_m_ind()
-                    steady_state_m_imp = self.state.calculate_m_imp(
-                        steady_state_m_ind
-                    )
+                    steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(
                         steady_state_m_ind
                     )
 
                     current_steady_state_dataset = xr.Dataset(
                         data_vars={
-                            self.bases["steady_state"].short_name
-                            + "_m_ind": (["i"], steady_state_m_ind),
-                            self.bases["steady_state"].short_name
-                            + "_m_imp": (["i"], steady_state_m_imp),
-                            self.bases["steady_state"].short_name
-                            + "_Phi": (["i"], steady_state_E_coeffs[0]),
-                            self.bases["steady_state"].short_name
-                            + "_W": (["i"], steady_state_E_coeffs[1]),
+                            self.bases["steady_state"].short_name + "_m_ind": (
+                                ["i"],
+                                steady_state_m_ind,
+                            ),
+                            self.bases["steady_state"].short_name + "_m_imp": (
+                                ["i"],
+                                steady_state_m_imp,
+                            ),
+                            self.bases["steady_state"].short_name + "_Phi": (
+                                ["i"],
+                                steady_state_E_coeffs[0],
+                            ),
+                            self.bases["steady_state"].short_name + "_W": (
+                                ["i"],
+                                steady_state_E_coeffs[1],
+                            ),
                         },
                         coords=xr.Coordinates.from_pandas_multiindex(
                             self.basis_multiindices["steady_state"], dim="i"
                         ).merge({"time": [self.current_time]}),
                     )
 
-                    self.add_to_timeseries(
-                        current_steady_state_dataset, "steady_state"
-                    )
+                    self.add_to_timeseries(current_steady_state_dataset, "steady_state")
 
                 # Save state and steady state time series
-                if (
-                    count % (sampling_step_interval * saving_sample_interval)
-                    == 0
-                ):
+                if count % (sampling_step_interval * saving_sample_interval) == 0:
                     self.save_timeseries("state")
 
                     if quiet:
                         pass
                     else:
                         print(
-                            "Saved state at t = {:.2f} s".format(
-                                self.current_time
-                            ),
+                            "Saved state at t = {:.2f} s".format(self.current_time),
                             end="\n" if self.save_steady_states else "\r",
                             flush=True,
                         )
@@ -466,9 +448,7 @@ class Dynamics(object):
             Relative tolerance for the pseudo-inverse, by default 1e-15.
         """
         FAC_b_evaluator = FieldEvaluator(
-            self.mainfield,
-            Grid(lat=lat, lon=lon, theta=theta, phi=phi),
-            self.RI,
+            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.RI
         )
 
         self.set_jr(
@@ -514,9 +494,7 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        input_data = {
-            "jr": [np.atleast_2d(jr)],
-        }
+        input_data = {"jr": [np.atleast_2d(jr)]}
 
         self.set_input(
             "jr",
@@ -568,21 +546,14 @@ class Dynamics(object):
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        input_data = {
-            "etaP": [np.empty_like(Pedersen)],
-            "etaH": [np.empty_like(Hall)],
-        }
+        input_data = {"etaP": [np.empty_like(Pedersen)], "etaH": [np.empty_like(Hall)]}
 
         # Convert to resistivity
         for i in range(max(input_data["etaP"][0].shape[0], 1)):
-            input_data["etaP"][0][i] = Pedersen[i] / (
-                Hall[i] ** 2 + Pedersen[i] ** 2
-            )
+            input_data["etaP"][0][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
         for i in range(max(input_data["etaH"][0].shape[0], 1)):
-            input_data["etaH"][0][i] = Hall[i] / (
-                Hall[i] ** 2 + Pedersen[i] ** 2
-            )
+            input_data["etaH"][0][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
         self.set_input(
             "conductance",
@@ -628,9 +599,7 @@ class Dynamics(object):
         reg_lambda : float, optional
             Regularization parameter.
         """
-        input_data = {
-            "u": [np.atleast_2d(u_theta), np.atleast_2d(u_phi)],
-        }
+        input_data = {"u": [np.atleast_2d(u_theta), np.atleast_2d(u_phi)]}
 
         self.set_input(
             "u",
@@ -817,9 +786,7 @@ class Dynamics(object):
         else:
             self.timeseries[key] = xr.concat(
                 [
-                    self.timeseries[key].drop_sel(
-                        time=dataset.time, errors="ignore"
-                    ),
+                    self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"),
                     dataset,
                 ],
                 dim="time",
@@ -843,8 +810,7 @@ class Dynamics(object):
         input_selected = False
 
         if np.any(
-            self.timeseries[key].time.values
-            <= self.current_time + FLOAT_ERROR_MARGIN
+            self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN
         ):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
@@ -873,23 +839,15 @@ class Dynamics(object):
                 )
             ):
                 dataset_after = self.timeseries[key].sel(
-                    time=[self.current_time + FLOAT_ERROR_MARGIN],
-                    method="bfill",
+                    time=[self.current_time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
                 for var in self.vars[key]:
                     current_data[var] += (
                         (self.current_time - dataset_before.time.item())
-                        / (
-                            dataset_after.time.item()
-                            - dataset_before.time.item()
-                        )
+                        / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[
-                                short_name + "_" + var
-                            ].values.flatten()
-                            - dataset_before[
-                                short_name + "_" + var
-                            ].values.flatten()
+                            dataset_after[short_name + "_" + var].values.flatten()
+                            - dataset_before[short_name + "_" + var].values.flatten()
                         )
                     )
 
@@ -901,9 +859,7 @@ class Dynamics(object):
             self.previous_data = {}
 
         # Update state if first call or difference with last selection
-        if not all(
-            [var in self.previous_data.keys() for var in self.vars[key]]
-        ) or (
+        if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
             not all(
                 [
                     np.allclose(
@@ -1038,7 +994,6 @@ class Dynamics(object):
     def load_timeseries(self):
         """Load all time series that exist on file."""
         if self.dataset_filename_prefix is not None:
-
             for key in self.vars.keys():
                 dataset = self.load_dataset(key)
 
@@ -1088,15 +1043,9 @@ class Dynamics(object):
             order=1,
         )
 
-        g11_scaled = sp.diags(
-            self.cs_basis.g[:, 0, 0] / self.cs_basis.sqrt_detg
-        )
-        g12_scaled = sp.diags(
-            self.cs_basis.g[:, 0, 1] / self.cs_basis.sqrt_detg
-        )
-        g22_scaled = sp.diags(
-            self.cs_basis.g[:, 1, 1] / self.cs_basis.sqrt_detg
-        )
+        g11_scaled = sp.diags(self.cs_basis.g[:, 0, 0] / self.cs_basis.sqrt_detg)
+        g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / self.cs_basis.sqrt_detg)
+        g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / self.cs_basis.sqrt_detg)
 
         # Matrix that gives radial curl from column vector of (u1, u2)
         D_curlr_u1u2 = sp.hstack(
@@ -1108,9 +1057,7 @@ class Dynamics(object):
 
         # Matrix that transforms (theta, phi) to (u1, u2)
         Ps_dense = self.cs_basis.get_Ps(
-            self.cs_basis.arr_xi,
-            self.cs_basis.arr_eta,
-            block=self.cs_basis.arr_block,
+            self.cs_basis.arr_xi, self.cs_basis.arr_eta, block=self.cs_basis.arr_block
         )
 
         # Extract relevant elements, rearrange matrix to map from
@@ -1153,7 +1100,7 @@ class Dynamics(object):
         """
         if not hasattr(self, "_sh_curl_matrix"):
             G_df_inv = self.state.basis_evaluator.G_helmholtz_inv[
-                self.state.basis.index_length:, :
+                self.state.basis.index_length :, :
             ]
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
                 self.state.basis.laplacian().reshape((-1, 1)) * G_df_inv

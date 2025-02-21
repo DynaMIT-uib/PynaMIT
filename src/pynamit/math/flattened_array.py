@@ -25,9 +25,7 @@ class FlattenedArray(object):
         Flattened array of shape `shapes`
     """
 
-    def __init__(
-        self, full_array, n_leading_flattened=None, n_trailing_flattened=None
-    ):
+    def __init__(self, full_array, n_leading_flattened=None, n_trailing_flattened=None):
         """Initialize a FlattenedArray object.
 
         Parameters
@@ -52,13 +50,9 @@ class FlattenedArray(object):
         """
         if n_leading_flattened is None and n_trailing_flattened is None:
             raise ValueError(
-                "Either n_leading_flattened or n_trailing_flattened must be "
-                "specified."
+                "Either n_leading_flattened or n_trailing_flattened must be specified."
             )
-        elif (
-            n_leading_flattened is not None
-            and n_trailing_flattened is not None
-        ):
+        elif n_leading_flattened is not None and n_trailing_flattened is not None:
             if n_leading_flattened + n_trailing_flattened != full_array.ndim:
                 raise ValueError(
                     "n_leading_flattened + n_trailing_flattened must be equal "
@@ -77,8 +71,5 @@ class FlattenedArray(object):
             full_array.shape[n_leading_flattened:],
         )
 
-        self.shapes = (
-            math.prod(self.full_shapes[0]),
-            math.prod(self.full_shapes[1]),
-        )
+        self.shapes = (math.prod(self.full_shapes[0]), math.prod(self.full_shapes[1]))
         self.array = full_array.reshape(self.shapes)

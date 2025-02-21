@@ -67,7 +67,6 @@ alpha22 = sp.collect(sp.factor(alpha22), [ut, up]).expand()
 alpha23 = sp.collect(sp.factor(alpha23), [ut, up]).expand()
 
 if PRINT_LATEX:
-
     print(
         "\\alpha_{11}=&"
         + "\\eta_P("

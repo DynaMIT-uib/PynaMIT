@@ -30,10 +30,7 @@ print(
 )
 
 
-rk = (
-    RI
-    / np.cos(np.deg2rad(np.linspace(0, 70, int(360 / (Nmax + 0.5)) + 1))) ** 2
-)
+rk = RI / np.cos(np.deg2rad(np.linspace(0, 70, int(360 / (Nmax + 0.5)) + 1))) ** 2
 # rk = np.hstack(
 #     rk,
 #     np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)[5:] / RE
@@ -75,9 +72,7 @@ conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
-dynamics.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 ## jr INPUT
 jr_lat = dynamics.state_grid.lat
@@ -190,7 +185,6 @@ if SIMULATE:
     filecount = 1
     time = 0
     while True:
-
         dynamics.state.evolve_Br(dt)
         time = time + dt
         coeffs.append(dynamics.state.m_ind.coeffs)
@@ -210,9 +204,7 @@ if SIMULATE:
                 time,
                 (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3],
             )
-            fn = os.path.join(
-                fig_directory, "new_" + str(filecount).zfill(3) + ".png"
-            )
+            fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
             filecount += 1
             title = "t = {:.3} s".format(time)
             Br = dynamics.state.get_Br(plt_state_evaluator)

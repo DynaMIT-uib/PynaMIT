@@ -36,9 +36,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     kwargs : dict
         Additional arguments for griddata interpolation
     """
-    inlat, inlon, values = map(
-        np.ravel, np.broadcast_arrays(inlat, inlon, values)
-    )
+    inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
     in_r = np.vstack(
         (
             np.cos(np.deg2rad(inlat)) * np.cos(np.deg2rad(inlon)),
@@ -48,9 +46,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     )
 
     outlon, outlat = np.broadcast_arrays(outlon, outlat)
-    shape = (
-        outlon.shape
-    )  # get the shape so we can reshape the result in the end
+    shape = outlon.shape  # get the shape so we can reshape the result in the end
     outlon, outlat = outlon.flatten(), outlat.flatten()
 
     result = np.zeros_like(outlon) - 1
@@ -72,7 +68,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
             np.vstack((xi_i, eta_i)).T,
             values[iii],
             np.vstack((xi_o[jjj], eta_o[jjj])).T,
-            **kwargs
+            **kwargs,
         )
 
     return result.reshape(shape)
@@ -215,12 +211,8 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     paxs_B = Polarplot(plt.subplot2grid((4, 4), (0, 1)))
     paxn_j = Polarplot(plt.subplot2grid((4, 4), (0, 2)))
     paxs_j = Polarplot(plt.subplot2grid((4, 4), (0, 3)))
-    gax_B = plt.subplot2grid(
-        (4, 2), (1, 0), projection=global_projection, rowspan=2
-    )
-    gax_j = plt.subplot2grid(
-        (4, 2), (1, 1), projection=global_projection, rowspan=2
-    )
+    gax_B = plt.subplot2grid((4, 2), (1, 0), projection=global_projection, rowspan=2)
+    gax_j = plt.subplot2grid((4, 2), (1, 1), projection=global_projection, rowspan=2)
     ax_1 = plt.subplot2grid((4, 3), (3, 0))
     ax_2 = plt.subplot2grid((4, 3), (3, 1))
     ax_3 = plt.subplot2grid((4, 3), (3, 2))
@@ -258,21 +250,21 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         lat.reshape((NLO, NLA)),
         Br.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **B_kwargs
+        **B_kwargs,
     )
     gax_j.contour(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
         eq_current_function.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **eqJ_kwargs
+        **eqJ_kwargs,
     )
     gax_j.contourf(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
         FAC.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **FAC_kwargs
+        **FAC_kwargs,
     )
 
     # POLAR PLOTS
@@ -338,12 +330,8 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
     c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
     c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(
-        c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2
-    )
-    Ed1_cp, Ed2_cp = np.split(
-        c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2
-    )
+    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
+    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
     ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
     ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
     ax_3.set_xlabel("$E_{d_i}$")
@@ -354,12 +342,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         gax_j.set_title(title)
 
     plt.subplots_adjust(
-        top=0.89,
-        bottom=0.095,
-        left=0.025,
-        right=0.95,
-        hspace=0.0,
-        wspace=0.185,
+        top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185
     )
     if filename is not None:
         fig.savefig(filename)
@@ -370,7 +353,6 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
 
 if __name__ == "__main__":
-
     # import cubedsphere submodule
     import os
     import sys
@@ -385,9 +367,7 @@ if __name__ == "__main__":
     xi, eta = cs_basis.xi(i, Ncs), cs_basis.eta(j, Ncs)
     _, theta, phi = cs_basis.cube2spherical(xi, eta, k, deg=True)
 
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(
-        -180, 180, Ncs * 4
-    )
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
 
     from lompe import conductance
@@ -409,9 +389,7 @@ if __name__ == "__main__":
     hall_plt = cs_interpolate(cs_basis, 90 - theta, phi, hall, lat, lon)
     pede_plt = cs_interpolate(cs_basis, 90 - theta, phi, pedersen, lat, lon)
 
-    globalplot(
-        lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100)
-    )
+    globalplot(lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100))
 
 
 def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
@@ -437,9 +415,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
 
     # Define grid used for plotting
     Ncs = 30
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(
-        -180, 180, Ncs * 4
-    )
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
 
@@ -490,21 +466,15 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
 
-    m_state_evaluator = BasisEvaluator(
-        dynamics.state_basis, Grid(lat=mlat, lon=lon)
-    )
+    m_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlat, lon=lon))
     jr = dynamics.get_jr(m_state_evaluator) * 1e6
 
-    mv_state_evaluator = BasisEvaluator(
-        dynamics.state_basis, Grid(lat=mlatv, lon=lonv)
-    )
+    mv_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlatv, lon=lonv))
     js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
     jn = -js
 
     jrn, jrs = np.split(jr, 2)
-    paxes[2].contourf(
-        mn_grid.lat, mn_grid.lon, jrn, levels=levels, cmap=plt.cm.bwr
-    )
+    paxes[2].contourf(mn_grid.lat, mn_grid.lon, jrn, levels=levels, cmap=plt.cm.bwr)
     paxes[2].quiver(
         mnv_grid.lat,
         mnv_grid.lon,
@@ -513,9 +483,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         scale=SCALE,
         color="black",
     )
-    paxes[3].contourf(
-        mn_grid.lat, mn_grid.lon, jrs, levels=levels, cmap=plt.cm.bwr
-    )
+    paxes[3].contourf(mn_grid.lat, mn_grid.lon, jrs, levels=levels, cmap=plt.cm.bwr)
     paxes[3].quiver(
         mnv_grid.lat,
         mnv_grid.lon,
@@ -600,9 +568,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
     # Define grid used for plotting
     Ncs = 30
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(
-        -180, 180, Ncs * 4
-    )
+    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
 
@@ -706,13 +672,7 @@ def make_colorbars():
 
 
 def time_dependent_plot(
-    dynamics,
-    fig_directory,
-    filecount,
-    lon0,
-    plt_grid,
-    pltshape,
-    plt_state_evaluator,
+    dynamics, fig_directory, filecount, lon0, plt_grid, pltshape, plt_state_evaluator
 ):
     """Create time series visualization frame.
 

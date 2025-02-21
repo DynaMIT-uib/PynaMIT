@@ -54,8 +54,4 @@ napoleon_google_docstring = False
 # Options for myst_parser
 # https://myst-parser.readthedocs.io/en/latest/index.html
 
-source_suffix = {
-    ".rst": "restructuredtext",
-    ".txt": "markdown",
-    ".md": "markdown",
-}
+source_suffix = {".rst": "restructuredtext", ".txt": "markdown", ".md": "markdown"}

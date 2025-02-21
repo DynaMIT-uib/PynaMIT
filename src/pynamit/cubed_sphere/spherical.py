@@ -126,9 +126,7 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     new_y = np.cross(new_z, new_x)
     new_x, new_y, new_z = new_x.flatten(), new_y.flatten(), new_z.flatten()
     if not np.isclose(np.linalg.norm(new_y), 1):
-        raise ValueError(
-            "x and z coordinates do not define orthogonal directions"
-        )
+        raise ValueError("x and z coordinates do not define orthogonal directions")
     r = np.vstack((new_x, new_y, new_z))
     xyz = r.dot(xyz)
     _, colat, lon = car_to_sph(xyz, deg=deg)
@@ -164,18 +162,10 @@ def enu_to_ecef(v, lon, lat, reverse=False):
     theta = (90 - lat) * d2r
     unit_east = np.vstack((-np.sin(phi), np.cos(phi), np.zeros_like(phi))).T
     unit_north = np.vstack(
-        (
-            -np.cos(theta) * np.cos(phi),
-            -np.cos(theta) * np.sin(phi),
-            np.sin(theta),
-        )
+        (-np.cos(theta) * np.cos(phi), -np.cos(theta) * np.sin(phi), np.sin(theta))
     ).T
     unit_up = np.vstack(
-        (
-            np.sin(theta) * np.cos(phi),
-            np.sin(theta) * np.sin(phi),
-            np.cos(theta),
-        )
+        (np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta))
     ).T
     enu_to_ecef_or_reverse = np.stack(
         (unit_east, unit_north, unit_up), axis=1 if reverse else 2
@@ -239,9 +229,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
         undefined (points nearly identical or antipodal).
     """
     if not (lat1.shape == lon1.shape == lat2.shape == lon2.shape):
-        raise ValueError(
-            "tangent_vector: input coordinates do not have equal shapes"
-        )
+        raise ValueError("tangent_vector: input coordinates do not have equal shapes")
 
     shape = lat1.shape
 
@@ -260,25 +248,15 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
 
     # ECEF position vectors
     ecef_p1 = np.vstack(
-        (
-            np.cos(lat1) * np.cos(lon1),
-            np.cos(lat1) * np.sin(lon1),
-            np.sin(lat1),
-        )
+        (np.cos(lat1) * np.cos(lon1), np.cos(lat1) * np.sin(lon1), np.sin(lat1))
     )
     ecef_p2 = np.vstack(
-        (
-            np.cos(lat2) * np.cos(lon2),
-            np.cos(lat2) * np.sin(lon2),
-            np.sin(lat2),
-        )
+        (np.cos(lat2) * np.cos(lon2), np.cos(lat2) * np.sin(lon2), np.sin(lat2))
     )
 
     # Check if tangent is well defined
     if np.any(np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0)):
-        points = np.isclose(
-            np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0
-        ).nonzero()[0]
+        points = np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0).nonzero()[0]
         raise ValueError(
             "tangent_vector: input coordinates at nearly identical or "
             "antipodal points; tangent not defined\n flattened "
@@ -307,11 +285,7 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
                 )
             ).T,
             np.vstack(
-                (
-                    np.cos(lon1) * np.cos(lat1),
-                    np.sin(lon1) * np.cos(lat1),
-                    np.sin(lat1),
-                )
+                (np.cos(lon1) * np.cos(lat1), np.sin(lon1) * np.cos(lat1), np.sin(lat1))
             ).T,
         )
     )
@@ -365,12 +339,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     try:
         lat, lon, Ae, An = np.broadcast_arrays(lat, lon, Ae, An)
         shape = lat.shape
-        lat, lon, Ae, An = (
-            lat.flatten(),
-            lon.flatten(),
-            Ae.flatten(),
-            An.flatten(),
-        )
+        lat, lon, Ae, An = (lat.flatten(), lon.flatten(), Ae.flatten(), An.flatten())
     except ValueError:
         raise Exception("Input arrays have inconsistent shapes")
     lat, lon = lat.flatten(), lon.flatten()
@@ -408,9 +377,7 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     # Rotate normalized vectors to ecef
     A_geo_ecef = enu_to_ecef((A_geo_enu / A).T, lon, lat)
     A_local_ecef = Rgeo_to_local.dot(A_geo_ecef.T)
-    A_local_enu = (
-        ecef_to_enu(A_local_ecef.T, lon_local, 90 - colat_local).T * A
-    )
+    A_local_enu = ecef_to_enu(A_local_ecef.T, lon_local, 90 - colat_local).T * A
 
     # Return coords and vector components:
     return (
@@ -422,7 +389,6 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
 
 
 if __name__ == "__main__":
-
     # TESTING ENU/ECEF CONVERSION:
     v = np.array([[1, 1, 0], [1, 0, 0]])
     lat = np.array([-90, 0])
@@ -434,10 +400,7 @@ if __name__ == "__main__":
     lon = np.random.random(30) * 360
     print(
         "This number should be small: ",
-        np.max(
-            enu_to_ecef(enu_to_ecef(v, lat, lon), lat, lon, reverse=True) - v
-        )
-        ** 2,
+        np.max(enu_to_ecef(enu_to_ecef(v, lat, lon), lat, lon, reverse=True) - v) ** 2,
     )
 
     # Testing geo2local function by comparison to equivalent code in
@@ -456,9 +419,7 @@ if __name__ == "__main__":
     # Test vector components
     Ae, An = np.random.random((2, sum(r <= 1)))
 
-    newlat, newlon, neweast, newnorth = geo2local(
-        90 - colat, lon, Ae, An, lon0, lat0
-    )
+    newlat, newlon, neweast, newnorth = geo2local(90 - colat, lon, Ae, An, lon0, lat0)
     cdlat, cdlon, cdeast, cdnorth = d.geo2mag(90 - colat, lon, Ae=Ae, An=An)
     assert np.all(np.isclose(cdlat - newlat, 0))
     assert np.all(np.isclose(cdlon - newlon, 0))

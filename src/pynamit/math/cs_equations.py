@@ -57,9 +57,7 @@ class CSEquations(object):
             direction (0 for xi, 1 for eta).
         """
         if not hasattr(self, "_D"):
-            self._D = self.cs_basis.get_Diff(
-                self.cs_basis.Ncs, coordinate="both"
-            )
+            self._D = self.cs_basis.get_Diff(self.cs_basis.Ncs, coordinate="both")
         return self._D
 
     @property
@@ -75,10 +73,7 @@ class CSEquations(object):
         """
         if not hasattr(self, "_Ps"):
             self._Ps = self.cs_basis.get_Ps(
-                self.cs_basis.arr_xi,
-                self.cs_basis.arr_eta,
-                1,
-                self.cs_basis.arr_block,
+                self.cs_basis.arr_xi, self.cs_basis.arr_eta, 1, self.cs_basis.arr_block
             )
         return self._Ps
 
@@ -124,12 +119,10 @@ class CSEquations(object):
             / self.cs_basis.sqrt_detg
             * (
                 self.D[0].dot(
-                    self.cs_basis.g[:, 0, 1] * u1
-                    + self.cs_basis.g[:, 1, 1] * u2
+                    self.cs_basis.g[:, 0, 1] * u1 + self.cs_basis.g[:, 1, 1] * u2
                 )
                 - self.D[1].dot(
-                    self.cs_basis.g[:, 0, 0] * u1
-                    + self.cs_basis.g[:, 0, 1] * u2
+                    self.cs_basis.g[:, 0, 0] * u1 + self.cs_basis.g[:, 0, 1] * u2
                 )
             )
         )

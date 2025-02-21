@@ -34,9 +34,7 @@ class BasisEvaluator(object):
         Relative tolerance for the pseudo-inverse.
     """
 
-    def __init__(
-        self, basis, grid, weights=None, reg_lambda=None, pinv_rtol=1e-15
-    ):
+    def __init__(self, basis, grid, weights=None, reg_lambda=None, pinv_rtol=1e-15):
         """Initialize the BasisEvaluator object.
 
         Parameters
@@ -71,9 +69,7 @@ class BasisEvaluator(object):
         if not hasattr(self, "_G"):
             if self.basis.caching:
                 if not hasattr(self, "_cache"):
-                    self._G, self._cache = self.basis.get_G(
-                        self.grid, cache_out=True
-                    )
+                    self._G, self._cache = self.basis.get_G(self.grid, cache_out=True)
                 else:
                     self._G = self.basis.get_G(self.grid, cache_in=self._cache)
             else:
@@ -230,21 +226,15 @@ class BasisEvaluator(object):
                 L_cf = np.stack(
                     [
                         np.diag(
-                            self.basis.n
-                            * (self.basis.n + 1)
-                            / (2 * self.basis.n + 1)
+                            self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)
                         ),
-                        np.zeros(
-                            (self.basis.index_length, self.basis.index_length)
-                        ),
+                        np.zeros((self.basis.index_length, self.basis.index_length)),
                     ],
                     axis=1,
                 )
                 L_df = np.stack(
                     [
-                        np.zeros(
-                            (self.basis.index_length, self.basis.index_length)
-                        ),
+                        np.zeros((self.basis.index_length, self.basis.index_length)),
                         np.diag((self.basis.n + 1) / 2),
                     ],
                     axis=1,

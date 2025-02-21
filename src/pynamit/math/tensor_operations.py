@@ -33,8 +33,7 @@ def tensor_product(A, B, n_contracted):
     last_dims = B.shape[n_contracted:]
 
     AB = np.dot(
-        A.reshape((np.prod(first_dims), -1)),
-        B.reshape((-1, np.prod(last_dims))),
+        A.reshape((np.prod(first_dims), -1)), B.reshape((-1, np.prod(last_dims)))
     ).reshape((first_dims + last_dims))
 
     return AB
@@ -136,9 +135,9 @@ def tensor_transpose(A, n_leading_flattened=2):
     first_dims = A.shape[:n_leading_flattened]
     last_dims = A.shape[n_leading_flattened:]
 
-    A_transposed = A.reshape(
-        (np.prod(first_dims), np.prod(last_dims))
-    ).T.reshape((last_dims + first_dims))
+    A_transposed = A.reshape((np.prod(first_dims), np.prod(last_dims))).T.reshape(
+        (last_dims + first_dims)
+    )
 
     return A_transposed
 
@@ -163,7 +162,7 @@ def tensor_scale_left(scaling_tensor, A):
         Scaled tensor.
     """
     first_dims = scaling_tensor.shape
-    last_dims = A.shape[len(first_dims):]
+    last_dims = A.shape[len(first_dims) :]
 
     A_scaled = scaling_tensor.reshape((np.prod(first_dims), 1)) * A.reshape(
         (np.prod(first_dims), np.prod(last_dims))
@@ -232,9 +231,7 @@ def tensor_outer(A, B, n_leading_flattened):
     first_B_dims = B.shape[:n_leading_flattened]
 
     if first_A_dims != first_B_dims:
-        raise ValueError(
-            "First dimensions of outer product tensors do not match."
-        )
+        raise ValueError("First dimensions of outer product tensors do not match.")
 
     last_A_dims = A.shape[n_leading_flattened:]
     last_B_dims = B.shape[n_leading_flattened:]

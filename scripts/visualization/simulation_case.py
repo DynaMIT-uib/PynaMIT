@@ -46,66 +46,42 @@ gax4 = plt.subplot2grid(
 
 paxn1 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (0, 2 + 20 * 0),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (0, 2 + 20 * 0), colspan=20, projection=a.get_global_projection()
     )
 )
 paxs1 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (0, 2 + 20 * 1),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (0, 2 + 20 * 1), colspan=20, projection=a.get_global_projection()
     )
 )
 paxn2 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (1, 2 + 20 * 0),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (1, 2 + 20 * 0), colspan=20, projection=a.get_global_projection()
     )
 )
 paxs2 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (1, 2 + 20 * 1),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (1, 2 + 20 * 1), colspan=20, projection=a.get_global_projection()
     )
 )
 paxn3 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (2, 2 + 20 * 0),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (2, 2 + 20 * 0), colspan=20, projection=a.get_global_projection()
     )
 )
 paxs3 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (2, 2 + 20 * 1),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (2, 2 + 20 * 1), colspan=20, projection=a.get_global_projection()
     )
 )
 paxn4 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (3, 2 + 20 * 0),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (3, 2 + 20 * 0), colspan=20, projection=a.get_global_projection()
     )
 )
 paxs4 = Polarplot(
     plt.subplot2grid(
-        (4, 62),
-        (3, 2 + 20 * 1),
-        colspan=20,
-        projection=a.get_global_projection(),
+        (4, 62), (3, 2 + 20 * 1), colspan=20, projection=a.get_global_projection()
     )
 )
 
@@ -146,9 +122,9 @@ a.plot_wind(gax1, color="black")
 a.plot_conductance(
     gax2, region="global", levels=conductance_levels, extend="both"
 ).set_edgecolor("face")
-a.plot_Br(
-    gax3, region="global", levels=a.Br_defaults["levels"] * 2
-).set_edgecolor("face")
+a.plot_Br(gax3, region="global", levels=a.Br_defaults["levels"] * 2).set_edgecolor(
+    "face"
+)
 
 a.plot_equivalent_current(gax3, region="global")
 a.plot_electric_field_stream_function(gax3, region="global")
@@ -161,9 +137,9 @@ a.plot_jr(paxn1, region="north").set_edgecolor("face")
 a.plot_conductance(
     paxn2, region="north", levels=conductance_levels, extend="both"
 ).set_edgecolor("face")
-a.plot_Br(
-    paxn3, region="north", levels=a.Br_defaults["levels"] * 2
-).set_edgecolor("face")
+a.plot_Br(paxn3, region="north", levels=a.Br_defaults["levels"] * 2).set_edgecolor(
+    "face"
+)
 
 
 a.plot_equivalent_current(paxn3, region="north")
@@ -174,12 +150,12 @@ a.plot_electric_field_stream_function(paxn4, region="north")
 
 
 a.plot_jr(paxs1, region="south").set_edgecolor("face")
-a.plot_conductance(
-    paxs2, region="south", levels=conductance_levels
-).set_edgecolor("face")
-a.plot_Br(
-    paxs3, region="south", levels=a.Br_defaults["levels"] * 2
-).set_edgecolor("face")
+a.plot_conductance(paxs2, region="south", levels=conductance_levels).set_edgecolor(
+    "face"
+)
+a.plot_Br(paxs3, region="south", levels=a.Br_defaults["levels"] * 2).set_edgecolor(
+    "face"
+)
 a.plot_equivalent_current(paxs3, region="south")
 a.plot_electric_potential(
     paxs4, region="south", colors="black", levels=np.r_[-201.5:202:3] * 1e3
@@ -200,9 +176,7 @@ xx, zz = (
     np.vstack((np.zeros(levels.size), np.ones(levels.size))).T,
     np.vstack((levels, levels)).T,
 )
-cbar_axes[1].contourf(
-    xx, zz, zz, levels=levels, cmap=a.conductance_defaults["cmap"]
-)
+cbar_axes[1].contourf(xx, zz, zz, levels=levels, cmap=a.conductance_defaults["cmap"])
 cbar_axes[1].set_xticks([])
 cbar_axes[1].set_ylabel("mho")
 
@@ -221,10 +195,7 @@ paxs1.ax.set_title("Input $j_r$ South")
 paxn2.ax.set_title("Input Hall conductance North")
 paxs2.ax.set_title("Input Hall conductance South")
 
-paxn1.writeLATlabels(
-    color="black",
-    backgroundcolor=(0, 0, 0, 0),
-)
+paxn1.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0))
 paxn1.writeLTlabels()
 paxs1.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=False)
 paxs1.writeLTlabels()

@@ -78,9 +78,7 @@ def stencil(evaluation_points, order=1, h=1, fraction=False):
         denominators = [c.denominator for c in fracs]
         numerators = [c.numerator for c in fracs]
         cd = lcm_arr(denominators)
-        numerators = [
-            int(c * cd / a) for (c, a) in zip(numerators, denominators)
-        ]
+        numerators = [int(c * cd / a) for (c, a) in zip(numerators, denominators)]
         return (numerators, cd)
     else:
         return coeffs / h**order
@@ -136,9 +134,7 @@ def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
     dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
     assert dx.size == dy.size
 
-    NN = (
-        4  # how high derivative terms to include when making the design matrix
-    )
+    NN = 4  # how high derivative terms to include when making the design matrix
     keys = ["_"]
     values = [np.ones_like(dx)]
 
@@ -153,10 +149,7 @@ def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
             p * np.prod(_, axis=0) / factorial(i)
             for p, _ in zip(
                 permutations,
-                [
-                    np.vstack(x)
-                    for x in combinations_with_replacement([dx, dy], i)
-                ],
+                [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)],
             )
         ]
 
@@ -289,9 +282,7 @@ if __name__ == "__main__":
         """
         return 2 * x - 1
 
-    x0, y0 = (np.random.random(500) - 0.5) * 20, (
-        np.random.random(500) - 0.5
-    ) * 20
+    x0, y0 = (np.random.random(500) - 0.5) * 20, (np.random.random(500) - 0.5) * 20
 
     fig, axes = plt.subplots(ncols=5, figsize=(15, 3))
 
@@ -304,10 +295,7 @@ if __name__ == "__main__":
         stencil = get_2D_stencil_coefficients(dx, dy, derivative=derivative)
         derivatives_num = reduce(
             lambda x, y: x + y,
-            [
-                stencil[i] * f(x0 + dx[i], y0 + dy[i])
-                for i in range(len(stencil))
-            ],
+            [stencil[i] * f(x0 + dx[i], y0 + dy[i]) for i in range(len(stencil))],
         )
         ax.scatter(derivatives, derivatives_num)
         ax.set_aspect("equal")
@@ -316,9 +304,7 @@ if __name__ == "__main__":
         print(
             "numerical and analytical values of f_"
             + derivative
-            + " match: {}".format(
-                np.allclose(derivatives - derivatives_num, 0)
-            )
+            + " match: {}".format(np.allclose(derivatives - derivatives_num, 0))
         )
 
     plt.tight_layout()

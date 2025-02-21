@@ -101,9 +101,7 @@ class SHKeys(object):
         str
             String representation of the SHKeys instance.
         """
-        return "".join(
-            ["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys]
-        )[:-1]
+        return "".join(["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys])[:-1]
 
     def __str__(self):
         """Return an informal string representing the SHKeys instance.
@@ -113,9 +111,7 @@ class SHKeys(object):
         str
             String representation of the SHKeys instance.
         """
-        return "".join(
-            ["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys]
-        )[:-1]
+        return "".join(["n, m\n"] + [str(key)[1:-1] + "\n" for key in self.keys])[:-1]
 
     def set_Nmin(self, Nmin):
         """Set minimum n value.
@@ -171,9 +167,7 @@ class SHKeys(object):
         self : SHKeys
             Modified instance with filtered keys where n-|m| is odd
         """
-        self.keys = tuple(
-            [key for key in self.keys if (key[0] - abs(key[1])) % 2 == 1]
-        )
+        self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 1])
         self.make_arrays()
         return self
 
@@ -185,9 +179,7 @@ class SHKeys(object):
         self : SHKeys
             Modified instance with filtered keys where n-|m| is even
         """
-        self.keys = tuple(
-            [key for key in self.keys if (key[0] - abs(key[1])) % 2 == 0]
-        )
+        self.keys = tuple([key for key in self.keys if (key[0] - abs(key[1])) % 2 == 0])
         self.make_arrays()
         return self
 

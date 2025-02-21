@@ -98,15 +98,12 @@ sza = conductance.sunlight.sza(
     conductance_lat, conductance_lon, current_date, degrees=True
 )
 hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
-hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(
-    pedersen_EUV**2 + 1
+hall_EUV, pedersen_EUV = (
+    np.sqrt(hall_EUV**2 + 1),
+    np.sqrt(pedersen_EUV**2 + 1),
 )  # add starlight
 dynamics.set_conductance(
-    hall_EUV,
-    pedersen_EUV,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
+    hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon, time=current_time
 )
 print("Updated conductance (without aurora) at t =", current_time, flush=True)
 
@@ -114,12 +111,7 @@ current_time = np.float64(120)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 1
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -134,12 +126,7 @@ current_time = np.float64(180)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 2
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -154,12 +141,7 @@ current_time = np.float64(240)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 3
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -174,12 +156,7 @@ current_time = np.float64(360)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 4
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -194,12 +171,7 @@ current_time = np.float64(420)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -214,12 +186,7 @@ current_time = np.float64(480)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 6
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -234,12 +201,7 @@ current_time = np.float64(540)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,
@@ -254,12 +216,7 @@ current_time = np.float64(600)
 current_date = date + datetime.timedelta(seconds=int(current_time))
 Kp = 3
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
-    conductance_lon,
-    conductance_lat,
-    Kp,
-    current_date,
-    starlight=1,
-    dipole=False,
+    conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 dynamics.set_conductance(
     hall_aurora,

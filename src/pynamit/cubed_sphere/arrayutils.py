@@ -125,8 +125,6 @@ def constrain_values(arr, vmin, vmax, axis):
             "Range of array values is too large compared to vmin and vmax."
         )
 
-    a_shifted = (
-        arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
-    )
+    a_shifted = arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
 
     return a_shifted

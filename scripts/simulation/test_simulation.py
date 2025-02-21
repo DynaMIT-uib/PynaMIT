@@ -53,16 +53,9 @@ lon0 = d.mlt2mlon(12, date)  # noon longitude
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
-    dynamics.state_grid.lon,
-    dynamics.state_grid.lat,
-    Kp,
-    date,
-    starlight=1,
-    dipole=True,
+    dynamics.state_grid.lon, dynamics.state_grid.lat, Kp, date, starlight=1, dipole=True
 )
-dynamics.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 ## jr INPUT
 jr_lat = dynamics.state_grid.lat
@@ -107,7 +100,6 @@ count = 0
 filecount = 1
 time = 0
 while True:
-
     dynamics.state.evolve_Br(dt)
     time = time + dt
     coeffs.append(dynamics.state.m_ind.coeffs)
@@ -120,13 +112,9 @@ while True:
 
     if count % plotsteps == 0:
         print(
-            count,
-            time,
-            (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3],
+            count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3]
         )
-        fn = os.path.join(
-            fig_directory, "new_" + str(filecount).zfill(3) + ".png"
-        )
+        fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
         filecount += 1
         title = "t = {:.3} s".format(time)
         Br = dynamics.state.get_Br(plt_state_evaluator)

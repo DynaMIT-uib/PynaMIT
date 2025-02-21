@@ -309,10 +309,7 @@ class FieldEvaluator(object):
         """
         if not hasattr(self, "_field_orthogonal_to_apex"):
             self._field_orthogonal_to_apex = np.array(
-                [
-                    [self.e1r, self.e1t, self.e1p],
-                    [self.e2r, self.e2t, self.e2p],
-                ]
+                [[self.e1r, self.e1t, self.e1p], [self.e2r, self.e2t, self.e2p]]
             )
 
         return self._field_orthogonal_to_apex
@@ -375,9 +372,7 @@ class FieldEvaluator(object):
             the field.
         """
         if not hasattr(self, "_field_parallel_to_apex"):
-            self._field_parallel_to_apex = np.array(
-                [[self.e3r, self.e3t, self.e3p]]
-            )
+            self._field_parallel_to_apex = np.array([[self.e3r, self.e3t, self.e3p]])
 
         return self._field_parallel_to_apex
 

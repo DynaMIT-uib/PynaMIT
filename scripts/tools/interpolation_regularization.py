@@ -73,11 +73,7 @@ if CONDUCTANCE:
     nmin = 0
 
     interpolated_data = cs_basis.interpolate_scalar(
-        hall,
-        input_grid.theta,
-        input_grid.phi,
-        output_grid.theta,
-        output_grid.phi,
+        hall, input_grid.theta, input_grid.phi, output_grid.theta, output_grid.phi
     )
 
 if WIND:
@@ -116,16 +112,14 @@ if WIND:
     field_type = "tangential"
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = (
-        cs_basis.interpolate_vector_components(
-            u_phi,
-            -u_theta,
-            np.zeros_like(u_phi),
-            input_grid.theta,
-            input_grid.phi,
-            output_grid.theta,
-            output_grid.phi,
-        )
+    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(
+        u_phi,
+        -u_theta,
+        np.zeros_like(u_phi),
+        input_grid.theta,
+        input_grid.phi,
+        output_grid.theta,
+        output_grid.phi,
     )
     interpolated_data = np.array(
         [-interpolated_north, interpolated_east]
@@ -142,16 +136,14 @@ if CURRENT:
     field_type = "tangential"
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = (
-        cs_basis.interpolate_vector_components(
-            je,
-            jn,
-            np.zeros_like(je),
-            input_grid.theta,
-            input_grid.phi,
-            output_grid.theta,
-            output_grid.phi,
-        )
+    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(
+        je,
+        jn,
+        np.zeros_like(je),
+        input_grid.theta,
+        input_grid.phi,
+        output_grid.theta,
+        output_grid.phi,
     )
     interpolated_data = np.array(
         [-interpolated_north, interpolated_east]
@@ -215,9 +207,7 @@ for reg_lambda in np.logspace(
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.coeffs))
             sh_norms.append(
-                np.linalg.norm(
-                    input_sh.regularization_term(input_basis_evaluator)
-                )
+                np.linalg.norm(input_sh.regularization_term(input_basis_evaluator))
             )
             input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator)
             sh_resiudal_norms.append(
@@ -242,15 +232,10 @@ for reg_lambda in np.logspace(
                 field_type=field_type,
             )
             relative_coeff_errors.append(
-                np.linalg.norm(
-                    cs_interpolated_output_sh.coeffs - input_sh.coeffs
-                )
+                np.linalg.norm(cs_interpolated_output_sh.coeffs - input_sh.coeffs)
                 / np.linalg.norm(cs_interpolated_output_sh.coeffs)
             )
-            print(
-                "   Relative coefficient error = %e"
-                % (relative_coeff_errors[-1])
-            )
+            print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
 
         if PLOT:
             if GRID_COMPARISON:
@@ -259,9 +244,7 @@ for reg_lambda in np.logspace(
                     2,
                     figsize=(20, 5),
                     subplot_kw={
-                        "projection": ccrs.PlateCarree(
-                            central_longitude=noon_lon
-                        )
+                        "projection": ccrs.PlateCarree(central_longitude=noon_lon)
                     },
                 )
                 grid_cs_ax.coastlines()
@@ -316,9 +299,7 @@ for reg_lambda in np.logspace(
                 abs_coeff_sh = np.abs(input_sh.coeffs)
 
                 coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
-                coeff_sh_ax.set_title(
-                    "Spherical harmonics coefficient magnitudes"
-                )
+                coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")
 
                 if field_type == "scalar":
                     coeff_cs_ax.plot(abs_coeff_cs, label="CS")

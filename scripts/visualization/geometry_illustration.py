@@ -46,9 +46,7 @@ ccc = ax.contourf(
 )
 
 a = np.linspace(0, np.pi / 2, 100)
-ax.fill_between(
-    RE * np.sin(a), np.zeros_like(a), RE * np.cos(a), color="lightgrey"
-)
+ax.fill_between(RE * np.sin(a), np.zeros_like(a), RE * np.cos(a), color="lightgrey")
 
 
 # plot magnetic field lines

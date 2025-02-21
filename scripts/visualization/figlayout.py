@@ -50,9 +50,7 @@ conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
-dynamics.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 ## jr INPUT
 jr_lat = dynamics.state_grid.lat
@@ -130,12 +128,8 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     paxs_B = Polarplot(plt.subplot2grid((4, 4), (0, 1)))
     paxn_j = Polarplot(plt.subplot2grid((4, 4), (0, 2)))
     paxs_j = Polarplot(plt.subplot2grid((4, 4), (0, 3)))
-    gax_B = plt.subplot2grid(
-        (4, 2), (1, 0), projection=global_projection, rowspan=2
-    )
-    gax_j = plt.subplot2grid(
-        (4, 2), (1, 1), projection=global_projection, rowspan=2
-    )
+    gax_B = plt.subplot2grid((4, 2), (1, 0), projection=global_projection, rowspan=2)
+    gax_j = plt.subplot2grid((4, 2), (1, 1), projection=global_projection, rowspan=2)
     ax_1 = plt.subplot2grid((4, 3), (3, 0))
     ax_2 = plt.subplot2grid((4, 3), (3, 1))
     ax_3 = plt.subplot2grid((4, 3), (3, 2))
@@ -148,18 +142,16 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat=lat, lon=lon)
-    plt_state_evaluator = pynamit.BasisEvaluator(
-        dynamics.state_basis, plt_grid
-    )
+    plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
     plt_b_evaluator = pynamit.FieldEvaluator(
         dynamics.state.mainfield, plt_grid, dynamics.state.RI
     )
 
     ## CALCULATE VALUES TO PLOT
     Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = (
-        plt_state_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))
-    ).dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
+    FAC = (plt_state_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(
+        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
+    )
     jr_mod = plt_state_evaluator.G.dot(
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
     )
@@ -171,20 +163,20 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         lat.reshape((NLO, NLA)),
         Br.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **B_kwargs
+        **B_kwargs,
     )
     gax_j.contour(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
         eq_current_function.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **eqJ_kwargs
+        **eqJ_kwargs,
     )
     gax_j.contourf(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
         FAC.reshape((NLO, NLA)),
-        **FAC_kwargs
+        **FAC_kwargs,
     )
 
     ## POLAR PLOTS
@@ -250,12 +242,8 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
     c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
     c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(
-        c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2
-    )
-    Ed1_cp, Ed2_cp = np.split(
-        c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2
-    )
+    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
+    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
     ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
     ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
     ax_3.set_xlabel("$E_{d_i}$")
@@ -266,12 +254,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         gax_j.set_title(title)
 
     plt.subplots_adjust(
-        top=0.89,
-        bottom=0.095,
-        left=0.025,
-        right=0.95,
-        hspace=0.0,
-        wspace=0.185,
+        top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185
     )
     if filename is not None:
         fig.savefig(filename)

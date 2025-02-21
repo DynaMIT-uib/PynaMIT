@@ -96,17 +96,16 @@ STEP = 2  # number of seconds between each conductance update
 
 
 while True:
-    current_date = date + datetime.timedelta(
-        seconds=int(dynamics.current_time)
-    )
+    current_date = date + datetime.timedelta(seconds=int(dynamics.current_time))
 
     if dynamics.current_time < STEP - FLOAT_ERROR_MARGIN:
         sza = conductance.sunlight.sza(
             conductance_lat, conductance_lon, current_date, degrees=True
         )
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
-        hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(
-            pedersen_EUV**2 + 1
+        hall_EUV, pedersen_EUV = (
+            np.sqrt(hall_EUV**2 + 1),
+            np.sqrt(pedersen_EUV**2 + 1),
         )  # add starlight
         dynamics.set_conductance(
             hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon
@@ -127,10 +126,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -148,10 +144,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -169,10 +162,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -190,10 +180,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -211,10 +198,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -232,10 +216,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -253,10 +234,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",
@@ -274,10 +252,7 @@ while True:
             dipole=False,
         )
         dynamics.set_conductance(
-            hall_aurora,
-            pedersen_aurora,
-            lat=conductance_lat,
-            lon=conductance_lon,
+            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print(
             "Updated conductance (with aurora) at t =",

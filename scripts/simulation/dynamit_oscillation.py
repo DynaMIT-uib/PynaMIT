@@ -33,9 +33,7 @@ rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 for JR_PERIOD in [50, 25, 10, 5, 1]:
     JR_SAMPLING_DT = JR_PERIOD / 50
 
-    dataset_filename_prefix = (
-        "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
-    )
+    dataset_filename_prefix = "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
 
     date = datetime.datetime(2001, 5, 12, 17, 0)
     d = dipole.Dipole(date.year)
@@ -77,9 +75,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         -hwm14Obj.Vwind.flatten() * WIND_FACTOR,
         hwm14Obj.Uwind.flatten() * WIND_FACTOR,
     )
-    u_lat, u_lon = np.meshgrid(
-        hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij"
-    )
+    u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
     # u_lat, u_lon, u_phi, u_theta = (
     #     np.load("ulat.npy"),
     #     np.load("ulon.npy"),
@@ -102,12 +98,11 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     conductance_lat = dynamics.state_grid.lat
     conductance_lon = dynamics.state_grid.lon
 
-    sza = conductance.sunlight.sza(
-        conductance_lat, conductance_lon, date, degrees=True
-    )
+    sza = conductance.sunlight.sza(conductance_lat, conductance_lon, date, degrees=True)
     hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
-    hall_EUV, pedersen_EUV = np.sqrt(hall_EUV**2 + 1), np.sqrt(
-        pedersen_EUV**2 + 1
+    hall_EUV, pedersen_EUV = (
+        np.sqrt(hall_EUV**2 + 1),
+        np.sqrt(pedersen_EUV**2 + 1),
     )  # add starlight
     dynamics.set_conductance(
         hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon
@@ -119,9 +114,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
     mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
     mlt = d.mlon2mlt(mlon, date)
-    _, noon_longitude, _ = apx.apex2geo(
-        0, noon_mlon, (RI - RE) * 1e-3
-    )  # fix this
+    _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
     a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
     jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
     jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
@@ -164,10 +157,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
             envelope_factor = 1.0
 
         sine_wave_factor = np.sin(
-            2.0
-            * np.pi
-            * (time_values[time_index] - RELAXATION_TIME)
-            / JR_PERIOD
+            2.0 * np.pi * (time_values[time_index] - RELAXATION_TIME) / JR_PERIOD
         )
 
         scaled_jr = jr * (1.0 + envelope_factor * 0.5 * sine_wave_factor)
@@ -192,9 +182,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         plt.close()
 
     print("Setting jr", flush=True)
-    dynamics.set_jr(
-        jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values
-    )
+    dynamics.set_jr(jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values)
 
     print("Starting simulation", flush=True)
     dynamics.evolve_to_time(FINAL_TIME, interpolation=True)

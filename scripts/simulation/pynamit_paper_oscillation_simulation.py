@@ -142,8 +142,6 @@ for period in PERIODS:
     dynamics.impose_steady_state()
 
     print(datetime.datetime.now(), "Starting simulation", flush=True)
-    dynamics.evolve_to_time(
-        last_simulation_time + simulation_duration
-    )  # , dt = 5e-3)
+    dynamics.evolve_to_time(last_simulation_time + simulation_duration)  # , dt = 5e-3)
 
     last_simulation_time += simulation_duration

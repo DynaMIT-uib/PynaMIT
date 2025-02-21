@@ -11,8 +11,7 @@ import pytest
 
 
 @pytest.mark.skip(
-    reason="Differentiation must be re-implemented now that grid is "
-    "cell centered"
+    reason="Differentiation must be re-implemented now that grid is cell centered"
 )
 def test_differentiation():
     """Test cubed sphere differentiation."""
@@ -36,18 +35,13 @@ def test_differentiation():
 
     # Differentiate V with respect to R, sanity check if Br is recovered
     rs = np.array([-2, -1, 0, 1, 2]) * 1e3 + R
-    Vs = np.vstack(
-        [igrf_V(rr, theta, phi, datetime.datetime(2020, 1, 1)) for rr in rs]
-    )
+    Vs = np.vstack([igrf_V(rr, theta, phi, datetime.datetime(2020, 1, 1)) for rr in rs])
     r_stencil = diffutils.stencil(rs - R)
     Br_num = -np.sum(Vs * r_stencil.reshape((-1, 1, 1, 1)), axis=0)
 
     Br_num_matches_Br = np.allclose(Br_num.flatten() - Br.flatten(), 0)
 
-    print(
-        "Testing differentiation on grid points that are internal to "
-        "the blocks:"
-    )
+    print("Testing differentiation on grid points that are internal to the blocks:")
     print(
         "Numerically calculated Br     matches Br     calculated with "
         f"spherical harmonics: {Br_num_matches_Br}"
@@ -73,8 +67,7 @@ def test_differentiation():
     dV_dxi = reduce(
         lambda x, y: x + y,
         [
-            stencil[i]
-            * V[:, 2 + stencil_points[i] : (N - 2) + stencil_points[i], 2:-2]
+            stencil[i] * V[:, 2 + stencil_points[i] : (N - 2) + stencil_points[i], 2:-2]
             for i in range(len(stencil_points))
         ],
     )
@@ -94,8 +87,7 @@ def test_differentiation():
     dV_det = reduce(
         lambda x, y: x + y,
         [
-            stencil[i]
-            * V[:, 2:-2, 2 + stencil_points[i] : (N - 2) + stencil_points[i]]
+            stencil[i] * V[:, 2:-2, 2 + stencil_points[i] : (N - 2) + stencil_points[i]]
             for i in range(len(stencil_points))
         ],
     )
@@ -171,9 +163,7 @@ def test_differentiation():
 
     # construct a 2D stencil for calculating cross-derivative
     stencil_cross = diffutils.get_2D_stencil_coefficients(
-        np.array(stencil_points) * dxi,
-        np.array(stencil_points) * dxi,
-        derivative="xy",
+        np.array(stencil_points) * dxi, np.array(stencil_points) * dxi, derivative="xy"
     )
     dV2_dxideta = reduce(
         lambda x, y: x + y,
@@ -206,7 +196,7 @@ def test_differentiation():
     del2V_is_small = np.allclose(del2V, 0)
     print(
         f"You have discovered magnetic monopoles: {not del2V_is_small} "
-        f'(which is {"good" if del2V_is_small else "bad"})'
+        f"(which is {'good' if del2V_is_small else 'bad'})"
     )
     print(
         "Is del2V really small though? It doesnt seem to get smaller "
@@ -227,9 +217,7 @@ def test_differentiation():
 
     # With ij indexing, (i, xi) vary along the first (numpy vertical)
     # axis, and (j, eta) along the second (numpy horizontal) axis.
-    k, i, j = np.meshgrid(
-        np.arange(6), np.arange(N), np.arange(N), indexing="ij"
-    )
+    k, i, j = np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij")
 
     # Indices for inner grid cells, no interpolation needed
     k_inner, i_inner, j_inner = (
@@ -400,12 +388,8 @@ def test_differentiation():
 
     # Make a stencil that has a cross + first diagonal points
     # (not sure what is a good idea here)
-    stencil_i = np.hstack(
-        (stencil_points, np.zeros(2 * Ns), np.array([-1, -1, 1, 1]))
-    )
-    stencil_j = np.hstack(
-        (np.zeros(2 * Ns), stencil_points, np.array([-1, 1, -1, 1]))
-    )
+    stencil_i = np.hstack((stencil_points, np.zeros(2 * Ns), np.array([-1, -1, 1, 1])))
+    stencil_j = np.hstack((np.zeros(2 * Ns), stencil_points, np.array([-1, 1, -1, 1])))
 
     stencil_cross = diffutils.get_2D_stencil_coefficients(
         stencil_i / h, stencil_j / h, derivative="xy"

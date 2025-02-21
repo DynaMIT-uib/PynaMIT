@@ -46,9 +46,7 @@ conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-dynamics.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 ## jr INPUT
 jr_lat = dynamics.state_grid.lat
