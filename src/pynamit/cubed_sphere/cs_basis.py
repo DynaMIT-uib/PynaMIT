@@ -1,6 +1,6 @@
 """Cubed sphere basis module.
 
-This module provides the CSBasis class for representing the cubed sphere
+This module contains the CSBasis class for representing the cubed sphere
 basis.
 """
 

@@ -1,6 +1,6 @@
 """Spherical Coordinate Utilities.
 
-This module provides functions for converting between spherical and
+This module contains functions for converting between spherical and
 Cartesian coordinates, transforming coordinate systems, and other
 operations performed in spherical coordinates.
 """

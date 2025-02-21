@@ -1,6 +1,6 @@
 """Test Utilities for Cubed Sphere Calculations.
 
-This module provides helper functions for testing and validating
+This module contains helper functions for testing and validating
 components of the cubed sphere implementation, including coordinate
 projection adjustments for visualizations using Plate Carree
 projections.

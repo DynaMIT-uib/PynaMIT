@@ -1,7 +1,7 @@
 """Spherical harmonic basis.
 
-This module contains the SHBasis class for storing and evaluating
-spherical harmonics.
+This module contains the SHBasis class for representing spherical
+harmonic bases.
 """
 
 import numpy as np

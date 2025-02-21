@@ -1,6 +1,6 @@
 """Finite difference utilities.
 
-This module provides functions to compute finite difference stencils and
+This module contains functions to compute finite difference stencils and
 other numerical differentiation coefficients used in numerical
 differentiation on cubed sphere grids.
 """
