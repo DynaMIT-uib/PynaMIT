@@ -460,9 +460,7 @@ class CSBasis:
             matrix.
         """
         # Broadcast and flatten.
-        xi, et, r, block = map(
-            np.ravel, np.broadcast_arrays(xi, eta, r, block)
-        )
+        xi, et, r, block = map(np.ravel, np.broadcast_arrays(xi, eta, r, block))
         delta = self.get_delta(xi, et)
         Pc = np.empty((delta.size, 3, 3))
 
@@ -591,9 +589,7 @@ class CSBasis:
             matrix.
         """
         # Broadcast and flatten.
-        xi, et, r, block = map(
-            np.ravel, np.broadcast_arrays(xi, eta, r, block)
-        )
+        xi, et, r, block = map(np.ravel, np.broadcast_arrays(xi, eta, r, block))
         delta = self.get_delta(xi, et)
         Ps = np.empty((delta.size, 3, 3))
 
@@ -856,7 +852,7 @@ class CSBasis:
         shape = (6, N, N)
         size = 6 * N * N
 
-        h = self.xi(1, N) - self.xi(0, N) # Step size between each grid cell
+        h = self.xi(1, N) - self.xi(0, N)  # Step size between each grid cell
 
         k, i, j = map(
             np.ravel,
