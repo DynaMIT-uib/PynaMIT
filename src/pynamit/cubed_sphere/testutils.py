@@ -19,18 +19,18 @@ def Geocentric_to_PlateCarree_vector_components(east, north, latitude):
     Parameters
     ----------
     east : array-like
-        eastward components
+        Eastward components.
     north : array-like
-        westward components
+        Westward components.
     latitude : array-like
-        latitude of each vector
+        Latitude of each vector.
 
     Returns
     -------
     east : array
-        corrected eastward components
+        Corrected eastward components.
     north : array
-        corrected northward components
+        Corrected northward components.
     """
     magnitude = np.sqrt(east**2 + north**2)
     east_pc = east / np.cos(latitude * np.pi / 180)

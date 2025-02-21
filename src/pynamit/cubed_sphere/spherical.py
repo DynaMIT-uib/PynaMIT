@@ -21,7 +21,7 @@ def sph_to_car(sph, deg=True):
     ----------
     sph : array-like
         A 3 x N array containing the spherical coordinates
-        [r, colatitude, longitude].
+        (r, colatitude, longitude).
     deg : bool, optional
         If True, the input angles are in degrees; otherwise in radians.
         Default is True.
@@ -29,7 +29,7 @@ def sph_to_car(sph, deg=True):
     Returns
     -------
     ndarray
-        A 3 x N array containing the Cartesian coordinates [x, y, z].
+        A 3 x N array containing the Cartesian coordinates (x, y, z).
     """
     r, theta, phi = sph
     conv = 1.0 if not deg else d2r
@@ -51,7 +51,7 @@ def car_to_sph(car, deg=True):
     Parameters
     ----------
     car : array-like
-        A 3 x N array containing the Cartesian coordinates [x, y, z].
+        A 3 x N array containing the Cartesian coordinates (x, y, z).
     deg : bool, optional
         If True, the output angles are in degrees; otherwise in radians.
         Default is True.
@@ -60,7 +60,7 @@ def car_to_sph(car, deg=True):
     -------
     ndarray
         A 3 x N array containing the spherical coordinates
-        [r, colatitude, longitude].
+        (r, colatitude, longitude).
     """
     x, y, z = car
     conv = 1.0 if not deg else r2d
@@ -91,8 +91,8 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
     z_lon : float
         Longitude of the new z-axis.
     deg : bool, optional
-        If True, the input and output angles are in degrees, otherwise
-        in radians. Default is True.
+        If ``True``, the input and output angles are in degrees,
+        otherwise in radians. Default is ``True``.
 
     Returns
     -------
@@ -213,8 +213,8 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     lon2 : array-like
         Longitude(s) of the target point.
     degrees : bool, optional
-        If True, inputs are in degrees; otherwise, in radians. Default
-        is True.
+        If ``True``, inputs are in degrees, otherwise, in radians.
+        Default is True.
 
     Returns
     -------
@@ -258,9 +258,8 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     if np.any(np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0)):
         points = np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0).nonzero()[0]
         raise ValueError(
-            "tangent_vector: input coordinates at nearly identical or "
-            "antipodal points; tangent not defined\n flattened "
-            "coordinates: %s" % points
+            "Tangent vector input coordinates at nearly identical or antipodal points, "
+            "tangent not defined\nFlattened coordinates: %s" % points
         )
 
     # Non-tangential difference vector (3, N)

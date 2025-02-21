@@ -34,25 +34,25 @@ class CSBasis:
     ----------
     N : int
         Number of grid cells per cube edge (only set if N provided in
-        constructor)
+        constructor).
     arr_xi : ndarray
-        Xi coordinates of grid points, in radians
+        Xi coordinates of grid points, in radians.
     arr_eta : ndarray
-        Eta coordinates of grid points, in radians
+        Eta coordinates of grid points, in radians.
     arr_theta : ndarray
-        Colatitude coordinates of grid points, in degrees
+        Colatitude coordinates of grid points, in degrees.
     arr_phi : ndarray
-        Longitude coordinates of grid points, in degrees
+        Longitude coordinates of grid points, in degrees.
     arr_block : ndarray
-        Block indices (0-5) of grid points
+        Block indices (0-5) of grid points.
     arr_area : ndarray
-        Grid cell areas normalized to unit sphere
+        Grid cell areas normalized to unit sphere.
     g : ndarray
         Metric tensor
     sqrt_detg : ndarray
-        Square root of determinant of the metric tensor
+        Square root of determinant of the metric tensor.
     unit_area : ndarray
-        Area of each grid cell
+        Area of each grid cell.
 
     Notes
     -----
@@ -103,9 +103,9 @@ class CSBasis:
         Raises
         ------
         TypeError
-            If N is provided but is not an integer
+            If N is provided but is not an integer.
         ValueError
-            If N is provided but is not an even number
+            If N is provided but is not an even number.
         """
         if N is not None:
             if not isinstance(N, (int, np.integer)):
@@ -138,23 +138,23 @@ class CSBasis:
         Parameters
         ----------
         N : int
-            Number of grid cells per edge (N+1 points)
+            Number of grid cells per edge (N+1 points).
         flat : bool, optional
-            Whether to return flattened arrays, by default False
+            Whether to return flattened arrays, by default False.
 
         Returns
         -------
         k : ndarray
-            Block indices (0-5)
+            Block indices (0-5).
         i : ndarray
-            Xi direction indices (0 to N)
+            Xi direction indices (0 to N).
         j : ndarray
-            Eta direction indices (0 to N)
+            Eta direction indices (0 to N).
 
         Notes
         -----
-        Arrays have shape (6,N+1,N+1) if flat=False,
-        or (6*(N+1)*(N+1),) if flat=True
+        Arrays have shape (6,N+1,N+1) if `flat` is ``False``, or
+        (6*(N+1)*(N+1),) if `flat` is ``True``.
         """
         k, i, j = np.meshgrid(
             np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing="ij"
@@ -173,21 +173,21 @@ class CSBasis:
         Parameters
         ----------
         i : array-like
-            Index values (can be non-integer)
+            Index values (can be non-integer).
         N : int
-            Grid resolution (number of cells per edge)
+            Grid resolution (number of cells per edge).
 
         Returns
         -------
         ndarray
-            Xi coordinates in radians from -π/4 to π/4
+            Xi coordinates in radians from -π/4 to π/4.
 
         Raises
         ------
         TypeError
-            If N is not an integer
+            If `N` is not an integer.
         ValueError
-            If N is less than 1
+            If `N` is less than 1.
         """
         if not isinstance(N, (int, np.integer)):
             raise TypeError("N must be an integer")
@@ -198,7 +198,7 @@ class CSBasis:
     def eta(self, j, N):
         """Calculate eta coordinate for grid index.
 
-        Maps index j=0 to -π/4 and j=N to π/4, providing the eta
+        Maps index ``j=0`` to -π/4 and ``j=N`` to π/4, providing the eta
         coordinate in the cubed sphere grid system. This function is
         mathematically identical to xi() but is provided separately for
         code clarity.
@@ -206,21 +206,21 @@ class CSBasis:
         Parameters
         ----------
         j : array-like
-            Index values (can be non-integer)
+            Index values (can be non-integer).
         N : int
-            Grid resolution (number of cells per edge)
+            Grid resolution (number of cells per edge).
 
         Returns
         -------
         ndarray
-            Eta coordinates in radians from -π/4 to π/4
+            Eta coordinates in radians from -π/4 to π/4.
 
         Raises
         ------
         TypeError
-            If N is not an integer
+            If `N` is not an integer.
         ValueError
-            If N is less than 1
+            If `N` is less than 1.
         """
         if not isinstance(N, (int, np.integer)):
             raise TypeError("N must be an integer")
@@ -231,19 +231,19 @@ class CSBasis:
     def get_delta(self, xi, eta):
         """Calculate delta parameter for metric calculations.
 
-        Computes δ = 1 + tan²(ξ) + tan²(η)
+        Computes ``δ = 1 + tan²(ξ) + tan²(η)``.
 
         Parameters
         ----------
         xi : array-like
-            Xi coordinates in radians
+            Xi coordinates in radians.
         eta : array-like
-            Eta coordinates in radians
+            Eta coordinates in radians.
 
         Returns
         -------
         ndarray
-            Delta values with shape determined by broadcasting rules
+            Delta values with shape determined by broadcasting rules.
         """
         xi, eta = np.broadcast_arrays(xi, eta)
 
@@ -252,17 +252,23 @@ class CSBasis:
     def get_metric_tensor(self, xi, eta, r=1, covariant=True):
         """Calculate metric tensor components.
 
+        Calculates the metric tensor components for the cubed sphere
+        grid system at given points, which relate coordinate
+        differentials to distances according to the equation
+        ``ds² = gᵢⱼ dxⁱdxʲ``. Implementation based on equation (12) from
+        Yin et al. (2017).
+
         Parameters
         ----------
         xi : array-like
-            Xi coordinates in radians
+            Xi coordinates in radians.
         eta : array-like
-            Eta coordinates in radians
+            Eta coordinates in radians.
         r : array-like, optional
-            Radial coordinates, by default 1
+            Radial coordinates, by default 1.
         covariant : bool, optional
-            If True, return covariant components, else contravariant, by
-            default True
+            If ``True`` return covariant components, otherwise return
+            contravariant components, by default ``True``.
 
         Returns
         -------
@@ -270,13 +276,6 @@ class CSBasis:
             Metric tensor components with shape (N,3,3) where N is the
             number of input points. Last two dimensions are tensor
             indices.
-
-        Notes
-        -----
-        Implements equation (12) from Yin et al. (2017).
-
-        The metric tensor relates coordinate differentials to distances:
-            ds² = gᵢⱼ dxⁱdxʲ
         """
         xi, eta, r = map(
             np.ravel, np.broadcast_arrays(xi, eta, r)
@@ -382,32 +381,31 @@ class CSBasis:
     def cube2spherical(self, xi, eta, block, r=1, deg=False):
         """Convert from cubed sphere to spherical coordinates.
 
+        Converts cubed sphere coordinates to spherical coordinates
+        through intermediate Cartesian coordinates using equations from
+        Appendix A of Yin et al. (2017).
+
         Parameters
         ----------
         xi : array-like
-            Xi coordinates in radians
+            Xi coordinates in radians.
         eta : array-like
-            Eta coordinates in radians
+            Eta coordinates in radians.
         block : array-like
             Block indices (0-5)
         r : float or array-like, optional
-            Radial coordinates, by default 1
+            Radial coordinates, by default 1.
         deg : bool, optional
-            Return angles in degrees if True, by default False
+            Return angles in degrees if True, by default False.
 
         Returns
         -------
         r : ndarray
-            Radial coordinates (same units as input r)
+            Radial coordinates (same units as input r).
         theta : ndarray
-            Colatitude in radians or degrees
+            Colatitude in radians or degrees.
         phi : ndarray
-            Longitude in radians or degrees
-
-        Notes
-        -----
-        Converts through intermediate Cartesian coordinates using
-        equations from Appendix A of Yin et al. (2017).
+            Longitude in radians or degrees.
         """
         xi, eta = np.float64(xi), np.float64(eta)
         xi, eta, r, block = np.broadcast_arrays(xi, eta, r, block)
@@ -552,7 +550,7 @@ class CSBasis:
     def get_Ps(self, xi, eta, r=1, block=0, inverse=False):
         """Get Ps matrix.
 
-        Calculates elements of transformation matrix `Ps` at all input.
+        Calculates elements of transformation matrix `Ps` at all input
         points.
 
         The `Ps` matrix transforms vector components
@@ -568,7 +566,7 @@ class CSBasis:
         Calculations based on equations from Appendix A of Yin et al.
         (2017), with similar notation, except that ``lambda`` and
         ``phi`` is replaced with ``east`` and ``north`` (here, ``phi``
-        means longitude, and not latitude as in Yin et al., 2017).
+        means longitude, and not latitude as in Yin et al. (2017).
 
         Parameters
         ----------
@@ -773,7 +771,7 @@ class CSBasis:
             |u_north_normalized| = Q|u_north|
             |u_r_normalized    |    |u_r    |
 
-        Calculations based on Yin et al. 2017 (equations after A25).
+        Based on equations after (A25) in Yin et al. (2017).
 
         Parameters
         ----------
@@ -833,6 +831,12 @@ class CSBasis:
             derivative of a scalar field with respect to ``xi`` or
             ``eta`` as ``derivative = D.dot(f)``, where ``f`` is the
             scalar field.
+
+        Raises
+        ------
+        ValueError
+            If `coordinate` is not 'xi', 'eta', or 'both'.
+            If `Ns` is less than `order
         """
         if coordinate not in ["xi", "eta", "both"]:
             raise ValueError(
@@ -906,8 +910,8 @@ class CSBasis:
         N : int
             Number of grid points.
         Ni : int
-            Number of interpolation points. Must be ``<= N`` (4 is
-            often appropriate).
+            Number of interpolation points. Must be ``<= N`` (4 is often
+            appropriate).
         weights : array-like, optional
             If different values of `k`, `i`, `j` are assigned to the
             same row, the corresponding element will have value 1 (or
@@ -928,7 +932,7 @@ class CSBasis:
             points, produces interpolated values at the given grid
             points. The grid points may be outside the cube blocks, for
             example they can be negative (actually that's the point,
-            otherwise this function wouldn't be needed).
+            otherwise this function would not be needed).
         """
         if Ni > N:
             raise ValueError("Ni must be <= N")
@@ -1052,9 +1056,7 @@ class CSBasis:
         return D
 
     def block(self, lon, lat):
-        """Determine which cube face (block) contains given spherical.
-
-        coordinates.
+        """Determine cube faces (blocks) of spherical coordinates.
 
         For each input point, determines which of the six cube faces is
         closest by calculating distances to face midpoints in Cartesian
@@ -1063,9 +1065,9 @@ class CSBasis:
         Parameters
         ----------
         lon : array-like
-            Geocentric longitude(s) in degrees
+            Geocentric longitude(s) in degrees.
         lat : array-like
-            Geocentric latitude(s) in degrees
+            Geocentric latitude(s) in degrees.
 
         Returns
         -------
@@ -1153,9 +1155,9 @@ class CSBasis:
         Returns
         -------
         xi : array
-            `xi`, as defined in Ronchi et al. Unit is radians.
+            `xi`, as defined in Ronchi et al. (1996). Unit is radians.
         eta : array
-            `eta`, as defined in Ronchi et al. Unit is radians.
+            `eta`, as defined in Ronchi et al. (1996). Unit is radians.
         block : array
             Index of the block that `xi`, `eta` belongs to.
         """
@@ -1174,7 +1176,7 @@ class CSBasis:
         # Prepare parameters
         X, Y, xi, eta = np.empty(N), np.empty(N), np.empty(N), np.empty(N)
 
-        # Calculate X and Y according to Ronchi et al., equations 1->
+        # Calculate X and Y according to Ronchi et al. (1996)
         theta, phi = np.deg2rad(90 - lat), np.deg2rad(lon)
         X[block == 0] = np.tan(phi[block == 0])
         X[block == 1] = -1 / np.tan(phi[block == 1])
@@ -1214,28 +1216,28 @@ class CSBasis:
         Parameters
         ----------
         u_east : array
-            Array of eastward components
+            Array of eastward components.
         u_north : array
-            Array of northward components
+            Array of northward components.
         u_r : array
-            Array of radial components
+            Array of radial components.
         theta : array
-            Array of coordinates for components
+            Array of coordinates for components.
         phi : array
-            Array of coordinates for vector components
+            Array of coordinates for vector components.
         theta_target : array
             Array of target coordinates.
         phi_target : array
-            Array of target coordinates
+            Array of target coordinates.
 
         **kwargs
             Passed to scipy.interpolate.griddata which performs the
-            interpolation on each block
+            interpolation on each block.
 
         Returns
         -------
         interpolated_vector : array
-            3 x N vector of interpolated components, east, north, up
+            3 x N vector of interpolated components (east, north, up).
         """
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
@@ -1252,7 +1254,7 @@ class CSBasis:
             phi.flatten(),
         )
 
-        # Define vectors that point at all the original points:
+        # Define vectors that point at all the original points
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
@@ -1268,9 +1270,9 @@ class CSBasis:
         interpolated_u2 = np.empty_like(block, dtype=np.float64)
         interpolated_u3 = np.empty_like(block, dtype=np.float64)
 
-        # Loop over blocks and interpolate on each block:
+        # Loop over blocks and interpolate on each block
         for i in range(6):
-            # Express vector components with respect to block i:
+            # Express vector components with respect to block i
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
             u_vec_i = np.einsum("nij, nj -> ni", Qij, u_vec.T).T
 
@@ -1303,8 +1305,8 @@ class CSBasis:
                 **kwargs,
             )
 
-        # Convert back to spherical:
-        r_out, theta_out, phi_out = self.cube2spherical(xi, eta, block, deg=True)
+        # Convert back to spherical
+        _, theta_out, _ = self.cube2spherical(xi, eta, block, deg=True)
         u = np.vstack((interpolated_u1, interpolated_u2, interpolated_u3))
         Q = self.get_Q(90 - theta_out, r=1, inverse=False)
         Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
@@ -1323,29 +1325,29 @@ class CSBasis:
         Interpolate scalar values defined on (`theta`, `phi`) to given
         spherical coordinates.
 
-        Broadcasting rules apply for input and output separately
+        Broadcasting rules apply for input and output separately.
 
         Parameters
         ----------
         scalar : array
-            Array of scalar values
+            Array of scalar values.
         theta : array
-            Array of coordinates for components
+            Array of coordinates for components.
         phi : array
-            Array of coordinates for vector components
+            Array of coordinates for vector components.
         theta_target : array
             Array of target coordinates.
         phi_target : array
-            Array of target coordinates
+            Array of target coordinates.
 
         **kwargs
             Passed to scipy.interpolate.griddata which performs the
-            interpolation on each block
+            interpolation on each block.
 
         Returns
         -------
         interpolated_scalar : array
-            N-element array of interpolated components (east, north, up)
+            Array of interpolated components (east, north, up).
         """
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
@@ -1354,13 +1356,13 @@ class CSBasis:
         scalar, theta, phi = np.broadcast_arrays(scalar, theta, phi)
         scalar, theta, phi = scalar.flatten(), theta.flatten(), phi.flatten()
 
-        # Define vectors that point at all the original points:
+        # Define vectors that point at all the original points
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
         interpolated_scalar = np.empty_like(block, dtype=np.float64)
 
-        # Loop over blocks and interpolate on each block:
+        # Loop over blocks and interpolate on each block
         for i in range(6):
             # Filter points whose position vectors have component
             # anti-parallel to center of the block
