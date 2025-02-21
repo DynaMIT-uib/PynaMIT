@@ -10,7 +10,6 @@ import dipole
 import datetime
 import apexpy
 
-
 periods = [50, 25, 10, 5, 1]
 state_data_list = [
     xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_state.ncdf")

@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-
 RADIAL = False  # True for radial field lines - False for dipole
 
 RE = 6371.2
@@ -114,12 +113,9 @@ plt.tight_layout()
 ax.text(
     1.0 * RE,
     1.0 * RE,
-    (
-        "$\\mathbf{B}\\times\\nabla\\times\\mathbf{B} = 0$\n"
-        "$\\mathbf{E} + \\mathbf{v}\\times \\mathbf{B} = 0$\n"
-        "$\\mathbf{B} = -\\nabla V^i + \\mathbf{P} + "
-        "\\mathbf{r}\\times\\nabla T$"
-    ),
+    "$\\mathbf{B}\\times\\nabla\\times\\mathbf{B} = 0$\n"
+    "$\\mathbf{E} + \\mathbf{v}\\times \\mathbf{B} = 0$\n"
+    "$\\mathbf{B} = -\\nabla V^i + \\mathbf{P} + \\mathbf{r}\\times\\nabla T$",
     ha="center",
     va="center",
     size=textsize,

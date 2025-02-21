@@ -6,7 +6,6 @@ from polplot import Polarplot
 import cartopy.crs as ccrs
 import pynamit
 
-
 # PLACEHOLDER -- DEFINE TOY MODEL OBJECT -- PLACEHOLDER
 from lompe import conductance
 import dipole
