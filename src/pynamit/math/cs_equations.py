@@ -103,11 +103,11 @@ class CSEquations(object):
         Parameters
         ----------
         u1 : array-like
-            First contravariant component of the vector field in cubed
-            sphere components.
+            First contravariant cubed sphere component of the vector
+            field.
         u2 : array-like
-            Second contravariant component of the vector field in cubed
-            sphere components.
+            Second contravariant cubed sphere component of the vector
+            field.
 
         Returns
         -------
@@ -133,25 +133,21 @@ class CSEquations(object):
         Converts from ``(east, north, up)`` to ``(u^1, u^2, u^3)`` (ref.
         Yin, 2017).
 
-        The input must match the CS grid.
+        The input must match the dimensions of the cubed sphere grid.
 
         Parameters
         ----------
         Ar : array-like
-            Radial component of the vector field. Must match the
-            dimensions of the cubed sphere grid.
+            Radial component of the vector field.
         Atheta : array-like
-            Latitudinal component of the vector field. Must match the
-            dimensions of the cubed sphere grid.
+            Latitudinal component of the vector field.
         Aphi : array-like
-            Longitudinal component of the vector field. Must match the
-            dimensions of the cubed sphere grid.
+            Longitudinal component of the vector field.
 
         Returns
         -------
         u1, u2, u3 : arrays
-            Contravariant components of the vector field in cubed sphere
-            coordinates.
+            Contravariant cubed sphere components of the vector field.
         """
         east = Aphi
         north = -Atheta

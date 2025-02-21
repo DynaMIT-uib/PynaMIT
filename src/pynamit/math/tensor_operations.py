@@ -66,13 +66,13 @@ def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
     first_dims = A.shape[:n_leading_flattened]
     last_dims = A.shape[n_leading_flattened:]
 
-    A_inv = np.linalg.pinv(
+    A_pinv = np.linalg.pinv(
         A.reshape((np.prod(first_dims), np.prod(last_dims))),
         rcond=rtol,
         hermitian=hermitian,
     ).reshape((last_dims + first_dims))
 
-    return A_inv
+    return A_pinv
 
 
 def tensor_pinv_positive_semidefinite(
@@ -104,13 +104,13 @@ def tensor_pinv_positive_semidefinite(
     first_dims = A.shape[:n_leading_flattened]
     last_dims = A.shape[n_leading_flattened:]
 
-    A_inv = pinv_positive_semidefinite(
+    A_pinv = pinv_positive_semidefinite(
         A.reshape((np.prod(first_dims), np.prod(last_dims))),
         rtol=rtol,
         condition_number=condition_number,
     ).reshape((last_dims + first_dims))
 
-    return A_inv
+    return A_pinv
 
 
 def tensor_transpose(A, n_leading_flattened=2):
@@ -147,7 +147,7 @@ def tensor_scale_left(scaling_tensor, A):
 
     Performs the element-wise scaling of the array corresponding to the
     first indices of the tensor `A` by the array `scaling_tensor`, by
-    by treating the array indices as flat indices.
+    treating the array indices as flat indices.
 
     Parameters
     ----------
@@ -280,7 +280,8 @@ def tensor_svd(
     Returns
     -------
     tuple of array-like
-        U, S, and VT matrices of the singular value decomposition.
+        ``U``, ``S``, and ``VT`` matrices of the singular value
+        decomposition.
     """
     first_dims = A.shape[:n_leading_flattened]
     last_dims = A.shape[n_leading_flattened:]
@@ -333,8 +334,8 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
     function instead.
 
     If there are no zero eigenvalues, the filtered eigenvectors array is
-    a full contiguous view of the original array. Otherwise, the view's
-    memory address and shape are adjusted to avoid unnecessary data
+    a full contiguous view of the original array. Otherwise, the memory
+    address and shape of the view are adjusted to avoid unnecessary data
     copies.
     """
     # For a symmetric positive semidefinite matrix, its eigenvalues are

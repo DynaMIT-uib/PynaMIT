@@ -3,6 +3,13 @@
 This module defines physical constants in SI units used across the
 PynaMIT package. For example, it provides the permeability of free space
 and the mean radius of the Earth.
+
+Attributes
+----------
+mu0 : float
+    Permeability of free space.
+RE : float
+    Mean radius of the Earth.
 """
 
 from math import pi

@@ -210,7 +210,7 @@ class State(object):
         else:
             self.u_to_E_coeffs_direct = np.einsum(
                 "ijkl,kml->ijml",
-                self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_inv_ATW[
+                self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv_ATW[
                     0
                 ].reshape(
                     (
@@ -584,7 +584,7 @@ class State(object):
                 )
 
         # For steady state
-        self.m_ind_to_E_cf_inv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
+        self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
     def calculate_E_coeffs(self, m_ind):
         """Calculate the coefficients for the electric field.
@@ -766,7 +766,7 @@ class State(object):
             else:
                 E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
 
-        m_ind = -self.m_ind_to_E_cf_inv.dot(E_coeffs_noind[1])
+        m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
 
         return m_ind
 

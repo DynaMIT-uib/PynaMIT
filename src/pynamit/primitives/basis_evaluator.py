@@ -145,7 +145,7 @@ class BasisEvaluator(object):
 
     @property
     def G_rxgrad(self):
-        """Matrix evaluating r-hat cross horizontal gradient.
+        """Matrix evaluating r-hat x horizontal gradient.
 
         Returns
         -------
@@ -159,8 +159,8 @@ class BasisEvaluator(object):
         return self._G_rxgrad
 
     @property
-    def G_rxgrad_inv(self):
-        """Matrix evaluating r-hat cross horizontal gradient inverse.
+    def G_rxgrad_pinv(self):
+        """Matrix evaluating r-hat x horizontal gradient pseudoinverse.
 
         Returns
         -------
@@ -169,9 +169,9 @@ class BasisEvaluator(object):
             evaluates the radial unit vector cross the horizontal
             gradient of a basis expansion on the grid.
         """
-        if not hasattr(self, "_G_rxgrad_inv"):
-            self._G_rxgrad_inv = np.linalg.pinv(self.G_rxgrad)
-        return self._G_rxgrad_inv
+        if not hasattr(self, "_G_rxgrad_pinv"):
+            self._G_rxgrad_pinv = np.linalg.pinv(self.G_rxgrad)
+        return self._G_rxgrad_pinv
 
     @property
     def G_helmholtz(self):

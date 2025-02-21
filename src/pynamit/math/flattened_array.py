@@ -16,13 +16,13 @@ class FlattenedArray(object):
     Attributes
     ----------
     full_array : array-like
-        Original multidimensional array
+        Original multidimensional array.
     full_shapes : tuple of tuples
-        Original shapes of (flattened_first_dims, flattened_last_dims)
+        Original shapes of (flattened_first_dims, flattened_last_dims).
     shapes : tuple of int
-        Shape after flattening (n_first, n_last)
+        Shape after flattening (n_first, n_last).
     array : array-like
-        Flattened array of shape `shapes`
+        Flattened array of shape `shapes`.
     """
 
     def __init__(self, full_array, n_leading_flattened=None, n_trailing_flattened=None):
@@ -31,11 +31,11 @@ class FlattenedArray(object):
         Parameters
         ----------
         full_array : array-like
-            The multidimensional array to be flattened
+            The multidimensional array to be flattened.
         n_leading_flattened : int, optional
-            Number of leading dimensions to flatten into first axis
+            Number of leading dimensions to flatten into first axis.
         n_trailing_flattened : int, optional
-            Number of trailing dimensions to flatten into last axis
+            Number of trailing dimensions to flatten into last axis.
 
         Raises
         ------
@@ -50,13 +50,14 @@ class FlattenedArray(object):
         """
         if n_leading_flattened is None and n_trailing_flattened is None:
             raise ValueError(
-                "Either n_leading_flattened or n_trailing_flattened must be specified."
+                "Either 'n_leading_flattened' or 'n_trailing_flattened' must be "
+                "specified."
             )
         elif n_leading_flattened is not None and n_trailing_flattened is not None:
             if n_leading_flattened + n_trailing_flattened != full_array.ndim:
                 raise ValueError(
-                    "n_leading_flattened + n_trailing_flattened must be equal "
-                    "to the number of dimensions of the array."
+                    "'n_leading_flattened' + 'n_trailing_flattened' must be equal to "
+                    "the number of dimensions of the array."
                 )
         elif n_trailing_flattened is not None:
             n_leading_flattened = full_array.ndim - n_trailing_flattened

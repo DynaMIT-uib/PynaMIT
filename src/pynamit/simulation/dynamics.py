@@ -1099,10 +1099,12 @@ class Dynamics(object):
         and (inverse) evaluation matrices.
         """
         if not hasattr(self, "_sh_curl_matrix"):
-            G_df_inv = self.state.basis_evaluator.G_helmholtz_inv[
-                self.state.basis.index_length :, :
-            ]
+            G_df_pinv = (
+                self.state.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv[
+                    self.state.basis.index_length :, :
+                ]
+            )
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
-                self.state.basis.laplacian().reshape((-1, 1)) * G_df_inv
+                self.state.basis.laplacian().reshape((-1, 1)) * G_df_pinv
             )
         return self._sh_curl_matrix
