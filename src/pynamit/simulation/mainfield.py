@@ -252,7 +252,7 @@ class Mainfield(object):
 
         return (theta_conj, phi_conj)
 
-    def basevectors(self, r, theta, phi):
+    def basis_vectors(self, r, theta, phi):
         """Calculate apex coordinate basis vectors.
 
         Computes modified apex coordinate basis vectors defined in

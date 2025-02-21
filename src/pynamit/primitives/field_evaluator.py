@@ -159,19 +159,19 @@ class FieldEvaluator(object):
         return self._bphi
 
     @property
-    def basevectors(self):
-        """Base vectors of the magnetic field.
+    def basis_vectors(self):
+        """Basis vectors of the magnetic field.
 
         Returns
         -------
         tuple of arrays
-            Base vectors of the magnetic field.
+            Basis vectors of the magnetic field.
         """
-        if not hasattr(self, "_basevectors"):
-            self._basevectors = self.field.basevectors(
+        if not hasattr(self, "_basis_vectors"):
+            self._basis_vectors = self.field.basis_vectors(
                 self.r, self.grid.theta, self.grid.phi
             )
-        return self._basevectors
+        return self._basis_vectors
 
     @property
     def e1r(self):
@@ -182,7 +182,7 @@ class FieldEvaluator(object):
         array
             Radial component of the e1 magnetic apex basis vector.
         """
-        return self.basevectors[3][0]
+        return self.basis_vectors[3][0]
 
     @property
     def e1theta(self):
@@ -193,7 +193,7 @@ class FieldEvaluator(object):
         array
             Theta component of the e1 magnetic apex basis vector.
         """
-        return self.basevectors[3][1]
+        return self.basis_vectors[3][1]
 
     @property
     def e1phi(self):
@@ -204,7 +204,7 @@ class FieldEvaluator(object):
         array
             Phi component of the e1 magnetic apex basis vector.
         """
-        return self.basevectors[3][2]
+        return self.basis_vectors[3][2]
 
     @property
     def e2r(self):
@@ -215,7 +215,7 @@ class FieldEvaluator(object):
         array
             Radial component of the e2 magnetic apex basis vector.
         """
-        return self.basevectors[4][0]
+        return self.basis_vectors[4][0]
 
     @property
     def e2theta(self):
@@ -226,7 +226,7 @@ class FieldEvaluator(object):
         array
             Theta component of the e2 magnetic apex basis vector.
         """
-        return self.basevectors[4][1]
+        return self.basis_vectors[4][1]
 
     @property
     def e2phi(self):
@@ -237,7 +237,7 @@ class FieldEvaluator(object):
         array
             Phi component of the e2 magnetic apex basis vector.
         """
-        return self.basevectors[4][2]
+        return self.basis_vectors[4][2]
 
     @property
     def e3r(self):
@@ -248,7 +248,7 @@ class FieldEvaluator(object):
         array
             Radial component of the e3 magnetic apex basis vector.
         """
-        return self.basevectors[5][0]
+        return self.basis_vectors[5][0]
 
     @property
     def e3theta(self):
@@ -259,7 +259,7 @@ class FieldEvaluator(object):
         array
             Theta component of the e3 magnetic apex basis vector.
         """
-        return self.basevectors[5][1]
+        return self.basis_vectors[5][1]
 
     @property
     def e3phi(self):
@@ -270,7 +270,7 @@ class FieldEvaluator(object):
         array
             Phi component of the e3 magnetic apex basis vector.
         """
-        return self.basevectors[5][2]
+        return self.basis_vectors[5][2]
 
     @property
     def horizontal_to_field_orthogonal(self):
