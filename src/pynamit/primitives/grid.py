@@ -1,22 +1,59 @@
+"""Grid module.
+
+This module contains the Grid class for representing two-dimensional
+coordinate grids.
+"""
+
 import numpy as np
 
+
 class Grid(object):
+    """Class for representing two-dimensional coordinate grids.
+
+    Attributes
+    ----------
+    lat : ndarray
+        Flattened array of latitude values in degrees.
+    lon : ndarray
+        Flattened array of longitude values in degrees.
+    theta : ndarray
+        Flattened array of colatitude values in degrees.
+    phi : ndarray
+        Flattened array of longitude values in degrees (same as lon).
+    size : int
+        Total number of grid points.
+
+    Notes
+    -----
+    All coordinate arrays are automatically broadcast to match shapes
+    and flattened for internal storage.
     """
-    Object for storing the coordinates of a two-dimensional grid. The
-    `lat`, `lon`, `theta`, and `phi` coordinates are stored as attributes
-    of the object, along with the `size` of the grid (the number of grid
-    points).
 
-    """
+    def __init__(self, lat=None, lon=None, theta=None, phi=None):
+        """Initialize the grid object from coordinate inputs.
 
-    def __init__(self, lat = None, lon = None, theta = None, phi = None):
+        Parameters
+        ----------
+        lat : array-like, optional
+            Geographic latitude coordinates in degrees.
+        lon : array-like, optional
+            Geographic longitude coordinates in degrees.
+        theta : array-like, optional
+            Spherical colatitude coordinates in degrees.
+        phi : array-like, optional
+            Spherical longitude coordinates in degrees.
+
+        Raises
+        ------
+        ValueError
+            If neither `lat`/`theta` or `lon`/`phi` coordinates are
+            provided.
+
+        Notes
+        -----
+        Either `lat` or `theta` must be provided, and either `lon` or
+        `phi` must be provided.
         """
-        Initialize the object for storing the two-dimensional grid. The
-        grid is initialized from `lat` or `theta` and `lon` or `phi`
-        coordinates.
-
-        """
-        
         if lat is not None:
             self.lat = lat
             self.theta = 90 - self.lat
@@ -24,7 +61,9 @@ class Grid(object):
             self.theta = theta
             self.lat = 90 - self.theta
         else:
-            raise ValueError("Latitude or theta must be provided to initialize the grid.")
+            raise ValueError(
+                "Latitude or theta must be provided to initialize the grid."
+            )
 
         if lon is not None:
             self.lon = lon
@@ -33,7 +72,9 @@ class Grid(object):
             self.phi = phi
             self.lon = phi
         else:
-            raise ValueError("Longitude or phi must be provided to initialize the grid.")
+            raise ValueError(
+                "Longitude or phi must be provided to initialize the grid."
+            )
 
         self.lat, self.lon = np.broadcast_arrays(self.lat, self.lon)
         self.theta, self.phi = np.broadcast_arrays(self.theta, self.phi)
