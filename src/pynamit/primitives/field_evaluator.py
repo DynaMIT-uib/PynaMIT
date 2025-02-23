@@ -174,6 +174,105 @@ class FieldEvaluator(object):
         return self._basis_vectors
 
     @property
+    def d1r(self):
+        """Radial component of the d1 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Radial component of the d1 magnetic apex basis vector.
+        """
+        return self.basis_vectors[0][0]
+
+    @property
+    def d1theta(self):
+        """Theta component of the d1 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Theta component of the d1 magnetic apex basis vector.
+        """
+        return self.basis_vectors[0][1]
+
+    @property
+    def d1phi(self):
+        """Phi component of the d1 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Phi component of the d1 magnetic apex basis vector.
+        """
+        return self.basis_vectors[0][2]
+
+    @property
+    def d2r(self):
+        """Radial component of the d2 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Radial component of the d2 magnetic apex basis vector.
+        """
+        return self.basis_vectors[1][0]
+
+    @property
+    def d2theta(self):
+        """Theta component of the d2 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Theta component of the d2 magnetic apex basis vector.
+        """
+        return self.basis_vectors[1][1]
+
+    @property
+    def d2phi(self):
+        """Phi component of the d2 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Phi component of the d2 magnetic apex basis vector.
+        """
+        return self.basis_vectors[1][2]
+
+    @property
+    def d3r(self):
+        """Radial component of the d3 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Radial component of the d3 magnetic apex basis vector.
+        """
+        return self.basis_vectors[2][0]
+
+    @property
+    def d3theta(self):
+        """Theta component of the d3 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Theta component of the d3 magnetic apex basis vector.
+        """
+        return self.basis_vectors[2][1]
+
+    @property
+    def d3phi(self):
+        """Phi component of the d3 magnetic apex basis vector.
+
+        Returns
+        -------
+        array
+            Phi component of the d3 magnetic apex basis vector.
+        """
+        return self.basis_vectors[2][2]
+
+    @property
     def e1r(self):
         """Radial component of the e1 magnetic apex basis vector.
 
@@ -376,7 +475,7 @@ class FieldEvaluator(object):
         """
         if not hasattr(self, "_field_parallel_to_apex"):
             self._field_parallel_to_apex = np.array(
-                [[self.e3r, self.e3theta, self.e3phi]]
+                [[self.d3r, self.d3theta, self.d3phi]]
             )
 
         return self._field_parallel_to_apex
