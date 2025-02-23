@@ -93,6 +93,7 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     **kwargs : dict
         Additional arguments, such as title, save, returnplot, and
         arguments passed to scatter or contourf.
+
     Returns
     -------
     tuple, optional
