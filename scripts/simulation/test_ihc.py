@@ -22,8 +22,7 @@ latitude_boundary = 40
 
 dataset_filename_prefix = "ihc_test"
 
-# MODEL PARAMETERS
-Nmax, Mmax, Ncs = 25, 15, 50
+Nmax, Mmax, Ncs = 25, 15, 50  # Model resolution
 print(
     "we need a check that the poloidal field calculation is high enough "
     "resoultion compared to SH "
@@ -37,14 +36,14 @@ rk = RI / np.cos(np.deg2rad(np.linspace(0, 70, int(360 / (Nmax + 0.5)) + 1))) **
 # )
 
 
-# PARAMETERS FOR EMPIRICAL MODELS:
+# Define parameters for empirical models.
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date)  # noon longitude
 
 
-## PLOT PARAMETERS
+# Define plotting parameters.
 fig_directory = "figs/"
 Blevels = np.linspace(-5, 5, 22) * 1e-9  # color levels for Br
 levels = np.linspace(-0.9, 0.9, 22)  # color levels for FAC muA/m^2
@@ -52,7 +51,7 @@ c_levels = np.linspace(0, 20, 100)  # color levels for conductance
 Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -66,7 +65,7 @@ dynamics = pynamit.Dynamics(
     latitude_boundary=latitude_boundary,
 )
 
-## CONDUCTANCE INPUT
+# Get and set conductance input.
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
@@ -74,7 +73,7 @@ hall, pedersen = conductance.hardy_EUV(
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-## jr INPUT
+# Get and set jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
@@ -82,7 +81,7 @@ jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
 dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-## WIND INPUT
+# Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],
@@ -112,7 +111,7 @@ dynamics.update_jr()
 dynamics.state.update_m_imp()
 dynamics.state.update_E()
 
-## SET UP PLOTTING GRID AND EVALUATORS
+# Set up plotting grid and evaluators.
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
@@ -170,7 +169,7 @@ if PLOT_WIND:
 if SIMULATE:
     dt = 5e-4
     totalsteps = 200001
-    ## PLOT PARAMETERS
+    # Define plotting parameters.
     plotsteps = 500
     fig_directory = "figs/"
     Blevels = np.linspace(-50, 50, 22) * 1e-9  # color levels for Br
@@ -179,7 +178,7 @@ if SIMULATE:
     Wlevels = np.r_[-512.5:512.5:5]
     Philevels = np.r_[-212.5:212.5:2.5]
 
-    ## RUN SIMULATION
+    # Run the simulation.
     coeffs = []
     count = 0
     filecount = 1

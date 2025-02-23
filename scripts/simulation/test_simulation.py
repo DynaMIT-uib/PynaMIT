@@ -15,7 +15,7 @@ reload(pynamit)
 IGNORE_PFAC = False
 CONNECT_HEMISPHERES = False
 
-# SIMULATION PARAMETERS
+# Define simulation parameters.
 Nmax, Mmax, Ncs = 15, 3, 20
 RI = (6371.2 + 110) * 1e3
 dt = 5e-4
@@ -23,7 +23,7 @@ totalsteps = 20001
 
 dataset_filename_prefix = "simulation_test"
 
-## PLOT PARAMETERS
+# Define plotting parameters.
 plotsteps = 200
 fig_directory = "figs/"
 Blevels = np.linspace(-50, 50, 22) * 1e-9  # color levels for Br
@@ -32,7 +32,7 @@ c_levels = np.linspace(0, 20, 100)  # color levels for conductance
 Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:2.5]
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -44,7 +44,7 @@ dynamics = pynamit.Dynamics(
     connect_hemispheres=CONNECT_HEMISPHERES,
 )
 
-## CONDUCTANCE INPUT
+# Get and set conductance input.
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp = 5
 d = dipole.Dipole(date.year)
@@ -57,7 +57,7 @@ hall, pedersen = conductance.hardy_EUV(
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-## jr INPUT
+# Get and set jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
@@ -71,7 +71,7 @@ dynamics.state.update_m_imp()
 dynamics.state.update_E()
 
 
-# make an integration matrix
+# Make an integration matrix.
 
 # cnm = SHIndices(Nmax, Mmax).setNmin(1).MleN()
 # snm = SHIndices(Nmax, Mmax).setNmin(1).MleN().Mge(1)
@@ -85,7 +85,7 @@ dynamics.state.update_E()
 # )
 # gg = Ginv.dot(dynamics.Gnum)
 
-## SET UP PLOTTING GRID AND EVALUATORS
+# Set up plotting grid and evaluators.
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
@@ -94,7 +94,7 @@ nnn = plt_grid.lat.flatten() > 50
 sss = plt_grid.lat.flatten() < -50
 
 
-## RUN SIMULATION
+# Run the simulation.
 coeffs = []
 count = 0
 filecount = 1

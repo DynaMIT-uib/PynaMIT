@@ -35,12 +35,12 @@ date = datetime.datetime(2001, 5, 12, 17, 0)
 d = dipole.Dipole(date.year)
 noon_lon = d.mlt2mlon(12, date)  # noon longitude
 
-## CS PROJECTION
+# Define cubed sphere basis and grid
 cs_basis = pynamit.CSBasis(Ncs)
 output_grid = pynamit.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 output_weights = None
 
-# Regular grid from PyHWM14
+# Use regular grid from PyHWM14.
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],
@@ -59,7 +59,7 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 input_grid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
 if CONDUCTANCE:
-    ## CONDUCTANCE INPUT
+    # Get and set conductance input.
     from lompe import conductance
 
     Kp = 5
@@ -77,7 +77,7 @@ if CONDUCTANCE:
     )
 
 if WIND:
-    ## WIND INPUT
+    # Get and set wind input.
     # hwm14Obj = pyhwm2014.HWM142D(
     #    alt=110.0,
     #    ap=[35, 35],
@@ -123,7 +123,7 @@ if WIND:
     )
     interpolated_data = np.array(
         [-interpolated_north, interpolated_east]
-    )  # convert to theta, phi
+    )  # Convert to theta, phi
 
 if CURRENT:
     import pyamps
@@ -324,7 +324,7 @@ for reg_lambda in np.logspace(
 
                 plt.show()
 
-# Plot errors
+# Plot errors.
 if GRID_COMPARISON or SH_COMPARISON:
     if GRID_COMPARISON:
         plt.plot(Nmax_values, relative_grid_errors, label="Grid values")

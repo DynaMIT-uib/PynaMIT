@@ -27,7 +27,7 @@ t0 = datetime.datetime.strptime(settings_list[0].t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
 a = apexpy.Apex(t0.year)
 
-# construct plot grid in mlt/mlat, then convert to glat/glon:
+# Construct plot grid in mlt/mlat, then convert to glat/glon.
 mlt, mlat = np.meshgrid(
     [4, 9, 12, 15, 20], [-80, -60, -20, 20, 60, 80][::-1], indexing="ij"
 )
@@ -39,7 +39,7 @@ mlon = d.mlt2mlon(mlt, t0)
 glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
-# conversion factors:
+# Calculate conversion factors.
 m_ind_to_Br = -sh_basis.n
 laplacian = -sh_basis.n * (sh_basis.n + 1) / RI**2
 m_imp_to_jr = laplacian * RI / mu0
@@ -57,7 +57,7 @@ m_ind_to_Br_ground = -sh_basis.n * (RE / RI) ** (sh_basis.n - 1)
 fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
 for state_data in state_data_list:
-    # calculate the time series:
+    # Calculate the time series.
     m_ind = state_data.SH_m_ind.values.T
 
     Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
@@ -124,7 +124,7 @@ for p, state_data in zip(periods, state_data_list):
     m_ind = sd.SH_m_ind.values.T
     Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
 
-    # fit the wave parameters
+    # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]
     A = np.sqrt(m[1] ** 2 + m[2] ** 2)
     phi = np.rad2deg(np.arctan2(-m[2], m[1]))

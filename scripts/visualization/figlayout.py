@@ -6,7 +6,7 @@ from polplot import Polarplot
 import cartopy.crs as ccrs
 import pynamit
 
-# PLACEHOLDER -- DEFINE TOY MODEL OBJECT -- PLACEHOLDER
+# Define toy model object (placeholder).
 from lompe import conductance
 import dipole
 import pyhwm2014  # https://github.com/rilma/pyHWM14
@@ -17,7 +17,7 @@ RE = 6371.2e3
 RI = RE + 110e3
 latitude_boundary = 35
 
-WIND_FACTOR = 1  # scale wind by this factor
+WIND_FACTOR = 1  # Scale wind by this factor
 
 dataset_filename_prefix = "figlayout"
 
@@ -27,9 +27,9 @@ print(len(rk))
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp = 5
 d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # noon longitude
+noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -43,7 +43,7 @@ dynamics = pynamit.Dynamics(
     latitude_boundary=latitude_boundary,
 )
 
-## CONDUCTANCE INPUT
+# Get and set conductance input.
 conductance_lat = dynamics.state_grid.lat
 conductance_lon = dynamics.state_grid.lon
 hall, pedersen = conductance.hardy_EUV(
@@ -51,15 +51,15 @@ hall, pedersen = conductance.hardy_EUV(
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-## jr INPUT
+# Get and set jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
-jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
+jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-## WIND INPUT
+# Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],
@@ -91,7 +91,6 @@ dynamics.update_jr()
 dynamics.state.update_m_imp()
 
 
-#### MODEL OBJECT DONE
 def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     """Debug plotting for the model object.
 
@@ -118,7 +117,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         "extend": "both",
     }
 
-    ## MAP PROJECTION:
+    # Set up map projection.
     global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
 
     fig = plt.figure(figsize=(15, 13))
@@ -136,7 +135,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     for ax in [gax_B, gax_j]:
         ax.coastlines(zorder=2, color="grey")
 
-    ## SET UP PLOTTING GRID AND EVALUATORS
+    # Set up plotting grid and evaluators.
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
@@ -146,7 +145,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         dynamics.state.mainfield, plt_grid, dynamics.state.RI
     )
 
-    ## CALCULATE VALUES TO PLOT
+    # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (plt_state_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
@@ -156,7 +155,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     )
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
-    ## GLOBAL PLOTS
+    # Make global plots.
     gax_B.contourf(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
@@ -178,29 +177,29 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         **FAC_kwargs,
     )
 
-    ## POLAR PLOTS
+    # Make polar plots.
     mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
 
-    # North:
+    # Make north polar plots.
     iii = lat > 50
     paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
     paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
-    # South:
+    # Make south polar plots.
     iii = lat < -50
     paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
     paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
-    # Scatter plot high latitude jr
+    # Scatter plot high latitude jr.
     iii = np.abs(dynamics.state_grid.lat) > dynamics.state.latitude_boundary
     jrmax = np.max(np.abs(dynamics.state.jr))
     ax_1.scatter(dynamics.state.jr, jr_mod[iii])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
     ax_1.set_xlabel("Input ")
 
-    # Scatter plot FACs at conjugate points
+    # Scatter plot FACs at conjugate points.
     j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
     j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
     j_par_max = np.max(np.abs(j_par_ll))
@@ -213,7 +212,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     )
     ax_2.set_ylabel(r"$j_\parallel$ [A/m$^2$] at conjugate points")
 
-    # Scatter plot Ed1 and Ed2 vs values at conjugate points
+    # Scatter plot Ed1 and Ed2 vs values at conjugate points.
     cu_ll = (
         dynamics.state.u_phi_cp * dynamics.state.aup_cp
         + dynamics.state.u_theta_cp * dynamics.state.aut_cp

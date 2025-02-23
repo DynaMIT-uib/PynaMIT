@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-RADIAL = False  # True for radial field lines - False for dipole
+RADIAL = False  # True for radial field lines, False for dipole
 
 RE = 6371.2
 
@@ -12,7 +12,7 @@ fig, ax = plt.subplots(figsize=(8, 8))
 
 rh = 2.0 * RE
 RI = RE + 110
-# d = 10 # step used to illustrate radii just above and below ionosphere
+# d = 10 # Step used to illustrate radii just above and below ionosphere
 textsize = 14
 
 x = y = np.linspace(0, rh, 2000)
@@ -48,7 +48,7 @@ a = np.linspace(0, np.pi / 2, 100)
 ax.fill_between(RE * np.sin(a), np.zeros_like(a), RE * np.cos(a), color="lightgrey")
 
 
-# plot magnetic field lines
+# Plot magnetic field lines.
 B0 = 1
 dth0 = np.deg2rad(4)
 
@@ -80,7 +80,7 @@ ax.set_ylim(0, rh)
 
 ax.set_aspect("equal")
 
-# Remove the ticks
+# Remove the ticks.
 ax.tick_params(
     axis="both",  # Apply to both x and y axes
     which="both",  # Apply to both major and minor ticks
@@ -92,13 +92,13 @@ ax.tick_params(
     labelleft=False,  # Turn off left tick labels
 )
 
-# Set the spine colors to black
+# Set the spine colors to black.
 ax.spines["top"].set_color("black")
 ax.spines["bottom"].set_color("black")
 ax.spines["left"].set_color("black")
 ax.spines["right"].set_color("black")
 
-# increase width of frame
+# Increase width of frame.
 ax.spines["top"].set_linewidth(2)
 ax.spines["bottom"].set_linewidth(2)
 ax.spines["left"].set_linewidth(2)

@@ -6,19 +6,18 @@ documentation:
 https://www.sphinx-doc.org/en/master/usage/configuration.html
 """
 
-# Path setup
 import os
 import sys
 
-# Add the project root directory to the system path
+# Add the project root directory to the system path.
 sys.path.insert(0, os.path.abspath("../../"))
 
-# Project information
+# Set project information.
 project = "PynaMIT"
 copyright = "2024, PynaMIT Developers"
 author = "PynaMIT Developers"
 
-# General configuration
+# Set general configuration options.
 extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
@@ -31,11 +30,11 @@ exclude_patterns = []
 
 nitpicky = True
 
-# Options for HTML output
+# Set options for HTML output.
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 
-# Options for autodoc
+# Set options for autodoc.
 # https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
 
 autodoc_default_options = {
@@ -46,12 +45,12 @@ autodoc_default_options = {
     "show-inheritance": True,
 }
 
-# Options for napoleon
+# Set options for napoleon.
 # https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html
 
 napoleon_google_docstring = False
 
-# Options for myst_parser
+# Set otions for myst_parser.
 # https://myst-parser.readthedocs.io/en/latest/index.html
 
 source_suffix = {".rst": "restructuredtext", ".txt": "markdown", ".md": "markdown"}

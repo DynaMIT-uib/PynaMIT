@@ -7,7 +7,7 @@ import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
 
-path = "../simulation/data/brn"  # where the save files are
+path = "../simulation/data/brn"  # Where the save files are located
 path = (
     "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/"
     "pynamit_paper_simulation"

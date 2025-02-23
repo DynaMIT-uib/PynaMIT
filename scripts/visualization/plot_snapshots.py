@@ -1,7 +1,5 @@
 """Snapshot plotting."""
 
-# visualization
-
 import pynamit
 import polplot
 import numpy as np
@@ -10,9 +8,9 @@ from matplotlib.gridspec import GridSpec
 import dipole
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
-DT = 0  # 480 # an offset to apply to all the ts
+DT = 0  # 480 # An offset to apply to all the ts
 filename_prefix = "wind"
-shape = (5, 4)  # layout of the figure (rows x columns)
+shape = (5, 4)  # Layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
 path = (
     "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/"
@@ -86,7 +84,7 @@ if GLOBAL_TIMESERIES:
 if POLAR_TIMESERIES:
     minlat = 50
 
-    # Create figure
+    # Create figure.
     fig_E = plt.figure(figsize=(14, 10))
     gs_E = GridSpec(
         shape[0],
@@ -129,7 +127,7 @@ if POLAR_TIMESERIES:
 
         a.set_time(t + DT)
 
-        # Define a subplot for the pair in two adjacent columns
+        # Define a subplot for the pair in two adjacent columns.
         ax_left_E = polplot.Polarplot(
             fig_E.add_subplot(gs_E[row, col * 2])
         )  # First axis (left)
@@ -226,7 +224,7 @@ if POLAR_TIMESERIES:
                 )
 
     for fig in [fig_E, fig_B, fig_Q]:
-        # Manually adjust the position of the pairs
+        # Manually adjust the position of the pairs.
         for ax in fig.get_axes():
             pos = ax.get_position()  # Get current axis position
             if ax in fig.axes[0::2]:  # Check if it's a left plot

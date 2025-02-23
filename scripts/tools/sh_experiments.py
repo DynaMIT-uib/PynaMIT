@@ -17,10 +17,10 @@ skeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN().Mge(1)
 ubasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax)
 
 
-# Fit a wind pattern using a spherical harmonic Helmholtz representation
+# Fit wind pattern using a spherical harmonic Helmholtz representation.
 date = datetime.datetime(2000, 5, 12, 21, 45)
-# Since IGRF coefficients are used without interpolation...
-# (fix if used by something different)
+# Since IGRF coefficients are used without interpolation (fix if used by
+# something different).
 assert date.year % 5 == 0
 
 ### CONDUCTANCE EXPERIMENT
@@ -92,20 +92,20 @@ if False:
         )
     )
 
-    # get IGRF gauss coefficients:
+    # Get IGRF gauss coefficients.
     igrf_date = datetime.datetime(date.year, 1, 1)
     g, h = ppigrf.ppigrf.read_shc()
     _n, _m = np.array([k for k in g.columns]).T  # n and m
     g, h = (
         g.loc[igrf_date, :].values,
         h.loc[igrf_date, :].values,
-    )  # gauss coefficients
+    )  # Gauss coefficients
 
     igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
 
     igrf_keys = pynamit.sha.helpers.SHIndices(_n.max(), _m.max()).setNmin(1).MleN()
 
-    # Calculate u x B numerically on grid (we evaluate on the ground):
+    # Calculate u x B numerically on grid (we evaluate on the ground).
     ph = np.deg2rad(u_lon).reshape((-1, 1))
     P, dP = np.split(
         igrf_basis.legendre(_n.max(), _m.max(), 90 - u_lat, keys=igrf_keys), 2, axis=1
@@ -122,4 +122,4 @@ if False:
     uxB_phi = -Br * u_theta.flatten()
 
 
-# Now u x B is calculated from SH coefficients without grid evaluation
+# Now u x B is calculated from SH coefficients without grid evaluation.

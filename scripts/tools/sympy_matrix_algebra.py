@@ -3,7 +3,7 @@
 import sympy as sp
 
 # sp.init_printing(use_unicode=True)
-# True for LaTeX print, False for more code-friendly print
+# True for LaTeX print, False for more code-friendly print.
 PRINT_LATEX = False
 
 if PRINT_LATEX:
@@ -19,8 +19,8 @@ else:
     )
     e1r, e1t, e1p, e2r, e2t, e2p = sp.symbols("e1r, e1t, e1p, e2r, e2t, e2p  ")
 
-# Matrix producing horizontal electric field when muliplied with
-# (J_theta, J_phi, 1)
+# Construct matrix producing horizontal electric field when muliplied
+# with (J_theta, J_phi, 1)
 A2D_ = sp.Matrix(
     [
         [eP * (bp**2 + br**2), -eP * bp * bt + eH * br, -up * Br],
@@ -28,7 +28,7 @@ A2D_ = sp.Matrix(
     ]
 )
 
-# Adding a row which produces E_r
+# Add row which produces E_r.
 Ar = -sp.Matrix(
     [
         [
@@ -44,7 +44,7 @@ A3D_ = sp.Matrix.vstack(Ar, A2D_)
 #    print('E = X (Jth, Jph, 1):')
 #    print(sp.latex(A3D_))
 
-# Check that A3D_ multiplied by a vector [x, y, 1] is perpendicular to b
+# Check that A3D_ multiplied by [x, y, 1] vector is perpendicular to b.
 assert (A3D_ * sp.Matrix([[sp.symbols("x")], [sp.symbols("y")], [1]])).dot(
     sp.Matrix([br, bt, bp])
 ).simplify() == 0

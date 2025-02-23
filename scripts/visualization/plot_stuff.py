@@ -1,7 +1,5 @@
 """Plot stuff."""
 
-# visualization
-
 import pynamit
 import polplot
 import numpy as np

@@ -20,10 +20,9 @@ RI = RE + 110e3
 
 dataset_filename_prefix = "PFAC_test"
 
-# MODEL PARAMETERS
-Nmax, Mmax, Ncs = 25, 20, 30
+Nmax, Mmax, Ncs = 25, 20, 30  # Model resolution
 
-## PLOT PARAMETERS
+# Define plotting parameters.
 fig_directory = "figs/"
 Blevels = np.linspace(-5, 5, 22) * 1e-9  # color levels for Br
 levels = np.linspace(-0.9, 0.9, 22)  # color levels for FAC muA/m^2
@@ -31,7 +30,7 @@ c_levels = np.linspace(0, 20, 100)  # color levels for conductance
 Wlevels = np.r_[-512.5:512.5:5]
 Philevels = np.r_[-212.5:212.5:5]
 
-## SET UP SIMULATION OBJECT
+# Set up simulation object.
 dynamics = pynamit.Dynamics(
     dataset_filename_prefix=dataset_filename_prefix,
     Nmax=Nmax,
@@ -43,7 +42,7 @@ dynamics = pynamit.Dynamics(
     ignore_PFAC=False,
 )
 
-## CONDUCTANCE INPUT
+# Get and set conductance input.
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp = 5
 d = dipole.Dipole(date.year)
@@ -56,7 +55,7 @@ hall, pedersen = conductance.hardy_EUV(
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-## jr INPUT
+# Get and set jr input.
 jr_lat = dynamics.state_grid.lat
 jr_lon = dynamics.state_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
@@ -69,7 +68,7 @@ dynamics.update_jr()
 dynamics.state.update_m_imp()
 dynamics.state.update_E()
 
-## SET UP PLOTTING GRID AND EVALUATORS
+# Set up plotting grid and evaluators.
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
@@ -94,11 +93,11 @@ if SIMULATE_DYNAMIC_RESPONSE:
     plt.savefig("figs/PFAC_steady_state.png")
     plt.close()
 
-    # manipulate GTB to remove the r x grad(T) part:
+    # Manipulate GTB to remove the r x grad(T) part.
     GrxgradT = -dynamics.state_basis_evaluator.Gdf * RI
-    dynamics.state.GTB = dynamics.state.GTB - GrxgradT  # subtract GrxgradT off
+    dynamics.state.GTB = dynamics.state.GTB - GrxgradT  # Subtract GrxgradT off
 
-    ## RUN SIMULATION
+    # Run the simulation.
     plotsteps = 400
     fig_directory = "figs/"
     dt = 1e-3
