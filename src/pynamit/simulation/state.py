@@ -115,8 +115,8 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Prepare spherical harmonic conversion factors.
-        self.m_ind_to_Br = -self.RI * self.basis.d_dr_V_external(self.RI) * (-(self.basis.n + 1))
-        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.m_ind_to_Br = -self.RI**2 * self.basis.laplacian(self.RI)
+        self.m_imp_to_jr = self.RI * self.basis.laplacian(self.RI) / mu0
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
         self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.V_external_to_delta_V
 
