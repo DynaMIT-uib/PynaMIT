@@ -115,12 +115,10 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Prepare spherical harmonic conversion factors.
-        self.m_ind_to_Br = -self.RI * self.basis.d_dr_V_external(self.RI)
+        self.m_ind_to_Br = -self.RI * self.basis.d_dr_V_external(self.RI) * (-(self.basis.n + 1))
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.E_df_to_d_m_ind_dt = self.basis.laplacian(
-            self.RI
-        ) / self.basis.d_dr_V_external(self.RI)  # The same as d_dr_internal
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.V_external_to_delta_V
+        self.E_df_to_d_m_ind_dt = - self.RI * self.basis.laplacian(self.RI) / self.m_ind_to_Br
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.V_external_to_delta_V * (-(self.basis.n + 1))
 
         B_pol_to_J_df_coeffs = (
             -self.RI * self.basis.V_external_to_delta_V / mu0
@@ -134,7 +132,7 @@ class State(object):
         self.G_B_tor_to_JS = (
             -self.basis_evaluator.G_grad * B_tor_to_J_cf_coeffs / self.RI
         )  # 1/RI comes from scaling in the gradient theta/phi components
-        self.G_m_ind_to_JS = self.G_B_pol_to_JS
+        self.G_m_ind_to_JS = self.G_B_pol_to_JS * (-(self.basis.n + 1))
         self.G_m_imp_to_JS = self.G_B_tor_to_JS + np.tensordot(
             self.G_B_pol_to_JS, self.m_imp_to_B_pol.values, 1
         )
