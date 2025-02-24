@@ -348,6 +348,6 @@ class SHBasis(object):
             Multiplicative conversion factors for each harmonic term.
         """
         if not hasattr(self, "_V_external_to_delta_V"):
-            self._V_external_to_delta_V = -(2 * self.n + 1) / (self.n + 1)
+            self._V_external_to_delta_V = 2 * self.n + 1
 
         return self._V_external_to_delta_V
