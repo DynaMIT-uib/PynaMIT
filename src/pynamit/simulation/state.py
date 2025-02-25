@@ -90,7 +90,7 @@ class State(object):
         self.vector_conductance = settings.vector_conductance
 
         if PFAC_matrix is not None:
-            self._m_imp_to_B_pol = PFAC_matrix
+            self._T_to_Ve = PFAC_matrix
 
         # Initialize grid-related objects.
         self.grid = grid
@@ -113,29 +113,21 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Prepare spherical harmonic conversion factors.
-        self.m_ind_to_Br = -self.RI * self.basis.d_dr_V_external(self.RI)
+        self.m_ind_to_Br = -self.RI * self.basis.d_dr_Ve(self.RI)
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.E_df_to_d_m_ind_dt = self.basis.laplacian(self.RI) / self.basis.d_dr_V_external(
-            self.RI
-        )  # The same as d_dr_internal
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.V_external_to_delta_V
+        self.E_df_to_d_m_ind_dt = 1 / self.basis.d_dr_Ve(self.RI) * self.basis.laplacian(self.RI)
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.Ve_to_delta_V
 
-        B_pol_to_J_df_coeffs = (
-            -self.RI * self.basis.V_external_to_delta_V / mu0
-        )  # RI comes from scaling in the V potential
-        B_tor_to_J_cf_coeffs = self.RI / mu0  # RI comes from scaling in the T potential
+        # RI comes from scaling in the Ve and T potentials
+        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.Ve_to_delta_V
+        T_to_J_cf_coeffs = self.RI / mu0
 
-        self.G_B_pol_to_JS = (
-            self.basis_evaluator.G_rxgrad * B_pol_to_J_df_coeffs / self.RI
-        )  # 1/RI comes from scaling in the gradient theta/phi components
+        # 1/RI comes from scaling in the gradient theta/phi components
+        self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+        self.G_T_to_JS = -1 / self.RI * self.basis_evaluator.G_grad * T_to_J_cf_coeffs
 
-        self.G_B_tor_to_JS = (
-            -self.basis_evaluator.G_grad * B_tor_to_J_cf_coeffs / self.RI
-        )  # 1/RI comes from scaling in the gradient theta/phi components
-        self.G_m_ind_to_JS = self.G_B_pol_to_JS
-        self.G_m_imp_to_JS = self.G_B_tor_to_JS + np.tensordot(
-            self.G_B_pol_to_JS, self.m_imp_to_B_pol.values, 1
-        )
+        self.G_m_ind_to_JS = self.G_Ve_to_JS
+        self.G_m_imp_to_JS = self.G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, 1)
 
         # Construct the matrix elements for electric field calculations.
         self.bP = np.array(
@@ -218,12 +210,14 @@ class State(object):
         self.initialize_constraints()
 
     @property
-    def m_imp_to_B_pol(self):
-        """Matrix that maps m_imp to corresponding poloidal field.
+    def T_to_Ve(self):
+        """Matrix that maps toroidal field to poloidal shielding field.
 
-        Maps m_imp to a corresponding poloidal field that that shields
-        the region under the ionosphere from the poloidal field of
-        inclined FACs.
+        The toroidal field represents the radial part of the FACs, and
+        the poloidal field is the field that shields the region under
+        the ionosphere from the effect of the FACs, by negating the
+        Biot-Savart integral of the horizontal part of the FACs above
+        the ionosphere.
 
         Based on Engels and Olsen (1998), in particular the method in
         equation (13).
@@ -231,10 +225,12 @@ class State(object):
         Returns
         -------
         array
-            Matrix that maps self.m_imp to a poloidal field.
+            Matrix that maps coefficients of a toroidal field to
+            coefficients of a poloidal field that shields the region
+            under the ionosphere from the poloidal field of inclined
         """
-        if not hasattr(self, "_m_imp_to_B_pol"):
-            self._m_imp_to_B_pol = xr.DataArray(
+        if not hasattr(self, "_T_to_Ve"):
+            self._T_to_Ve = xr.DataArray(
                 data=np.zeros((self.basis.index_length, self.basis.index_length)),
                 coords={
                     "i": np.arange(self.basis.index_length),
@@ -244,61 +240,55 @@ class State(object):
             )
 
             if not (self.mainfield.kind == "radial" or self.ignore_PFAC):
-                r_k_steps = self.FAC_integration_steps
-                Delta_k = np.diff(r_k_steps)
-                r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
+                rk_steps = self.FAC_integration_steps
+                Delta_k = np.diff(rk_steps)
+                rks = np.array(rk_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_B_pol_shifted = tensor_pinv(
-                    self.G_B_pol_to_JS, n_leading_flattened=2, rtol=0
-                )
+                JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
 
-                for i in range(r_k.size):
+                for i, rk in enumerate(rks):
                     print(
                         "Calculating matrix for poloidal field of "
-                        f"inclined FACs. Progress: {i + 1}/{r_k.size}",
-                        end="\r" if i < (r_k.size - 1) else "\n",
+                        f"inclined FACs. Progress: {i + 1}/{rks.size}",
+                        end="\r" if i < (rks.size - 1) else "\n",
                         flush=True,
                     )
-                    # Map coordinates from r_k[i] to RI.
+                    # Map coordinates from rk to RI.
                     theta_mapped, phi_mapped = self.mainfield.map_coords(
-                        self.RI, r_k[i], self.grid.theta, self.grid.phi
+                        self.RI, rk, self.grid.theta, self.grid.phi
                     )
                     mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
 
                     # Construct matrix that gives jr at mapped grid from
-                    # toroidal coefficients, shifts to r_k[i], and
-                    # extracts horizontal current components.
-                    shifted_b_evaluator = FieldEvaluator(self.mainfield, self.grid, r_k[i])
+                    # toroidal coefficients, shifts to rk, and extracts
+                    # horizontal current components.
+                    rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
                     mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
                     m_imp_to_jr = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr)
-                    jr_to_JS_shifted = np.array(
+                    jr_to_JS_rk = np.array(
                         [
-                            shifted_b_evaluator.Btheta / mapped_b_evaluator.Br,
-                            shifted_b_evaluator.Bphi / mapped_b_evaluator.Br,
+                            rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
+                            rk_b_evaluator.Bphi / mapped_b_evaluator.Br,
                         ]
                     )
 
-                    m_imp_to_JS_shifted = np.einsum(
-                        "ij,jk->ijk", jr_to_JS_shifted, m_imp_to_jr, optimize=True
+                    m_imp_to_JS_rk = np.einsum(
+                        "ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr, optimize=True
                     )
 
                     # Construct matrix that calculates the contribution
                     # to the poloidal coefficients from the horizontal
-                    # current components at r_k[i].
-                    B_pol_shifted_to_B_pol = self.basis.radial_shift_V_external(
-                        r_k[i], self.RI
-                    ).reshape((-1, 1, 1))
-                    JS_shifted_to_B_pol = JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
+                    # current components at rk.
+                    Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
+                    JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
 
                     # Add integration step, negative sign is to create a
                     # poloidal field that shields the region under the
                     # ionosphere from the FAC poloidal field.
-                    self._m_imp_to_B_pol -= Delta_k[i] * np.tensordot(
-                        JS_shifted_to_B_pol, m_imp_to_JS_shifted, 2
-                    )
+                    self._T_to_Ve -= Delta_k[i] * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
 
-        return self._m_imp_to_B_pol
+        return self._T_to_Ve
 
     def set_model_coeffs(self, **kwargs):
         """Set model coefficients.

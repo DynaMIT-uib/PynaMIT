@@ -270,11 +270,13 @@ class SHBasis(object):
         """
         return -self.n * (self.n + 1) / r**2
 
-    def d_dr_V_external(self, r=1.0):
+    def d_dr_Ve(self, r=1.0):
         """Calculate radial derivative of external potential.
 
         Calculates the vector that represents the radial derivative of
         the spherical harmonic coefficients for an external potential.
+        Does not include the scaling by the ``R`` factor in the
+        potential, this must be accounted for separately.
 
         Parameters
         ----------
@@ -289,26 +291,7 @@ class SHBasis(object):
         """
         return self.n / r
 
-    def d_dr_V_internal(self, r=1.0):
-        """Calculate radial derivative of internal potential.
-
-        Calculates the vector that represents the radial derivative of
-        the spherical harmonic coefficients for an internal potential.
-
-        Parameters
-        ----------
-        r : float, optional
-            Radius.
-
-        Returns
-        -------
-        array
-            The radial derivative of the spherical harmonic coefficients
-            for an internal potential.
-        """
-        return -(self.n + 1) / r
-
-    def radial_shift_V_external(self, start, end):
+    def radial_shift_Ve(self, start, end):
         """Calculate radial shift of external potential.
 
         Calculates the vector that represents a shift of the reference
@@ -333,21 +316,23 @@ class SHBasis(object):
         return (end / start) ** (self.n - 1)
 
     @property
-    def V_external_to_delta_V(self):
+    def Ve_to_delta_V(self):
         """
         Convert external coefficients to internal-external difference.
 
         Calculates multiplicative factors to convert spherical harmonic
         coefficients for an external potential to coefficients for
         internal-external potential difference, assuming continuous
-        first-order radial derivative across surface.
+        first-order radial derivative across surface. Does not include
+        the scaling by the ``R`` factor in the potential, this must be
+        accounted for separately.
 
         Returns
         -------
         ndarray
             Multiplicative conversion factors for each harmonic term.
         """
-        if not hasattr(self, "_V_external_to_delta_V"):
-            self._V_external_to_delta_V = -(2 * self.n + 1) / (self.n + 1)
+        if not hasattr(self, "_Ve_to_delta_V"):
+            self._Ve_to_delta_V = -(2 * self.n + 1) / (self.n + 1)
 
-        return self._V_external_to_delta_V
+        return self._Ve_to_delta_V

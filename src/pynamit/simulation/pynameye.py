@@ -85,7 +85,7 @@ class PynamEye(object):
         if steady_state:
             self.datasets["state"] = xr.load_dataset(filename_prefix + "_steady_state.ncdf")
 
-        self.m_imp_to_B_pol = xr.load_dataarray(filename_prefix + "_PFAC_matrix.ncdf").values
+        self.T_to_Ve = xr.load_dataarray(filename_prefix + "_PFAC_matrix.ncdf").values
 
         self.mlatlim = mlatlim
         settings = self.datasets["settings"]
@@ -187,12 +187,12 @@ class PynamEye(object):
         self.G_m_imp_to_JS = {}
         for region in ["global", "north", "south"]:
             self.G_B_pol_to_JS[region] = (
-                -self.evaluator[region].G_rxgrad * self.basis.V_external_to_delta_V / mu0
+                -self.evaluator[region].G_rxgrad * self.basis.Ve_to_delta_V / mu0
             )
             self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
             self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
             self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[region] + np.tensordot(
-                self.G_B_pol_to_JS[region], self.m_imp_to_B_pol, 1
+                self.G_B_pol_to_JS[region], self.T_to_Ve, 1
             )
 
         self._define_defaults()
@@ -209,7 +209,7 @@ class PynamEye(object):
         if not self.B_parameters_calculated:
             PFAC = self.datasets["settings"].PFAC_matrix
             nn = int(np.sqrt(PFAC.size))
-            self.m_imp_to_B_pol = PFAC.reshape((nn, nn))
+            self.T_to_Ve = PFAC.reshape((nn, nn))
 
             # Reproduce numerical grid used in the simulation.
             self.cs_basis = CSBasis(self.datasets["settings"].Ncs)
@@ -230,12 +230,10 @@ class PynamEye(object):
             self.bH_01 = self.b_evaluator.br
             self.bH_10 = -self.b_evaluator.br
 
-            self.G_B_pol_to_JS = (
-                -self.evaluator["num"].G_rxgrad * self.basis.V_external_to_delta_V / mu0
-            )
+            self.G_B_pol_to_JS = -self.evaluator["num"].G_rxgrad * self.basis.Ve_to_delta_V / mu0
             self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
-            self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.m_imp_to_B_pol)
+            self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.T_to_Ve)
 
             self.B_parameters_calculated = True
 

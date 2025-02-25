@@ -117,7 +117,7 @@ plt_grid = pynamit.Grid(lat=lat, lon=lon)
 plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
 
 G_Br = plt_state_evaluator.scaled_G(dynamics.state_basis.n / RI)
-Br = G_Br.dot(dynamics.state.m_imp_to_B_pol.dot(dynamics.state.m_imp.coeffs))
+Br = G_Br.dot(dynamics.state.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
 
 
 if PLOT_WIND:

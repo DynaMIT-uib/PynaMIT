@@ -232,7 +232,7 @@ class Dynamics(object):
             )
 
         if not PFAC_matrix_on_file:
-            self.save_dataset(self.state.m_imp_to_B_pol, "PFAC_matrix")
+            self.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
             print(
                 "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
