@@ -24,8 +24,7 @@ dataset_filename_prefix = "ihc_test"
 
 Nmax, Mmax, Ncs = 25, 15, 50  # Model resolution
 print(
-    "we need a check that the poloidal field calculation is high enough "
-    "resoultion compared to SH "
+    "we need a check that the poloidal field calculation is high enough resoultion compared to SH "
 )
 
 
@@ -143,8 +142,7 @@ if PLOT_WIND:
     u_phi_int = u_phi_sh.to_grid(dynamics.state_basis_evaluator)
 
     fig, ax = plt.subplots(
-        figsize=(10, 7),
-        subplot_kw={"projection": ccrs.PlateCarree(central_longitude=lon0)},
+        figsize=(10, 7), subplot_kw={"projection": ccrs.PlateCarree(central_longitude=lon0)}
     )
     ax.coastlines()
     Q = ax.quiver(
@@ -198,11 +196,7 @@ if SIMULATE:
         # )
 
         if count % plotsteps == 0:
-            print(
-                count,
-                time,
-                (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3],
-            )
+            print(count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3])
             fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
             filecount += 1
             title = "t = {:.3} s".format(time)

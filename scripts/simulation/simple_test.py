@@ -104,9 +104,7 @@ Kp = 4
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-dynamics.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon)
 
 dynamics.input_selection("conductance")
 dynamics.input_selection("jr")

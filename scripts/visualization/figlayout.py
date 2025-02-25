@@ -72,10 +72,7 @@ hwm14Obj = pyhwm2014.HWM142D(
     ut=date.hour,
     day=date.timetuple().tm_yday,
 )
-u_theta, u_phi = (
-    -hwm14Obj.Vwind.flatten() * WIND_FACTOR,
-    hwm14Obj.Uwind.flatten() * WIND_FACTOR,
-)
+u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 dynamics.set_u(
     u_theta=u_theta,
@@ -105,11 +102,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     noon_longitude : float, optional
         The longitude of noon in degrees.
     """
-    B_kwargs = {
-        "cmap": plt.cm.bwr,
-        "levels": np.linspace(-50, 50, 22) * 1e-9,
-        "extend": "both",
-    }
+    B_kwargs = {"cmap": plt.cm.bwr, "levels": np.linspace(-50, 50, 22) * 1e-9, "extend": "both"}
     eqJ_kwargs = {"colors": "black", "levels": np.r_[-210:220:20] * 1e3}
     FAC_kwargs = {
         "cmap": plt.cm.bwr,
@@ -141,18 +134,14 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat=lat, lon=lon)
     plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
-    plt_b_evaluator = pynamit.FieldEvaluator(
-        dynamics.state.mainfield, plt_grid, dynamics.state.RI
-    )
+    plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (plt_state_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
     )
-    jr_mod = plt_state_evaluator.G.dot(
-        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
-    )
+    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
     # Make global plots.
@@ -171,10 +160,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         **eqJ_kwargs,
     )
     gax_j.contourf(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        FAC.reshape((NLO, NLA)),
-        **FAC_kwargs,
+        lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), FAC.reshape((NLO, NLA)), **FAC_kwargs
     )
 
     # Make polar plots.
@@ -251,9 +237,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     if title is not None:
         gax_j.set_title(title)
 
-    plt.subplots_adjust(
-        top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185
-    )
+    plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
     if filename is not None:
         fig.savefig(filename)
     else:

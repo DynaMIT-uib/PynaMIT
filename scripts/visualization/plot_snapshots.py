@@ -13,8 +13,7 @@ filename_prefix = "wind"
 shape = (5, 4)  # Layout of the figure (rows x columns)
 assert len(ts) == np.product(shape)
 path = (
-    "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/"
-    "pynamit_paper_simulation"
+    "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/pynamit_paper_simulation"
 )
 # path = ("/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/"
 #        "simulation/data/steady_state"
@@ -38,15 +37,9 @@ if GLOBAL_TIMESERIES:
 
     for i, t in enumerate(ts):
         a.set_time(t + DT)
-        ax_E = fig_E.add_subplot(
-            shape[0], shape[1], i + 1, projection=a.get_global_projection()
-        )
-        ax_B = fig_B.add_subplot(
-            shape[0], shape[1], i + 1, projection=a.get_global_projection()
-        )
-        ax_Q = fig_Q.add_subplot(
-            shape[0], shape[1], i + 1, projection=a.get_global_projection()
-        )
+        ax_E = fig_E.add_subplot(shape[0], shape[1], i + 1, projection=a.get_global_projection())
+        ax_B = fig_B.add_subplot(shape[0], shape[1], i + 1, projection=a.get_global_projection())
+        ax_Q = fig_Q.add_subplot(shape[0], shape[1], i + 1, projection=a.get_global_projection())
 
         a.plot_electric_potential(ax_E, region="global", linewidths=0.5)
         a.plot_electric_field_stream_function(ax_E, region="global")
@@ -54,9 +47,9 @@ if GLOBAL_TIMESERIES:
         a.plot_Br(ax_B, region="global").set_edgecolor("face")
         a.plot_equivalent_current(ax_B, region="global", linewidths=0.5)
 
-        a.plot_joule(
-            ax_Q, region="global", levels=np.linspace(-10, 10, 22) * 1e-3
-        ).set_edgecolor("face")
+        a.plot_joule(ax_Q, region="global", levels=np.linspace(-10, 10, 22) * 1e-3).set_edgecolor(
+            "face"
+        )
 
         for ax in [ax_E, ax_B, ax_Q]:
             a.jazz_global_plot(
@@ -128,21 +121,15 @@ if POLAR_TIMESERIES:
         a.set_time(t + DT)
 
         # Define a subplot for the pair in two adjacent columns.
-        ax_left_E = polplot.Polarplot(
-            fig_E.add_subplot(gs_E[row, col * 2])
-        )  # First axis (left)
+        ax_left_E = polplot.Polarplot(fig_E.add_subplot(gs_E[row, col * 2]))  # First axis (left)
         ax_right_E = polplot.Polarplot(
             fig_E.add_subplot(gs_E[row, col * 2 + 1])
         )  # Second axis (right)
-        ax_left_B = polplot.Polarplot(
-            fig_B.add_subplot(gs_B[row, col * 2])
-        )  # First axis (left)
+        ax_left_B = polplot.Polarplot(fig_B.add_subplot(gs_B[row, col * 2]))  # First axis (left)
         ax_right_B = polplot.Polarplot(
             fig_B.add_subplot(gs_B[row, col * 2 + 1])
         )  # Second axis (right)
-        ax_left_Q = polplot.Polarplot(
-            fig_Q.add_subplot(gs_Q[row, col * 2])
-        )  # First axis (left)
+        ax_left_Q = polplot.Polarplot(fig_Q.add_subplot(gs_Q[row, col * 2]))  # First axis (left)
         ax_right_Q = polplot.Polarplot(
             fig_Q.add_subplot(gs_Q[row, col * 2 + 1])
         )  # Second axis (right)
@@ -171,9 +158,7 @@ if POLAR_TIMESERIES:
 
             if i == 0:  # write some labels
                 ax_left.writeLATlabels(backgroundcolor=(0, 0, 0, 0), color="black")
-                ax_right.writeLATlabels(
-                    backgroundcolor=(0, 0, 0, 0), north=False, color="black"
-                )
+                ax_right.writeLATlabels(backgroundcolor=(0, 0, 0, 0), north=False, color="black")
                 ax_left.write(
                     minlat,
                     12,

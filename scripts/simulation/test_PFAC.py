@@ -119,11 +119,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
         # )
 
         if count % plotsteps == 0:
-            print(
-                count,
-                time,
-                (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3],
-            )
+            print(count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3])
             fn = os.path.join(fig_directory, "PFAC_" + str(filecount).zfill(3) + ".png")
             filecount += 1
             title = "t = {:.3} s".format(time)
@@ -182,10 +178,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 
 if COMPARE_TO_SECS:
-    print(
-        "Building SECS matrices. This takes some time (and memory) because of "
-        "global grids..."
-    )
+    print("Building SECS matrices. This takes some time (and memory) because of global grids...")
     secsI = (
         -jr * dynamics.cs_basis.unit_area * RI**2
     )  # SECS amplitudes are downward current density times area

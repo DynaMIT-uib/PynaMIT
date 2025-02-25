@@ -89,9 +89,7 @@ class CSEquations(object):
             al. (2017).
         """
         if not hasattr(self, "_Qi"):
-            self._Qi = self.cs_basis.get_Q(
-                90 - self.cs_basis.arr_theta, self.RI, inverse=True
-            )
+            self._Qi = self.cs_basis.get_Q(90 - self.cs_basis.arr_theta, self.RI, inverse=True)
         return self._Qi
 
     def curlr(self, u1, u2):
@@ -118,12 +116,8 @@ class CSEquations(object):
             1
             / self.cs_basis.sqrt_detg
             * (
-                self.D[0].dot(
-                    self.cs_basis.g[:, 0, 1] * u1 + self.cs_basis.g[:, 1, 1] * u2
-                )
-                - self.D[1].dot(
-                    self.cs_basis.g[:, 0, 0] * u1 + self.cs_basis.g[:, 0, 1] * u2
-                )
+                self.D[0].dot(self.cs_basis.g[:, 0, 1] * u1 + self.cs_basis.g[:, 1, 1] * u2)
+                - self.D[1].dot(self.cs_basis.g[:, 0, 0] * u1 + self.cs_basis.g[:, 0, 1] * u2)
             )
         )
 

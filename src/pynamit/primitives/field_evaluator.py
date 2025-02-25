@@ -68,9 +68,7 @@ class FieldEvaluator(object):
             (3, N) where N is number of grid points.
         """
         if not hasattr(self, "_grid_values"):
-            self._grid_values = np.vstack(
-                self.field.get_B(self.r, self.grid.theta, self.grid.phi)
-            )
+            self._grid_values = np.vstack(self.field.get_B(self.r, self.grid.theta, self.grid.phi))
         return self._grid_values
 
     @property
@@ -168,9 +166,7 @@ class FieldEvaluator(object):
             Basis vectors of the magnetic field.
         """
         if not hasattr(self, "_basis_vectors"):
-            self._basis_vectors = self.field.basis_vectors(
-                self.r, self.grid.theta, self.grid.phi
-            )
+            self._basis_vectors = self.field.basis_vectors(self.r, self.grid.theta, self.grid.phi)
         return self._basis_vectors
 
     @property
@@ -408,10 +404,7 @@ class FieldEvaluator(object):
         """
         if not hasattr(self, "_field_orthogonal_to_apex"):
             self._field_orthogonal_to_apex = np.array(
-                [
-                    [self.e1r, self.e1theta, self.e1phi],
-                    [self.e2r, self.e2theta, self.e2phi],
-                ]
+                [[self.e1r, self.e1theta, self.e1phi], [self.e2r, self.e2theta, self.e2phi]]
             )
 
         return self._field_orthogonal_to_apex
@@ -452,11 +445,7 @@ class FieldEvaluator(object):
         """
         if not hasattr(self, "_radial_to_field_parallel"):
             self._radial_to_field_parallel = np.array(
-                [
-                    [np.ones(self.grid.size)],
-                    [self.btheta / self.br],
-                    [self.bphi / self.br],
-                ]
+                [[np.ones(self.grid.size)], [self.btheta / self.br], [self.bphi / self.br]]
             )
 
         return self._radial_to_field_parallel
@@ -474,9 +463,7 @@ class FieldEvaluator(object):
             the field.
         """
         if not hasattr(self, "_field_parallel_to_apex"):
-            self._field_parallel_to_apex = np.array(
-                [[self.d3r, self.d3theta, self.d3phi]]
-            )
+            self._field_parallel_to_apex = np.array([[self.d3r, self.d3theta, self.d3phi]])
 
         return self._field_parallel_to_apex
 

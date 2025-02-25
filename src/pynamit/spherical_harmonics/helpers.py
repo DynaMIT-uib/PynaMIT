@@ -103,8 +103,7 @@ class SHIndices(object):
             String representation of the SHIndices instance.
         """
         return "".join(
-            ["n, m\n"]
-            + [str(index_pair)[1:-1] + "\n" for index_pair in self.index_pairs]
+            ["n, m\n"] + [str(index_pair)[1:-1] + "\n" for index_pair in self.index_pairs]
         )[:-1]
 
     def __str__(self):
@@ -116,8 +115,7 @@ class SHIndices(object):
             String representation of the SHIndices instance.
         """
         return "".join(
-            ["n, m\n"]
-            + [str(index_pair)[1:-1] + "\n" for index_pair in self.index_pairs]
+            ["n, m\n"] + [str(index_pair)[1:-1] + "\n" for index_pair in self.index_pairs]
         )[:-1]
 
     def set_Nmin(self, Nmin):
@@ -153,11 +151,7 @@ class SHIndices(object):
             Modified instance with filtered indices.
         """
         self.index_pairs = tuple(
-            [
-                index_pair
-                for index_pair in self.index_pairs
-                if abs(index_pair[1]) >= Mmin
-            ]
+            [index_pair for index_pair in self.index_pairs if abs(index_pair[1]) >= Mmin]
         )
         self.make_arrays()
         return self
@@ -171,11 +165,7 @@ class SHIndices(object):
             Modified instance with filtered indices.
         """
         self.index_pairs = tuple(
-            [
-                index_pair
-                for index_pair in self.index_pairs
-                if abs(index_pair[1]) <= index_pair[0]
-            ]
+            [index_pair for index_pair in self.index_pairs if abs(index_pair[1]) <= index_pair[0]]
         )
         self.make_arrays()
         return self

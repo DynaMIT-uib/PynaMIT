@@ -10,9 +10,7 @@ from functools import reduce
 import pytest
 
 
-@pytest.mark.skip(
-    reason="Differentiation must be re-implemented now that grid is cell centered"
-)
+@pytest.mark.skip(reason="Differentiation must be re-implemented now that grid is cell centered")
 def test_differentiation():
     """Test cubed sphere differentiation."""
     # Set up projection and make a grid (not using the grid class).
@@ -93,9 +91,7 @@ def test_differentiation():
     )
 
     # Calculate the contravariant components of the gradient.
-    gc = p.get_metric_tensor(
-        xi[0, 2:-2, 2:-2], eta[0, 2:-2, 2:-2], r=R, covariant=False
-    )
+    gc = p.get_metric_tensor(xi[0, 2:-2, 2:-2], eta[0, 2:-2, 2:-2], r=R, covariant=False)
     u1 = (
         gc[:, 0, 0].reshape((1, N - 4, N - 4)) * dV_dxi
         + gc[:, 0, 1].reshape((1, N - 4, N - 4)) * dV_det
@@ -108,11 +104,7 @@ def test_differentiation():
     u = np.vstack((u1.flatten(), u2.flatten(), u3.flatten()))
 
     Ps_inv = p.get_Ps(
-        xi[:, 2:-2, 2:-2],
-        eta[:, 2:-2, 2:-2],
-        r=R,
-        block=block[:, 2:-2, 2:-2],
-        inverse=True,
+        xi[:, 2:-2, 2:-2], eta[:, 2:-2, 2:-2], r=R, block=block[:, 2:-2, 2:-2], inverse=True
     )
     Q = p.get_Q(90 - theta[:, 2:-2, 2:-2], R)
     Ps_normalized = np.einsum("nij, njk -> nik", Q, Ps_inv)
@@ -143,16 +135,14 @@ def test_differentiation():
     dV2_dxi2 = reduce(
         lambda x, y: x + y,
         [
-            stencil2[i]
-            * V[:, 2 + stencil_points[i] : (N - 2) + stencil_points[i], 2:-2]
+            stencil2[i] * V[:, 2 + stencil_points[i] : (N - 2) + stencil_points[i], 2:-2]
             for i in range(len(stencil_points))
         ],
     )
     dV2_det2 = reduce(
         lambda x, y: x + y,
         [
-            stencil2[i]
-            * V[:, 2:-2, 2 + stencil_points[i] : (N - 2) + stencil_points[i]]
+            stencil2[i] * V[:, 2:-2, 2 + stencil_points[i] : (N - 2) + stencil_points[i]]
             for i in range(len(stencil_points))
         ],
     )
@@ -228,12 +218,8 @@ def test_differentiation():
     # Set up differentiation stencil.
     stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
     Nsp = len(stencil_points)
-    stencil_weight1 = diffutils.stencil(
-        stencil_points, order=1, h=h
-    )  # 1st order differentiation
-    stencil_weight2 = diffutils.stencil(
-        stencil_points, order=2, h=h
-    )  # 2nd order differentiation
+    stencil_weight1 = diffutils.stencil(stencil_points, order=1, h=h)  # 1st order differentiation
+    stencil_weight2 = diffutils.stencil(stencil_points, order=2, h=h)  # 2nd order differentiation
 
     i_diff = np.hstack([i_inner.flatten() + _ for _ in stencil_points])
     j_diff = np.hstack([j_inner.flatten() + _ for _ in stencil_points])
@@ -267,10 +253,7 @@ def test_differentiation():
     # cols.insert()
 
     rows = np.tile(
-        np.ravel_multi_index(
-            (k_inner.flatten(), i_inner.flatten(), j_inner.flatten()), shape
-        ),
-        Nsp,
+        np.ravel_multi_index((k_inner.flatten(), i_inner.flatten(), j_inner.flatten()), shape), Nsp
     )
 
     Dxi1 = coo_matrix((weights1, (rows, cols_xi)), shape=(size, size))
@@ -282,9 +265,7 @@ def test_differentiation():
     xi, eta = p.xi(i, N), p.eta(j, N)
     r, theta, phi = p.cube2spherical(xi, eta, r=R, block=k, deg=True)
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).flatten()
-    Br, Btheta, Bphi = map(
-        np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1))
-    )
+    Br, Btheta, Bphi = map(np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
 
     dVdxi = Dxi1.dot(V)
     dVdeta = Deta1.dot(V)
@@ -303,16 +284,10 @@ def test_differentiation():
     u_east, u_north, u_r = -np.einsum("nij, nj -> ni", Ps_normalized, u.T).T
 
     sparse_Btheta_matches_Btheta = np.allclose(
-        (-u_north.reshape(shape) - Btheta.squeeze()).reshape(shape)[
-            k_inner, i_inner, j_inner
-        ],
-        0,
+        (-u_north.reshape(shape) - Btheta.squeeze()).reshape(shape)[k_inner, i_inner, j_inner], 0
     )
     sparse_Bphi_matches_Bphi = np.allclose(
-        (u_east.reshape(shape) - Bphi.squeeze()).reshape(shape)[
-            k_inner, i_inner, j_inner
-        ],
-        0,
+        (u_east.reshape(shape) - Bphi.squeeze()).reshape(shape)[k_inner, i_inner, j_inner], 0
     )
 
     # Compare values on inner grid cells (all numerical derivatives are
@@ -345,9 +320,7 @@ def test_differentiation():
     xi, eta = p.xi(ii, N), p.eta(jj, N)
     r, theta, phi = p.cube2spherical(xi, eta, r=R, block=kk, deg=True)
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
-    Br, Btheta, Bphi = map(
-        np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1))
-    )
+    Br, Btheta, Bphi = map(np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
 
     dVdxi = Dxi.dot(V)
     dVdeta = Deta.dot(V)
@@ -366,13 +339,9 @@ def test_differentiation():
     east_matches_Bphi = np.all(np.isclose(u_east - Bphi, 0))
     north_matches_Btheta = np.all(np.isclose(u_north + Btheta, 0))
 
+    print("Numerically calculated eastward components consistent with SH: {east_matches_Bphi}")
     print(
-        "Numerically calculated eastward components consistent with SH: "
-        "{east_matches_Bphi}"
-    )
-    print(
-        "Numerically calculated northward components consistent with SH: "
-        f"{north_matches_Btheta}"
+        f"Numerically calculated northward components consistent with SH: {north_matches_Btheta}"
     )
 
     assert east_matches_Bphi

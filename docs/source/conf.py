@@ -18,12 +18,7 @@ copyright = "2024, PynaMIT Developers"
 author = "PynaMIT Developers"
 
 # Set general configuration options.
-extensions = [
-    "sphinx.ext.napoleon",
-    "sphinx.ext.autodoc",
-    "sphinx.ext.viewcode",
-    "myst_parser",
-]
+extensions = ["sphinx.ext.napoleon", "sphinx.ext.autodoc", "sphinx.ext.viewcode", "myst_parser"]
 
 templates_path = ["_templates"]
 exclude_patterns = []

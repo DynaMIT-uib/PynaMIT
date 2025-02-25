@@ -50,8 +50,7 @@ class FlattenedArray(object):
         """
         if n_leading_flattened is None and n_trailing_flattened is None:
             raise ValueError(
-                "Either 'n_leading_flattened' or 'n_trailing_flattened' must be "
-                "specified."
+                "Either 'n_leading_flattened' or 'n_trailing_flattened' must be specified."
             )
         elif n_leading_flattened is not None and n_trailing_flattened is not None:
             if n_leading_flattened + n_trailing_flattened != full_array.ndim:

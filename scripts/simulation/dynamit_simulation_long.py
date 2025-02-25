@@ -68,10 +68,7 @@ hwm14Obj = pyhwm2014.HWM142D(
     day=date.timetuple().tm_yday,
 )
 
-u_theta, u_phi = (
-    -hwm14Obj.Vwind.flatten() * WIND_FACTOR,
-    hwm14Obj.Uwind.flatten() * WIND_FACTOR,
-)
+u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 # u_lat, u_lon, u_phi, u_theta = (
 #     np.load("ulat.npy"),
@@ -96,8 +93,6 @@ Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-dynamics.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
-)
+dynamics.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon)
 
 dynamics.evolve_to_time(60 * 60)

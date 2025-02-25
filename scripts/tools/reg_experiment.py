@@ -35,9 +35,9 @@ df_reg = pd.DataFrame({"n": n, "coeff": ms[-5], "pcoeff": PFAC.dot(ms[-5])})
 
 
 nn = np.unique(n)
-p_plain = (df_plain.coeff**2).groupby(df_plain.n).sum() * nn * (nn + 1.0) / (
-    2 * nn + 1.0
-) + (df_plain.pcoeff**2).groupby(df_plain.n).sum() * (nn + 1)
+p_plain = (df_plain.coeff**2).groupby(df_plain.n).sum() * nn * (nn + 1.0) / (2 * nn + 1.0) + (
+    df_plain.pcoeff**2
+).groupby(df_plain.n).sum() * (nn + 1)
 p_reg = (df_reg.coeff**2).groupby(df_reg.n).sum() * nn * (nn + 1.0) / (2 * nn + 1.0) + (
     df_reg.pcoeff**2
 ).groupby(df_reg.n).sum() * (nn + 1)

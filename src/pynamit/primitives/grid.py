@@ -61,9 +61,7 @@ class Grid(object):
             self.theta = theta
             self.lat = 90 - self.theta
         else:
-            raise ValueError(
-                "Latitude or theta must be provided to initialize the grid."
-            )
+            raise ValueError("Latitude or theta must be provided to initialize the grid.")
 
         if lon is not None:
             self.lon = lon
@@ -72,9 +70,7 @@ class Grid(object):
             self.phi = phi
             self.lon = phi
         else:
-            raise ValueError(
-                "Longitude or phi must be provided to initialize the grid."
-            )
+            raise ValueError("Longitude or phi must be provided to initialize the grid.")
 
         self.lat, self.lon = np.broadcast_arrays(self.lat, self.lon)
         self.theta, self.phi = np.broadcast_arrays(self.theta, self.phi)

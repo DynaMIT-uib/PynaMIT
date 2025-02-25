@@ -185,9 +185,7 @@ class Mainfield(object):
         if self.kind == "dipole":
             # Map from r to r_dest for dipole field.
             hemisphere = np.sign(90 - theta)
-            la_ = 90 - np.rad2deg(
-                np.arcsin(np.sin(np.deg2rad(theta)) * np.sqrt(r_dest / r))
-            )
+            la_ = 90 - np.rad2deg(np.arcsin(np.sin(np.deg2rad(theta)) * np.sqrt(r_dest / r)))
             theta_out = 90 - hemisphere * la_
             # Longitude is kept the same.
             phi_out = phi
@@ -237,9 +235,7 @@ class Mainfield(object):
         r, theta, phi = map(np.ravel, np.broadcast_arrays(r, theta, phi))
 
         if self.kind == "radial":
-            raise ValueError(
-                "Conjugate coordinates do not exist with radial field lines"
-            )
+            raise ValueError("Conjugate coordinates do not exist with radial field lines")
 
         if self.kind == "dipole":
             theta_conj, phi_conj = (180 - theta, phi)
@@ -379,6 +375,4 @@ class Mainfield(object):
             # Calculate latitude of evenly spaced points.
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh)
             # Interpolate to phi.
-            return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(
-                phi.shape
-            )
+            return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(phi.shape)

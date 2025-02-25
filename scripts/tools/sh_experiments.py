@@ -74,10 +74,7 @@ if False:
 
     ugrid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
-    Gphi, Gtheta = (
-        ubasis.get_G(ugrid, derivative="phi"),
-        ubasis.get_G(ugrid, derivative="theta"),
-    )
+    Gphi, Gtheta = (ubasis.get_G(ugrid, derivative="phi"), ubasis.get_G(ugrid, derivative="theta"))
     G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
     G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()
 
@@ -86,20 +83,13 @@ if False:
     u_coeff_df, u_coeff_cf = np.split(u_coeffs, 2)
 
     misfit = G_df.dot(u_coeff_df) + G_cf.dot(u_coeff_cf) - d
-    print(
-        "rms misfit for fitted wind field is {:.5f} m/s".format(
-            np.sqrt(np.mean(misfit**2))
-        )
-    )
+    print("rms misfit for fitted wind field is {:.5f} m/s".format(np.sqrt(np.mean(misfit**2))))
 
     # Get IGRF gauss coefficients.
     igrf_date = datetime.datetime(date.year, 1, 1)
     g, h = ppigrf.ppigrf.read_shc()
     _n, _m = np.array([k for k in g.columns]).T  # n and m
-    g, h = (
-        g.loc[igrf_date, :].values,
-        h.loc[igrf_date, :].values,
-    )  # Gauss coefficients
+    g, h = (g.loc[igrf_date, :].values, h.loc[igrf_date, :].values)  # Gauss coefficients
 
     igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
 

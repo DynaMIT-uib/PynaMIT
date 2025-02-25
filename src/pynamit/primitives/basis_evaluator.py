@@ -222,9 +222,7 @@ class BasisEvaluator(object):
             else:
                 L_cf = np.stack(
                     [
-                        np.diag(
-                            self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)
-                        ),
+                        np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
                         np.zeros((self.basis.index_length, self.basis.index_length)),
                     ],
                     axis=1,

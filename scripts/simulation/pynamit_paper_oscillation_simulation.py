@@ -125,10 +125,7 @@ for period in PERIODS:
 
     print(datetime.datetime.now(), "Setting scaled jr value", flush=True)
     dynamics.set_jr(
-        jr=scaled_jr_values,
-        lat=jr_lat,
-        lon=jr_lon,
-        time=last_simulation_time + time_values,
+        jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=last_simulation_time + time_values
     )
 
     print(

@@ -28,9 +28,7 @@ d = dipole.Dipole(t0.year)
 a = apexpy.Apex(t0.year)
 
 # Construct plot grid in mlt/mlat, then convert to glat/glon.
-mlt, mlat = np.meshgrid(
-    [4, 9, 12, 15, 20], [-80, -60, -20, 20, 60, 80][::-1], indexing="ij"
-)
+mlt, mlat = np.meshgrid([4, 9, 12, 15, 20], [-80, -60, -20, 20, 60, 80][::-1], indexing="ij")
 
 Nrows = mlt.shape[1]
 Ncols = mlt.shape[0]
@@ -82,9 +80,7 @@ for state_data in state_data_list:
 
         if ii[i] == Ncols - 1:
             axes[jj[i], ii[i]].set_ylabel(
-                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$",
-                rotation=270,
-                labelpad=15,
+                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$", rotation=270, labelpad=15
             )
 
             # axes[jj[i], ii[i]].set_title(
@@ -154,21 +150,15 @@ for p, state_data in zip(periods, state_data_list):
 
         if ii[i] == Ncols - 1:
             axesw[jj[i], ii[i]].set_ylabel(
-                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$",
-                rotation=270,
-                labelpad=15,
+                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$", rotation=270, labelpad=15
             )
             axesw[jj[i], ii[i]].yaxis.set_label_position("right")
             axesA[jj[i], ii[i]].set_ylabel(
-                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$",
-                rotation=270,
-                labelpad=15,
+                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$", rotation=270, labelpad=15
             )
             axesA[jj[i], ii[i]].yaxis.set_label_position("right")
             axesphi[jj[i], ii[i]].set_ylabel(
-                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$",
-                rotation=270,
-                labelpad=15,
+                "mlat$ = " + str(mlat[ii[i], jj[i]]) + r"^\circ$", rotation=270, labelpad=15
             )
             axesphi[jj[i], ii[i]].yaxis.set_label_position("right")
 
