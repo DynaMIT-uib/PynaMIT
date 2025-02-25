@@ -23,12 +23,7 @@ class FieldExpansion(object):
     """
 
     def __init__(
-        self,
-        basis,
-        coeffs=None,
-        basis_evaluator=None,
-        grid_values=None,
-        field_type="scalar",
+        self, basis, coeffs=None, basis_evaluator=None, grid_values=None, field_type="scalar"
     ):
         """Initialize the field expansion.
 
@@ -67,9 +62,7 @@ class FieldExpansion(object):
         elif (basis_evaluator is not None) and (grid_values is not None):
             self.coeffs = self.coeffs_from_grid(basis_evaluator, grid_values)
         else:
-            raise ValueError(
-                "Either coeffs or basis evaluator and grid values must be provided."
-            )
+            raise ValueError("Either coeffs or basis evaluator and grid values must be provided.")
 
     def coeffs_from_grid(self, basis_evaluator, grid_values):
         """Compute basis coefficients from grid values.

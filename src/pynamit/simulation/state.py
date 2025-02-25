@@ -90,7 +90,7 @@ class State(object):
         self.vector_conductance = settings.vector_conductance
 
         if PFAC_matrix is not None:
-            self._m_imp_to_B_pol = PFAC_matrix
+            self._T_to_Ve = PFAC_matrix
 
         # Initialize grid-related objects.
         self.grid = grid
@@ -99,9 +99,7 @@ class State(object):
         # inverses, as they do not include regularization and weights.
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         self.jr_basis_evaluator = BasisEvaluator(self.jr_basis, self.grid)
-        self.conductance_basis_evaluator = BasisEvaluator(
-            self.conductance_basis, self.grid
-        )
+        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
         self.u_basis_evaluator = BasisEvaluator(self.u_basis, self.grid)
 
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
@@ -115,26 +113,21 @@ class State(object):
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
 
         # Prepare spherical harmonic conversion factors.
-        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+        self.m_ind_to_Br = -((self.RI) ** 2) * self.basis.d_dr_Ve(self.RI)
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
-        self.E_df_to_d_m_ind_dt = 1.0 / self.RI
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.V_external_to_delta_V
+        self.E_df_to_d_m_ind_dt = 1 / self.RI
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.Ve_to_delta_V
 
-        # RI comes from dependence in V and T potentials
-        B_pol_to_J_df_coeffs = -self.RI * self.basis.V_external_to_delta_V / mu0
-        B_tor_to_J_cf_coeffs = self.RI / mu0
+        # RI comes from scaling in the Ve and T potentials
+        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.Ve_to_delta_V
+        T_to_J_cf_coeffs = self.RI / mu0
 
         # 1/RI comes from scaling in the gradient theta/phi components
-        self.G_B_pol_to_JS = (
-            self.basis_evaluator.G_rxgrad * B_pol_to_J_df_coeffs / self.RI
-        )
-        self.G_B_tor_to_JS = (
-            -self.basis_evaluator.G_grad * B_tor_to_J_cf_coeffs / self.RI
-        )
-        self.G_m_ind_to_JS = self.G_B_pol_to_JS
-        self.G_m_imp_to_JS = self.G_B_tor_to_JS + np.tensordot(
-            self.G_B_pol_to_JS, self.m_imp_to_B_pol.values, 1
-        )
+        self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+        self.G_T_to_JS = -1 / self.RI * self.basis_evaluator.G_grad * T_to_J_cf_coeffs
+
+        self.G_m_ind_to_JS = self.G_Ve_to_JS
+        self.G_m_imp_to_JS = self.G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, 1)
 
         # Construct the matrix elements for electric field calculations.
         self.bP = np.array(
@@ -164,18 +157,10 @@ class State(object):
             ]
         )
 
-        self.m_ind_to_bP_JS = np.einsum(
-            "ijk,jkl->ikl", self.bP, self.G_m_ind_to_JS, optimize=True
-        )
-        self.m_ind_to_bH_JS = np.einsum(
-            "ijk,jkl->ikl", self.bH, self.G_m_ind_to_JS, optimize=True
-        )
-        self.m_imp_to_bP_JS = np.einsum(
-            "ijk,jkl->ikl", self.bP, self.G_m_imp_to_JS, optimize=True
-        )
-        self.m_imp_to_bH_JS = np.einsum(
-            "ijk,jkl->ikl", self.bH, self.G_m_imp_to_JS, optimize=True
-        )
+        self.m_ind_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP, self.G_m_ind_to_JS, optimize=True)
+        self.m_ind_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH, self.G_m_ind_to_JS, optimize=True)
+        self.m_imp_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP, self.G_m_imp_to_JS, optimize=True)
+        self.m_imp_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH, self.G_m_imp_to_JS, optimize=True)
 
         # Identify the high and low latitude points.
         if self.mainfield.kind == "dipole":
@@ -192,16 +177,11 @@ class State(object):
         self.G_jr_state_pinv = np.linalg.pinv(self.G_jr_state)
 
         if self.vector_jr:
-            self.jr_coeffs_to_jr_coeffs_state = self.G_jr_state_pinv.dot(
-                self.jr_basis_evaluator.G
-            )
+            self.jr_coeffs_to_jr_coeffs_state = self.G_jr_state_pinv.dot(self.jr_basis_evaluator.G)
 
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum(
-                "ijk,jklm->iklm",
-                self.bu,
-                self.u_basis_evaluator.G_helmholtz,
-                optimize=True,
+                "ijk,jklm->iklm", self.bu, self.u_basis_evaluator.G_helmholtz, optimize=True
             )
             self.u_coeffs_to_E_coeffs_direct = (
                 self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
@@ -209,14 +189,10 @@ class State(object):
         else:
             self.u_to_E_coeffs_direct = np.einsum(
                 "ijkl,kml->ijml",
-                self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv_ATW[
-                    0
-                ].reshape(
+                self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv_ATW[0].reshape(
                     (
                         self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[1]
-                        + self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[
-                            0
-                        ]
+                        + self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[0]
                     )
                 ),
                 self.bu,
@@ -234,12 +210,14 @@ class State(object):
         self.initialize_constraints()
 
     @property
-    def m_imp_to_B_pol(self):
-        """Matrix that maps m_imp to corresponding poloidal field.
+    def T_to_Ve(self):
+        """Matrix that maps toroidal field to poloidal shielding field.
 
-        Maps m_imp to a corresponding poloidal field that that shields
-        the region under the ionosphere from the poloidal field of
-        inclined FACs.
+        The toroidal field represents the radial part of the FACs, and
+        the poloidal field is the field that shields the region under
+        the ionosphere from the effect of the FACs, by negating the
+        Biot-Savart integral of the horizontal part of the FACs above
+        the ionosphere.
 
         Based on Engels and Olsen (1998), in particular the method in
         equation (13).
@@ -247,10 +225,12 @@ class State(object):
         Returns
         -------
         array
-            Matrix that maps self.m_imp to a poloidal field.
+            Matrix that maps coefficients of a toroidal field to
+            coefficients of a poloidal field that shields the region
+            under the ionosphere from the poloidal field of inclined
         """
-        if not hasattr(self, "_m_imp_to_B_pol"):
-            self._m_imp_to_B_pol = xr.DataArray(
+        if not hasattr(self, "_T_to_Ve"):
+            self._T_to_Ve = xr.DataArray(
                 data=np.zeros((self.basis.index_length, self.basis.index_length)),
                 coords={
                     "i": np.arange(self.basis.index_length),
@@ -260,67 +240,55 @@ class State(object):
             )
 
             if not (self.mainfield.kind == "radial" or self.ignore_PFAC):
-                r_k_steps = self.FAC_integration_steps
-                Delta_k = np.diff(r_k_steps)
-                r_k = np.array(r_k_steps[:-1] + 0.5 * Delta_k)
+                rk_steps = self.FAC_integration_steps
+                Delta_k = np.diff(rk_steps)
+                rks = np.array(rk_steps[:-1] + 0.5 * Delta_k)
 
-                JS_shifted_to_B_pol_shifted = tensor_pinv(
-                    self.G_B_pol_to_JS, n_leading_flattened=2, rtol=0
-                )
+                JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
 
-                for i in range(r_k.size):
+                for i, rk in enumerate(rks):
                     print(
                         "Calculating matrix for poloidal field of "
-                        f"inclined FACs. Progress: {i + 1}/{r_k.size}",
-                        end="\r" if i < (r_k.size - 1) else "\n",
+                        f"inclined FACs. Progress: {i + 1}/{rks.size}",
+                        end="\r" if i < (rks.size - 1) else "\n",
                         flush=True,
                     )
-                    # Map coordinates from r_k[i] to RI.
+                    # Map coordinates from rk to RI.
                     theta_mapped, phi_mapped = self.mainfield.map_coords(
-                        self.RI, r_k[i], self.grid.theta, self.grid.phi
+                        self.RI, rk, self.grid.theta, self.grid.phi
                     )
                     mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
 
                     # Construct matrix that gives jr at mapped grid from
-                    # toroidal coefficients, shifts to r_k[i], and
-                    # extracts horizontal current components.
-                    shifted_b_evaluator = FieldEvaluator(
-                        self.mainfield, self.grid, r_k[i]
-                    )
-                    mapped_b_evaluator = FieldEvaluator(
-                        self.mainfield, mapped_grid, self.RI
-                    )
+                    # toroidal coefficients, shifts to rk, and extracts
+                    # horizontal current components.
+                    rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
+                    mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
                     mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
                     m_imp_to_jr = mapped_basis_evaluator.scaled_G(self.m_imp_to_jr)
-                    jr_to_JS_shifted = np.array(
+                    jr_to_JS_rk = np.array(
                         [
-                            shifted_b_evaluator.Btheta / mapped_b_evaluator.Br,
-                            shifted_b_evaluator.Bphi / mapped_b_evaluator.Br,
+                            rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
+                            rk_b_evaluator.Bphi / mapped_b_evaluator.Br,
                         ]
                     )
 
-                    m_imp_to_JS_shifted = np.einsum(
-                        "ij,jk->ijk", jr_to_JS_shifted, m_imp_to_jr, optimize=True
+                    m_imp_to_JS_rk = np.einsum(
+                        "ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr, optimize=True
                     )
 
                     # Construct matrix that calculates the contribution
                     # to the poloidal coefficients from the horizontal
-                    # current components at r_k[i].
-                    B_pol_shifted_to_B_pol = self.basis.radial_shift_V_external(
-                        r_k[i], self.RI
-                    ).reshape((-1, 1, 1))
-                    JS_shifted_to_B_pol = (
-                        JS_shifted_to_B_pol_shifted * B_pol_shifted_to_B_pol
-                    )
+                    # current components at rk.
+                    Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
+                    JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
 
                     # Add integration step, negative sign is to create a
                     # poloidal field that shields the region under the
                     # ionosphere from the FAC poloidal field.
-                    self._m_imp_to_B_pol -= Delta_k[i] * np.tensordot(
-                        JS_shifted_to_B_pol, m_imp_to_JS_shifted, 2
-                    )
+                    self._T_to_Ve -= Delta_k[i] * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
 
-        return self._m_imp_to_B_pol
+        return self._T_to_Ve
 
     def set_model_coeffs(self, **kwargs):
         """Set model coefficients.
@@ -345,21 +313,16 @@ class State(object):
 
         if len(kwargs) != 1:
             raise ValueError(
-                "Expected one and only one keyword argument, you "
-                f"provided {len(kwargs)}"
+                f"Expected one and only one keyword argument, you provided {len(kwargs)}"
             )
         key = list(kwargs.keys())[0]
         if key not in valid_kws:
             raise ValueError("Invalid keyword. See documentation")
 
         if key == "m_ind":
-            self.m_ind = FieldExpansion(
-                self.basis, kwargs["m_ind"], field_type="scalar"
-            )
+            self.m_ind = FieldExpansion(self.basis, kwargs["m_ind"], field_type="scalar")
         elif key == "m_imp":
-            self.m_imp = FieldExpansion(
-                self.basis, kwargs["m_imp"], field_type="scalar"
-            )
+            self.m_imp = FieldExpansion(self.basis, kwargs["m_imp"], field_type="scalar")
         else:
             raise Exception("This should not happen")
 
@@ -372,22 +335,15 @@ class State(object):
 
         if self.connect_hemispheres:
             if self.ignore_PFAC:
-                raise ValueError(
-                    "Hemispheres can not be connected when ignore_PFAC is True"
-                )
+                raise ValueError("Hemispheres can not be connected when ignore_PFAC is True")
             if self.mainfield.kind == "radial":
-                raise ValueError(
-                    "Hemispheres can not be connected with radial magnetic field"
-                )
+                raise ValueError("Hemispheres can not be connected with radial magnetic field")
 
             if J_MAPPING:
                 jr_coeffs_to_j_apex_cp = (
-                    self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
-                    * self.cp_basis_evaluator.G
+                    self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
                 )
-                self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[
-                    self.ll_mask
-                ]
+                self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
             if E_MAPPING:
                 E_coeffs_to_E_apex = np.einsum(
@@ -510,28 +466,20 @@ class State(object):
 
             G_m_ind_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_ind_to_bP_JS, optimize=True
-            ) + np.einsum(
-                "i,jik->jik", etaH_on_grid, self.m_ind_to_bH_JS, optimize=True
-            )
+            ) + np.einsum("i,jik->jik", etaH_on_grid, self.m_ind_to_bH_JS, optimize=True)
             G_m_imp_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_imp_to_bP_JS, optimize=True
-            ) + np.einsum(
-                "i,jik->jik", etaH_on_grid, self.m_imp_to_bH_JS, optimize=True
-            )
+            ) + np.einsum("i,jik->jik", etaH_on_grid, self.m_imp_to_bH_JS, optimize=True)
 
-            m_ind_to_E_coeffs_direct = (
-                self.basis_evaluator.least_squares_solution_helmholtz(
-                    G_m_ind_to_E_direct
-                )
+            m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(
+                G_m_ind_to_E_direct
             )
             m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
                 G_m_imp_to_E_direct
             )
 
         # Set up jr constraints.
-        constraint_matrices = [
-            self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))
-        ]
+        constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
         coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
 
         if self.connect_hemispheres and E_MAPPING:
@@ -549,9 +497,7 @@ class State(object):
 
         # Construct jr matrices.
         if self.vector_jr:
-            self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(
-                self.jr_coeffs_to_jr_coeffs_state
-            )
+            self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(self.jr_coeffs_to_jr_coeffs_state)
             self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
         else:
             self.jr_to_m_imp = coeffs_to_m_imp[0].dot(self.G_jr_state_pinv)
@@ -562,9 +508,7 @@ class State(object):
         # apex coordinates).
         self.m_ind_to_E_coeffs = m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres and E_MAPPING:
-            self.m_ind_to_m_imp = np.tensordot(
-                coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2
-            )
+            self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2)
             self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
         # Construct u matrices. Negative sign is from moving the wind
@@ -582,12 +526,8 @@ class State(object):
         else:
             self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
             if self.connect_hemispheres and E_MAPPING:
-                self.u_to_m_imp = np.tensordot(
-                    coeffs_to_m_imp[1], -self.u_to_E_coeffs_direct, 2
-                )
-                self.u_to_E_coeffs += np.tensordot(
-                    m_imp_to_E_coeffs, self.u_to_m_imp, 1
-                )
+                self.u_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.u_to_E_coeffs_direct, 2)
+                self.u_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_to_m_imp, 1)
 
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
@@ -770,9 +710,7 @@ class State(object):
 
         if self.neutral_wind:
             if self.vector_u:
-                E_coeffs_noind += np.tensordot(
-                    self.u_coeffs_to_E_coeffs, self.u.coeffs, 2
-                )
+                E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
                 E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
 
@@ -789,43 +727,31 @@ class State(object):
             Whether to plot the tensors.
         """
         etaP_m_ind_to_E = np.einsum(
-            "ijk,jl->ijkl",
-            self.m_ind_to_bP_JS,
-            self.conductance_basis_evaluator.G,
-            optimize=True,
+            "ijk,jl->ijkl", self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize=True
         )
-        self.etaP_m_ind_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaP_m_ind_to_E)
+        self.etaP_m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
+            etaP_m_ind_to_E
         )
 
         etaH_m_ind_to_E = np.einsum(
-            "ijk,jl->ijkl",
-            self.m_ind_to_bH_JS,
-            self.conductance_basis_evaluator.G,
-            optimize=True,
+            "ijk,jl->ijkl", self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize=True
         )
-        self.etaH_m_ind_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaH_m_ind_to_E)
+        self.etaH_m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
+            etaH_m_ind_to_E
         )
 
         etaP_m_imp_to_E = np.einsum(
-            "ijk,jl->ijkl",
-            self.m_imp_to_bP_JS,
-            self.conductance_basis_evaluator.G,
-            optimize=True,
+            "ijk,jl->ijkl", self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize=True
         )
-        self.etaP_m_imp_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaP_m_imp_to_E)
+        self.etaP_m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
+            etaP_m_imp_to_E
         )
 
         etaH_m_imp_to_E = np.einsum(
-            "ijk,jl->ijkl",
-            self.m_imp_to_bH_JS,
-            self.conductance_basis_evaluator.G,
-            optimize=True,
+            "ijk,jl->ijkl", self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize=True
         )
-        self.etaH_m_imp_to_E_coeffs = (
-            self.basis_evaluator.least_squares_solution_helmholtz(etaH_m_imp_to_E)
+        self.etaH_m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
+            etaH_m_imp_to_E
         )
 
         if plot:
@@ -838,35 +764,19 @@ class State(object):
             vmax = 1e8
 
             ax[0].matshow(
-                np.abs(
-                    self.etaP_m_ind_to_E_coeffs.reshape(
-                        (2 * self.basis.index_length, -1)
-                    )
-                ),
+                np.abs(self.etaP_m_ind_to_E_coeffs.reshape((2 * self.basis.index_length, -1))),
                 norm=colors.LogNorm(vmin=vmin, vmax=vmax),
             )
             ax[1].matshow(
-                np.abs(
-                    self.etaP_m_imp_to_E_coeffs.reshape(
-                        (2 * self.basis.index_length, -1)
-                    )
-                ),
+                np.abs(self.etaP_m_imp_to_E_coeffs.reshape((2 * self.basis.index_length, -1))),
                 norm=colors.LogNorm(vmin=vmin, vmax=vmax),
             )
             ax[2].matshow(
-                np.abs(
-                    self.etaH_m_ind_to_E_coeffs.reshape(
-                        (2 * self.basis.index_length, -1)
-                    )
-                ),
+                np.abs(self.etaH_m_ind_to_E_coeffs.reshape((2 * self.basis.index_length, -1))),
                 norm=colors.LogNorm(vmin=vmin, vmax=vmax),
             )
             ax[3].matshow(
-                np.abs(
-                    self.etaH_m_imp_to_E_coeffs.reshape(
-                        (2 * self.basis.index_length, -1)
-                    )
-                ),
+                np.abs(self.etaH_m_imp_to_E_coeffs.reshape((2 * self.basis.index_length, -1))),
                 norm=colors.LogNorm(vmin=vmin, vmax=vmax),
             )
 

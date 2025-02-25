@@ -102,9 +102,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
     # Add starlight.
     hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
-    dynamics.set_conductance(
-        hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon
-    )
+    dynamics.set_conductance(hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon)
 
     # Get and set static jr input.
     jr_lat = dynamics.state_grid.lat
@@ -124,10 +122,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     # Create array that will store all jr values.
     time_values = np.arange(
-        0,
-        FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN,
-        JR_SAMPLING_DT,
-        dtype=np.float64,
+        0, FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN, JR_SAMPLING_DT, dtype=np.float64
     )
     scaled_jr_values = np.zeros((time_values.size, jr.size), dtype=np.float64)
 
@@ -138,17 +133,9 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     for time_index in range(time_values.size):
         if time_values[time_index] < RELAXATION_TIME - FLOAT_ERROR_MARGIN:
             envelope_factor = 0.0
-        elif (
-            time_values[time_index]
-            < RELAXATION_TIME + TAPERING_TIME - FLOAT_ERROR_MARGIN
-        ):
+        elif time_values[time_index] < RELAXATION_TIME + TAPERING_TIME - FLOAT_ERROR_MARGIN:
             envelope_factor = (
-                np.sin(
-                    0.5
-                    * np.pi
-                    * (time_values[time_index] - RELAXATION_TIME)
-                    / TAPERING_TIME
-                )
+                np.sin(0.5 * np.pi * (time_values[time_index] - RELAXATION_TIME) / TAPERING_TIME)
                 ** 2
             )
         else:

@@ -60,16 +60,11 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
 
         # Find the points that are on the right side.
         _, th0, ph0 = projection.cube2spherical(0, 0, i)
-        r0 = np.array(
-            [np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)]
-        )
+        r0 = np.array([np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)])
         iii = np.sum(r0.reshape((-1, 1)) * in_r, axis=0) > 0
         xi_i, eta_i, _ = projection.geo2cube(inlon[iii], inlat[iii], block=i)
         result[jjj] = griddata(
-            np.vstack((xi_i, eta_i)).T,
-            values[iii],
-            np.vstack((xi_o[jjj], eta_o[jjj])).T,
-            **kwargs,
+            np.vstack((xi_i, eta_i)).T, values[iii], np.vstack((xi_o[jjj], eta_o[jjj])).T, **kwargs
         )
 
     return result.reshape(shape)
@@ -185,11 +180,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     - Field-aligned currents normalized by radial field.
     - Equivalent current function.
     """
-    B_kwargs = {
-        "cmap": plt.cm.bwr,
-        "levels": np.linspace(-100, 100, 22) * 1e-9,
-        "extend": "both",
-    }
+    B_kwargs = {"cmap": plt.cm.bwr, "levels": np.linspace(-100, 100, 22) * 1e-9, "extend": "both"}
     eqJ_kwargs = {"colors": "black", "levels": np.r_[-210:220:20] * 1e3}
     FAC_kwargs = {
         "cmap": plt.cm.bwr,
@@ -220,16 +211,12 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
     plt_state_evaluator = BasisEvaluator(dynamics.state.basis, plt_grid)
-    plt_b_evaluator = FieldEvaluator(
-        dynamics.state.mainfield, plt_grid, dynamics.state.RI
-    )
+    plt_b_evaluator = FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (
-        plt_state_evaluator.G.dot(
-            dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
-        )
+        plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
         / plt_b_evaluator.br
     )
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
@@ -335,9 +322,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     if title is not None:
         gax_j.set_title(title)
 
-    plt.subplots_adjust(
-        top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185
-    )
+    plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
     if filename is not None:
         fig.savefig(filename)
     else:
@@ -375,9 +360,7 @@ if __name__ == "__main__":
 
     lon0 = d.mlt2mlon(12, date)  # Noon longitude
 
-    hall, pedersen = conductance.hardy_EUV(
-        phi, 90 - theta, Kp, date, starlight=1, dipole=True
-    )
+    hall, pedersen = conductance.hardy_EUV(phi, 90 - theta, Kp, date, starlight=1, dipole=True)
 
     hall_plt = cs_interpolate(cs_basis, 90 - theta, phi, hall, lat, lon)
     pede_plt = cs_interpolate(cs_basis, 90 - theta, phi, pedersen, lat, lon)
@@ -429,11 +412,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     mnv_grid = Grid(lat=mlatnv, lon=mltnv)
 
     paxes[0].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(ju_amps, 2)[0],
-        levels=levels,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(ju_amps, 2)[0], levels=levels, cmap=plt.cm.bwr
     )
     paxes[0].quiver(
         mnv_grid.lat,
@@ -444,11 +423,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
     paxes[1].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(ju_amps, 2)[1],
-        levels=levels,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(ju_amps, 2)[1], levels=levels, cmap=plt.cm.bwr
     )
     paxes[1].quiver(
         mnv_grid.lat,
@@ -522,18 +497,10 @@ def plot_AMPS_Br(a):
 
     Bu = a.get_ground_Buqd(height=a.height)
     paxes[0].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(Bu, 2)[0],
-        levels=Blevels * 1e9,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels=Blevels * 1e9, cmap=plt.cm.bwr
     )
     paxes[1].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(Bu, 2)[1],
-        levels=Blevels * 1e9,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[1], levels=Blevels * 1e9, cmap=plt.cm.bwr
     )
 
     plt.show()
@@ -567,20 +534,10 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
     plt_grid = Grid(lat=lat, lon=lon)
     hall_plt = cs_interpolate(
-        cs_basis,
-        conductance_grid.lat,
-        conductance_grid.lon,
-        hall,
-        plt_grid.lat,
-        plt_grid.lon,
+        cs_basis, conductance_grid.lat, conductance_grid.lon, hall, plt_grid.lat, plt_grid.lon
     )
     pede_plt = cs_interpolate(
-        cs_basis,
-        conductance_grid.lat,
-        conductance_grid.lon,
-        pedersen,
-        plt_grid.lat,
-        plt_grid.lon,
+        cs_basis, conductance_grid.lat, conductance_grid.lon, pedersen, plt_grid.lat, plt_grid.lon
     )
 
     globalplot(

@@ -133,20 +133,18 @@ class Dynamics(object):
         )
 
         # Overwrite settings with any settings existing on file.
-        settings_on_file = (
-            self.dataset_filename_prefix is not None
-        ) and os.path.exists(self.dataset_filename_prefix + "_settings.ncdf")
+        settings_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(
+            self.dataset_filename_prefix + "_settings.ncdf"
+        )
         if settings_on_file:
             settings = xr.load_dataset(self.dataset_filename_prefix + "_settings.ncdf")
 
         # Load PFAC matrix if it exists on file.
-        PFAC_matrix_on_file = (
-            self.dataset_filename_prefix is not None
-        ) and os.path.exists(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
+        PFAC_matrix_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(
+            self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
+        )
         if PFAC_matrix_on_file:
-            PFAC_matrix = xr.load_dataarray(
-                self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
-            )
+            PFAC_matrix = xr.load_dataarray(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
 
         self.RI = settings.RI
 
@@ -177,12 +175,7 @@ class Dynamics(object):
         }
 
         self.vars = {
-            "state": {
-                "m_ind": "scalar",
-                "m_imp": "scalar",
-                "Phi": "scalar",
-                "W": "scalar",
-            },
+            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
             "steady_state": {"m_ind": "scalar"},
             "jr": {"jr": "scalar"},
             "conductance": {"etaP": "scalar", "etaH": "scalar"},
@@ -204,25 +197,17 @@ class Dynamics(object):
                 )
             elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    [
-                        np.tile(basis_index_arrays[i], 2)
-                        for i in range(len(basis_index_arrays))
-                    ],
+                    [np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))],
                     names=basis_index_names,
                 )
             else:
                 raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or invalid input "
-                    "type"
+                    "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
 
         # Initialize the state of the ionosphere.
         self.state = State(
-            self.bases,
-            self.mainfield,
-            self.state_grid,
-            settings,
-            PFAC_matrix=PFAC_matrix,
+            self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
         )
 
         self.timeseries = {}
@@ -234,9 +219,7 @@ class Dynamics(object):
             self.select_timeseries_data("state")
         else:
             self.current_time = np.float64(0)
-            self.state.set_model_coeffs(
-                m_ind=np.zeros(self.bases["state"].index_length)
-            )
+            self.state.set_model_coeffs(m_ind=np.zeros(self.bases["state"].index_length))
 
         if self.dataset_filename_prefix is None:
             self.dataset_filename_prefix = "simulation"
@@ -244,18 +227,14 @@ class Dynamics(object):
         if not settings_on_file:
             self.save_dataset(settings, "settings")
             print(
-                "Saved settings to {}_settings.ncdf".format(
-                    self.dataset_filename_prefix
-                ),
+                "Saved settings to {}_settings.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
             )
 
         if not PFAC_matrix_on_file:
-            self.save_dataset(self.state.m_imp_to_B_pol, "PFAC_matrix")
+            self.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
             print(
-                "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(
-                    self.dataset_filename_prefix
-                ),
+                "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
             )
 
@@ -329,9 +308,7 @@ class Dynamics(object):
                     # Calculate steady state and append to time series.
                     steady_state_m_ind = self.state.steady_state_m_ind()
                     steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
-                    steady_state_E_coeffs = self.state.calculate_E_coeffs(
-                        steady_state_m_ind
-                    )
+                    steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
 
                     current_steady_state_dataset = xr.Dataset(
                         data_vars={
@@ -379,9 +356,7 @@ class Dynamics(object):
                             pass
                         else:
                             print(
-                                "Saved steady state at t = {:.2f} s".format(
-                                    self.current_time
-                                ),
+                                "Saved steady state at t = {:.2f} s".format(self.current_time),
                                 end="\x1b[F",
                                 flush=True,
                             )
@@ -687,8 +662,7 @@ class Dynamics(object):
                 ]
             ):
                 raise ValueError(
-                    "Time must be specified if the input data is given for multiple "
-                    "time values."
+                    "Time must be specified if the input data is given for multiple time values."
                 )
             time = self.current_time
 
@@ -781,10 +755,7 @@ class Dynamics(object):
             self.timeseries[key] = dataset.sortby("time")
         else:
             self.timeseries[key] = xr.concat(
-                [
-                    self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"),
-                    dataset,
-                ],
+                [self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
                 dim="time",
             ).sortby("time")
 
@@ -805,9 +776,7 @@ class Dynamics(object):
         """
         input_selected = False
 
-        if np.any(
-            self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN
-        ):
+        if np.any(self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
             else:
@@ -821,17 +790,14 @@ class Dynamics(object):
             )
 
             for var in self.vars[key]:
-                current_data[var] = dataset_before[
-                    short_name + "_" + var
-                ].values.flatten()
+                current_data[var] = dataset_before[short_name + "_" + var].values.flatten()
 
             # If requested, add linear interpolation correction.
             if (
                 interpolation
                 and (key != "state")
                 and np.any(
-                    self.timeseries[key].time.values
-                    > self.current_time + FLOAT_ERROR_MARGIN
+                    self.timeseries[key].time.values > self.current_time + FLOAT_ERROR_MARGIN
                 )
             ):
                 dataset_after = self.timeseries[key].sel(
@@ -1009,9 +975,9 @@ class Dynamics(object):
                     coords = xr.Coordinates.from_pandas_multiindex(
                         basis_multiindex, dim="i"
                     ).merge({"time": dataset.time.values})
-                    self.timeseries[key] = dataset.drop_vars(
-                        basis_index_names
-                    ).assign_coords(coords)
+                    self.timeseries[key] = dataset.drop_vars(basis_index_names).assign_coords(
+                        coords
+                    )
 
     def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
         """Calculate matrix that returns the radial curl.
@@ -1032,11 +998,7 @@ class Dynamics(object):
             Matrix that returns the radial curl.
         """
         Dxi, Deta = self.cs_basis.get_Diff(
-            self.cs_basis.N,
-            coordinate="both",
-            Ns=stencil_size,
-            Ni=interpolation_points,
-            order=1,
+            self.cs_basis.N, coordinate="both", Ns=stencil_size, Ni=interpolation_points, order=1
         )
 
         g11_scaled = sp.diags(self.cs_basis.g[:, 0, 0] / self.cs_basis.sqrt_detg)
@@ -1095,11 +1057,9 @@ class Dynamics(object):
         (inverse) evaluation matrices.
         """
         if not hasattr(self, "_sh_curl_matrix"):
-            G_df_pinv = (
-                self.state.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv[
-                    self.state.basis.index_length :, :
-                ]
-            )
+            G_df_pinv = self.state.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv[
+                self.state.basis.index_length :, :
+            ]
             self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
                 self.state.basis.laplacian().reshape((-1, 1)) * G_df_pinv
             )

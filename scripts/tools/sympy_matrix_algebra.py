@@ -14,9 +14,7 @@ if PRINT_LATEX:
         "e_1_r, e_1_theta, e_1_phi, e_2_r, e_2_theta, e_2_phi  "
     )
 else:
-    br, bt, bp, ut, up, eP, eH, B0, Br = sp.symbols(
-        "br, bt, bp, ut, up, eP, eH, B0, Br"
-    )
+    br, bt, bp, ut, up, eP, eH, B0, Br = sp.symbols("br, bt, bp, ut, up, eP, eH, B0, Br")
     e1r, e1t, e1p, e2r, e2t, e2p = sp.symbols("e1r, e1t, e1p, e2r, e2t, e2p  ")
 
 # Construct matrix producing horizontal electric field when muliplied

@@ -43,9 +43,9 @@ def test_projection():
     xi, eta, block = p.geo2cube(lon, lat, block)
 
     r, theta, phi = p.cube2spherical(xi, eta, r=rr, block=block)
-    geo2cube2spherical_works = np.allclose(
-        90 - np.rad2deg(theta) - lat, 0
-    ) & np.allclose(np.rad2deg(phi) - lon, 0)
+    geo2cube2spherical_works = np.allclose(90 - np.rad2deg(theta) - lat, 0) & np.allclose(
+        np.rad2deg(phi) - lon, 0
+    )
     print(
         "Conversion from (lon, lat, block) to (xi, eta) and back works: "
         f"{geo2cube2spherical_works}"
@@ -94,10 +94,7 @@ def test_projection():
     norm_consistent = np.allclose(
         np.linalg.norm(Asph_normed, axis=0) - np.linalg.norm(Axyz, axis=0), 0
     )
-    print(
-        "Cartesian and normalized spherical vectors have the same norm: "
-        f"{norm_consistent}"
-    )
+    print(f"Cartesian and normalized spherical vectors have the same norm: {norm_consistent}")
 
     assert cubed2cartesian_works
     assert cubed2spherical_works
@@ -127,9 +124,7 @@ def test_projection():
         ax.coastlines(zorder=3)
 
     xi, eta = np.meshgrid(
-        np.linspace(-np.pi / 4, np.pi / 4, N),
-        np.linspace(-np.pi / 4, np.pi / 4, N),
-        indexing="ij",
+        np.linspace(-np.pi / 4, np.pi / 4, N), np.linspace(-np.pi / 4, np.pi / 4, N), indexing="ij"
     )
     ones = np.ones_like(xi).flatten()
     zeros = np.zeros_like(eta).flatten()
@@ -199,14 +194,10 @@ def test_projection():
         Pc = p.get_Pc(xi, eta, r=1, block=i, inverse=True)
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Axis).T
-        axxyz1.quiver(
-            x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C
-        )
+        axxyz1.quiver(x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C)
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Aetas).T
-        axxyz2.quiver(
-            x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C
-        )
+        axxyz2.quiver(x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C)
 
     # Make Cartesian plots prettier.
     for ax in [axxyz1, axxyz2]:
@@ -324,9 +315,7 @@ def test_projection():
     extra_xi = np.arange(1, N_extra + 1) * dxi
     extra_eta = np.arange(1, N_extra + 1) * det
     xi_larger = np.hstack((xi[0, 0] - extra_xi[::-1], xi[0, :], xi[0, -1] + extra_xi))
-    eta_larger = np.hstack(
-        (eta[0, 0] - extra_eta[::-1], eta[:, 0], eta[-1, 0] + extra_eta)
-    )
+    eta_larger = np.hstack((eta[0, 0] - extra_eta[::-1], eta[:, 0], eta[-1, 0] + extra_eta))
     xi_, eta_ = np.meshgrid(xi_larger, eta_larger)
 
     for i in range(6):

@@ -52,13 +52,7 @@ class LeastSquares:
     """
 
     def __init__(
-        self,
-        A,
-        solution_dims,
-        weights=None,
-        reg_lambda=None,
-        reg_L=None,
-        pinv_rtol=1e-15,
+        self, A, solution_dims, weights=None, reg_lambda=None, reg_L=None, pinv_rtol=1e-15
     ):
         """Initialize the least squares solver.
 
@@ -84,12 +78,8 @@ class LeastSquares:
         else:
             self.n_constraints = 1
 
-        self.A = self.flatten_arrays(
-            A, n_trailing_flattened=[solution_dims] * self.n_constraints
-        )
-        self.weights = self.flatten_arrays(
-            weights, n_trailing_flattened=[0] * self.n_constraints
-        )
+        self.A = self.flatten_arrays(A, n_trailing_flattened=[solution_dims] * self.n_constraints)
+        self.weights = self.flatten_arrays(weights, n_trailing_flattened=[0] * self.n_constraints)
         self.reg_L = self.flatten_arrays(
             reg_L,
             n_leading_flattened=[solution_dims] * self.n_constraints,
@@ -103,9 +93,7 @@ class LeastSquares:
 
         self.pinv_rtol = pinv_rtol
 
-    def flatten_arrays(
-        self, arrays, n_leading_flattened=None, n_trailing_flattened=None
-    ):
+    def flatten_arrays(self, arrays, n_leading_flattened=None, n_trailing_flattened=None):
         """Convert arrays to flattened form.
 
         Parameters
@@ -173,9 +161,7 @@ class LeastSquares:
         """
         b_list = self.flatten_arrays(
             b,
-            n_leading_flattened=[
-                len(self.A[i].full_shapes[0]) for i in range(self.n_constraints)
-            ],
+            n_leading_flattened=[len(self.A[i].full_shapes[0]) for i in range(self.n_constraints)],
         )
 
         solution = [None] * self.n_constraints
@@ -223,10 +209,7 @@ class LeastSquares:
         """
         if not hasattr(self, "_ATWA"):
             self._ATWA = sum(
-                [
-                    np.dot(self.ATW[i], self.A[i].array)
-                    for i in range(self.n_constraints)
-                ]
+                [np.dot(self.ATW[i], self.A[i].array) for i in range(self.n_constraints)]
             )
 
         return self._ATWA
@@ -267,8 +250,7 @@ class LeastSquares:
         """
         if not hasattr(self, "_ATWA_plus_R_pinv_ATW"):
             self._ATWA_plus_R_pinv_ATW = [
-                np.dot(self.ATWA_plus_R_pinv, self.ATW[i])
-                for i in range(self.n_constraints)
+                np.dot(self.ATWA_plus_R_pinv, self.ATW[i]) for i in range(self.n_constraints)
             ]
 
         return self._ATWA_plus_R_pinv_ATW

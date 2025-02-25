@@ -121,9 +121,7 @@ if WIND:
         output_grid.theta,
         output_grid.phi,
     )
-    interpolated_data = np.array(
-        [-interpolated_north, interpolated_east]
-    )  # Convert to theta, phi
+    interpolated_data = np.array([-interpolated_north, interpolated_east])  # Convert to theta, phi
 
 if CURRENT:
     import pyamps
@@ -145,9 +143,7 @@ if CURRENT:
         output_grid.theta,
         output_grid.phi,
     )
-    interpolated_data = np.array(
-        [-interpolated_north, interpolated_east]
-    )  # convert to theta, phi
+    interpolated_data = np.array([-interpolated_north, interpolated_east])  # convert to theta, phi
 
 
 lon = output_grid.lon.flatten()
@@ -164,9 +160,7 @@ if L_CURVE:
 
 Nmax_values = []
 
-for reg_lambda in np.logspace(
-    MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA_LOG_STEPS
-):
+for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA_LOG_STEPS):
     for Nmax in range(MIN_NMAX, MAX_NMAX + 1, NMAX_STEP):
         if MMAX_EQUALS_NMAX:
             Mmax = Nmax
@@ -177,18 +171,10 @@ for reg_lambda in np.logspace(
 
         sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
         input_basis_evaluator = pynamit.BasisEvaluator(
-            sh_basis,
-            input_grid,
-            weights=input_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=rtol,
+            sh_basis, input_grid, weights=input_weights, reg_lambda=reg_lambda, pinv_rtol=rtol
         )
         output_basis_evaluator = pynamit.BasisEvaluator(
-            sh_basis,
-            output_grid,
-            weights=output_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=rtol,
+            sh_basis, output_grid, weights=output_weights, reg_lambda=reg_lambda, pinv_rtol=rtol
         )
 
         input_sh = pynamit.FieldExpansion(
@@ -199,16 +185,13 @@ for reg_lambda in np.logspace(
         )
 
         print(
-            "Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e"
-            % (Nmax, Mmax, reg_lambda)
+            "Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax, Mmax, reg_lambda)
         )
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.coeffs))
-            sh_norms.append(
-                np.linalg.norm(input_sh.regularization_term(input_basis_evaluator))
-            )
+            sh_norms.append(np.linalg.norm(input_sh.regularization_term(input_basis_evaluator)))
             input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator)
             sh_resiudal_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
@@ -243,9 +226,7 @@ for reg_lambda in np.logspace(
                     1,
                     2,
                     figsize=(20, 5),
-                    subplot_kw={
-                        "projection": ccrs.PlateCarree(central_longitude=noon_lon)
-                    },
+                    subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_lon)},
                 )
                 grid_cs_ax.coastlines()
                 grid_sh_ax.coastlines()
@@ -292,9 +273,7 @@ for reg_lambda in np.logspace(
                 plt.show()
 
             if SH_COMPARISON:
-                coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(
-                    1, 2, figsize=(20, 5)
-                )
+                coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5))
                 abs_coeff_cs = np.abs(cs_interpolated_output_sh.coeffs)
                 abs_coeff_sh = np.abs(input_sh.coeffs)
 

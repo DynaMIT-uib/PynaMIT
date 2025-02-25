@@ -69,8 +69,7 @@ def invert_3D_matrices(M):
 
     if np.any(np.isclose(det, 0)):
         raise ValueError(
-            "The following matrices are not invertible: "
-            f"{np.where(np.isclose(det, 0))[0]}."
+            f"The following matrices are not invertible: {np.where(np.isclose(det, 0))[0]}."
         )
 
     Minv = np.empty(M.shape)
@@ -121,9 +120,7 @@ def constrain_values(arr, vmin, vmax, axis):
     amax = arr.max(axis=axis, keepdims=True)
 
     if np.any(amax - amin > vmax - vmin):
-        raise ValueError(
-            "Range of array values is too large compared to vmin and vmax."
-        )
+        raise ValueError("Range of array values is too large compared to vmin and vmax.")
 
     a_shifted = arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
 

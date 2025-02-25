@@ -36,12 +36,7 @@ cond = cond[["hall", "pedersen"]]
 ss = np.interp(r, cond.index, cond["pedersen"]).reshape(xx.shape)
 
 ccc = ax.contourf(
-    xx,
-    yy,
-    ss.reshape(xx.shape),
-    cmap=plt.cm.Blues,
-    levels=np.linspace(0, 1.5e-4, 100),
-    zorder=0,
+    xx, yy, ss.reshape(xx.shape), cmap=plt.cm.Blues, levels=np.linspace(0, 1.5e-4, 100), zorder=0
 )
 
 a = np.linspace(0, np.pi / 2, 100)

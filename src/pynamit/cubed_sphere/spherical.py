@@ -164,9 +164,7 @@ def enu_to_ecef(v, lon, lat, reverse=False):
     unit_up = np.vstack(
         (np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta))
     ).T
-    enu_to_ecef_or_reverse = np.stack(
-        (unit_east, unit_north, unit_up), axis=1 if reverse else 2
-    )
+    enu_to_ecef_or_reverse = np.stack((unit_east, unit_north, unit_up), axis=1 if reverse else 2)
     return np.einsum("nij, nj -> ni", enu_to_ecef_or_reverse, v)
 
 
@@ -243,12 +241,8 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     lat1, lon1, lat2, lon2 = list(map(converter, (lat1, lon1, lat2, lon2)))
 
     # Construct ECEF position vectors.
-    ecef_p1 = np.vstack(
-        (np.cos(lat1) * np.cos(lon1), np.cos(lat1) * np.sin(lon1), np.sin(lat1))
-    )
-    ecef_p2 = np.vstack(
-        (np.cos(lat2) * np.cos(lon2), np.cos(lat2) * np.sin(lon2), np.sin(lat2))
-    )
+    ecef_p1 = np.vstack((np.cos(lat1) * np.cos(lon1), np.cos(lat1) * np.sin(lon1), np.sin(lat1)))
+    ecef_p2 = np.vstack((np.cos(lat2) * np.cos(lon2), np.cos(lat2) * np.sin(lon2), np.sin(lat2)))
 
     # Check if tangent is well defined.
     if np.any(np.isclose(np.sum((ecef_p1 * ecef_p2) ** 2, axis=0), 1.0)):
@@ -272,15 +266,9 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
         (
             np.vstack((-np.sin(lon1), np.cos(lon1), 0 * lat1)).T,
             np.vstack(
-                (
-                    -np.cos(lon1) * np.sin(lat1),
-                    -np.sin(lon1) * np.sin(lat1),
-                    np.cos(lat1),
-                )
+                (-np.cos(lon1) * np.sin(lat1), -np.sin(lon1) * np.sin(lat1), np.cos(lat1))
             ).T,
-            np.vstack(
-                (np.cos(lon1) * np.cos(lat1), np.sin(lon1) * np.cos(lat1), np.sin(lat1))
-            ).T,
+            np.vstack((np.cos(lon1) * np.cos(lat1), np.sin(lon1) * np.cos(lat1), np.sin(lat1))).T,
         )
     )
 
@@ -422,9 +410,7 @@ if __name__ == "__main__":
     assert np.all(np.isclose(newnorth - cdnorth, 0))
 
     # Check that converting back works.
-    lat2, lon2, Ae2, An2 = geo2local(
-        newlat, newlon, neweast, newnorth, lon0, lat0, inverse=True
-    )
+    lat2, lon2, Ae2, An2 = geo2local(newlat, newlon, neweast, newnorth, lon0, lat0, inverse=True)
     assert np.all(np.isclose(lon - lon2, 0))
     assert np.all(np.isclose(90 - colat - lat2, 0))
     assert np.all(np.isclose(Ae - Ae2, 0))

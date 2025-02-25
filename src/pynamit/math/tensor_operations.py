@@ -32,9 +32,9 @@ def tensor_product(A, B, n_contracted):
     first_dims = A.shape[:n_contracted]
     last_dims = B.shape[n_contracted:]
 
-    AB = np.dot(
-        A.reshape((np.prod(first_dims), -1)), B.reshape((-1, np.prod(last_dims)))
-    ).reshape((first_dims + last_dims))
+    AB = np.dot(A.reshape((np.prod(first_dims), -1)), B.reshape((-1, np.prod(last_dims)))).reshape(
+        (first_dims + last_dims)
+    )
 
     return AB
 
@@ -66,9 +66,7 @@ def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
     last_dims = A.shape[n_leading_flattened:]
 
     A_pinv = np.linalg.pinv(
-        A.reshape((np.prod(first_dims), np.prod(last_dims))),
-        rcond=rtol,
-        hermitian=hermitian,
+        A.reshape((np.prod(first_dims), np.prod(last_dims))), rcond=rtol, hermitian=hermitian
     ).reshape((last_dims + first_dims))
 
     return A_pinv
@@ -190,9 +188,9 @@ def tensor_scale_right(A, scaling_tensor):
     last_dims = scaling_tensor.shape
     first_dims = A.shape[: -len(last_dims)]
 
-    A_scaled = A.reshape(
-        (np.prod(first_dims), np.prod(last_dims))
-    ) * scaling_tensor.reshape((1, np.prod(last_dims)))
+    A_scaled = A.reshape((np.prod(first_dims), np.prod(last_dims))) * scaling_tensor.reshape(
+        (1, np.prod(last_dims))
+    )
 
     return A_scaled.reshape((first_dims + last_dims))
 
@@ -244,12 +242,7 @@ def tensor_outer(A, B, n_leading_flattened):
 
 
 def tensor_svd(
-    A,
-    n_leading_flattened=2,
-    full_matrices=True,
-    compute_uv=True,
-    hermitian=False,
-    rtol=1e-15,
+    A, n_leading_flattened=2, full_matrices=True, compute_uv=True, hermitian=False, rtol=1e-15
 ):
     """Singular value decomposition of a tensor.
 

@@ -75,7 +75,7 @@ plt_grid = pynamit.Grid(lat=lat, lon=lon)
 plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
 
 G_Br = plt_state_evaluator.scaled_G(dynamics.state.m_ind_to_Br / dynamics.state.RI)
-Br = G_Br.dot(dynamics.state.m_imp_to_B_pol.dot(dynamics.state.m_imp.coeffs))
+Br = G_Br.dot(dynamics.state.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
 
 
 if SIMULATE_DYNAMIC_RESPONSE:
@@ -119,11 +119,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
         # )
 
         if count % plotsteps == 0:
-            print(
-                count,
-                time,
-                (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3],
-            )
+            print(count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3])
             fn = os.path.join(fig_directory, "PFAC_" + str(filecount).zfill(3) + ".png")
             filecount += 1
             title = "t = {:.3} s".format(time)
@@ -182,10 +178,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 
 
 if COMPARE_TO_SECS:
-    print(
-        "Building SECS matrices. This takes some time (and memory) because of "
-        "global grids..."
-    )
+    print("Building SECS matrices. This takes some time (and memory) because of global grids...")
     secsI = (
         -jr * dynamics.cs_basis.unit_area * RI**2
     )  # SECS amplitudes are downward current density times area

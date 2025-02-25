@@ -155,9 +155,7 @@ class CSBasis:
         Arrays have shape (6,N+1,N+1) if `flat` is ``False``, or
         (6*(N+1)*(N+1),) if `flat` is ``True``.
         """
-        k, i, j = np.meshgrid(
-            np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing="ij"
-        )
+        k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing="ij")
         if flat:
             return k.flatten(), i.flatten(), j.flatten()
         else:
@@ -283,17 +281,11 @@ class CSBasis:
         g = np.empty((xi.size, 3, 3))
         g[:, 0, 0] = r**2 / (np.cos(xi) ** 4 * np.cos(eta) ** 2 * delta**2)
         g[:, 0, 1] = (
-            -(r**2)
-            * np.tan(xi)
-            * np.tan(eta)
-            / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**2)
+            -(r**2) * np.tan(xi) * np.tan(eta) / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**2)
         )
         g[:, 0, 2] = 0
         g[:, 1, 0] = (
-            -(r**2)
-            * np.tan(xi)
-            * np.tan(eta)
-            / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**2)
+            -(r**2) * np.tan(xi) * np.tan(eta) / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**2)
         )
         g[:, 1, 1] = r**2 / (np.cos(xi) ** 2 * np.cos(eta) ** 4 * delta**2)
         g[:, 1, 2] = 0
@@ -599,9 +591,9 @@ class CSBasis:
         Ps[iii, 0, 1] = 0
         Ps[iii, 0, 2] = 0
         Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
-            et[iii]
-        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(et[iii]) ** 2 / np.cos(
+            xi[iii]
+        )
         Ps[iii, 1, 2] = 0
         Ps[iii, 2, 0] = 0
         Ps[iii, 2, 1] = 0
@@ -613,9 +605,9 @@ class CSBasis:
         Ps[iii, 0, 1] = 0
         Ps[iii, 0, 2] = 0
         Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
-            et[iii]
-        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(et[iii]) ** 2 / np.cos(
+            xi[iii]
+        )
         Ps[iii, 1, 2] = 0
         Ps[iii, 2, 0] = 0
         Ps[iii, 2, 1] = 0
@@ -627,9 +619,9 @@ class CSBasis:
         Ps[iii, 0, 1] = 0
         Ps[iii, 0, 2] = 0
         Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
-            et[iii]
-        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(et[iii]) ** 2 / np.cos(
+            xi[iii]
+        )
         Ps[iii, 1, 2] = 0
         Ps[iii, 2, 0] = 0
         Ps[iii, 2, 1] = 0
@@ -641,9 +633,9 @@ class CSBasis:
         Ps[iii, 0, 1] = 0
         Ps[iii, 0, 2] = 0
         Ps[iii, 1, 0] = np.tan(xi[iii]) * np.sin(et[iii]) * np.cos(et[iii])
-        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(
-            et[iii]
-        ) ** 2 / np.cos(xi[iii])
+        Ps[iii, 1, 1] = np.cos(xi[iii]) * np.sin(et[iii]) ** 2 + np.cos(et[iii]) ** 2 / np.cos(
+            xi[iii]
+        )
         Ps[iii, 1, 2] = 0
         Ps[iii, 2, 0] = 0
         Ps[iii, 2, 1] = 0
@@ -653,18 +645,12 @@ class CSBasis:
         iii = block == 4
         Ps[iii, 0, 0] = -(np.cos(xi[iii]) ** 2) * np.tan(et[iii])
         Ps[iii, 0, 1] = (
-            -delta[iii]
-            * np.tan(xi[iii])
-            * np.cos(xi[iii]) ** 2
-            / np.sqrt(delta[iii] - 1)
+            -delta[iii] * np.tan(xi[iii]) * np.cos(xi[iii]) ** 2 / np.sqrt(delta[iii] - 1)
         )
         Ps[iii, 0, 2] = 0
         Ps[iii, 1, 0] = np.cos(et[iii]) ** 2 * np.tan(xi[iii])
         Ps[iii, 1, 1] = (
-            -delta[iii]
-            * np.tan(et[iii])
-            * np.cos(et[iii]) ** 2
-            / np.sqrt(delta[iii] - 1)
+            -delta[iii] * np.tan(et[iii]) * np.cos(et[iii]) ** 2 / np.sqrt(delta[iii] - 1)
         )
         Ps[iii, 1, 2] = 0
         Ps[iii, 2, 0] = 0
@@ -675,18 +661,12 @@ class CSBasis:
         iii = block == 5
         Ps[iii, 0, 0] = np.cos(xi[iii]) ** 2 * np.tan(et[iii])
         Ps[iii, 0, 1] = (
-            delta[iii]
-            * np.tan(xi[iii])
-            * np.cos(xi[iii]) ** 2
-            / np.sqrt(delta[iii] - 1)
+            delta[iii] * np.tan(xi[iii]) * np.cos(xi[iii]) ** 2 / np.sqrt(delta[iii] - 1)
         )
         Ps[iii, 0, 2] = 0
         Ps[iii, 1, 0] = -(np.cos(et[iii]) ** 2) * np.tan(xi[iii])
         Ps[iii, 1, 1] = (
-            delta[iii]
-            * np.tan(et[iii])
-            * np.cos(et[iii]) ** 2
-            / np.sqrt(delta[iii] - 1)
+            delta[iii] * np.tan(et[iii]) * np.cos(et[iii]) ** 2 / np.sqrt(delta[iii] - 1)
         )
         Ps[iii, 1, 2] = 0
         Ps[iii, 2, 0] = 0
@@ -842,9 +822,7 @@ class CSBasis:
             )
 
         if Ns < order:
-            raise ValueError(
-                "Ns must be >= order. You gave {} and {}".format(Ns, order)
-            )
+            raise ValueError("Ns must be >= order. You gave {} and {}".format(Ns, order))
 
         if order != 1:
             raise NotImplementedError("Only first order differentiation is supported.")
@@ -855,8 +833,7 @@ class CSBasis:
         h = self.xi(1, N) - self.xi(0, N)  # Step size between each grid cell
 
         k, i, j = map(
-            np.ravel,
-            np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij"),
+            np.ravel, np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij")
         )
 
         # Set up differentiation stencil for first order derivative.
@@ -960,16 +937,11 @@ class CSBasis:
 
         # Uniform CS grids need at least one integer in each index pair.
         assert np.all(
-            (
-                np.isclose(new_i - np.rint(new_i), 0)
-                | np.isclose(new_j - np.rint(new_j), 0)
-            )
+            (np.isclose(new_i - np.rint(new_i), 0) | np.isclose(new_j - np.rint(new_j), 0))
         )
 
         # Fill in column indices for index pairs that are both integers.
-        ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(
-            new_j - np.rint(new_j), 0
-        )
+        ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(new_j - np.rint(new_j), 0)
         cols[ii_integers] = np.ravel_multi_index(
             (
                 new_k[ii_integers],
@@ -995,16 +967,10 @@ class CSBasis:
         # Define the (integer) points which will be used to interpolate.
         interpolation_points = np.arange(Ni).reshape((1, -1))
         j_interpolation_points = arrayutils.constrain_values(
-            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1,
-            0,
-            N - 1,
-            axis=1,
+            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
         )
         i_interpolation_points = arrayutils.constrain_values(
-            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1,
-            0,
-            N - 1,
-            axis=1,
+            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
         )
 
         # Calculate barycentric weights wj (Berrut & Trefethen, 2004).
@@ -1042,10 +1008,7 @@ class CSBasis:
         stacked_weights[j_is_float] = stacked_weights[j_is_float] * w_j * Ni
 
         D = coo_matrix(
-            (
-                stacked_weights.flatten(),
-                (stacked_rows.flatten(), stacked_cols.flatten()),
-            ),
+            (stacked_weights.flatten(), (stacked_rows.flatten(), stacked_cols.flatten())),
             shape=(rows.max() + 1, size),
         )
         # Get rid of duplicates (maybe this doesn't do anything?).
@@ -1114,9 +1077,7 @@ class CSBasis:
         # Calculate distances to each face midpoint.
         distances = np.empty((6, xyz.shape[1]))
         for i in range(6):
-            distances[i] = np.linalg.norm(
-                xyz - face_midpoints[i].reshape((3, 1)), axis=0
-            )
+            distances[i] = np.linalg.norm(xyz - face_midpoints[i].reshape((3, 1)), axis=0)
 
         safety_distance = 1e-10  # To prevent ambiguous assignment at boundaries
 
@@ -1240,9 +1201,7 @@ class CSBasis:
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
-        u_east, u_north, u_r, theta, phi = np.broadcast_arrays(
-            u_east, u_north, u_r, theta, phi
-        )
+        u_east, u_north, u_r, theta, phi = np.broadcast_arrays(u_east, u_north, u_r, theta, phi)
         u_east, u_north, u_r, theta, phi = (
             u_east.flatten(),
             u_north.flatten(),
@@ -1276,9 +1235,9 @@ class CSBasis:
             # Filter points whose position vectors have component
             # anti-parallel to center of the block.
             _, th, ph = self.cube2spherical(0, 0, i, deg=False)
-            r0 = np.hstack(
-                (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
-            ).reshape((-1, 1))
+            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape(
+                (-1, 1)
+            )
             mask = np.sum(r0 * r, axis=0) > 0
 
             xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)
@@ -1308,15 +1267,11 @@ class CSBasis:
         Q = self.get_Q(90 - theta_out, r=1, inverse=False)
         Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
         Ps_normalized_inv = np.einsum("nij, njk -> nik", Q, Ps_inv)
-        u_east_int, u_north_int, u_r_int = np.einsum(
-            "nij, nj -> ni", Ps_normalized_inv, u.T
-        ).T
+        u_east_int, u_north_int, u_r_int = np.einsum("nij, nj -> ni", Ps_normalized_inv, u.T).T
 
         return u_east_int, u_north_int, u_r_int
 
-    def interpolate_scalar(
-        self, scalar, theta, phi, theta_target, phi_target, **kwargs
-    ):
+    def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
         """Interpolate scalar values.
 
         Interpolate scalar values defined on (`theta`, `phi`) to given
@@ -1364,9 +1319,9 @@ class CSBasis:
             # Filter points whose position vectors have component
             # anti-parallel to center of the block.
             _, th, ph = self.cube2spherical(0, 0, i, deg=False)
-            r0 = np.hstack(
-                (np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))
-            ).reshape((-1, 1))
+            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape(
+                (-1, 1)
+            )
             mask = np.sum(r0 * r, axis=0) > 0
 
             xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)

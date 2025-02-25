@@ -111,9 +111,7 @@ while True:
     # )
 
     if count % plotsteps == 0:
-        print(
-            count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3]
-        )
+        print(count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3])
         fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
         filecount += 1
         title = "t = {:.3} s".format(time)

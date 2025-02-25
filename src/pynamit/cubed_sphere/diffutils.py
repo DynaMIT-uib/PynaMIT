@@ -140,16 +140,14 @@ def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
 
     for i in range(1, NN):
         newkeys = [
-            "".join(combination)
-            for combination in combinations_with_replacement(["x", "y"], i)
+            "".join(combination) for combination in combinations_with_replacement(["x", "y"], i)
         ]
         keys += newkeys
         permutations = [len(set(key)) for key in newkeys]
         values += [
             p * np.prod(_, axis=0) / factorial(i)
             for p, _ in zip(
-                permutations,
-                [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)],
+                permutations, [np.vstack(x) for x in combinations_with_replacement([dx, dy], i)]
             )
         ]
 
@@ -172,9 +170,7 @@ if __name__ == "__main__":
     dx, dy = map(
         np.ravel,
         np.meshgrid(
-            [-0.2, -0.1, 0, 0.1, 0.2],
-            [-0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3],
-            indexing="ij",
+            [-0.2, -0.1, 0, 0.1, 0.2], [-0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3], indexing="ij"
         ),
     )
 
@@ -287,9 +283,7 @@ if __name__ == "__main__":
     fig, axes = plt.subplots(ncols=5, figsize=(15, 3))
 
     for derivative, df, ax in zip(
-        ["x", "y", "xx", "yy", "xy"],
-        [dfdx, dfdy, d2fdx2, d2fdy2, d2fdxdy],
-        axes.flatten(),
+        ["x", "y", "xx", "yy", "xy"], [dfdx, dfdy, d2fdx2, d2fdy2, d2fdxdy], axes.flatten()
     ):
         derivatives = df(x0, y0)
         stencil = get_2D_stencil_coefficients(dx, dy, derivative=derivative)
