@@ -116,7 +116,7 @@ lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
 plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
 
-G_Br = plt_state_evaluator.scaled_G(dynamics.state_basis.n / RI)
+G_Br = plt_state_evaluator.scaled_G(dynamics.state.m_ind_to_Br)
 Br = G_Br.dot(dynamics.state.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
 
 

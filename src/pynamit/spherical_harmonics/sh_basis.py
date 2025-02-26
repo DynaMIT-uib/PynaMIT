@@ -270,27 +270,6 @@ class SHBasis(object):
         """
         return -self.n * (self.n + 1) / r**2
 
-    def d_dr_Ve(self, r=1.0):
-        """Calculate radial derivative of external potential.
-
-        Calculates the vector that represents the radial derivative of
-        the spherical harmonic coefficients for an external potential.
-        Does not include the scaling by the ``R`` factor in the
-        potential, this must be accounted for separately.
-
-        Parameters
-        ----------
-        r : float, optional
-            Radius.
-
-        Returns
-        -------
-        array
-            The radial derivative of the spherical harmonic coefficients
-            for an external potential.
-        """
-        return self.n / r
-
     def radial_shift_Ve(self, start, end):
         """Calculate radial shift of external potential.
 
@@ -333,6 +312,6 @@ class SHBasis(object):
             Multiplicative conversion factors for each harmonic term.
         """
         if not hasattr(self, "_Ve_to_delta_V"):
-            self._Ve_to_delta_V = -(2 * self.n + 1) / (self.n + 1)
+            self._Ve_to_delta_V = 2 * self.n + 1
 
         return self._Ve_to_delta_V

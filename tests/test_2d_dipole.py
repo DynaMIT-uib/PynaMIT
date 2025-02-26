@@ -11,9 +11,9 @@ import numpy as np
 def test_2d_dipole():
     """Test 2D simulation with dipole."""
     # Arrange.
-    expected_coeff_norm = 1.2339062181763688e-07
-    expected_coeff_max = 7.169514594658599e-10
-    expected_coeff_min = -4.8906155069569715e-09
+    expected_coeff_norm = 1.233894552105508e-07
+    expected_coeff_max = 7.169514594656011e-10
+    expected_coeff_min = -4.890615507043153e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
