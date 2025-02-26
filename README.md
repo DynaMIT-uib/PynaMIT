@@ -1,2 +1,2 @@
 # PynaMIT
-A Python code for simulating dynamic magnetosphere-ionosphere-thermosphere coupling.
+A Python package for simulating dynamic magnetosphere-ionosphere-thermosphere coupling.
