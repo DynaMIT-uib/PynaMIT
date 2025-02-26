@@ -38,18 +38,17 @@ glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
 # Calculate conversion factors.
-m_ind_to_Br = -sh_basis.n
-laplacian = -sh_basis.n * (sh_basis.n + 1) / RI**2
-m_imp_to_jr = laplacian * RI / mu0
-W_to_dBr_dt = -laplacian * RI
-m_ind_to_Jeq = RI / mu0 * (2 * sh_basis.n + 1) / (sh_basis.n + 1)
+m_ind_to_Br = -(RI**2) * sh_basis.laplacian(RI)
+m_imp_to_jr = RI / mu0 * sh_basis.laplacian(RI)
+W_to_dBr_dt = 1 / RI
+m_ind_to_Jeq = -RI / mu0 * sh_basis.Ve_to_delta_V
 
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
 ground_evaluator = pynamit.BasisEvaluator(sh_basis, ground_grid)
 
-m_ind_to_Bh_ground = (RE / RI) ** sh_basis.n
-m_ind_to_Br_ground = -sh_basis.n * (RE / RI) ** (sh_basis.n - 1)
+m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n
+m_ind_to_Br_ground = sh_basis.n * (sh_basis.n + 1) * (RE / RI) ** (sh_basis.n - 1)
 
 
 fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)

@@ -173,12 +173,10 @@ class PynamEye(object):
         self.B_parameters_calculated = False
 
         # Prepare conversion factors for electromagnetic quantities.
-        n = self.basis.n
-        self.m_ind_to_Br = -n
-        self.laplacian = -n * (n + 1) / self.RI**2
-        self.m_imp_to_jr = self.laplacian * self.RI / mu0
-        self.W_to_dBr_dt = -self.laplacian * self.RI
-        self.m_ind_to_Jeq = self.RI / mu0 * (2 * n + 1) / (n + 1)
+        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.W_to_dBr_dt = 1 / self.RI
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.Ve_to_delta_V
 
         # Calculate matrices to calculate current.
         self.G_B_pol_to_JS = {}
