@@ -45,7 +45,7 @@ class PynamEye(object):
     """
 
     def __init__(
-        self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=False
+        self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
     ):
         """Initialize the PynamEye object.
 
@@ -83,7 +83,10 @@ class PynamEye(object):
                 raise ValueError("{} does not exist".format(fn))
 
         if steady_state:
-            self.datasets["state"] = xr.load_dataset(filename_prefix + "_steady_state.ncdf")
+            try:
+                self.datasets["steady_state"] = xr.load_dataset(filename_prefix + "_steady_state.ncdf")
+            except:
+                print("Could not find {}.".format(filename_prefix + "_steady_state.ncdf"))
 
         self.T_to_Ve = xr.load_dataarray(filename_prefix + "_PFAC_matrix.ncdf").values
 
@@ -421,14 +424,14 @@ class PynamEye(object):
             xx, yy = ax._latlt2xy(self.mlat, mlt)
             with warnings.catch_warnings():
                 warnings.filterwarnings(
-                    "ignore", message=("No contour levels were found within the data range.",)
+                    "ignore", message="No contour levels were found within the data range.",
                 )
                 return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == "global":
             assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings(
-                    "ignore", message=("No contour levels were found within the data range.",)
+                    "ignore", message="No contour levels were found within the data range.",
                 )
                 return ax.contour(
                     self.lon,
@@ -460,14 +463,14 @@ class PynamEye(object):
             xx, yy = ax._latlt2xy(self.mlat, mlt)
             with warnings.catch_warnings():
                 warnings.filterwarnings(
-                    "ignore", message=("No contour levels were found within the data range.",)
+                    "ignore", message="No contour levels were found within the data range.",
                 )
                 return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
         elif region == "global":
             assert ax.projection.equals(self.get_global_projection())
             with warnings.catch_warnings():
                 warnings.filterwarnings(
-                    "ignore", message=("No contour levels were found within the data range.",)
+                    "ignore", message="No contour levels were found within the data range.",
                 )
                 return ax.contourf(
                     self.lon,
@@ -501,7 +504,7 @@ class PynamEye(object):
             assert ax.projection == self.get_global_projection()
             with warnings.catch_warnings():
                 warnings.filterwarnings(
-                    "ignore", message=("No contour levels were found within the data range.",)
+                    "ignore", message="No contour levels were found within the data range.",
                 )
                 lon, lat = (self.global_vector_grid.lon, self.global_vector_grid.lat)
                 return ax.quiver(lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs)
