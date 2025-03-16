@@ -325,12 +325,18 @@ class PynamEye(object):
                 new_time = sorted(list(self.datasets[ds].time.values) + [self.t])
                 self.datasets[ds] = self.datasets[ds].reindex(time=new_time).ffill(dim="time")
 
-        self.m_ind = self.datasets["state"].SH_m_ind.sel(time=self.t, method="nearest").values
-        self.m_imp = self.datasets["state"].SH_m_imp.sel(time=self.t, method="nearest").values
-        self.m_W = self.datasets["state"].SH_W.sel(time=self.t, method="nearest").values * self.RI
-        self.m_Phi = (
-            self.datasets["state"].SH_Phi.sel(time=self.t, method="nearest").values * self.RI
-        )
+        if steady_state:  # use the steady-state version of state dataset
+            print("using steady state dataset")
+            state_ds = self.datasets["steady_state"]
+        else:
+            state_ds = self.datasets["state"]
+
+
+        self.m_ind = state_ds.SH_m_ind.sel(time=self.t, method="nearest").values
+        self.m_imp = state_ds.SH_m_imp.sel(time=self.t, method="nearest").values
+        self.m_W   = state_ds.SH_W.sel(time=self.t, method="nearest").values * self.RI
+        self.m_Phi = state_ds.SH_Phi.sel(time=self.t, method="nearest").values * self.RI
+
         self.m_etaP = (
             self.datasets["conductance"].SH_etaP.sel(time=self.t, method="nearest").values
         )
@@ -342,11 +348,6 @@ class PynamEye(object):
         )
         self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
 
-        if steady_state:  # override m_ind
-            print("using steady state m_ind -- Phi and W are not updated!")
-            self.m_ind = (
-                self.datasets["steady_state"].SH_m_ind.sel(time=self.t, method="nearest").values
-            )
 
         if np.any(np.isnan(self.m_ind)):
             print(f"induced magnetic field coefficients at t = {(t,):.2f} s are nans")
@@ -571,11 +572,11 @@ class PynamEye(object):
                 kwargs[key] = self.conductance_defaults[key]
 
         etaP_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
-        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
+        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaH)
 
-        if "h":
+        if hp == "h":
             Sigma = etaH_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
-        elif "p":
+        elif hp == "p":
             Sigma = etaP_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
         else:
             raise ValueError("hp must be h or p")
