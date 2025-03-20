@@ -94,9 +94,9 @@ for plot_num, simulation_time in enumerate([0, 480]):
     a.plot_conductance(gax_pede, region="global", hp = 'p', levels=conductance_levels, extend="both").set_edgecolor(
         "face"
     )
-    a.plot_Br(gax_Brad, region="global", levels=a.Br_defaults["levels"] * 2).set_edgecolor("face")
+    a.plot_Br(gax_Brad, region="global", levels=a.Br_defaults["levels"]).set_edgecolor("face")
 
-    a.plot_equivalent_current(gax_Brad, region="global")
+    a.plot_equivalent_current(gax_Brad, region="global", levels = a.eqJ_defaults['levels'], linewidths = .7)
     a.plot_electric_field_stream_function(gax_Brad, region="global")
     a.plot_electric_potential(
         gax_Elec, region="global", colors="black", levels=np.r_[-201.25:202:3] * 1e3
@@ -104,18 +104,18 @@ for plot_num, simulation_time in enumerate([0, 480]):
 
 
     a.plot_jr(pax_fac_n, region="north").set_edgecolor("face")
-    a.plot_Br(pax_Bra_n, region="north", levels=a.Br_defaults["levels"] * 2).set_edgecolor("face")
+    a.plot_Br(pax_Bra_n, region="north", levels=a.Br_defaults["levels"]).set_edgecolor("face")
 
 
-    a.plot_equivalent_current(pax_Bra_n, region="north")
-    a.plot_electric_potential(pax_Ele_n, region="north", colors="black", levels=np.r_[-201.5:202:3] * 1e3)
+    a.plot_equivalent_current(pax_Bra_n, region="north", levels = a.eqJ_defaults['levels'], linewidths = .7)
+    a.plot_electric_potential(pax_Ele_n, region="north", colors="black", levels=a.Phi_defaults['levels'])
     a.plot_electric_field_stream_function(pax_Ele_n, region="north")
 
 
     a.plot_jr(pax_fac_s, region="south").set_edgecolor("face")
-    a.plot_Br(pax_Bra_s, region="south", levels=a.Br_defaults["levels"] * 2).set_edgecolor("face")
-    a.plot_equivalent_current(pax_Bra_s, region="south")
-    a.plot_electric_potential(pax_Ele_s, region="south", colors="black", levels=np.r_[-201.5:202:3] * 1e3)
+    a.plot_Br(pax_Bra_s, region="south", levels=a.Br_defaults["levels"]).set_edgecolor("face")
+    a.plot_equivalent_current(pax_Bra_s, region="south", levels = a.eqJ_defaults['levels'], linewidths = .7)
+    a.plot_electric_potential(pax_Ele_s, region="south", colors="black", levels=a.Phi_defaults['levels'])
     a.plot_electric_field_stream_function(pax_Ele_s, region="south", extend="both")
 
     levels = a.jr_defaults["levels"] * 1e6
@@ -136,7 +136,7 @@ for plot_num, simulation_time in enumerate([0, 480]):
     cbar_axes[1].set_xticks([])
     cbar_axes[1].set_ylabel("mho")
 
-    levels = a.Br_defaults["levels"] * 2 * 1e9
+    levels = a.Br_defaults["levels"] * 1e9
     xx, zz = (
         np.vstack((np.zeros(levels.size), np.ones(levels.size))).T,
         np.vstack((levels, levels)).T,
