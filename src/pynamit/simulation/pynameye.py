@@ -87,7 +87,7 @@ class PynamEye(object):
                 self.datasets["steady_state"] = xr.load_dataset(
                     filename_prefix + "_steady_state.ncdf"
                 )
-            except:
+            except FileNotFoundError:
                 print("Could not find {}.".format(filename_prefix + "_steady_state.ncdf"))
 
         self.T_to_Ve = xr.load_dataarray(filename_prefix + "_PFAC_matrix.ncdf").values
