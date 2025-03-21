@@ -8,8 +8,8 @@ from matplotlib.gridspec import GridSpec
 import dipole
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
-DT =  480 # An offset to apply to all the ts
-filename_prefix = "fac"# "wind"
+DT = 480  # An offset to apply to all the ts
+filename_prefix = "fac"  # "wind"
 shape = (5, 4)  # Layout of the figure (rows x columns)
 assert len(ts) == np.prod(shape)
 path = (
