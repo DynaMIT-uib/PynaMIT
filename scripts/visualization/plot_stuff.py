@@ -1,4 +1,4 @@
-""" Make (among other things) figures for graphical abstract """
+"""Make (among other things) figures for graphical abstract."""
 
 import pynamit
 import polplot
@@ -26,7 +26,7 @@ if CONDUCTANCE_AND_WIND:
     a.plot_wind(ax, color="lightgrey")
     a.jazz_global_plot(ax)
 
-    ax.set_title("Hall conductance (EUV + Hardy)\nand wind (HWM2014)", size = 18)
+    ax.set_title("Hall conductance (EUV + Hardy)\nand wind (HWM2014)", size=18)
 
     plt.tight_layout()
     plt.savefig("figures/conditions.png", dpi=200)
@@ -47,8 +47,8 @@ if FAC:
     a.plot_jr(paxes[2], region="south")
 
     axes[0].set_title("FAC at\n$t<0$ s", size=18)
-    axes[1].set_title("FAC at\n$t\ge 0$ s, north", size=18)
-    axes[2].set_title("FAC at\n$t\ge 0$ s, south", size=18)
+    axes[1].set_title("FAC at\n$t\\ge 0$ s, north", size=18)
+    axes[2].set_title("FAC at\n$t\\ge 0$ s, south", size=18)
 
     plt.tight_layout()
     plt.savefig("figures/FAC_step.png", dpi=200)
@@ -61,11 +61,15 @@ if TS_ILLUSTRATION:
     paxes = [polplot.Polarplot(ax) for ax in axes]
 
     for t, pax in zip(ts, paxes):
-        a.set_time(t, steady_state = True if t == 0 else False)
+        a.set_time(t, steady_state=True if t == 0 else False)
         a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
-        pax.ax.set_title(r"t" + ("=" if t > 0 else "$<$") + "{} s".format(t if t < 1 else t - 480), size=22, pad=-10)
+        pax.ax.set_title(
+            r"t" + ("=" if t > 0 else "$<$") + "{} s".format(t if t < 1 else t - 480),
+            size=22,
+            pad=-10,
+        )
 
         pax.writeLATlabels(backgroundcolor=(0, 0, 0, 0))
         pax.writeLTlabels()
@@ -79,10 +83,10 @@ if SS_ILLUSTRATION:
     paxes = [polplot.Polarplot(ax) for ax in axes]
 
     for i, pax in enumerate(paxes):
-        if i == 0 :
-            a.set_time(0, steady_state = True)
+        if i == 0:
+            a.set_time(0, steady_state=True)
         else:
-            a.set_time(481, steady_state = True)
+            a.set_time(481, steady_state=True)
         a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
@@ -156,25 +160,24 @@ if TIMESERIES:
         plt.savefig("tmp/fig{:.2f}.png".format(t))
 
 if COLORBAR:
-    fig, ax = plt.subplots(figsize = (3, 10))
-    faclevels =  a.jr_defaults['levels']*1e6
-    Brlevels = levels=np.linspace(-300, 300, 22)
+    fig, ax = plt.subplots(figsize=(3, 10))
+    faclevels = a.jr_defaults["levels"] * 1e6
+    Brlevels = levels = np.linspace(-300, 300, 22)
 
-    y = np.vstack((faclevels, faclevels)).T 
+    y = np.vstack((faclevels, faclevels)).T
     x = np.vstack((np.zeros(faclevels.size), np.ones(faclevels.size))).T
 
-    ax.contourf(x, y, y, cmap = a.jr_defaults['cmap'], levels = faclevels)
+    ax.contourf(x, y, y, cmap=a.jr_defaults["cmap"], levels=faclevels)
     ax2 = ax.twinx()
     ax2.set_ylim(Brlevels[0], Brlevels[-1])
     ax.set_xticks([])
     ax2.set_xticks([])
-    ax.set_ylabel("Field-aligned current [$\mu$A/m$^2$]", size = 22)
-    ax2.set_ylabel("Radial magnetic field at ionosphere radius [nT]", size = 22)
-    ax.tick_params(axis='y', labelsize=16)
-    ax2.tick_params(axis='y', labelsize=16)
+    ax.set_ylabel(r"Field-aligned current [$\mu$A/m$^2$]", size=22)
+    ax2.set_ylabel("Radial magnetic field at ionosphere radius [nT]", size=22)
+    ax.tick_params(axis="y", labelsize=16)
+    ax2.tick_params(axis="y", labelsize=16)
 
-    plt.subplots_adjust(left = 0.43, right = .57, bottom = .02, top = .98)
-    plt.savefig('figures/colorbar.png', dpi = 200)
+    plt.subplots_adjust(left=0.43, right=0.57, bottom=0.02, top=0.98)
+    plt.savefig("figures/colorbar.png", dpi=200)
 
     plt.show()
-
