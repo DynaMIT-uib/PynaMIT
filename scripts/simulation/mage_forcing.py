@@ -83,25 +83,39 @@ for step in range(0, nstep):
             south_phi[:-1, :-1] + 0.5 * np.diff(south_phi, axis=1)[:-1, :]
         ).flatten()
 
+        full_theta_centered = np.concatenate(
+            (north_theta_centered, 180 - south_theta_centered)
+        )
+        full_phi_centered = np.concatenate(
+            (north_phi_centered, -south_phi_centered)
+        )
+
     # Fetch the ionospheric fields.
     north_current = ion_north.variables["current"]["data"].flatten()
     south_current = ion_south.variables["current"]["data"].flatten()
+    full_current = np.concatenate((north_current, south_current))
 
     north_conductance_pedersen = ion_north.variables["sigmap"]["data"].flatten()
     south_conductance_pedersen = ion_south.variables["sigmap"]["data"].flatten()
+    full_conductance_pedersen = np.concatenate(
+        (north_conductance_pedersen, south_conductance_pedersen)
+    )
 
     north_conductance_hall = ion_north.variables["sigmah"]["data"].flatten()
     south_conductance_hall = ion_south.variables["sigmah"]["data"].flatten()
+    full_conductance_hall = np.concatenate(
+        (north_conductance_hall, south_conductance_hall)
+    )
 
     # Get and set jr input.
     dynamics.set_jr(
-        north_current, theta=north_theta_centered, phi=north_phi_centered, time=dt * step
+        full_current, theta=full_theta_centered, phi=full_phi_centered, time=dt * step
     )
     dynamics.set_conductance(
-        north_conductance_hall,
-        north_conductance_pedersen,
-        theta=north_theta_centered,
-        phi=north_phi_centered,
+        full_conductance_hall,
+        full_conductance_pedersen,
+        theta=full_theta_centered,
+        phi=full_phi_centered,
         time=dt * step,
     )
 
