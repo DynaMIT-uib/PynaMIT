@@ -12,7 +12,6 @@ from polplot import Polarplot
 import matplotlib.pyplot as plt
 
 
-
 RE = 6371.2e3
 RI = RE + 110e3
 latitude_boundary = 40
@@ -74,25 +73,13 @@ for step in range(0, nstep):
 
         # Theta and phi are staggered, so we need to shift them by half
         # a grid point.
-        north_theta_centered = (
-            north_theta[:-1, :-1] + 0.5 * np.diff(north_theta, axis=0)[:, :-1]
-        )
-        north_phi_centered = (
-            north_phi[:-1, :-1] + 0.5 * np.diff(north_phi, axis=1)[:-1, :]
-        )
-        south_theta_centered = (
-            south_theta[:-1, :-1] + 0.5 * np.diff(south_theta, axis=0)[:, :-1]
-        )
-        south_phi_centered = (
-            south_phi[:-1, :-1] + 0.5 * np.diff(south_phi, axis=1)[:-1, :]
-        )
+        north_theta_centered = north_theta[:-1, :-1] + 0.5 * np.diff(north_theta, axis=0)[:, :-1]
+        north_phi_centered = north_phi[:-1, :-1] + 0.5 * np.diff(north_phi, axis=1)[:-1, :]
+        south_theta_centered = south_theta[:-1, :-1] + 0.5 * np.diff(south_theta, axis=0)[:, :-1]
+        south_phi_centered = south_phi[:-1, :-1] + 0.5 * np.diff(south_phi, axis=1)[:-1, :]
 
-        full_theta_centered = np.concatenate(
-            (north_theta_centered, 180 - south_theta_centered)
-        )
-        full_phi_centered = np.concatenate(
-            (north_phi_centered, south_phi_centered)
-        )
+        full_theta_centered = np.concatenate((north_theta_centered, 180 - south_theta_centered))
+        full_phi_centered = np.concatenate((north_phi_centered, south_phi_centered))
 
     # Fetch the ionospheric fields.
     north_current = ion_north.variables["current"]["data"]
@@ -107,13 +94,14 @@ for step in range(0, nstep):
 
     north_conductance_hall = ion_north.variables["sigmah"]["data"]
     south_conductance_hall = ion_south.variables["sigmah"]["data"]
-    full_conductance_hall = np.concatenate(
-        (north_conductance_hall, south_conductance_hall)
-    )
+    full_conductance_hall = np.concatenate((north_conductance_hall, south_conductance_hall))
 
     # Get and set jr input.
     dynamics.set_jr(
-        full_current.flatten(), theta=full_theta_centered.flatten(), phi=full_phi_centered.flatten(), time=dt * step
+        full_current.flatten(),
+        theta=full_theta_centered.flatten(),
+        phi=full_phi_centered.flatten(),
+        time=dt * step,
     )
     dynamics.set_conductance(
         full_conductance_hall.flatten(),
@@ -125,7 +113,6 @@ for step in range(0, nstep):
 
     plotting = False
     if plotting:
-
         # PLOTTING
         fig = plt.figure(figsize=(10, 6))
 
@@ -143,11 +130,11 @@ for step in range(0, nstep):
 
         lat = 90 - full_theta_centered
         lon = full_phi_centered
-        #jr_kwargs = {
+        # jr_kwargs = {
         #    "cmap": plt.cm.bwr,
         #    "levels": np.linspace(-0.95, 0.95, 22) / 6 * 1e-6,
         #    "extend": "both",
-        #}
+        # }
 
         jr_kwargs = {
             "cmap": plt.cm.bwr,
