@@ -62,11 +62,11 @@ for step in range(0, nstep):
         south_r = ion_south.ion["R"]
 
         # Uses convention from remix.efield().
-        north_theta = np.rad2deg(np.arcsin(north_r))  # .flatten()
-        south_theta = np.rad2deg(np.arcsin(south_r))  # .flatten()
+        north_theta = np.rad2deg(np.arcsin(north_r))
+        south_theta = np.rad2deg(np.arcsin(south_r))
 
-        north_phi = np.rad2deg(ion_north.ion["THETA"])  # .flatten()
-        south_phi = np.rad2deg(ion_south.ion["THETA"])  # .flatten()
+        north_phi = np.rad2deg(ion_north.ion["THETA"])
+        south_phi = np.rad2deg(ion_south.ion["THETA"])
 
         # Theta and phi are staggered, so we need to shift them by half
         # a grid point.
