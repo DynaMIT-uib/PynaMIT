@@ -15,10 +15,12 @@ import matplotlib.pyplot as plt
 RE = 6381e3
 RI = 6.5e3
 latitude_boundary = 35
+latitude_step = 0.5
+
 dt = 300
 
 dataset_filename_prefix = "mage-forcing"
-Nmax, Mmax, Ncs = 30, 30, 30
+Nmax, Mmax, Ncs = 100, 100, 100
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
 date = datetime.datetime(2013, 3, 17, 10)
@@ -67,12 +69,37 @@ for step in range(0, nstep):
         north_phi = np.rad2deg(ion_north.ion["THETA"])
         south_phi = np.rad2deg(ion_south.ion["THETA"])
 
+        # Continue adding latitude_step degrees to theta, starting from
+        # 90 - latitude_boundary + latitude_step until 90 degree theta
+        # is reached. Each latitude is repeated the same number of times
+        # as the number of longitude points.
+
+        pad_axes = True
+        if pad_axes:
+            added_theta = np.arange(
+                90 - latitude_boundary + latitude_step, 90, latitude_step
+            ).reshape((-1, 1))
+
+            added_theta_tiled = np.tile(
+                added_theta, (1, north_theta.shape[1])
+            )
+
+            added_phi = north_phi[0, :].reshape((1, -1))
+            added_phi_tiled = np.tile(
+                added_phi, (added_theta.shape[0], 1)
+            )
+
+            north_theta_padded = np.concatenate((north_theta, added_theta_tiled), axis=0)
+            south_theta_padded = np.concatenate((south_theta, added_theta_tiled), axis=0)
+            north_phi_padded = np.concatenate((added_phi_tiled, north_phi), axis=0)
+            south_phi_padded = np.concatenate((added_phi_tiled, south_phi), axis=0)
+
         # Theta and phi are staggered, so we need to shift them by half
         # a grid point.
-        north_theta_centered = north_theta[:-1, :-1] + 0.5 * np.diff(north_theta, axis=0)[:, :-1]
-        north_phi_centered = north_phi[:-1, :-1] + 0.5 * np.diff(north_phi, axis=1)[:-1, :]
-        south_theta_centered = south_theta[:-1, :-1] + 0.5 * np.diff(south_theta, axis=0)[:, :-1]
-        south_phi_centered = south_phi[:-1, :-1] + 0.5 * np.diff(south_phi, axis=1)[:-1, :]
+        north_theta_centered = north_theta_padded[:-1, :-1] + 0.5 * np.diff(north_theta_padded, axis=0)[:, :-1]
+        north_phi_centered = north_phi_padded[:-1, :-1] + 0.5 * np.diff(north_phi_padded, axis=1)[:-1, :]
+        south_theta_centered = south_theta_padded[:-1, :-1] + 0.5 * np.diff(south_theta_padded, axis=0)[:, :-1]
+        south_phi_centered = south_phi_padded[:-1, :-1] + 0.5 * np.diff(south_phi_padded, axis=1)[:-1, :]
 
         full_theta_centered = np.concatenate((north_theta_centered, 180 - south_theta_centered))
         full_phi_centered = np.concatenate((north_phi_centered, south_phi_centered))
@@ -81,6 +108,17 @@ for step in range(0, nstep):
     north_current = ion_north.variables["current"]["data"] * 1e-6 # Convert from muA/m^2 to A/m^2
     south_current = ion_south.variables["current"]["data"] * 1e-6
     full_current = np.concatenate((north_current, south_current))
+
+    # Pad with zeros to match the size of the theta and phi arrays.
+    # This is necessary because the current array is not the same size as
+    # the theta and phi arrays.
+    
+    north_current_padded = np.zeros((north_theta_centered.shape[0], north_theta_centered.shape[1]))
+    south_current_padded = np.zeros((south_theta_centered.shape[0], south_theta_centered.shape[1]))
+
+    north_current_padded[:north_theta.shape[0]-1, :north_theta.shape[1]-1] = north_current
+    south_current_padded[:north_theta.shape[0]-1, :north_theta.shape[1]-1] = south_current
+    full_current_padded = np.concatenate((north_current_padded, south_current_padded))
 
     north_conductance_pedersen = ion_north.variables["sigmap"]["data"]
     south_conductance_pedersen = ion_south.variables["sigmap"]["data"]
@@ -93,19 +131,22 @@ for step in range(0, nstep):
     full_conductance_hall = np.concatenate((north_conductance_hall, south_conductance_hall))
 
     # Get and set jr input.
-    dynamics.set_FAC(
-        full_current.flatten(),
+    dynamics.set_jr(
+        full_current_padded.flatten(),
         theta=full_theta_centered.flatten(),
         phi=full_phi_centered.flatten(),
         time=dt * step,
+        weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
+        reg_lambda = 1e-3,
     )
-    dynamics.set_conductance(
-        full_conductance_hall.flatten(),
-        full_conductance_pedersen.flatten(),
-        theta=full_theta_centered.flatten(),
-        phi=full_phi_centered.flatten(),
-        time=dt * step,
-    )
+    
+    #dynamics.set_conductance(
+    #    full_conductance_hall.flatten(),
+    #    full_conductance_pedersen.flatten(),
+    #    theta=full_theta_centered.flatten(),
+    #    phi=full_phi_centered.flatten(),
+    #    time=dt * step,
+    #)
 
     plotting = True
     if plotting:
@@ -134,22 +175,32 @@ for step in range(0, nstep):
            "extend": "both",
         }
 
+        # Plot grid points for the input data.
+        #gax_input.scatter(
+        #    lon,
+        #    lat,
+        #    transform=ccrs.PlateCarree(),
+        #    color="black",
+        #    s=0.1,
+        #    zorder=3,
+        #)
+
         # jr input:
         contours_input = {}
         contours_input["jr "] = gax_input.contourf(
-            lon, lat, full_current.reshape(lon.shape), transform=ccrs.PlateCarree(), **jr_kwargs
+            lon, lat, full_current_padded.reshape(lon.shape), transform=ccrs.PlateCarree(), **jr_kwargs
         )
 
         # north:
         nnn = lat > minlat
         contours_input["jr_n"] = paxn_input.contourf(
-            lat[nnn], lon[nnn] / 15, full_current.reshape(lon.shape)[nnn], **jr_kwargs
+            lat[nnn], lon[nnn] / 15, full_current_padded.reshape(lon.shape)[nnn], **jr_kwargs
         )
 
         # south:
         sss = lat < -minlat
         contours_input["jr_s"] = paxs_input.contourf(
-            lat[sss], lon[sss] / 15, full_current.reshape(lon.shape)[sss], **jr_kwargs
+            lat[sss], lon[sss] / 15, full_current_padded.reshape(lon.shape)[sss], **jr_kwargs
         )
 
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
@@ -158,7 +209,17 @@ for step in range(0, nstep):
         plt_evaluator = pynamit.BasisEvaluator(dynamics.state.jr_basis, plt_grid)
         b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, plt_grid, RI)
 
-        fac_output = plt_evaluator.basis_to_grid(dynamics.state.jr.coeffs) / b_evaluator.br
+        fac_output = plt_evaluator.basis_to_grid(dynamics.state.jr.coeffs) #/ b_evaluator.br
+
+        # Plot grid points for the interpolated data.
+        #gax_interpolated.scatter(
+        #    lon,
+        #    lat,
+        #    transform=ccrs.PlateCarree(),
+        #    color="black",
+        #    s=0.1,
+        #    zorder=3,
+        #)
 
         # jr interpolated:
         contours_interpolated = {}
