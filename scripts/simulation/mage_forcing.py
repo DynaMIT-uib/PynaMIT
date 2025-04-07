@@ -20,7 +20,7 @@ dt = 300
 FLOAT_ERROR_MARGIN = 1e-6
 
 dataset_filename_prefix = "mage-forcing"
-Nmax, Mmax, Ncs = 20, 20, 20
+Nmax, Mmax, Ncs = 30, 30, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
@@ -37,8 +37,8 @@ dynamics = pynamit.Dynamics(
     RI=RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
+    ignore_PFAC=True,
+    connect_hemispheres=False,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
@@ -82,8 +82,8 @@ for step in range(0, nstep):
         full_phi_centered = np.concatenate((north_phi_centered, south_phi_centered))
 
     # Fetch the ionospheric fields.
-    north_current = ion_north.variables["current"]["data"]
-    south_current = ion_south.variables["current"]["data"]
+    north_current = ion_north.variables["current"]["data"] * 1e-6 # Convert from muA/m^2 to A/m^2
+    south_current = ion_south.variables["current"]["data"] * 1e-6
     full_current = np.concatenate((north_current, south_current))
 
     north_conductance_pedersen = ion_north.variables["sigmap"]["data"]
@@ -97,7 +97,7 @@ for step in range(0, nstep):
     full_conductance_hall = np.concatenate((north_conductance_hall, south_conductance_hall))
 
     # Get and set jr input.
-    dynamics.set_jr(
+    dynamics.set_FAC(
         full_current.flatten(),
         theta=full_theta_centered.flatten(),
         phi=full_phi_centered.flatten(),
@@ -111,7 +111,7 @@ for step in range(0, nstep):
         time=dt * step,
     )
 
-    plotting = False
+    plotting = True
     if plotting:
         # PLOTTING
         fig = plt.figure(figsize=(10, 6))
@@ -130,16 +130,10 @@ for step in range(0, nstep):
 
         lat = 90 - full_theta_centered
         lon = full_phi_centered
-        # jr_kwargs = {
-        #    "cmap": plt.cm.bwr,
-        #    "levels": np.linspace(-0.95, 0.95, 22) / 6 * 1e-6,
-        #    "extend": "both",
-        # }
-
         jr_kwargs = {
-            "cmap": plt.cm.bwr,
-            "levels": np.linspace(-0.95, 0.95, 22) / 6 * 1e-6,
-            "extend": "both",
+           "cmap": plt.cm.bwr,
+           "levels": np.linspace(-0.95, 0.95, 22) / 6 * 1e-6,
+           "extend": "both",
         }
 
         contours = {}
