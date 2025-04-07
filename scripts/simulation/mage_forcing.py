@@ -13,14 +13,14 @@ import matplotlib.pyplot as plt
 
 
 RE = 6381e3
-RI = 6.5e3
+RI = 6.5e6
 latitude_boundary = 35
 latitude_step = 0.5
 
 dt = 300
 
 dataset_filename_prefix = "mage-forcing"
-Nmax, Mmax, Ncs = 100, 100, 100
+Nmax, Mmax, Ncs = 50, 50, 60
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
 date = datetime.datetime(2013, 3, 17, 10)
