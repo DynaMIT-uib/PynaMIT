@@ -131,8 +131,14 @@ for step in range(0, nstep):
     full_conductance_hall = np.concatenate((north_conductance_hall, south_conductance_hall))
 
     # Get and set jr input.
+    grid = pynamit.Grid(
+        theta=full_theta_centered.flatten(),
+        phi=full_phi_centered.flatten(),
+    )
+    b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, grid, RI)
+    jr_input = full_current_padded.flatten() * b_evaluator.br
     dynamics.set_jr(
-        full_current_padded.flatten(),
+        jr_input,
         theta=full_theta_centered.flatten(),
         phi=full_phi_centered.flatten(),
         time=dt * step,
@@ -188,19 +194,19 @@ for step in range(0, nstep):
         # jr input:
         contours_input = {}
         contours_input["jr "] = gax_input.contourf(
-            lon, lat, full_current_padded.reshape(lon.shape), transform=ccrs.PlateCarree(), **jr_kwargs
+            lon, lat, jr_input.reshape(lon.shape), transform=ccrs.PlateCarree(), **jr_kwargs
         )
 
         # north:
         nnn = lat > minlat
         contours_input["jr_n"] = paxn_input.contourf(
-            lat[nnn], lon[nnn] / 15, full_current_padded.reshape(lon.shape)[nnn], **jr_kwargs
+            lat[nnn], lon[nnn] / 15, jr_input.reshape(lon.shape)[nnn], **jr_kwargs
         )
 
         # south:
         sss = lat < -minlat
         contours_input["jr_s"] = paxs_input.contourf(
-            lat[sss], lon[sss] / 15, full_current_padded.reshape(lon.shape)[sss], **jr_kwargs
+            lat[sss], lon[sss] / 15, jr_input.reshape(lon.shape)[sss], **jr_kwargs
         )
 
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
@@ -209,7 +215,7 @@ for step in range(0, nstep):
         plt_evaluator = pynamit.BasisEvaluator(dynamics.state.jr_basis, plt_grid)
         b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, plt_grid, RI)
 
-        fac_output = plt_evaluator.basis_to_grid(dynamics.state.jr.coeffs) #/ b_evaluator.br
+        jr_interpolated = plt_evaluator.basis_to_grid(dynamics.state.jr.coeffs)
 
         # Plot grid points for the interpolated data.
         #gax_interpolated.scatter(
@@ -224,19 +230,19 @@ for step in range(0, nstep):
         # jr interpolated:
         contours_interpolated = {}
         contours_interpolated["jr "] = gax_interpolated.contourf(
-            lon, lat, fac_output.reshape(lon.shape), transform=ccrs.PlateCarree(), **jr_kwargs
+            lon, lat, jr_interpolated.reshape(lon.shape), transform=ccrs.PlateCarree(), **jr_kwargs
         )
 
         # north:
         nnn = lat > minlat
         contours_interpolated["jr_n"] = paxn_interpolated.contourf(
-            lat[nnn], lon[nnn] / 15, fac_output.reshape(lon.shape)[nnn], **jr_kwargs
+            lat[nnn], lon[nnn] / 15, jr_interpolated.reshape(lon.shape)[nnn], **jr_kwargs
         )
 
         # south:
         sss = lat < -minlat
         contours_interpolated["jr_s"] = paxs_interpolated.contourf(
-            lat[sss], lon[sss] / 15, fac_output.reshape(lon.shape)[sss], **jr_kwargs
+            lat[sss], lon[sss] / 15, jr_interpolated.reshape(lon.shape)[sss], **jr_kwargs
         )
 
         plt.show()
