@@ -582,6 +582,7 @@ class State(object):
         dt : float
             Time step size in seconds.
         """
+        from scipy.sparse.linalg import expm_multiply
 
         m_ind_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
         if self.vector_jr:
@@ -594,8 +595,6 @@ class State(object):
             else:
                 u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_to_E_coeffs[1]
 
-        m_ind_contribution = np.tensordot(m_ind_to_dm_ind_dt, self.m_ind.coeffs, 1)
-
         if self.vector_jr:
             other_contributions = np.tensordot(jr_to_dm_ind_dt, self.jr.coeffs, 1)
         else:
@@ -607,7 +606,14 @@ class State(object):
             else:
                 other_contributions += np.tensordot(u_to_dm_ind_dt, self.u_on_grid, 2)
 
-        new_m_ind = self.m_ind.coeffs + (m_ind_contribution + other_contributions) * dt
+        A = m_ind_to_dm_ind_dt
+        pinv_A = np.linalg.pinv(A)
+
+        pinv_A_y = np.tensordot(pinv_A, other_contributions, 1)
+        v = self.m_ind.coeffs + pinv_A_y
+        expAv = expm_multiply(dt * A, v)
+
+        new_m_ind = expAv - pinv_A_y
 
         # new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
