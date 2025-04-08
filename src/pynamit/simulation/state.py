@@ -582,7 +582,34 @@ class State(object):
         dt : float
             Time step size in seconds.
         """
-        new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
+
+        m_ind_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
+        if self.vector_jr:
+            jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_coeffs_to_E_coeffs[1]
+        else:
+            jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_to_E_coeffs[1]
+        if self.neutral_wind:
+            if self.vector_u:
+                u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_coeffs_to_E_coeffs[1]
+            else:
+                u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_to_E_coeffs[1]
+
+        m_ind_contribution = np.tensordot(m_ind_to_dm_ind_dt, self.m_ind.coeffs, 1)
+
+        if self.vector_jr:
+            other_contributions = np.tensordot(jr_to_dm_ind_dt, self.jr.coeffs, 1)
+        else:
+            other_contributions = np.tensordot(jr_to_dm_ind_dt, self.jr_on_grid, 1)
+
+        if self.neutral_wind:
+            if self.vector_u:
+                other_contributions += np.tensordot(u_to_dm_ind_dt, self.u.coeffs, 2)
+            else:
+                other_contributions += np.tensordot(u_to_dm_ind_dt, self.u_on_grid, 2)
+
+        new_m_ind = self.m_ind.coeffs + (m_ind_contribution + other_contributions) * dt
+
+        # new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
         self.set_model_coeffs(m_ind=new_m_ind)
 
