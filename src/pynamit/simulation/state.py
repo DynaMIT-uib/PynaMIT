@@ -532,6 +532,20 @@ class State(object):
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
+        m_ind_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
+        self.A = m_ind_to_dm_ind_dt
+        self.pinv_A = np.linalg.pinv(self.A)
+
+        if self.vector_jr:
+            self.jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_coeffs_to_E_coeffs[1]
+        else:
+            self.jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_to_E_coeffs[1]
+
+        if self.vector_u:
+            self.u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_coeffs_to_E_coeffs[1]
+        else:
+            self.u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_to_E_coeffs[1]
+
     def calculate_E_coeffs(self, m_ind):
         """Calculate the coefficients for the electric field.
 
@@ -584,38 +598,22 @@ class State(object):
         """
         from scipy.sparse.linalg import expm_multiply
 
-        m_ind_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
         if self.vector_jr:
-            jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_coeffs_to_E_coeffs[1]
+            other_contributions = np.tensordot(self.jr_to_dm_ind_dt, self.jr.coeffs, 1)
         else:
-            jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_to_E_coeffs[1]
-        if self.neutral_wind:
-            if self.vector_u:
-                u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_coeffs_to_E_coeffs[1]
-            else:
-                u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_to_E_coeffs[1]
-
-        if self.vector_jr:
-            other_contributions = np.tensordot(jr_to_dm_ind_dt, self.jr.coeffs, 1)
-        else:
-            other_contributions = np.tensordot(jr_to_dm_ind_dt, self.jr_on_grid, 1)
+            other_contributions = np.tensordot(self.jr_to_dm_ind_dt, self.jr_on_grid, 1)
 
         if self.neutral_wind:
             if self.vector_u:
-                other_contributions += np.tensordot(u_to_dm_ind_dt, self.u.coeffs, 2)
+                other_contributions += np.tensordot(self.u_to_dm_ind_dt, self.u.coeffs, 2)
             else:
-                other_contributions += np.tensordot(u_to_dm_ind_dt, self.u_on_grid, 2)
+                other_contributions += np.tensordot(self.u_to_dm_ind_dt, self.u_on_grid, 2)
 
-        A = m_ind_to_dm_ind_dt
-        pinv_A = np.linalg.pinv(A)
-
-        pinv_A_y = np.tensordot(pinv_A, other_contributions, 1)
+        pinv_A_y = np.tensordot(self.pinv_A, other_contributions, 1)
         v = self.m_ind.coeffs + pinv_A_y
-        expAv = expm_multiply(dt * A, v)
+        expAv = expm_multiply(dt * self.A, v)
 
         new_m_ind = expAv - pinv_A_y
-
-        # new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
         self.set_model_coeffs(m_ind=new_m_ind)
 
