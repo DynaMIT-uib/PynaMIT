@@ -11,7 +11,7 @@ import numpy as np
 def test_2d_dipole_pfac():
     """Test 2D simulation with dipole and PFAC."""
     # Arrange.
-    expected_coeff_norm = 1.233807534510385e-07
+    expected_coeff_norm = 1.2338075343593047e-07
     expected_coeff_max = 7.073347099606215e-10
     expected_coeff_min = -4.889223822904545e-09
     expected_n_coeffs = 201

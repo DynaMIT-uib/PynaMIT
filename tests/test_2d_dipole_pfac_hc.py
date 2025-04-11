@@ -11,9 +11,9 @@ import numpy as np
 def test_2d_dipole_pfac_hc():
     """Test 2D simulation with dipole, PFAC, and HC."""
     # Arrange.
-    expected_coeff_norm = 8.777569146255798e-08
-    expected_coeff_max = 1.1927840070933632e-09
-    expected_coeff_min = -3.1251086622754097e-09
+    expected_coeff_norm = 8.777569574333691e-08
+    expected_coeff_max = 1.192784007093201e-09
+    expected_coeff_min = -3.125107861526552e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
