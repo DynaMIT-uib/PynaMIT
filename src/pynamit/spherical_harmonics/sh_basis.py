@@ -270,14 +270,14 @@ class SHBasis(object):
         """
         return -self.n * (self.n + 1) / r**2
 
-    def radial_shift_inward(self, start, end):
-        """Calculate inward radial shift.
+    def radial_shift_Ve(self, start, end):
+        """Calculate radial shift for external potential.
 
-        Calculates the vector that represents an inward shift of the
-        reference radius for the spherical harmonic expansion of a
+        Calculates the vector that represents an shift of the reference
+        radius for the spherical harmonic expansion of an external
         potential, from `start` to `end`. Corresponds to dividing the
-        radial dependence of the external potential terms with `start`
-        as the reference radius by the radial dependence of the external
+        radial dependence of the potential terms with
+        `start` as the reference radius by the radial dependence of the
         potential terms with `end` as the reference radius.
 
         Parameters
@@ -294,14 +294,14 @@ class SHBasis(object):
         """
         return (start / end) ** (1 - self.n)
 
-    def radial_shift_outward(self, start, end):
-        """Calculate outward radial shift
+    def radial_shift_Vi(self, start, end):
+        """Calculate radial shift for internal potential.
 
-        Calculates the vector that represents an outward shift of the
-        reference radius for the spherical harmonic expansion of a
-        potential, from `start` to `end`. Corresponds to dividing the
-        radial dependence of the internal potential terms with `start`
-        as the reference radius by the radial dependence of the internal
+        Calculates the vector that represents an shift of the reference
+        radius for the spherical harmonic expansion of an internal
+        potential, from `start` to `end`. Corresponds to
+        dividing the radial dependence of the potential terms with
+        `start` as the reference radius by the radial dependence of the
         potential terms with `end` as the reference radius.
 
         Parameters

@@ -280,7 +280,7 @@ class State(object):
                     # Construct matrix that calculates the contribution
                     # to the poloidal coefficients from the horizontal
                     # current components at rk.
-                    Ve_rk_to_Ve = self.basis.radial_shift_inward(rk, self.RI).reshape((-1, 1, 1))
+                    Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
                     JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
 
                     # Add integration step, negative sign is to create a
