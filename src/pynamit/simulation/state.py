@@ -532,10 +532,6 @@ class State(object):
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
-        m_ind_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
-        self.A = m_ind_to_dm_ind_dt
-        self.pinv_A = np.linalg.pinv(self.A)
-
         if self.vector_jr:
             self.jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_coeffs_to_E_coeffs[1]
         else:
@@ -609,11 +605,11 @@ class State(object):
             else:
                 other_contributions += np.tensordot(self.u_to_dm_ind_dt, self.u_on_grid, 2)
 
-        pinv_A_y = np.tensordot(self.pinv_A, other_contributions, 1)
-        v = self.m_ind.coeffs + pinv_A_y
-        expAv = expm_multiply(dt * self.A, v)
+        steady_state_m_ind = np.tensordot(self.m_ind_to_E_cf_pinv / self.E_df_to_d_m_ind_dt, other_contributions, 1)
+        v = self.m_ind.coeffs + steady_state_m_ind
+        expAv = expm_multiply(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1], v)
 
-        new_m_ind = expAv - pinv_A_y
+        new_m_ind = expAv - steady_state_m_ind
 
         self.set_model_coeffs(m_ind=new_m_ind)
 
