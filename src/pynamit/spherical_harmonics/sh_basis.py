@@ -292,7 +292,31 @@ class SHBasis(object):
         array
             The vector representing the shift of the reference radius.
         """
-        return (end / start) ** (self.n - 1)
+        return (start / end) ** (1 - self.n)
+
+    def radial_shift_Vi(self, start, end):
+        """Calculate radial shift of internal potential.
+
+        Calculates the vector that represents a shift of the reference
+        radius for the spherical harmonics for an internal potential,
+        from `start` to `end`. Corresponds to the spherical harmonic
+        functions with `end` as the reference radius divided by the
+        spherical harmonic functions with `start` as the reference
+        radius.
+
+        Parameters
+        ----------
+        start : float
+            Starting radius.
+        end : float
+            Ending radius.
+
+        Returns
+        -------
+        array
+            The vector representing the shift of the reference radius.
+        """
+        return (start / end) ** (self.n + 2)
 
     @property
     def Ve_to_delta_V(self):
