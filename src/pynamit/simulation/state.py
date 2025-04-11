@@ -532,16 +532,6 @@ class State(object):
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
-        if self.vector_jr:
-            self.jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_coeffs_to_E_coeffs[1]
-        else:
-            self.jr_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.jr_to_E_coeffs[1]
-
-        if self.vector_u:
-            self.u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_coeffs_to_E_coeffs[1]
-        else:
-            self.u_to_dm_ind_dt = self.E_df_to_d_m_ind_dt * self.u_to_E_coeffs[1]
-
     def calculate_E_coeffs(self, m_ind):
         """Calculate the coefficients for the electric field.
 
@@ -595,17 +585,17 @@ class State(object):
         from scipy.sparse.linalg import expm_multiply
 
         if self.vector_jr:
-            other_contributions = np.tensordot(self.jr_to_dm_ind_dt, self.jr.coeffs, 1)
+            other_contributions = np.tensordot(self.jr_coeffs_to_E_coeffs[1], self.jr.coeffs, 1)
         else:
-            other_contributions = np.tensordot(self.jr_to_dm_ind_dt, self.jr_on_grid, 1)
+            other_contributions = np.tensordot(self.jr_to_E_coeffs[1], self.jr_on_grid, 1)
 
         if self.neutral_wind:
             if self.vector_u:
-                other_contributions += np.tensordot(self.u_to_dm_ind_dt, self.u.coeffs, 2)
+                other_contributions += np.tensordot(self.u_coeffs_to_E_coeffs[1], self.u.coeffs, 2)
             else:
-                other_contributions += np.tensordot(self.u_to_dm_ind_dt, self.u_on_grid, 2)
+                other_contributions += np.tensordot(self.u_to_E_coeffs[1], self.u_on_grid, 2)
 
-        steady_state_m_ind = np.tensordot(self.m_ind_to_E_cf_pinv / self.E_df_to_d_m_ind_dt, other_contributions, 1)
+        steady_state_m_ind = np.tensordot(self.m_ind_to_E_cf_pinv, other_contributions, 1)
         v = self.m_ind.coeffs + steady_state_m_ind
         expAv = expm_multiply(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1], v)
 
