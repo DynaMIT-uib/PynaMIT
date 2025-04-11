@@ -116,10 +116,10 @@ class State(object):
         self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_d_m_ind_dt = 1 / self.RI
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.Ve_to_delta_V
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.coeffs_to_delta_V
 
         # RI comes from scaling in the Ve and T potentials
-        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.Ve_to_delta_V
+        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
         T_to_J_cf_coeffs = self.RI / mu0
 
         # 1/RI comes from scaling in the gradient theta/phi components
@@ -280,7 +280,7 @@ class State(object):
                     # Construct matrix that calculates the contribution
                     # to the poloidal coefficients from the horizontal
                     # current components at rk.
-                    Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
+                    Ve_rk_to_Ve = self.basis.radial_shift_inward(rk, self.RI).reshape((-1, 1, 1))
                     JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
 
                     # Add integration step, negative sign is to create a

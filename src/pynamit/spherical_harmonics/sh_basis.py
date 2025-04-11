@@ -270,15 +270,15 @@ class SHBasis(object):
         """
         return -self.n * (self.n + 1) / r**2
 
-    def radial_shift_Ve(self, start, end):
-        """Calculate radial shift of external potential.
+    def radial_shift_inward(self, start, end):
+        """Calculate inward radial shift.
 
-        Calculates the vector that represents a shift of the reference
-        radius for the spherical harmonics for an external potential,
-        from `start` to `end`. Corresponds to the spherical harmonic
-        functions with `end` as the reference radius divided by the
-        spherical harmonic functions with `start` as the reference
-        radius.
+        Calculates the vector that represents an inward shift of the
+        reference radius for the spherical harmonic expansion of a
+        potential, from `start` to `end`. Corresponds to dividing the
+        radial dependence of the external potential terms with `start`
+        as the reference radius by the radial dependence of the external
+        potential terms with `end` as the reference radius.
 
         Parameters
         ----------
@@ -294,15 +294,15 @@ class SHBasis(object):
         """
         return (start / end) ** (1 - self.n)
 
-    def radial_shift_Vi(self, start, end):
-        """Calculate radial shift of internal potential.
+    def radial_shift_outward(self, start, end):
+        """Calculate outward radial shift
 
-        Calculates the vector that represents a shift of the reference
-        radius for the spherical harmonics for an internal potential,
-        from `start` to `end`. Corresponds to the spherical harmonic
-        functions with `end` as the reference radius divided by the
-        spherical harmonic functions with `start` as the reference
-        radius.
+        Calculates the vector that represents an outward shift of the
+        reference radius for the spherical harmonic expansion of a
+        potential, from `start` to `end`. Corresponds to dividing the
+        radial dependence of the internal potential terms with `start`
+        as the reference radius by the radial dependence of the internal
+        potential terms with `end` as the reference radius.
 
         Parameters
         ----------
@@ -319,43 +319,25 @@ class SHBasis(object):
         return (start / end) ** (self.n + 2)
 
     @property
-    def Ve_to_delta_V(self):
+    def coeffs_to_delta_V(self):
         """
-        Convert external coefficients to internal-external difference.
+        Convert coefficients to internal-external difference.
 
         Calculates multiplicative factors to convert spherical harmonic
-        coefficients for an external potential to coefficients for
-        internal-external potential difference, assuming continuous
-        first-order radial derivative across surface. Does not include
-        the scaling by the ``R`` factor in the potential, this must be
-        accounted for separately.
+        coefficients for a potential with internal and external parts to
+        the corresponding internal-external potential difference,
+        assuming a continuous first-order radial derivative across the
+        surface separating the internal and external parts.
+        It includes the n-dependent factors in the internal and external
+        potential expansions, but not the scaling by the overall ``R``
+        factor, which must be accounted for separately.
 
         Returns
         -------
         ndarray
             Multiplicative conversion factors for each harmonic term.
         """
-        if not hasattr(self, "_Ve_to_delta_V"):
-            self._Ve_to_delta_V = 2 * self.n + 1
+        if not hasattr(self, "_coeffs_to_delta_V"):
+            self._coeffs_to_delta_V = 2 * self.n + 1
 
-        return self._Ve_to_delta_V
-
-    @property
-    def Ve_to_Vi(self):
-        """
-        Convert external coefficients to internal coefficients.
-
-        Calculates multiplicative factors to convert spherical harmonic
-        coefficients for an external potential to coefficients for an
-        internal potential, assuming continuous first-order radial
-        derivative across surface.
-
-        Returns
-        -------
-        ndarray
-            Multiplicative conversion factors for each harmonic term.
-        """
-        if not hasattr(self, "_Ve_to_Vi"):
-            self._Ve_to_Vi = -(self.n + 1) / self.n
-
-        return self._Ve_to_Vi
+        return self._coeffs_to_delta_V
