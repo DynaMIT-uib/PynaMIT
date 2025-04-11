@@ -276,9 +276,9 @@ class SHBasis(object):
         Calculates the vector that represents an shift of the reference
         radius for the spherical harmonic expansion of an external
         potential, from `start` to `end`. Corresponds to dividing the
-        radial dependence of the potential terms with
-        `start` as the reference radius by the radial dependence of the
-        potential terms with `end` as the reference radius.
+        radial dependence of the potential terms with `start` as the
+        reference radius by the radial dependence of the potential terms
+        with `end` as the reference radius.
 
         Parameters
         ----------
@@ -299,10 +299,10 @@ class SHBasis(object):
 
         Calculates the vector that represents an shift of the reference
         radius for the spherical harmonic expansion of an internal
-        potential, from `start` to `end`. Corresponds to
-        dividing the radial dependence of the potential terms with
-        `start` as the reference radius by the radial dependence of the
-        potential terms with `end` as the reference radius.
+        potential, from `start` to `end`. Corresponds to dividing the
+        radial dependence of the potential terms with `start` as the
+        reference radius by the radial dependence of the potential terms
+        with `end` as the reference radius.
 
         Parameters
         ----------
