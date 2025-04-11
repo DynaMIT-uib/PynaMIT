@@ -339,3 +339,23 @@ class SHBasis(object):
             self._Ve_to_delta_V = 2 * self.n + 1
 
         return self._Ve_to_delta_V
+
+    @property
+    def Ve_to_Vi(self):
+        """
+        Convert external coefficients to internal coefficients.
+
+        Calculates multiplicative factors to convert spherical harmonic
+        coefficients for an external potential to coefficients for an
+        internal potential, assuming continuous first-order radial
+        derivative across surface.
+
+        Returns
+        -------
+        ndarray
+            Multiplicative conversion factors for each harmonic term.
+        """
+        if not hasattr(self, "_Ve_to_Vi"):
+            self._Ve_to_Vi = -(self.n + 1) / self.n
+
+        return self._Ve_to_Vi
