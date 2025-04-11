@@ -584,22 +584,14 @@ class State(object):
         """
         from scipy.sparse.linalg import expm_multiply
 
-        if self.vector_jr:
-            other_contributions = np.tensordot(self.jr_coeffs_to_E_coeffs[1], self.jr.coeffs, 1)
-        else:
-            other_contributions = np.tensordot(self.jr_to_E_coeffs[1], self.jr_on_grid, 1)
+        steady_state_m_ind = self.steady_state_m_ind()
 
-        if self.neutral_wind:
-            if self.vector_u:
-                other_contributions += np.tensordot(self.u_coeffs_to_E_coeffs[1], self.u.coeffs, 2)
-            else:
-                other_contributions += np.tensordot(self.u_to_E_coeffs[1], self.u_on_grid, 2)
+        inductive_m_ind = expm_multiply(
+            dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1],
+            self.m_ind.coeffs - steady_state_m_ind,
+        )
 
-        steady_state_m_ind = np.tensordot(self.m_ind_to_E_cf_pinv, other_contributions, 1)
-        v = self.m_ind.coeffs + steady_state_m_ind
-        expAv = expm_multiply(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1], v)
-
-        new_m_ind = expAv - steady_state_m_ind
+        new_m_ind = inductive_m_ind + steady_state_m_ind
 
         self.set_model_coeffs(m_ind=new_m_ind)
 
