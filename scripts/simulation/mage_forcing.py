@@ -17,10 +17,14 @@ RI = 6.5e6
 latitude_boundary = 35
 latitude_step = 0.5
 
+PLOT_BR = False
+PLOT_CONDUCTANCE = False
+PLOT_JR = False
+
 dt = 300
 
 dataset_filename_prefix = "mage-forcing"
-Nmax, Mmax, Ncs = 50, 50, 60
+Nmax, Mmax, Ncs = 20, 20, 20
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
 date = datetime.datetime(2013, 3, 17, 10)
@@ -52,6 +56,22 @@ mixFiles = os.path.join(mage_dir, "%s.mix.h5" % (mage_tag))
 
 idx=0 #Br at inner boundary?
 
+gsph.GetGrid(doVerbose=True)
+x = gsph.X[idx,:,:]
+y = gsph.Y[idx,:,:]
+z = gsph.Z[idx,:,:]
+#centers
+x_c = 0.25*( x[:-1,:-1]+x[:-1,1:]+x[1:,:-1]+x[1:,1:] )
+y_c = 0.25*( y[:-1,:-1]+y[:-1,1:]+y[1:,:-1]+y[1:,1:] )
+z_c = 0.25*( z[:-1,:-1]+z[:-1,1:]+z[1:,:-1]+z[1:,1:] )
+
+r = np.sqrt(x_c**2.+y_c**2.+z_c**2.)
+theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2+y_c**2), z_c))
+phi = np.rad2deg(np.arctan2(y_c,x_c))
+
+Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
+Br_basis_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, Br_grid)
+
 Bx0 = gsph.GetVar("Bx0")[idx,:,:] #Unscaled
 By0 = gsph.GetVar("By0")[idx,:,:] #Unscaled
 Bz0 = gsph.GetVar("Bz0")[idx,:,:] #Unscaled
@@ -64,70 +84,38 @@ for step in range(0, nstep):
     By = gsph.GetVar("By",s0)[idx,:,:] #Unscaled
     Bz = gsph.GetVar("Bz",s0)[idx,:,:] #Unscaled
 
-    gsph.GetGrid(doVerbose=True)
-    x = gsph.X[idx,:,:]
-    y = gsph.Y[idx,:,:]
-    z = gsph.Z[idx,:,:]
-    #centers
-    x_c = 0.25*( x[:-1,:-1]+x[:-1,1:]+x[1:,:-1]+x[1:,1:] )
-    y_c = 0.25*( y[:-1,:-1]+y[:-1,1:]+y[1:,:-1]+y[1:,1:] )
-    z_c = 0.25*( z[:-1,:-1]+z[:-1,1:]+z[1:,:-1]+z[1:,1:] )
     delta_Br = gsph.bScl*((Bx-Bx0)*x_c + (By-By0)*y_c + (Bz-Bz0)*z_c)/np.sqrt(x_c**2.+y_c**2.+z_c**2.)
 
-    r = np.sqrt(x_c**2.+y_c**2.+z_c**2.)
-    theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2+y_c**2), z_c))
-    phi = np.rad2deg(np.arctan2(y_c,x_c))
-    print("max r",np.max(r))
-    print("max theta",np.max(theta))
-    print("max phi",np.max(phi))
-    print("min r",np.min(r))
-    print("min theta",np.min(theta))
-    print("min phi",np.min(phi))
-
-    PLOT_BR = True
     if PLOT_BR:
-        fig = plt.figure(figsize=(10, 6))
-
-        minlat = 0
-        paxn_input = Polarplot(plt.subplot2grid((2, 4), (0, 0)), minlat=minlat)
-        paxs_input = Polarplot(plt.subplot2grid((2, 4), (0, 1)), minlat=minlat)
-        paxn_interpolated = Polarplot(plt.subplot2grid((2, 4), (0, 2)), minlat=minlat)
-        paxs_interpolated = Polarplot(plt.subplot2grid((2, 4), (0, 3)), minlat=minlat)
-
-        global_projection = ccrs.PlateCarree(central_longitude=0)
-        gax_input = plt.subplot2grid((2, 2), (1, 0), projection=global_projection, rowspan=2)
-        gax_interpolated = plt.subplot2grid(
-            (2, 2), (1, 1), projection=global_projection, rowspan=2
-        )
-
-        for ax in [gax_input, gax_interpolated]:
-            ax.coastlines(zorder=2, color="grey")
+        # Dot plot index vs r, theta, phi
+        fig, ax = plt.subplots(3, 1, figsize=(10, 6))
+        ax[0].plot(np.arange(len(r.flatten())), np.sort(r.flatten()), "o")
+        ax[0].set_title("r")
+        ax[1].plot(np.arange(len(theta.flatten())), np.sort(theta.flatten()), "o")
+        ax[1].set_title("theta")
+        ax[2].plot(np.arange(len(phi.flatten())), np.sort(phi.flatten()), "o")
+        ax[2].set_title("phi")
+        plt.tight_layout()
+        plt.show()
 
         lat = 90 - theta
         lon = phi
-        delta_Br_kwargs = {
-            "cmap": plt.cm.bwr,
-            #"levels": np.linspace(-0.95, 0.95, 22) * 1e-6,
-            "extend": "both",
-        }
+        pynamit.globalplot(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
-        # delta Br input:
-        contours_input = {}
-        contours_input["Br "] = gax_input.contourf(
-            lon, lat, delta_Br, transform=ccrs.PlateCarree(), **delta_Br_kwargs
-        )
+    Br_expansion = pynamit.FieldExpansion(dynamics.state.basis, basis_evaluator=Br_basis_evaluator, grid_values=delta_Br.flatten(), field_type="scalar")
 
-        # north:
-        contours_input["Br_n"] = paxn_input.contourf(
-            lat, lon / 15, delta_Br, **delta_Br_kwargs
-        )
+    if PLOT_BR:
+        lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
+        lat, lon = np.meshgrid(lat, lon)
+        plt_grid = pynamit.Grid(lat=lat, lon=lon)
+        plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
 
-        # south:
-        contours_input["Br_s"] = paxs_input.contourf(
-            lat, lon / 15, delta_Br, **delta_Br_kwargs
-        )
-        plt.show()
+        pynamit.globalplot(lon, lat, Br_expansion.to_grid(plt_evaluator).reshape(lon.shape), cmap=plt.cm.bwr, extend="both")
+    # Shift from 1.5 RI to 1.0 RI, and shield (negative sign)
+    Br_expansion.coeffs = -Br_expansion.coeffs * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
+    if PLOT_BR:
+        pynamit.globalplot(lon, lat, Br_expansion.to_grid(plt_evaluator).reshape(lon.shape), cmap=plt.cm.bwr, extend="both")
 
     # Get jr and conductance from the MAGE data.
     ion_north = remix.remix(mixFiles, step)
@@ -283,8 +271,8 @@ for step in range(0, nstep):
 
     minlat = 35
 
-    conductance_plotting = True
-    if conductance_plotting:
+    PLOT_CONDUCTANCE = True
+    if PLOT_CONDUCTANCE:
         fig = plt.figure(figsize=(10, 6))
         paxn_hall = Polarplot(plt.subplot2grid((2, 4), (0, 0)), minlat=minlat)
         paxs_hall = Polarplot(plt.subplot2grid((2, 4), (0, 1)), minlat=minlat)
@@ -362,9 +350,7 @@ for step in range(0, nstep):
 
         plt.show()
 
-    jr_plotting = True
-
-    if jr_plotting:
+    if PLOT_JR:
         # PLOTTING
         fig = plt.figure(figsize=(10, 6))
 
