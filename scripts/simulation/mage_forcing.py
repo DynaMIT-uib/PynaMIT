@@ -24,7 +24,7 @@ PLOT_JR = False
 dt = 300
 
 dataset_filename_prefix = "mage-forcing"
-Nmax, Mmax, Ncs = 20, 20, 20
+Nmax, Mmax, Ncs = 40, 40, 40
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
 date = datetime.datetime(2013, 3, 17, 10)
@@ -111,11 +111,20 @@ for step in range(0, nstep):
         plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
 
         pynamit.globalplot(lon, lat, Br_expansion.to_grid(plt_evaluator).reshape(lon.shape), cmap=plt.cm.bwr, extend="both")
-    # Shift from 1.5 RI to 1.0 RI, and shield (negative sign)
-    Br_expansion.coeffs = -Br_expansion.coeffs * dynamics.state.basis.radial_shift_Ve(1.5, 1)
+    # Shift from 1.5 RI to 1.0 RI
+    Br_expansion.coeffs = Br_expansion.coeffs * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
     if PLOT_BR:
         pynamit.globalplot(lon, lat, Br_expansion.to_grid(plt_evaluator).reshape(lon.shape), cmap=plt.cm.bwr, extend="both")
+
+    dynamics.set_Br(
+        Br_expansion.to_grid(dynamics.state.basis_evaluator),
+        theta=dynamics.state.grid.theta,
+        phi=dynamics.state.grid.phi,
+        time=dt * step,
+        #weights=np.sin(np.deg2rad(full_theta_padded_centered.flatten())),
+        #reg_lambda=1e-3,
+    )
 
     # Get jr and conductance from the MAGE data.
     ion_north = remix.remix(mixFiles, step)
@@ -271,7 +280,6 @@ for step in range(0, nstep):
 
     minlat = 35
 
-    PLOT_CONDUCTANCE = True
     if PLOT_CONDUCTANCE:
         fig = plt.figure(figsize=(10, 6))
         paxn_hall = Polarplot(plt.subplot2grid((2, 4), (0, 0)), minlat=minlat)

@@ -21,6 +21,7 @@ def run_pynamit(
     wind=False,
     steady_state=False,
     vector_jr=True,
+    vector_Br=True,
     vector_conductance=True,
     vector_u=True,
 ):
@@ -56,6 +57,8 @@ def run_pynamit(
         Whether to impose a steady state.
     vector_jr : bool, optional
         Whether to use vector representation for radial current.
+    vector_Br : bool, optional
+        Whether to use vector representation for magnetic field.
     vector_conductance : bool, optional
         Whether to use vector representation for conductance.
     vector_u : bool, optional
@@ -91,6 +94,7 @@ def run_pynamit(
         connect_hemispheres=connect_hemispheres,
         latitude_boundary=latitude_boundary,
         vector_jr=vector_jr,
+        vector_Br=vector_Br,
         vector_conductance=vector_conductance,
         vector_u=vector_u,
     )

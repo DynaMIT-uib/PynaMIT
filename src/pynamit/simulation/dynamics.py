@@ -59,6 +59,7 @@ class Dynamics(object):
         ih_constraint_scaling=1e-5,
         PFAC_matrix=None,
         vector_jr=True,
+        vector_Br=True,
         vector_conductance=True,
         vector_u=True,
         t0="2020-01-01 00:00:00",
@@ -98,6 +99,9 @@ class Dynamics(object):
             Matrix giving polodial field of FACs.
         vector_jr : bool, optional
             Use vector representation for radial current.
+        vector_Br : bool, optional
+            Use vector representation for radial magnetic field
+            component.
         vector_conductance : bool, optional
             Use vector representation for conductances.
         vector_u : bool, optional
@@ -125,6 +129,7 @@ class Dynamics(object):
                 "mainfield_epoch": mainfield_epoch,
                 "mainfield_B0": 0 if mainfield_B0 is None else mainfield_B0,
                 "vector_jr": int(vector_jr),
+                "vector_Br": int(vector_Br),
                 "vector_conductance": int(vector_conductance),
                 "vector_u": int(vector_u),
                 "t0": t0,
@@ -162,6 +167,7 @@ class Dynamics(object):
             "state": SHBasis(settings.Nmax, settings.Mmax),
             "steady_state": SHBasis(settings.Nmax, settings.Mmax),
             "jr": SHBasis(settings.Nmax, settings.Mmax),
+            "Br": SHBasis(settings.Nmax, settings.Mmax),
             "conductance": SHBasis(settings.Nmax, settings.Mmax, Nmin=0),
             "u": SHBasis(settings.Nmax, settings.Mmax),
         }
@@ -170,6 +176,7 @@ class Dynamics(object):
             "state": True,
             "steady_state": True,
             "jr": bool(settings.vector_jr),
+            "Br": bool(settings.vector_Br),
             "conductance": bool(settings.vector_conductance),
             "u": bool(settings.vector_u),
         }
@@ -178,6 +185,7 @@ class Dynamics(object):
             "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
             "steady_state": {"m_ind": "scalar"},
             "jr": {"jr": "scalar"},
+            "Br": {"Br": "scalar"},
             "conductance": {"etaP": "scalar", "etaH": "scalar"},
             "u": {"u": "tangential"},
         }
@@ -265,6 +273,7 @@ class Dynamics(object):
         """
         # Logicals are True when time series differ from ones on disk.
         self.save_jr = False
+        self.save_Br = False
         self.save_conductance = False
         self.save_u = False
 
@@ -480,6 +489,52 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
+    def set_Br(
+        self,
+        Br,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Set radial component of magnetic field input.
+
+        Parameters
+        ----------
+        Br : array-like
+            Radial component of magnetic field.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the current data.
+        weights : array-like, optional
+            Weights for the current data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        """
+        input_data = {"Br": [np.atleast_2d(Br)]}
+
+        self.set_input(
+            "Br",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
     def set_conductance(
         self,
         Hall,
@@ -550,6 +605,7 @@ class Dynamics(object):
         time=None,
         weights=None,
         reg_lambda=None,
+        pinv_rtol=1e-15,
     ):
         """Set neutral wind velocities.
 
@@ -582,8 +638,9 @@ class Dynamics(object):
             time=time,
             weights=weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=1e-15,
+            pinv_rtol=pinv_rtol,
         )
+
 
     def set_input(
         self,
@@ -603,7 +660,7 @@ class Dynamics(object):
         Parameters
         ----------
         key : str
-            The type of input data ('jr', 'conductance', or 'u').
+            The type of input data ('jr', 'Br', 'conductance', or 'u').
         input_data : dict
             Dictionary containing the input data arrays.
         lat, lon : array-like, optional
@@ -749,7 +806,7 @@ class Dynamics(object):
             Dataset containing the timeseries data.
         key : str
             The key identifying the type of data ('state', 'jr',
-            'conductance', or 'u').
+            'Br', 'conductance', or 'u').
         """
         if key not in self.timeseries.keys():
             self.timeseries[key] = dataset.sortby("time")
@@ -854,6 +911,18 @@ class Dynamics(object):
                     jr = current_data["jr"]
 
                 self.state.set_jr(jr)
+
+            if key == "Br":
+                if self.vector_storage[key]:
+                    Br = FieldExpansion(
+                        basis=self.bases[key],
+                        coeffs=current_data["Br"],
+                        field_type=self.vars[key]["Br"],
+                    )
+                else:
+                    Br = current_data["Br"]
+
+                self.state.set_Br(Br)
 
             elif key == "conductance":
                 if self.vector_storage[key]:

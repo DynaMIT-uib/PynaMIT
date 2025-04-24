@@ -31,6 +31,8 @@ class State(object):
         Main state variable basis.
     jr_basis : Basis
         Radial current basis.
+    Br_basis : Basis
+        Radial magnetic field basis.
     conductance_basis : Basis
         Conductance basis.
     u_basis : Basis
@@ -57,6 +59,7 @@ class State(object):
             Dictionary of bases with keys:
             - 'state': for state variables
             - 'jr': for radial current
+            - 'Br': for radial magnetic field
             - 'conductance': for conductivity
             - 'u': for neutral wind
         mainfield : Mainfield
@@ -67,12 +70,13 @@ class State(object):
             Configuration settings containing parameters such as RI,
             latitude_boundary, ignore_PFAC, connect_hemispheres,
             FAC_integration_steps, ih_constraint_scaling, vector_jr,
-            vector_conductance, and vector_u.
+            vector_Br, vector_conductance, and vector_u.
         PFAC_matrix : array-like, optional
             Pre-computed FAC poloidal field matrix.
         """
         self.basis = bases["state"]
         self.jr_basis = bases["jr"]
+        self.Br_basis = bases["Br"]
         self.conductance_basis = bases["conductance"]
         self.u_basis = bases["u"]
 
@@ -87,6 +91,7 @@ class State(object):
 
         self.vector_u = settings.vector_u
         self.vector_jr = settings.vector_jr
+        self.vector_Br = settings.vector_Br
         self.vector_conductance = settings.vector_conductance
 
         if PFAC_matrix is not None:
@@ -99,6 +104,7 @@ class State(object):
         # inverses, as they do not include regularization and weights.
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         self.jr_basis_evaluator = BasisEvaluator(self.jr_basis, self.grid)
+        self.Br_basis_evaluator = BasisEvaluator(self.Br_basis, self.grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
         self.u_basis_evaluator = BasisEvaluator(self.u_basis, self.grid)
 
@@ -415,6 +421,20 @@ class State(object):
             self.jr = jr
         else:
             self.jr_on_grid = jr
+
+    def set_Br(self, Br):
+        """Set radial component of the magnetic field.
+
+        Parameters
+        ----------
+        Br : array-like or FieldExpansion
+            Radial component of Br at grid points or as vector
+            coefficients
+        """
+        if self.vector_Br:
+            self.Br = Br
+        else:
+            self.Br_on_grid = Br
 
     def set_u(self, u):
         """Set neutral wind theta and phi components.
