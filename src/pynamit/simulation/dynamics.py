@@ -684,7 +684,7 @@ class Dynamics(object):
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
 
-        if not hasattr(self.state, "input_basis_evaluators"):
+        if not hasattr(self, "input_basis_evaluators"):
             self.input_basis_evaluators = {}
 
         if not (
