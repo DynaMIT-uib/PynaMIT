@@ -115,29 +115,34 @@ for step in range(0, nstep):
         field_type="scalar",
     )
 
-    if PLOT_BR:
-        lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
-        lat, lon = np.meshgrid(lat, lon)
-        plt_grid = pynamit.Grid(lat=lat, lon=lon)
-        plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
+    plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
+    plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
+    plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
+    plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
+    conductance_plt_evaluator = pynamit.BasisEvaluator(
+        dynamics.state.conductance_basis, plt_grid
+    )
 
+    if PLOT_BR:
         pynamit.globalplot(
-            lon,
-            lat,
-            Br_expansion.to_grid(plt_evaluator).reshape(lon.shape),
+            plt_lon,
+            plt_lat,
+            Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
+            title="Br at 1.5 RI",
         )
     # Shift from 1.5 RI to 1.0 RI
     Br_expansion.coeffs = Br_expansion.coeffs * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
     if PLOT_BR:
         pynamit.globalplot(
-            lon,
-            lat,
-            Br_expansion.to_grid(plt_evaluator).reshape(lon.shape),
+            plt_lon,
+            plt_lat,
+            Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
+            title="Br at 1.0 RI",
         )
 
     dynamics.set_Br(
@@ -302,6 +307,37 @@ for step in range(0, nstep):
         weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
         reg_lambda=1e-3,
     )
+
+    dynamics.select_input_data()
+
+    if PLOT_JR:
+        pynamit.globalplot(
+            plt_lon,
+            plt_lat,
+            dynamics.state.jr.to_grid(plt_evaluator).reshape(plt_lon.shape),
+            cmap=plt.cm.bwr,
+            extend="both",
+            title="jr",
+        )
+
+    if PLOT_CONDUCTANCE:
+        pynamit.globalplot(
+            plt_lon,
+            plt_lat,
+            dynamics.state.etaP.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
+            cmap=plt.cm.viridis,
+            extend="both",
+            title="etaP",
+        )
+
+        pynamit.globalplot(
+            plt_lon,
+            plt_lat,
+            dynamics.state.etaH.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
+            cmap=plt.cm.viridis,
+            extend="both",
+            title="etaH",
+        )
 
     # dynamics.set_conductance(
     #    full_conductance_hall_padded.flatten(),
