@@ -270,9 +270,17 @@ for step in range(0, nstep):
         reg_lambda=1e-3,
     )
 
+    dynamics.set_conductance(
+       full_conductance_hall.flatten(),
+       full_conductance_pedersen.flatten(),
+       theta=full_theta_centered.flatten(),
+       phi=full_phi_centered.flatten(),
+       time=dt * step,
+    )
+
     # dynamics.set_conductance(
-    #    full_conductance_hall.flatten(),
-    #    full_conductance_pedersen.flatten(),
+    #    full_conductance_hall_padded.flatten(),
+    #    full_conductance_pedersen_padded.flatten(),
     #    theta=full_theta_padded_centered.flatten(),
     #    phi=full_phi_padded_centered.flatten(),
     #    time=dt * step,
