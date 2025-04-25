@@ -54,37 +54,43 @@ nstep = gsph.sFin
 
 mixFiles = os.path.join(mage_dir, "%s.mix.h5" % (mage_tag))
 
-idx=0 #Br at inner boundary?
+idx = 0  # Br at inner boundary?
 
 gsph.GetGrid(doVerbose=True)
-x = gsph.X[idx,:,:]
-y = gsph.Y[idx,:,:]
-z = gsph.Z[idx,:,:]
-#centers
-x_c = 0.25*( x[:-1,:-1]+x[:-1,1:]+x[1:,:-1]+x[1:,1:] )
-y_c = 0.25*( y[:-1,:-1]+y[:-1,1:]+y[1:,:-1]+y[1:,1:] )
-z_c = 0.25*( z[:-1,:-1]+z[:-1,1:]+z[1:,:-1]+z[1:,1:] )
+x = gsph.X[idx, :, :]
+y = gsph.Y[idx, :, :]
+z = gsph.Z[idx, :, :]
+# centers
+x_c = 0.25 * (x[:-1, :-1] + x[:-1, 1:] + x[1:, :-1] + x[1:, 1:])
+y_c = 0.25 * (y[:-1, :-1] + y[:-1, 1:] + y[1:, :-1] + y[1:, 1:])
+z_c = 0.25 * (z[:-1, :-1] + z[:-1, 1:] + z[1:, :-1] + z[1:, 1:])
 
-r = np.sqrt(x_c**2.+y_c**2.+z_c**2.)
-theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2+y_c**2), z_c))
-phi = np.rad2deg(np.arctan2(y_c,x_c))
+r = np.sqrt(x_c**2.0 + y_c**2.0 + z_c**2.0)
+theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2 + y_c**2), z_c))
+phi = np.rad2deg(np.arctan2(y_c, x_c))
 
 Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
-Br_basis_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, Br_grid)
+Br_basis_evaluator = pynamit.BasisEvaluator(
+    dynamics.state.basis, Br_grid, weights=np.sin(np.deg2rad(theta.flatten())), reg_lambda=1e-3
+)
 
-Bx0 = gsph.GetVar("Bx0")[idx,:,:] #Unscaled
-By0 = gsph.GetVar("By0")[idx,:,:] #Unscaled
-Bz0 = gsph.GetVar("Bz0")[idx,:,:] #Unscaled
+Bx0 = gsph.GetVar("Bx0")[idx, :, :]  # Unscaled
+By0 = gsph.GetVar("By0")[idx, :, :]  # Unscaled
+Bz0 = gsph.GetVar("Bz0")[idx, :, :]  # Unscaled
 
 for step in range(0, nstep):
     # Get Br from the MAGE data.
     # Modification of iSliceBr in GamaSphPipe class? Or iSliceBrBound?
-    s0=step
-    Bx = gsph.GetVar("Bx",s0)[idx,:,:] #Unscaled
-    By = gsph.GetVar("By",s0)[idx,:,:] #Unscaled
-    Bz = gsph.GetVar("Bz",s0)[idx,:,:] #Unscaled
+    s0 = step
+    Bx = gsph.GetVar("Bx", s0)[idx, :, :]  # Unscaled
+    By = gsph.GetVar("By", s0)[idx, :, :]  # Unscaled
+    Bz = gsph.GetVar("Bz", s0)[idx, :, :]  # Unscaled
 
-    delta_Br = gsph.bScl*((Bx-Bx0)*x_c + (By-By0)*y_c + (Bz-Bz0)*z_c)/np.sqrt(x_c**2.+y_c**2.+z_c**2.)
+    delta_Br = (
+        gsph.bScl
+        * ((Bx - Bx0) * x_c + (By - By0) * y_c + (Bz - Bz0) * z_c)
+        / np.sqrt(x_c**2.0 + y_c**2.0 + z_c**2.0)
+    )
 
     if PLOT_BR:
         # Dot plot index vs r, theta, phi
@@ -102,7 +108,12 @@ for step in range(0, nstep):
         lon = phi
         pynamit.globalplot(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
-    Br_expansion = pynamit.FieldExpansion(dynamics.state.basis, basis_evaluator=Br_basis_evaluator, grid_values=delta_Br.flatten(), field_type="scalar")
+    Br_expansion = pynamit.FieldExpansion(
+        dynamics.state.basis,
+        basis_evaluator=Br_basis_evaluator,
+        grid_values=delta_Br.flatten(),
+        field_type="scalar",
+    )
 
     if PLOT_BR:
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
@@ -110,20 +121,32 @@ for step in range(0, nstep):
         plt_grid = pynamit.Grid(lat=lat, lon=lon)
         plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
 
-        pynamit.globalplot(lon, lat, Br_expansion.to_grid(plt_evaluator).reshape(lon.shape), cmap=plt.cm.bwr, extend="both")
+        pynamit.globalplot(
+            lon,
+            lat,
+            Br_expansion.to_grid(plt_evaluator).reshape(lon.shape),
+            cmap=plt.cm.bwr,
+            extend="both",
+        )
     # Shift from 1.5 RI to 1.0 RI
     Br_expansion.coeffs = Br_expansion.coeffs * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
     if PLOT_BR:
-        pynamit.globalplot(lon, lat, Br_expansion.to_grid(plt_evaluator).reshape(lon.shape), cmap=plt.cm.bwr, extend="both")
+        pynamit.globalplot(
+            lon,
+            lat,
+            Br_expansion.to_grid(plt_evaluator).reshape(lon.shape),
+            cmap=plt.cm.bwr,
+            extend="both",
+        )
 
     dynamics.set_Br(
         Br_expansion.to_grid(dynamics.state.basis_evaluator),
         theta=dynamics.state.grid.theta,
         phi=dynamics.state.grid.phi,
         time=dt * step,
-        #weights=np.sin(np.deg2rad(full_theta_padded_centered.flatten())),
-        #reg_lambda=1e-3,
+        # weights=np.sin(np.deg2rad(full_theta_padded_centered.flatten())),
+        # reg_lambda=1e-3,
     )
 
     # Get jr and conductance from the MAGE data.
@@ -271,11 +294,13 @@ for step in range(0, nstep):
     )
 
     dynamics.set_conductance(
-       full_conductance_hall.flatten(),
-       full_conductance_pedersen.flatten(),
-       theta=full_theta_centered.flatten(),
-       phi=full_phi_centered.flatten(),
-       time=dt * step,
+        full_conductance_hall.flatten(),
+        full_conductance_pedersen.flatten(),
+        theta=full_theta_centered.flatten(),
+        phi=full_phi_centered.flatten(),
+        time=dt * step,
+        weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
+        reg_lambda=1e-3,
     )
 
     # dynamics.set_conductance(
@@ -284,6 +309,8 @@ for step in range(0, nstep):
     #    theta=full_theta_padded_centered.flatten(),
     #    phi=full_phi_padded_centered.flatten(),
     #    time=dt * step,
+    #    weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
+    #    reg_lambda=1e-3,
     # )
 
     minlat = 35
@@ -440,4 +467,4 @@ for step in range(0, nstep):
         plt.show()
 
 final_time = 3600  # seconds
-dynamics.evolve_to_time(final_time, dt=dt)
+dynamics.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)

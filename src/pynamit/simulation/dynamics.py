@@ -641,7 +641,6 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-
     def set_input(
         self,
         key,
