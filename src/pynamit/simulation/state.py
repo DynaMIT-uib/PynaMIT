@@ -212,6 +212,7 @@ class State(object):
         # initialization.
         self.neutral_wind = False
         self.conductance = False
+        self.Br_input = False
 
         self.initialize_constraints()
 
@@ -390,6 +391,8 @@ class State(object):
 
         if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
+            if self.Br_input:
+                m_imp += self.m_ind_to_m_imp.dot(self.Br.coeffs / self.m_ind_to_Br)
 
             if self.neutral_wind:
                 if self.vector_u:
@@ -431,6 +434,8 @@ class State(object):
             Radial component of Br at grid points or as vector
             coefficients
         """
+        self.Br_input = True
+
         if self.vector_Br:
             self.Br = Br
         else:
@@ -567,6 +572,8 @@ class State(object):
             Coefficients for the electric field.
         """
         E_coeffs_m_ind = self.m_ind_to_E_coeffs.dot(m_ind)
+        if self.Br_input:
+            E_coeffs_m_ind += self.m_ind_to_E_coeffs.dot(self.Br.coeffs / self.m_ind_to_Br)
 
         if self.vector_jr:
             E_coeffs_jr = self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
