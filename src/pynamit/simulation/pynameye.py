@@ -181,7 +181,7 @@ class PynamEye(object):
         self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.W_to_dBr_dt = 1 / self.RI
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.Ve_to_delta_V
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.coeffs_to_delta_V
 
         # Calculate matrices to calculate current.
         self.G_B_pol_to_JS = {}
@@ -190,7 +190,7 @@ class PynamEye(object):
         self.G_m_imp_to_JS = {}
         for region in ["global", "north", "south"]:
             self.G_B_pol_to_JS[region] = (
-                -self.evaluator[region].G_rxgrad * self.basis.Ve_to_delta_V / mu0
+                -self.evaluator[region].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
             )
             self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
             self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
@@ -233,7 +233,9 @@ class PynamEye(object):
             self.bH_01 = self.b_evaluator.br
             self.bH_10 = -self.b_evaluator.br
 
-            self.G_B_pol_to_JS = -self.evaluator["num"].G_rxgrad * self.basis.Ve_to_delta_V / mu0
+            self.G_B_pol_to_JS = (
+                -self.evaluator["num"].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
+            )
             self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
             self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.T_to_Ve)
