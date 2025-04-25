@@ -609,7 +609,16 @@ class State(object):
         dt : float
             Time step size in seconds.
         """
-        new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
+        from scipy.sparse.linalg import expm_multiply
+
+        steady_state_m_ind = self.steady_state_m_ind()
+
+        inductive_m_ind = expm_multiply(
+            dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1],
+            self.m_ind.coeffs - steady_state_m_ind,
+        )
+
+        new_m_ind = inductive_m_ind + steady_state_m_ind
 
         self.set_model_coeffs(m_ind=new_m_ind)
 
