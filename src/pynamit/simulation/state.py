@@ -586,7 +586,6 @@ class State(object):
         """
         from scipy.linalg import expm
 
-
         if self.integrator == "euler":
             new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
