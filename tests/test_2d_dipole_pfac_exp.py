@@ -1,4 +1,4 @@
-"""Dipole, PFAC, and HC test."""
+"""Dipole and PFAC test."""
 
 import os
 import tempfile
@@ -8,12 +8,12 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_2d_dipole_pfac_hc():
-    """Test 2D simulation with dipole, PFAC, and HC."""
+def test_2d_dipole_pfac():
+    """Test 2D simulation with dipole and PFAC."""
     # Arrange.
-    expected_coeff_norm = 8.777569146255798e-08
-    expected_coeff_max = 1.1927840070933632e-09
-    expected_coeff_min = -3.1251086622754097e-09
+    expected_coeff_norm = 1.2338075343593047e-07
+    expected_coeff_max = 7.073347099606215e-10
+    expected_coeff_min = -4.889223822904545e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -26,12 +26,11 @@ def test_2d_dipole_pfac_hc():
         dt=5e-4,
         Nmax=5,
         Mmax=3,
-        Ncs=18,
+        Ncs=30,
         mainfield_kind="dipole",
         fig_directory=temp_dir,
         ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        integrator="exponential",
     )
 
     # Assert.

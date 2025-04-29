@@ -23,6 +23,7 @@ def run_pynamit(
     vector_jr=True,
     vector_conductance=True,
     vector_u=True,
+    integrator="euler",
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -60,6 +61,8 @@ def run_pynamit(
         Whether to use vector representation for conductance.
     vector_u : bool, optional
         Whether to use vector representation for wind.
+    integrator : {'euler', 'exponential'}, optional
+        Integrator type for time evolution.
 
     Returns
     -------
@@ -93,6 +96,7 @@ def run_pynamit(
         vector_jr=vector_jr,
         vector_conductance=vector_conductance,
         vector_u=vector_u,
+        integrator=integrator,
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)

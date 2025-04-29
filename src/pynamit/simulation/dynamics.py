@@ -63,6 +63,7 @@ class Dynamics(object):
         vector_u=True,
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
+        integrator="euler",
     ):
         """Initialize the Dynamics class.
 
@@ -106,6 +107,8 @@ class Dynamics(object):
             Start time in UTC format.
         save_steady_states : bool, optional
             Whether to calculate and save steady states.
+        integrator : {'euler', 'exponential'}, optional
+            Integrator type for time evolution.
         """
         self.dataset_filename_prefix = dataset_filename_prefix
 
@@ -129,6 +132,7 @@ class Dynamics(object):
                 "vector_u": int(vector_u),
                 "t0": t0,
                 "save_steady_states": int(save_steady_states),
+                "integrator": integrator,
             }
         )
 
