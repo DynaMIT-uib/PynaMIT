@@ -21,6 +21,10 @@ PLOT_BR = False
 PLOT_CONDUCTANCE = False
 PLOT_JR = False
 
+BR_LAMBDA = 1e-5
+CONDUCTANCE_LAMBDA = 1e-5
+JR_LAMBDA = 1e-5
+
 dt = 300
 
 dataset_filename_prefix = "mage-forcing"
@@ -71,7 +75,7 @@ phi = np.rad2deg(np.arctan2(y_c, x_c))
 
 Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
 Br_basis_evaluator = pynamit.BasisEvaluator(
-    dynamics.state.basis, Br_grid, weights=np.sin(np.deg2rad(theta.flatten())), reg_lambda=1e-3
+    dynamics.state.basis, Br_grid, weights=np.sin(np.deg2rad(theta.flatten())), reg_lambda=BR_LAMBDA
 )
 
 Bx0 = gsph.GetVar("Bx0")[idx, :, :]  # Unscaled
@@ -295,7 +299,7 @@ for step in range(0, nstep):
         phi=full_phi_padded_centered.flatten(),
         time=dt * step,
         weights=np.sin(np.deg2rad(full_theta_padded_centered.flatten())),
-        reg_lambda=1e-3,
+        reg_lambda=JR_LAMBDA,
     )
 
     dynamics.set_conductance(
@@ -305,7 +309,7 @@ for step in range(0, nstep):
         phi=full_phi_centered.flatten(),
         time=dt * step,
         weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
-        reg_lambda=1e-3,
+        reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
     dynamics.select_input_data()
