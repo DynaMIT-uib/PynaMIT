@@ -220,7 +220,7 @@ class Dynamics(object):
         if "state" in self.timeseries.keys():
             # Select last data in state time series.
             self.current_time = np.max(self.timeseries["state"].time.values)
-            self.select_timeseries_data("state")
+            self.set_state_variables("state")
         else:
             self.current_time = np.float64(0)
             self.state.set_model_coeffs(m_ind=np.zeros(self.bases["state"].index_length))
@@ -778,8 +778,6 @@ class Dynamics(object):
         bool
             Whether the input data was selected.
         """
-        input_selected = False
-
         if np.any(self.timeseries[key].time.values <= self.current_time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
@@ -817,37 +815,13 @@ class Dynamics(object):
                         )
                     )
 
+            return current_data
+
         else:
             # No data is available from before the current time.
-            return input_selected
+            return None
 
-        if not hasattr(self, "previous_data"):
-            self.previous_data = {}
-
-        # Update state if first call or difference with last selection.
-        if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
-            not all(
-                [
-                    np.allclose(
-                        current_data[var],
-                        self.previous_data[var],
-                        rtol=FLOAT_ERROR_MARGIN,
-                        atol=0.0,
-                    )
-                    for var in self.vars[key]
-                ]
-            )
-        ):
-            self.set_input_data(key, current_data)
-
-            for var in self.vars[key]:
-                self.previous_data[var] = current_data[var]
-
-            input_selected = True
-
-        return input_selected
-
-    def set_input_data(self, key, current_data):
+    def set_state_variables(self, key, interpolation=False):
         """Set input data for the simulation.
 
         Parameters
@@ -858,58 +832,81 @@ class Dynamics(object):
             Dictionary containing the input data variables for the
             specified key.
         """
+        current_data = self.select_timeseries_data(key, interpolation)
 
-        if key == "state":
-            self.state.set_model_coeffs(m_ind=current_data["m_ind"])
-            self.state.set_model_coeffs(m_imp=current_data["m_imp"])
+        if not hasattr(self, "previous_data"):
+            self.previous_data = {}
 
-            self.state.E = FieldExpansion(
-                basis=self.bases[key],
-                coeffs=np.array([current_data["Phi"], current_data["W"]]),
-                field_type="tangential",
+        if (current_data is not None) and (
+            not all([var in self.previous_data.keys() for var in self.vars[key]])
+            or (
+                not all(
+                    [
+                        np.allclose(
+                            current_data[var],
+                            self.previous_data[var],
+                            rtol=FLOAT_ERROR_MARGIN,
+                            atol=0.0,
+                        )
+                        for var in self.vars[key]
+                    ]
+                )
             )
+        ):
+            for var in self.vars[key]:
+                self.previous_data[var] = current_data[var]
 
-        if key == "jr":
-            if self.vector_storage[key]:
-                jr = FieldExpansion(
+            if key == "state":
+                self.state.set_model_coeffs(m_ind=current_data["m_ind"])
+                self.state.set_model_coeffs(m_imp=current_data["m_imp"])
+
+                self.state.E = FieldExpansion(
                     basis=self.bases[key],
-                    coeffs=current_data["jr"],
-                    field_type=self.vars[key]["jr"],
+                    coeffs=np.array([current_data["Phi"], current_data["W"]]),
+                    field_type="tangential",
                 )
-            else:
-                jr = current_data["jr"]
 
-            self.state.set_jr(jr)
+            if key == "jr":
+                if self.vector_storage[key]:
+                    jr = FieldExpansion(
+                        basis=self.bases[key],
+                        coeffs=current_data["jr"],
+                        field_type=self.vars[key]["jr"],
+                    )
+                else:
+                    jr = current_data["jr"]
 
-        elif key == "conductance":
-            if self.vector_storage[key]:
-                etaP = FieldExpansion(
-                    basis=self.bases[key],
-                    coeffs=current_data["etaP"],
-                    field_type=self.vars[key]["etaP"],
-                )
-                etaH = FieldExpansion(
-                    basis=self.bases[key],
-                    coeffs=current_data["etaH"],
-                    field_type=self.vars[key]["etaH"],
-                )
-            else:
-                etaP = current_data["etaP"]
-                etaH = current_data["etaH"]
+                self.state.set_jr(jr)
 
-            self.state.set_conductance(etaP, etaH)
+            elif key == "conductance":
+                if self.vector_storage[key]:
+                    etaP = FieldExpansion(
+                        basis=self.bases[key],
+                        coeffs=current_data["etaP"],
+                        field_type=self.vars[key]["etaP"],
+                    )
+                    etaH = FieldExpansion(
+                        basis=self.bases[key],
+                        coeffs=current_data["etaH"],
+                        field_type=self.vars[key]["etaH"],
+                    )
+                else:
+                    etaP = current_data["etaP"]
+                    etaH = current_data["etaH"]
 
-        elif key == "u":
-            if self.vector_storage[key]:
-                u = FieldExpansion(
-                    basis=self.bases[key],
-                    coeffs=current_data["u"].reshape((2, -1)),
-                    field_type=self.vars[key]["u"],
-                )
-            else:
-                u = current_data["u"].reshape((2, -1))
+                self.state.set_conductance(etaP, etaH)
 
-            self.state.set_u(u)
+            elif key == "u":
+                if self.vector_storage[key]:
+                    u = FieldExpansion(
+                        basis=self.bases[key],
+                        coeffs=current_data["u"].reshape((2, -1)),
+                        field_type=self.vars[key]["u"],
+                    )
+                else:
+                    u = current_data["u"].reshape((2, -1))
+
+                self.state.set_u(u)
 
     def select_input_data(self):
         """Select input data corresponding to the latest time."""
@@ -919,7 +916,7 @@ class Dynamics(object):
             timeseries_keys.remove("state")
         if timeseries_keys is not None:
             for key in timeseries_keys:
-                self.select_timeseries_data(key, interpolation=False)
+                self.set_state_variables(key, interpolation=False)
 
     def save_dataset(self, dataset, name):
         """Save a dataset to NetCDF file.
