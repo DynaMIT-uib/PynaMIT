@@ -214,7 +214,14 @@ class Dynamics(object):
             self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
         )
 
-        self.io = IO(self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage, self.basis_multiindices)
+        self.io = IO(
+            self.bases,
+            self.state_grid,
+            self.cs_basis,
+            self.vars,
+            self.vector_storage,
+            self.basis_multiindices,
+        )
 
         self.io.load_timeseries()
 
@@ -605,8 +612,6 @@ class Dynamics(object):
             current_time=self.current_time,
         )
 
-
-
     def set_state_variables(self, key, interpolation=False):
         """Set input data for the simulation.
 
@@ -693,7 +698,6 @@ class Dynamics(object):
                     u = current_data["u"].reshape((2, -1))
 
                 self.state.set_u(u)
-
 
     def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
         """Calculate matrix that returns the radial curl.

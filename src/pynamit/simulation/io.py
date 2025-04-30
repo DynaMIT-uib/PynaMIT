@@ -1,3 +1,11 @@
+"""IO Class.
+
+This module contains the IO class, which is responsible for handling
+input and output operations in the simulation. It manages the reading
+and writing of datasets, including time series data, and provides
+methods for setting input data and selecting data for the simulation.
+"""
+
 import os
 import numpy as np
 import pandas as pd
@@ -8,8 +16,11 @@ from pynamit.primitives.field_expansion import FieldExpansion
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
+
 class IO:
-    """Class for handling input and output operations in the simulation.
+    """IO Class.
+
+    Class for handling input and output operations in the simulation.
     This class manages the reading and writing of datasets, including
     time series data, and provides methods for setting input data and
     selecting data for the simulation.
@@ -252,9 +263,7 @@ class IO:
             if (
                 interpolation
                 and (key != "state")
-                and np.any(
-                    self.timeseries[key].time.values > current_time + FLOAT_ERROR_MARGIN
-                )
+                and np.any(self.timeseries[key].time.values > current_time + FLOAT_ERROR_MARGIN)
             ):
                 dataset_after = self.timeseries[key].sel(
                     time=[current_time + FLOAT_ERROR_MARGIN], method="bfill"
@@ -274,30 +283,6 @@ class IO:
         else:
             # No data is available from before the current time.
             return None
-
-
-    def add_to_timeseries(self, dataset, key):
-        """Add a dataset to the timeseries.
-
-        Creates a new timeseries if one does not exist, otherwise
-        concatenates the new data along the time dimension.
-
-        Parameters
-        ----------
-        dataset : xarray.Dataset
-            Dataset containing the timeseries data.
-        key : str
-            The key identifying the type of data ('state', 'jr',
-            'conductance', or 'u').
-        """
-        if key not in self.timeseries.keys():
-            self.timeseries[key] = dataset.sortby("time")
-        else:
-            self.timeseries[key] = xr.concat(
-                [self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
-                dim="time",
-            ).sortby("time")
-
 
     def save_dataset(self, dataset, name):
         """Save a dataset to NetCDF file.
@@ -339,7 +324,6 @@ class IO:
             return xr.load_dataset(filename)
         else:
             return None
-
 
     def save_timeseries(self, key):
         """Save a timeseries to NetCDF file.
