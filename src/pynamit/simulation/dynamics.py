@@ -619,41 +619,23 @@ class Dynamics(object):
         ----------
         key : {'state', 'jr', 'conductance', 'u'}
             The type of input data.
-        current_data : dict
+        updated_data : dict
             Dictionary containing the input data variables for the
             specified key.
         """
-        current_data = self.io.select_timeseries_data(key, self.current_time, interpolation)
+        if key == "state":
+            updated_data = self.io.get_updated_timeseries_data(key, self.current_time, interpolation=False)
+        else:
+            updated_data = self.io.get_updated_timeseries_data(key, self.current_time, interpolation=interpolation)
 
-        if not hasattr(self, "previous_data"):
-            self.previous_data = {}
-
-        if (current_data is not None) and (
-            not all([var in self.previous_data.keys() for var in self.vars[key]])
-            or (
-                not all(
-                    [
-                        np.allclose(
-                            current_data[var],
-                            self.previous_data[var],
-                            rtol=FLOAT_ERROR_MARGIN,
-                            atol=0.0,
-                        )
-                        for var in self.vars[key]
-                    ]
-                )
-            )
-        ):
-            for var in self.vars[key]:
-                self.previous_data[var] = current_data[var]
-
+        if updated_data is not None:
             if key == "state":
-                self.state.set_model_coeffs(m_ind=current_data["m_ind"])
-                self.state.set_model_coeffs(m_imp=current_data["m_imp"])
+                self.state.set_model_coeffs(m_ind=updated_data["m_ind"])
+                self.state.set_model_coeffs(m_imp=updated_data["m_imp"])
 
                 self.state.E = FieldExpansion(
                     basis=self.bases[key],
-                    coeffs=np.array([current_data["Phi"], current_data["W"]]),
+                    coeffs=np.array([updated_data["Phi"], updated_data["W"]]),
                     field_type="tangential",
                 )
 
@@ -661,11 +643,11 @@ class Dynamics(object):
                 if self.vector_storage[key]:
                     jr = FieldExpansion(
                         basis=self.bases[key],
-                        coeffs=current_data["jr"],
+                        coeffs=updated_data["jr"],
                         field_type=self.vars[key]["jr"],
                     )
                 else:
-                    jr = current_data["jr"]
+                    jr = updated_data["jr"]
 
                 self.state.set_jr(jr)
 
@@ -673,17 +655,17 @@ class Dynamics(object):
                 if self.vector_storage[key]:
                     etaP = FieldExpansion(
                         basis=self.bases[key],
-                        coeffs=current_data["etaP"],
+                        coeffs=updated_data["etaP"],
                         field_type=self.vars[key]["etaP"],
                     )
                     etaH = FieldExpansion(
                         basis=self.bases[key],
-                        coeffs=current_data["etaH"],
+                        coeffs=updated_data["etaH"],
                         field_type=self.vars[key]["etaH"],
                     )
                 else:
-                    etaP = current_data["etaP"]
-                    etaH = current_data["etaH"]
+                    etaP = updated_data["etaP"]
+                    etaH = updated_data["etaH"]
 
                 self.state.set_conductance(etaP, etaH)
 
@@ -691,11 +673,11 @@ class Dynamics(object):
                 if self.vector_storage[key]:
                     u = FieldExpansion(
                         basis=self.bases[key],
-                        coeffs=current_data["u"].reshape((2, -1)),
+                        coeffs=updated_data["u"].reshape((2, -1)),
                         field_type=self.vars[key]["u"],
                     )
                 else:
-                    u = current_data["u"].reshape((2, -1))
+                    u = updated_data["u"].reshape((2, -1))
 
                 self.state.set_u(u)
 

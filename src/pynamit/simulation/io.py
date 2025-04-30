@@ -52,6 +52,7 @@ class IO:
         self.dataset_filename_prefix = None
 
         self.timeseries = {}
+        self.previous_data = {}
 
     def set_input(
         self,
@@ -228,20 +229,23 @@ class IO:
                 dim="time",
             ).sortby("time")
 
-    def select_timeseries_data(self, key, current_time, interpolation=False):
+    def get_updated_timeseries_data(self, key, current_time, interpolation=False):
         """Select time series data corresponding to the latest time.
 
         Parameters
         ----------
         key : str
             Key for the time series.
+        current_time : float
+            Current time for which to select data.
         interpolation : bool, optional
             Whether to use linear interpolation.
 
         Returns
         -------
-        bool
-            Whether the input data was selected.
+        dict or None
+            Dictionary containing the latest data for the specified
+            key, or None if no new data is available.
         """
         if np.any(self.timeseries[key].time.values <= current_time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
@@ -262,7 +266,6 @@ class IO:
             # If requested, add linear interpolation correction.
             if (
                 interpolation
-                and (key != "state")
                 and np.any(self.timeseries[key].time.values > current_time + FLOAT_ERROR_MARGIN)
             ):
                 dataset_after = self.timeseries[key].sel(
@@ -278,11 +281,30 @@ class IO:
                         )
                     )
 
-            return current_data
+            # Check if the data has changed since the last time.
+            if (not all([var in self.previous_data.keys() for var in self.vars[key]])
+                or (
+                    not all(
+                        [
+                            np.allclose(
+                                current_data[var],
+                                self.previous_data[var],
+                                rtol=FLOAT_ERROR_MARGIN,
+                                atol=0.0,
+                            )
+                            for var in self.vars[key]
+                        ]
+                    )
+                )
+            ):
+                # Update the previous data with the current data.
+                for var in self.vars[key]:
+                    self.previous_data[var] = current_data[var]
 
-        else:
-            # No data is available from before the current time.
-            return None
+                return current_data
+
+        # No new data available.
+        return None
 
     def save_dataset(self, dataset, name):
         """Save a dataset to NetCDF file.
