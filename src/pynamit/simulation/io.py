@@ -26,7 +26,7 @@ class IO:
     selecting data for the simulation.
     """
 
-    def __init__(self, bases, state_grid, cs_basis, vars, vector_storage, basis_multiindices):
+    def __init__(self, bases, state_grid, cs_basis, vars, vector_storage):
         """Initialize the IO class.
 
         Parameters
@@ -47,12 +47,35 @@ class IO:
         # Initialize variables and timeseries storage
         self.vars = vars
         self.vector_storage = vector_storage
-        self.basis_multiindices = basis_multiindices
 
         self.dataset_filename_prefix = None
 
         self.timeseries = {}
         self.previous_data = {}
+
+        self.basis_multiindices = {}
+        for key in self.vars.keys():
+            if self.vector_storage[key]:
+                basis_index_arrays = self.bases[key].index_arrays
+                basis_index_names = self.bases[key].index_names
+            else:
+                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
+                basis_index_names = ["theta", "phi"]
+
+            if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
+                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
+                    basis_index_arrays, names=basis_index_names
+                )
+            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
+                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
+                    [np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))],
+                    names=basis_index_names,
+                )
+            else:
+                raise ValueError(
+                    "Mixed scalar and tangential input (unsupported), or invalid input type"
+                )
+
 
     def set_input(
         self,

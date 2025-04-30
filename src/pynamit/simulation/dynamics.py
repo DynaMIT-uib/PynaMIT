@@ -186,29 +186,6 @@ class Dynamics(object):
             "u": {"u": "tangential"},
         }
 
-        self.basis_multiindices = {}
-        for key in self.vars.keys():
-            if self.vector_storage[key]:
-                basis_index_arrays = self.bases[key].index_arrays
-                basis_index_names = self.bases[key].index_names
-            else:
-                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
-                basis_index_names = ["theta", "phi"]
-
-            if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
-                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    basis_index_arrays, names=basis_index_names
-                )
-            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
-                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    [np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))],
-                    names=basis_index_names,
-                )
-            else:
-                raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or invalid input type"
-                )
-
         # Initialize the state of the ionosphere.
         self.state = State(
             self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
@@ -220,7 +197,6 @@ class Dynamics(object):
             self.cs_basis,
             self.vars,
             self.vector_storage,
-            self.basis_multiindices,
         )
 
         self.io.load_timeseries()
@@ -312,7 +288,7 @@ class Dynamics(object):
                         ),
                     },
                     coords=xr.Coordinates.from_pandas_multiindex(
-                        self.basis_multiindices["state"], dim="i"
+                        self.io.basis_multiindices["state"], dim="i"
                     ).merge({"time": [self.current_time]}),
                 )
 
@@ -344,7 +320,7 @@ class Dynamics(object):
                             ),
                         },
                         coords=xr.Coordinates.from_pandas_multiindex(
-                            self.basis_multiindices["steady_state"], dim="i"
+                            self.io.basis_multiindices["steady_state"], dim="i"
                         ).merge({"time": [self.current_time]}),
                     )
 
