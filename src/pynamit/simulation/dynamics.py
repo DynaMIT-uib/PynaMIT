@@ -838,56 +838,7 @@ class Dynamics(object):
                 ]
             )
         ):
-            if key == "state":
-                self.state.set_model_coeffs(m_ind=current_data["m_ind"])
-                self.state.set_model_coeffs(m_imp=current_data["m_imp"])
-                self.state.E = FieldExpansion(
-                    basis=self.bases[key],
-                    coeffs=np.array([current_data["Phi"], current_data["W"]]),
-                    field_type="tangential",
-                )
-
-            if key == "jr":
-                if self.vector_storage[key]:
-                    jr = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=current_data["jr"],
-                        field_type=self.vars[key]["jr"],
-                    )
-                else:
-                    jr = current_data["jr"]
-
-                self.state.set_jr(jr)
-
-            elif key == "conductance":
-                if self.vector_storage[key]:
-                    etaP = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=current_data["etaP"],
-                        field_type=self.vars[key]["etaP"],
-                    )
-                    etaH = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=current_data["etaH"],
-                        field_type=self.vars[key]["etaH"],
-                    )
-                else:
-                    etaP = current_data["etaP"]
-                    etaH = current_data["etaH"]
-
-                self.state.set_conductance(etaP, etaH)
-
-            elif key == "u":
-                if self.vector_storage[key]:
-                    u = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=current_data["u"].reshape((2, -1)),
-                        field_type=self.vars[key]["u"],
-                    )
-                else:
-                    u = current_data["u"].reshape((2, -1))
-
-                self.state.set_u(u)
+            self.set_input_data(key, current_data)
 
             for var in self.vars[key]:
                 self.previous_data[var] = current_data[var]
@@ -895,6 +846,70 @@ class Dynamics(object):
             input_selected = True
 
         return input_selected
+
+    def set_input_data(self, key, current_data):
+        """Set input data for the simulation.
+
+        Parameters
+        ----------
+        key : {'state', 'jr', 'conductance', 'u'}
+            The type of input data.
+        current_data : dict
+            Dictionary containing the input data variables for the
+            specified key.
+        """
+
+        if key == "state":
+            self.state.set_model_coeffs(m_ind=current_data["m_ind"])
+            self.state.set_model_coeffs(m_imp=current_data["m_imp"])
+
+            self.state.E = FieldExpansion(
+                basis=self.bases[key],
+                coeffs=np.array([current_data["Phi"], current_data["W"]]),
+                field_type="tangential",
+            )
+
+        if key == "jr":
+            if self.vector_storage[key]:
+                jr = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=current_data["jr"],
+                    field_type=self.vars[key]["jr"],
+                )
+            else:
+                jr = current_data["jr"]
+
+            self.state.set_jr(jr)
+
+        elif key == "conductance":
+            if self.vector_storage[key]:
+                etaP = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=current_data["etaP"],
+                    field_type=self.vars[key]["etaP"],
+                )
+                etaH = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=current_data["etaH"],
+                    field_type=self.vars[key]["etaH"],
+                )
+            else:
+                etaP = current_data["etaP"]
+                etaH = current_data["etaH"]
+
+            self.state.set_conductance(etaP, etaH)
+
+        elif key == "u":
+            if self.vector_storage[key]:
+                u = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=current_data["u"].reshape((2, -1)),
+                    field_type=self.vars[key]["u"],
+                )
+            else:
+                u = current_data["u"].reshape((2, -1))
+
+            self.state.set_u(u)
 
     def select_input_data(self):
         """Select input data corresponding to the latest time."""
