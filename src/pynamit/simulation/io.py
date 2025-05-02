@@ -76,7 +76,7 @@ class IO:
                     "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
 
-    def set_vars(self, key, data, time=None, current_time=None):
+    def set_vars(self, key, data, time):
         """Set the variables for the simulation.
 
         Parameters
@@ -87,21 +87,6 @@ class IO:
             List of variable names.
         """
         processed_data = {}
-
-        if time is None:
-            if any(
-                [
-                    data[var][component].shape[0] > 1
-                    for var in data.keys()
-                    for component in range(len(data[var]))
-                ]
-            ):
-                raise ValueError(
-                    "Time must be specified if the input data is given for multiple time values."
-                )
-            time = current_time
-
-        time = np.atleast_1d(time)
 
         for time_index in range(time.size):
             processed_data = {}
@@ -133,15 +118,14 @@ class IO:
         self,
         key,
         input_data,
+        time,
         lat=None,
         lon=None,
         theta=None,
         phi=None,
-        time=None,
         weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
-        current_time=None,
     ):
         """Set input data for the simulation.
 
@@ -197,21 +181,6 @@ class IO:
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
-
-        if time is None:
-            if any(
-                [
-                    input_data[var][component].shape[0] > 1
-                    for var in input_data.keys()
-                    for component in range(len(input_data[var]))
-                ]
-            ):
-                raise ValueError(
-                    "Time must be specified if the input data is given for multiple time values."
-                )
-            time = current_time
-
-        time = np.atleast_1d(time)
 
         for time_index in range(time.size):
             processed_data = {}

@@ -268,7 +268,7 @@ class Dynamics(object):
                     "W": [np.atleast_2d(self.state.E.coeffs[1].reshape((1, -1)))],
                 }
 
-                self.io.set_vars("state", state_data, current_time=self.current_time)
+                self.io.set_vars("state", state_data, time=np.atleast_1d(self.current_time))
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -284,7 +284,7 @@ class Dynamics(object):
                     }
 
                     self.io.set_vars(
-                        "steady_state", steady_state_data, current_time=self.current_time
+                        "steady_state", steady_state_data, time=np.atleast_1d(self.current_time)
                     )
 
                 # Save state and steady state time series.
@@ -431,15 +431,14 @@ class Dynamics(object):
         self.io.set_input(
             "jr",
             input_data,
+            self.adapt_input_time(time, input_data),
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
-            time=time,
             weights=weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
-            current_time=self.current_time,
         )
 
     def set_conductance(
@@ -491,15 +490,14 @@ class Dynamics(object):
         self.io.set_input(
             "conductance",
             input_data,
+            self.adapt_input_time(time, input_data),
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
-            time=time,
             weights=weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
-            current_time=self.current_time,
         )
 
     def set_u(
@@ -538,16 +536,55 @@ class Dynamics(object):
         self.io.set_input(
             "u",
             input_data,
+            self.adapt_input_time(time, input_data),
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
-            time=time,
             weights=weights,
             reg_lambda=reg_lambda,
             pinv_rtol=1e-15,
-            current_time=self.current_time,
         )
+
+    def adapt_input_time(self, time, data):
+        """Adapt array of time values given with the input data.
+
+        Parameters
+        ----------
+        time : array-like, optional
+            Time values for the input data.
+        data : dict
+            Dictionary containing input data variables.
+
+        Returns
+        -------
+        time : array-like
+            Adapted time values.
+
+        Notes
+        -----
+        If time is None, the current time is used.
+
+        Raises
+        ------
+        ValueError
+            If time is None and data is of a shape that suggests
+            multiple time values.
+        """
+        if time is None:
+            if any(
+                [
+                    data[var][component].shape[0] > 1
+                    for var in data.keys()
+                    for component in range(len(data[var]))
+                ]
+            ):
+                raise ValueError(
+                    "Time must be specified if the input data is given for multiple time values."
+                )
+            return np.atleast_1d(self.current_time)
+        else:
+            return np.atleast_1d(time)
 
     def set_state_variables(self, key, interpolation=False):
         """Set input data for the simulation.
