@@ -7,7 +7,6 @@ and provides methods for setting input data and selecting data for
 the simulation.
 """
 
-import os
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -38,8 +37,6 @@ class Timeseries:
             Grid object representing the state grid.
         cs_basis : object
             Object representing the coordinate system basis.
-        dataset_filename_prefix : str
-            Prefix for the dataset filenames.
         """
         self.bases = bases
         self.state_grid = state_grid
@@ -48,8 +45,6 @@ class Timeseries:
         # Initialize variables and timeseries storage
         self.vars = vars
         self.vector_storage = vector_storage
-
-        self.dataset_filename_prefix = None
 
         self.datasets = {}
         self.previous_data = {}
@@ -254,8 +249,6 @@ class Timeseries:
 
             self.add_dataset(dataset, key)
 
-        self.save(key)
-
     def add_dataset(self, dataset, key):
         """Add a dataset to the timeseries.
 
@@ -352,7 +345,7 @@ class Timeseries:
         # No new data available.
         return None
 
-    def save(self, key):
+    def save(self, key, io):
         """Save a timeseries to NetCDF file.
 
         Parameters
@@ -360,9 +353,9 @@ class Timeseries:
         key : str
             The key identifying which timeseries to save.
         """
-        self.save_dataset(self.datasets[key].reset_index("i"), key)
+        io.save_dataset(self.datasets[key].reset_index("i"), key)
 
-    def load(self, key):
+    def load(self, key, io):
         """Load a timeseries from NetCDF file.
 
         Parameters
@@ -370,76 +363,24 @@ class Timeseries:
         key : str
             The key identifying which timeseries to load.
         """
-        if self.dataset_filename_prefix is not None:
-            dataset = self.load_dataset(key)
+        dataset = io.load_dataset(key)
 
-            if dataset is not None:
-                if self.vector_storage[key]:
-                    basis_index_names = self.bases[key].index_names
-                else:
-                    basis_index_names = ["theta", "phi"]
+        if dataset is not None:
+            if self.vector_storage[key]:
+                basis_index_names = self.bases[key].index_names
+            else:
+                basis_index_names = ["theta", "phi"]
 
-                basis_multiindex = pd.MultiIndex.from_arrays(
-                    [
-                        dataset[basis_index_names[i]].values
-                        for i in range(len(basis_index_names))
-                    ],
-                    names=basis_index_names,
-                )
-                coords = xr.Coordinates.from_pandas_multiindex(
-                    basis_multiindex, dim="i"
-                ).merge({"time": dataset.time.values})
-                self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(
-                    coords
-                )
-
-    def save_dataset(self, dataset, name):
-        """Save a dataset to NetCDF file.
-
-        Parameters
-        ----------
-        dataset : xarray.Dataset or xarray.DataArray
-            The dataset to save.
-        name : str
-            Name to use in the filename.
-        """
-        filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
-
-        try:
-            dataset.to_netcdf(filename + ".tmp")
-            os.rename(filename + ".tmp", filename)
-
-        except Exception as e:
-            if os.path.exists(filename + ".tmp"):
-                os.remove(filename + ".tmp")
-            raise e
-
-    def load_dataset(self, name):
-        """Load a dataset from NetCDF file.
-
-        Parameters
-        ----------
-        name : str
-            Name of the dataset.
-
-        Returns
-        -------
-        xarray.Dataset or None
-            Loaded dataset, or None if the file does not exist.
-        """
-        filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
-
-        if os.path.exists(filename):
-            return xr.load_dataset(filename)
-        else:
-            return None
-
-    def set_dataset_filename_prefix(self, dataset_filename_prefix):
-        """Set the prefix for the dataset filenames.
-
-        Parameters
-        ----------
-        dataset_filename_prefix : str
-            Prefix for the dataset filenames.
-        """
-        self.dataset_filename_prefix = dataset_filename_prefix
+            basis_multiindex = pd.MultiIndex.from_arrays(
+                [
+                    dataset[basis_index_names[i]].values
+                    for i in range(len(basis_index_names))
+                ],
+                names=basis_index_names,
+            )
+            coords = xr.Coordinates.from_pandas_multiindex(
+                basis_multiindex, dim="i"
+            ).merge({"time": dataset.time.values})
+            self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(
+                coords
+            )

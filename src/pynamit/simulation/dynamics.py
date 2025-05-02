@@ -13,9 +13,10 @@ from pynamit.math.constants import RE
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
-from pynamit.simulation.timeseries import Timeseries
+from pynamit.simulation.io import IO
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
+from pynamit.simulation.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -191,10 +192,11 @@ class Dynamics(object):
         )
 
         self.timeseries = Timeseries(self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage)
+        self.io = IO(self.dataset_filename_prefix)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
-            self.timeseries.load(key)
+            self.timeseries.load(key, self.io)
 
         if "state" in self.timeseries.datasets.keys():
             # Select last data in state time series.
@@ -205,19 +207,17 @@ class Dynamics(object):
             self.state.set_model_coeffs(m_ind=np.zeros(self.bases["state"].index_length))
 
         if self.dataset_filename_prefix is None:
-            self.dataset_filename_prefix = "simulation"
-
-        self.timeseries.set_dataset_filename_prefix(self.dataset_filename_prefix)
+            self.io.update_dataset_filename_prefix("simulation")
 
         if not settings_on_file:
-            self.timeseries.save_dataset(settings, "settings")
+            self.io.save_dataset(settings, "settings")
             print(
                 "Saved settings to {}_settings.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
             )
 
         if not PFAC_matrix_on_file:
-            self.timeseries.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
+            self.io.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
             print(
                 "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
@@ -289,7 +289,7 @@ class Dynamics(object):
 
                 # Save state and steady state time series.
                 if count % (sampling_step_interval * saving_sample_interval) == 0:
-                    self.timeseries.save("state")
+                    self.timeseries.save("state", self.io)
 
                     if quiet:
                         pass
@@ -301,7 +301,7 @@ class Dynamics(object):
                         )
 
                     if self.save_steady_states:
-                        self.timeseries.save("steady_state")
+                        self.timeseries.save("steady_state", self.io)
 
                         if quiet:
                             pass
@@ -441,6 +441,8 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
+        self.timeseries.save("jr", self.io)
+
     def set_conductance(
         self,
         Hall,
@@ -500,6 +502,8 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
+        self.timeseries.save("conductance", self.io)
+
     def set_u(
         self,
         u_theta,
@@ -545,6 +549,8 @@ class Dynamics(object):
             reg_lambda=reg_lambda,
             pinv_rtol=1e-15,
         )
+
+        self.timeseries.save("u", self.io)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.
