@@ -11,9 +11,9 @@ import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
-from pynamit.simulation.io import IO
+from pynamit.primitives.grid import Grid
+from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.simulation.timeseries import Timeseries
