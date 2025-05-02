@@ -62,7 +62,7 @@ class IO:
             raise e
 
         if print_info:
-            print(f"Saved Dataset to {filename}")
+            print(f"Saved Dataset to {filename}", flush=True)
 
     def load_dataset(self, name, print_info=False):
         """Load a dataset from NetCDF file.
@@ -82,7 +82,7 @@ class IO:
 
             if os.path.exists(filename):
                 if print_info:
-                    print(f"Loading Dataset from {filename}")
+                    print(f"Loading Dataset from {filename}", flush=True)
                 return xr.load_dataset(filename)
 
         return None
@@ -105,7 +105,7 @@ class IO:
 
             if os.path.exists(filename):
                 if print_info:
-                    print(f"Loading DataArray from {filename}")
+                    print(f"Loading DataArray from {filename}", flush=True)
                 return xr.load_dataarray(filename)
 
         return None
@@ -135,4 +135,4 @@ class IO:
             raise e
 
         if print_info:
-            print(f"Saved DataArray to {filename}")
+            print(f"Saved DataArray to {filename}", flush=True)
