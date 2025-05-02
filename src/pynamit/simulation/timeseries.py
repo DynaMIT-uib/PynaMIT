@@ -91,7 +91,10 @@ class Timeseries:
 
             for var in self.vars[key]:
                 coeff_array = np.array(
-                    [np.atleast_2d(data[var][component])[time_index] for component in range(len(data[var]))]
+                    [
+                        np.atleast_2d(data[var][component])[time_index]
+                        for component in range(len(data[var]))
+                    ]
                 )
                 if len(data[var]) == 1:
                     coeffs = coeff_array[0]
@@ -372,15 +375,10 @@ class Timeseries:
                 basis_index_names = ["theta", "phi"]
 
             basis_multiindex = pd.MultiIndex.from_arrays(
-                [
-                    dataset[basis_index_names[i]].values
-                    for i in range(len(basis_index_names))
-                ],
+                [dataset[basis_index_names[i]].values for i in range(len(basis_index_names))],
                 names=basis_index_names,
             )
-            coords = xr.Coordinates.from_pandas_multiindex(
-                basis_multiindex, dim="i"
-            ).merge({"time": dataset.time.values})
-            self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(
-                coords
+            coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
+                {"time": dataset.time.values}
             )
+            self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(coords)

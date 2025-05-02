@@ -191,7 +191,9 @@ class Dynamics(object):
             self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
         )
 
-        self.timeseries = Timeseries(self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(
+            self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage
+        )
         self.io = IO(self.dataset_filename_prefix)
 
         # Load all timeseries on file.
@@ -285,7 +287,9 @@ class Dynamics(object):
                         "W": [steady_state_E_coeffs[1].reshape((1, -1))],
                     }
 
-                    self.timeseries.add_coeffs("steady_state", steady_state_data, time=self.current_time)
+                    self.timeseries.add_coeffs(
+                        "steady_state", steady_state_data, time=self.current_time
+                    )
 
                 # Save state and steady state time series.
                 if count % (sampling_step_interval * saving_sample_interval) == 0:

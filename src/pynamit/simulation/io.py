@@ -1,18 +1,29 @@
+"""IO Class.
+
+This module provides the IO class for handling input and output
+operations. It includes methods for saving and loading datasets in
+NetCDF format.
+"""
+
 import os
 import xarray as xr
 
+
 class IO:
     """Class for handling input and output operations.
-    This class provides methods to save and load datasets in NetCDF format.
-    It also allows setting a prefix for the dataset filenames.
+
+    This class provides methods to save and load datasets in NetCDF
+    format.
     """
+
     def __init__(self, dataset_filename_prefix):
         """Initialize the IO class.
 
         Parameters
         ----------
         dataset_filename_prefix : str, optional
-            Prefix for the dataset filenames. If None, no prefix is used.
+            Prefix for the dataset filenames. If None, no prefix is
+            used.
         """
         self.dataset_filename_prefix = dataset_filename_prefix
 
@@ -63,7 +74,6 @@ class IO:
         xarray.Dataset or None
             Loaded dataset, or None if the file does not exist.
         """
-
         if self.dataset_filename_prefix is not None:
             filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
 
