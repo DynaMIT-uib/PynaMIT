@@ -76,6 +76,58 @@ class IO:
                     "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
 
+    def set_vars(self, key, data, time=None, current_time=None):
+        """Set the variables for the simulation.
+
+        Parameters
+        ----------
+        data : dict
+            Dictionary of variables to set.
+        vars : list
+            List of variable names.
+        """
+        processed_data = {}
+
+        if time is None:
+            if any(
+                [
+                    data[var][component].shape[0] > 1
+                    for var in data.keys()
+                    for component in range(len(data[var]))
+                ]
+            ):
+                raise ValueError(
+                    "Time must be specified if the input data is given for multiple time values."
+                )
+            time = current_time
+
+        time = np.atleast_1d(time)
+
+        for time_index in range(time.size):
+            processed_data = {}
+
+            for var in self.vars[key]:
+                coeff_array = np.array(
+                    [data[var][component][time_index] for component in range(len(data[var]))]
+                )
+                if len(data[var]) == 1:
+                    coeffs = coeff_array[0]
+                else:
+                    coeffs = coeff_array
+
+                processed_data[self.bases[key].short_name + "_" + var] = (
+                    ["time", "i"],
+                    coeffs.reshape((1, -1)),
+                )
+
+            dataset = xr.Dataset(
+                data_vars=processed_data,
+                coords=xr.Coordinates.from_pandas_multiindex(
+                    self.basis_multiindices[key], dim="i"
+                ).merge({"time": [time[time_index]]}),
+            )
+
+            self.add_to_timeseries(dataset, key)
 
     def set_input(
         self,
@@ -287,9 +339,8 @@ class IO:
                 current_data[var] = dataset_before[short_name + "_" + var].values.flatten()
 
             # If requested, add linear interpolation correction.
-            if (
-                interpolation
-                and np.any(self.timeseries[key].time.values > current_time + FLOAT_ERROR_MARGIN)
+            if interpolation and np.any(
+                self.timeseries[key].time.values > current_time + FLOAT_ERROR_MARGIN
             ):
                 dataset_after = self.timeseries[key].sel(
                     time=[current_time + FLOAT_ERROR_MARGIN], method="bfill"
@@ -305,19 +356,17 @@ class IO:
                     )
 
             # Check if the data has changed since the last time.
-            if (not all([var in self.previous_data.keys() for var in self.vars[key]])
-                or (
-                    not all(
-                        [
-                            np.allclose(
-                                current_data[var],
-                                self.previous_data[var],
-                                rtol=FLOAT_ERROR_MARGIN,
-                                atol=0.0,
-                            )
-                            for var in self.vars[key]
-                        ]
-                    )
+            if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
+                not all(
+                    [
+                        np.allclose(
+                            current_data[var],
+                            self.previous_data[var],
+                            rtol=FLOAT_ERROR_MARGIN,
+                            atol=0.0,
+                        )
+                        for var in self.vars[key]
+                    ]
                 )
             ):
                 # Update the previous data with the current data.

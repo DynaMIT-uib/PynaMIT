@@ -6,7 +6,6 @@ coupling.
 
 import os
 import numpy as np
-import pandas as pd
 import scipy.sparse as sp
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
@@ -191,13 +190,7 @@ class Dynamics(object):
             self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
         )
 
-        self.io = IO(
-            self.bases,
-            self.state_grid,
-            self.cs_basis,
-            self.vars,
-            self.vector_storage,
-        )
+        self.io = IO(self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage)
 
         self.io.load_timeseries()
 
@@ -268,31 +261,14 @@ class Dynamics(object):
                 # Append current state to time series.
                 self.state.update_m_imp()
 
-                current_state_dataset = xr.Dataset(
-                    data_vars={
-                        self.bases["state"].short_name + "_m_ind": (
-                            ["time", "i"],
-                            self.state.m_ind.coeffs.reshape((1, -1)),
-                        ),
-                        self.bases["state"].short_name + "_m_imp": (
-                            ["time", "i"],
-                            self.state.m_imp.coeffs.reshape((1, -1)),
-                        ),
-                        self.bases["state"].short_name + "_Phi": (
-                            ["time", "i"],
-                            self.state.E.coeffs[0].reshape((1, -1)),
-                        ),
-                        self.bases["state"].short_name + "_W": (
-                            ["time", "i"],
-                            self.state.E.coeffs[1].reshape((1, -1)),
-                        ),
-                    },
-                    coords=xr.Coordinates.from_pandas_multiindex(
-                        self.io.basis_multiindices["state"], dim="i"
-                    ).merge({"time": [self.current_time]}),
-                )
+                state_data = {
+                    "m_ind": [np.atleast_2d(self.state.m_ind.coeffs.reshape((1, -1)))],
+                    "m_imp": [np.atleast_2d(self.state.m_imp.coeffs.reshape((1, -1)))],
+                    "Phi": [np.atleast_2d(self.state.E.coeffs[0].reshape((1, -1)))],
+                    "W": [np.atleast_2d(self.state.E.coeffs[1].reshape((1, -1)))],
+                }
 
-                self.io.add_to_timeseries(current_state_dataset, "state")
+                self.io.set_vars("state", state_data, current_time=self.current_time)
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -300,31 +276,16 @@ class Dynamics(object):
                     steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
 
-                    current_steady_state_dataset = xr.Dataset(
-                        data_vars={
-                            self.bases["steady_state"].short_name + "_m_ind": (
-                                ["i"],
-                                steady_state_m_ind,
-                            ),
-                            self.bases["steady_state"].short_name + "_m_imp": (
-                                ["i"],
-                                steady_state_m_imp,
-                            ),
-                            self.bases["steady_state"].short_name + "_Phi": (
-                                ["i"],
-                                steady_state_E_coeffs[0],
-                            ),
-                            self.bases["steady_state"].short_name + "_W": (
-                                ["i"],
-                                steady_state_E_coeffs[1],
-                            ),
-                        },
-                        coords=xr.Coordinates.from_pandas_multiindex(
-                            self.io.basis_multiindices["steady_state"], dim="i"
-                        ).merge({"time": [self.current_time]}),
-                    )
+                    steady_state_data = {
+                        "m_ind": [np.atleast_2d(steady_state_m_ind.reshape((1, -1)))],
+                        "m_imp": [np.atleast_2d(steady_state_m_imp.reshape((1, -1)))],
+                        "Phi": [np.atleast_2d(steady_state_E_coeffs[0].reshape((1, -1)))],
+                        "W": [np.atleast_2d(steady_state_E_coeffs[1].reshape((1, -1)))],
+                    }
 
-                    self.io.add_to_timeseries(current_steady_state_dataset, "steady_state")
+                    self.io.set_vars(
+                        "steady_state", steady_state_data, current_time=self.current_time
+                    )
 
                 # Save state and steady state time series.
                 if count % (sampling_step_interval * saving_sample_interval) == 0:
@@ -600,9 +561,13 @@ class Dynamics(object):
             specified key.
         """
         if key == "state":
-            updated_data = self.io.get_updated_timeseries_data(key, self.current_time, interpolation=False)
+            updated_data = self.io.get_updated_timeseries_data(
+                key, self.current_time, interpolation=False
+            )
         else:
-            updated_data = self.io.get_updated_timeseries_data(key, self.current_time, interpolation=interpolation)
+            updated_data = self.io.get_updated_timeseries_data(
+                key, self.current_time, interpolation=interpolation
+            )
 
         if updated_data is not None:
             if key == "state":
