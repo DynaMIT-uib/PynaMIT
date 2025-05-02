@@ -283,9 +283,7 @@ class Dynamics(object):
                         "W": [np.atleast_2d(steady_state_E_coeffs[1].reshape((1, -1)))],
                     }
 
-                    self.io.set_vars(
-                        "steady_state", steady_state_data, time=self.current_time
-                    )
+                    self.io.set_vars("steady_state", steady_state_data, time=self.current_time)
 
                 # Save state and steady state time series.
                 if count % (sampling_step_interval * saving_sample_interval) == 0:
