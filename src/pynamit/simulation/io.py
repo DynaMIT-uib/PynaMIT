@@ -95,7 +95,7 @@ class IO:
 
             for var in self.vars[key]:
                 coeff_array = np.array(
-                    [data[var][component][time_index] for component in range(len(data[var]))]
+                    [np.atleast_2d(data[var][component])[time_index] for component in range(len(data[var]))]
                 )
                 if len(data[var]) == 1:
                     coeffs = coeff_array[0]
@@ -190,13 +190,13 @@ class IO:
             processed_data = {}
 
             for var in self.vars[key]:
+                grid_value_array = np.array(
+                    [
+                        np.atleast_2d(input_data[var][component])[time_index]
+                        for component in range(len(input_data[var]))
+                    ]
+                )
                 if self.vector_storage[key]:
-                    grid_value_array = np.array(
-                        [
-                            input_data[var][component][time_index]
-                            for component in range(len(input_data[var]))
-                        ]
-                    )
                     if len(input_data[var]) == 1:
                         grid_values = grid_value_array[0]
                     else:
@@ -217,7 +217,7 @@ class IO:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
                         interpolated_data = self.cs_basis.interpolate_scalar(
-                            input_data[var][0][time_index],
+                            grid_value_array[0],
                             input_grid.theta,
                             input_grid.phi,
                             self.state_grid.theta,
@@ -226,9 +226,9 @@ class IO:
                     elif self.vars[key][var] == "tangential":
                         interpolated_east, interpolated_north, _ = (
                             self.cs_basis.interpolate_vector_components(
-                                input_data[var][1][time_index],
-                                -input_data[var][0][time_index],
-                                np.zeros_like(input_data[var][1][time_index]),
+                                grid_value_array[1],
+                                -grid_value_array[0],
+                                np.zeros_like(grid_value_array[0]),
                                 input_grid.theta,
                                 input_grid.phi,
                                 self.state_grid.theta,

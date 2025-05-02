@@ -262,10 +262,10 @@ class Dynamics(object):
                 self.state.update_m_imp()
 
                 state_data = {
-                    "m_ind": [np.atleast_2d(self.state.m_ind.coeffs.reshape((1, -1)))],
-                    "m_imp": [np.atleast_2d(self.state.m_imp.coeffs.reshape((1, -1)))],
-                    "Phi": [np.atleast_2d(self.state.E.coeffs[0].reshape((1, -1)))],
-                    "W": [np.atleast_2d(self.state.E.coeffs[1].reshape((1, -1)))],
+                    "m_ind": [self.state.m_ind.coeffs.reshape((1, -1))],
+                    "m_imp": [self.state.m_imp.coeffs.reshape((1, -1))],
+                    "Phi": [self.state.E.coeffs[0].reshape((1, -1))],
+                    "W": [self.state.E.coeffs[1].reshape((1, -1))],
                 }
 
                 self.io.set_vars("state", state_data, time=self.current_time)
@@ -277,10 +277,10 @@ class Dynamics(object):
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
 
                     steady_state_data = {
-                        "m_ind": [np.atleast_2d(steady_state_m_ind.reshape((1, -1)))],
-                        "m_imp": [np.atleast_2d(steady_state_m_imp.reshape((1, -1)))],
-                        "Phi": [np.atleast_2d(steady_state_E_coeffs[0].reshape((1, -1)))],
-                        "W": [np.atleast_2d(steady_state_E_coeffs[1].reshape((1, -1)))],
+                        "m_ind": [steady_state_m_ind.reshape((1, -1))],
+                        "m_imp": [steady_state_m_imp.reshape((1, -1))],
+                        "Phi": [steady_state_E_coeffs[0].reshape((1, -1))],
+                        "W": [steady_state_E_coeffs[1].reshape((1, -1))],
                     }
 
                     self.io.set_vars("steady_state", steady_state_data, time=self.current_time)
@@ -424,7 +424,7 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        input_data = {"jr": [np.atleast_2d(jr)]}
+        input_data = {"jr": [jr]}
 
         self.io.set_input(
             "jr",
@@ -478,7 +478,7 @@ class Dynamics(object):
 
         input_data = {"etaP": [np.empty_like(Pedersen)], "etaH": [np.empty_like(Hall)]}
 
-        # Convert to resistivity.
+        # Convert conductances to resistances for all time points.
         for i in range(max(input_data["etaP"][0].shape[0], 1)):
             input_data["etaP"][0][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
@@ -529,7 +529,7 @@ class Dynamics(object):
         reg_lambda : float, optional
             Regularization parameter.
         """
-        input_data = {"u": [np.atleast_2d(u_theta), np.atleast_2d(u_phi)]}
+        input_data = {"u": [u_theta, u_phi]}
 
         self.io.set_input(
             "u",
@@ -572,7 +572,7 @@ class Dynamics(object):
         if time is None:
             if any(
                 [
-                    data[var][component].shape[0] > 1
+                    np.atleast_2d(data[var][component]).shape[0] > 1
                     for var in data.keys()
                     for component in range(len(data[var]))
                 ]
