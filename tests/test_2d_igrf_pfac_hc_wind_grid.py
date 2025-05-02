@@ -41,8 +41,8 @@ def test_2d_igrf_pfac_hc_wind_grid():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.io.timeseries["state"]["SH_m_ind"].values,
-            dynamics.io.timeseries["state"]["SH_m_imp"].values,
+            dynamics.timeseries.datasets["state"]["SH_m_ind"].values,
+            dynamics.timeseries.datasets["state"]["SH_m_imp"].values,
         )
     )
 

@@ -1,9 +1,10 @@
-"""IO Class.
+"""Timeseries Class.
 
-This module contains the IO class, which is responsible for handling
-input and output operations in the simulation. It manages the reading
-and writing of datasets, including time series data, and provides
-methods for setting input data and selecting data for the simulation.
+This module contains the Timeseries class, which is responsible for
+handling input and output operations in the simulation. It manages
+the reading and writing of datasets, including time series data,
+and provides methods for setting input data and selecting data for
+the simulation.
 """
 
 import os
@@ -17,8 +18,8 @@ from pynamit.primitives.field_expansion import FieldExpansion
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
-class IO:
-    """IO Class.
+class Timeseries:
+    """Timeseries Class.
 
     Class for handling input and output operations in the simulation.
     This class manages the reading and writing of datasets, including
@@ -27,7 +28,7 @@ class IO:
     """
 
     def __init__(self, bases, state_grid, cs_basis, vars, vector_storage):
-        """Initialize the IO class.
+        """Initialize the Timeseries class.
 
         Parameters
         ----------
@@ -50,7 +51,7 @@ class IO:
 
         self.dataset_filename_prefix = None
 
-        self.timeseries = {}
+        self.datasets = {}
         self.previous_data = {}
 
         self.basis_multiindices = {}
@@ -76,7 +77,7 @@ class IO:
                     "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
 
-    def set_vars(self, key, data, time):
+    def add_coeffs(self, key, data, time):
         """Set the variables for the simulation.
 
         Parameters
@@ -114,9 +115,9 @@ class IO:
                 ).merge({"time": [time[time_index]]}),
             )
 
-            self.add_to_timeseries(dataset, key)
+            self.add_dataset(dataset, key)
 
-    def set_input(
+    def add_input(
         self,
         key,
         input_data,
@@ -251,11 +252,11 @@ class IO:
                 ).merge({"time": [time[time_index]]}),
             )
 
-            self.add_to_timeseries(dataset, key)
+            self.add_dataset(dataset, key)
 
-        self.save_timeseries(key)
+        self.save(key)
 
-    def add_to_timeseries(self, dataset, key):
+    def add_dataset(self, dataset, key):
         """Add a dataset to the timeseries.
 
         Creates a new timeseries if one does not exist, otherwise
@@ -269,16 +270,16 @@ class IO:
             The key identifying the type of data ('state', 'jr',
             'conductance', or 'u').
         """
-        if key not in self.timeseries.keys():
-            self.timeseries[key] = dataset.sortby("time")
+        if key not in self.datasets.keys():
+            self.datasets[key] = dataset.sortby("time")
         else:
-            self.timeseries[key] = xr.concat(
-                [self.timeseries[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
+            self.datasets[key] = xr.concat(
+                [self.datasets[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
                 dim="time",
             ).sortby("time")
 
-    def get_updated_timeseries_data(self, key, current_time, interpolation=False):
-        """Select time series data corresponding to the latest time.
+    def get_updated_data(self, key, current_time, interpolation=False):
+        """Select time series data corresponding to the specified time.
 
         Parameters
         ----------
@@ -295,7 +296,7 @@ class IO:
             Dictionary containing the latest data for the specified
             key, or None if no new data is available.
         """
-        if np.any(self.timeseries[key].time.values <= current_time + FLOAT_ERROR_MARGIN):
+        if np.any(self.datasets[key].time.values <= current_time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
             else:
@@ -304,7 +305,7 @@ class IO:
             current_data = {}
 
             # Select latest data before the current time.
-            dataset_before = self.timeseries[key].sel(
+            dataset_before = self.datasets[key].sel(
                 time=[current_time + FLOAT_ERROR_MARGIN], method="ffill"
             )
 
@@ -313,9 +314,9 @@ class IO:
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
-                self.timeseries[key].time.values > current_time + FLOAT_ERROR_MARGIN
+                self.datasets[key].time.values > current_time + FLOAT_ERROR_MARGIN
             ):
-                dataset_after = self.timeseries[key].sel(
+                dataset_after = self.datasets[key].sel(
                     time=[current_time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
                 for var in self.vars[key]:
@@ -351,6 +352,47 @@ class IO:
         # No new data available.
         return None
 
+    def save(self, key):
+        """Save a timeseries to NetCDF file.
+
+        Parameters
+        ----------
+        key : str
+            The key identifying which timeseries to save.
+        """
+        self.save_dataset(self.datasets[key].reset_index("i"), key)
+
+    def load(self, key):
+        """Load a timeseries from NetCDF file.
+
+        Parameters
+        ----------
+        key : str
+            The key identifying which timeseries to load.
+        """
+        if self.dataset_filename_prefix is not None:
+            dataset = self.load_dataset(key)
+
+            if dataset is not None:
+                if self.vector_storage[key]:
+                    basis_index_names = self.bases[key].index_names
+                else:
+                    basis_index_names = ["theta", "phi"]
+
+                basis_multiindex = pd.MultiIndex.from_arrays(
+                    [
+                        dataset[basis_index_names[i]].values
+                        for i in range(len(basis_index_names))
+                    ],
+                    names=basis_index_names,
+                )
+                coords = xr.Coordinates.from_pandas_multiindex(
+                    basis_multiindex, dim="i"
+                ).merge({"time": dataset.time.values})
+                self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(
+                    coords
+                )
+
     def save_dataset(self, dataset, name):
         """Save a dataset to NetCDF file.
 
@@ -373,7 +415,7 @@ class IO:
             raise e
 
     def load_dataset(self, name):
-        """Load dataset from file.
+        """Load a dataset from NetCDF file.
 
         Parameters
         ----------
@@ -391,42 +433,6 @@ class IO:
             return xr.load_dataset(filename)
         else:
             return None
-
-    def save_timeseries(self, key):
-        """Save a timeseries to NetCDF file.
-
-        Parameters
-        ----------
-        key : str
-            The key identifying which timeseries to save.
-        """
-        self.save_dataset(self.timeseries[key].reset_index("i"), key)
-
-    def load_timeseries(self):
-        """Load all time series that exist on file."""
-        if self.dataset_filename_prefix is not None:
-            for key in self.vars.keys():
-                dataset = self.load_dataset(key)
-
-                if dataset is not None:
-                    if self.vector_storage[key]:
-                        basis_index_names = self.bases[key].index_names
-                    else:
-                        basis_index_names = ["theta", "phi"]
-
-                    basis_multiindex = pd.MultiIndex.from_arrays(
-                        [
-                            dataset[basis_index_names[i]].values
-                            for i in range(len(basis_index_names))
-                        ],
-                        names=basis_index_names,
-                    )
-                    coords = xr.Coordinates.from_pandas_multiindex(
-                        basis_multiindex, dim="i"
-                    ).merge({"time": dataset.time.values})
-                    self.timeseries[key] = dataset.drop_vars(basis_index_names).assign_coords(
-                        coords
-                    )
 
     def set_dataset_filename_prefix(self, dataset_filename_prefix):
         """Set the prefix for the dataset filenames.

@@ -13,7 +13,7 @@ from pynamit.math.constants import RE
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
-from pynamit.simulation.io import IO
+from pynamit.simulation.timeseries import Timeseries
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -190,13 +190,15 @@ class Dynamics(object):
             self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
         )
 
-        self.io = IO(self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage)
 
-        self.io.load_timeseries()
+        # Load all timeseries on file.
+        for key in self.vars.keys():
+            self.timeseries.load(key)
 
-        if "state" in self.io.timeseries.keys():
+        if "state" in self.timeseries.datasets.keys():
             # Select last data in state time series.
-            self.current_time = np.max(self.io.timeseries["state"].time.values)
+            self.current_time = np.max(self.timeseries.datasets["state"].time.values)
             self.set_state_variables("state")
         else:
             self.current_time = np.float64(0)
@@ -205,17 +207,17 @@ class Dynamics(object):
         if self.dataset_filename_prefix is None:
             self.dataset_filename_prefix = "simulation"
 
-        self.io.set_dataset_filename_prefix(self.dataset_filename_prefix)
+        self.timeseries.set_dataset_filename_prefix(self.dataset_filename_prefix)
 
         if not settings_on_file:
-            self.io.save_dataset(settings, "settings")
+            self.timeseries.save_dataset(settings, "settings")
             print(
                 "Saved settings to {}_settings.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
             )
 
         if not PFAC_matrix_on_file:
-            self.io.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
+            self.timeseries.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
             print(
                 "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(self.dataset_filename_prefix),
                 flush=True,
@@ -268,7 +270,7 @@ class Dynamics(object):
                     "W": [self.state.E.coeffs[1].reshape((1, -1))],
                 }
 
-                self.io.set_vars("state", state_data, time=self.current_time)
+                self.timeseries.add_coeffs("state", state_data, time=self.current_time)
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -283,11 +285,11 @@ class Dynamics(object):
                         "W": [steady_state_E_coeffs[1].reshape((1, -1))],
                     }
 
-                    self.io.set_vars("steady_state", steady_state_data, time=self.current_time)
+                    self.timeseries.add_coeffs("steady_state", steady_state_data, time=self.current_time)
 
                 # Save state and steady state time series.
                 if count % (sampling_step_interval * saving_sample_interval) == 0:
-                    self.io.save_timeseries("state")
+                    self.timeseries.save("state")
 
                     if quiet:
                         pass
@@ -299,7 +301,7 @@ class Dynamics(object):
                         )
 
                     if self.save_steady_states:
-                        self.io.save_timeseries("steady_state")
+                        self.timeseries.save("steady_state")
 
                         if quiet:
                             pass
@@ -334,7 +336,7 @@ class Dynamics(object):
 
     def set_input_state_variables(self):
         """Select input data corresponding to the latest time."""
-        timeseries_keys = list(self.io.timeseries.keys())
+        timeseries_keys = list(self.timeseries.datasets.keys())
 
         if "state" in timeseries_keys:
             timeseries_keys.remove("state")
@@ -426,7 +428,7 @@ class Dynamics(object):
         """
         input_data = {"jr": [jr]}
 
-        self.io.set_input(
+        self.timeseries.add_input(
             "jr",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -485,7 +487,7 @@ class Dynamics(object):
         for i in range(max(input_data["etaH"][0].shape[0], 1)):
             input_data["etaH"][0][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.io.set_input(
+        self.timeseries.add_input(
             "conductance",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -531,7 +533,7 @@ class Dynamics(object):
         """
         input_data = {"u": [u_theta, u_phi]}
 
-        self.io.set_input(
+        self.timeseries.add_input(
             "u",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -596,11 +598,11 @@ class Dynamics(object):
             specified key.
         """
         if key == "state":
-            updated_data = self.io.get_updated_timeseries_data(
+            updated_data = self.timeseries.get_updated_data(
                 key, self.current_time, interpolation=False
             )
         else:
-            updated_data = self.io.get_updated_timeseries_data(
+            updated_data = self.timeseries.get_updated_data(
                 key, self.current_time, interpolation=interpolation
             )
 
