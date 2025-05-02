@@ -37,7 +37,7 @@ class IO:
         """
         self.dataset_filename_prefix = dataset_filename_prefix
 
-    def save_dataset(self, dataset, name):
+    def save_dataset(self, dataset, name, print_info=False):
         """Save a dataset to NetCDF file.
 
         Parameters
@@ -61,7 +61,10 @@ class IO:
                 os.remove(filename + ".tmp")
             raise e
 
-    def load_dataset(self, name):
+        if print_info:
+            print(f"Saved Dataset to {filename}")
+
+    def load_dataset(self, name, print_info=False):
         """Load a dataset from NetCDF file.
 
         Parameters
@@ -78,6 +81,58 @@ class IO:
             filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
 
             if os.path.exists(filename):
+                if print_info:
+                    print(f"Loading Dataset from {filename}")
                 return xr.load_dataset(filename)
-            else:
-                return None
+
+        return None
+
+    def load_dataarray(self, name, print_info=False):
+        """Load a DataArray from NetCDF file.
+
+        Parameters
+        ----------
+        name : str
+            Name of the DataArray.
+
+        Returns
+        -------
+        xarray.DataArray or None
+            Loaded DataArray, or None if the file does not exist.
+        """
+        if self.dataset_filename_prefix is not None:
+            filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
+
+            if os.path.exists(filename):
+                if print_info:
+                    print(f"Loading DataArray from {filename}")
+                return xr.load_dataarray(filename)
+
+        return None
+
+    def save_dataarray(self, dataarray, name, print_info=False):
+        """Save a DataArray to NetCDF file.
+
+        Parameters
+        ----------
+        dataarray : xarray.DataArray
+            The DataArray to save.
+        name : str
+            Name to use in the filename.
+        """
+        if self.dataset_filename_prefix is None:
+            raise ValueError("dataset_filename_prefix is None. Cannot save dataset.")
+
+        filename = self.dataset_filename_prefix + "_" + name + ".ncdf"
+
+        try:
+            dataarray.to_netcdf(filename + ".tmp")
+            os.rename(filename + ".tmp", filename)
+
+        except Exception as e:
+            if os.path.exists(filename + ".tmp"):
+                os.remove(filename + ".tmp")
+            raise e
+
+        if print_info:
+            print(f"Saved DataArray to {filename}")

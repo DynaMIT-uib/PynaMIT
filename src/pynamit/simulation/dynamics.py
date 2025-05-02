@@ -4,7 +4,6 @@ This module contains the Dynamics class for simulating dynamic MIT
 coupling.
 """
 
-import os
 import numpy as np
 import scipy.sparse as sp
 import xarray as xr
@@ -57,7 +56,6 @@ class Dynamics(object):
         connect_hemispheres=False,
         latitude_boundary=50,
         ih_constraint_scaling=1e-5,
-        PFAC_matrix=None,
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
@@ -95,8 +93,6 @@ class Dynamics(object):
             Simulation boundary latitude in degrees.
         ih_constraint_scaling : float, optional
             Scaling for interhemispheric coupling constraint.
-        PFAC_matrix : array-like, optional
-            Matrix giving polodial field of FACs.
         vector_jr : bool, optional
             Use vector representation for radial current.
         vector_conductance : bool, optional
@@ -110,9 +106,7 @@ class Dynamics(object):
         integrator : {'euler', 'exponential'}, optional
             Integrator type for time evolution.
         """
-        self.dataset_filename_prefix = dataset_filename_prefix
-
-        # Store setting arguments in xarray dataset
+        # Store setting arguments in xarray dataset.
         settings = xr.Dataset(
             attrs={
                 "Nmax": Nmax,
@@ -136,19 +130,16 @@ class Dynamics(object):
             }
         )
 
-        # Overwrite settings with any settings existing on file.
-        settings_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(
-            self.dataset_filename_prefix + "_settings.ncdf"
-        )
-        if settings_on_file:
-            settings = xr.load_dataset(self.dataset_filename_prefix + "_settings.ncdf")
+        self.io = IO(dataset_filename_prefix)
 
-        # Load PFAC matrix if it exists on file.
-        PFAC_matrix_on_file = (self.dataset_filename_prefix is not None) and os.path.exists(
-            self.dataset_filename_prefix + "_PFAC_matrix.ncdf"
-        )
-        if PFAC_matrix_on_file:
-            PFAC_matrix = xr.load_dataarray(self.dataset_filename_prefix + "_PFAC_matrix.ncdf")
+        settings_on_file = self.io.load_dataset("settings", print_info=True)
+        if settings_on_file is not None:
+            if not settings.identical(settings_on_file):
+                raise ValueError(
+                    "Mismatch between Dynamics object arguments and settings on file."
+                )
+
+        PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
         self.RI = settings.RI
 
@@ -188,42 +179,33 @@ class Dynamics(object):
 
         # Initialize the state of the ionosphere.
         self.state = State(
-            self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix
+            self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix_on_file
         )
 
         self.timeseries = Timeseries(
             self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage
         )
-        self.io = IO(self.dataset_filename_prefix)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
             self.timeseries.load(key, self.io)
 
         if "state" in self.timeseries.datasets.keys():
-            # Select last data in state time series.
+            # Restarting from last checkpoint in state time series.
             self.current_time = np.max(self.timeseries.datasets["state"].time.values)
             self.set_state_variables("state")
         else:
             self.current_time = np.float64(0)
             self.state.set_model_coeffs(m_ind=np.zeros(self.bases["state"].index_length))
 
-        if self.dataset_filename_prefix is None:
+        if dataset_filename_prefix is None:
             self.io.update_dataset_filename_prefix("simulation")
 
-        if not settings_on_file:
-            self.io.save_dataset(settings, "settings")
-            print(
-                "Saved settings to {}_settings.ncdf".format(self.dataset_filename_prefix),
-                flush=True,
-            )
+        if settings_on_file is None:
+            self.io.save_dataset(settings, "settings", print_info=True)
 
-        if not PFAC_matrix_on_file:
-            self.io.save_dataset(self.state.T_to_Ve, "PFAC_matrix")
-            print(
-                "Saved PFAC matrix to {}_PFAC_matrix.ncdf".format(self.dataset_filename_prefix),
-                flush=True,
-            )
+        if PFAC_matrix_on_file is None:
+            self.io.save_dataarray(self.state.T_to_Ve, "PFAC_matrix", print_info=True)
 
         self.save_steady_states = bool(settings.save_steady_states)
 
