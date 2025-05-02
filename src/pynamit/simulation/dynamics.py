@@ -43,7 +43,7 @@ class Dynamics(object):
 
     def __init__(
         self,
-        dataset_filename_prefix="simulation",
+        filename_prefix="simulation",
         Nmax=20,
         Mmax=20,
         Ncs=30,
@@ -67,7 +67,7 @@ class Dynamics(object):
 
         Parameters
         ----------
-        dataset_filename_prefix : str, optional
+        filename_prefix : str, optional
             Prefix for saving dataset files.
         Nmax : int, optional
             Maximum spherical harmonic degree.
@@ -130,7 +130,7 @@ class Dynamics(object):
             }
         )
 
-        self.io = IO(dataset_filename_prefix)
+        self.io = IO(filename_prefix)
 
         settings_on_file = self.io.load_dataset("settings", print_info=True)
         if settings_on_file is not None:
@@ -198,8 +198,8 @@ class Dynamics(object):
             self.current_time = np.float64(0)
             self.state.set_model_coeffs(m_ind=np.zeros(self.bases["state"].index_length))
 
-        if dataset_filename_prefix is None:
-            self.io.update_dataset_filename_prefix("simulation")
+        if filename_prefix is None:
+            self.io.update_filename_prefix("simulation")
 
         if settings_on_file is None:
             self.io.save_dataset(settings, "settings", print_info=True)

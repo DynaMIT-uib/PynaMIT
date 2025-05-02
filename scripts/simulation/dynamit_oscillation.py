@@ -33,7 +33,7 @@ rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 for JR_PERIOD in [50, 25, 10, 5, 1]:
     JR_SAMPLING_DT = JR_PERIOD / 50
 
-    dataset_filename_prefix = "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
+    filename_prefix = "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
 
     date = datetime.datetime(2001, 5, 12, 17, 0)
     d = dipole.Dipole(date.year)
@@ -42,7 +42,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     # Set up simulation object.
     dynamics = pynamit.Dynamics(
-        dataset_filename_prefix=dataset_filename_prefix,
+        filename_prefix=filename_prefix,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
@@ -163,7 +163,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         axs[1].set_title("Oscillation")
         axs[2].set_title("Product")
 
-        plt.savefig(dataset_filename_prefix + ".png")
+        plt.savefig(filename_prefix + ".png")
         plt.close()
 
     print("Setting jr", flush=True)
