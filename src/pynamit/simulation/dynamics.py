@@ -268,7 +268,7 @@ class Dynamics(object):
                     "W": [np.atleast_2d(self.state.E.coeffs[1].reshape((1, -1)))],
                 }
 
-                self.io.set_vars("state", state_data, time=np.atleast_1d(self.current_time))
+                self.io.set_vars("state", state_data, time=self.current_time)
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -284,7 +284,7 @@ class Dynamics(object):
                     }
 
                     self.io.set_vars(
-                        "steady_state", steady_state_data, time=np.atleast_1d(self.current_time)
+                        "steady_state", steady_state_data, time=self.current_time
                     )
 
                 # Save state and steady state time series.
@@ -582,9 +582,9 @@ class Dynamics(object):
                 raise ValueError(
                     "Time must be specified if the input data is given for multiple time values."
                 )
-            return np.atleast_1d(self.current_time)
+            return self.current_time
         else:
-            return np.atleast_1d(time)
+            return time
 
     def set_state_variables(self, key, interpolation=False):
         """Set input data for the simulation.

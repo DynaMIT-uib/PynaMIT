@@ -88,6 +88,8 @@ class IO:
         """
         processed_data = {}
 
+        time = np.atleast_1d(time)
+
         for time_index in range(time.size):
             processed_data = {}
 
@@ -181,6 +183,8 @@ class IO:
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
+
+        time = np.atleast_1d(time)
 
         for time_index in range(time.size):
             processed_data = {}
