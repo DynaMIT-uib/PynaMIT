@@ -16,7 +16,7 @@ latitude_boundary = 40
 WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-dataset_filename_prefix = "aurora2"
+filename_prefix = "aurora2"
 Nmax, Mmax, Ncs = 10, 10, 10
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -28,7 +28,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

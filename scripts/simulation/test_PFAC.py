@@ -18,7 +18,7 @@ reload(pynamit)
 RE = 6371.2e3
 RI = RE + 110e3
 
-dataset_filename_prefix = "PFAC_test"
+filename_prefix = "PFAC_test"
 
 Nmax, Mmax, Ncs = 25, 20, 30  # Model resolution
 
@@ -32,7 +32,7 @@ Philevels = np.r_[-212.5:212.5:5]
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

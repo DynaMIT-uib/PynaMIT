@@ -16,7 +16,7 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 # import matplotlib.pyplot as plt
 import datetime
 
-dataset_filename_prefix = "data/brn_hl"
+filename_prefix = "data/brn_hl"
 Nmax, Mmax, Ncs = 80, 80, 90
 latitude_boundary = 45
 RE = 6371.2e3
@@ -31,7 +31,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
