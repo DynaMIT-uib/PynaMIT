@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  ubuntu:
+  build:
     name: 'Ubuntu'
     runs-on: ubuntu-latest
     container: ghcr.io/dynamit-uib/pynamit:x86_64-2025-02-11
@@ -27,3 +27,18 @@ jobs:
         run: 'pip install sphinx sphinx-rtd-theme myst-parser && sphinx-apidoc -o docs/source src && sphinx-build -b html docs/source docs/build'
       - name: Run PynaMIT tests
         run: 'pytest -v'
+      - name: Upload static files as artifact
+        id: deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
