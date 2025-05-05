@@ -15,7 +15,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
-from pynamit.simulation.timeseries import Timeseries
+from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
