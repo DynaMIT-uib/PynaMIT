@@ -87,12 +87,12 @@ class Timeseries:
         time : float
             The time point for the data.
         """
-        processed_data = {}
-        for data_name in data:
-            processed_data[data_name] = (["time", "i"], data[data_name].reshape((1, -1)))
+        data_vars = {}
+        for var in data:
+            data_vars[var] = (["time", "i"], data[var].reshape((1, -1)))
 
         dataset = xr.Dataset(
-            data_vars=processed_data,
+            data_vars=data_vars,
             coords=xr.Coordinates.from_pandas_multiindex(
                 self.basis_multiindices[key], dim="i"
             ).merge({"time": [time]}),
