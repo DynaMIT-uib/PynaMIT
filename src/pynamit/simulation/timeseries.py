@@ -173,11 +173,10 @@ class Timeseries:
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    grid_values = input_data[var][time_index]
                     vector = FieldExpansion(
                         self.bases[key],
                         basis_evaluator=self.input_basis_evaluators[key],
-                        grid_values=grid_values,
+                        grid_values=input_data[var][time_index],
                         field_type=self.vars[key][var],
                     )
 
