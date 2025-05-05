@@ -248,15 +248,13 @@ class Dynamics(object):
                 self.state.update_m_imp()
 
                 state_data = {
-                    "m_ind": self.state.m_ind.coeffs[np.newaxis, :],
-                    "m_imp": self.state.m_imp.coeffs[np.newaxis, :],
-                    "Phi": self.state.E.coeffs[0][np.newaxis, :],
-                    "W": self.state.E.coeffs[1][np.newaxis, :],
+                    "SH_m_ind": self.state.m_ind.coeffs,
+                    "SH_m_imp": self.state.m_imp.coeffs,
+                    "SH_Phi": self.state.E.coeffs[0],
+                    "SH_W": self.state.E.coeffs[1],
                 }
 
-                self.timeseries.add_coeffs(
-                    "state", state_data, time=np.atleast_1d(self.current_time)
-                )
+                self.timeseries.add_coeffs("state", state_data, time=self.current_time)
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -265,14 +263,14 @@ class Dynamics(object):
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
 
                     steady_state_data = {
-                        "m_ind": steady_state_m_ind[np.newaxis, :],
-                        "m_imp": steady_state_m_imp[np.newaxis, :],
-                        "Phi": steady_state_E_coeffs[0][np.newaxis, :],
-                        "W": steady_state_E_coeffs[1][np.newaxis, :],
+                        "SH_m_ind": steady_state_m_ind,
+                        "SH_m_imp": steady_state_m_imp,
+                        "SH_Phi": steady_state_E_coeffs[0],
+                        "SH_W": steady_state_E_coeffs[1],
                     }
 
                     self.timeseries.add_coeffs(
-                        "steady_state", steady_state_data, time=np.atleast_1d(self.current_time)
+                        "steady_state", steady_state_data, time=self.current_time
                     )
 
                 # Save state and steady state time series.

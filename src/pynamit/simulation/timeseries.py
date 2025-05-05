@@ -82,23 +82,18 @@ class Timeseries:
         vars : list
             List of variable names.
         """
-        for time_index in range(time.size):
-            processed_data = {}
+        processed_data = {}
+        for data_name in data:
+            processed_data[data_name] = (["time", "i"], data[data_name].reshape((1, -1)))
 
-            for var in self.vars[key]:
-                processed_data[self.bases[key].short_name + "_" + var] = (
-                    ["time", "i"],
-                    data[var][time_index].reshape((1, -1)),
-                )
+        dataset = xr.Dataset(
+            data_vars=processed_data,
+            coords=xr.Coordinates.from_pandas_multiindex(
+                self.basis_multiindices[key], dim="i"
+            ).merge({"time": [time]}),
+        )
 
-            dataset = xr.Dataset(
-                data_vars=processed_data,
-                coords=xr.Coordinates.from_pandas_multiindex(
-                    self.basis_multiindices[key], dim="i"
-                ).merge({"time": [time[time_index]]}),
-            )
-
-            self.add_dataset(dataset, key)
+        self.add_dataset(dataset, key)
 
     def add_input(
         self,
@@ -180,10 +175,7 @@ class Timeseries:
                         field_type=self.vars[key][var],
                     )
 
-                    processed_data[self.bases[key].short_name + "_" + var] = (
-                        ["time", "i"],
-                        vector.coeffs.reshape((1, -1)),
-                    )
+                    processed_data[self.bases[key].short_name + "_" + var] = vector.coeffs
 
                 else:
                     # Interpolate to state_grid
@@ -211,19 +203,9 @@ class Timeseries:
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    processed_data["GRID_" + var] = (
-                        ["time", "i"],
-                        interpolated_data.reshape((1, -1)),
-                    )
+                    processed_data["GRID_" + var] = interpolated_data
 
-            dataset = xr.Dataset(
-                data_vars=processed_data,
-                coords=xr.Coordinates.from_pandas_multiindex(
-                    self.basis_multiindices[key], dim="i"
-                ).merge({"time": [time[time_index]]}),
-            )
-
-            self.add_dataset(dataset, key)
+            self.add_coeffs(key, processed_data, time[time_index])
 
     def add_dataset(self, dataset, key):
         """Add a dataset to the timeseries.
