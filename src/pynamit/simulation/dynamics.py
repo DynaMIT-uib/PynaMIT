@@ -248,13 +248,15 @@ class Dynamics(object):
                 self.state.update_m_imp()
 
                 state_data = {
-                    "m_ind": [self.state.m_ind.coeffs.reshape((1, -1))],
-                    "m_imp": [self.state.m_imp.coeffs.reshape((1, -1))],
-                    "Phi": [self.state.E.coeffs[0].reshape((1, -1))],
-                    "W": [self.state.E.coeffs[1].reshape((1, -1))],
+                    "m_ind": self.state.m_ind.coeffs[np.newaxis, :],
+                    "m_imp": self.state.m_imp.coeffs[np.newaxis, :],
+                    "Phi": self.state.E.coeffs[0][np.newaxis, :],
+                    "W": self.state.E.coeffs[1][np.newaxis, :],
                 }
 
-                self.timeseries.add_coeffs("state", state_data, time=self.current_time)
+                self.timeseries.add_coeffs(
+                    "state", state_data, time=np.atleast_1d(self.current_time)
+                )
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -263,14 +265,14 @@ class Dynamics(object):
                     steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
 
                     steady_state_data = {
-                        "m_ind": [steady_state_m_ind.reshape((1, -1))],
-                        "m_imp": [steady_state_m_imp.reshape((1, -1))],
-                        "Phi": [steady_state_E_coeffs[0].reshape((1, -1))],
-                        "W": [steady_state_E_coeffs[1].reshape((1, -1))],
+                        "m_ind": steady_state_m_ind[np.newaxis, :],
+                        "m_imp": steady_state_m_imp[np.newaxis, :],
+                        "Phi": steady_state_E_coeffs[0][np.newaxis, :],
+                        "W": steady_state_E_coeffs[1][np.newaxis, :],
                     }
 
                     self.timeseries.add_coeffs(
-                        "steady_state", steady_state_data, time=self.current_time
+                        "steady_state", steady_state_data, time=np.atleast_1d(self.current_time)
                     )
 
                 # Save state and steady state time series.
@@ -412,7 +414,7 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        input_data = {"jr": [jr]}
+        input_data = {"jr": np.atleast_2d(jr)}
 
         self.timeseries.add_input(
             "jr",
@@ -466,14 +468,14 @@ class Dynamics(object):
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        input_data = {"etaP": [np.empty_like(Pedersen)], "etaH": [np.empty_like(Hall)]}
+        input_data = {"etaP": np.empty_like(Pedersen), "etaH": np.empty_like(Hall)}
 
         # Convert conductances to resistances for all time points.
-        for i in range(max(input_data["etaP"][0].shape[0], 1)):
-            input_data["etaP"][0][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+        for i in range(max(input_data["etaP"].shape[0], 1)):
+            input_data["etaP"][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        for i in range(max(input_data["etaH"][0].shape[0], 1)):
-            input_data["etaH"][0][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+        for i in range(max(input_data["etaH"].shape[0], 1)):
+            input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
         self.timeseries.add_input(
             "conductance",
@@ -521,7 +523,10 @@ class Dynamics(object):
         reg_lambda : float, optional
             Regularization parameter.
         """
-        input_data = {"u": [u_theta, u_phi]}
+        # If u_theta and u_phi, are 1D arrays, convert to 2D.
+        input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}
+        # Reorder time to first dimension and component to second.
+        input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
 
         self.timeseries.add_input(
             "u",
@@ -564,19 +569,13 @@ class Dynamics(object):
             multiple time values.
         """
         if time is None:
-            if any(
-                [
-                    np.atleast_2d(data[var][component]).shape[0] > 1
-                    for var in data.keys()
-                    for component in range(len(data[var]))
-                ]
-            ):
+            if any([data[var].shape[0] > 1 for var in data.keys()]):
                 raise ValueError(
                     "Time must be specified if the input data is given for multiple time values."
                 )
-            return self.current_time
+            return np.atleast_1d(self.current_time)
         else:
-            return time
+            return np.atleast_1d(time)
 
     def set_state_variables(self, key, interpolation=False):
         """Set input data for the simulation.
