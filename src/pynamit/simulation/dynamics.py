@@ -587,11 +587,11 @@ class Dynamics(object):
             specified key.
         """
         if key == "state":
-            updated_data = self.timeseries.get_updated_data(
+            updated_data = self.timeseries.get_entry_if_changed(
                 key, self.current_time, interpolation=False
             )
         else:
-            updated_data = self.timeseries.get_updated_data(
+            updated_data = self.timeseries.get_entry_if_changed(
                 key, self.current_time, interpolation=interpolation
             )
 

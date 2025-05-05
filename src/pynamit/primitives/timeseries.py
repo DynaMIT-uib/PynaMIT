@@ -218,14 +218,14 @@ class Timeseries:
 
             self.add_entry(key, processed_data, time[time_index])
 
-    def get_updated_data(self, key, current_time, interpolation=False):
+    def get_entry_if_changed(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.
 
         Parameters
         ----------
         key : str
             Key for the time series.
-        current_time : float
+        time : float
             Current time for which to select data.
         interpolation : bool, optional
             Whether to use linear interpolation.
@@ -236,7 +236,7 @@ class Timeseries:
             Dictionary containing the latest data for the specified
             key, or None if no new data is available.
         """
-        if np.any(self.datasets[key].time.values <= current_time + FLOAT_ERROR_MARGIN):
+        if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
             else:
@@ -246,7 +246,7 @@ class Timeseries:
 
             # Select latest data before the current time.
             dataset_before = self.datasets[key].sel(
-                time=[current_time + FLOAT_ERROR_MARGIN], method="ffill"
+                time=[time + FLOAT_ERROR_MARGIN], method="ffill"
             )
 
             for var in self.vars[key]:
@@ -254,14 +254,14 @@ class Timeseries:
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
-                self.datasets[key].time.values > current_time + FLOAT_ERROR_MARGIN
+                self.datasets[key].time.values > time + FLOAT_ERROR_MARGIN
             ):
                 dataset_after = self.datasets[key].sel(
-                    time=[current_time + FLOAT_ERROR_MARGIN], method="bfill"
+                    time=[time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
                 for var in self.vars[key]:
                     current_data[var] += (
-                        (current_time - dataset_before.time.item())
+                        (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
                             dataset_after[short_name + "_" + var].values.flatten()
