@@ -72,48 +72,39 @@ class Timeseries:
                     "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
 
-    def add_coeffs(self, key, data, time):
-        """Set the variables for the simulation.
+    def add_entry(self, key, data, time):
+        """Add entry to the timeseries.
+
+        Creates a new timeseries if one does not exist, otherwise
+        concatenates the new data along the time dimension.
 
         Parameters
         ----------
+        key : {'jr', 'conductance', 'u', 'state', 'steady_state'}
+            The key identifying the type of data.
         data : dict
             Dictionary of variables to set.
-        vars : list
-            List of variable names.
+        time : float
+            The time point for the data.
         """
-        processed_data = {}
+        data_vars = {}
+        for var in data:
+            data_vars[var] = (["time", "i"], data[var].reshape((1, -1)))
 
-        time = np.atleast_1d(time)
+        dataset = xr.Dataset(
+            data_vars=data_vars,
+            coords=xr.Coordinates.from_pandas_multiindex(
+                self.basis_multiindices[key], dim="i"
+            ).merge({"time": [time]}),
+        )
 
-        for time_index in range(time.size):
-            processed_data = {}
-
-            for var in self.vars[key]:
-                coeff_array = np.array(
-                    [
-                        np.atleast_2d(data[var][component])[time_index]
-                        for component in range(len(data[var]))
-                    ]
-                )
-                if len(data[var]) == 1:
-                    coeffs = coeff_array[0]
-                else:
-                    coeffs = coeff_array
-
-                processed_data[self.bases[key].short_name + "_" + var] = (
-                    ["time", "i"],
-                    coeffs.reshape((1, -1)),
-                )
-
-            dataset = xr.Dataset(
-                data_vars=processed_data,
-                coords=xr.Coordinates.from_pandas_multiindex(
-                    self.basis_multiindices[key], dim="i"
-                ).merge({"time": [time[time_index]]}),
-            )
-
-            self.add_dataset(dataset, key)
+        if key not in self.datasets.keys():
+            self.datasets[key] = dataset.sortby("time")
+        else:
+            self.datasets[key] = xr.concat(
+                [self.datasets[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
+                dim="time",
+            ).sortby("time")
 
     def add_input(
         self,
@@ -183,40 +174,25 @@ class Timeseries:
                 pinv_rtol=pinv_rtol,
             )
 
-        time = np.atleast_1d(time)
-
         for time_index in range(time.size):
             processed_data = {}
 
             for var in self.vars[key]:
-                grid_value_array = np.array(
-                    [
-                        np.atleast_2d(input_data[var][component])[time_index]
-                        for component in range(len(input_data[var]))
-                    ]
-                )
                 if self.vector_storage[key]:
-                    if len(input_data[var]) == 1:
-                        grid_values = grid_value_array[0]
-                    else:
-                        grid_values = grid_value_array
                     vector = FieldExpansion(
                         self.bases[key],
                         basis_evaluator=self.input_basis_evaluators[key],
-                        grid_values=grid_values,
+                        grid_values=input_data[var][time_index],
                         field_type=self.vars[key][var],
                     )
 
-                    processed_data[self.bases[key].short_name + "_" + var] = (
-                        ["time", "i"],
-                        vector.coeffs.reshape((1, -1)),
-                    )
+                    processed_data[self.bases[key].short_name + "_" + var] = vector.coeffs
 
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
                         interpolated_data = self.cs_basis.interpolate_scalar(
-                            grid_value_array[0],
+                            input_data[var][time_index],
                             input_grid.theta,
                             input_grid.phi,
                             self.state_grid.theta,
@@ -225,9 +201,9 @@ class Timeseries:
                     elif self.vars[key][var] == "tangential":
                         interpolated_east, interpolated_north, _ = (
                             self.cs_basis.interpolate_vector_components(
-                                grid_value_array[1],
-                                -grid_value_array[0],
-                                np.zeros_like(grid_value_array[0]),
+                                input_data[var][time_index, 1],
+                                -input_data[var][time_index, 0],
+                                np.zeros_like(input_data[var][time_index, 0]),
                                 input_grid.theta,
                                 input_grid.phi,
                                 self.state_grid.theta,
@@ -238,50 +214,18 @@ class Timeseries:
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    processed_data["GRID_" + var] = (
-                        ["time", "i"],
-                        interpolated_data.reshape((1, -1)),
-                    )
+                    processed_data["GRID_" + var] = interpolated_data
 
-            dataset = xr.Dataset(
-                data_vars=processed_data,
-                coords=xr.Coordinates.from_pandas_multiindex(
-                    self.basis_multiindices[key], dim="i"
-                ).merge({"time": [time[time_index]]}),
-            )
+            self.add_entry(key, processed_data, time[time_index])
 
-            self.add_dataset(dataset, key)
-
-    def add_dataset(self, dataset, key):
-        """Add a dataset to the timeseries.
-
-        Creates a new timeseries if one does not exist, otherwise
-        concatenates the new data along the time dimension.
-
-        Parameters
-        ----------
-        dataset : xarray.Dataset
-            Dataset containing the timeseries data.
-        key : str
-            The key identifying the type of data ('state', 'jr',
-            'conductance', or 'u').
-        """
-        if key not in self.datasets.keys():
-            self.datasets[key] = dataset.sortby("time")
-        else:
-            self.datasets[key] = xr.concat(
-                [self.datasets[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
-                dim="time",
-            ).sortby("time")
-
-    def get_updated_data(self, key, current_time, interpolation=False):
+    def get_entry_if_changed(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.
 
         Parameters
         ----------
         key : str
             Key for the time series.
-        current_time : float
+        time : float
             Current time for which to select data.
         interpolation : bool, optional
             Whether to use linear interpolation.
@@ -292,7 +236,7 @@ class Timeseries:
             Dictionary containing the latest data for the specified
             key, or None if no new data is available.
         """
-        if np.any(self.datasets[key].time.values <= current_time + FLOAT_ERROR_MARGIN):
+        if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
             if self.vector_storage[key]:
                 short_name = self.bases[key].short_name
             else:
@@ -302,7 +246,7 @@ class Timeseries:
 
             # Select latest data before the current time.
             dataset_before = self.datasets[key].sel(
-                time=[current_time + FLOAT_ERROR_MARGIN], method="ffill"
+                time=[time + FLOAT_ERROR_MARGIN], method="ffill"
             )
 
             for var in self.vars[key]:
@@ -310,14 +254,14 @@ class Timeseries:
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
-                self.datasets[key].time.values > current_time + FLOAT_ERROR_MARGIN
+                self.datasets[key].time.values > time + FLOAT_ERROR_MARGIN
             ):
                 dataset_after = self.datasets[key].sel(
-                    time=[current_time + FLOAT_ERROR_MARGIN], method="bfill"
+                    time=[time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
                 for var in self.vars[key]:
                     current_data[var] += (
-                        (current_time - dataset_before.time.item())
+                        (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
                             dataset_after[short_name + "_" + var].values.flatten()
