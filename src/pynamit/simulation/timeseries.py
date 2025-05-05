@@ -72,15 +72,20 @@ class Timeseries:
                     "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
 
-    def add_coeffs(self, key, data, time):
-        """Set the variables for the simulation.
+    def add_entry(self, key, data, time):
+        """Add entry to the timeseries.
+
+        Creates a new timeseries if one does not exist, otherwise
+        concatenates the new data along the time dimension.
 
         Parameters
         ----------
+        key : {'jr', 'conductance', 'u', 'state', 'steady_state'}
+            The key identifying the type of data.
         data : dict
             Dictionary of variables to set.
-        vars : list
-            List of variable names.
+        time : float
+            The time point for the data.
         """
         processed_data = {}
         for data_name in data:
@@ -93,7 +98,13 @@ class Timeseries:
             ).merge({"time": [time]}),
         )
 
-        self.add_dataset(dataset, key)
+        if key not in self.datasets.keys():
+            self.datasets[key] = dataset.sortby("time")
+        else:
+            self.datasets[key] = xr.concat(
+                [self.datasets[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
+                dim="time",
+            ).sortby("time")
 
     def add_input(
         self,
@@ -205,29 +216,7 @@ class Timeseries:
 
                     processed_data["GRID_" + var] = interpolated_data
 
-            self.add_coeffs(key, processed_data, time[time_index])
-
-    def add_dataset(self, dataset, key):
-        """Add a dataset to the timeseries.
-
-        Creates a new timeseries if one does not exist, otherwise
-        concatenates the new data along the time dimension.
-
-        Parameters
-        ----------
-        dataset : xarray.Dataset
-            Dataset containing the timeseries data.
-        key : str
-            The key identifying the type of data ('state', 'jr',
-            'conductance', or 'u').
-        """
-        if key not in self.datasets.keys():
-            self.datasets[key] = dataset.sortby("time")
-        else:
-            self.datasets[key] = xr.concat(
-                [self.datasets[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
-                dim="time",
-            ).sortby("time")
+            self.add_entry(key, processed_data, time[time_index])
 
     def get_updated_data(self, key, current_time, interpolation=False):
         """Select time series data corresponding to the specified time.

@@ -254,7 +254,7 @@ class Dynamics(object):
                     "SH_W": self.state.E.coeffs[1],
                 }
 
-                self.timeseries.add_coeffs("state", state_data, time=self.current_time)
+                self.timeseries.add_entry("state", state_data, time=self.current_time)
 
                 if self.save_steady_states:
                     # Calculate steady state and append to time series.
@@ -269,7 +269,7 @@ class Dynamics(object):
                         "SH_W": steady_state_E_coeffs[1],
                     }
 
-                    self.timeseries.add_coeffs(
+                    self.timeseries.add_entry(
                         "steady_state", steady_state_data, time=self.current_time
                     )
 
