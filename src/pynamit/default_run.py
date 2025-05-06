@@ -25,6 +25,9 @@ def run_pynamit(
     vector_conductance=True,
     vector_u=True,
     integrator="euler",
+    jr_lambda=None,
+    conductance_lambda=None,
+    u_lambda=None,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -66,6 +69,12 @@ def run_pynamit(
         Whether to use vector representation for wind.
     integrator : {'euler', 'exponential'}, optional
         Integrator type for time evolution.
+    jr_lambda : float, optional
+        Regularization parameter for the radial current.
+    conductance_lambda : float, optional
+        Regularization parameter for the conductance.
+    u_lambda : float, optional
+        Regularization parameter for the wind.
 
     Returns
     -------
@@ -112,7 +121,9 @@ def run_pynamit(
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
     )
-    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
+    dynamics.set_conductance(
+        hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=conductance_lambda
+    )
 
     # Get and set jr input.
     jr_lat = dynamics.state_grid.lat
@@ -122,7 +133,7 @@ def run_pynamit(
     jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
     # Filter low latitude jr.
     jr[np.abs(jr_lat) < 50] = 0
-    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
+    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda)
 
     # Get and set wind input.
     if wind:
@@ -147,6 +158,7 @@ def run_pynamit(
             lat=u_lat,
             lon=u_lon,
             weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+            reg_lambda=u_lambda,
         )
 
     if steady_state:
