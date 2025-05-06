@@ -27,7 +27,7 @@ JR_LAMBDA = 1e-5
 
 dt = 300
 
-dataset_filename_prefix = "mage-forcing"
+filename_prefix = "mage-forcing"
 Nmax, Mmax, Ncs = 40, 40, 40
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
@@ -36,7 +36,7 @@ d = dipole.Dipole(date.year)
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
