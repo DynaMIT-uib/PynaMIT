@@ -21,12 +21,12 @@ jobs:
         run: 'pip install ruff sphinx sphinx-rtd-theme myst-parser'
       - name: Check out PynaMIT repository
         uses: actions/checkout@v4
+      - name: Install PynaMIT
+        run: 'pip install .'
       - name: Lint PynaMIT code
         run: 'ruff check'
       - name: Build PynaMIT documentation
         run: 'sphinx-apidoc -o docs/source src && sphinx-build -b html docs/source docs/build'
-      - name: Install PynaMIT
-        run: 'pip install .'
       - name: Run PynaMIT tests
         run: 'pytest -v'
       - name: Upload documentation artifact
