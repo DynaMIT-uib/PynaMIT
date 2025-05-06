@@ -311,7 +311,7 @@ for step in range(0, nstep):
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
-    dynamics.select_input_data()
+    dynamics.set_input_state_variables()
 
     if PLOT_JR:
         pynamit.globalplot(
@@ -482,7 +482,7 @@ for step in range(0, nstep):
         plt_evaluator = pynamit.BasisEvaluator(dynamics.state.jr_basis, plt_grid)
         b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, plt_grid, RI)
 
-        dynamics.select_timeseries_data("jr")
+        dynamics.set_state_variables("jr")
         jr_interpolated = plt_evaluator.basis_to_grid(dynamics.state.jr.coeffs)
 
         # jr interpolated:
