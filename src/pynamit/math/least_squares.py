@@ -231,7 +231,7 @@ class LeastSquares:
             ATWA_plus_R = self.ATWA.copy()
             for i in range(self.n_constraints):
                 if self.reg_lambda[i] is not None:
-                    ATWA_plus_R += np.dot(self.reg_L[i].array.T, self.reg_L[i].array)
+                    ATWA_plus_R += self.reg_lambda[i] * np.dot(self.reg_L[i].array.T, self.reg_L[i].array)
 
             self._ATWA_plus_R_pinv = np.linalg.pinv(
                 ATWA_plus_R, rcond=self.pinv_rtol, hermitian=True
