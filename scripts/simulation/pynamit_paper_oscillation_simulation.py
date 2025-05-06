@@ -18,7 +18,7 @@ NUMBER_OF_OSCILLATIONS = 2  # Periods to simulate after tapering
 FLOAT_ERROR_MARGIN = 1e-6
 
 
-dataset_filename_prefix = "data/pynamit_paper_oscillations"
+filename_prefix = "data/pynamit_paper_oscillations"
 Nmax, Mmax, Ncs = 90, 90, 100
 latitude_boundary = 45
 RE = 6371.2e3
@@ -35,7 +35,7 @@ print(datetime.datetime.now(), "making dynamics object", flush=True)
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

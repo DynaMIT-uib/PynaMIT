@@ -21,7 +21,7 @@ RI = (6371.2 + 110) * 1e3
 dt = 5e-4
 totalsteps = 20001
 
-dataset_filename_prefix = "simulation_test"
+filename_prefix = "simulation_test"
 
 # Define plotting parameters.
 plotsteps = 200
@@ -34,7 +34,7 @@ Philevels = np.r_[-212.5:212.5:2.5]
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

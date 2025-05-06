@@ -94,6 +94,8 @@ class State(object):
         self.vector_Br = settings.vector_Br
         self.vector_conductance = settings.vector_conductance
 
+        self.integrator = settings.integrator
+
         if PFAC_matrix is not None:
             self._T_to_Ve = PFAC_matrix
 
@@ -611,13 +613,17 @@ class State(object):
         """
         from scipy.linalg import expm
 
-        steady_state_m_ind = self.steady_state_m_ind()
+        if self.integrator == "euler":
+            new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
-        propagator = expm(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1])
+        elif self.integrator == "exponential":
+            steady_state_m_ind = self.steady_state_m_ind()
 
-        inductive_m_ind = propagator.dot(self.m_ind.coeffs - steady_state_m_ind)
+            propagator = expm(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1])
 
-        new_m_ind = inductive_m_ind + steady_state_m_ind
+            inductive_m_ind = propagator.dot(self.m_ind.coeffs - steady_state_m_ind)
+
+            new_m_ind = inductive_m_ind + steady_state_m_ind
 
         self.set_model_coeffs(m_ind=new_m_ind)
 

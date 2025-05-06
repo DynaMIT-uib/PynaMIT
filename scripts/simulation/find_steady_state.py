@@ -11,7 +11,7 @@ import datetime
 import pyamps
 import apexpy
 
-dataset_filename_prefix = "data/steady_state"
+filename_prefix = "data/steady_state"
 Nmax, Mmax, Ncs = 90, 90, 100
 latitude_boundary = 45
 RE = 6371.2e3
@@ -26,7 +26,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

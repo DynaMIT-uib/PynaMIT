@@ -75,7 +75,10 @@ phi = np.rad2deg(np.arctan2(y_c, x_c))
 
 Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
 Br_basis_evaluator = pynamit.BasisEvaluator(
-    dynamics.state.basis, Br_grid, weights=np.sin(np.deg2rad(theta.flatten())), reg_lambda=BR_LAMBDA
+    dynamics.state.basis,
+    Br_grid,
+    weights=np.sin(np.deg2rad(theta.flatten())),
+    reg_lambda=BR_LAMBDA,
 )
 
 Bx0 = gsph.GetVar("Bx0")[idx, :, :]  # Unscaled
@@ -123,9 +126,7 @@ for step in range(0, nstep):
     plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
     plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
     plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-    conductance_plt_evaluator = pynamit.BasisEvaluator(
-        dynamics.state.conductance_basis, plt_grid
-    )
+    conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
 
     if PLOT_BR:
         pynamit.globalplot(
@@ -154,8 +155,6 @@ for step in range(0, nstep):
         theta=dynamics.state.grid.theta,
         phi=dynamics.state.grid.phi,
         time=dt * step,
-        # weights=np.sin(np.deg2rad(full_theta_padded_centered.flatten())),
-        # reg_lambda=1e-3,
     )
 
     # Get jr and conductance from the MAGE data.
@@ -185,10 +184,10 @@ for step in range(0, nstep):
         full_theta_centered = np.concatenate((north_theta_centered, 180 - south_theta_centered))
         full_phi_centered = np.concatenate((north_phi_centered, south_phi_centered))
 
-        # Zero pad by adding latitude_step degrees to theta, starting from
-        # 90 - latitude_boundary + latitude_step until 90 degree theta
-        # is reached. Each latitude is repeated the same number of times
-        # as the number of longitude points.
+        # Zero pad by adding latitude_step degrees to theta, starting
+        # from 90 - latitude_boundary + latitude_step until 90 degree
+        # theta is reached. Each latitude is repeated the same number of
+        # times as the number of longitude points.
         theta_padding = np.tile(
             np.arange(
                 90 - latitude_boundary + latitude_step, 90 + latitude_step, latitude_step
@@ -231,8 +230,8 @@ for step in range(0, nstep):
     full_current = np.concatenate((north_current, south_current))
 
     # Pad with zeros to match the size of the theta and phi arrays.
-    # This is necessary because the current array is not the same size as
-    # the theta and phi arrays.
+    # This is necessary because the current array is not the same size
+    # as the theta and phi arrays.
 
     north_current_padded = np.zeros(
         (north_theta_padded_centered.shape[0], north_theta_padded_centered.shape[1])

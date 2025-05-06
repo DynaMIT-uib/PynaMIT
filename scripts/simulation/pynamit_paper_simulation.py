@@ -11,7 +11,7 @@ import datetime
 import pyamps
 import apexpy
 
-dataset_filename_prefix = "data/pynamit_paper_simulation"
+filename_prefix = "data/pynamit_paper_simulation"
 Nmax, Mmax, Ncs = 90, 90, 100
 simulation_time = 480
 latitude_boundary = 45
@@ -29,7 +29,7 @@ print(datetime.datetime.now(), "making dynamics object", flush=True)
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    dataset_filename_prefix=dataset_filename_prefix,
+    filename_prefix=filename_prefix,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
