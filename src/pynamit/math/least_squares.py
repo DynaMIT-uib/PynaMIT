@@ -228,12 +228,13 @@ class LeastSquares:
         Uses pseudoinverse with specified tolerance.
         """
         if not hasattr(self, "_ATWA_plus_R_pinv"):
+            ATWA_scale = np.median(np.diag(self.ATWA))
             ATWA_plus_R = self.ATWA.copy()
             for i in range(self.n_constraints):
                 if self.reg_lambda[i] is not None:
-                    ATWA_plus_R += self.reg_lambda[i] * np.dot(
-                        self.reg_L[i].array.T, self.reg_L[i].array
-                    )
+                    LTLi = np.dot(self.reg_L[i].array.T, self.reg_L[i].array)
+                    LTLi_scale = np.median(np.diag(LTLi))
+                    ATWA_plus_R += self.reg_lambda[i] / LTLi_scale * ATWA_scale * LTLi
 
             self._ATWA_plus_R_pinv = np.linalg.pinv(
                 ATWA_plus_R, rcond=self.pinv_rtol, hermitian=True
