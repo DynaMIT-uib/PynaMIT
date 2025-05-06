@@ -117,7 +117,9 @@ def run_pynamit(
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
     )
-    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=conductance_lambda)
+    dynamics.set_conductance(
+        hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=conductance_lambda
+    )
 
     # Get and set jr input.
     jr_lat = dynamics.state_grid.lat
