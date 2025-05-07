@@ -45,7 +45,6 @@ RUN mamba create -y -n pynamit-env \
     python-build \
     ruff \
     scipy \
-    setuptools \
     sphinx \
     sphinx-rtd-theme && \
     echo "mamba activate pynamit-env" >> /etc/profile.d/activate_env.sh
@@ -55,3 +54,5 @@ RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaunda
 
 # Install pyHWM14
 RUN pip install "git+https://github.com/rilma/pyHWM14.git@main"
+
+WORKDIR /
