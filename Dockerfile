@@ -44,7 +44,7 @@ RUN mamba create -y -n pynamit-env \
     python=3.10 \
     python-build \
     ruff \
-    scipy \
+    scipy=1.14 \
     sphinx \
     sphinx-rtd-theme && \
     echo "mamba activate pynamit-env" >> /etc/profile.d/activate_env.sh
