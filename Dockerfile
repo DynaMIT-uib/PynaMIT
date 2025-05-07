@@ -6,7 +6,17 @@ SHELL ["/bin/bash", "-l", "-c"]
 # Install system dependencies
 RUN apt update
 RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections
-RUN apt install -y wget git cargo gfortran gcc libhdf5-dev pkg-config ttf-mscorefonts-installer make
+RUN apt install -y \
+    cargo \
+    gcc \
+    gfortran \
+    git \
+    libhdf5-dev \
+    make \
+    pkg-config \
+    ttf-mscorefonts-installer \
+    wget
+
 ENV FC=gfortran
 ENV CC=gcc
 ENV CXX=g++
@@ -22,14 +32,26 @@ RUN wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/lat
 RUN mamba update -y -c conda-forge mamba
 
 # Create PynaMIT environment, Python 3.10 is used for compatibility with pyHWM14
-RUN mamba create -y -n pynamit-env pip numpy scipy pandas matplotlib cartopy pytest python-build python=3.10 && \
+RUN mamba create -y -n pynamit-env \
+    cartopy \
+    coveralls \
+    matplotlib \
+    myst-parser \
+    numpy \
+    pandas \
+    pip \
+    pytest \
+    python=3.10 \
+    python-build \
+    ruff \
+    scipy \
+    setuptools \
+    sphinx \
+    sphinx-rtd-theme && \
     echo "mamba activate pynamit-env" >> /etc/profile.d/activate_env.sh
 
 # Install Lompe
 RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaundal/lompe.git@main"
 
 # Install pyHWM14
-RUN git clone https://github.com/rilma/pyHWM14.git
-WORKDIR /pyHWM14
-RUN make install
-WORKDIR /
+RUN pip install "git+https://github.com/rilma/pyHWM14.git@main"

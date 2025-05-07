@@ -12,13 +12,11 @@ jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-latest
-    container: ghcr.io/dynamit-uib/pynamit:x86_64-2025-02-11
+    container: ghcr.io/dynamit-uib/pynamit:x86_64-2025-05-07
     defaults:
       run:
         shell: 'bash -leo pipefail {0}'
     steps:
-      - name: Install Ruff and Sphinx
-        run: 'pip install ruff sphinx sphinx-rtd-theme myst-parser'
       - name: Check out PynaMIT repository
         uses: actions/checkout@v4
       - name: Install PynaMIT
