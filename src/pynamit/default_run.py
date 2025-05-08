@@ -79,6 +79,8 @@ def run_pynamit(
         The dynamics object for performing the simulation and handling
         the simulation results.
     """
+    import os
+
     import datetime
     import numpy as np
 
@@ -125,7 +127,19 @@ def run_pynamit(
     jr_lat = dynamics.state_grid.lat
     jr_lon = dynamics.state_grid.lon
     d = dipole.Dipole(date.year)
-    a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
+    a = pyamps.AMPS(
+        300,
+        0,
+        -4,
+        20,
+        100,
+        minlat=50,
+        coeff_fn=os.path.join(
+            os.path.dirname(pyamps.__file__),
+            "coefficients",
+            "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt",
+        ),
+    )
     jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
     # Filter low latitude jr.
     jr[np.abs(jr_lat) < 50] = 0
