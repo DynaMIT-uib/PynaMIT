@@ -49,13 +49,8 @@ RUN mamba create -y -n pynamit-env \
     sphinx-rtd-theme && \
     echo "mamba activate pynamit-env" >> /etc/profile.d/activate_env.sh
 
-# Install pyamps 1.6, as field-aligned currents are different in 1.7
-RUN pip install "pyamps==1.6"
-
 # Install Lompe
 RUN pip install "lompe[deps-from-github,extras] @ git+https://github.com/klaundal/lompe.git@main"
 
 # Install pyHWM14
 RUN pip install "git+https://github.com/rilma/pyHWM14.git@main"
-
-WORKDIR /

@@ -12,7 +12,7 @@ jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-latest
-    container: ghcr.io/dynamit-uib/pynamit:x86_64-2025-05-07
+    container: ghcr.io/dynamit-uib/pynamit:x86_64-2025-05-08
     defaults:
       run:
         shell: 'bash -leo pipefail {0}'
