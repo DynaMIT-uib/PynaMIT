@@ -83,6 +83,7 @@ class State(object):
         self.mainfield = mainfield
 
         self.RI = settings.RI
+        self.RM = None if settings.RM == 0 else settings.RM
         self.latitude_boundary = settings.latitude_boundary
         self.ignore_PFAC = bool(settings.ignore_PFAC)
         self.connect_hemispheres = bool(settings.connect_hemispheres)
