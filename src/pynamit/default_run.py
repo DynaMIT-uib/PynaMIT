@@ -13,7 +13,7 @@ def run_pynamit(
     Nmax=20,
     Mmax=20,
     Ncs=30,
-    RM = None,
+    RM=None,
     mainfield_kind="dipole",
     fig_directory="./figs",
     ignore_PFAC=True,

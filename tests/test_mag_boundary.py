@@ -8,12 +8,13 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 from pynamit.math.constants import RE
 
+
 def test_mag_boundary():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 8.786504054759309e-08
-    expected_coeff_max = 1.181752648492068e-09
-    expected_coeff_min = -3.1534061196995616e-09
+    expected_coeff_norm = 8.652100552836489e-08
+    expected_coeff_max = 1.1893680816975412e-09
+    expected_coeff_min = -3.0349845217720827e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -27,7 +28,7 @@ def test_mag_boundary():
         Nmax=5,
         Mmax=3,
         Ncs=18,
-        RM=4*RE,
+        RM=4 * RE,
         mainfield_kind="dipole",
         fig_directory=temp_dir,
         ignore_PFAC=False,

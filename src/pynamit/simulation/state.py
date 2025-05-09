@@ -255,16 +255,14 @@ class State(object):
                 rks = np.array(rk_steps[:-1] + 0.5 * Delta_k)
                 if any(rks < self.RI):
                     raise ValueError(
-                        "All FAC integration steps must be outside the "
-                        "ionospheric boundary (RI)."
+                        "All FAC integration steps must be outside the ionospheric boundary (RI)."
                     )
                 if self.RM is not None:
                     if any(rks > self.RM):
-                            raise ValueError(
-                                "All FAC integration steps must be inside the "
-                                "magnetospheric boundary (RM)."
-                            )
-
+                        raise ValueError(
+                            "All FAC integration steps must be inside the "
+                            "magnetospheric boundary (RM)."
+                        )
 
                 JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
 
@@ -305,7 +303,7 @@ class State(object):
                     Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
 
                     if self.RM is not None:
-                        Ve_rk_to_Ve += (
+                        Ve_rk_to_Ve -= (
                             self.basis.radial_shift_Ve(self.RM, self.RI)
                             * self.basis.radial_shift_Vi(rk, self.RM)
                         ).reshape((-1, 1, 1))
