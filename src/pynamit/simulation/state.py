@@ -307,13 +307,13 @@ class State(object):
                             self.basis.radial_shift_Ve(self.RM, self.RI)
                             * self.basis.radial_shift_Vi(rk, self.RM)
                         ).reshape((-1, 1, 1))
-                        factor = 1 / (
+                        factor = -1 / (
                             1
                             - self.basis.radial_shift_Ve(self.RM, self.RI)
                             * self.basis.radial_shift_Vi(self.RI, self.RM)
                         )
                     else:
-                        factor = 1
+                        factor = -1
 
                     JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
 
@@ -321,7 +321,7 @@ class State(object):
                     # poloidal field that shields the region under the
                     # ionosphere from the FAC poloidal field.
 
-                    self._T_to_Ve -= (
+                    self._T_to_Ve += (
                         Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
                     )
 
