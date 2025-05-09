@@ -123,6 +123,19 @@ class State(object):
 
         # Prepare spherical harmonic conversion factors.
         self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+
+        if self.RM is not None:
+            self.Br_RM_to_m_S = (
+                -1
+                / (
+                    1
+                    - self.basis.radial_shift_Ve(self.RM, self.RI)
+                    * self.basis.radial_shift_Vi(self.RI, self.RM)
+                )
+                * self.basis.radial_shift_Ve(self.RM, self.RI)
+                / self.m_ind_to_Br
+            )
+
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_d_m_ind_dt = 1 / self.RI
         self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.coeffs_to_delta_V
@@ -422,7 +435,7 @@ class State(object):
         if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
             if self.Br_input:
-                m_imp += self.m_ind_to_m_imp.dot(self.Br.coeffs / self.m_ind_to_Br)
+                m_imp += self.m_ind_to_m_imp.dot(self.Br_RM_to_m_S * self.Br.coeffs)
 
             if self.neutral_wind:
                 if self.vector_u:
@@ -603,7 +616,7 @@ class State(object):
         """
         E_coeffs_m_ind = self.m_ind_to_E_coeffs.dot(m_ind)
         if self.Br_input:
-            E_coeffs_m_ind += self.m_ind_to_E_coeffs.dot(self.Br.coeffs / self.m_ind_to_Br)
+            E_coeffs_m_ind += self.m_ind_to_E_coeffs.dot(self.Br_RM_to_m_S * self.Br.coeffs)
 
         if self.vector_jr:
             E_coeffs_jr = self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
