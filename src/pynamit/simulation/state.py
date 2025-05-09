@@ -477,6 +477,9 @@ class State(object):
             Radial component of Br at grid points or as vector
             coefficients
         """
+        if self.RM is None:
+            raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
+
         self.Br_input = True
 
         if self.vector_Br:

@@ -41,6 +41,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
+    RM=1.5 * RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
     ignore_PFAC=True,
@@ -48,6 +49,7 @@ dynamics = pynamit.Dynamics(
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
+    integrator="exponential",
 )
 
 mage_dir = "./mage_data/"
@@ -137,18 +139,20 @@ for step in range(0, nstep):
             extend="both",
             title="Br at 1.5 RI",
         )
-    # Shift from 1.5 RI to 1.0 RI
-    Br_expansion.coeffs = Br_expansion.coeffs * dynamics.state.basis.radial_shift_Ve(1.5, 1)
+    # Shift from 1.5 RI to 1.0 RI.
+    # This is now done inside state, assuming that Br is at RM.
+    # Br_expansion.coeffs = Br_expansion.coeffs
+    # * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
-    if PLOT_BR:
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.bwr,
-            extend="both",
-            title="Br at 1.0 RI",
-        )
+    # if PLOT_BR:
+    #    pynamit.globalplot(
+    #        plt_lon,
+    #        plt_lat,
+    #        Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
+    #        cmap=plt.cm.bwr,
+    #        extend="both",
+    #        title="Br at 1.0 RI",
+    #    )
 
     dynamics.set_Br(
         Br_expansion.to_grid(dynamics.state.basis_evaluator),
