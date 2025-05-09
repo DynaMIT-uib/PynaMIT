@@ -253,6 +253,18 @@ class State(object):
                 rk_steps = self.FAC_integration_steps
                 Delta_k = np.diff(rk_steps)
                 rks = np.array(rk_steps[:-1] + 0.5 * Delta_k)
+                if any(rks < self.RI):
+                    raise ValueError(
+                        "All FAC integration steps must be outside the "
+                        "ionospheric boundary (RI)."
+                    )
+                if self.RM is not None:
+                    if any(rks > self.RM):
+                            raise ValueError(
+                                "All FAC integration steps must be inside the "
+                                "magnetospheric boundary (RM)."
+                            )
+
 
                 JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
 
@@ -291,12 +303,29 @@ class State(object):
                     # to the poloidal coefficients from the horizontal
                     # current components at rk.
                     Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
+
+                    if self.RM is not None:
+                        Ve_rk_to_Ve += (
+                            self.basis.radial_shift_Ve(self.RM, self.RI)
+                            * self.basis.radial_shift_Vi(rk, self.RM)
+                        ).reshape((-1, 1, 1))
+                        factor = 1 / (
+                            1
+                            - self.basis.radial_shift_Ve(self.RM, self.RI)
+                            * self.basis.radial_shift_Vi(self.RI, self.RM)
+                        )
+                    else:
+                        factor = 1
+
                     JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
 
                     # Add integration step, negative sign is to create a
                     # poloidal field that shields the region under the
                     # ionosphere from the FAC poloidal field.
-                    self._T_to_Ve -= Delta_k[i] * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
+
+                    self._T_to_Ve -= (
+                        Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
+                    )
 
         return self._T_to_Ve
 
