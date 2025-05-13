@@ -32,15 +32,11 @@ d = dipole.Dipole(date.year)
 file = h5.File("mage_2011/data.h5", "r")
 
 
-# magnetosphere grid is 96x128, while ionosphere grid is 144x288?
-# 1.5x density from 96 to 144, 2.25x (1.5^2) density from 128 to 288..
-# Well, radius is 1.5x, so maybe need that's where we get it?
-
-
+# Magnetosphere grid is 96x128, while ionosphere grid is 144x288.
+# 1.5x density from 96 to 144, 2.25x (1.5^2) density from 128 to 288.
+# Does this come from the 1.5x radius quotient?
 ionosphere_lat = file["glat"][:]
 ionosphere_lon = file["glon"][:]
-print("ionosphere_lat", ionosphere_lat.shape)
-print("ionosphere_lon", ionosphere_lon.shape)
 
 ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
@@ -51,7 +47,7 @@ print("magnetosphere_lon", magnetosphere_lon.shape)
 # exit()
 magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
-
+print("Setting up simulation object")
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
     filename_prefix=filename_prefix,
@@ -89,6 +85,9 @@ time = file["time"][:]
 nstep = time.shape[0]
 
 for step in range(0, nstep):
+    print("Processing input step", step, "of", nstep)
+    print("Setting Br")
+
     delta_Br = file["Bu"][:][step, :, :]
     # Probably need to remove dipole field from delta_Br?
 
@@ -121,6 +120,7 @@ for step in range(0, nstep):
         time=dt * step,
     )
 
+    print("Setting jr")
     # Get and set jr input.
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
 
@@ -141,6 +141,7 @@ for step in range(0, nstep):
         reg_lambda=JR_LAMBDA,
     )
 
+    print("Setting conductance")
     # Get and set conductance input.
     conductance_hall = file["SH"][:][step, :, :]
     conductance_pedersen = file["SP"][:][step, :, :]
@@ -204,7 +205,9 @@ for step in range(0, nstep):
             title="etaH",
         )
 
+print("Imposing steady state")
 dynamics.impose_steady_state()
 
+print("Time evolution")
 final_time = 3600  # seconds
 dynamics.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)
