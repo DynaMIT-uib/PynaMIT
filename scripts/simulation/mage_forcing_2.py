@@ -81,6 +81,7 @@ conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_ba
 
 time = file["time"][:]
 nstep = time.shape[0]
+nstep = 10
 
 for step in range(0, nstep):
     print("Processing input step", step, "of", nstep)
@@ -122,13 +123,17 @@ for step in range(0, nstep):
     # Get and set jr input.
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
 
-    FAC_lat = ionosphere_lat[np.isfinite(FAC)]
-    FAC_lon = ionosphere_lon[np.isfinite(FAC)]
+    #FAC_lat = ionosphere_lat[np.isfinite(FAC)]
+    #FAC_lon = ionosphere_lon[np.isfinite(FAC)]
+    FAC_lat = ionosphere_lat
+    FAC_lon = ionosphere_lon
     FAC_b_evaluator = pynamit.FieldEvaluator(
         dynamics.mainfield, pynamit.Grid(lat=FAC_lat, lon=FAC_lon), RI
     )
 
-    jr_input = FAC[np.isfinite(FAC)].flatten() * FAC_b_evaluator.br
+    FAC[np.isnan(FAC)] = 0
+
+    jr_input = FAC.flatten() * FAC_b_evaluator.br
 
     dynamics.set_jr(
         jr_input,
