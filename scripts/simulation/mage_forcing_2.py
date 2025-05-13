@@ -73,8 +73,6 @@ Br_basis_evaluator = pynamit.BasisEvaluator(
     reg_lambda=BR_LAMBDA,
 )
 
-b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, ionosphere_grid, RI)
-
 plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
@@ -126,11 +124,11 @@ for step in range(0, nstep):
 
     FAC_lat = ionosphere_lat[np.isfinite(FAC)]
     FAC_lon = ionosphere_lon[np.isfinite(FAC)]
-    b_evaluator = pynamit.FieldEvaluator(
+    FAC_b_evaluator = pynamit.FieldEvaluator(
         dynamics.mainfield, pynamit.Grid(lat=FAC_lat, lon=FAC_lon), RI
     )
 
-    jr_input = FAC[np.isfinite(FAC)].flatten() * b_evaluator.br
+    jr_input = FAC[np.isfinite(FAC)].flatten() * FAC_b_evaluator.br
 
     dynamics.set_jr(
         jr_input,
