@@ -509,5 +509,7 @@ for step in range(0, nstep):
 
         plt.show()
 
+dynamics.impose_steady_state()
+
 final_time = 3600  # seconds
 dynamics.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)

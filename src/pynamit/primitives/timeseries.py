@@ -153,6 +153,8 @@ class Timeseries:
 
         if not (
             key in self.input_basis_evaluators.keys()
+            and np.shape(input_grid.theta) == self.input_basis_evaluators[key].grid.theta.shape
+            and np.shape(input_grid.phi) == self.input_basis_evaluators[key].grid.phi.shape
             and np.allclose(
                 input_grid.theta,
                 self.input_basis_evaluators[key].grid.theta,
