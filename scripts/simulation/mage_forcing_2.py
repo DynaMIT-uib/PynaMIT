@@ -84,9 +84,7 @@ nstep = time.shape[0]
 
 for step in range(0, nstep):
     print("Processing input step", step, "of", nstep)
-    # Get and set Br input.
-    # Seems like Br is given in nT (norm >> 1, nT mentioned in KAIJU).
-    # Also given without the perturbation, according to Michael.
+    # Get and set Delta Br input (given in nT).
     delta_Br = file["Bu"][:][step, :, :].flatten() * 1e-9  # Convert from nT to T.
 
     if np.any(np.isnan(delta_Br)):
@@ -102,7 +100,7 @@ for step in range(0, nstep):
         reg_lambda=BR_LAMBDA,
     )
 
-    # Get and set jr input. From KAIJU: REMIX FAC is given in muA/m^2.
+    # Get and set jr input (FAC given in muA/m^2).
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
 
     if np.any(np.isnan(FAC)):
@@ -121,9 +119,7 @@ for step in range(0, nstep):
         reg_lambda=JR_LAMBDA,
     )
 
-    # Get and set conductance input. Should not use _G conductances
-    # ("GAMERA"?), as these are NaN at low latitudes.
-    # From KAIJU: REMIX conductance is given in S.
+    # Get and set conductance input (given in S).
     conductance_hall = file["SH"][:][step, :, :].flatten()
     conductance_pedersen = file["SP"][:][step, :, :].flatten()
 
@@ -151,8 +147,7 @@ for step in range(0, nstep):
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
-    # Get and set wind input.
-    # From KAIJU: REMIX wind is given in m/s.
+    # Get and set wind input (given in m/s).
     u_east = file["We"][:][step, :, :]
     u_north = file["Wn"][:][step, :, :]
 
