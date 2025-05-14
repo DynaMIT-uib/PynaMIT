@@ -22,7 +22,7 @@ JR_LAMBDA = 0.1
 
 dt = 10
 
-filename_prefix = "mage-forcing"
+filename_prefix = "results_mage_2011"
 Nmax, Mmax, Ncs = 40, 40, 40
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
@@ -63,11 +63,8 @@ dynamics = pynamit.Dynamics(
     integrator="exponential",
 )
 
-Br_basis_evaluator = pynamit.BasisEvaluator(
-    dynamics.state.basis,
-    magnetosphere_grid,
-    weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
-    reg_lambda=BR_LAMBDA,
+FAC_b_evaluator = pynamit.FieldEvaluator(
+    dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
 )
 
 if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR:
@@ -82,61 +79,38 @@ nstep = time.shape[0]
 
 for step in range(0, nstep):
     print("Processing input step", step, "of", nstep)
-    print("Setting Br")
-
     # Get and set Br input.
-    delta_Br = file["Bu"][:][step, :, :]
-    # Probably need to remove dipole field from delta_Br?
-    # Need to find out typical delta_Br values at 1.5 RI.
+    # Seems like Br is given in nT (norm >> 1, nT mentioned in KAIJU).
+    # Also given without the perturbation, according to Michael.
+    delta_Br = file["Bu"][:][step, :, :].flatten() * 1e-9  # Convert from nT to T.
 
     if np.any(np.isnan(delta_Br)):
         raise ValueError("Br input contains NaN values.")
 
-    if PLOT_BR:
-        pynamit.globalplot(
-            magnetosphere_lon, magnetosphere_lat, delta_Br, cmap=plt.cm.bwr, extend="both"
-        )
-
-    Br_expansion = pynamit.FieldExpansion(
-        dynamics.state.basis,
-        basis_evaluator=Br_basis_evaluator,
-        grid_values=delta_Br.flatten(),
-        field_type="scalar",
-    )
-
-    if PLOT_BR:
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.bwr,
-            extend="both",
-            title="Br at 1.5 RI",
-        )
-
+    print("Setting Br with norm:", np.linalg.norm(delta_Br))
     dynamics.set_Br(
-        Br_expansion.to_grid(dynamics.state.basis_evaluator),
-        theta=dynamics.state.grid.theta,
-        phi=dynamics.state.grid.phi,
+        delta_Br,
+        lat=magnetosphere_lat,
+        lon=magnetosphere_lon,
         time=dt * step,
+        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+        reg_lambda=BR_LAMBDA,
     )
 
-    # Get and set jr input.
-    print("Setting jr")
+    # Get and set jr input. From KAIJU: REMIX FAC is given in muA/m^2.
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
 
-    FAC_b_evaluator = pynamit.FieldEvaluator(
-        dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
-    )
-
-    FAC[np.isnan(FAC)] = 0
+    if np.any(np.isnan(FAC)):
+        print("Warning: FAC input contains NaN values. Setting to 0.")
+        FAC[np.isnan(FAC)] = 0
 
     jr = FAC.flatten() * FAC_b_evaluator.br
 
+    print("Setting jr with norm:", np.linalg.norm(jr))
     dynamics.set_jr(
         jr,
-        lat=ionosphere_lat.flatten(),
-        lon=ionosphere_lon.flatten(),
+        lat=ionosphere_lat,
+        lon=ionosphere_lon,
         time=dt * step,
         weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
         reg_lambda=JR_LAMBDA,
@@ -144,7 +118,7 @@ for step in range(0, nstep):
 
     # Get and set conductance input. Should not use _G conductances
     # ("GAMERA"?), as these are NaN at low latitudes.
-    print("Setting conductance")
+    # From KAIJU: REMIX conductance is given in S.
     conductance_hall = file["SH"][:][step, :, :].flatten()
     conductance_pedersen = file["SP"][:][step, :, :].flatten()
 
@@ -157,19 +131,28 @@ for step in range(0, nstep):
     if np.any(conductance_pedersen <= 0):
         raise ValueError("Pedersen conductance input contains non-positive values.")
 
-    conductance_pedersen_input = conductance_pedersen.flatten()
-
+    print("Setting conductance with norms:", np.linalg.norm(conductance_hall), np.linalg.norm(conductance_pedersen))
     dynamics.set_conductance(
         conductance_hall,
         conductance_pedersen,
-        lat=ionosphere_lat.flatten(),
-        lon=ionosphere_lon.flatten(),
+        lat=ionosphere_lat,
+        lon=ionosphere_lon,
         time=dt * step,
         weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
     dynamics.set_input_state_variables()
+
+    if PLOT_BR:
+        pynamit.globalplot(
+            plt_lon,
+            plt_lat,
+            dynamics.state.Br.to_grid(plt_evaluator).reshape(plt_lon.shape),
+            cmap=plt.cm.bwr,
+            extend="both",
+            title="Br at 1.5 RI",
+        )
 
     if PLOT_JR:
         # Note: no minlat, 50 deg default?
@@ -179,7 +162,7 @@ for step in range(0, nstep):
             dynamics.state.jr.to_grid(plt_evaluator).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
-            title="jr",
+            title="jr at RI",
         )
 
     if PLOT_CONDUCTANCE:
@@ -189,7 +172,7 @@ for step in range(0, nstep):
             dynamics.state.etaP.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
             cmap=plt.cm.viridis,
             extend="both",
-            title="etaP",
+            title="etaP at RI",
         )
 
         pynamit.globalplot(
@@ -198,7 +181,7 @@ for step in range(0, nstep):
             dynamics.state.etaH.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
             cmap=plt.cm.viridis,
             extend="both",
-            title="etaH",
+            title="etaH at RI",
         )
 
 print("Imposing steady state")
