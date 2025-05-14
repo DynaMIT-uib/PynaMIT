@@ -20,7 +20,7 @@ BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 1
 JR_LAMBDA = 0.1
 
-dt = 1
+dt = 30
 
 filename_prefix = "mage-forcing"
 Nmax, Mmax, Ncs = 40, 40, 40
@@ -79,7 +79,6 @@ if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR:
 
 time = file["time"][:]
 nstep = time.shape[0]
-nstep = 10
 
 for step in range(0, nstep):
     print("Processing input step", step, "of", nstep)
