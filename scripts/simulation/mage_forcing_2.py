@@ -6,6 +6,7 @@ import dipole
 import datetime
 import matplotlib.pyplot as plt
 import h5py as h5
+import cartopy.crs as ccrs
 
 RE = 6381e3
 RI = 6.5e6
@@ -15,10 +16,14 @@ latitude_step = 0.5
 PLOT_BR = False
 PLOT_CONDUCTANCE = False
 PLOT_JR = False
+PLOT_U = True
 
 BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 1
 JR_LAMBDA = 0.1
+U_LAMBDA = 0.1
+
+noon_lon = 0
 
 dt = 10
 
@@ -67,7 +72,7 @@ FAC_b_evaluator = pynamit.FieldEvaluator(
     dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
 )
 
-if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR:
+if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR or PLOT_U:
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
     plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
@@ -131,7 +136,11 @@ for step in range(0, nstep):
     if np.any(conductance_pedersen <= 0):
         raise ValueError("Pedersen conductance input contains non-positive values.")
 
-    print("Setting conductance with norms:", np.linalg.norm(conductance_hall), np.linalg.norm(conductance_pedersen))
+    print(
+        "Setting conductance with norms:",
+        np.linalg.norm(conductance_hall),
+        np.linalg.norm(conductance_pedersen),
+    )
     dynamics.set_conductance(
         conductance_hall,
         conductance_pedersen,
@@ -142,6 +151,31 @@ for step in range(0, nstep):
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
+    # Get and set wind input.
+    # From KAIJU: REMIX wind is given in m/s.
+    u_east = file["We"][:][step, :, :]
+    u_north = file["Wn"][:][step, :, :]
+
+    u_theta, u_phi = (-u_north.flatten(), u_east.flatten())
+    u_lat, u_lon = ionosphere_lat, ionosphere_lon
+
+    if np.any(np.isnan(u_theta)):
+        raise ValueError("Wind input contains NaN values.")
+    if np.any(np.isnan(u_phi)):
+        raise ValueError("Wind input contains NaN values.")
+
+    print("Setting wind with norm:", np.linalg.norm(np.array([u_theta, u_phi])))
+    dynamics.set_u(
+        u_theta=u_theta,
+        u_phi=u_phi,
+        lat=u_lat,
+        lon=u_lon,
+        time=dt * step,
+        weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+        reg_lambda=U_LAMBDA,
+    )
+
+    print("Setting input state variables")
     dynamics.set_input_state_variables()
 
     if PLOT_BR:
@@ -183,6 +217,47 @@ for step in range(0, nstep):
             extend="both",
             title="etaH at RI",
         )
+
+    if PLOT_U:
+        # Quiver plot tangential vector field.
+        fig, ax = plt.subplots(
+            1,
+            1,
+            figsize=(15, 6),
+            subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_lon)},
+        )
+
+        ax.coastlines()
+
+        ax.quiver(
+            plt_lon,
+            plt_lat,
+            dynamics.state.u.to_grid(plt_evaluator)[1].flatten(),
+            -dynamics.state.u.to_grid(plt_evaluator)[0].flatten(),
+            color="blue",
+            transform=ccrs.PlateCarree(),
+        )
+
+        plt.show()
+
+        # Alternative: plot theta and phi components separately.
+        # pynamit.globalplot(
+        #    plt_lon,
+        #    plt_lat,
+        #    dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
+        #    cmap=plt.cm.viridis,
+        #    extend="both",
+        #    title="u at RI",
+        # )
+
+        # pynamit.globalplot(
+        #    plt_lon,
+        #    plt_lat,
+        #    dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
+        #    cmap=plt.cm.viridis,
+        #    extend="both",
+        #    title="u at RI",
+        # )
 
 print("Imposing steady state")
 dynamics.impose_steady_state()
