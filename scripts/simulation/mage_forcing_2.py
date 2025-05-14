@@ -16,7 +16,7 @@ latitude_step = 0.5
 PLOT_BR = False
 PLOT_CONDUCTANCE = False
 PLOT_JR = False
-PLOT_U = True
+PLOT_U = False
 
 BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 1
@@ -92,7 +92,7 @@ for step in range(0, nstep):
     if np.any(np.isnan(delta_Br)):
         raise ValueError("Br input contains NaN values.")
 
-    print("Setting Br with norm:", np.linalg.norm(delta_Br))
+    print("Setting Br with RMS: ", np.sqrt(np.mean(delta_Br**2)))
     dynamics.set_Br(
         delta_Br,
         lat=magnetosphere_lat,
@@ -111,7 +111,7 @@ for step in range(0, nstep):
 
     jr = FAC.flatten() * FAC_b_evaluator.br
 
-    print("Setting jr with norm:", np.linalg.norm(jr))
+    print("Setting jr with RMS: ", np.sqrt(np.mean(jr**2)))
     dynamics.set_jr(
         jr,
         lat=ionosphere_lat,
@@ -137,9 +137,9 @@ for step in range(0, nstep):
         raise ValueError("Pedersen conductance input contains non-positive values.")
 
     print(
-        "Setting conductance with norms:",
-        np.linalg.norm(conductance_hall),
-        np.linalg.norm(conductance_pedersen),
+        "Setting conductances with RMSes: ",
+        np.sqrt(np.mean(conductance_hall**2)),
+        np.sqrt(np.mean(conductance_pedersen**2)),
     )
     dynamics.set_conductance(
         conductance_hall,
@@ -164,7 +164,7 @@ for step in range(0, nstep):
     if np.any(np.isnan(u_phi)):
         raise ValueError("Wind input contains NaN values.")
 
-    print("Setting wind with norm:", np.linalg.norm(np.array([u_theta, u_phi])))
+    print("Setting wind with RMS: ", np.sqrt(np.mean(u_theta**2 + u_phi**2)))
     dynamics.set_u(
         u_theta=u_theta,
         u_phi=u_phi,
