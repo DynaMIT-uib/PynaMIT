@@ -20,7 +20,7 @@ BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 1
 JR_LAMBDA = 0.1
 
-dt = 30
+dt = 10
 
 filename_prefix = "mage-forcing"
 Nmax, Mmax, Ncs = 40, 40, 40
