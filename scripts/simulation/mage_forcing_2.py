@@ -26,11 +26,10 @@ filename_prefix = "mage-forcing"
 Nmax, Mmax, Ncs = 40, 40, 40
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
-date = datetime.datetime(2013, 3, 17, 10)
+date = datetime.datetime(2011, 10, 24, 18)
 d = dipole.Dipole(date.year)
 
 file = h5.File("mage_2011/data.h5", "r")
-
 
 # Magnetosphere grid is 96x128, while ionosphere grid is 144x288.
 # 1.5x density from 96 to 144, 2.25x (1.5^2) density from 128 to 288.
@@ -42,9 +41,7 @@ ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
 magnetosphere_lat = file["Blat"][:]
 magnetosphere_lon = file["Blon"][:]
-print("magnetosphere_lat", magnetosphere_lat.shape)
-print("magnetosphere_lon", magnetosphere_lon.shape)
-# exit()
+
 magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
 print("Setting up simulation object")
@@ -73,11 +70,12 @@ Br_basis_evaluator = pynamit.BasisEvaluator(
     reg_lambda=BR_LAMBDA,
 )
 
-plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
-plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
-plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
+if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR:
+    plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
+    plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
+    plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
+    plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
+    conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
 
 time = file["time"][:]
 nstep = time.shape[0]
@@ -87,8 +85,13 @@ for step in range(0, nstep):
     print("Processing input step", step, "of", nstep)
     print("Setting Br")
 
+    # Get and set Br input.
     delta_Br = file["Bu"][:][step, :, :]
     # Probably need to remove dipole field from delta_Br?
+    # Need to find out typical delta_Br values at 1.5 RI.
+
+    if np.any(np.isnan(delta_Br)):
+        raise ValueError("Br input contains NaN values.")
 
     if PLOT_BR:
         pynamit.globalplot(
@@ -119,67 +122,58 @@ for step in range(0, nstep):
         time=dt * step,
     )
 
-    print("Setting jr")
     # Get and set jr input.
+    print("Setting jr")
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
 
-    #FAC_lat = ionosphere_lat[np.isfinite(FAC)]
-    #FAC_lon = ionosphere_lon[np.isfinite(FAC)]
-    FAC_lat = ionosphere_lat
-    FAC_lon = ionosphere_lon
     FAC_b_evaluator = pynamit.FieldEvaluator(
-        dynamics.mainfield, pynamit.Grid(lat=FAC_lat, lon=FAC_lon), RI
+        dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
     )
 
     FAC[np.isnan(FAC)] = 0
 
-    jr_input = FAC.flatten() * FAC_b_evaluator.br
+    jr = FAC.flatten() * FAC_b_evaluator.br
 
     dynamics.set_jr(
-        jr_input,
-        lat=FAC_lat.flatten(),
-        lon=FAC_lon.flatten(),
+        jr,
+        lat=ionosphere_lat.flatten(),
+        lon=ionosphere_lon.flatten(),
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - FAC_lat).flatten())),
+        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
         reg_lambda=JR_LAMBDA,
     )
 
+    # Get and set conductance input. Should not use _G conductances
+    # ("GAMERA"?), as these are NaN at low latitudes.
     print("Setting conductance")
-    # Get and set conductance input.
-    conductance_hall = file["SH"][:][step, :, :]
-    conductance_pedersen = file["SP"][:][step, :, :]
+    conductance_hall = file["SH"][:][step, :, :].flatten()
+    conductance_pedersen = file["SP"][:][step, :, :].flatten()
 
-    hall_lat = ionosphere_lat[np.isfinite(conductance_hall)]
-    hall_lon = ionosphere_lon[np.isfinite(conductance_hall)]
+    if np.any(np.isnan(conductance_hall)):
+        raise ValueError("Hall conductance input contains NaN values.")
+    if np.any(np.isnan(conductance_pedersen)):
+        raise ValueError("Pedersen conductance input contains NaN values.")
+    if np.any(conductance_hall <= 0):
+        raise ValueError("Hall conductance input contains non-positive values.")
+    if np.any(conductance_pedersen <= 0):
+        raise ValueError("Pedersen conductance input contains non-positive values.")
 
-    pedersen_lat = ionosphere_lat[np.isfinite(conductance_pedersen)]
-    pedersen_lon = ionosphere_lon[np.isfinite(conductance_pedersen)]
-
-    if not np.all(hall_lat == pedersen_lat):
-        raise ValueError("Hall and Pedersen conductance latitudes do not match.")
-    if not np.all(hall_lon == pedersen_lon):
-        raise ValueError("Hall and Pedersen conductance longitudes do not match.")
-
-    conductance_lat = hall_lat
-    conductance_lon = hall_lon
-
-    conductance_hall_input = conductance_hall[np.isfinite(conductance_hall)].flatten()
-    conductance_pedersen_input = conductance_pedersen[np.isfinite(conductance_hall)].flatten()
+    conductance_pedersen_input = conductance_pedersen.flatten()
 
     dynamics.set_conductance(
-        conductance_hall_input.flatten(),
-        conductance_pedersen_input.flatten(),
-        lat=conductance_lat.flatten(),
-        lon=conductance_lon.flatten(),
+        conductance_hall,
+        conductance_pedersen,
+        lat=ionosphere_lat.flatten(),
+        lon=ionosphere_lon.flatten(),
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - conductance_lat).flatten())),
+        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
     dynamics.set_input_state_variables()
 
     if PLOT_JR:
-        # Note: no minlat
+        # Note: no minlat, 50 deg default?
         pynamit.globalplot(
             plt_lon,
             plt_lat,
