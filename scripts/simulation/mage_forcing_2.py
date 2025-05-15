@@ -67,8 +67,8 @@ dynamics = pynamit.Dynamics(
     RM=1.5 * RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
+    ignore_PFAC=True,
+    connect_hemispheres=False,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
@@ -79,12 +79,11 @@ FAC_b_evaluator = pynamit.FieldEvaluator(
     dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
 )
 
-if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR or PLOT_U:
-    plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
-    plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
-    plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-    plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-    conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
+plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
+plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
+plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
+plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
+conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
 
 time = file["time"][:]
 nstep = time.shape[0]
@@ -118,14 +117,14 @@ for step in range(0, nstep):
     jr = FAC.flatten() * FAC_b_evaluator.br
 
     print("Setting jr with RMS: ", np.sqrt(np.mean(jr**2)))
-    dynamics.set_jr(
-        jr,
-        lat=ionosphere_lat,
-        lon=ionosphere_lon,
-        time=dt * step,
-        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
-        reg_lambda=JR_LAMBDA,
-    )
+    #dynamics.set_jr(
+    #    jr,
+    #    lat=ionosphere_lat,
+    #    lon=ionosphere_lon,
+    #    time=dt * step,
+    #    weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+    #    reg_lambda=JR_LAMBDA,
+    #)
 
     # Get and set conductance input (given in S).
     conductance_hall = file["SH"][:][step, :, :].flatten()
@@ -266,15 +265,15 @@ print("Imposing steady state")
 dynamics.impose_steady_state()
 # Compare m_ind mapped to the earth to Br.coeffs / self.m_ind_to_Br mapped to the earth.
 # Add effect of pfac
-m_ind_mapped = dynamics.state.m_ind.coeffs * dynamics.state.basis.radial_shift_Ve(RI, RE)
-pfac_mapped =  - dynamics.state.T_to_Ve.values.dot(dynamics.state.m_imp.coeffs) * dynamics.state.basis.radial_shift_Ve(RI, RE)
+m_ind_mapped = dynamics.state.m_ind.coeffs #* dynamics.state.basis.radial_shift_Ve(RI, RE)
+#pfac_mapped =  dynamics.state.T_to_Ve.values.dot(dynamics.state.m_imp.coeffs) #* dynamics.state.basis.radial_shift_Ve(RI, RE)
 #Br_mapped = dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE) * dynamics.state.Br.coeffs / dynamics.state.m_ind_to_Br
 
 # Global plot of m_ind_mapped and Br_mapped.
 pynamit.globalplot(
     plt_lon,
     plt_lat,
-    plt_evaluator.basis_to_grid(m_ind_mapped + pfac_mapped).reshape(plt_lon.shape),
+    plt_evaluator.basis_to_grid(m_ind_mapped).reshape(plt_lon.shape),
     cmap=plt.cm.viridis,
     extend="both",
     title="m_ind_mapped at RE",
@@ -282,17 +281,16 @@ pynamit.globalplot(
 #pynamit.globalplot(
 #    plt_lon,
 #    plt_lat,
-#    plt_evaluator.basis_to_grid(Br_mapped).reshape(plt_lon.shape),
+#    plt_evaluator.basis_to_grid(pfac_mapped).reshape(plt_lon.shape),
 #    cmap=plt.cm.viridis,
 #    extend="both",
 #    title="Br_mapped at RE",
 #)
 
-
-print("Norm of m_ind mapped: ", np.linalg.norm(m_ind_mapped))
-print("Norm of PFAC mapped: ", np.linalg.norm(pfac_mapped))
-print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
-print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
+print(m_ind_mapped)
+#print(pfac_mapped)
+#print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
+#print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
 dynamics.state.update_E()
 print("Norm of E cf: ", np.linalg.norm(dynamics.state.E.coeffs[0]))
 print("Norm of E df: ", np.linalg.norm(dynamics.state.E.coeffs[1]))
