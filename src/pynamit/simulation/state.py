@@ -124,18 +124,6 @@ class State(object):
         # Prepare spherical harmonic conversion factors.
         self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
 
-        if self.RM is not None:
-            self.Br_RM_to_m_S = (
-                -1
-                / (
-                    1
-                    - self.basis.radial_shift_Ve(self.RM, self.RI)
-                    * self.basis.radial_shift_Vi(self.RI, self.RM)
-                )
-                * self.basis.radial_shift_Ve(self.RM, self.RI)
-                / self.m_ind_to_Br
-            )
-
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_d_m_ind_dt = 1 / self.RI
         self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.coeffs_to_delta_V
@@ -150,6 +138,20 @@ class State(object):
 
         self.G_m_ind_to_JS = self.G_Ve_to_JS
         self.G_m_imp_to_JS = self.G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, 1)
+
+        if self.RM is not None:
+            Br_RM_to_m_S = (
+                -1
+                / (
+                    1
+                    - self.basis.radial_shift_Ve(self.RM, self.RI)
+                    * self.basis.radial_shift_Vi(self.RI, self.RM)
+                )
+                * self.basis.radial_shift_Ve(self.RM, self.RI)
+                / self.m_ind_to_Br
+            )
+
+            self.G_Br_to_JS = self.G_Ve_to_JS * Br_RM_to_m_S
 
         # Construct the matrix elements for electric field calculations.
         self.bP = np.array(
@@ -183,6 +185,10 @@ class State(object):
         self.m_ind_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH, self.G_m_ind_to_JS, optimize=True)
         self.m_imp_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP, self.G_m_imp_to_JS, optimize=True)
         self.m_imp_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH, self.G_m_imp_to_JS, optimize=True)
+
+        if self.RM is not None:
+            self.Br_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP, self.G_Br_to_JS, optimize=True)
+            self.Br_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH, self.G_Br_to_JS, optimize=True)
 
         # Identify the high and low latitude points.
         if self.mainfield.kind == "dipole":
@@ -435,7 +441,7 @@ class State(object):
         if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
             if self.Br_input:
-                m_imp += self.m_ind_to_m_imp.dot(self.Br_RM_to_m_S * self.Br.coeffs)
+                m_imp += self.Br_to_m_imp.dot(self.Br.coeffs)
 
             if self.neutral_wind:
                 if self.vector_u:
@@ -548,6 +554,13 @@ class State(object):
             m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
                 G_m_imp_to_E_direct
             )
+            if self.RM is not None:
+                G_Br_to_E_direct = np.einsum(
+                    "i,jik->jik", etaP_on_grid, self.Br_to_bP_JS, optimize=True
+                ) + np.einsum("i,jik->jik", etaH_on_grid, self.Br_to_bH_JS, optimize=True)
+                self.Br_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(
+                    G_Br_to_E_direct
+                )
 
         # Set up jr constraints.
         constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
@@ -581,6 +594,12 @@ class State(object):
         if self.connect_hemispheres and E_MAPPING:
             self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2)
             self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
+
+        if self.RM is not None:
+            self.Br_to_E_coeffs = self.Br_to_E_coeffs_direct.copy()
+            if self.connect_hemispheres and E_MAPPING:
+                self.Br_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.Br_to_E_coeffs_direct, 2)
+                self.Br_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.Br_to_m_imp, 1)
 
         # Construct u matrices. Negative sign is from moving the wind
         # terms to the right hand side of E - E^cp = 0 (in apex
@@ -618,8 +637,6 @@ class State(object):
             Coefficients for the electric field.
         """
         E_coeffs_m_ind = self.m_ind_to_E_coeffs.dot(m_ind)
-        if self.Br_input:
-            E_coeffs_m_ind += self.m_ind_to_E_coeffs.dot(self.Br_RM_to_m_S * self.Br.coeffs)
 
         if self.vector_jr:
             E_coeffs_jr = self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
@@ -633,6 +650,9 @@ class State(object):
                 E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
                 E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
+
+        if self.Br_input:
+            E_coeffs += self.Br_to_E_coeffs.dot(self.Br.coeffs)
 
         return E_coeffs
 
@@ -798,6 +818,9 @@ class State(object):
                 E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
                 E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
+
+        if self.Br_input:
+            E_coeffs_noind += self.Br_to_E_coeffs.dot(self.Br.coeffs)
 
         m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
 
