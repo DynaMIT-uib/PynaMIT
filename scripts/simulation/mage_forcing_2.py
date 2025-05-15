@@ -23,13 +23,20 @@ CONDUCTANCE_LAMBDA = 1
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
 
-noon_lon = 0
-
-dt = 10
+def dipole_radial_sampling(r_min, r_max, n_steps):
+    ratio = r_min / r_max
+    max_angle = np.rad2deg(np.arccos(np.sqrt(ratio)))
+    angles = np.linspace(0, max_angle, n_steps)
+    rk = r_min / np.cos(np.deg2rad(angles))**2
+    return rk, angles
 
 filename_prefix = "results_mage_2011"
 Nmax, Mmax, Ncs = 40, 40, 40
-rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
+#rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
+rk, _ = dipole_radial_sampling(RI, 1.5*RI, n_steps=40)
+
+noon_lon = 0
+dt = 10
 
 date = datetime.datetime(2011, 10, 24, 18)
 d = dipole.Dipole(date.year)
@@ -60,8 +67,8 @@ dynamics = pynamit.Dynamics(
     RM=1.5 * RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
-    ignore_PFAC=True,
-    connect_hemispheres=False,
+    ignore_PFAC=False,
+    connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
@@ -81,9 +88,10 @@ if PLOT_BR or PLOT_CONDUCTANCE or PLOT_JR or PLOT_U:
 
 time = file["time"][:]
 nstep = time.shape[0]
+nstep = 1
 
 for step in range(0, nstep):
-    print("Processing input step", step, "of", nstep)
+    print("Processing input step", step + 1, "of", nstep)
     # Get and set Delta Br input (given in nT).
     delta_Br = file["Bu"][:][step, :, :].flatten() * 1e-9  # Convert from nT to T.
 
@@ -91,14 +99,14 @@ for step in range(0, nstep):
         raise ValueError("Br input contains NaN values.")
 
     print("Setting Br with RMS: ", np.sqrt(np.mean(delta_Br**2)))
-    dynamics.set_Br(
-        delta_Br,
-        lat=magnetosphere_lat,
-        lon=magnetosphere_lon,
-        time=dt * step,
-        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
-        reg_lambda=BR_LAMBDA,
-    )
+    #dynamics.set_Br(
+    #    delta_Br,
+    #    lat=magnetosphere_lat,
+    #    lon=magnetosphere_lon,
+    #    time=dt * step,
+    #    weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+    #    reg_lambda=BR_LAMBDA,
+    #)
 
     # Get and set jr input (FAC given in muA/m^2).
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
@@ -160,15 +168,15 @@ for step in range(0, nstep):
         raise ValueError("Wind input contains NaN values.")
 
     print("Setting wind with RMS: ", np.sqrt(np.mean(u_theta**2 + u_phi**2)))
-    dynamics.set_u(
-        u_theta=u_theta,
-        u_phi=u_phi,
-        lat=u_lat,
-        lon=u_lon,
-        time=dt * step,
-        weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
-        reg_lambda=U_LAMBDA,
-    )
+    #dynamics.set_u(
+    #    u_theta=u_theta,
+    #    u_phi=u_phi,
+    #    lat=u_lat,
+    #    lon=u_lon,
+    #    time=dt * step,
+    #    weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+    #    reg_lambda=U_LAMBDA,
+    #)
 
     print("Setting input state variables")
     dynamics.set_input_state_variables()
@@ -256,6 +264,39 @@ for step in range(0, nstep):
 
 print("Imposing steady state")
 dynamics.impose_steady_state()
+# Compare m_ind mapped to the earth to Br.coeffs / self.m_ind_to_Br mapped to the earth.
+# Add effect of pfac
+m_ind_mapped = dynamics.state.m_ind.coeffs * dynamics.state.basis.radial_shift_Ve(RI, RE)
+pfac_mapped =  - dynamics.state.T_to_Ve.values.dot(dynamics.state.m_imp.coeffs) * dynamics.state.basis.radial_shift_Ve(RI, RE)
+#Br_mapped = dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE) * dynamics.state.Br.coeffs / dynamics.state.m_ind_to_Br
+
+# Global plot of m_ind_mapped and Br_mapped.
+pynamit.globalplot(
+    plt_lon,
+    plt_lat,
+    plt_evaluator.basis_to_grid(m_ind_mapped + pfac_mapped).reshape(plt_lon.shape),
+    cmap=plt.cm.viridis,
+    extend="both",
+    title="m_ind_mapped at RE",
+)
+#pynamit.globalplot(
+#    plt_lon,
+#    plt_lat,
+#    plt_evaluator.basis_to_grid(Br_mapped).reshape(plt_lon.shape),
+#    cmap=plt.cm.viridis,
+#    extend="both",
+#    title="Br_mapped at RE",
+#)
+
+
+print("Norm of m_ind mapped: ", np.linalg.norm(m_ind_mapped))
+print("Norm of PFAC mapped: ", np.linalg.norm(pfac_mapped))
+print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
+print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
+dynamics.state.update_E()
+print("Norm of E cf: ", np.linalg.norm(dynamics.state.E.coeffs[0]))
+print("Norm of E df: ", np.linalg.norm(dynamics.state.E.coeffs[1]))
+exit()
 
 print("Time evolution")
 final_time = 3600  # seconds
