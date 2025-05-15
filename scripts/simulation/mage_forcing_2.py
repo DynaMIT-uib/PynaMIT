@@ -67,8 +67,8 @@ dynamics = pynamit.Dynamics(
     RM=1.5 * RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
-    ignore_PFAC=True,
-    connect_hemispheres=False,
+    ignore_PFAC=False,
+    connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
@@ -98,14 +98,14 @@ for step in range(0, nstep):
         raise ValueError("Br input contains NaN values.")
 
     print("Setting Br with RMS: ", np.sqrt(np.mean(delta_Br**2)))
-    #dynamics.set_Br(
-    #    delta_Br,
-    #    lat=magnetosphere_lat,
-    #    lon=magnetosphere_lon,
-    #    time=dt * step,
-    #    weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
-    #    reg_lambda=BR_LAMBDA,
-    #)
+    dynamics.set_Br(
+        delta_Br,
+        lat=magnetosphere_lat,
+        lon=magnetosphere_lon,
+        time=dt * step,
+        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+        reg_lambda=BR_LAMBDA,
+    )
 
     # Get and set jr input (FAC given in muA/m^2).
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
@@ -265,9 +265,9 @@ print("Imposing steady state")
 dynamics.impose_steady_state()
 # Compare m_ind mapped to the earth to Br.coeffs / self.m_ind_to_Br mapped to the earth.
 # Add effect of pfac
-m_ind_mapped = dynamics.state.m_ind.coeffs #* dynamics.state.basis.radial_shift_Ve(RI, RE)
-#pfac_mapped =  dynamics.state.T_to_Ve.values.dot(dynamics.state.m_imp.coeffs) #* dynamics.state.basis.radial_shift_Ve(RI, RE)
-#Br_mapped = dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE) * dynamics.state.Br.coeffs / dynamics.state.m_ind_to_Br
+m_ind_mapped = dynamics.state.m_ind.coeffs * dynamics.state.basis.radial_shift_Ve(RI, RE)
+pfac_mapped =  dynamics.state.T_to_Ve.values.dot(dynamics.state.m_imp.coeffs) #* dynamics.state.basis.radial_shift_Ve(RI, RE)
+Br_mapped = dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE) * dynamics.state.Br.coeffs / dynamics.state.m_ind_to_Br
 
 # Global plot of m_ind_mapped and Br_mapped.
 pynamit.globalplot(
@@ -278,17 +278,18 @@ pynamit.globalplot(
     extend="both",
     title="m_ind_mapped at RE",
 )
-#pynamit.globalplot(
-#    plt_lon,
-#    plt_lat,
-#    plt_evaluator.basis_to_grid(pfac_mapped).reshape(plt_lon.shape),
-#    cmap=plt.cm.viridis,
-#    extend="both",
-#    title="Br_mapped at RE",
-#)
+pynamit.globalplot(
+    plt_lon,
+    plt_lat,
+    plt_evaluator.basis_to_grid(Br_mapped).reshape(plt_lon.shape),
+    cmap=plt.cm.viridis,
+    extend="both",
+    title="Br_mapped at RE",
+)
 
 print(m_ind_mapped)
-#print(pfac_mapped)
+print(pfac_mapped)
+print(Br_mapped)
 #print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
 #print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
 dynamics.state.update_E()

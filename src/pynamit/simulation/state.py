@@ -391,8 +391,6 @@ class State(object):
         self.jr_coeffs_to_j_apex = jr_coeffs_to_j_apex.copy()
 
         if self.connect_hemispheres:
-            if self.ignore_PFAC:
-                raise ValueError("Hemispheres can not be connected when ignore_PFAC is True")
             if self.mainfield.kind == "radial":
                 raise ValueError("Hemispheres can not be connected with radial magnetic field")
 
