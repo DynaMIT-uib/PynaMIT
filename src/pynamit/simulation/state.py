@@ -418,11 +418,16 @@ class State(object):
         Leads to a contribution to m_imp from m_ind if the hemispheres
         are connected.
         """
-        m_imp = self.calculate_m_imp(self.m_ind.coeffs)
-        self.set_model_coeffs(m_imp=m_imp)
+        self.m_imp = FieldExpansion(
+            self.basis, coeffs=self.calculate_m_imp(self.m_ind.coeffs), field_type="scalar"
+        )
 
-    def set_conductance(self, etaP, etaH):
-        """Set ionospheric conductance distributions.
+    def update_matrices(self, etaP, etaH):
+        """Update the resistance-dependent matrices.
+
+        This method updates the matrices used to calculate the electric
+        field and imposed magnetic field from the induced magnetic field
+        and input variables.
 
         Parameters
         ----------
@@ -572,7 +577,7 @@ class State(object):
 
             new_m_ind = inductive_m_ind + steady_state_m_ind
 
-        self.set_model_coeffs(m_ind=new_m_ind)
+        self.m_ind.coeffs = new_m_ind
 
     def get_Br(self, _basis_evaluator):
         """Calculate ``Br``.

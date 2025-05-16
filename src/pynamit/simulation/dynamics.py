@@ -212,7 +212,11 @@ class Dynamics(object):
             self.set_state_variables("state")
         else:
             self.current_time = np.float64(0)
-            self.state.set_model_coeffs(m_ind=np.zeros(self.bases["state"].index_length))
+            self.state.m_ind = FieldExpansion(
+                basis=self.bases["state"],
+                coeffs=np.zeros(self.bases["state"].index_length),
+                field_type=self.vars["state"]["m_ind"],
+            )
 
         if filename_prefix is None:
             self.io.update_filename_prefix("simulation")
@@ -333,7 +337,11 @@ class Dynamics(object):
         """Calculate and impose a steady state solution."""
         self.set_input_state_variables()
 
-        self.state.set_model_coeffs(m_ind=self.state.steady_state_m_ind())
+        self.state.m_ind = FieldExpansion(
+            basis=self.bases["state"],
+            coeffs=self.state.steady_state_m_ind(),
+            field_type=self.vars["steady_state"]["m_ind"],
+        )
 
         self.state.update_m_imp()
 
@@ -655,14 +663,10 @@ class Dynamics(object):
             Dictionary containing the input data variables for the
             specified key.
         """
-        if key == "state":
-            updated_data = self.timeseries.get_entry_if_changed(
-                key, self.current_time, interpolation=False
-            )
-        else:
-            updated_data = self.timeseries.get_entry_if_changed(
-                key, self.current_time, interpolation=interpolation
-            )
+
+        updated_data = self.timeseries.get_entry_if_changed(
+            key, self.current_time, interpolation=False if key == "state" else interpolation
+        )
 
         if updated_data is not None:
             if key == "state":
@@ -708,7 +712,7 @@ class Dynamics(object):
                     field_type=self.vars[key]["etaH"],
                 )
 
-                self.state.set_conductance(etaP, etaH)
+                self.state.update_matrices(etaP, etaH)
 
             elif key == "u":
                 self.state.u = FieldExpansion(
