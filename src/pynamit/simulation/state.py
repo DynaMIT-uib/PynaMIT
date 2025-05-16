@@ -201,11 +201,12 @@ class State(object):
         else:
             print("this should not happen")
 
-        self.G_jr_state = self.basis_evaluator.G
-        self.G_jr_state_pinv = np.linalg.pinv(self.G_jr_state)
+        G_jr_state_pinv = np.linalg.pinv(self.basis_evaluator.G)
 
         if self.vector_jr:
-            self.jr_coeffs_to_jr_coeffs_state = self.G_jr_state_pinv.dot(self.jr_basis_evaluator.G)
+            self.jr_coeffs_to_jr_coeffs_state = G_jr_state_pinv.dot(self.jr_basis_evaluator.G)
+        else:
+            self.jr_coeffs_to_jr_coeffs_state = G_jr_state_pinv
 
         if self.vector_u:
             u_coeffs_to_uxB = np.einsum(
@@ -215,7 +216,7 @@ class State(object):
                 self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
             )
         else:
-            self.u_to_E_coeffs_direct = np.einsum(
+            self.u_coeffs_to_E_coeffs_direct = np.einsum(
                 "ijkl,kml->ijml",
                 self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv_ATW[0].reshape(
                     (
@@ -434,19 +435,13 @@ class State(object):
         m_imp = np.zeros(self.basis.index_length)
 
         if self.jr is not None:
-            if self.vector_jr:
-                m_imp += self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
-            else:
-                m_imp += self.jr_to_m_imp.dot(self.jr.coeffs)
+            m_imp += self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
 
         if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
 
             if self.u is not None:
-                if self.vector_u:
-                    m_imp += np.tensordot(self.u_coeffs_to_m_imp, self.u.coeffs, 2)
-                else:
-                    m_imp += np.tensordot(self.u_to_m_imp, self.u.coeffs, 2)
+                m_imp += np.tensordot(self.u_coeffs_to_m_imp, self.u.coeffs, 2)
 
             if self.Br is not None:
                 m_imp += self.Br_to_m_imp.dot(self.Br.coeffs)
@@ -560,12 +555,8 @@ class State(object):
         coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
 
         # Construct jr matrices.
-        if self.vector_jr:
-            self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(self.jr_coeffs_to_jr_coeffs_state)
-            self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
-        else:
-            self.jr_to_m_imp = coeffs_to_m_imp[0].dot(self.G_jr_state_pinv)
-            self.jr_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_to_m_imp)
+        self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(self.jr_coeffs_to_jr_coeffs_state)
+        self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
 
         # Construct m_ind matrices. Negative sign is from moving the
         # induction terms to the right hand side of E - E^cp = 0 (in
@@ -584,20 +575,14 @@ class State(object):
         # Construct u matrices. Negative sign is from moving the wind
         # terms to the right hand side of E - E^cp = 0 (in apex
         # coordinates).
-        if self.vector_u:
-            self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
-            if self.connect_hemispheres and E_MAPPING:
-                self.u_coeffs_to_m_imp = np.tensordot(
-                    coeffs_to_m_imp[1], -self.u_coeffs_to_E_coeffs_direct, 2
-                )
-                self.u_coeffs_to_E_coeffs += np.tensordot(
-                    m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1
-                )
-        else:
-            self.u_to_E_coeffs = self.u_to_E_coeffs_direct.copy()
-            if self.connect_hemispheres and E_MAPPING:
-                self.u_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.u_to_E_coeffs_direct, 2)
-                self.u_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_to_m_imp, 1)
+        self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
+        if self.connect_hemispheres and E_MAPPING:
+            self.u_coeffs_to_m_imp = np.tensordot(
+                coeffs_to_m_imp[1], -self.u_coeffs_to_E_coeffs_direct, 2
+            )
+            self.u_coeffs_to_E_coeffs += np.tensordot(
+                m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1
+            )
 
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
@@ -619,16 +604,10 @@ class State(object):
         E_coeffs = self.m_ind_to_E_coeffs.dot(m_ind)
 
         if self.jr is not None:
-            if self.vector_jr:
-                E_coeffs += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
-            else:
-                E_coeffs += self.jr_to_E_coeffs.dot(self.jr.coeffs)
+            E_coeffs += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
 
         if self.u is not None:
-            if self.vector_u:
-                E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
-            else:
-                E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u.coeffs, 2)
+            E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
 
         if self.Br is not None:
             E_coeffs += self.Br_to_E_coeffs.dot(self.Br.coeffs)
@@ -790,16 +769,10 @@ class State(object):
         E_coeffs_noind = np.zeros((2, self.basis.index_length))
 
         if self.jr is not None:
-            if self.vector_jr:
-                E_coeffs_noind += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
-            else:
-                E_coeffs_noind += self.jr_to_E_coeffs.dot(self.jr.coeffs)
+            E_coeffs_noind += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
 
         if self.u is not None:
-            if self.vector_u:
-                E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
-            else:
-                E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u.coeffs, 2)
+            E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
 
         if self.Br is not None:
             E_coeffs_noind += self.Br_to_E_coeffs.dot(self.Br.coeffs)

@@ -23,17 +23,19 @@ CONDUCTANCE_LAMBDA = 1
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
 
+
 def dipole_radial_sampling(r_min, r_max, n_steps):
     ratio = r_min / r_max
     max_angle = np.rad2deg(np.arccos(np.sqrt(ratio)))
     angles = np.linspace(0, max_angle, n_steps)
-    rk = r_min / np.cos(np.deg2rad(angles))**2
+    rk = r_min / np.cos(np.deg2rad(angles)) ** 2
     return rk, angles
+
 
 filename_prefix = "results_mage_2011"
 Nmax, Mmax, Ncs = 40, 40, 40
-#rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
-rk, _ = dipole_radial_sampling(RI, 1.5*RI, n_steps=40)
+# rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
+rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
 noon_lon = 0
 dt = 10
@@ -117,14 +119,14 @@ for step in range(0, nstep):
     jr = FAC.flatten() * FAC_b_evaluator.br
 
     print("Setting jr with RMS: ", np.sqrt(np.mean(jr**2)))
-    #dynamics.set_jr(
+    # dynamics.set_jr(
     #    jr,
     #    lat=ionosphere_lat,
     #    lon=ionosphere_lon,
     #    time=dt * step,
     #    weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
     #    reg_lambda=JR_LAMBDA,
-    #)
+    # )
 
     # Get and set conductance input (given in S).
     conductance_hall = file["SH"][:][step, :, :].flatten()
@@ -167,7 +169,7 @@ for step in range(0, nstep):
         raise ValueError("Wind input contains NaN values.")
 
     print("Setting wind with RMS: ", np.sqrt(np.mean(u_theta**2 + u_phi**2)))
-    #dynamics.set_u(
+    # dynamics.set_u(
     #    u_theta=u_theta,
     #    u_phi=u_phi,
     #    lat=u_lat,
@@ -175,7 +177,7 @@ for step in range(0, nstep):
     #    time=dt * step,
     #    weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
     #    reg_lambda=U_LAMBDA,
-    #)
+    # )
 
     print("Setting input state variables")
     dynamics.set_input_state_variables()
@@ -266,8 +268,14 @@ dynamics.impose_steady_state()
 # Compare m_ind mapped to the earth to Br.coeffs / self.m_ind_to_Br mapped to the earth.
 # Add effect of pfac
 m_ind_mapped = dynamics.state.m_ind.coeffs * dynamics.state.basis.radial_shift_Ve(RI, RE)
-pfac_mapped =  dynamics.state.T_to_Ve.values.dot(dynamics.state.m_imp.coeffs) #* dynamics.state.basis.radial_shift_Ve(RI, RE)
-Br_mapped = dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE) * dynamics.state.Br.coeffs / dynamics.state.m_ind_to_Br
+pfac_mapped = dynamics.state.T_to_Ve.values.dot(
+    dynamics.state.m_imp.coeffs
+)  # * dynamics.state.basis.radial_shift_Ve(RI, RE)
+Br_mapped = (
+    dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE)
+    * dynamics.state.Br.coeffs
+    / dynamics.state.m_ind_to_Br
+)
 
 # Global plot of m_ind_mapped and Br_mapped.
 pynamit.globalplot(
@@ -290,8 +298,8 @@ pynamit.globalplot(
 print(m_ind_mapped)
 print(pfac_mapped)
 print(Br_mapped)
-#print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
-#print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
+# print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
+# print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
 dynamics.state.update_E()
 print("Norm of E cf: ", np.linalg.norm(dynamics.state.E.coeffs[0]))
 print("Norm of E df: ", np.linalg.norm(dynamics.state.E.coeffs[1]))
