@@ -232,10 +232,9 @@ class State(object):
 
         # Conductance and neutral wind should be set after state
         # initialization.
-        self.u_set = False
-        self.conductance_set = False
-        self.Br_set = False
-        self.jr_set = False
+        self.u = None
+        self.Br = None
+        self.jr = None
 
         self.initialize_constraints()
 
@@ -434,22 +433,22 @@ class State(object):
         """
         m_imp = np.zeros(self.basis.index_length)
 
-        if self.jr_set:
+        if self.jr is not None:
             if self.vector_jr:
                 m_imp += self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
             else:
-                m_imp += self.jr_to_m_imp.dot(self.jr_on_grid)
+                m_imp += self.jr_to_m_imp.dot(self.jr)
 
         if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
 
-            if self.u_set:
+            if self.u is not None:
                 if self.vector_u:
                     m_imp += np.tensordot(self.u_coeffs_to_m_imp, self.u.coeffs, 2)
                 else:
-                    m_imp += np.tensordot(self.u_to_m_imp, self.u_on_grid, 2)
+                    m_imp += np.tensordot(self.u_to_m_imp, self.u, 2)
 
-            if self.Br_set:
+            if self.Br is not None:
                 m_imp += self.Br_to_m_imp.dot(self.Br.coeffs)
 
         return m_imp
@@ -472,12 +471,8 @@ class State(object):
             Radial current density in A/m² at grid points or as vector
             coefficients
         """
-        self.jr_set = True
 
-        if self.vector_jr:
-            self.jr = jr
-        else:
-            self.jr_on_grid = jr
+        self.jr = jr
 
     def set_Br(self, Br):
         """Set radial component of the magnetic field.
@@ -491,12 +486,7 @@ class State(object):
         if self.RM is None:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
-        self.Br_set = True
-
-        if self.vector_Br:
-            self.Br = Br
-        else:
-            self.Br_on_grid = Br
+        self.Br = Br
 
     def set_u(self, u):
         """Set neutral wind theta and phi components.
@@ -506,12 +496,8 @@ class State(object):
         u : array-like or FieldExpansion
             Neutral wind components.
         """
-        self.u_set = True
 
-        if self.vector_u:
-            self.u = u
-        else:
-            self.u_on_grid = u
+        self.u = u
 
     def set_conductance(self, etaP, etaH):
         """Set ionospheric conductance distributions.
@@ -523,28 +509,21 @@ class State(object):
         etaH : array-like or FieldExpansion
             Hall conductance in S
         """
-        self.conductance_set = True
-
-        if self.vector_conductance:
-            self.etaP = etaP
-            self.etaH = etaH
-
-        else:
-            etaP_on_grid = etaP
-            etaH_on_grid = etaH
-
         if TRIPLE_PRODUCT and self.vector_conductance:
             m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(
-                self.etaP.coeffs
-            ) + self.etaH_m_ind_to_E_coeffs.dot(self.etaH.coeffs)
+                etaP.coeffs
+            ) + self.etaH_m_ind_to_E_coeffs.dot(etaH.coeffs)
             m_imp_to_E_coeffs = self.etaP_m_imp_to_E_coeffs.dot(
-                self.etaP.coeffs
-            ) + self.etaH_m_imp_to_E_coeffs.dot(self.etaH.coeffs)
+                etaP.coeffs
+            ) + self.etaH_m_imp_to_E_coeffs.dot(etaH.coeffs)
 
         else:
             if self.vector_conductance:
                 etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
                 etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
+            else:
+                etaP_on_grid = etaP
+                etaH_on_grid = etaH
 
             G_m_ind_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_ind_to_bP_JS, optimize=True
@@ -643,19 +622,19 @@ class State(object):
         """
         E_coeffs = self.m_ind_to_E_coeffs.dot(m_ind)
 
-        if self.jr_set:
+        if self.jr is not None:
             if self.vector_jr:
                 E_coeffs += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
             else:
-                E_coeffs += self.jr_to_E_coeffs.dot(self.jr_on_grid)
+                E_coeffs += self.jr_to_E_coeffs.dot(self.jr)
 
-        if self.u_set:
+        if self.u is not None:
             if self.vector_u:
                 E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
-                E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
+                E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u, 2)
 
-        if self.Br_set:
+        if self.Br is not None:
             E_coeffs += self.Br_to_E_coeffs.dot(self.Br.coeffs)
 
         return E_coeffs
@@ -814,19 +793,19 @@ class State(object):
         """
         E_coeffs_noind = np.zeros((2, self.basis.index_length))
 
-        if self.jr_set:
+        if self.jr is not None:
             if self.vector_jr:
                 E_coeffs_noind += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
             else:
-                E_coeffs_noind += self.jr_to_E_coeffs.dot(self.jr_on_grid)
+                E_coeffs_noind += self.jr_to_E_coeffs.dot(self.jr)
 
-        if self.u_set:
+        if self.u is not None:
             if self.vector_u:
                 E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
-                E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u_on_grid, 2)
+                E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u, 2)
 
-        if self.Br_set:
+        if self.Br is not None:
             E_coeffs_noind += self.Br_to_E_coeffs.dot(self.Br.coeffs)
 
         m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
