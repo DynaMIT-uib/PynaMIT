@@ -674,7 +674,11 @@ class Dynamics(object):
                         field_type=self.vars[key]["jr"],
                     )
                 else:
-                    jr = updated_data["jr"]
+                    jr = FieldExpansion(
+                        basis=self.cs_basis,
+                        coeffs=updated_data["jr"],
+                        field_type=self.vars[key]["jr"],
+                    )
 
                 self.state.set_jr(jr)
 
@@ -686,7 +690,11 @@ class Dynamics(object):
                         field_type=self.vars[key]["Br"],
                     )
                 else:
-                    Br = updated_data["Br"]
+                    Br = FieldExpansion(
+                        basis=self.cs_basis,
+                        coeffs=updated_data["Br"],
+                        field_type=self.vars[key]["Br"],
+                    )
 
                 self.state.set_Br(Br)
 
@@ -724,7 +732,11 @@ class Dynamics(object):
                         field_type=self.vars[key]["u"],
                     )
                 else:
-                    u = updated_data["u"].reshape((2, -1))
+                    u = FieldExpansion(
+                        basis=self.cs_basis,
+                        coeffs=updated_data["u"].reshape((2, -1)),
+                        field_type=self.vars[key]["u"],
+                    )
 
                 self.state.set_u(u)
 

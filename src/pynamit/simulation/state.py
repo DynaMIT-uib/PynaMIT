@@ -437,7 +437,7 @@ class State(object):
             if self.vector_jr:
                 m_imp += self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
             else:
-                m_imp += self.jr_to_m_imp.dot(self.jr)
+                m_imp += self.jr_to_m_imp.dot(self.jr.coeffs)
 
         if self.connect_hemispheres and E_MAPPING:
             m_imp += self.m_ind_to_m_imp.dot(m_ind)
@@ -446,7 +446,7 @@ class State(object):
                 if self.vector_u:
                     m_imp += np.tensordot(self.u_coeffs_to_m_imp, self.u.coeffs, 2)
                 else:
-                    m_imp += np.tensordot(self.u_to_m_imp, self.u, 2)
+                    m_imp += np.tensordot(self.u_to_m_imp, self.u.coeffs, 2)
 
             if self.Br is not None:
                 m_imp += self.Br_to_m_imp.dot(self.Br.coeffs)
@@ -622,13 +622,13 @@ class State(object):
             if self.vector_jr:
                 E_coeffs += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
             else:
-                E_coeffs += self.jr_to_E_coeffs.dot(self.jr)
+                E_coeffs += self.jr_to_E_coeffs.dot(self.jr.coeffs)
 
         if self.u is not None:
             if self.vector_u:
                 E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
-                E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u, 2)
+                E_coeffs += np.tensordot(self.u_to_E_coeffs, self.u.coeffs, 2)
 
         if self.Br is not None:
             E_coeffs += self.Br_to_E_coeffs.dot(self.Br.coeffs)
@@ -793,13 +793,13 @@ class State(object):
             if self.vector_jr:
                 E_coeffs_noind += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
             else:
-                E_coeffs_noind += self.jr_to_E_coeffs.dot(self.jr)
+                E_coeffs_noind += self.jr_to_E_coeffs.dot(self.jr.coeffs)
 
         if self.u is not None:
             if self.vector_u:
                 E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
             else:
-                E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u, 2)
+                E_coeffs_noind += np.tensordot(self.u_to_E_coeffs, self.u.coeffs, 2)
 
         if self.Br is not None:
             E_coeffs_noind += self.Br_to_E_coeffs.dot(self.Br.coeffs)
