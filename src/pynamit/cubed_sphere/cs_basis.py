@@ -132,7 +132,7 @@ class CSBasis:
             self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
             self.unit_area = step**2 * self.sqrt_detg
 
-            self.short_name = "GRID"
+            self.kind = "GRID"
             self.index_names = ["theta", "phi"]
             self.index_length = self.arr_theta.size + self.arr_phi.size
             self.index_arrays = [self.arr_theta, self.arr_phi]

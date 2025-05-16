@@ -16,7 +16,7 @@ class Basis(ABC):
 
     Attributes
     ----------
-    short_name : str
+    kind : str
         Short identifier for the basis.
     index_names : list of str
         Names of the indices used in the basis representation.
@@ -36,7 +36,7 @@ class Basis(ABC):
 
     @property
     @abstractmethod
-    def short_name(self):
+    def kind(self):
         """Short identifier for the basis."""
         pass
 

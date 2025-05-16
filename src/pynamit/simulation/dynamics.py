@@ -160,15 +160,6 @@ class Dynamics(object):
         self.cs_basis = CSBasis(settings.Ncs)
         self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
 
-        self.bases = {
-            "state": SHBasis(settings.Nmax, settings.Mmax),
-            "steady_state": SHBasis(settings.Nmax, settings.Mmax),
-            "jr": SHBasis(settings.Nmax, settings.Mmax),
-            "Br": SHBasis(settings.Nmax, settings.Mmax),
-            "conductance": SHBasis(settings.Nmax, settings.Mmax, Nmin=0),
-            "u": SHBasis(settings.Nmax, settings.Mmax),
-        }
-
         self.vector_storage = {
             "state": True,
             "steady_state": True,
@@ -176,6 +167,20 @@ class Dynamics(object):
             "Br": bool(settings.vector_Br),
             "conductance": bool(settings.vector_conductance),
             "u": bool(settings.vector_u),
+        }
+
+        sh_basis_one = SHBasis(settings.Nmax, settings.Mmax)
+        sh_basis_zero = SHBasis(settings.Nmax, settings.Mmax, Nmin=0)
+
+        self.bases = {
+            "state": sh_basis_one,
+            "steady_state": sh_basis_one,
+            "jr": sh_basis_one if self.vector_storage["jr"] else CSBasis(settings.Ncs),
+            "Br": sh_basis_one if self.vector_storage["Br"] else CSBasis(settings.Ncs),
+            "conductance": sh_basis_zero
+            if self.vector_storage["conductance"]
+            else CSBasis(settings.Ncs),
+            "u": sh_basis_one if self.vector_storage["u"] else CSBasis(settings.Ncs),
         }
 
         self.vars = {
@@ -667,76 +672,39 @@ class Dynamics(object):
                 )
 
             if key == "jr":
-                if self.vector_storage[key]:
-                    jr = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=updated_data["jr"],
-                        field_type=self.vars[key]["jr"],
-                    )
-                else:
-                    jr = FieldExpansion(
-                        basis=self.cs_basis,
-                        coeffs=updated_data["jr"],
-                        field_type=self.vars[key]["jr"],
-                    )
-
-                self.state.set_jr(jr)
+                self.state.jr = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["jr"],
+                    field_type=self.vars[key]["jr"],
+                )
 
             if key == "Br":
-                if self.vector_storage[key]:
-                    Br = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=updated_data["Br"],
-                        field_type=self.vars[key]["Br"],
-                    )
-                else:
-                    Br = FieldExpansion(
-                        basis=self.cs_basis,
-                        coeffs=updated_data["Br"],
-                        field_type=self.vars[key]["Br"],
-                    )
-
-                self.state.set_Br(Br)
+                self.state.Br = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["Br"],
+                    field_type=self.vars[key]["Br"],
+                )
 
             elif key == "conductance":
-                if self.vector_storage[key]:
-                    etaP = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=updated_data["etaP"],
-                        field_type=self.vars[key]["etaP"],
-                    )
-                    etaH = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=updated_data["etaH"],
-                        field_type=self.vars[key]["etaH"],
-                    )
-                else:
-                    etaP = FieldExpansion(
-                        basis=self.cs_basis,
-                        coeffs=updated_data["etaP"],
-                        field_type=self.vars[key]["etaP"],
-                    )
-                    etaH = FieldExpansion(
-                        basis=self.cs_basis,
-                        coeffs=updated_data["etaH"],
-                        field_type=self.vars[key]["etaH"],
-                    )
+                etaP = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["etaP"],
+                    field_type=self.vars[key]["etaP"],
+                )
+                etaH = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["etaH"],
+                    field_type=self.vars[key]["etaH"],
+                )
 
                 self.state.set_conductance(etaP, etaH)
 
             elif key == "u":
-                if self.vector_storage[key]:
-                    u = FieldExpansion(
-                        basis=self.bases[key],
-                        coeffs=updated_data["u"].reshape((2, -1)),
-                        field_type=self.vars[key]["u"],
-                    )
-                else:
-                    u = FieldExpansion(
-                        basis=self.cs_basis,
-                        coeffs=updated_data["u"].reshape((2, -1)),
-                        field_type=self.vars[key]["u"],
-                    )
+                u = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["u"].reshape((2, -1)),
+                    field_type=self.vars[key]["u"],
+                )
 
                 self.state.set_u(u)
 

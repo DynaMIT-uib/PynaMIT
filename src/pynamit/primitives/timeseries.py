@@ -188,7 +188,7 @@ class Timeseries:
                         field_type=self.vars[key][var],
                     )
 
-                    processed_data[self.bases[key].short_name + "_" + var] = vector.coeffs
+                    processed_data[self.bases[key].kind + "_" + var] = vector.coeffs
 
                 else:
                     # Interpolate to state_grid
@@ -216,7 +216,7 @@ class Timeseries:
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    processed_data["GRID_" + var] = interpolated_data
+                    processed_data[self.bases[key].kind + "_" + var] = interpolated_data
 
             self.add_entry(key, processed_data, time[time_index])
 
@@ -239,11 +239,6 @@ class Timeseries:
             key, or None if no new data is available.
         """
         if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
-            if self.vector_storage[key]:
-                short_name = self.bases[key].short_name
-            else:
-                short_name = "GRID"
-
             current_data = {}
 
             # Select latest data before the current time.
@@ -252,7 +247,9 @@ class Timeseries:
             )
 
             for var in self.vars[key]:
-                current_data[var] = dataset_before[short_name + "_" + var].values.flatten()
+                current_data[var] = dataset_before[
+                    self.bases[key].kind + "_" + var
+                ].values.flatten()
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
@@ -266,8 +263,8 @@ class Timeseries:
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[short_name + "_" + var].values.flatten()
-                            - dataset_before[short_name + "_" + var].values.flatten()
+                            dataset_after[self.bases[key].kind + "_" + var].values.flatten()
+                            - dataset_before[self.bases[key].kind + "_" + var].values.flatten()
                         )
                     )
 

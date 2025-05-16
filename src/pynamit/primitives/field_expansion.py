@@ -86,7 +86,7 @@ class FieldExpansion(object):
         - scalar: Direct inversion
         - tangential: Helmholtz decomposition based inversion
         """
-        if self.basis.short_name == "GRID":
+        if self.basis.kind == "GRID":
             # If the basis is a grid, return the grid values as coefficients.
             return self.coeffs
         else:
@@ -114,7 +114,7 @@ class FieldExpansion(object):
         Helmholtz decomposition terms evaluated on the grid. For scalar
         fields, directly evaluates basis functions on the grid.
         """
-        if self.basis.short_name == "GRID":
+        if self.basis.kind == "GRID":
             # If the basis is a grid, return the grid values as coefficients.
             return self.coeffs
         else:
@@ -142,7 +142,7 @@ class FieldExpansion(object):
         - scalar: Single penalty on scalar field
         - tangential: Separate penalties on Helmholtz components
         """
-        if self.basis.short_name == "GRID":
+        if self.basis.kind == "GRID":
             # If the basis is a grid, return the grid values as coefficients.
             return None
         else:

@@ -580,9 +580,7 @@ class State(object):
             self.u_coeffs_to_m_imp = np.tensordot(
                 coeffs_to_m_imp[1], -self.u_coeffs_to_E_coeffs_direct, 2
             )
-            self.u_coeffs_to_E_coeffs += np.tensordot(
-                m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1
-            )
+            self.u_coeffs_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
 
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])

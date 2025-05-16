@@ -27,7 +27,7 @@ class SHBasis(object):
         Array of order values.
     schmidt_factors : ndarray
         Schmidt normalization factors if enabled.
-    short_name : str
+    kind : str
         Identifier for the basis ('SH').
     index_names : list
         Names of the indices ['n', 'm'].
@@ -75,7 +75,7 @@ class SHBasis(object):
             self.schmidt_factors = schmidt_normalization_factors(self.index_pairs)
 
         # Set the general properties of the basis.
-        self.short_name = "SH"
+        self.kind = "SH"
 
         self.index_names = ["n", "m"]
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
