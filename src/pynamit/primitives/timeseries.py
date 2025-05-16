@@ -177,17 +177,12 @@ class Timeseries:
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = FieldExpansion(
-                        self.bases[key],
-                        basis_evaluator=self.input_basis_evaluators[key],
-                        grid_values=input_data[var][time_index],
-                        field_type=self.vars[key][var],
-                    )
-
+                    grid_values=input_data[var][time_index]
+                    basis_evaluator = self.input_basis_evaluators[key]
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
-                        interpolated_data = self.cs_basis.interpolate_scalar(
+                        grid_values = self.cs_basis.interpolate_scalar(
                             input_data[var][time_index],
                             input_grid.theta,
                             input_grid.phi,
@@ -206,16 +201,20 @@ class Timeseries:
                                 self.cs_basis.arr_phi,
                             )
                         )
-                        interpolated_data = np.hstack(
+                        grid_values = np.hstack(
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    vector = FieldExpansion(
-                        self.sh_basis_evaluators[key].basis,
-                        basis_evaluator=self.sh_basis_evaluators[key],
-                        grid_values=interpolated_data,
-                        field_type=self.vars[key][var],
-                    )
+                    basis_evaluator = self.sh_basis_evaluators[key]
+
+                vector = FieldExpansion(
+                    basis_evaluator.basis,
+                    basis_evaluator=basis_evaluator,
+                    grid_values=grid_values,
+                    field_type=self.vars[key][var],
+                )
+
+                if not self.vector_storage[key]:
                     interpolated_data = vector.to_grid(self.sh_basis_evaluators[key])
 
                     vector = FieldExpansion(
