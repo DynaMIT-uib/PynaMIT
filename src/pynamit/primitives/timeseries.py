@@ -210,14 +210,14 @@ class Timeseries:
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    #if key == "u":
-                    #    vector = FieldExpansion(
-                    #        self.sh_basis_evaluators[key].basis,
-                    #        basis_evaluator=self.sh_basis_evaluators[key],
-                    #        grid_values=interpolated_data,
-                    #        field_type=self.vars[key][var],
-                    #    )
-                    #    interpolated_data = vector.to_grid(self.sh_basis_evaluators[key])
+                    # if key == "conductance":
+                    #     vector = FieldExpansion(
+                    #         self.sh_basis_evaluators[key].basis,
+                    #         basis_evaluator=self.sh_basis_evaluators[key],
+                    #         grid_values=interpolated_data,
+                    #         field_type=self.vars[key][var],
+                    #     )
+                    #     interpolated_data = vector.to_grid(self.sh_basis_evaluators[key])
 
                     vector = FieldExpansion(
                         self.bases[key], coeffs=interpolated_data, field_type=self.vars[key][var]

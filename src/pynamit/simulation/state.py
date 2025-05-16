@@ -13,6 +13,7 @@ from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares import LeastSquares
+from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 TRIPLE_PRODUCT = False
 E_MAPPING = True
@@ -110,6 +111,7 @@ class State(object):
         self.Br_basis_evaluator = BasisEvaluator(self.Br_basis, self.grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
         self.u_basis_evaluator = BasisEvaluator(self.u_basis, self.grid)
+        self.basiseval_2 = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
 
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
@@ -446,8 +448,12 @@ class State(object):
             ) + self.etaH_m_imp_to_E_coeffs.dot(etaH.coeffs)
 
         else:
+            
             etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
             etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
+
+            etaP_on_grid = np.dot(self.basiseval_2.G, np.dot(np.linalg.pinv(self.basiseval_2.G), etaP_on_grid))
+            etaH_on_grid = np.dot(self.basiseval_2.G, np.dot(np.linalg.pinv(self.basiseval_2.G), etaH_on_grid))
 
             G_m_ind_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_ind_to_bP_JS, optimize=True
