@@ -69,26 +69,3 @@ class Basis(ABC):
     def caching(self):
         """Whether basis evaluations can be cached."""
         pass
-
-    @abstractmethod
-    def get_G(self, coeffs, grid, derivative=None):
-        """Evaluate basis coefficients on a grid.
-
-        Parameters
-        ----------
-        coeffs : array-like
-            Coefficients of the field in this basis.
-        grid : Grid
-            Spatial grid for evaluation.
-        derivative : {None, 'theta', 'phi'}, optional
-            Type of derivative to evaluate:
-            - None: evaluate basis functions
-            - 'theta': evaluate derivative with respect to theta
-            - 'phi': evaluate derivative with respect to phi
-
-        Returns
-        -------
-        ndarray
-            Field values evaluated on the grid points.
-        """
-        pass

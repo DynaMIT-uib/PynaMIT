@@ -518,12 +518,8 @@ class State(object):
             ) + self.etaH_m_imp_to_E_coeffs.dot(etaH.coeffs)
 
         else:
-            if self.vector_conductance:
-                etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
-                etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
-            else:
-                etaP_on_grid = etaP
-                etaH_on_grid = etaH
+            etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
+            etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
 
             G_m_ind_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_ind_to_bP_JS, optimize=True

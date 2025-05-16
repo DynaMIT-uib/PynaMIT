@@ -703,8 +703,16 @@ class Dynamics(object):
                         field_type=self.vars[key]["etaH"],
                     )
                 else:
-                    etaP = updated_data["etaP"]
-                    etaH = updated_data["etaH"]
+                    etaP = FieldExpansion(
+                        basis=self.cs_basis,
+                        coeffs=updated_data["etaP"],
+                        field_type=self.vars[key]["etaP"],
+                    )
+                    etaH = FieldExpansion(
+                        basis=self.cs_basis,
+                        coeffs=updated_data["etaH"],
+                        field_type=self.vars[key]["etaH"],
+                    )
 
                 self.state.set_conductance(etaP, etaH)
 
