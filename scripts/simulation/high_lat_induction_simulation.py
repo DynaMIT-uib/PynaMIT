@@ -48,8 +48,8 @@ dynamics = pynamit.Dynamics(
 print(datetime.datetime.now(), "made dynamics object")
 
 # Get and set conductance input.
-conductance_lat = dynamics.state_grid.lat
-conductance_lon = dynamics.state_grid.lon
+conductance_lat = dynamics.state.grid.lat
+conductance_lon = dynamics.state.grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
@@ -59,8 +59,8 @@ dynamics.set_conductance(
 
 print(datetime.datetime.now(), "setting jr")
 # Set zero jr input.
-jr_lat = dynamics.state_grid.lat
-jr_lon = dynamics.state_grid.lon
+jr_lat = dynamics.state.grid.lat
+jr_lon = dynamics.state.grid.lon
 dynamics.set_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon)
 
 print(datetime.datetime.now(), "setting wind")

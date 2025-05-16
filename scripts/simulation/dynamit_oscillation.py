@@ -95,8 +95,8 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     print("Setting conductance", flush=True)
     # Get and set conductance input.
-    conductance_lat = dynamics.state_grid.lat
-    conductance_lon = dynamics.state_grid.lon
+    conductance_lat = dynamics.state.grid.lat
+    conductance_lon = dynamics.state.grid.lon
 
     sza = conductance.sunlight.sza(conductance_lat, conductance_lon, date, degrees=True)
     hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
@@ -105,8 +105,8 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     dynamics.set_conductance(hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon)
 
     # Get and set static jr input.
-    jr_lat = dynamics.state_grid.lat
-    jr_lon = dynamics.state_grid.lon
+    jr_lat = dynamics.state.grid.lat
+    jr_lon = dynamics.state.grid.lon
     apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
     mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
     mlt = d.mlon2mlt(mlon, date)

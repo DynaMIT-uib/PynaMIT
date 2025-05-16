@@ -112,7 +112,7 @@ class Dynamics(object):
             Integrator type for time evolution.
         """
         # Store setting arguments in xarray dataset.
-        settings = xr.Dataset(
+        self.settings = xr.Dataset(
             attrs={
                 "Nmax": Nmax,
                 "Mmax": Mmax,
@@ -137,53 +137,6 @@ class Dynamics(object):
             }
         )
 
-        self.io = IO(filename_prefix)
-
-        settings_on_file = self.io.load_dataset("settings", print_info=True)
-        if settings_on_file is not None:
-            if not settings.identical(settings_on_file):
-                raise ValueError(
-                    "Mismatch between Dynamics object arguments and settings on file."
-                )
-
-        PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
-
-        self.RI = settings.RI
-        self.RM = None if settings.RM == 0 else settings.RM
-
-        self.mainfield = Mainfield(
-            kind=settings.mainfield_kind,
-            epoch=settings.mainfield_epoch,
-            hI=(settings.RI - RE) * 1e-3,
-            B0=None if settings.mainfield_B0 == 0 else settings.mainfield_B0,
-        )
-
-        self.cs_basis = CSBasis(settings.Ncs)
-        self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
-
-        self.vector_storage = {
-            "state": True,
-            "steady_state": True,
-            "jr": bool(settings.vector_jr),
-            "Br": bool(settings.vector_Br),
-            "conductance": bool(settings.vector_conductance),
-            "u": bool(settings.vector_u),
-        }
-
-        sh_basis_one = SHBasis(settings.Nmax, settings.Mmax)
-        sh_basis_zero = SHBasis(settings.Nmax, settings.Mmax, Nmin=0)
-
-        self.bases = {
-            "state": sh_basis_one,
-            "steady_state": sh_basis_one,
-            "jr": sh_basis_one if self.vector_storage["jr"] else CSBasis(settings.Ncs),
-            "Br": sh_basis_one if self.vector_storage["Br"] else CSBasis(settings.Ncs),
-            "conductance": sh_basis_zero
-            if self.vector_storage["conductance"]
-            else CSBasis(settings.Ncs),
-            "u": sh_basis_one if self.vector_storage["u"] else CSBasis(settings.Ncs),
-        }
-
         self.vars = {
             "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
             "steady_state": {"m_ind": "scalar"},
@@ -193,13 +146,55 @@ class Dynamics(object):
             "u": {"u": "tangential"},
         }
 
+        self.vector_storage = {
+            "state": True,
+            "steady_state": True,
+            "jr": bool(self.settings.vector_jr),
+            "Br": bool(self.settings.vector_Br),
+            "conductance": bool(self.settings.vector_conductance),
+            "u": bool(self.settings.vector_u),
+        }
+
+        self.io = IO(filename_prefix)
+
+        settings_on_file = self.io.load_dataset("settings", print_info=True)
+        if settings_on_file is not None:
+            if not self.settings.identical(settings_on_file):
+                raise ValueError(
+                    "Mismatch between Dynamics object arguments and settings on file."
+                )
+
+        PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
+
+        sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, Nmin=0)
+        sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
+
+        cs_basis = CSBasis(self.settings.Ncs)
+        state_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+
+        self.bases = {
+            "state": sh_basis_zero_removed,
+            "steady_state": sh_basis_zero_removed,
+            "jr": sh_basis_zero_removed if self.vector_storage["jr"] else cs_basis,
+            "Br": sh_basis_zero_removed if self.vector_storage["Br"] else cs_basis,
+            "conductance": sh_basis if self.vector_storage["conductance"] else cs_basis,
+            "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
+        }
+
+        self.mainfield = Mainfield(
+            kind=self.settings.mainfield_kind,
+            epoch=self.settings.mainfield_epoch,
+            hI=(self.settings.RI - RE) * 1e-3,
+            B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
+        )
+
         # Initialize the state of the ionosphere.
         self.state = State(
-            self.bases, self.mainfield, self.state_grid, settings, PFAC_matrix=PFAC_matrix_on_file
+            self.bases, self.mainfield, state_grid, self.settings, PFAC_matrix=PFAC_matrix_on_file
         )
 
         self.timeseries = Timeseries(
-            self.bases, self.state_grid, self.cs_basis, self.vars, self.vector_storage
+            self.bases, state_grid, cs_basis, self.vars, self.vector_storage
         )
 
         # Load all timeseries on file.
@@ -222,12 +217,10 @@ class Dynamics(object):
             self.io.update_filename_prefix("simulation")
 
         if settings_on_file is None:
-            self.io.save_dataset(settings, "settings", print_info=True)
+            self.io.save_dataset(self.settings, "settings", print_info=True)
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.T_to_Ve, "PFAC_matrix", print_info=True)
-
-        self.save_steady_states = bool(settings.save_steady_states)
 
     def evolve_to_time(
         self,
@@ -252,19 +245,14 @@ class Dynamics(object):
         quiet : bool, optional
             Whether to suppress progress output.
         """
-        # Logicals are True when time series differ from ones on disk.
-        self.save_jr = False
-        self.save_Br = False
-        self.save_conductance = False
-        self.save_u = False
+        step = 0
 
-        count = 0
         while True:
             self.set_input_state_variables()
 
             self.state.update_E()
 
-            if count % sampling_step_interval == 0:
+            if step % sampling_step_interval == 0:
                 # Append current state to time series.
                 self.state.update_m_imp()
 
@@ -277,7 +265,7 @@ class Dynamics(object):
 
                 self.timeseries.add_entry("state", state_data, time=self.current_time)
 
-                if self.save_steady_states:
+                if bool(self.settings.save_steady_states):
                     # Calculate steady state and append to time series.
                     steady_state_m_ind = self.state.steady_state_m_ind()
                     steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
@@ -295,7 +283,7 @@ class Dynamics(object):
                     )
 
                 # Save state and steady state time series.
-                if count % (sampling_step_interval * saving_sample_interval) == 0:
+                if step % (sampling_step_interval * saving_sample_interval) == 0:
                     self.timeseries.save("state", self.io)
 
                     if quiet:
@@ -303,11 +291,11 @@ class Dynamics(object):
                     else:
                         print(
                             "Saved state at t = {:.2f} s".format(self.current_time),
-                            end="\n" if self.save_steady_states else "\r",
+                            end="\n" if bool(self.settings.save_steady_states) else "\r",
                             flush=True,
                         )
 
-                    if self.save_steady_states:
+                    if bool(self.settings.save_steady_states):
                         self.timeseries.save("steady_state", self.io)
 
                         if quiet:
@@ -331,7 +319,7 @@ class Dynamics(object):
             self.state.evolve_m_ind(dt)
             self.current_time = next_time
 
-            count += 1
+            step += 1
 
     def impose_steady_state(self):
         """Calculate and impose a steady state solution."""
@@ -391,7 +379,7 @@ class Dynamics(object):
             Relative tolerance for the pseudo-inverse.
         """
         FAC_b_evaluator = FieldEvaluator(
-            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.RI
+            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.settings.RI
         )
 
         self.set_jr(
@@ -485,7 +473,7 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        if self.RM is None:
+        if self.settings.RM == 0:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
         input_data = {"Br": np.atleast_2d(Br)}
@@ -720,89 +708,3 @@ class Dynamics(object):
                     coeffs=updated_data["u"].reshape((2, -1)),
                     field_type=self.vars[key]["u"],
                 )
-
-    def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
-        """Calculate matrix that returns the radial curl.
-
-        Calculate matrix that maps column vector of (theta, phi) vector
-        to its radial curl, using finite differences.
-
-        Parameters
-        ----------
-        stencil_size : int, optional
-            Size of the finite difference stencil.
-        interpolation_points : int, optional
-            Number of interpolation points.
-
-        Returns
-        -------
-        scipy.sparse.csr_matrix
-            Matrix that returns the radial curl.
-        """
-        Dxi, Deta = self.cs_basis.get_Diff(
-            self.cs_basis.N, coordinate="both", Ns=stencil_size, Ni=interpolation_points, order=1
-        )
-
-        g11_scaled = sp.diags(self.cs_basis.g[:, 0, 0] / self.cs_basis.sqrt_detg)
-        g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / self.cs_basis.sqrt_detg)
-        g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / self.cs_basis.sqrt_detg)
-
-        # Construct matrix that gives radial curl from (u1, u2).
-        D_curlr_u1u2 = sp.hstack(
-            (
-                (Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
-                (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled)),
-            )
-        )
-
-        # Construct matrix that transforms (theta, phi) to (u1, u2).
-        Ps_dense = self.cs_basis.get_Ps(
-            self.cs_basis.arr_xi, self.cs_basis.arr_eta, block=self.cs_basis.arr_block
-        )
-
-        # Extract relevant elements, rearrange matrix to map from
-        # (theta, phi) and not (east, north). Also include Q matrix
-        # normalization factors from Yin et al. (2017).
-        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state_grid.lat))
-        Ps = sp.vstack(
-            (
-                sp.hstack(
-                    (
-                        sp.diags(-Ps_dense[:, 0, 1] / self.RI),
-                        sp.diags(Ps_dense[:, 0, 0] / RI_cos_lat),
-                    )
-                ),
-                sp.hstack(
-                    (
-                        sp.diags(-Ps_dense[:, 1, 1] / self.RI),
-                        sp.diags(Ps_dense[:, 1, 0] / RI_cos_lat),
-                    )
-                ),
-            )
-        )
-
-        return D_curlr_u1u2.dot(Ps)
-
-    @property
-    def fd_curl_matrix(self):
-        """Matrix for finite difference curl calculation."""
-        if not hasattr(self, "_fd_curl_matrix"):
-            self._fd_curl_matrix = self.calculate_fd_curl_matrix()
-        return self._fd_curl_matrix
-
-    @property
-    def sh_curl_matrix(self):
-        """Matrix for spherical harmonic curl calculation.
-
-        Matrix that gets divergence-free SH coefficients from vectors of
-        (theta, phi)-components, constructed from Laplacian matrix and
-        (inverse) evaluation matrices.
-        """
-        if not hasattr(self, "_sh_curl_matrix"):
-            G_df_pinv = self.state.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv[
-                self.state.basis.index_length :, :
-            ]
-            self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
-                self.state.basis.laplacian().reshape((-1, 1)) * G_df_pinv
-            )
-        return self._sh_curl_matrix

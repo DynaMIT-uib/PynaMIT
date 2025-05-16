@@ -154,3 +154,89 @@ class CSEquations(object):
         u1, u2, u3 = np.einsum("nij, jn -> in", self.Ps, v_components)
 
         return u1, u2, u3
+
+    def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
+        """Calculate matrix that returns the radial curl.
+
+        Calculate matrix that maps column vector of (theta, phi) vector
+        to its radial curl, using finite differences.
+
+        Parameters
+        ----------
+        stencil_size : int, optional
+            Size of the finite difference stencil.
+        interpolation_points : int, optional
+            Number of interpolation points.
+
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            Matrix that returns the radial curl.
+        """
+        Dxi, Deta = self.cs_basis.get_Diff(
+            self.cs_basis.N, coordinate="both", Ns=stencil_size, Ni=interpolation_points, order=1
+        )
+
+        g11_scaled = sp.diags(self.cs_basis.g[:, 0, 0] / self.cs_basis.sqrt_detg)
+        g12_scaled = sp.diags(self.cs_basis.g[:, 0, 1] / self.cs_basis.sqrt_detg)
+        g22_scaled = sp.diags(self.cs_basis.g[:, 1, 1] / self.cs_basis.sqrt_detg)
+
+        # Construct matrix that gives radial curl from (u1, u2).
+        D_curlr_u1u2 = sp.hstack(
+            (
+                (Dxi.dot(g12_scaled) - Deta.dot(g11_scaled)),
+                (Dxi.dot(g22_scaled) - Deta.dot(g12_scaled)),
+            )
+        )
+
+        # Construct matrix that transforms (theta, phi) to (u1, u2).
+        Ps_dense = self.cs_basis.get_Ps(
+            self.cs_basis.arr_xi, self.cs_basis.arr_eta, block=self.cs_basis.arr_block
+        )
+
+        # Extract relevant elements, rearrange matrix to map from
+        # (theta, phi) and not (east, north). Also include Q matrix
+        # normalization factors from Yin et al. (2017).
+        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state.grid.lat))
+        Ps = sp.vstack(
+            (
+                sp.hstack(
+                    (
+                        sp.diags(-Ps_dense[:, 0, 1] / self.RI),
+                        sp.diags(Ps_dense[:, 0, 0] / RI_cos_lat),
+                    )
+                ),
+                sp.hstack(
+                    (
+                        sp.diags(-Ps_dense[:, 1, 1] / self.RI),
+                        sp.diags(Ps_dense[:, 1, 0] / RI_cos_lat),
+                    )
+                ),
+            )
+        )
+
+        return D_curlr_u1u2.dot(Ps)
+
+    @property
+    def fd_curl_matrix(self):
+        """Matrix for finite difference curl calculation."""
+        if not hasattr(self, "_fd_curl_matrix"):
+            self._fd_curl_matrix = self.calculate_fd_curl_matrix()
+        return self._fd_curl_matrix
+
+    @property
+    def sh_curl_matrix(self):
+        """Matrix for spherical harmonic curl calculation.
+
+        Matrix that gets divergence-free SH coefficients from vectors of
+        (theta, phi)-components, constructed from Laplacian matrix and
+        (inverse) evaluation matrices.
+        """
+        if not hasattr(self, "_sh_curl_matrix"):
+            G_df_pinv = self.state.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv[
+                self.state.basis.index_length :, :
+            ]
+            self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
+                self.state.basis.laplacian().reshape((-1, 1)) * G_df_pinv
+            )
+        return self._sh_curl_matrix
