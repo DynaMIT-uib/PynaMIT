@@ -11,9 +11,9 @@ import numpy as np
 def test_steady_state_init_grid():
     """Test grid-based simulation with steady state initialization."""
     # Arrange.
-    expected_coeff_norm = 1.4084025896338475e-07
-    expected_coeff_max = 3.985313323214489e-09
-    expected_coeff_min = -3.3996321161862057e-09
+    expected_coeff_norm = 1.3505043330135446e-07
+    expected_coeff_max = 3.6308003487463007e-09
+    expected_coeff_min = -3.449449460312011e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")

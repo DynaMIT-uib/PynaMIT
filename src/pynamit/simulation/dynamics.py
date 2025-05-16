@@ -9,6 +9,7 @@ import scipy.sparse as sp
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
+from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.grid import Grid
@@ -170,6 +171,7 @@ class Dynamics(object):
         sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
 
         cs_basis = CSBasis(self.settings.Ncs)
+        cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
         self.bases = {
             "state": sh_basis_zero_removed,
@@ -178,6 +180,15 @@ class Dynamics(object):
             "Br": sh_basis_zero_removed if self.vector_storage["Br"] else cs_basis,
             "conductance": sh_basis if self.vector_storage["conductance"] else cs_basis,
             "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
+        }
+
+        sh_basis_evaluators = {
+            "state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
+            "steady_state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
+            "jr": BasisEvaluator(sh_basis_zero_removed, cs_grid),
+            "Br": BasisEvaluator(sh_basis_zero_removed, cs_grid),
+            "conductance": BasisEvaluator(sh_basis, cs_grid),
+            "u": BasisEvaluator(sh_basis_zero_removed, cs_grid),
         }
 
         self.mainfield = Mainfield(
@@ -192,7 +203,7 @@ class Dynamics(object):
             self.bases, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
         )
 
-        self.timeseries = Timeseries(self.bases, cs_basis, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(self.bases, cs_basis, sh_basis_evaluators, self.vars, self.vector_storage)
 
         # Load all timeseries on file.
         for key in self.vars.keys():

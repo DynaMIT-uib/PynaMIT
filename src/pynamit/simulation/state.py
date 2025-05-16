@@ -227,6 +227,7 @@ class State(object):
                 self.bu,
                 optimize=True,
             )
+            self.u_coeffs_to_E_coeffs_direct = np.tensordot(self.u_coeffs_to_E_coeffs_direct, np.tensordot(self.basis_evaluator.G_helmholtz, tensor_pinv(self.basis_evaluator.G_helmholtz, 2), 2), 2)
 
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.prepare_triple_product_tensors()

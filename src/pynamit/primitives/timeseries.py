@@ -26,7 +26,7 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, bases, cs_basis, vars, vector_storage):
+    def __init__(self, bases, cs_basis, sh_basis_evaluators, vars, vector_storage):
         """Initialize the Timeseries class.
 
         Parameters
@@ -40,6 +40,7 @@ class Timeseries:
         """
         self.bases = bases
         self.cs_basis = cs_basis
+        self.sh_basis_evaluators = sh_basis_evaluators
 
         # Initialize variables and timeseries storage
         self.vars = vars
@@ -208,6 +209,15 @@ class Timeseries:
                         interpolated_data = np.hstack(
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
+
+                    #if key == "u":
+                    #    vector = FieldExpansion(
+                    #        self.sh_basis_evaluators[key].basis,
+                    #        basis_evaluator=self.sh_basis_evaluators[key],
+                    #        grid_values=interpolated_data,
+                    #        field_type=self.vars[key][var],
+                    #    )
+                    #    interpolated_data = vector.to_grid(self.sh_basis_evaluators[key])
 
                     vector = FieldExpansion(
                         self.bases[key], coeffs=interpolated_data, field_type=self.vars[key][var]
