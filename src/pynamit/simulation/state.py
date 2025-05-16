@@ -347,42 +347,6 @@ class State(object):
 
         return self._T_to_Ve
 
-    def set_model_coeffs(self, **kwargs):
-        """Set model coefficients.
-
-        Set model coefficients based on the coefficients given as
-        argument. This function accepts one (and only one) set of
-        coefficients.
-
-        Parameters
-        ----------
-        **kwargs : dict
-            Keyword arguments specifying the coefficients to set. Valid
-            values are 'm_ind' and 'm_imp'.
-
-        Raises
-        ------
-        ValueError
-            If more than one keyword argument is provided or if the
-            keyword is invalid.
-        """
-        valid_kws = ["m_ind", "m_imp"]
-
-        if len(kwargs) != 1:
-            raise ValueError(
-                f"Expected one and only one keyword argument, you provided {len(kwargs)}"
-            )
-        key = list(kwargs.keys())[0]
-        if key not in valid_kws:
-            raise ValueError("Invalid keyword. See documentation")
-
-        if key == "m_ind":
-            self.m_ind = FieldExpansion(self.basis, kwargs["m_ind"], field_type="scalar")
-        elif key == "m_imp":
-            self.m_imp = FieldExpansion(self.basis, kwargs["m_imp"], field_type="scalar")
-        else:
-            raise Exception("This should not happen")
-
     def initialize_constraints(self):
         """Initialize constraints."""
         jr_coeffs_to_j_apex = (
@@ -457,51 +421,14 @@ class State(object):
         m_imp = self.calculate_m_imp(self.m_ind.coeffs)
         self.set_model_coeffs(m_imp=m_imp)
 
-    def set_jr(self, jr):
-        """Set radial current distribution.
-
-        Parameters
-        ----------
-        jr : array-like or FieldExpansion
-            Radial current density in A/m² at grid points or as vector
-            coefficients
-        """
-
-        self.jr = jr
-
-    def set_Br(self, Br):
-        """Set radial component of the magnetic field.
-
-        Parameters
-        ----------
-        Br : array-like or FieldExpansion
-            Radial component of Br at grid points or as vector
-            coefficients
-        """
-        if self.RM is None:
-            raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
-
-        self.Br = Br
-
-    def set_u(self, u):
-        """Set neutral wind theta and phi components.
-
-        Parameters
-        ----------
-        u : array-like or FieldExpansion
-            Neutral wind components.
-        """
-
-        self.u = u
-
     def set_conductance(self, etaP, etaH):
         """Set ionospheric conductance distributions.
 
         Parameters
         ----------
-        etaP : array-like or FieldExpansion
+        etaP : FieldExpansion
             Pedersen conductance in S
-        etaH : array-like or FieldExpansion
+        etaH : FieldExpansion
             Hall conductance in S
         """
         if TRIPLE_PRODUCT and self.vector_conductance:

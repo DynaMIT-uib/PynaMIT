@@ -149,6 +149,7 @@ class Dynamics(object):
         PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
         self.RI = settings.RI
+        self.RM = None if settings.RM == 0 else settings.RM
 
         self.mainfield = Mainfield(
             kind=settings.mainfield_kind,
@@ -476,6 +477,9 @@ class Dynamics(object):
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
+        if self.RM is None:
+            raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
+
         input_data = {"Br": np.atleast_2d(Br)}
 
         self.timeseries.add_input(
@@ -662,9 +666,16 @@ class Dynamics(object):
 
         if updated_data is not None:
             if key == "state":
-                self.state.set_model_coeffs(m_ind=updated_data["m_ind"])
-                self.state.set_model_coeffs(m_imp=updated_data["m_imp"])
-
+                self.state.m_ind = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["m_ind"],
+                    field_type=self.vars[key]["m_ind"],
+                )
+                self.state.m_imp = FieldExpansion(
+                    basis=self.bases[key],
+                    coeffs=updated_data["m_imp"],
+                    field_type=self.vars[key]["m_imp"],
+                )
                 self.state.E = FieldExpansion(
                     basis=self.bases[key],
                     coeffs=np.array([updated_data["Phi"], updated_data["W"]]),
@@ -700,13 +711,11 @@ class Dynamics(object):
                 self.state.set_conductance(etaP, etaH)
 
             elif key == "u":
-                u = FieldExpansion(
+                self.state.u = FieldExpansion(
                     basis=self.bases[key],
                     coeffs=updated_data["u"].reshape((2, -1)),
                     field_type=self.vars[key]["u"],
                 )
-
-                self.state.set_u(u)
 
     def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
         """Calculate matrix that returns the radial curl.

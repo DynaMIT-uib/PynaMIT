@@ -184,8 +184,6 @@ class Timeseries:
                         field_type=self.vars[key][var],
                     )
 
-                    processed_data[self.bases[key].kind + "_" + var] = vector.coeffs
-
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
@@ -212,7 +210,11 @@ class Timeseries:
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    processed_data[self.bases[key].kind + "_" + var] = interpolated_data
+                    vector = FieldExpansion(
+                        self.bases[key], coeffs=interpolated_data, field_type=self.vars[key][var]
+                    )
+
+                processed_data[self.bases[key].kind + "_" + var] = vector.coeffs
 
             self.add_entry(key, processed_data, time[time_index])
 
