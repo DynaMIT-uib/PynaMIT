@@ -51,21 +51,17 @@ class Timeseries:
 
         self.basis_multiindices = {}
         for key in self.vars.keys():
-            if self.vector_storage[key]:
-                basis_index_arrays = self.bases[key].index_arrays
-                basis_index_names = self.bases[key].index_names
-            else:
-                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
-                basis_index_names = ["theta", "phi"]
-
             if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    basis_index_arrays, names=basis_index_names
+                    self.bases[key].index_arrays, names=self.bases[key].index_names
                 )
             elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    [np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))],
-                    names=basis_index_names,
+                    [
+                        np.tile(self.bases[key].index_arrays[i], 2)
+                        for i in range(len(self.bases[key].index_arrays))
+                    ],
+                    names=self.bases[key].index_names,
                 )
             else:
                 raise ValueError(
@@ -312,16 +308,16 @@ class Timeseries:
         dataset = io.load_dataset(key)
 
         if dataset is not None:
-            if self.vector_storage[key]:
-                basis_index_names = self.bases[key].index_names
-            else:
-                basis_index_names = ["theta", "phi"]
-
             basis_multiindex = pd.MultiIndex.from_arrays(
-                [dataset[basis_index_names[i]].values for i in range(len(basis_index_names))],
-                names=basis_index_names,
+                [
+                    dataset[self.bases[key].index_names[i]].values
+                    for i in range(len(self.bases[key].index_names))
+                ],
+                names=self.bases[key].index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
-            self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(coords)
+            self.datasets[key] = dataset.drop_vars(self.bases[key].index_names).assign_coords(
+                coords
+            )
