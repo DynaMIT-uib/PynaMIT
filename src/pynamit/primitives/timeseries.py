@@ -26,7 +26,7 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, bases, state_grid, cs_basis, vars, vector_storage):
+    def __init__(self, bases, cs_basis, vars, vector_storage):
         """Initialize the Timeseries class.
 
         Parameters
@@ -39,7 +39,6 @@ class Timeseries:
             Object representing the coordinate system basis.
         """
         self.bases = bases
-        self.state_grid = state_grid
         self.cs_basis = cs_basis
 
         # Initialize variables and timeseries storage
@@ -191,8 +190,8 @@ class Timeseries:
                             input_data[var][time_index],
                             input_grid.theta,
                             input_grid.phi,
-                            self.state_grid.theta,
-                            self.state_grid.phi,
+                            self.cs_basis.arr_theta,
+                            self.cs_basis.arr_phi,
                         )
                     elif self.vars[key][var] == "tangential":
                         interpolated_east, interpolated_north, _ = (
@@ -202,8 +201,8 @@ class Timeseries:
                                 np.zeros_like(input_data[var][time_index, 0]),
                                 input_grid.theta,
                                 input_grid.phi,
-                                self.state_grid.theta,
-                                self.state_grid.phi,
+                                self.cs_basis.arr_theta,
+                                self.cs_basis.arr_phi,
                             )
                         )
                         interpolated_data = np.hstack(

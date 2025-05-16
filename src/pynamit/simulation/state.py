@@ -50,7 +50,7 @@ class State(object):
     ... (other attributes as defined in the implementation) ...
     """
 
-    def __init__(self, bases, mainfield, grid, settings, PFAC_matrix=None):
+    def __init__(self, bases, mainfield, cs_basis, settings, PFAC_matrix=None):
         """Initialize the ionospheric state.
 
         Parameters
@@ -101,7 +101,7 @@ class State(object):
             self._T_to_Ve = PFAC_matrix
 
         # Initialize grid-related objects.
-        self.grid = grid
+        self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
         # Note that these BasisEvaluator objects cannot be used for
         # inverses, as they do not include regularization and weights.

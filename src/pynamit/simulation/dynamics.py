@@ -170,7 +170,6 @@ class Dynamics(object):
         sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
 
         cs_basis = CSBasis(self.settings.Ncs)
-        state_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
         self.bases = {
             "state": sh_basis_zero_removed,
@@ -190,12 +189,10 @@ class Dynamics(object):
 
         # Initialize the state of the ionosphere.
         self.state = State(
-            self.bases, self.mainfield, state_grid, self.settings, PFAC_matrix=PFAC_matrix_on_file
+            self.bases, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
         )
 
-        self.timeseries = Timeseries(
-            self.bases, state_grid, cs_basis, self.vars, self.vector_storage
-        )
+        self.timeseries = Timeseries(self.bases, cs_basis, self.vars, self.vector_storage)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
