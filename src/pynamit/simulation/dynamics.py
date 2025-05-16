@@ -182,7 +182,7 @@ class Dynamics(object):
             "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
         }
 
-        sh_basis_evaluators = {
+        self.sh_basis_evaluators = {
             "state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
             "steady_state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
             "jr": BasisEvaluator(sh_basis_zero_removed, cs_grid),
@@ -203,7 +203,7 @@ class Dynamics(object):
             self.bases, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
         )
 
-        self.timeseries = Timeseries(self.bases, cs_basis, sh_basis_evaluators, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(self.bases, cs_basis, self.sh_basis_evaluators, self.vars, self.vector_storage)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
@@ -667,43 +667,43 @@ class Dynamics(object):
         if updated_data is not None:
             if key == "state":
                 self.state.m_ind = FieldExpansion(
-                    basis=self.bases[key],
+                    basis=self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["m_ind"],
                     field_type=self.vars[key]["m_ind"],
                 )
                 self.state.m_imp = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["m_imp"],
                     field_type=self.vars[key]["m_imp"],
                 )
                 self.state.E = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=np.array([updated_data["Phi"], updated_data["W"]]),
                     field_type="tangential",
                 )
 
             if key == "jr":
                 self.state.jr = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["jr"],
                     field_type=self.vars[key]["jr"],
                 )
 
             if key == "Br":
                 self.state.Br = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["Br"],
                     field_type=self.vars[key]["Br"],
                 )
 
             elif key == "conductance":
                 etaP = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["etaP"],
                     field_type=self.vars[key]["etaP"],
                 )
                 etaH = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["etaH"],
                     field_type=self.vars[key]["etaH"],
                 )
@@ -712,7 +712,7 @@ class Dynamics(object):
 
             elif key == "u":
                 self.state.u = FieldExpansion(
-                    basis=self.bases[key],
+                    self.sh_basis_evaluators[key].basis,
                     coeffs=updated_data["u"].reshape((2, -1)),
                     field_type=self.vars[key]["u"],
                 )

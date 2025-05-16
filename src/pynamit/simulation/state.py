@@ -107,11 +107,11 @@ class State(object):
         # Note that these BasisEvaluator objects cannot be used for
         # inverses, as they do not include regularization and weights.
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
+        self.basis_evaluator_zero_added = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
         self.jr_basis_evaluator = BasisEvaluator(self.jr_basis, self.grid)
         self.Br_basis_evaluator = BasisEvaluator(self.Br_basis, self.grid)
         self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
         self.u_basis_evaluator = BasisEvaluator(self.u_basis, self.grid)
-        self.basiseval_2 = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
 
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
@@ -203,33 +203,12 @@ class State(object):
         else:
             print("this should not happen")
 
-        G_jr_state_pinv = np.linalg.pinv(self.basis_evaluator.G)
-
-        if self.vector_jr:
-            self.jr_coeffs_to_jr_coeffs_state = G_jr_state_pinv.dot(self.jr_basis_evaluator.G)
-        else:
-            self.jr_coeffs_to_jr_coeffs_state = G_jr_state_pinv
-
-        if self.vector_u:
-            u_coeffs_to_uxB = np.einsum(
-                "ijk,jklm->iklm", self.bu, self.u_basis_evaluator.G_helmholtz, optimize=True
-            )
-            self.u_coeffs_to_E_coeffs_direct = (
-                self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
-            )
-        else:
-            self.u_coeffs_to_E_coeffs_direct = np.einsum(
-                "ijkl,kml->ijml",
-                self.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv_ATW[0].reshape(
-                    (
-                        self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[1]
-                        + self.basis_evaluator.least_squares_helmholtz.A[0].full_shapes[0]
-                    )
-                ),
-                self.bu,
-                optimize=True,
-            )
-            self.u_coeffs_to_E_coeffs_direct = np.tensordot(self.u_coeffs_to_E_coeffs_direct, np.tensordot(self.basis_evaluator.G_helmholtz, tensor_pinv(self.basis_evaluator.G_helmholtz, 2), 2), 2)
+        u_coeffs_to_uxB = np.einsum(
+            "ijk,jklm->iklm", self.bu, self.basis_evaluator.G_helmholtz, optimize=True
+        )
+        self.u_coeffs_to_E_coeffs_direct = (
+            self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
+        )
 
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.prepare_triple_product_tensors()
@@ -448,12 +427,8 @@ class State(object):
             ) + self.etaH_m_imp_to_E_coeffs.dot(etaH.coeffs)
 
         else:
-            
-            etaP_on_grid = etaP.to_grid(self.conductance_basis_evaluator)
-            etaH_on_grid = etaH.to_grid(self.conductance_basis_evaluator)
-
-            etaP_on_grid = np.dot(self.basiseval_2.G, np.dot(np.linalg.pinv(self.basiseval_2.G), etaP_on_grid))
-            etaH_on_grid = np.dot(self.basiseval_2.G, np.dot(np.linalg.pinv(self.basiseval_2.G), etaH_on_grid))
+            etaP_on_grid = etaP.to_grid(self.basis_evaluator_zero_added)
+            etaH_on_grid = etaH.to_grid(self.basis_evaluator_zero_added)
 
             G_m_ind_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_ind_to_bP_JS, optimize=True
@@ -494,7 +469,7 @@ class State(object):
         coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
 
         # Construct jr matrices.
-        self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0].dot(self.jr_coeffs_to_jr_coeffs_state)
+        self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0]
         self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
 
         # Construct m_ind matrices. Negative sign is from moving the

@@ -53,15 +53,15 @@ class Timeseries:
         for key in self.vars.keys():
             if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    self.bases[key].index_arrays, names=self.bases[key].index_names
+                    self.sh_basis_evaluators[key].basis.index_arrays, names=self.sh_basis_evaluators[key].basis.index_names
                 )
             elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     [
-                        np.tile(self.bases[key].index_arrays[i], 2)
-                        for i in range(len(self.bases[key].index_arrays))
+                        np.tile(self.sh_basis_evaluators[key].basis.index_arrays[i], 2)
+                        for i in range(len(self.sh_basis_evaluators[key].basis.index_arrays))
                     ],
-                    names=self.bases[key].index_names,
+                    names=self.sh_basis_evaluators[key].basis.index_names,
                 )
             else:
                 raise ValueError(
@@ -214,14 +214,7 @@ class Timeseries:
                     field_type=self.vars[key][var],
                 )
 
-                if not self.vector_storage[key]:
-                    interpolated_data = vector.to_grid(self.sh_basis_evaluators[key])
-
-                    vector = FieldExpansion(
-                        self.bases[key], coeffs=interpolated_data, field_type=self.vars[key][var]
-                    )
-
-                processed_data[self.bases[key].kind + "_" + var] = vector.coeffs
+                processed_data[self.sh_basis_evaluators[key].basis.kind + "_" + var] = vector.coeffs
 
             self.add_entry(key, processed_data, time[time_index])
 
@@ -253,7 +246,7 @@ class Timeseries:
 
             for var in self.vars[key]:
                 current_data[var] = dataset_before[
-                    self.bases[key].kind + "_" + var
+                    self.sh_basis_evaluators[key].basis.kind + "_" + var
                 ].values.flatten()
 
             # If requested, add linear interpolation correction.
@@ -268,8 +261,8 @@ class Timeseries:
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[self.bases[key].kind + "_" + var].values.flatten()
-                            - dataset_before[self.bases[key].kind + "_" + var].values.flatten()
+                            dataset_after[self.sh_basis_evaluators[key].basis.kind + "_" + var].values.flatten()
+                            - dataset_before[self.sh_basis_evaluators[key].basis.kind + "_" + var].values.flatten()
                         )
                     )
 
@@ -319,14 +312,14 @@ class Timeseries:
         if dataset is not None:
             basis_multiindex = pd.MultiIndex.from_arrays(
                 [
-                    dataset[self.bases[key].index_names[i]].values
-                    for i in range(len(self.bases[key].index_names))
+                    dataset[self.sh_basis_evaluators[key].basis.index_names[i]].values
+                    for i in range(len(self.sh_basis_evaluators[key].basis.index_names))
                 ],
-                names=self.bases[key].index_names,
+                names=self.sh_basis_evaluators[key].basis.index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
-            self.datasets[key] = dataset.drop_vars(self.bases[key].index_names).assign_coords(
+            self.datasets[key] = dataset.drop_vars(self.sh_basis_evaluators[key].basis.index_names).assign_coords(
                 coords
             )
