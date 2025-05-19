@@ -26,7 +26,7 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, interpolation_bases, cs_basis, storage_basis_evaluators, vars, vector_storage):
+    def __init__(self, interpolation_bases, cs_basis, storage_bases, vars, vector_storage):
         """Initialize the Timeseries class.
 
         Parameters
@@ -40,7 +40,7 @@ class Timeseries:
         """
         self.interpolation_bases = interpolation_bases
         self.cs_basis = cs_basis
-        self.storage_basis_evaluators = storage_basis_evaluators
+        self.storage_bases = storage_bases
 
         # Initialize variables and timeseries storage
         self.vars = vars
@@ -49,19 +49,30 @@ class Timeseries:
         self.datasets = {}
         self.previous_data = {}
 
+        cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+
+        self.storage_basis_evaluators = {
+            "state": BasisEvaluator(self.storage_bases["state"], cs_grid),
+            "steady_state": BasisEvaluator(self.storage_bases["steady_state"], cs_grid),
+            "jr": BasisEvaluator(self.storage_bases["jr"], cs_grid),
+            "Br": BasisEvaluator(self.storage_bases["Br"], cs_grid),
+            "conductance": BasisEvaluator(self.storage_bases["conductance"], cs_grid),
+            "u": BasisEvaluator(self.storage_bases["u"], cs_grid),
+        }
+
         self.basis_multiindices = {}
         for key in self.vars.keys():
             if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    self.storage_basis_evaluators[key].basis.index_arrays, names=self.storage_basis_evaluators[key].basis.index_names
+                    self.storage_bases[key].index_arrays, names=self.storage_bases[key].index_names
                 )
             elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     [
-                        np.tile(self.storage_basis_evaluators[key].basis.index_arrays[i], 2)
-                        for i in range(len(self.storage_basis_evaluators[key].basis.index_arrays))
+                        np.tile(self.storage_bases[key].index_arrays[i], 2)
+                        for i in range(len(self.storage_bases[key].index_arrays))
                     ],
-                    names=self.storage_basis_evaluators[key].basis.index_names,
+                    names=self.storage_bases[key].index_names,
                 )
             else:
                 raise ValueError(
@@ -214,7 +225,7 @@ class Timeseries:
                     field_type=self.vars[key][var],
                 )
 
-                processed_data[self.storage_basis_evaluators[key].basis.kind + "_" + var] = vector.coeffs
+                processed_data[self.storage_bases[key].kind + "_" + var] = vector.coeffs
 
             self.add_entry(key, processed_data, time[time_index])
 
@@ -246,7 +257,7 @@ class Timeseries:
 
             for var in self.vars[key]:
                 current_data[var] = dataset_before[
-                    self.storage_basis_evaluators[key].basis.kind + "_" + var
+                    self.storage_bases[key].kind + "_" + var
                 ].values.flatten()
 
             # If requested, add linear interpolation correction.
@@ -261,8 +272,8 @@ class Timeseries:
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[self.storage_basis_evaluators[key].basis.kind + "_" + var].values.flatten()
-                            - dataset_before[self.storage_basis_evaluators[key].basis.kind + "_" + var].values.flatten()
+                            dataset_after[self.storage_bases[key].kind + "_" + var].values.flatten()
+                            - dataset_before[self.storage_bases[key].kind + "_" + var].values.flatten()
                         )
                     )
 
@@ -312,14 +323,14 @@ class Timeseries:
         if dataset is not None:
             basis_multiindex = pd.MultiIndex.from_arrays(
                 [
-                    dataset[self.storage_basis_evaluators[key].basis.index_names[i]].values
-                    for i in range(len(self.storage_basis_evaluators[key].basis.index_names))
+                    dataset[self.storage_bases[key].index_names[i]].values
+                    for i in range(len(self.storage_bases[key].index_names))
                 ],
-                names=self.storage_basis_evaluators[key].basis.index_names,
+                names=self.storage_bases[key].index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
-            self.datasets[key] = dataset.drop_vars(self.storage_basis_evaluators[key].basis.index_names).assign_coords(
+            self.datasets[key] = dataset.drop_vars(self.storage_bases[key].index_names).assign_coords(
                 coords
             )

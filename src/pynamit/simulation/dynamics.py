@@ -173,7 +173,6 @@ class Dynamics(object):
         sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
 
         cs_basis = CSBasis(self.settings.Ncs)
-        cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
         interpolation_bases = {
             "jr": sh_basis_zero_removed if self.vector_storage["jr"] else cs_basis,
@@ -191,15 +190,6 @@ class Dynamics(object):
             "u": sh_basis_zero_removed,
         }
 
-        self.storage_basis_evaluators = {
-            "state": BasisEvaluator(self.storage_bases["state"], cs_grid),
-            "steady_state": BasisEvaluator(self.storage_bases["steady_state"], cs_grid),
-            "jr": BasisEvaluator(self.storage_bases["jr"], cs_grid),
-            "Br": BasisEvaluator(self.storage_bases["Br"], cs_grid),
-            "conductance": BasisEvaluator(self.storage_bases["conductance"], cs_grid),
-            "u": BasisEvaluator(self.storage_bases["u"], cs_grid),
-        }
-
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
             epoch=self.settings.mainfield_epoch,
@@ -207,7 +197,7 @@ class Dynamics(object):
             B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
         )
 
-        self.timeseries = Timeseries(interpolation_bases, cs_basis, self.storage_basis_evaluators, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(interpolation_bases, cs_basis, self.storage_bases, self.vars, self.vector_storage)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
@@ -216,7 +206,7 @@ class Dynamics(object):
         # Initialize the state of the ionosphere, restarting from the last
         # state checkpoint if available.
         self.state = State(
-            sh_basis_zero_removed, self.storage_basis_evaluators, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
+            sh_basis_zero_removed, self.timeseries.storage_basis_evaluators, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
         )
 
         if "state" in self.timeseries.datasets.keys():
