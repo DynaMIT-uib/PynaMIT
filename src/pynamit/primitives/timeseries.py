@@ -51,14 +51,11 @@ class Timeseries:
 
         cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
-        self.storage_basis_evaluators = {
-            "state": BasisEvaluator(self.storage_bases["state"], cs_grid),
-            "steady_state": BasisEvaluator(self.storage_bases["steady_state"], cs_grid),
-            "jr": BasisEvaluator(self.storage_bases["jr"], cs_grid),
-            "Br": BasisEvaluator(self.storage_bases["Br"], cs_grid),
-            "conductance": BasisEvaluator(self.storage_bases["conductance"], cs_grid),
-            "u": BasisEvaluator(self.storage_bases["u"], cs_grid),
-        }
+        self.storage_basis_evaluators = {}
+        for key in self.storage_bases.keys():
+            self.storage_basis_evaluators[key] = BasisEvaluator(
+                self.storage_bases[key], cs_grid
+            )
 
         self.basis_multiindices = {}
         for key in self.vars.keys():
