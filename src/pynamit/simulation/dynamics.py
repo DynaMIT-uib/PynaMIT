@@ -161,6 +161,12 @@ class Dynamics(object):
         # Check if settings are consistent with previously saved runs.
         settings_on_file = self.io.load_dataset("settings", print_info=True)
 
+        if settings_on_file is not None:
+            if not self.settings.identical(settings_on_file):
+                raise ValueError(
+                    "Mismatch between Dynamics object arguments and settings on file."
+                )
+
         PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
         sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, Nmin=0)
@@ -223,11 +229,6 @@ class Dynamics(object):
 
         if settings_on_file is None:
             self.io.save_dataset(self.settings, "settings", print_info=True)
-        else:
-            if not self.settings.identical(settings_on_file):
-                raise ValueError(
-                    "Mismatch between Dynamics object arguments and settings on file."
-                )
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.T_to_Ve, "PFAC_matrix", print_info=True)
