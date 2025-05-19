@@ -158,12 +158,8 @@ class Dynamics(object):
 
         self.io = IO(filename_prefix)
 
+        # Check if settings are consistent with previously saved runs.
         settings_on_file = self.io.load_dataset("settings", print_info=True)
-        if settings_on_file is not None:
-            if not self.settings.identical(settings_on_file):
-                raise ValueError(
-                    "Mismatch between Dynamics object arguments and settings on file."
-                )
 
         PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
@@ -173,7 +169,7 @@ class Dynamics(object):
         cs_basis = CSBasis(self.settings.Ncs)
         cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
-        self.bases = {
+        self.interpolation_bases = {
             "state": sh_basis_zero_removed,
             "steady_state": sh_basis_zero_removed,
             "jr": sh_basis_zero_removed if self.vector_storage["jr"] else cs_basis,
@@ -182,7 +178,7 @@ class Dynamics(object):
             "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
         }
 
-        self.sh_basis_evaluators = {
+        self.storage_basis_evaluators = {
             "state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
             "steady_state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
             "jr": BasisEvaluator(sh_basis_zero_removed, cs_grid),
@@ -198,34 +194,40 @@ class Dynamics(object):
             B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
         )
 
-        # Initialize the state of the ionosphere.
-        self.state = State(
-            self.bases, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
-        )
-
-        self.timeseries = Timeseries(self.bases, cs_basis, self.sh_basis_evaluators, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(self.interpolation_bases, cs_basis, self.storage_basis_evaluators, self.vars, self.vector_storage)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
             self.timeseries.load(key, self.io)
 
+        # Initialize the state of the ionosphere, restarting from the last
+        # state checkpoint if available.
+        self.state = State(
+            sh_basis_zero_removed, self.storage_basis_evaluators, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
+        )
+
         if "state" in self.timeseries.datasets.keys():
-            # Restarting from last checkpoint in state time series.
             self.current_time = np.max(self.timeseries.datasets["state"].time.values)
             self.set_state_variables("state")
         else:
             self.current_time = np.float64(0)
             self.state.m_ind = FieldExpansion(
-                basis=self.bases["state"],
-                coeffs=np.zeros(self.bases["state"].index_length),
+                basis=self.interpolation_bases["state"],
+                coeffs=np.zeros(self.interpolation_bases["state"].index_length),
                 field_type=self.vars["state"]["m_ind"],
             )
 
+        # Store settings and PFAC matrix on file.
         if filename_prefix is None:
             self.io.update_filename_prefix("simulation")
 
         if settings_on_file is None:
             self.io.save_dataset(self.settings, "settings", print_info=True)
+        else:
+            if not self.settings.identical(settings_on_file):
+                raise ValueError(
+                    "Mismatch between Dynamics object arguments and settings on file."
+                )
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.T_to_Ve, "PFAC_matrix", print_info=True)
@@ -334,7 +336,7 @@ class Dynamics(object):
         self.set_input_state_variables()
 
         self.state.m_ind = FieldExpansion(
-            basis=self.bases["state"],
+            basis=self.interpolation_bases["state"],
             coeffs=self.state.steady_state_m_ind(),
             field_type=self.vars["steady_state"]["m_ind"],
         )
@@ -667,43 +669,43 @@ class Dynamics(object):
         if updated_data is not None:
             if key == "state":
                 self.state.m_ind = FieldExpansion(
-                    basis=self.sh_basis_evaluators[key].basis,
+                    basis=self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["m_ind"],
                     field_type=self.vars[key]["m_ind"],
                 )
                 self.state.m_imp = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["m_imp"],
                     field_type=self.vars[key]["m_imp"],
                 )
                 self.state.E = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=np.array([updated_data["Phi"], updated_data["W"]]),
                     field_type="tangential",
                 )
 
             if key == "jr":
                 self.state.jr = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["jr"],
                     field_type=self.vars[key]["jr"],
                 )
 
             if key == "Br":
                 self.state.Br = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["Br"],
                     field_type=self.vars[key]["Br"],
                 )
 
             elif key == "conductance":
                 etaP = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["etaP"],
                     field_type=self.vars[key]["etaP"],
                 )
                 etaH = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["etaH"],
                     field_type=self.vars[key]["etaH"],
                 )
@@ -712,7 +714,7 @@ class Dynamics(object):
 
             elif key == "u":
                 self.state.u = FieldExpansion(
-                    self.sh_basis_evaluators[key].basis,
+                    self.storage_basis_evaluators[key].basis,
                     coeffs=updated_data["u"].reshape((2, -1)),
                     field_type=self.vars[key]["u"],
                 )

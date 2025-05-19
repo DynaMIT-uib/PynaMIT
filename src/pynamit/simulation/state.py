@@ -51,7 +51,7 @@ class State(object):
     ... (other attributes as defined in the implementation) ...
     """
 
-    def __init__(self, bases, mainfield, cs_basis, settings, PFAC_matrix=None):
+    def __init__(self, basis, basis_evaluators, mainfield, cs_basis, settings, PFAC_matrix=None):
         """Initialize the ionospheric state.
 
         Parameters
@@ -75,12 +75,9 @@ class State(object):
         PFAC_matrix : array-like, optional
             Pre-computed FAC poloidal field matrix.
         """
-        self.basis = bases["state"]
-        self.jr_basis = bases["jr"]
-        self.Br_basis = bases["Br"]
-        self.conductance_basis = bases["conductance"]
-        self.u_basis = bases["u"]
+        self.basis = basis
 
+        self.conductance_basis_evaluator = basis_evaluators["conductance"]
         self.mainfield = mainfield
 
         self.RI = settings.RI
@@ -108,11 +105,6 @@ class State(object):
         # inverses, as they do not include regularization and weights.
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         self.basis_evaluator_zero_added = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
-        self.jr_basis_evaluator = BasisEvaluator(self.jr_basis, self.grid)
-        self.Br_basis_evaluator = BasisEvaluator(self.Br_basis, self.grid)
-        self.conductance_basis_evaluator = BasisEvaluator(self.conductance_basis, self.grid)
-        self.u_basis_evaluator = BasisEvaluator(self.u_basis, self.grid)
-
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
         if self.connect_hemispheres:
