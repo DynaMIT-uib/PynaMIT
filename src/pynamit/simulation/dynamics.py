@@ -175,22 +175,29 @@ class Dynamics(object):
         cs_basis = CSBasis(self.settings.Ncs)
         cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
-        self.interpolation_bases = {
-            "state": sh_basis_zero_removed,
-            "steady_state": sh_basis_zero_removed,
+        interpolation_bases = {
             "jr": sh_basis_zero_removed if self.vector_storage["jr"] else cs_basis,
             "Br": sh_basis_zero_removed if self.vector_storage["Br"] else cs_basis,
             "conductance": sh_basis if self.vector_storage["conductance"] else cs_basis,
             "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
         }
 
+        self.storage_bases = {
+            "state": sh_basis_zero_removed,
+            "steady_state": sh_basis_zero_removed,
+            "jr": sh_basis_zero_removed,
+            "Br": sh_basis_zero_removed,
+            "conductance": sh_basis,
+            "u": sh_basis_zero_removed,
+        }
+
         self.storage_basis_evaluators = {
-            "state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
-            "steady_state": BasisEvaluator(sh_basis_zero_removed, cs_grid),
-            "jr": BasisEvaluator(sh_basis_zero_removed, cs_grid),
-            "Br": BasisEvaluator(sh_basis_zero_removed, cs_grid),
-            "conductance": BasisEvaluator(sh_basis, cs_grid),
-            "u": BasisEvaluator(sh_basis_zero_removed, cs_grid),
+            "state": BasisEvaluator(self.storage_bases["state"], cs_grid),
+            "steady_state": BasisEvaluator(self.storage_bases["steady_state"], cs_grid),
+            "jr": BasisEvaluator(self.storage_bases["jr"], cs_grid),
+            "Br": BasisEvaluator(self.storage_bases["Br"], cs_grid),
+            "conductance": BasisEvaluator(self.storage_bases["conductance"], cs_grid),
+            "u": BasisEvaluator(self.storage_bases["u"], cs_grid),
         }
 
         self.mainfield = Mainfield(
@@ -200,7 +207,7 @@ class Dynamics(object):
             B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
         )
 
-        self.timeseries = Timeseries(self.interpolation_bases, cs_basis, self.storage_basis_evaluators, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(interpolation_bases, cs_basis, self.storage_basis_evaluators, self.vars, self.vector_storage)
 
         # Load all timeseries on file.
         for key in self.vars.keys():
@@ -218,8 +225,8 @@ class Dynamics(object):
         else:
             self.current_time = np.float64(0)
             self.state.m_ind = FieldExpansion(
-                basis=self.interpolation_bases["state"],
-                coeffs=np.zeros(self.interpolation_bases["state"].index_length),
+                basis=self.storage_bases["state"],
+                coeffs=np.zeros(self.storage_bases["state"].index_length),
                 field_type=self.vars["state"]["m_ind"],
             )
 
@@ -337,7 +344,7 @@ class Dynamics(object):
         self.set_input_state_variables()
 
         self.state.m_ind = FieldExpansion(
-            basis=self.interpolation_bases["state"],
+            basis=self.storage_bases["state"],
             coeffs=self.state.steady_state_m_ind(),
             field_type=self.vars["steady_state"]["m_ind"],
         )
@@ -670,43 +677,43 @@ class Dynamics(object):
         if updated_data is not None:
             if key == "state":
                 self.state.m_ind = FieldExpansion(
-                    basis=self.storage_basis_evaluators[key].basis,
+                    basis=self.storage_bases[key],
                     coeffs=updated_data["m_ind"],
                     field_type=self.vars[key]["m_ind"],
                 )
                 self.state.m_imp = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=updated_data["m_imp"],
                     field_type=self.vars[key]["m_imp"],
                 )
                 self.state.E = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=np.array([updated_data["Phi"], updated_data["W"]]),
                     field_type="tangential",
                 )
 
             if key == "jr":
                 self.state.jr = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=updated_data["jr"],
                     field_type=self.vars[key]["jr"],
                 )
 
             if key == "Br":
                 self.state.Br = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=updated_data["Br"],
                     field_type=self.vars[key]["Br"],
                 )
 
             elif key == "conductance":
                 etaP = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=updated_data["etaP"],
                     field_type=self.vars[key]["etaP"],
                 )
                 etaH = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=updated_data["etaH"],
                     field_type=self.vars[key]["etaH"],
                 )
@@ -715,7 +722,7 @@ class Dynamics(object):
 
             elif key == "u":
                 self.state.u = FieldExpansion(
-                    self.storage_basis_evaluators[key].basis,
+                    self.storage_bases[key],
                     coeffs=updated_data["u"].reshape((2, -1)),
                     field_type=self.vars[key]["u"],
                 )
