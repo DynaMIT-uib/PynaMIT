@@ -14,7 +14,7 @@ latitude_boundary = 35
 latitude_step = 0.5
 
 PLOT_BR = False
-PLOT_CONDUCTANCE = False
+PLOT_CONDUCTANCE = True
 PLOT_JR = False
 PLOT_U = False
 
@@ -25,6 +25,24 @@ U_LAMBDA = 0.1
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
+    """Calculate radial sampling points for the dipole model.
+
+    Parameters
+    ----------
+    r_min : float
+        Minimum radius.
+    r_max : float
+        Maximum radius.
+    n_steps : int
+        Number of steps.
+
+    Returns
+    -------
+    rk : array
+        Radial sampling points.
+    angles : array
+        Angles corresponding to the radial sampling points.
+    """
     ratio = r_min / r_max
     max_angle = np.rad2deg(np.arccos(np.sqrt(ratio)))
     angles = np.linspace(0, max_angle, n_steps)
@@ -100,12 +118,12 @@ for step in range(0, nstep):
 
     print("Setting Br with RMS: ", np.sqrt(np.mean(delta_Br**2)))
     dynamics.set_Br(
-        delta_Br,
-        lat=magnetosphere_lat,
-        lon=magnetosphere_lon,
-        time=dt * step,
-        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
-        reg_lambda=BR_LAMBDA,
+       delta_Br,
+       lat=magnetosphere_lat,
+       lon=magnetosphere_lon,
+       time=dt * step,
+       weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+       reg_lambda=BR_LAMBDA,
     )
 
     # Get and set jr input (FAC given in muA/m^2).
@@ -119,12 +137,12 @@ for step in range(0, nstep):
 
     print("Setting jr with RMS: ", np.sqrt(np.mean(jr**2)))
     dynamics.set_jr(
-       jr,
-       lat=ionosphere_lat,
-       lon=ionosphere_lon,
-       time=dt * step,
-       weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
-       reg_lambda=JR_LAMBDA,
+        jr,
+        lat=ionosphere_lat,
+        lon=ionosphere_lon,
+        time=dt * step,
+        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+        reg_lambda=JR_LAMBDA,
     )
 
     # Get and set conductance input (given in S).
@@ -169,13 +187,13 @@ for step in range(0, nstep):
 
     print("Setting wind with RMS: ", np.sqrt(np.mean(u_theta**2 + u_phi**2)))
     dynamics.set_u(
-       u_theta=u_theta,
-       u_phi=u_phi,
-       lat=u_lat,
-       lon=u_lon,
-       time=dt * step,
-       weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
-       reg_lambda=U_LAMBDA,
+        u_theta=u_theta,
+        u_phi=u_phi,
+        lat=u_lat,
+        lon=u_lon,
+        time=dt * step,
+        weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+        reg_lambda=U_LAMBDA,
     )
 
     print("Setting input state variables")
@@ -244,23 +262,23 @@ for step in range(0, nstep):
         plt.show()
 
         # Alternative: plot theta and phi components separately.
-        # pynamit.globalplot(
-        #    plt_lon,
-        #    plt_lat,
-        #    dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
-        #    cmap=plt.cm.viridis,
-        #    extend="both",
-        #    title="u at RI",
-        # )
+        pynamit.globalplot(
+           plt_lon,
+           plt_lat,
+           dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
+           cmap=plt.cm.viridis,
+           extend="both",
+           title="u at RI",
+        )
 
-        # pynamit.globalplot(
-        #    plt_lon,
-        #    plt_lat,
-        #    dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
-        #    cmap=plt.cm.viridis,
-        #    extend="both",
-        #    title="u at RI",
-        # )
+        pynamit.globalplot(
+           plt_lon,
+           plt_lat,
+           dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
+           cmap=plt.cm.viridis,
+           extend="both",
+           title="u at RI",
+        )
 
 print("Imposing steady state")
 dynamics.impose_steady_state()

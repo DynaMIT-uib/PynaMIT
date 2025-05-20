@@ -106,7 +106,6 @@ class CSBasis:
         ValueError
             If N is provided but is not an even number.
         """
-
         if N is not None:
             if not isinstance(N, (int, np.integer)):
                 raise TypeError("N must be an integer")

@@ -173,6 +173,8 @@ class CSEquations(object):
         scipy.sparse.csr_matrix
             Matrix that returns the radial curl.
         """
+        import scipy.sparse as sp
+
         Dxi, Deta = self.cs_basis.get_Diff(
             self.cs_basis.N, coordinate="both", Ns=stencil_size, Ni=interpolation_points, order=1
         )

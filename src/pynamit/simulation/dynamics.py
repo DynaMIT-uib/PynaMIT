@@ -5,11 +5,9 @@ coupling.
 """
 
 import numpy as np
-import scipy.sparse as sp
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
-from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.grid import Grid
@@ -205,8 +203,8 @@ class Dynamics(object):
         for key in self.vars.keys():
             self.timeseries.load(key, self.io)
 
-        # Initialize the state of the ionosphere, restarting from the last
-        # state checkpoint if available.
+        # Initialize the state of the ionosphere, restarting from the
+        # last state checkpoint if available.
         self.state = State(
             sh_basis_zero_removed,
             self.timeseries.storage_basis_evaluators,
@@ -666,7 +664,6 @@ class Dynamics(object):
             Dictionary containing the input data variables for the
             specified key.
         """
-
         updated_data = self.timeseries.get_entry_if_changed(
             key, self.current_time, interpolation=False if key == "state" else interpolation
         )
@@ -704,18 +701,18 @@ class Dynamics(object):
                 )
 
             elif key == "conductance":
-                etaP = FieldExpansion(
+                self.state.etaP = FieldExpansion(
                     self.storage_bases[key],
                     coeffs=updated_data["etaP"],
                     field_type=self.vars[key]["etaP"],
                 )
-                etaH = FieldExpansion(
+                self.state.etaH = FieldExpansion(
                     self.storage_bases[key],
                     coeffs=updated_data["etaH"],
                     field_type=self.vars[key]["etaH"],
                 )
 
-                self.state.update_matrices(etaP, etaH)
+                self.state.update_matrices(self.state.etaP, self.state.etaH)
 
             elif key == "u":
                 self.state.u = FieldExpansion(
