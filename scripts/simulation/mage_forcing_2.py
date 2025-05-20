@@ -132,6 +132,9 @@ for step in range(0, nstep):
     conductance_hall = file["SH"][:][step, :, :].flatten()
     conductance_pedersen = file["SP"][:][step, :, :].flatten()
 
+    conductance_hall = np.ones_like(conductance_hall)
+    conductance_pedersen = np.ones_like(conductance_pedersen)
+
     # Testing
     # conductance_hall = np.ones_like(conductance_hall) * 100
     # conductance_pedersen = np.ones_like(conductance_pedersen) * 100
@@ -277,8 +280,8 @@ pfac_mapped = dynamics.state.T_to_Ve.values.dot(
 )  # * dynamics.state.basis.radial_shift_Ve(RI, RE)
 Br_mapped = (
     dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE)
-    * dynamics.state.Br.coeffs
     / dynamics.state.m_ind_to_Br
+    * dynamics.state.Br.coeffs
 )
 
 # Global plot of m_ind_mapped and Br_mapped.

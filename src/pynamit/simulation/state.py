@@ -160,8 +160,7 @@ class State(object):
                 * self.basis.radial_shift_Vi(self.RI, self.RM)
             )
 
-            self.G_m_ind_to_JS += m_ind_to_m_S
-
+            self.G_m_ind_to_JS *= (1 + m_ind_to_m_S)
 
         # Construct the matrix elements for electric field calculations.
         self.bP = np.array(
