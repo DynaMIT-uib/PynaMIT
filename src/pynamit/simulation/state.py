@@ -104,7 +104,9 @@ class State(object):
         # Note that these BasisEvaluator objects cannot be used for
         # inverses, as they do not include regularization and weights.
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
-        self.basis_evaluator_zero_added = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
+        self.basis_evaluator_zero_added = BasisEvaluator(
+            SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid
+        )
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
 
         if self.connect_hemispheres:
@@ -146,6 +148,20 @@ class State(object):
             )
 
             self.G_Br_to_JS = self.G_Ve_to_JS * Br_RM_to_m_S
+
+            m_ind_to_m_S = (
+                1
+                / (
+                    1
+                    - self.basis.radial_shift_Ve(self.RM, self.RI)
+                    * self.basis.radial_shift_Vi(self.RI, self.RM)
+                )
+                * self.basis.radial_shift_Ve(self.RM, self.RI)
+                * self.basis.radial_shift_Vi(self.RI, self.RM)
+            )
+
+            self.G_m_ind_to_JS += m_ind_to_m_S
+
 
         # Construct the matrix elements for electric field calculations.
         self.bP = np.array(
@@ -198,8 +214,8 @@ class State(object):
         u_coeffs_to_uxB = np.einsum(
             "ijk,jklm->iklm", self.bu, self.basis_evaluator.G_helmholtz, optimize=True
         )
-        self.u_coeffs_to_E_coeffs_direct = (
-            self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB)
+        self.u_coeffs_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(
+            u_coeffs_to_uxB
         )
 
         if TRIPLE_PRODUCT and self.vector_conductance:

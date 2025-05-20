@@ -69,8 +69,8 @@ dynamics = pynamit.Dynamics(
     RM=1.5 * RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
+    ignore_PFAC=True,
+    connect_hemispheres=False,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
@@ -85,7 +85,7 @@ plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
 plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
+conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.storage_bases["conductance"], plt_grid)
 
 time = file["time"][:]
 nstep = time.shape[0]
@@ -131,6 +131,10 @@ for step in range(0, nstep):
     # Get and set conductance input (given in S).
     conductance_hall = file["SH"][:][step, :, :].flatten()
     conductance_pedersen = file["SP"][:][step, :, :].flatten()
+
+    # Testing
+    # conductance_hall = np.ones_like(conductance_hall) * 100
+    # conductance_pedersen = np.ones_like(conductance_pedersen) * 100
 
     if np.any(np.isnan(conductance_hall)):
         raise ValueError("Hall conductance input contains NaN values.")
@@ -283,6 +287,7 @@ pynamit.globalplot(
     plt_lat,
     plt_evaluator.basis_to_grid(m_ind_mapped).reshape(plt_lon.shape),
     cmap=plt.cm.viridis,
+    levels=np.linspace(-10, 10, 22) * 1e-11,
     extend="both",
     title="m_ind_mapped at RE",
 )
@@ -291,6 +296,7 @@ pynamit.globalplot(
     plt_lat,
     plt_evaluator.basis_to_grid(Br_mapped).reshape(plt_lon.shape),
     cmap=plt.cm.viridis,
+    levels=np.linspace(-10, 10, 22) * 1e-11,
     extend="both",
     title="Br_mapped at RE",
 )

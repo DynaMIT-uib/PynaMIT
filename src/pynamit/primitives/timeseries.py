@@ -53,9 +53,7 @@ class Timeseries:
 
         self.storage_basis_evaluators = {}
         for key in self.storage_bases.keys():
-            self.storage_basis_evaluators[key] = BasisEvaluator(
-                self.storage_bases[key], cs_grid
-            )
+            self.storage_basis_evaluators[key] = BasisEvaluator(self.storage_bases[key], cs_grid)
 
         self.basis_multiindices = {}
         for key in self.vars.keys():
@@ -185,7 +183,7 @@ class Timeseries:
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    grid_values=input_data[var][time_index]
+                    grid_values = input_data[var][time_index]
                     basis_evaluator = self.input_basis_evaluators[key]
                 else:
                     # Interpolate to state_grid
@@ -269,8 +267,12 @@ class Timeseries:
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[self.storage_bases[key].kind + "_" + var].values.flatten()
-                            - dataset_before[self.storage_bases[key].kind + "_" + var].values.flatten()
+                            dataset_after[
+                                self.storage_bases[key].kind + "_" + var
+                            ].values.flatten()
+                            - dataset_before[
+                                self.storage_bases[key].kind + "_" + var
+                            ].values.flatten()
                         )
                     )
 
@@ -328,6 +330,6 @@ class Timeseries:
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
-            self.datasets[key] = dataset.drop_vars(self.storage_bases[key].index_names).assign_coords(
-                coords
-            )
+            self.datasets[key] = dataset.drop_vars(
+                self.storage_bases[key].index_names
+            ).assign_coords(coords)

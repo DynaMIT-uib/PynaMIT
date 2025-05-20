@@ -197,7 +197,9 @@ class Dynamics(object):
             B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
         )
 
-        self.timeseries = Timeseries(interpolation_bases, cs_basis, self.storage_bases, self.vars, self.vector_storage)
+        self.timeseries = Timeseries(
+            interpolation_bases, cs_basis, self.storage_bases, self.vars, self.vector_storage
+        )
 
         # Load all timeseries on file.
         for key in self.vars.keys():
@@ -206,7 +208,12 @@ class Dynamics(object):
         # Initialize the state of the ionosphere, restarting from the last
         # state checkpoint if available.
         self.state = State(
-            sh_basis_zero_removed, self.timeseries.storage_basis_evaluators, self.mainfield, cs_basis, self.settings, PFAC_matrix=PFAC_matrix_on_file
+            sh_basis_zero_removed,
+            self.timeseries.storage_basis_evaluators,
+            self.mainfield,
+            cs_basis,
+            self.settings,
+            PFAC_matrix=PFAC_matrix_on_file,
         )
 
         if "state" in self.timeseries.datasets.keys():
