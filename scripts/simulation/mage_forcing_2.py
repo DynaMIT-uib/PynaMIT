@@ -14,14 +14,14 @@ latitude_boundary = 35
 latitude_step = 0.5
 
 PLOT_BR = False
-PLOT_CONDUCTANCE = True
+PLOT_CONDUCTANCE = False
 PLOT_JR = False
 PLOT_U = False
 
-BR_LAMBDA = 0.1
-CONDUCTANCE_LAMBDA = 1
-JR_LAMBDA = 0.1
-U_LAMBDA = 0.1
+BR_LAMBDA = 1
+CONDUCTANCE_LAMBDA = 5
+JR_LAMBDA = 1
+U_LAMBDA = 1
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -51,7 +51,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
 
 
 filename_prefix = "results_mage_2011"
-Nmax, Mmax, Ncs = 40, 40, 40
+Nmax, Mmax, Ncs = 50, 50, 50
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -118,12 +118,12 @@ for step in range(0, nstep):
 
     print("Setting Br with RMS: ", np.sqrt(np.mean(delta_Br**2)))
     dynamics.set_Br(
-       delta_Br,
-       lat=magnetosphere_lat,
-       lon=magnetosphere_lon,
-       time=dt * step,
-       weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
-       reg_lambda=BR_LAMBDA,
+        delta_Br,
+        lat=magnetosphere_lat,
+        lon=magnetosphere_lon,
+        time=dt * step,
+        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+        reg_lambda=BR_LAMBDA,
     )
 
     # Get and set jr input (FAC given in muA/m^2).
@@ -263,21 +263,21 @@ for step in range(0, nstep):
 
         # Alternative: plot theta and phi components separately.
         pynamit.globalplot(
-           plt_lon,
-           plt_lat,
-           dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
-           cmap=plt.cm.viridis,
-           extend="both",
-           title="u at RI",
+            plt_lon,
+            plt_lat,
+            dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
+            cmap=plt.cm.viridis,
+            extend="both",
+            title="u at RI",
         )
 
         pynamit.globalplot(
-           plt_lon,
-           plt_lat,
-           dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
-           cmap=plt.cm.viridis,
-           extend="both",
-           title="u at RI",
+            plt_lon,
+            plt_lat,
+            dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
+            cmap=plt.cm.viridis,
+            extend="both",
+            title="u at RI",
         )
 
 print("Imposing steady state")
