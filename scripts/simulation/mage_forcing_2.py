@@ -69,8 +69,8 @@ dynamics = pynamit.Dynamics(
     RM=1.5 * RI,
     mainfield_kind="dipole",
     FAC_integration_steps=rk,
-    ignore_PFAC=True,
-    connect_hemispheres=False,
+    ignore_PFAC=False,
+    connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
@@ -89,7 +89,6 @@ conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.storage_bases["condu
 
 time = file["time"][:]
 nstep = time.shape[0]
-nstep = 1
 
 for step in range(0, nstep):
     print("Processing input step", step + 1, "of", nstep)
@@ -119,25 +118,18 @@ for step in range(0, nstep):
     jr = FAC.flatten() * FAC_b_evaluator.br
 
     print("Setting jr with RMS: ", np.sqrt(np.mean(jr**2)))
-    # dynamics.set_jr(
-    #    jr,
-    #    lat=ionosphere_lat,
-    #    lon=ionosphere_lon,
-    #    time=dt * step,
-    #    weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
-    #    reg_lambda=JR_LAMBDA,
-    # )
+    dynamics.set_jr(
+       jr,
+       lat=ionosphere_lat,
+       lon=ionosphere_lon,
+       time=dt * step,
+       weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+       reg_lambda=JR_LAMBDA,
+    )
 
     # Get and set conductance input (given in S).
     conductance_hall = file["SH"][:][step, :, :].flatten()
     conductance_pedersen = file["SP"][:][step, :, :].flatten()
-
-    conductance_hall = np.ones_like(conductance_hall)
-    conductance_pedersen = np.ones_like(conductance_pedersen)
-
-    # Testing
-    # conductance_hall = np.ones_like(conductance_hall) * 100
-    # conductance_pedersen = np.ones_like(conductance_pedersen) * 100
 
     if np.any(np.isnan(conductance_hall)):
         raise ValueError("Hall conductance input contains NaN values.")
@@ -176,15 +168,15 @@ for step in range(0, nstep):
         raise ValueError("Wind input contains NaN values.")
 
     print("Setting wind with RMS: ", np.sqrt(np.mean(u_theta**2 + u_phi**2)))
-    # dynamics.set_u(
-    #    u_theta=u_theta,
-    #    u_phi=u_phi,
-    #    lat=u_lat,
-    #    lon=u_lon,
-    #    time=dt * step,
-    #    weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
-    #    reg_lambda=U_LAMBDA,
-    # )
+    dynamics.set_u(
+       u_theta=u_theta,
+       u_phi=u_phi,
+       lat=u_lat,
+       lon=u_lon,
+       time=dt * step,
+       weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+       reg_lambda=U_LAMBDA,
+    )
 
     print("Setting input state variables")
     dynamics.set_input_state_variables()
@@ -272,47 +264,6 @@ for step in range(0, nstep):
 
 print("Imposing steady state")
 dynamics.impose_steady_state()
-# Compare m_ind mapped to the earth to Br.coeffs / self.m_ind_to_Br mapped to the earth.
-# Add effect of pfac
-m_ind_mapped = dynamics.state.m_ind.coeffs * dynamics.state.basis.radial_shift_Ve(RI, RE)
-pfac_mapped = dynamics.state.T_to_Ve.values.dot(
-    dynamics.state.m_imp.coeffs
-)  # * dynamics.state.basis.radial_shift_Ve(RI, RE)
-Br_mapped = (
-    dynamics.state.basis.radial_shift_Ve(1.5 * RI, RE)
-    / dynamics.state.m_ind_to_Br
-    * dynamics.state.Br.coeffs
-)
-
-# Global plot of m_ind_mapped and Br_mapped.
-pynamit.globalplot(
-    plt_lon,
-    plt_lat,
-    plt_evaluator.basis_to_grid(m_ind_mapped).reshape(plt_lon.shape),
-    cmap=plt.cm.viridis,
-    levels=np.linspace(-10, 10, 22) * 1e-11,
-    extend="both",
-    title="m_ind_mapped at RE",
-)
-pynamit.globalplot(
-    plt_lon,
-    plt_lat,
-    plt_evaluator.basis_to_grid(Br_mapped).reshape(plt_lon.shape),
-    cmap=plt.cm.viridis,
-    levels=np.linspace(-10, 10, 22) * 1e-11,
-    extend="both",
-    title="Br_mapped at RE",
-)
-
-print(m_ind_mapped)
-print(pfac_mapped)
-print(Br_mapped)
-# print("Norm of Br mapped: ", np.linalg.norm(Br_mapped))
-# print("Norm of difference: ", np.linalg.norm(m_ind_mapped - Br_mapped))
-dynamics.state.update_E()
-print("Norm of E cf: ", np.linalg.norm(dynamics.state.E.coeffs[0]))
-print("Norm of E df: ", np.linalg.norm(dynamics.state.E.coeffs[1]))
-exit()
 
 print("Time evolution")
 final_time = 3600  # seconds
