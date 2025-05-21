@@ -265,6 +265,7 @@ class Dynamics(object):
 
             self.state.update_E()
 
+            steady_state_m_ind = None
             if step % sampling_step_interval == 0:
                 # Append current state to time series.
                 self.state.update_m_imp()
@@ -329,7 +330,7 @@ class Dynamics(object):
                     print("\n\n")
                 break
 
-            self.state.evolve_m_ind(dt)
+            self.state.evolve_m_ind(dt, steady_state_m_ind)
             self.current_time = next_time
 
             step += 1

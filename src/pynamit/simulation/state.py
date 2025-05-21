@@ -542,7 +542,7 @@ class State(object):
         E_coeffs = self.calculate_E_coeffs(self.m_ind.coeffs)
         self.E = FieldExpansion(self.basis, coeffs=E_coeffs, field_type="tangential")
 
-    def evolve_m_ind(self, dt):
+    def evolve_m_ind(self, dt, steady_state_m_ind=None):
         """Evolve induced magnetic field coefficients.
 
         Updates m_ind by time-stepping dBr/dt forward.
@@ -558,7 +558,8 @@ class State(object):
             new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
         elif self.integrator == "exponential":
-            steady_state_m_ind = self.steady_state_m_ind()
+            if steady_state_m_ind is None:
+                steady_state_m_ind = self.steady_state_m_ind()
 
             propagator = expm(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1])
 
