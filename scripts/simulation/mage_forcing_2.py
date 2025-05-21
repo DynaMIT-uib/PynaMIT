@@ -51,7 +51,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
 
 
 filename_prefix = "results_mage_2011"
-Nmax, Mmax, Ncs = 50, 50, 50
+Nmax, Mmax, Ncs = 20, 20, 20
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -116,7 +116,13 @@ for step in range(0, nstep):
     if np.any(np.isnan(delta_Br)):
         raise ValueError("Br input contains NaN values.")
 
-    print("Setting Br with RMS: ", np.sqrt(np.mean(delta_Br**2)))
+    print("Setting Delta Br with (abs. min, RMS, abs. max):")
+    print(
+        f"\t({np.min(np.abs(delta_Br))}, "
+        f"{np.sqrt(np.mean(delta_Br**2))}, "
+        f"{np.max(np.abs(delta_Br))})"
+    )
+
     dynamics.set_Br(
         delta_Br,
         lat=magnetosphere_lat,
@@ -130,12 +136,14 @@ for step in range(0, nstep):
     FAC = file["FAC"][:][step, :, :] * 1e-6  # Convert from muA/m^2 to A/m^2
 
     if np.any(np.isnan(FAC)):
-        print("Warning: FAC input contains NaN values. Setting to 0.")
+        print("FAC input contains NaN values. Setting to 0.")
         FAC[np.isnan(FAC)] = 0
 
     jr = FAC.flatten() * FAC_b_evaluator.br
 
-    print("Setting jr with RMS: ", np.sqrt(np.mean(jr**2)))
+    print("Setting jr with (abs. min, RMS, abs. max):")
+    print(f"\t({np.min(np.abs(jr))}, {np.sqrt(np.mean(jr**2))}, {np.max(np.abs(jr))})")
+
     dynamics.set_jr(
         jr,
         lat=ionosphere_lat,
@@ -158,11 +166,19 @@ for step in range(0, nstep):
     if np.any(conductance_pedersen <= 0):
         raise ValueError("Pedersen conductance input contains non-positive values.")
 
+    print("Setting Hall conductance with (min, RMS, max):")
     print(
-        "Setting conductances with RMSes: ",
-        np.sqrt(np.mean(conductance_hall**2)),
-        np.sqrt(np.mean(conductance_pedersen**2)),
+        f"\t({np.min(np.abs(conductance_hall))}, "
+        f"{np.sqrt(np.mean(conductance_hall**2))}, "
+        f"{np.max(np.abs(conductance_hall))})"
     )
+    print("Setting Pedersen conductance with (min, RMS, max):")
+    print(
+        f"\t({np.min(np.abs(conductance_pedersen))}, "
+        f"{np.sqrt(np.mean(conductance_pedersen**2))}, "
+        f"{np.max(np.abs(conductance_pedersen))})"
+    )
+
     dynamics.set_conductance(
         conductance_hall,
         conductance_pedersen,
@@ -185,7 +201,13 @@ for step in range(0, nstep):
     if np.any(np.isnan(u_phi)):
         raise ValueError("Wind input contains NaN values.")
 
-    print("Setting wind with RMS: ", np.sqrt(np.mean(u_theta**2 + u_phi**2)))
+    print("Setting wind with (abs. min, RMS, abs. max):")
+    print(
+        f"\t({np.min(np.sqrt(u_theta**2 + u_phi**2))}, "
+        f"{np.sqrt(np.mean(u_theta**2 + u_phi**2))}, "
+        f"{np.max(np.sqrt(u_theta**2 + u_phi**2))})"
+    )
+
     dynamics.set_u(
         u_theta=u_theta,
         u_phi=u_phi,
