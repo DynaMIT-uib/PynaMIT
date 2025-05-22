@@ -391,17 +391,39 @@ class State(object):
             m_imp += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
 
         if self.connect_hemispheres and E_MAPPING:
-            E_coeffs_direct = self.m_ind_to_E_coeffs_direct.dot(m_ind)
-
-            if self.u is not None:
-                E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
-
-            if self.Br is not None:
-                E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+            E_coeffs_direct = self.calculate_E_coeffs_direct(m_ind)
 
             m_imp += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct, 2)
 
         return m_imp
+
+    def calculate_E_coeffs_direct(self, m_ind=None):
+        """Calculate the coefficients for the electric field, without
+        constraints.
+
+        Parameters
+        ----------
+        m_ind : array
+            Coefficients for induced part of magnetic field
+            perturbation.
+
+        Returns
+        -------
+        array
+            Coefficients for the electric field.
+        """
+        E_coeffs_direct = np.zeros((2, self.basis.index_length))
+
+        if m_ind is not None:
+            E_coeffs_direct += self.m_ind_to_E_coeffs_direct.dot(m_ind)
+
+        if self.u is not None:
+            E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
+
+        if self.Br is not None:
+            E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+
+        return E_coeffs_direct
 
     def update_m_imp(self):
         """Impose constraints, if any.
@@ -504,13 +526,7 @@ class State(object):
         array
             Coefficients for the electric field.
         """
-        E_coeffs_direct = self.m_ind_to_E_coeffs_direct.dot(m_ind)
-
-        if self.u is not None:
-            E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
-
-        if self.Br is not None:
-            E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+        E_coeffs_direct = self.calculate_E_coeffs_direct(m_ind)
 
         m_imp = np.zeros(self.basis.index_length)
 
@@ -568,15 +584,7 @@ class State(object):
         array
             Coefficients for the induced magnetic field in steady state.
         """
-        E_coeffs_direct_noind = np.zeros((2, self.basis.index_length))
-
-        if self.u is not None:
-            E_coeffs_direct_noind += np.tensordot(
-                self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2
-            )
-
-        if self.Br is not None:
-            E_coeffs_direct_noind += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+        E_coeffs_direct_noind = self.calculate_E_coeffs_direct(m_ind=None)
 
         m_imp = np.zeros(self.basis.index_length)
 
