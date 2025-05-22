@@ -388,16 +388,18 @@ class State(object):
         m_imp = np.zeros(self.basis.index_length)
 
         if self.jr is not None:
-            m_imp += self.jr_coeffs_to_m_imp.dot(self.jr.coeffs)
+            m_imp += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
 
         if self.connect_hemispheres and E_MAPPING:
-            m_imp += self.m_ind_to_m_imp.dot(m_ind)
+            E_coeffs_direct = self.m_ind_to_E_coeffs_direct.dot(m_ind)
 
             if self.u is not None:
-                m_imp += np.tensordot(self.u_coeffs_to_m_imp, self.u.coeffs, 2)
+                E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
 
             if self.Br is not None:
-                m_imp += self.Br_to_m_imp.dot(self.Br.coeffs)
+                E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+
+            m_imp += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct, 2)
 
         return m_imp
 
@@ -426,10 +428,10 @@ class State(object):
             Hall conductance in S
         """
         if TRIPLE_PRODUCT and self.vector_conductance:
-            m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(
+            self.m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(
                 etaP.coeffs
             ) + self.etaH_m_ind_to_E_coeffs.dot(etaH.coeffs)
-            m_imp_to_E_coeffs = self.etaP_m_imp_to_E_coeffs.dot(
+            self.m_imp_to_E_coeffs = self.etaP_m_imp_to_E_coeffs.dot(
                 etaP.coeffs
             ) + self.etaH_m_imp_to_E_coeffs.dot(etaH.coeffs)
 
@@ -444,10 +446,10 @@ class State(object):
                 "i,jik->jik", etaP_on_grid, self.m_imp_to_bP_JS, optimize=True
             ) + np.einsum("i,jik->jik", etaH_on_grid, self.m_imp_to_bH_JS, optimize=True)
 
-            m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(
+            self.m_ind_to_E_coeffs_direct = self.basis_evaluator.least_squares_solution_helmholtz(
                 G_m_ind_to_E_direct
             )
-            m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
+            self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
                 G_m_imp_to_E_direct
             )
             if self.RM is not None:
@@ -465,7 +467,7 @@ class State(object):
         if self.connect_hemispheres and E_MAPPING:
             # Append low-latitude E constraints.
             constraint_matrices.append(
-                np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E_coeffs, 2)
+                np.tensordot(self.E_coeffs_to_E_apex_ll_diff, self.m_imp_to_E_coeffs, 2)
                 * self.ih_constraint_scaling
             )
             coeffs_to_constraint_vectors.append(
@@ -473,35 +475,17 @@ class State(object):
             )
 
         constraints_least_squares = LeastSquares(constraint_matrices, 1)
-        coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
-
-        # Construct jr matrices.
-        self.jr_coeffs_to_m_imp = coeffs_to_m_imp[0]
-        self.jr_coeffs_to_E_coeffs = m_imp_to_E_coeffs.dot(self.jr_coeffs_to_m_imp)
+        self.coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
 
         # Construct m_ind matrices. Negative sign is from moving the
         # induction terms to the right hand side of E - E^cp = 0 (in
         # apex coordinates).
-        self.m_ind_to_E_coeffs = m_ind_to_E_coeffs_direct.copy()
+        self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres and E_MAPPING:
-            self.m_ind_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -m_ind_to_E_coeffs_direct, 2)
-            self.m_ind_to_E_coeffs += m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
-
-        if self.RM is not None:
-            self.Br_to_E_coeffs = self.Br_to_E_coeffs_direct.copy()
-            if self.connect_hemispheres and E_MAPPING:
-                self.Br_to_m_imp = np.tensordot(coeffs_to_m_imp[1], -self.Br_to_E_coeffs_direct, 2)
-                self.Br_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.Br_to_m_imp, 1)
-
-        # Construct u matrices. Negative sign is from moving the wind
-        # terms to the right hand side of E - E^cp = 0 (in apex
-        # coordinates).
-        self.u_coeffs_to_E_coeffs = self.u_coeffs_to_E_coeffs_direct.copy()
-        if self.connect_hemispheres and E_MAPPING:
-            self.u_coeffs_to_m_imp = np.tensordot(
-                coeffs_to_m_imp[1], -self.u_coeffs_to_E_coeffs_direct, 2
+            self.m_ind_to_m_imp = np.tensordot(
+                self.coeffs_to_m_imp[1], -self.m_ind_to_E_coeffs_direct, 2
             )
-            self.u_coeffs_to_E_coeffs += np.tensordot(m_imp_to_E_coeffs, self.u_coeffs_to_m_imp, 1)
+            self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
         # Construct matrix used in steady state calculations.
         self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
@@ -520,16 +504,23 @@ class State(object):
         array
             Coefficients for the electric field.
         """
-        E_coeffs = self.m_ind_to_E_coeffs.dot(m_ind)
-
-        if self.jr is not None:
-            E_coeffs += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
+        E_coeffs_direct = self.m_ind_to_E_coeffs_direct.dot(m_ind)
 
         if self.u is not None:
-            E_coeffs += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
+            E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
 
         if self.Br is not None:
-            E_coeffs += self.Br_to_E_coeffs.dot(self.Br.coeffs)
+            E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+
+        m_imp = np.zeros(self.basis.index_length)
+
+        if self.jr is not None:
+            m_imp += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
+
+        if self.connect_hemispheres and E_MAPPING:
+            m_imp += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct, 2)
+
+        E_coeffs = E_coeffs_direct + self.m_imp_to_E_coeffs.dot(m_imp)
 
         return E_coeffs
 
@@ -577,16 +568,25 @@ class State(object):
         array
             Coefficients for the induced magnetic field in steady state.
         """
-        E_coeffs_noind = np.zeros((2, self.basis.index_length))
-
-        if self.jr is not None:
-            E_coeffs_noind += self.jr_coeffs_to_E_coeffs.dot(self.jr.coeffs)
+        E_coeffs_direct_noind = np.zeros((2, self.basis.index_length))
 
         if self.u is not None:
-            E_coeffs_noind += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
+            E_coeffs_direct_noind += np.tensordot(
+                self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2
+            )
 
         if self.Br is not None:
-            E_coeffs_noind += self.Br_to_E_coeffs.dot(self.Br.coeffs)
+            E_coeffs_direct_noind += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+
+        m_imp = np.zeros(self.basis.index_length)
+
+        if self.jr is not None:
+            m_imp += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
+
+        if self.connect_hemispheres and E_MAPPING:
+            m_imp += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct_noind, 2)
+
+        E_coeffs_noind = E_coeffs_direct_noind + self.m_imp_to_E_coeffs.dot(m_imp)
 
         m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
 
