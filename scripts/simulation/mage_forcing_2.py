@@ -18,10 +18,10 @@ PLOT_CONDUCTANCE = False
 PLOT_JR = False
 PLOT_U = False
 
-BR_LAMBDA = 1
-CONDUCTANCE_LAMBDA = 5
-JR_LAMBDA = 1
-U_LAMBDA = 1
+BR_LAMBDA = 0.1
+CONDUCTANCE_LAMBDA = 0.1
+JR_LAMBDA = 0.1
+U_LAMBDA = 0.1
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -51,7 +51,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
 
 
 filename_prefix = "results_mage_2011"
-Nmax, Mmax, Ncs = 50, 50, 50
+Nmax, Mmax, Ncs = 40, 40, 40
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -61,7 +61,7 @@ dt = 10
 date = datetime.datetime(2011, 10, 24, 18)
 d = dipole.Dipole(date.year)
 
-file = h5.File("mage_2011/data.h5", "r")
+file = h5.File("mage_2011/data_H_int.h5", "r")
 
 # Magnetosphere grid is 96x128, while ionosphere grid is 144x288.
 # 1.5x density from 96 to 144, 2.25x (1.5^2) density from 128 to 288.
