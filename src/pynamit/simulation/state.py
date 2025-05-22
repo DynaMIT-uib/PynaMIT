@@ -584,17 +584,7 @@ class State(object):
         array
             Coefficients for the induced magnetic field in steady state.
         """
-        E_coeffs_direct_noind = self.calculate_E_coeffs_direct(m_ind=None)
-
-        m_imp = np.zeros(self.basis.index_length)
-
-        if self.jr is not None:
-            m_imp += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
-
-        if self.connect_hemispheres and E_MAPPING:
-            m_imp += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct_noind, 2)
-
-        E_coeffs_noind = E_coeffs_direct_noind + self.m_imp_to_E_coeffs.dot(m_imp)
+        E_coeffs_noind = self.calculate_E_coeffs(m_ind=None)
 
         m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
 
