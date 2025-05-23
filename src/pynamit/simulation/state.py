@@ -10,7 +10,6 @@ from pynamit.math.constants import mu0, RE
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares import LeastSquares
 from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -447,8 +446,11 @@ class State(object):
         # Construct matrix used in steady state calculations.
         self.E_noind_to_m_ind_steady = -np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
-    def calculate_E_coeffs_noind(self):
-        """Calculate the coefficients for the electric field.
+    def calculate_noind_coeffs(self):
+        """Calculate noind coefficients.
+
+        Calculate the coefficients for the electric field and
+        imposed magnetic field, without the induced contribution.
 
         Parameters
         ----------
@@ -483,8 +485,11 @@ class State(object):
 
         return E_coeffs_noind, m_imp_noind
 
-    def calculate_E_coeffs_ind(self, m_ind):
-        """Calculate the coefficients for the electric field.
+    def calculate_ind_coeffs(self, m_ind):
+        """Calculate induced coefficients.
+
+        Calculate the coefficients for the induced contribution to
+        the electric field and imposed magnetic field.
 
         Parameters
         ----------
@@ -550,7 +555,7 @@ class State(object):
             Coefficients for the induced magnetic field in steady state.
         """
         if E_coeffs_noind is None:
-            E_coeffs_noind, _ = self.calculate_E_coeffs_noind()
+            E_coeffs_noind, _ = self.calculate_noind_coeffs()
 
         m_ind = self.E_noind_to_m_ind_steady.dot(E_coeffs_noind[1])
 

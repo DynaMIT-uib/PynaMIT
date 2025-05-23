@@ -263,7 +263,7 @@ class Dynamics(object):
         while True:
             self.set_input_state_variables()
 
-            E_coeffs_noind, m_imp_noind = self.state.calculate_E_coeffs_noind()
+            E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
             if self.settings.integrator == "exponential" or (
                 bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
@@ -322,7 +322,20 @@ class Dynamics(object):
             step += 1
 
     def add_state_to_timeseries(self, key, m_ind, E_coeffs_noind, m_imp_noind):
-        E_coeffs_ind, m_imp_ind = self.state.calculate_E_coeffs_ind(m_ind)
+        """Add the current state to the time series.
+
+        Parameters
+        ----------
+        key : str
+            Key for the time series entry.
+        m_ind : array-like
+            Inductive magnetic field coefficients.
+        E_coeffs_noind : tuple
+            Electric field coefficients without induced effects.
+        m_imp_noind : array-like
+            Imposed magnetic field coefficients without induced effects.
+        """
+        E_coeffs_ind, m_imp_ind = self.state.calculate_ind_coeffs(m_ind)
 
         E_coeffs = E_coeffs_noind + E_coeffs_ind
         m_imp = m_imp_noind + m_imp_ind
