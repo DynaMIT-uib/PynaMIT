@@ -436,6 +436,7 @@ class State(object):
         # Construct m_ind matrices. Negative sign is from moving the
         # induction terms to the right hand side of E - E^cp = 0 (in
         # apex coordinates).
+
         self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres and E_MAPPING:
             self.m_ind_to_m_imp = np.tensordot(
@@ -523,7 +524,7 @@ class State(object):
         dt : float
             Time step size in seconds.
         """
-        from scipy.linalg import expm
+        from pynamit.math.krylov_expm import krylov_expmv
 
         m_ind_to_ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
 
@@ -538,9 +539,22 @@ class State(object):
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
 
-            propagator = expm(m_ind_to_ddt_m_ind)
+            # from scipy.linalg import expm
+            # propagator = expm(m_ind_to_ddt_m_ind)
 
-            inductive_m_ind = propagator.dot(m_ind - steady_state_m_ind)
+            def m_ind_to_E_coeffs_chain(x):
+                if self.connect_hemispheres and E_MAPPING:
+                    return self.m_ind_to_E_coeffs_direct.dot(x) - self.m_imp_to_E_coeffs.dot(
+                        np.tensordot(
+                            self.coeffs_to_m_imp[1], np.dot(self.m_ind_to_E_coeffs_direct, x), 2
+                        )
+                    )
+                else:
+                    return self.m_ind_to_E_coeffs_direct.dot(x)
+
+            inductive_m_ind = krylov_expmv(
+                m_ind_to_E_coeffs_chain, m_ind - steady_state_m_ind, t=1.0, tol=1e-14
+            )
 
             new_m_ind = inductive_m_ind + steady_state_m_ind
 
