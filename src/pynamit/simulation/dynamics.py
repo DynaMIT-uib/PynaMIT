@@ -273,40 +273,11 @@ class Dynamics(object):
                 steady_state_m_ind = None
 
             if step % sampling_step_interval == 0:
-                inductive_E_coeffs_ind, inductive_m_imp_ind = self.state.calculate_E_coeffs_ind(
-                    inductive_m_ind
-                )
-
-                inductive_E_coeffs = E_coeffs_noind + inductive_E_coeffs_ind
-                inductive_m_imp = m_imp_noind + inductive_m_imp_ind
-
-                # Append current state to time series.
-                state_data = {
-                    "SH_m_ind": inductive_m_ind,
-                    "SH_m_imp": inductive_m_imp,
-                    "SH_Phi": inductive_E_coeffs[0],
-                    "SH_W": inductive_E_coeffs[1],
-                }
-
-                self.timeseries.add_entry("state", state_data, time=self.current_time)
+                self.add_state_to_timeseries("state", inductive_m_ind, E_coeffs_noind, m_imp_noind)
 
                 if bool(self.settings.save_steady_states):
-                    steady_state_E_coeffs_ind, steady_state_m_imp_ind = (
-                        self.state.calculate_E_coeffs_ind(steady_state_m_ind)
-                    )
-
-                    steady_state_E_coeffs = E_coeffs_noind + steady_state_E_coeffs_ind
-                    steady_state_m_imp = m_imp_noind + steady_state_m_imp_ind
-
-                    steady_state_data = {
-                        "SH_m_ind": steady_state_m_ind,
-                        "SH_m_imp": steady_state_m_imp,
-                        "SH_Phi": steady_state_E_coeffs[0],
-                        "SH_W": steady_state_E_coeffs[1],
-                    }
-
-                    self.timeseries.add_entry(
-                        "steady_state", steady_state_data, time=self.current_time
+                    self.add_state_to_timeseries(
+                        "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
                     )
 
                 # Save state and steady state time series.
@@ -349,6 +320,22 @@ class Dynamics(object):
             self.current_time = next_time
 
             step += 1
+
+    def add_state_to_timeseries(self, key, m_ind, E_coeffs_noind, m_imp_noind):
+        E_coeffs_ind, m_imp_ind = self.state.calculate_E_coeffs_ind(m_ind)
+
+        E_coeffs = E_coeffs_noind + E_coeffs_ind
+        m_imp = m_imp_noind + m_imp_ind
+
+        # Append current state to time series.
+        state_data = {
+            "SH_m_ind": m_ind,
+            "SH_m_imp": m_imp,
+            "SH_Phi": E_coeffs[0],
+            "SH_W": E_coeffs[1],
+        }
+
+        self.timeseries.add_entry(key, state_data, time=self.current_time)
 
     def impose_steady_state(self):
         """Calculate and impose a steady state solution."""
