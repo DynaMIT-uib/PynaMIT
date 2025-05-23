@@ -263,7 +263,14 @@ class Dynamics(object):
         while True:
             self.set_input_state_variables()
 
-            inductive_E_coeffs, inductive_m_imp = self.state.calculate_E_coeffs(inductive_m_ind)
+            E_coeffs_noind, m_imp_noind = self.state.calculate_E_coeffs_noind()
+
+            inductive_E_coeffs_ind, inductive_m_imp_ind = self.state.calculate_E_coeffs_ind(
+                inductive_m_ind
+            )
+
+            inductive_E_coeffs = E_coeffs_noind + inductive_E_coeffs_ind
+            inductive_m_imp = m_imp_noind + inductive_m_imp_ind
 
             steady_state_m_ind = None
             if step % sampling_step_interval == 0:
@@ -280,9 +287,13 @@ class Dynamics(object):
                 if bool(self.settings.save_steady_states):
                     # Calculate steady state and append to time series.
                     steady_state_m_ind = self.state.steady_state_m_ind()
-                    steady_state_E_coeffs, steady_state_m_imp = self.state.calculate_E_coeffs(
-                        steady_state_m_ind
+
+                    steady_state_E_coeffs_ind, steady_state_m_imp_ind = (
+                        self.state.calculate_E_coeffs_ind(steady_state_m_ind)
                     )
+
+                    steady_state_E_coeffs = E_coeffs_noind + steady_state_E_coeffs_ind
+                    steady_state_m_imp = m_imp_noind + steady_state_m_imp_ind
 
                     steady_state_data = {
                         "SH_m_ind": steady_state_m_ind,
