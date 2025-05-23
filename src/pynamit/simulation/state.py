@@ -425,16 +425,6 @@ class State(object):
 
         return E_coeffs_direct
 
-    def update_m_imp(self):
-        """Impose constraints, if any.
-
-        Leads to a contribution to m_imp from m_ind if the hemispheres
-        are connected.
-        """
-        self.m_imp = FieldExpansion(
-            self.basis, coeffs=self.calculate_m_imp(self.m_ind.coeffs), field_type="scalar"
-        )
-
     def update_matrices(self, etaP, etaH):
         """Update the resistance-dependent matrices.
 
@@ -538,18 +528,9 @@ class State(object):
 
         E_coeffs = E_coeffs_direct + self.m_imp_to_E_coeffs.dot(m_imp)
 
-        return E_coeffs
+        return E_coeffs, m_imp
 
-    def update_E(self):
-        """Update electric field coefficients.
-
-        The coefficients represent the electric potential and the
-        electric stream function.
-        """
-        E_coeffs = self.calculate_E_coeffs(self.m_ind.coeffs)
-        self.E = FieldExpansion(self.basis, coeffs=E_coeffs, field_type="tangential")
-
-    def evolve_m_ind(self, dt, steady_state_m_ind=None):
+    def evolve_m_ind(self, m_ind, dt, inductive_E_coeffs, steady_state_m_ind=None):
         """Evolve induced magnetic field coefficients.
 
         Updates m_ind by time-stepping dBr/dt forward.
@@ -562,7 +543,7 @@ class State(object):
         from scipy.linalg import expm
 
         if self.integrator == "euler":
-            new_m_ind = self.m_ind.coeffs + self.E.coeffs[1] * self.E_df_to_d_m_ind_dt * dt
+            new_m_ind = m_ind + inductive_E_coeffs[1] * self.E_df_to_d_m_ind_dt * dt
 
         elif self.integrator == "exponential":
             if steady_state_m_ind is None:
@@ -570,11 +551,11 @@ class State(object):
 
             propagator = expm(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1])
 
-            inductive_m_ind = propagator.dot(self.m_ind.coeffs - steady_state_m_ind)
+            inductive_m_ind = propagator.dot(m_ind - steady_state_m_ind)
 
             new_m_ind = inductive_m_ind + steady_state_m_ind
 
-        self.m_ind.coeffs = new_m_ind
+        return new_m_ind
 
     def steady_state_m_ind(self):
         """Calculate coefficients for induced field in steady state.
@@ -584,7 +565,7 @@ class State(object):
         array
             Coefficients for the induced magnetic field in steady state.
         """
-        E_coeffs_noind = self.calculate_E_coeffs(m_ind=None)
+        E_coeffs_noind, _ = self.calculate_E_coeffs(m_ind=None)
 
         m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
 

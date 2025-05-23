@@ -138,7 +138,7 @@ class Dynamics(object):
 
         self.vars = {
             "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar"},
+            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
             "jr": {"jr": "scalar"},
             "Br": {"Br": "scalar"},
             "conductance": {"etaP": "scalar", "etaH": "scalar"},
@@ -216,14 +216,12 @@ class Dynamics(object):
 
         if "state" in self.timeseries.datasets.keys():
             self.current_time = np.max(self.timeseries.datasets["state"].time.values)
-            self.set_state_variables("state")
+            self.m_ind = self.timeseries.get_entry_if_changed(
+                "state", self.current_time, interpolation=False
+            )
         else:
             self.current_time = np.float64(0)
-            self.state.m_ind = FieldExpansion(
-                basis=self.storage_bases["state"],
-                coeffs=np.zeros(self.storage_bases["state"].index_length),
-                field_type=self.vars["state"]["m_ind"],
-            )
+            self.m_ind = np.zeros(self.storage_bases["state"].index_length)
 
         # Store settings and PFAC matrix on file.
         if filename_prefix is None:
@@ -260,21 +258,23 @@ class Dynamics(object):
         """
         step = 0
 
+        inductive_m_ind = self.m_ind
+
         while True:
             self.set_input_state_variables()
 
-            self.state.update_E()
+            inductive_E_coeffs, inductive_m_imp = self.state.calculate_E_coeffs(inductive_m_ind)
 
             steady_state_m_ind = None
             if step % sampling_step_interval == 0:
                 # Append current state to time series.
-                self.state.update_m_imp()
+                inductive_m_imp = self.state.calculate_m_imp(inductive_m_ind)
 
                 state_data = {
-                    "SH_m_ind": self.state.m_ind.coeffs,
-                    "SH_m_imp": self.state.m_imp.coeffs,
-                    "SH_Phi": self.state.E.coeffs[0],
-                    "SH_W": self.state.E.coeffs[1],
+                    "SH_m_ind": inductive_m_ind,
+                    "SH_m_imp": inductive_m_imp,
+                    "SH_Phi": inductive_E_coeffs[0],
+                    "SH_W": inductive_E_coeffs[1],
                 }
 
                 self.timeseries.add_entry("state", state_data, time=self.current_time)
@@ -282,8 +282,9 @@ class Dynamics(object):
                 if bool(self.settings.save_steady_states):
                     # Calculate steady state and append to time series.
                     steady_state_m_ind = self.state.steady_state_m_ind()
-                    steady_state_m_imp = self.state.calculate_m_imp(steady_state_m_ind)
-                    steady_state_E_coeffs = self.state.calculate_E_coeffs(steady_state_m_ind)
+                    steady_state_E_coeffs, steady_state_m_imp = self.state.calculate_E_coeffs(
+                        steady_state_m_ind
+                    )
 
                     steady_state_data = {
                         "SH_m_ind": steady_state_m_ind,
@@ -330,7 +331,9 @@ class Dynamics(object):
                     print("\n\n")
                 break
 
-            self.state.evolve_m_ind(dt, steady_state_m_ind)
+            inductive_m_ind = self.state.evolve_m_ind(
+                inductive_m_ind, dt, inductive_E_coeffs, steady_state_m_ind
+            )
             self.current_time = next_time
 
             step += 1
@@ -339,13 +342,7 @@ class Dynamics(object):
         """Calculate and impose a steady state solution."""
         self.set_input_state_variables()
 
-        self.state.m_ind = FieldExpansion(
-            basis=self.storage_bases["state"],
-            coeffs=self.state.steady_state_m_ind(),
-            field_type=self.vars["steady_state"]["m_ind"],
-        )
-
-        self.state.update_m_imp()
+        self.m_ind = self.state.steady_state_m_ind()
 
     def set_input_state_variables(self):
         """Select input data corresponding to the latest time."""
@@ -666,27 +663,10 @@ class Dynamics(object):
             specified key.
         """
         updated_data = self.timeseries.get_entry_if_changed(
-            key, self.current_time, interpolation=False if key == "state" else interpolation
+            key, self.current_time, interpolation=interpolation
         )
 
         if updated_data is not None:
-            if key == "state":
-                self.state.m_ind = FieldExpansion(
-                    basis=self.storage_bases[key],
-                    coeffs=updated_data["m_ind"],
-                    field_type=self.vars[key]["m_ind"],
-                )
-                self.state.m_imp = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=updated_data["m_imp"],
-                    field_type=self.vars[key]["m_imp"],
-                )
-                self.state.E = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=np.array([updated_data["Phi"], updated_data["W"]]),
-                    field_type="tangential",
-                )
-
             if key == "jr":
                 self.state.jr = FieldExpansion(
                     self.storage_bases[key],
