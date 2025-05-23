@@ -370,61 +370,6 @@ class State(object):
                     (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
                 )
 
-    def calculate_m_imp(self, m_ind):
-        """Calculate m_imp.
-
-        Parameters
-        ----------
-        m_ind : array
-            Coefficients for induced part of magnetic field
-            perturbation.
-
-        Returns
-        -------
-        array
-            Coefficients for imposed part of magnetic field
-            perturbation.
-        """
-        m_imp = np.zeros(self.basis.index_length)
-
-        if self.jr is not None:
-            m_imp += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
-
-        if self.connect_hemispheres and E_MAPPING:
-            E_coeffs_direct = self.calculate_E_coeffs_direct(m_ind)
-
-            m_imp += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct, 2)
-
-        return m_imp
-
-    def calculate_E_coeffs_direct(self, m_ind=None):
-        """Calculate the coefficients for the electric field, without
-        constraints.
-
-        Parameters
-        ----------
-        m_ind : array
-            Coefficients for induced part of magnetic field
-            perturbation.
-
-        Returns
-        -------
-        array
-            Coefficients for the electric field.
-        """
-        E_coeffs_direct = np.zeros((2, self.basis.index_length))
-
-        if m_ind is not None:
-            E_coeffs_direct += self.m_ind_to_E_coeffs_direct.dot(m_ind)
-
-        if self.u is not None:
-            E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
-
-        if self.Br is not None:
-            E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
-
-        return E_coeffs_direct
-
     def update_matrices(self, etaP, etaH):
         """Update the resistance-dependent matrices.
 
@@ -529,6 +474,34 @@ class State(object):
         E_coeffs = E_coeffs_direct + self.m_imp_to_E_coeffs.dot(m_imp)
 
         return E_coeffs, m_imp
+
+    def calculate_E_coeffs_direct(self, m_ind=None):
+        """Calculate the coefficients for the electric field, without
+        constraints.
+
+        Parameters
+        ----------
+        m_ind : array
+            Coefficients for induced part of magnetic field
+            perturbation.
+
+        Returns
+        -------
+        array
+            Coefficients for the electric field.
+        """
+        E_coeffs_direct = np.zeros((2, self.basis.index_length))
+
+        if m_ind is not None:
+            E_coeffs_direct += self.m_ind_to_E_coeffs_direct.dot(m_ind)
+
+        if self.u is not None:
+            E_coeffs_direct += np.tensordot(self.u_coeffs_to_E_coeffs_direct, self.u.coeffs, 2)
+
+        if self.Br is not None:
+            E_coeffs_direct += self.Br_to_E_coeffs_direct.dot(self.Br.coeffs)
+
+        return E_coeffs_direct
 
     def evolve_m_ind(self, m_ind, dt, inductive_E_coeffs, steady_state_m_ind=None):
         """Evolve induced magnetic field coefficients.

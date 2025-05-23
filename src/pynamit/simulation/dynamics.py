@@ -268,8 +268,6 @@ class Dynamics(object):
             steady_state_m_ind = None
             if step % sampling_step_interval == 0:
                 # Append current state to time series.
-                inductive_m_imp = self.state.calculate_m_imp(inductive_m_ind)
-
                 state_data = {
                     "SH_m_ind": inductive_m_ind,
                     "SH_m_imp": inductive_m_imp,
