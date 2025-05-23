@@ -18,10 +18,10 @@ PLOT_CONDUCTANCE = False
 PLOT_JR = False
 PLOT_U = False
 
-BR_LAMBDA = 0.1
-CONDUCTANCE_LAMBDA = 0.1
-JR_LAMBDA = 0.1
-U_LAMBDA = 0.1
+BR_LAMBDA = 1
+CONDUCTANCE_LAMBDA = 1
+JR_LAMBDA = 1
+U_LAMBDA = 1
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):

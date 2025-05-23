@@ -508,7 +508,7 @@ class State(object):
 
         return E_coeffs, m_imp_ind
 
-    def evolve_m_ind(self, m_ind, dt, inductive_E_coeffs, steady_state_m_ind=None):
+    def evolve_m_ind(self, m_ind, dt, E_coeffs_noind, steady_state_m_ind=None):
         """Evolve induced magnetic field coefficients.
 
         Updates m_ind by time-stepping dBr/dt forward.
@@ -520,14 +520,20 @@ class State(object):
         """
         from scipy.linalg import expm
 
+        m_ind_to_ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
+
         if self.integrator == "euler":
-            new_m_ind = m_ind + inductive_E_coeffs[1] * self.E_df_to_d_m_ind_dt * dt
+            new_m_ind = (
+                m_ind
+                + m_ind_to_ddt_m_ind.dot(m_ind)
+                + dt * E_coeffs_noind[1] * self.E_df_to_d_m_ind_dt
+            )
 
         elif self.integrator == "exponential":
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind()
 
-            propagator = expm(dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1])
+            propagator = expm(m_ind_to_ddt_m_ind)
 
             inductive_m_ind = propagator.dot(m_ind - steady_state_m_ind)
 

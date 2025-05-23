@@ -265,15 +265,16 @@ class Dynamics(object):
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_E_coeffs_noind()
 
-            inductive_E_coeffs_ind, inductive_m_imp_ind = self.state.calculate_E_coeffs_ind(
-                inductive_m_ind
-            )
-
-            inductive_E_coeffs = E_coeffs_noind + inductive_E_coeffs_ind
-            inductive_m_imp = m_imp_noind + inductive_m_imp_ind
-
             steady_state_m_ind = None
+
             if step % sampling_step_interval == 0:
+                inductive_E_coeffs_ind, inductive_m_imp_ind = self.state.calculate_E_coeffs_ind(
+                    inductive_m_ind
+                )
+
+                inductive_E_coeffs = E_coeffs_noind + inductive_E_coeffs_ind
+                inductive_m_imp = m_imp_noind + inductive_m_imp_ind
+
                 # Append current state to time series.
                 state_data = {
                     "SH_m_ind": inductive_m_ind,
@@ -341,7 +342,7 @@ class Dynamics(object):
                 break
 
             inductive_m_ind = self.state.evolve_m_ind(
-                inductive_m_ind, dt, inductive_E_coeffs, steady_state_m_ind
+                inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
             )
             self.current_time = next_time
 
