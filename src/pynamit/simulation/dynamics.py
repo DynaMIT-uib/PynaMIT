@@ -265,7 +265,12 @@ class Dynamics(object):
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_E_coeffs_noind()
 
-            steady_state_m_ind = None
+            if self.settings.integrator == "exponential" or (
+                bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
+            ):
+                steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+            else:
+                steady_state_m_ind = None
 
             if step % sampling_step_interval == 0:
                 inductive_E_coeffs_ind, inductive_m_imp_ind = self.state.calculate_E_coeffs_ind(
@@ -286,9 +291,6 @@ class Dynamics(object):
                 self.timeseries.add_entry("state", state_data, time=self.current_time)
 
                 if bool(self.settings.save_steady_states):
-                    # Calculate steady state and append to time series.
-                    steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
-
                     steady_state_E_coeffs_ind, steady_state_m_imp_ind = (
                         self.state.calculate_E_coeffs_ind(steady_state_m_ind)
                     )
