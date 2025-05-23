@@ -535,7 +535,7 @@ class State(object):
 
         return new_m_ind
 
-    def steady_state_m_ind(self):
+    def steady_state_m_ind(self, E_coeffs_noind=None):
         """Calculate coefficients for induced field in steady state.
 
         Returns
@@ -543,7 +543,8 @@ class State(object):
         array
             Coefficients for the induced magnetic field in steady state.
         """
-        E_coeffs_noind, _ = self.calculate_E_coeffs_noind()
+        if E_coeffs_noind is None:
+            E_coeffs_noind, _ = self.calculate_E_coeffs_noind()
 
         m_ind = self.E_noind_to_m_ind_steady.dot(E_coeffs_noind[1])
 

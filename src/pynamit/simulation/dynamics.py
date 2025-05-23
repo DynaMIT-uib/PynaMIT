@@ -286,7 +286,7 @@ class Dynamics(object):
 
                 if bool(self.settings.save_steady_states):
                     # Calculate steady state and append to time series.
-                    steady_state_m_ind = self.state.steady_state_m_ind()
+                    steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
 
                     steady_state_E_coeffs_ind, steady_state_m_imp_ind = (
                         self.state.calculate_E_coeffs_ind(steady_state_m_ind)
