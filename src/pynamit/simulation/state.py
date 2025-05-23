@@ -445,7 +445,7 @@ class State(object):
             self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
 
         # Construct matrix used in steady state calculations.
-        self.m_ind_to_E_cf_pinv = np.linalg.pinv(self.m_ind_to_E_coeffs[1])
+        self.E_noind_to_m_ind_steady = -np.linalg.pinv(self.m_ind_to_E_coeffs[1])
 
     def calculate_E_coeffs_noind(self):
         """Calculate the coefficients for the electric field.
@@ -545,7 +545,7 @@ class State(object):
         """
         E_coeffs_noind, _ = self.calculate_E_coeffs_noind()
 
-        m_ind = -self.m_ind_to_E_cf_pinv.dot(E_coeffs_noind[1])
+        m_ind = self.E_noind_to_m_ind_steady.dot(E_coeffs_noind[1])
 
         return m_ind
 
