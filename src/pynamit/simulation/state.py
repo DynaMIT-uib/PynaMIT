@@ -526,12 +526,12 @@ class State(object):
             new_m_ind = (
                 m_ind
                 + m_ind_to_ddt_m_ind.dot(m_ind)
-                + dt * E_coeffs_noind[1] * self.E_df_to_d_m_ind_dt
+                + dt * self.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
             )
 
         elif self.integrator == "exponential":
             if steady_state_m_ind is None:
-                steady_state_m_ind = self.steady_state_m_ind()
+                steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
 
             propagator = expm(m_ind_to_ddt_m_ind)
 
