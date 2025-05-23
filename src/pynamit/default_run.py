@@ -13,6 +13,7 @@ def run_pynamit(
     Nmax=20,
     Mmax=20,
     Ncs=30,
+    RM=None,
     mainfield_kind="dipole",
     fig_directory="./figs",
     ignore_PFAC=True,
@@ -21,6 +22,7 @@ def run_pynamit(
     wind=False,
     steady_state=False,
     vector_jr=True,
+    vector_Br=True,
     vector_conductance=True,
     vector_u=True,
     integrator="euler",
@@ -60,6 +62,8 @@ def run_pynamit(
         Whether to impose a steady state.
     vector_jr : bool, optional
         Whether to use vector representation for radial current.
+    vector_Br : bool, optional
+        Whether to use vector representation for magnetic field.
     vector_conductance : bool, optional
         Whether to use vector representation for conductance.
     vector_u : bool, optional
@@ -100,11 +104,13 @@ def run_pynamit(
         Mmax=Mmax,
         Ncs=Ncs,
         RI=RI,
+        RM=RM,
         mainfield_kind=mainfield_kind,
         ignore_PFAC=ignore_PFAC,
         connect_hemispheres=connect_hemispheres,
         latitude_boundary=latitude_boundary,
         vector_jr=vector_jr,
+        vector_Br=vector_Br,
         vector_conductance=vector_conductance,
         vector_u=vector_u,
         integrator=integrator,
@@ -113,8 +119,8 @@ def run_pynamit(
     date = datetime.datetime(2001, 5, 12, 21, 45)
 
     # Get and set conductance input.
-    conductance_lat = dynamics.state_grid.lat
-    conductance_lon = dynamics.state_grid.lon
+    conductance_lat = dynamics.state.grid.lat
+    conductance_lon = dynamics.state.grid.lon
     Kp = 5
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
@@ -124,8 +130,8 @@ def run_pynamit(
     )
 
     # Get and set jr input.
-    jr_lat = dynamics.state_grid.lat
-    jr_lon = dynamics.state_grid.lon
+    jr_lat = dynamics.state.grid.lat
+    jr_lon = dynamics.state.grid.lon
     d = dipole.Dipole(date.year)
     a = pyamps.AMPS(
         300,

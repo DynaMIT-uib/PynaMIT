@@ -53,8 +53,8 @@ print(datetime.datetime.now(), "made dynamics object", flush=True)
 
 # Get and set conductance input.
 print(datetime.datetime.now(), "setting conductance", flush=True)
-conductance_lat = dynamics.state_grid.lat
-conductance_lon = dynamics.state_grid.lon
+conductance_lat = dynamics.state.grid.lat
+conductance_lon = dynamics.state.grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
@@ -65,8 +65,8 @@ dynamics.set_conductance(
 
 # Get and set jr input.
 print(datetime.datetime.now(), "setting Jr at t=0", flush=True)
-jr_lat = dynamics.state_grid.lat
-jr_lon = dynamics.state_grid.lon
+jr_lat = dynamics.state.grid.lat
+jr_lon = dynamics.state.grid.lon
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=date.year)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)

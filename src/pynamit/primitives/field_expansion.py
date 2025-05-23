@@ -86,10 +86,15 @@ class FieldExpansion(object):
         - scalar: Direct inversion
         - tangential: Helmholtz decomposition based inversion
         """
-        if self.field_type == "scalar":
-            return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
-        elif self.field_type == "tangential":
-            return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
+        if self.basis.kind == "GRID":
+            # If the basis is a grid, return the grid values as
+            # coefficients.
+            return self.coeffs
+        else:
+            if self.field_type == "scalar":
+                return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
+            elif self.field_type == "tangential":
+                return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
 
     def to_grid(self, basis_evaluator):
         """Evaluate field on grid points.
@@ -110,10 +115,15 @@ class FieldExpansion(object):
         Helmholtz decomposition terms evaluated on the grid. For scalar
         fields, directly evaluates basis functions on the grid.
         """
-        if self.field_type == "scalar":
-            return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=False)
-        elif self.field_type == "tangential":
-            return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=True)
+        if self.basis.kind == "GRID":
+            # If the basis is a grid, return the grid values as
+            # coefficients.
+            return self.coeffs
+        else:
+            if self.field_type == "scalar":
+                return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=False)
+            elif self.field_type == "tangential":
+                return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=True)
 
     def regularization_term(self, basis_evaluator):
         """Compute regularization penalty term.
@@ -134,7 +144,12 @@ class FieldExpansion(object):
         - scalar: Single penalty on scalar field
         - tangential: Separate penalties on Helmholtz components
         """
-        if self.field_type == "scalar":
-            return basis_evaluator.regularization_term(self.coeffs, helmholtz=False)
-        elif self.field_type == "tangential":
-            return basis_evaluator.regularization_term(self.coeffs, helmholtz=True)
+        if self.basis.kind == "GRID":
+            # If the basis is a grid, return the grid values as
+            # coefficients.
+            return None
+        else:
+            if self.field_type == "scalar":
+                return basis_evaluator.regularization_term(self.coeffs, helmholtz=False)
+            elif self.field_type == "tangential":
+                return basis_evaluator.regularization_term(self.coeffs, helmholtz=True)

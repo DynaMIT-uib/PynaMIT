@@ -131,6 +131,14 @@ class CSBasis:
             self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
             self.unit_area = step**2 * self.sqrt_detg
 
+            self.kind = "GRID"
+            self.index_names = ["theta", "phi"]
+            self.index_length = self.arr_theta.size + self.arr_phi.size
+            self.index_arrays = [self.arr_theta, self.arr_phi]
+
+            self.minimum_phi_sampling = 1
+            self.caching = False
+
     def get_gridpoints(self, N, flat=False):
         """Generate grid point indices for given resolution.
 

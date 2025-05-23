@@ -26,21 +26,21 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, bases, state_grid, cs_basis, vars, vector_storage):
+    def __init__(self, interpolation_bases, cs_basis, storage_bases, vars, vector_storage):
         """Initialize the Timeseries class.
 
         Parameters
         ----------
-        bases : dict
+        interpolation_bases : dict
             Dictionary of basis objects.
         state_grid : Grid
             Grid object representing the state grid.
         cs_basis : object
             Object representing the coordinate system basis.
         """
-        self.bases = bases
-        self.state_grid = state_grid
+        self.interpolation_bases = interpolation_bases
         self.cs_basis = cs_basis
+        self.storage_bases = storage_bases
 
         # Initialize variables and timeseries storage
         self.vars = vars
@@ -49,23 +49,25 @@ class Timeseries:
         self.datasets = {}
         self.previous_data = {}
 
+        cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+
+        self.storage_basis_evaluators = {}
+        for key in self.storage_bases.keys():
+            self.storage_basis_evaluators[key] = BasisEvaluator(self.storage_bases[key], cs_grid)
+
         self.basis_multiindices = {}
         for key in self.vars.keys():
-            if self.vector_storage[key]:
-                basis_index_arrays = self.bases[key].index_arrays
-                basis_index_names = self.bases[key].index_names
-            else:
-                basis_index_arrays = [self.state_grid.theta, self.state_grid.phi]
-                basis_index_names = ["theta", "phi"]
-
             if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    basis_index_arrays, names=basis_index_names
+                    self.storage_bases[key].index_arrays, names=self.storage_bases[key].index_names
                 )
             elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    [np.tile(basis_index_arrays[i], 2) for i in range(len(basis_index_arrays))],
-                    names=basis_index_names,
+                    [
+                        np.tile(self.storage_bases[key].index_arrays[i], 2)
+                        for i in range(len(self.storage_bases[key].index_arrays))
+                    ],
+                    names=self.storage_bases[key].index_names,
                 )
             else:
                 raise ValueError(
@@ -153,6 +155,8 @@ class Timeseries:
 
         if not (
             key in self.input_basis_evaluators.keys()
+            and input_grid.theta.shape == self.input_basis_evaluators[key].grid.theta.shape
+            and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
             and np.allclose(
                 input_grid.theta,
                 self.input_basis_evaluators[key].grid.theta,
@@ -167,7 +171,7 @@ class Timeseries:
             )
         ):
             self.input_basis_evaluators[key] = BasisEvaluator(
-                self.bases[key],
+                self.interpolation_bases[key],
                 input_grid,
                 weights=weights,
                 reg_lambda=reg_lambda,
@@ -179,24 +183,17 @@ class Timeseries:
 
             for var in self.vars[key]:
                 if self.vector_storage[key]:
-                    vector = FieldExpansion(
-                        self.bases[key],
-                        basis_evaluator=self.input_basis_evaluators[key],
-                        grid_values=input_data[var][time_index],
-                        field_type=self.vars[key][var],
-                    )
-
-                    processed_data[self.bases[key].short_name + "_" + var] = vector.coeffs
-
+                    grid_values = input_data[var][time_index]
+                    basis_evaluator = self.input_basis_evaluators[key]
                 else:
                     # Interpolate to state_grid
                     if self.vars[key][var] == "scalar":
-                        interpolated_data = self.cs_basis.interpolate_scalar(
+                        grid_values = self.cs_basis.interpolate_scalar(
                             input_data[var][time_index],
                             input_grid.theta,
                             input_grid.phi,
-                            self.state_grid.theta,
-                            self.state_grid.phi,
+                            self.cs_basis.arr_theta,
+                            self.cs_basis.arr_phi,
                         )
                     elif self.vars[key][var] == "tangential":
                         interpolated_east, interpolated_north, _ = (
@@ -206,15 +203,24 @@ class Timeseries:
                                 np.zeros_like(input_data[var][time_index, 0]),
                                 input_grid.theta,
                                 input_grid.phi,
-                                self.state_grid.theta,
-                                self.state_grid.phi,
+                                self.cs_basis.arr_theta,
+                                self.cs_basis.arr_phi,
                             )
                         )
-                        interpolated_data = np.hstack(
+                        grid_values = np.hstack(
                             (-interpolated_north, interpolated_east)
                         )  # convert to theta, phi
 
-                    processed_data["GRID_" + var] = interpolated_data
+                    basis_evaluator = self.storage_basis_evaluators[key]
+
+                vector = FieldExpansion(
+                    basis_evaluator.basis,
+                    basis_evaluator=basis_evaluator,
+                    grid_values=grid_values,
+                    field_type=self.vars[key][var],
+                )
+
+                processed_data[self.storage_bases[key].kind + "_" + var] = vector.coeffs
 
             self.add_entry(key, processed_data, time[time_index])
 
@@ -237,11 +243,6 @@ class Timeseries:
             key, or None if no new data is available.
         """
         if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
-            if self.vector_storage[key]:
-                short_name = self.bases[key].short_name
-            else:
-                short_name = "GRID"
-
             current_data = {}
 
             # Select latest data before the current time.
@@ -250,7 +251,9 @@ class Timeseries:
             )
 
             for var in self.vars[key]:
-                current_data[var] = dataset_before[short_name + "_" + var].values.flatten()
+                current_data[var] = dataset_before[
+                    self.storage_bases[key].kind + "_" + var
+                ].values.flatten()
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
@@ -264,8 +267,12 @@ class Timeseries:
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[short_name + "_" + var].values.flatten()
-                            - dataset_before[short_name + "_" + var].values.flatten()
+                            dataset_after[
+                                self.storage_bases[key].kind + "_" + var
+                            ].values.flatten()
+                            - dataset_before[
+                                self.storage_bases[key].kind + "_" + var
+                            ].values.flatten()
                         )
                     )
 
@@ -313,16 +320,16 @@ class Timeseries:
         dataset = io.load_dataset(key)
 
         if dataset is not None:
-            if self.vector_storage[key]:
-                basis_index_names = self.bases[key].index_names
-            else:
-                basis_index_names = ["theta", "phi"]
-
             basis_multiindex = pd.MultiIndex.from_arrays(
-                [dataset[basis_index_names[i]].values for i in range(len(basis_index_names))],
-                names=basis_index_names,
+                [
+                    dataset[self.storage_bases[key].index_names[i]].values
+                    for i in range(len(self.storage_bases[key].index_names))
+                ],
+                names=self.storage_bases[key].index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
-            self.datasets[key] = dataset.drop_vars(basis_index_names).assign_coords(coords)
+            self.datasets[key] = dataset.drop_vars(
+                self.storage_bases[key].index_names
+            ).assign_coords(coords)

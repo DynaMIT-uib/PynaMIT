@@ -1,4 +1,4 @@
-"""Grid-based IGRF, PFAC, HC, and wind test."""
+"""Magnetosphere boundary test."""
 
 import os
 import tempfile
@@ -6,14 +6,15 @@ import pytest
 
 from pynamit.default_run import run_pynamit
 import numpy as np
+from pynamit.math.constants import RE
 
 
-def test_2d_igrf_pfac_hc_wind_grid():
-    """Test 2D grid-based simulation with IGRF, PFAC, HC, and wind."""
+def test_mag_boundary():
+    """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 1.0400746551703725e-07
-    expected_coeff_max = 2.049843938519833e-09
-    expected_coeff_min = -3.066813350156776e-09
+    expected_coeff_norm = 8.652141423859074e-08
+    expected_coeff_max = 1.1893680816975406e-09
+    expected_coeff_min = -3.034988746135766e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -27,15 +28,12 @@ def test_2d_igrf_pfac_hc_wind_grid():
         Nmax=5,
         Mmax=3,
         Ncs=18,
-        mainfield_kind="igrf",
+        RM=4 * RE,
+        mainfield_kind="dipole",
         fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
-        wind=True,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
     )
 
     # Assert.
@@ -56,8 +54,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    # pyHWM uses single precision, relax tolerances for wind tests.
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
+    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
+    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
+    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-10)

@@ -50,16 +50,16 @@ Kp = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date)  # noon longitude
 
-conductance_lat = dynamics.state_grid.lat
-conductance_lon = dynamics.state_grid.lon
+conductance_lat = dynamics.state.grid.lat
+conductance_lon = dynamics.state.grid.lon
 hall, pedersen = conductance.hardy_EUV(
-    dynamics.state_grid.lon, dynamics.state_grid.lat, Kp, date, starlight=1, dipole=True
+    dynamics.state.grid.lon, dynamics.state.grid.lat, Kp, date, starlight=1, dipole=True
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 # Get and set jr input.
-jr_lat = dynamics.state_grid.lat
-jr_lon = dynamics.state_grid.lon
+jr_lat = dynamics.state.grid.lat
+jr_lon = dynamics.state.grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
@@ -134,16 +134,16 @@ while True:
         Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
 
         # paxn.contour(
-        #    dynamics.state_grid.lat.flatten()[nnn],
-        #    (dynamics.state_grid.lon.flatten() - lon0)[nnn] / 15,
+        #    dynamics.state.grid.lat.flatten()[nnn],
+        #    (dynamics.state.grid.lon.flatten() - lon0)[nnn] / 15,
         #    W[nnn],
         #    colors="black",
         #    levels=Wlevels,
         #    linewidths=0.5,
         # )
         # paxs.contour(
-        #    dynamics.state_grid.lat.flatten()[sss],
-        #    (dynamics.state_grid.lon.flatten() - lon0)[sss] / 15,
+        #    dynamics.state.grid.lat.flatten()[sss],
+        #    (dynamics.state.grid.lon.flatten() - lon0)[sss] / 15,
         #    W[sss],
         #    colors="black",
         #    levels=Wlevels,
