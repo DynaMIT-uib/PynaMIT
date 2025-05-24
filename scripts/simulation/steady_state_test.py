@@ -92,5 +92,5 @@ mv = dynamics.state.steady_state_m_ind()
 
 fig, ax = plt.subplots()
 ax.plot(mv)
-ax.plot(dynamics.timeseries["state"].SH_m_ind.values[-1, :])
+ax.plot(dynamics.output_timeseries["state"].SH_m_ind.values[-1, :])
 plt.show()
