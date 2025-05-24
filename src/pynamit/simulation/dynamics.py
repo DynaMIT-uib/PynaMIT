@@ -175,14 +175,11 @@ class Dynamics(object):
             "u": sh_basis_zero_removed,
         }
 
-        self.input_timeseries = Timeseries(
-            cs_basis, self.input_storage_bases, self.input_vars
-        )
+        self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
 
         # Load all input timeseries on file.
         for key in self.input_vars.keys():
             self.input_timeseries.load(key, self.io)
-
 
         self.output_vars = {
             "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
@@ -194,9 +191,7 @@ class Dynamics(object):
             "steady_state": sh_basis_zero_removed,
         }
 
-        self.output_timeseries = Timeseries(
-            cs_basis, self.output_storage_bases, self.output_vars
-        )
+        self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
 
         # Load all output timeseries on file.
         for key in self.output_vars.keys():
