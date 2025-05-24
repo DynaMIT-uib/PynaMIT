@@ -50,7 +50,7 @@ class State(object):
     ... (other attributes as defined in the implementation) ...
     """
 
-    def __init__(self, basis, basis_evaluators, mainfield, cs_basis, settings, PFAC_matrix=None):
+    def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
         """Initialize the ionospheric state.
 
         Parameters
@@ -75,8 +75,6 @@ class State(object):
             Pre-computed FAC poloidal field matrix.
         """
         self.basis = basis
-
-        self.conductance_basis_evaluator = basis_evaluators["conductance"]
         self.mainfield = mainfield
 
         self.RI = settings.RI

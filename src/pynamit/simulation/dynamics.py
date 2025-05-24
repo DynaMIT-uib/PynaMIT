@@ -208,7 +208,6 @@ class Dynamics(object):
         # last state checkpoint if available.
         self.state = State(
             sh_basis_zero_removed,
-            self.input_timeseries.storage_basis_evaluators,
             self.mainfield,
             cs_basis,
             self.settings,
