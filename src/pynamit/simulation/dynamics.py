@@ -136,24 +136,6 @@ class Dynamics(object):
             }
         )
 
-        self.vars = {
-            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "jr": {"jr": "scalar"},
-            "Br": {"Br": "scalar"},
-            "conductance": {"etaP": "scalar", "etaH": "scalar"},
-            "u": {"u": "tangential"},
-        }
-
-        self.vector_storage = {
-            "state": True,
-            "steady_state": True,
-            "jr": bool(self.settings.vector_jr),
-            "Br": bool(self.settings.vector_Br),
-            "conductance": bool(self.settings.vector_conductance),
-            "u": bool(self.settings.vector_u),
-        }
-
         self.io = IO(filename_prefix)
 
         # Check if settings are consistent with previously saved runs.
@@ -172,21 +154,48 @@ class Dynamics(object):
 
         cs_basis = CSBasis(self.settings.Ncs)
 
-        interpolation_bases = {
-            "jr": sh_basis_zero_removed if self.vector_storage["jr"] else cs_basis,
-            "Br": sh_basis_zero_removed if self.vector_storage["Br"] else cs_basis,
-            "conductance": sh_basis if self.vector_storage["conductance"] else cs_basis,
-            "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
+        self.interpolation_bases = {
+            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
+            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
+            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
+            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
         }
 
-        self.storage_bases = {
-            "state": sh_basis_zero_removed,
-            "steady_state": sh_basis_zero_removed,
+        self.input_vars = {
+            "jr": {"jr": "scalar"},
+            "Br": {"Br": "scalar"},
+            "conductance": {"etaP": "scalar", "etaH": "scalar"},
+            "u": {"u": "tangential"},
+        }
+
+        self.input_storage_bases = {
             "jr": sh_basis_zero_removed,
             "Br": sh_basis_zero_removed,
             "conductance": sh_basis,
             "u": sh_basis_zero_removed,
         }
+
+        self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
+
+        # Load all input timeseries on file.
+        for key in self.input_vars.keys():
+            self.input_timeseries.load(key, self.io)
+
+        self.output_vars = {
+            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+        }
+
+        self.output_storage_bases = {
+            "state": sh_basis_zero_removed,
+            "steady_state": sh_basis_zero_removed,
+        }
+
+        self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
+
+        # Load all output timeseries on file.
+        for key in self.output_vars.keys():
+            self.output_timeseries.load(key, self.io)
 
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
@@ -195,33 +204,25 @@ class Dynamics(object):
             B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
         )
 
-        self.timeseries = Timeseries(
-            interpolation_bases, cs_basis, self.storage_bases, self.vars, self.vector_storage
-        )
-
-        # Load all timeseries on file.
-        for key in self.vars.keys():
-            self.timeseries.load(key, self.io)
-
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
             sh_basis_zero_removed,
-            self.timeseries.storage_basis_evaluators,
+            self.input_timeseries.storage_basis_evaluators,
             self.mainfield,
             cs_basis,
             self.settings,
             PFAC_matrix=PFAC_matrix_on_file,
         )
 
-        if "state" in self.timeseries.datasets.keys():
-            self.current_time = np.max(self.timeseries.datasets["state"].time.values)
-            self.m_ind = self.timeseries.get_entry_if_changed(
+        if "state" in self.output_timeseries.datasets.keys():
+            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
+            self.m_ind = self.output_timeseries.get_entry_if_changed(
                 "state", self.current_time, interpolation=False
             )
         else:
             self.current_time = np.float64(0)
-            self.m_ind = np.zeros(self.storage_bases["state"].index_length)
+            self.m_ind = np.zeros(self.output_storage_bases["state"].index_length)
 
         # Store settings and PFAC matrix on file.
         if filename_prefix is None:
@@ -282,7 +283,7 @@ class Dynamics(object):
 
                 # Save state and steady state time series.
                 if step % (sampling_step_interval * saving_sample_interval) == 0:
-                    self.timeseries.save("state", self.io)
+                    self.output_timeseries.save("state", self.io)
 
                     if quiet:
                         pass
@@ -294,7 +295,7 @@ class Dynamics(object):
                         )
 
                     if bool(self.settings.save_steady_states):
-                        self.timeseries.save("steady_state", self.io)
+                        self.output_timeseries.save("steady_state", self.io)
 
                         if quiet:
                             pass
@@ -348,7 +349,7 @@ class Dynamics(object):
             "SH_W": E_coeffs[1],
         }
 
-        self.timeseries.add_entry(key, state_data, time=self.current_time)
+        self.output_timeseries.add_entry(key, state_data, time=self.current_time)
 
     def impose_steady_state(self):
         """Calculate and impose a steady state solution."""
@@ -358,10 +359,8 @@ class Dynamics(object):
 
     def set_input_state_variables(self):
         """Select input data corresponding to the latest time."""
-        timeseries_keys = list(self.timeseries.datasets.keys())
+        timeseries_keys = list(self.input_timeseries.datasets.keys())
 
-        if "state" in timeseries_keys:
-            timeseries_keys.remove("state")
         if timeseries_keys is not None:
             for key in timeseries_keys:
                 self.set_state_variables(key, interpolation=False)
@@ -450,10 +449,11 @@ class Dynamics(object):
         """
         input_data = {"jr": np.atleast_2d(jr)}
 
-        self.timeseries.add_input(
+        self.input_timeseries.add_input(
             "jr",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["jr"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -463,7 +463,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("jr", self.io)
+        self.input_timeseries.save("jr", self.io)
 
     def set_Br(
         self,
@@ -501,10 +501,11 @@ class Dynamics(object):
 
         input_data = {"Br": np.atleast_2d(Br)}
 
-        self.timeseries.add_input(
+        self.input_timeseries.add_input(
             "Br",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["Br"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -514,7 +515,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("Br", self.io)
+        self.input_timeseries.save("Br", self.io)
 
     def set_conductance(
         self,
@@ -562,10 +563,11 @@ class Dynamics(object):
         for i in range(max(input_data["etaH"].shape[0], 1)):
             input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.timeseries.add_input(
+        self.input_timeseries.add_input(
             "conductance",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["conductance"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -575,7 +577,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("conductance", self.io)
+        self.input_timeseries.save("conductance", self.io)
 
     def set_u(
         self,
@@ -614,10 +616,11 @@ class Dynamics(object):
         # Reorder time to first dimension and component to second.
         input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
 
-        self.timeseries.add_input(
+        self.input_timeseries.add_input(
             "u",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["u"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -627,7 +630,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("u", self.io)
+        self.input_timeseries.save("u", self.io)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.
@@ -674,42 +677,42 @@ class Dynamics(object):
             Dictionary containing the input data variables for the
             specified key.
         """
-        updated_data = self.timeseries.get_entry_if_changed(
+        updated_data = self.input_timeseries.get_entry_if_changed(
             key, self.current_time, interpolation=interpolation
         )
 
         if updated_data is not None:
             if key == "jr":
                 self.state.jr = FieldExpansion(
-                    self.storage_bases[key],
+                    self.input_storage_bases[key],
                     coeffs=updated_data["jr"],
-                    field_type=self.vars[key]["jr"],
+                    field_type=self.input_vars[key]["jr"],
                 )
 
             if key == "Br":
                 self.state.Br = FieldExpansion(
-                    self.storage_bases[key],
+                    self.input_storage_bases[key],
                     coeffs=updated_data["Br"],
-                    field_type=self.vars[key]["Br"],
+                    field_type=self.input_vars[key]["Br"],
                 )
 
             elif key == "conductance":
                 self.state.etaP = FieldExpansion(
-                    self.storage_bases[key],
+                    self.input_storage_bases[key],
                     coeffs=updated_data["etaP"],
-                    field_type=self.vars[key]["etaP"],
+                    field_type=self.input_vars[key]["etaP"],
                 )
                 self.state.etaH = FieldExpansion(
-                    self.storage_bases[key],
+                    self.input_storage_bases[key],
                     coeffs=updated_data["etaH"],
-                    field_type=self.vars[key]["etaH"],
+                    field_type=self.input_vars[key]["etaH"],
                 )
 
                 self.state.update_matrices(self.state.etaP, self.state.etaH)
 
             elif key == "u":
                 self.state.u = FieldExpansion(
-                    self.storage_bases[key],
+                    self.input_storage_bases[key],
                     coeffs=updated_data["u"].reshape((2, -1)),
-                    field_type=self.vars[key]["u"],
+                    field_type=self.input_vars[key]["u"],
                 )

@@ -26,25 +26,21 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, interpolation_bases, cs_basis, storage_bases, vars, vector_storage):
+    def __init__(self, cs_basis, storage_bases, vars):
         """Initialize the Timeseries class.
 
         Parameters
         ----------
-        interpolation_bases : dict
-            Dictionary of basis objects.
         state_grid : Grid
             Grid object representing the state grid.
         cs_basis : object
             Object representing the coordinate system basis.
         """
-        self.interpolation_bases = interpolation_bases
         self.cs_basis = cs_basis
         self.storage_bases = storage_bases
 
         # Initialize variables and timeseries storage
         self.vars = vars
-        self.vector_storage = vector_storage
 
         self.datasets = {}
         self.previous_data = {}
@@ -113,6 +109,7 @@ class Timeseries:
         key,
         input_data,
         time,
+        interpolation_basis,
         lat=None,
         lon=None,
         theta=None,
@@ -171,7 +168,7 @@ class Timeseries:
             )
         ):
             self.input_basis_evaluators[key] = BasisEvaluator(
-                self.interpolation_bases[key],
+                interpolation_basis,
                 input_grid,
                 weights=weights,
                 reg_lambda=reg_lambda,
@@ -182,7 +179,7 @@ class Timeseries:
             processed_data = {}
 
             for var in self.vars[key]:
-                if self.vector_storage[key]:
+                if interpolation_basis.kind == "SH":
                     grid_values = input_data[var][time_index]
                     basis_evaluator = self.input_basis_evaluators[key]
                 else:
