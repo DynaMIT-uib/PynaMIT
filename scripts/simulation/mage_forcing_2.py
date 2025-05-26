@@ -302,9 +302,6 @@ for step in range(0, nstep):
             title="u at RI",
         )
 
-print("Imposing steady state")
-dynamics.impose_steady_state()
-
 print("Time evolution")
 final_time = 3600  # seconds
 dynamics.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)
