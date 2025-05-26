@@ -26,25 +26,21 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, interpolation_bases, cs_basis, storage_bases, vars, vector_storage):
+    def __init__(self, cs_basis, storage_bases, vars):
         """Initialize the Timeseries class.
 
         Parameters
         ----------
-        interpolation_bases : dict
-            Dictionary of basis objects.
         state_grid : Grid
             Grid object representing the state grid.
         cs_basis : object
             Object representing the coordinate system basis.
         """
-        self.interpolation_bases = interpolation_bases
         self.cs_basis = cs_basis
         self.storage_bases = storage_bases
 
         # Initialize variables and timeseries storage
         self.vars = vars
-        self.vector_storage = vector_storage
 
         self.datasets = {}
         self.previous_data = {}
@@ -73,6 +69,36 @@ class Timeseries:
                 raise ValueError(
                     "Mixed scalar and tangential input (unsupported), or invalid input type"
                 )
+
+    def load_all(self, io):
+        """Load all timeseries from NetCDF files."""
+        for key in self.vars.keys():
+            self.load(key, io)
+
+    def load(self, key, io):
+        """Load a timeseries from NetCDF file.
+
+        Parameters
+        ----------
+        key : str
+            The key identifying which timeseries to load.
+        """
+        dataset = io.load_dataset(key)
+
+        if dataset is not None:
+            basis_multiindex = pd.MultiIndex.from_arrays(
+                [
+                    dataset[self.storage_bases[key].index_names[i]].values
+                    for i in range(len(self.storage_bases[key].index_names))
+                ],
+                names=self.storage_bases[key].index_names,
+            )
+            coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
+                {"time": dataset.time.values}
+            )
+            self.datasets[key] = dataset.drop_vars(
+                self.storage_bases[key].index_names
+            ).assign_coords(coords)
 
     def add_entry(self, key, data, time):
         """Add entry to the timeseries.
@@ -108,11 +134,12 @@ class Timeseries:
                 dim="time",
             ).sortby("time")
 
-    def add_input(
+    def interpolate_and_add_entry(
         self,
         key,
         input_data,
         time,
+        interpolation_basis,
         lat=None,
         lon=None,
         theta=None,
@@ -121,12 +148,12 @@ class Timeseries:
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """Set input data for the simulation.
+        """Interpolate data and add it to the timeseries.
 
         Parameters
         ----------
         key : str
-            The type of input data ('jr', 'conductance', or 'u').
+            The type of data ('jr', 'conductance', or 'u').
         input_data : dict
             Dictionary containing the input data arrays.
         lat, lon : array-like, optional
@@ -171,7 +198,7 @@ class Timeseries:
             )
         ):
             self.input_basis_evaluators[key] = BasisEvaluator(
-                self.interpolation_bases[key],
+                interpolation_basis,
                 input_grid,
                 weights=weights,
                 reg_lambda=reg_lambda,
@@ -179,10 +206,10 @@ class Timeseries:
             )
 
         for time_index in range(time.size):
-            processed_data = {}
+            interpolated_data = {}
 
             for var in self.vars[key]:
-                if self.vector_storage[key]:
+                if interpolation_basis.kind == "SH":
                     grid_values = input_data[var][time_index]
                     basis_evaluator = self.input_basis_evaluators[key]
                 else:
@@ -220,9 +247,9 @@ class Timeseries:
                     field_type=self.vars[key][var],
                 )
 
-                processed_data[self.storage_bases[key].kind + "_" + var] = vector.coeffs
+                interpolated_data[self.storage_bases[key].kind + "_" + var] = vector.coeffs
 
-            self.add_entry(key, processed_data, time[time_index])
+            self.add_entry(key, interpolated_data, time[time_index])
 
     def get_entry_if_changed(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.
@@ -308,28 +335,3 @@ class Timeseries:
             The key identifying which timeseries to save.
         """
         io.save_dataset(self.datasets[key].reset_index("i"), key)
-
-    def load(self, key, io):
-        """Load a timeseries from NetCDF file.
-
-        Parameters
-        ----------
-        key : str
-            The key identifying which timeseries to load.
-        """
-        dataset = io.load_dataset(key)
-
-        if dataset is not None:
-            basis_multiindex = pd.MultiIndex.from_arrays(
-                [
-                    dataset[self.storage_bases[key].index_names[i]].values
-                    for i in range(len(self.storage_bases[key].index_names))
-                ],
-                names=self.storage_bases[key].index_names,
-            )
-            coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
-                {"time": dataset.time.values}
-            )
-            self.datasets[key] = dataset.drop_vars(
-                self.storage_bases[key].index_names
-            ).assign_coords(coords)

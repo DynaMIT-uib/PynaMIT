@@ -10,6 +10,7 @@ from pynamit.math.constants import mu0, RE
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares import LeastSquares
 from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -50,7 +51,7 @@ class State(object):
     ... (other attributes as defined in the implementation) ...
     """
 
-    def __init__(self, basis, basis_evaluators, mainfield, cs_basis, settings, PFAC_matrix=None):
+    def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
         """Initialize the ionospheric state.
 
         Parameters
@@ -75,8 +76,6 @@ class State(object):
             Pre-computed FAC poloidal field matrix.
         """
         self.basis = basis
-
-        self.conductance_basis_evaluator = basis_evaluators["conductance"]
         self.mainfield = mainfield
 
         self.RI = settings.RI
@@ -328,7 +327,6 @@ class State(object):
                     # Add integration step, negative sign is to create a
                     # poloidal field that shields the region under the
                     # ionosphere from the FAC poloidal field.
-
                     self._T_to_Ve += (
                         Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
                     )
@@ -369,7 +367,53 @@ class State(object):
                     (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
                 )
 
-    def update_matrices(self, etaP, etaH):
+    def update(self, input_timeseries, time, interpolation=False):
+        """Select input data corresponding to the latest time."""
+        for key in input_timeseries.datasets.keys():
+            updated_input_entry = input_timeseries.get_entry_if_changed(
+                key, time, interpolation=interpolation
+            )
+
+            if updated_input_entry is not None:
+                if key == "conductance":
+                    self.etaP = FieldExpansion(
+                        input_timeseries.storage_bases["conductance"],
+                        coeffs=updated_input_entry["etaP"],
+                        field_type=input_timeseries.vars["conductance"]["etaP"],
+                    )
+
+                    self.etaH = FieldExpansion(
+                        input_timeseries.storage_bases["conductance"],
+                        coeffs=updated_input_entry["etaH"],
+                        field_type=input_timeseries.vars["conductance"]["etaH"],
+                    )
+
+                    self.update_matrices()
+
+                elif key == "jr":
+                    self.jr = FieldExpansion(
+                        input_timeseries.storage_bases["jr"],
+                        coeffs=updated_input_entry["jr"],
+                        field_type=input_timeseries.vars["jr"]["jr"],
+                    )
+
+                elif key == "Br":
+                    if self.RM is None:
+                        raise ValueError("Br input can only be set if RM is not None")
+                    self.Br = FieldExpansion(
+                        input_timeseries.storage_bases["Br"],
+                        coeffs=updated_input_entry["Br"],
+                        field_type=input_timeseries.vars["Br"]["Br"],
+                    )
+
+                elif key == "u":
+                    self.u = FieldExpansion(
+                        input_timeseries.storage_bases["u"],
+                        coeffs=updated_input_entry["u"].reshape((2, -1)),
+                        field_type=input_timeseries.vars["u"]["u"],
+                    )
+
+    def update_matrices(self):
         """Update the resistance-dependent matrices.
 
         This method updates the matrices used to calculate the electric
@@ -385,15 +429,15 @@ class State(object):
         """
         if TRIPLE_PRODUCT and self.vector_conductance:
             self.m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(
-                etaP.coeffs
-            ) + self.etaH_m_ind_to_E_coeffs.dot(etaH.coeffs)
+                self.etaP.coeffs
+            ) + self.etaH_m_ind_to_E_coeffs.dot(self.etaH.coeffs)
             self.m_imp_to_E_coeffs = self.etaP_m_imp_to_E_coeffs.dot(
-                etaP.coeffs
-            ) + self.etaH_m_imp_to_E_coeffs.dot(etaH.coeffs)
+                self.etaP.coeffs
+            ) + self.etaH_m_imp_to_E_coeffs.dot(self.etaH.coeffs)
 
         else:
-            etaP_on_grid = etaP.to_grid(self.basis_evaluator_zero_added)
-            etaH_on_grid = etaH.to_grid(self.basis_evaluator_zero_added)
+            etaP_on_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
+            etaH_on_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
 
             G_m_ind_to_E_direct = np.einsum(
                 "i,jik->jik", etaP_on_grid, self.m_ind_to_bP_JS, optimize=True
@@ -436,7 +480,6 @@ class State(object):
         # Construct m_ind matrices. Negative sign is from moving the
         # induction terms to the right hand side of E - E^cp = 0 (in
         # apex coordinates).
-
         self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres and E_MAPPING:
             self.m_ind_to_m_imp = np.tensordot(
@@ -477,7 +520,7 @@ class State(object):
         m_imp_noind = np.zeros(self.basis.index_length)
 
         if self.jr is not None:
-            m_imp_noind += np.dot(self.coeffs_to_m_imp[0], self.jr.coeffs)
+            m_imp_noind += self.coeffs_to_m_imp[0].dot(self.jr.coeffs)
 
         if self.connect_hemispheres and E_MAPPING:
             m_imp_noind += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct_noind, 2)
@@ -528,6 +571,8 @@ class State(object):
 
         m_ind_to_ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
 
+        m_ind_to_ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
+
         if self.integrator == "euler":
             new_m_ind = (
                 m_ind
@@ -560,7 +605,7 @@ class State(object):
 
         return new_m_ind
 
-    def steady_state_m_ind(self, E_coeffs_noind=None):
+    def steady_state_m_ind(self, E_coeffs_noind):
         """Calculate coefficients for induced field in steady state.
 
         Returns
@@ -568,9 +613,6 @@ class State(object):
         array
             Coefficients for the induced magnetic field in steady state.
         """
-        if E_coeffs_noind is None:
-            E_coeffs_noind, _ = self.calculate_noind_coeffs()
-
         m_ind = self.E_noind_to_m_ind_steady.dot(E_coeffs_noind[1])
 
         return m_ind

@@ -9,7 +9,6 @@ import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
@@ -172,20 +171,43 @@ class Dynamics(object):
 
         cs_basis = CSBasis(self.settings.Ncs)
 
-        interpolation_bases = {
-            "jr": sh_basis_zero_removed if self.vector_storage["jr"] else cs_basis,
-            "Br": sh_basis_zero_removed if self.vector_storage["Br"] else cs_basis,
-            "conductance": sh_basis if self.vector_storage["conductance"] else cs_basis,
-            "u": sh_basis_zero_removed if self.vector_storage["u"] else cs_basis,
+        # Specify input format and load input data.
+        self.input_vars = {
+            "jr": {"jr": "scalar"},
+            "Br": {"Br": "scalar"},
+            "conductance": {"etaP": "scalar", "etaH": "scalar"},
+            "u": {"u": "tangential"},
         }
 
-        self.storage_bases = {
-            "state": sh_basis_zero_removed,
-            "steady_state": sh_basis_zero_removed,
+        self.input_storage_bases = {
             "jr": sh_basis_zero_removed,
             "Br": sh_basis_zero_removed,
             "conductance": sh_basis,
             "u": sh_basis_zero_removed,
+        }
+
+        self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
+        self.input_timeseries.load_all(self.io)
+
+        # Specify output format and load output data.
+        self.output_vars = {
+            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+        }
+
+        self.output_storage_bases = {
+            "state": sh_basis_zero_removed,
+            "steady_state": sh_basis_zero_removed,
+        }
+
+        self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
+        self.output_timeseries.load_all(self.io)
+
+        self.interpolation_bases = {
+            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
+            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
+            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
+            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
         }
 
         self.mainfield = Mainfield(
@@ -195,33 +217,20 @@ class Dynamics(object):
             B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
         )
 
-        self.timeseries = Timeseries(
-            interpolation_bases, cs_basis, self.storage_bases, self.vars, self.vector_storage
-        )
-
-        # Load all timeseries on file.
-        for key in self.vars.keys():
-            self.timeseries.load(key, self.io)
-
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
             sh_basis_zero_removed,
-            self.timeseries.storage_basis_evaluators,
             self.mainfield,
             cs_basis,
             self.settings,
             PFAC_matrix=PFAC_matrix_on_file,
         )
 
-        if "state" in self.timeseries.datasets.keys():
-            self.current_time = np.max(self.timeseries.datasets["state"].time.values)
-            self.m_ind = self.timeseries.get_entry_if_changed(
-                "state", self.current_time, interpolation=False
-            )
+        if "state" in self.output_timeseries.datasets.keys():
+            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
         else:
             self.current_time = np.float64(0)
-            self.m_ind = np.zeros(self.storage_bases["state"].index_length)
 
         # Store settings and PFAC matrix on file.
         if filename_prefix is None:
@@ -240,6 +249,7 @@ class Dynamics(object):
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
+        steady_state_initialization=True,
     ):
         """Evolve the system state to a specified time.
 
@@ -258,10 +268,22 @@ class Dynamics(object):
         """
         step = 0
 
-        inductive_m_ind = self.m_ind
+        if "state" in self.output_timeseries.datasets.keys():
+            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
+            inductive_m_ind = self.output_timeseries.get_entry_if_changed(
+                "state", self.current_time, interpolation=False
+            )
+        else:
+            if steady_state_initialization:
+                self.state.update(self.input_timeseries, self.current_time)
+                E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
+                inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+            else:
+                self.current_time = np.float64(0)
+                inductive_m_ind = np.zeros(self.output_storage_bases["state"].index_length)
 
         while True:
-            self.set_input_state_variables()
+            self.state.update(self.input_timeseries, self.current_time)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
@@ -282,7 +304,7 @@ class Dynamics(object):
 
                 # Save state and steady state time series.
                 if step % (sampling_step_interval * saving_sample_interval) == 0:
-                    self.timeseries.save("state", self.io)
+                    self.output_timeseries.save("state", self.io)
 
                     if quiet:
                         pass
@@ -294,7 +316,7 @@ class Dynamics(object):
                         )
 
                     if bool(self.settings.save_steady_states):
-                        self.timeseries.save("steady_state", self.io)
+                        self.output_timeseries.save("steady_state", self.io)
 
                         if quiet:
                             pass
@@ -348,23 +370,7 @@ class Dynamics(object):
             "SH_W": E_coeffs[1],
         }
 
-        self.timeseries.add_entry(key, state_data, time=self.current_time)
-
-    def impose_steady_state(self):
-        """Calculate and impose a steady state solution."""
-        self.set_input_state_variables()
-
-        self.m_ind = self.state.steady_state_m_ind()
-
-    def set_input_state_variables(self):
-        """Select input data corresponding to the latest time."""
-        timeseries_keys = list(self.timeseries.datasets.keys())
-
-        if "state" in timeseries_keys:
-            timeseries_keys.remove("state")
-        if timeseries_keys is not None:
-            for key in timeseries_keys:
-                self.set_state_variables(key, interpolation=False)
+        self.output_timeseries.add_entry(key, state_data, time=self.current_time)
 
     def set_FAC(
         self,
@@ -450,10 +456,11 @@ class Dynamics(object):
         """
         input_data = {"jr": np.atleast_2d(jr)}
 
-        self.timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "jr",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["jr"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -463,7 +470,59 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("jr", self.io)
+        self.input_timeseries.save("jr", self.io)
+
+    def set_Br(
+        self,
+        Br,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Set radial component of magnetic field input.
+
+        Parameters
+        ----------
+        Br : array-like
+            Radial component of magnetic field.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the current data.
+        weights : array-like, optional
+            Weights for the current data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        """
+        if self.settings.RM == 0:
+            raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
+
+        input_data = {"Br": np.atleast_2d(Br)}
+
+        self.input_timeseries.interpolate_and_add_entry(
+            "Br",
+            input_data,
+            self.adapt_input_time(time, input_data),
+            self.interpolation_bases["Br"],
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+        self.input_timeseries.save("Br", self.io)
 
     def set_Br(
         self,
@@ -562,10 +621,11 @@ class Dynamics(object):
         for i in range(max(input_data["etaH"].shape[0], 1)):
             input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "conductance",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["conductance"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -575,7 +635,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("conductance", self.io)
+        self.input_timeseries.save("conductance", self.io)
 
     def set_u(
         self,
@@ -614,10 +674,11 @@ class Dynamics(object):
         # Reorder time to first dimension and component to second.
         input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
 
-        self.timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "u",
             input_data,
             self.adapt_input_time(time, input_data),
+            self.interpolation_bases["u"],
             lat=lat,
             lon=lon,
             theta=theta,
@@ -627,7 +688,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-        self.timeseries.save("u", self.io)
+        self.input_timeseries.save("u", self.io)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.
@@ -662,54 +723,3 @@ class Dynamics(object):
             return np.atleast_1d(self.current_time)
         else:
             return np.atleast_1d(time)
-
-    def set_state_variables(self, key, interpolation=False):
-        """Set input data for the simulation.
-
-        Parameters
-        ----------
-        key : {'state', 'jr', 'Br', 'conductance', 'u'}
-            The type of input data.
-        updated_data : dict
-            Dictionary containing the input data variables for the
-            specified key.
-        """
-        updated_data = self.timeseries.get_entry_if_changed(
-            key, self.current_time, interpolation=interpolation
-        )
-
-        if updated_data is not None:
-            if key == "jr":
-                self.state.jr = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=updated_data["jr"],
-                    field_type=self.vars[key]["jr"],
-                )
-
-            if key == "Br":
-                self.state.Br = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=updated_data["Br"],
-                    field_type=self.vars[key]["Br"],
-                )
-
-            elif key == "conductance":
-                self.state.etaP = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=updated_data["etaP"],
-                    field_type=self.vars[key]["etaP"],
-                )
-                self.state.etaH = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=updated_data["etaH"],
-                    field_type=self.vars[key]["etaH"],
-                )
-
-                self.state.update_matrices(self.state.etaP, self.state.etaH)
-
-            elif key == "u":
-                self.state.u = FieldExpansion(
-                    self.storage_bases[key],
-                    coeffs=updated_data["u"].reshape((2, -1)),
-                    field_type=self.vars[key]["u"],
-                )

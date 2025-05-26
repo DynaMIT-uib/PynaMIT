@@ -31,13 +31,14 @@ def test_2d_dipole_pfac():
         fig_directory=temp_dir,
         ignore_PFAC=False,
         integrator="exponential",
+        steady_state_initialization=False,
     )
 
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
         )
     )
 

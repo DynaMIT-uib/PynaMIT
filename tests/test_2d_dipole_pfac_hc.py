@@ -32,13 +32,14 @@ def test_2d_dipole_pfac_hc():
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
+        steady_state_initialization=False,
     )
 
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
         )
     )
 

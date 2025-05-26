@@ -33,7 +33,7 @@ def test_steady_state_init():
         connect_hemispheres=True,
         latitude_boundary=50,
         wind=True,
-        steady_state=True,
+        steady_state_initialization=True,
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
@@ -45,8 +45,8 @@ def test_steady_state_init():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
         )
     )
 
