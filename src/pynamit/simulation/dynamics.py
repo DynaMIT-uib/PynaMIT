@@ -135,24 +135,6 @@ class Dynamics(object):
             }
         )
 
-        self.vars = {
-            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "jr": {"jr": "scalar"},
-            "Br": {"Br": "scalar"},
-            "conductance": {"etaP": "scalar", "etaH": "scalar"},
-            "u": {"u": "tangential"},
-        }
-
-        self.vector_storage = {
-            "state": True,
-            "steady_state": True,
-            "jr": bool(self.settings.vector_jr),
-            "Br": bool(self.settings.vector_Br),
-            "conductance": bool(self.settings.vector_conductance),
-            "u": bool(self.settings.vector_u),
-        }
-
         self.io = IO(filename_prefix)
 
         # Check if settings are consistent with previously saved runs.
@@ -523,57 +505,6 @@ class Dynamics(object):
         )
 
         self.input_timeseries.save("Br", self.io)
-
-    def set_Br(
-        self,
-        Br,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        time=None,
-        weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Set radial component of magnetic field input.
-
-        Parameters
-        ----------
-        Br : array-like
-            Radial component of magnetic field.
-        lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
-        theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
-        time : array-like, optional
-            Time points for the current data.
-        weights : array-like, optional
-            Weights for the current data points.
-        reg_lambda : float, optional
-            Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
-        """
-        if self.settings.RM == 0:
-            raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
-
-        input_data = {"Br": np.atleast_2d(Br)}
-
-        self.timeseries.add_input(
-            "Br",
-            input_data,
-            self.adapt_input_time(time, input_data),
-            lat=lat,
-            lon=lon,
-            theta=theta,
-            phi=phi,
-            weights=weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        )
-
-        self.timeseries.save("Br", self.io)
 
     def set_conductance(
         self,
