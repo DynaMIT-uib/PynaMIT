@@ -20,7 +20,7 @@ def run_pynamit(
     connect_hemispheres=False,
     latitude_boundary=50,
     wind=False,
-    steady_state=False,
+    steady_state_initialization=True,
     vector_jr=True,
     vector_Br=True,
     vector_conductance=True,
@@ -182,7 +182,7 @@ def run_pynamit(
         dt=dt,
         sampling_step_interval=1,
         saving_sample_interval=plotsteps,
-        steady_state_initialization=steady_state,
+        steady_state_initialization=steady_state_initialization,
     )
 
     return dynamics

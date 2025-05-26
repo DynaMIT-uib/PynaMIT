@@ -31,6 +31,7 @@ def test_2d_dipole_pfac():
         fig_directory=temp_dir,
         ignore_PFAC=False,
         integrator="exponential",
+        steady_state_initialization=False,
     )
 
     # Assert.

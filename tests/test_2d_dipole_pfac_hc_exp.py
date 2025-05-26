@@ -33,6 +33,7 @@ def test_2d_dipole_pfac_hc():
         connect_hemispheres=True,
         latitude_boundary=50,
         integrator="exponential",
+        steady_state_initialization=False,
     )
 
     # Assert.

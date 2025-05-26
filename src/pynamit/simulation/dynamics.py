@@ -231,7 +231,7 @@ class Dynamics(object):
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
-        steady_state_initialization=False,
+        steady_state_initialization=True,
     ):
         """Evolve the system state to a specified time.
 
