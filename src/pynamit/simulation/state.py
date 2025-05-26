@@ -70,8 +70,7 @@ class State(object):
         settings : object
             Configuration settings containing parameters such as RI,
             latitude_boundary, ignore_PFAC, connect_hemispheres,
-            FAC_integration_steps, ih_constraint_scaling, vector_jr,
-            vector_Br, vector_conductance, and vector_u.
+            FAC_integration_steps, and ih_constraint_scaling.
         PFAC_matrix : array-like, optional
             Pre-computed FAC poloidal field matrix.
         """
@@ -85,11 +84,6 @@ class State(object):
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.FAC_integration_steps = settings.FAC_integration_steps
         self.ih_constraint_scaling = settings.ih_constraint_scaling
-
-        self.vector_u = settings.vector_u
-        self.vector_jr = settings.vector_jr
-        self.vector_Br = settings.vector_Br
-        self.vector_conductance = settings.vector_conductance
 
         self.integrator = settings.integrator
 
@@ -215,8 +209,8 @@ class State(object):
             u_coeffs_to_uxB
         )
 
-        if TRIPLE_PRODUCT and self.vector_conductance:
-            self.prepare_triple_product_tensors()
+        if TRIPLE_PRODUCT:
+            self.prepare_triple_product_tensors(plot=False)
 
         # Conductance and neutral wind should be set after state
         # initialization.
@@ -427,7 +421,7 @@ class State(object):
         etaH : FieldExpansion
             Hall conductance in S
         """
-        if TRIPLE_PRODUCT and self.vector_conductance:
+        if TRIPLE_PRODUCT:
             self.m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(
                 self.etaP.coeffs
             ) + self.etaH_m_ind_to_E_coeffs.dot(self.etaH.coeffs)
@@ -626,28 +620,28 @@ class State(object):
             Whether to plot the tensors.
         """
         etaP_m_ind_to_E = np.einsum(
-            "ijk,jl->ijkl", self.m_ind_to_bP_JS, self.conductance_basis_evaluator.G, optimize=True
+            "ijk,jl->ijkl", self.m_ind_to_bP_JS, self.basis_evaluator_zero_added.G, optimize=True
         )
         self.etaP_m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
             etaP_m_ind_to_E
         )
 
         etaH_m_ind_to_E = np.einsum(
-            "ijk,jl->ijkl", self.m_ind_to_bH_JS, self.conductance_basis_evaluator.G, optimize=True
+            "ijk,jl->ijkl", self.m_ind_to_bH_JS, self.basis_evaluator_zero_added.G, optimize=True
         )
         self.etaH_m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
             etaH_m_ind_to_E
         )
 
         etaP_m_imp_to_E = np.einsum(
-            "ijk,jl->ijkl", self.m_imp_to_bP_JS, self.conductance_basis_evaluator.G, optimize=True
+            "ijk,jl->ijkl", self.m_imp_to_bP_JS, self.basis_evaluator_zero_added.G, optimize=True
         )
         self.etaP_m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
             etaP_m_imp_to_E
         )
 
         etaH_m_imp_to_E = np.einsum(
-            "ijk,jl->ijkl", self.m_imp_to_bH_JS, self.conductance_basis_evaluator.G, optimize=True
+            "ijk,jl->ijkl", self.m_imp_to_bH_JS, self.basis_evaluator_zero_added.G, optimize=True
         )
         self.etaH_m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(
             etaH_m_imp_to_E
