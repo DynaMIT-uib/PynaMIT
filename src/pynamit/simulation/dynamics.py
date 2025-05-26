@@ -9,7 +9,6 @@ import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
@@ -208,7 +207,6 @@ class Dynamics(object):
         # last state checkpoint if available.
         self.state = State(
             sh_basis_zero_removed,
-            self.input_timeseries.storage_basis_evaluators,
             self.mainfield,
             cs_basis,
             self.settings,
@@ -262,7 +260,7 @@ class Dynamics(object):
         inductive_m_ind = self.m_ind
 
         while True:
-            self.set_input_state_variables()
+            self.state.update(self.input_timeseries, self.current_time)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
@@ -353,17 +351,11 @@ class Dynamics(object):
 
     def impose_steady_state(self):
         """Calculate and impose a steady state solution."""
-        self.set_input_state_variables()
+        self.state.update(self.input_timeseries, self.current_time)
 
-        self.m_ind = self.state.steady_state_m_ind()
+        E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
 
-    def set_input_state_variables(self):
-        """Select input data corresponding to the latest time."""
-        timeseries_keys = list(self.input_timeseries.datasets.keys())
-
-        if timeseries_keys is not None:
-            for key in timeseries_keys:
-                self.set_state_variables(key, interpolation=False)
+        self.m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
 
     def set_FAC(
         self,
@@ -665,54 +657,3 @@ class Dynamics(object):
             return np.atleast_1d(self.current_time)
         else:
             return np.atleast_1d(time)
-
-    def set_state_variables(self, key, interpolation=False):
-        """Set input data for the simulation.
-
-        Parameters
-        ----------
-        key : {'state', 'jr', 'Br', 'conductance', 'u'}
-            The type of input data.
-        updated_data : dict
-            Dictionary containing the input data variables for the
-            specified key.
-        """
-        updated_data = self.input_timeseries.get_entry_if_changed(
-            key, self.current_time, interpolation=interpolation
-        )
-
-        if updated_data is not None:
-            if key == "jr":
-                self.state.jr = FieldExpansion(
-                    self.input_storage_bases[key],
-                    coeffs=updated_data["jr"],
-                    field_type=self.input_vars[key]["jr"],
-                )
-
-            if key == "Br":
-                self.state.Br = FieldExpansion(
-                    self.input_storage_bases[key],
-                    coeffs=updated_data["Br"],
-                    field_type=self.input_vars[key]["Br"],
-                )
-
-            elif key == "conductance":
-                self.state.etaP = FieldExpansion(
-                    self.input_storage_bases[key],
-                    coeffs=updated_data["etaP"],
-                    field_type=self.input_vars[key]["etaP"],
-                )
-                self.state.etaH = FieldExpansion(
-                    self.input_storage_bases[key],
-                    coeffs=updated_data["etaH"],
-                    field_type=self.input_vars[key]["etaH"],
-                )
-
-                self.state.update_matrices(self.state.etaP, self.state.etaH)
-
-            elif key == "u":
-                self.state.u = FieldExpansion(
-                    self.input_storage_bases[key],
-                    coeffs=updated_data["u"].reshape((2, -1)),
-                    field_type=self.input_vars[key]["u"],
-                )
