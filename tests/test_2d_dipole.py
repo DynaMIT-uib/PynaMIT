@@ -29,6 +29,7 @@ def test_2d_dipole():
         Ncs=60,
         mainfield_kind="dipole",
         fig_directory=temp_dir,
+        steady_state_initialization=False,
     )
 
     # Assert.

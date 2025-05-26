@@ -30,6 +30,7 @@ def test_2d_dipole_pfac():
         mainfield_kind="dipole",
         fig_directory=temp_dir,
         ignore_PFAC=False,
+        steady_state_initialization=False,
     )
 
     # Assert.

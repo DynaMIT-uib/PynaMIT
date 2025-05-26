@@ -33,6 +33,7 @@ def test_2d_igrf_pfac_hc_wind():
         connect_hemispheres=True,
         latitude_boundary=50,
         wind=True,
+        steady_state_initialization=False,
     )
 
     # Assert.

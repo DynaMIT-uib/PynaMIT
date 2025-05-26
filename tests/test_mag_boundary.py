@@ -34,6 +34,7 @@ def test_mag_boundary():
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
+        steady_state_initialization=False,
     )
 
     # Assert.

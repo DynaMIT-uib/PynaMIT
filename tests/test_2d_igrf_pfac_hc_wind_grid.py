@@ -36,6 +36,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
         vector_jr=False,
         vector_conductance=False,
         vector_u=False,
+        steady_state_initialization=False,
     )
 
     # Assert.
