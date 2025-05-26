@@ -177,11 +177,12 @@ def run_pynamit(
             reg_lambda=u_lambda,
         )
 
-    if steady_state:
-        dynamics.impose_steady_state()
-
     dynamics.evolve_to_time(
-        t=final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=plotsteps
+        t=final_time,
+        dt=dt,
+        sampling_step_interval=1,
+        saving_sample_interval=plotsteps,
+        steady_state_initialization=steady_state,
     )
 
     return dynamics

@@ -153,13 +153,7 @@ class Dynamics(object):
 
         cs_basis = CSBasis(self.settings.Ncs)
 
-        self.interpolation_bases = {
-            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
-            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
-            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
-            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
-        }
-
+        # Specify input format and load input data.
         self.input_vars = {
             "jr": {"jr": "scalar"},
             "Br": {"Br": "scalar"},
@@ -175,11 +169,9 @@ class Dynamics(object):
         }
 
         self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
+        self.input_timeseries.load_all(self.io)
 
-        # Load all input timeseries on file.
-        for key in self.input_vars.keys():
-            self.input_timeseries.load(key, self.io)
-
+        # Specify output format and load output data.
         self.output_vars = {
             "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
             "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
@@ -191,10 +183,14 @@ class Dynamics(object):
         }
 
         self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
+        self.output_timeseries.load_all(self.io)
 
-        # Load all output timeseries on file.
-        for key in self.output_vars.keys():
-            self.output_timeseries.load(key, self.io)
+        self.interpolation_bases = {
+            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
+            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
+            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
+            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
+        }
 
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
@@ -215,12 +211,8 @@ class Dynamics(object):
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
-            self.m_ind = self.output_timeseries.get_entry_if_changed(
-                "state", self.current_time, interpolation=False
-            )
         else:
             self.current_time = np.float64(0)
-            self.m_ind = np.zeros(self.output_storage_bases["state"].index_length)
 
         # Store settings and PFAC matrix on file.
         if filename_prefix is None:
@@ -239,6 +231,7 @@ class Dynamics(object):
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
+        steady_state_initialization=False,
     ):
         """Evolve the system state to a specified time.
 
@@ -257,7 +250,19 @@ class Dynamics(object):
         """
         step = 0
 
-        inductive_m_ind = self.m_ind
+        if "state" in self.output_timeseries.datasets.keys():
+            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
+            inductive_m_ind = self.output_timeseries.get_entry_if_changed(
+                "state", self.current_time, interpolation=False
+            )
+        else:
+            if steady_state_initialization:
+                self.state.update(self.input_timeseries, self.current_time)
+                E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
+                inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+            else:
+                self.current_time = np.float64(0)
+                inductive_m_ind = np.zeros(self.output_storage_bases["state"].index_length)
 
         while True:
             self.state.update(self.input_timeseries, self.current_time)
@@ -349,14 +354,6 @@ class Dynamics(object):
 
         self.output_timeseries.add_entry(key, state_data, time=self.current_time)
 
-    def impose_steady_state(self):
-        """Calculate and impose a steady state solution."""
-        self.state.update(self.input_timeseries, self.current_time)
-
-        E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
-
-        self.m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
-
     def set_FAC(
         self,
         FAC,
@@ -441,7 +438,7 @@ class Dynamics(object):
         """
         input_data = {"jr": np.atleast_2d(jr)}
 
-        self.input_timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "jr",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -493,7 +490,7 @@ class Dynamics(object):
 
         input_data = {"Br": np.atleast_2d(Br)}
 
-        self.input_timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "Br",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -555,7 +552,7 @@ class Dynamics(object):
         for i in range(max(input_data["etaH"].shape[0], 1)):
             input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.input_timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "conductance",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -608,7 +605,7 @@ class Dynamics(object):
         # Reorder time to first dimension and component to second.
         input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
 
-        self.input_timeseries.add_input(
+        self.input_timeseries.interpolate_and_add_entry(
             "u",
             input_data,
             self.adapt_input_time(time, input_data),
