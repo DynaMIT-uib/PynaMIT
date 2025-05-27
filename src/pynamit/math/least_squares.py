@@ -78,8 +78,12 @@ class LeastSquares:
         else:
             self.n_As = 1
 
-        self.A = self.flatten_arrays(A, self.n_As, n_trailing_flattened=[solution_dims] * self.n_As)
-        self.weights = self.flatten_arrays(weights, self.n_As, n_trailing_flattened=[0] * self.n_As)
+        self.A = self.flatten_arrays(
+            A, self.n_As, n_trailing_flattened=[solution_dims] * self.n_As
+        )
+        self.weights = self.flatten_arrays(
+            weights, self.n_As, n_trailing_flattened=[0] * self.n_As
+        )
 
         self.n_Ls = self.count_elements(reg_L)
 
@@ -95,15 +99,17 @@ class LeastSquares:
                 # W needs to be positive semidefinite
                 # (no negative elements for diagonal matrices)
                 raise ValueError(f"Weights for constraint {i} contain negative values.")
-            
-            print(self.A[i].array.shape, self.weights[i].array.shape if self.weights[i] is not None else None)
 
         weighted_A_stacked = np.vstack(
-            [self.A[i].array if self.weights[i] is None else np.sqrt(self.weights[i].array) * self.A[i].array
-             for i in range(self.n_As)]
+            [
+                self.A[i].array
+                if self.weights[i] is None
+                else np.sqrt(self.weights[i].array) * self.A[i].array
+                for i in range(self.n_As)
+            ]
         )
 
-        weighted_A_stacked_scale = np.median(np.sum(weighted_A_stacked ** 2, axis = 0))
+        weighted_A_stacked_scale = np.median(np.sum(weighted_A_stacked**2, axis=0))
 
         if self.n_Ls > 0:
             if not isinstance(reg_lambda, list):
@@ -121,7 +127,11 @@ class LeastSquares:
             ]
 
             reg_stacked = np.vstack(
-                [np.sqrt(reg_lambda[i] / L_scales[i] * weighted_A_stacked_scale) * self.reg_L[i].array for i in range(self.n_Ls)]
+                [
+                    np.sqrt(reg_lambda[i] / L_scales[i] * weighted_A_stacked_scale)
+                    * self.reg_L[i].array
+                    for i in range(self.n_Ls)
+                ]
             )
 
             self.stacked_arrays = np.vstack((weighted_A_stacked, reg_stacked))
@@ -152,7 +162,9 @@ class LeastSquares:
         else:
             return 1
 
-    def flatten_arrays(self, arrays, n_arrays, n_leading_flattened=None, n_trailing_flattened=None):
+    def flatten_arrays(
+        self, arrays, n_arrays, n_leading_flattened=None, n_trailing_flattened=None
+    ):
         """Convert arrays to flattened form.
 
         Parameters
@@ -226,12 +238,19 @@ class LeastSquares:
 
         solution = [None] * self.n_As
 
+        traversed_rows = 0
         for i in range(self.n_As):
             if b_list[i] is not None:
-                ATWbi = self.ATW[i].dot(b_list[i].array)
-                solution[i] = np.dot(
-                    self.ATWA_plus_R_pinv, ATWbi
+                weighted_b = (
+                    np.sqrt(self.weights[i].array) * b_list[i].array
+                    if self.weights[i] is not None
+                    else b_list[i].array
                 )
+
+                ATWbi = self.stacked_arrays[
+                    traversed_rows : traversed_rows + self.A[i].array.shape[0]
+                ].T.dot(weighted_b)
+                solution[i] = np.dot(self.ATWA_plus_R_pinv, ATWbi)
 
                 if len(b_list[i].shapes) == 2:
                     solution[i] = solution[i].reshape(
@@ -239,27 +258,9 @@ class LeastSquares:
                     )
                 else:
                     solution[i] = solution[i].reshape(self.A[i].full_shapes[1])
+            traversed_rows += self.A[i].array.shape[0]
 
         return solution
-
-    @property
-    def ATW(self):
-        """Compute ``A^T W`` terms for all constraints.
-
-        Returns
-        -------
-        list of ndarray
-            List of ``A^T W`` arrays for each constraint.
-        """
-        if not hasattr(self, "_ATW"):
-            self._ATW = []
-            for i in range(self.n_As):
-                if self.weights[i] is not None:
-                    self._ATW.append((self.weights[i].array * self.A[i].array).T)
-                else:
-                    self._ATW.append(self.A[i].array.T)
-
-        return self._ATW
 
     @property
     def ATWA_plus_R_pinv(self):
