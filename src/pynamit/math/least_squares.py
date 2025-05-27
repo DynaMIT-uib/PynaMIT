@@ -250,6 +250,7 @@ class LeastSquares:
                 ATWbi = self.stacked_arrays[
                     traversed_rows : traversed_rows + self.A[i].array.shape[0]
                 ].T.dot(weighted_b)
+
                 solution[i] = np.dot(self.ATWA_plus_R_pinv, ATWbi)
 
                 if len(b_list[i].shapes) == 2:

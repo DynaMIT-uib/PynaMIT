@@ -456,7 +456,7 @@ class State(object):
 
         # Set up jr constraints.
         constraint_matrices = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
-        coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
+        self.coeffs_to_constraint_vectors = [self.jr_coeffs_to_j_apex]
 
         if self.connect_hemispheres and E_MAPPING:
             # Append low-latitude E constraints.
@@ -464,22 +464,22 @@ class State(object):
                 np.tensordot(self.E_coeffs_to_E_apex_ll_diff, self.m_imp_to_E_coeffs, 2)
                 * self.ih_constraint_scaling
             )
-            coeffs_to_constraint_vectors.append(
+            self.coeffs_to_constraint_vectors.append(
                 self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling
             )
 
-        constraints_least_squares = LeastSquares(constraint_matrices, 1)
-        self.coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
+        self.constraints_least_squares = LeastSquares(constraint_matrices, 1)
 
         # Construct m_ind matrices. Negative sign is from moving the
         # induction terms to the right hand side of E - E^cp = 0 (in
         # apex coordinates).
         self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
         if self.connect_hemispheres and E_MAPPING:
-            self.m_ind_to_m_imp = np.tensordot(
-                self.coeffs_to_m_imp[1], -self.m_ind_to_E_coeffs_direct, 2
+            m_ind_to_constraint_vector = np.tensordot(
+                self.coeffs_to_constraint_vectors[1], -self.m_ind_to_E_coeffs_direct, 2
             )
-            self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
+            self.m_ind_to_m_imp = self.constraints_least_squares.solve([None, m_ind_to_constraint_vector])
+            self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp[1])
 
         # Construct matrix used in steady state calculations.
         self.E_noind_to_m_ind_steady = -np.linalg.pinv(self.m_ind_to_E_coeffs[1])
@@ -513,11 +513,20 @@ class State(object):
 
         m_imp_noind = np.zeros(self.basis.index_length)
 
+        constraint_vector = [None, None]
         if self.jr is not None:
-            m_imp_noind += self.coeffs_to_m_imp[0].dot(self.jr.coeffs)
+            constraint_vector[0] = self.coeffs_to_constraint_vectors[0].dot(self.jr.coeffs)
 
         if self.connect_hemispheres and E_MAPPING:
-            m_imp_noind += np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct_noind, 2)
+            constraint_vector[1] = np.tensordot(
+                self.coeffs_to_constraint_vectors[1], -E_coeffs_direct_noind, 2
+            )
+
+        solutions = self.constraints_least_squares.solve(constraint_vector)
+        m_imp_noind = np.zeros(self.basis.index_length)
+        for i in range(len(solutions)):
+            if solutions[i] is not None:
+                m_imp_noind += solutions[i]
 
         E_coeffs_noind = E_coeffs_direct_noind + self.m_imp_to_E_coeffs.dot(m_imp_noind)
 
@@ -544,8 +553,16 @@ class State(object):
 
         m_imp_ind = np.zeros(self.basis.index_length)
 
+        constraint_vector = [None, None]
         if self.connect_hemispheres and E_MAPPING:
-            m_imp_ind = np.tensordot(self.coeffs_to_m_imp[1], -E_coeffs_direct_ind, 2)
+            constraint_vector[1] = np.tensordot(
+                self.coeffs_to_constraint_vectors[1], -E_coeffs_direct_ind, 2
+            )
+        solutions = self.constraints_least_squares.solve(constraint_vector)
+        m_imp_ind = np.zeros(self.basis.index_length)
+        for i in range(len(solutions)):
+            if solutions[i] is not None:
+                m_imp_ind += solutions[i]
 
         E_coeffs = E_coeffs_direct_ind + self.m_imp_to_E_coeffs.dot(m_imp_ind)
 
