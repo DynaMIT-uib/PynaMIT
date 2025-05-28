@@ -260,9 +260,12 @@ class LeastSquares:
                 all_vectors = np.hstack((all_vectors, current_vector))
             traversed_rows += self.A[i].array.shape[0]
 
-        all_solutions = (
-            self.left_matrix_pinv.dot(all_vectors)
-        )  # Solve the combined system
+        all_solutions = np.linalg.solve(
+            self.left_matrix, all_vectors
+        )
+#        all_solutions = (
+#            self.left_matrix_pinv.dot(all_vectors)
+#        )  # Solve the combined system
 
         solution = [None] * self.n_As
         traversed_columns = 0
