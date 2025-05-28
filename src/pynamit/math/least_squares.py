@@ -52,7 +52,14 @@ class LeastSquares:
     """
 
     def __init__(
-        self, A, solution_dims, weights=None, reg_lambda=None, reg_L=None, pinv_rtol=1e-15
+        self,
+        A,
+        solution_dims,
+        weights=None,
+        reg_lambda=None,
+        reg_L=None,
+        pinv_rtol=1e-15,
+        algorithm="pinv",
     ):
         """Initialize the least squares solver.
 
@@ -70,8 +77,12 @@ class LeastSquares:
             Regularization operator array(s).
         pinv_rtol : float, optional
             Relative tolerance for pseudoinverse.
+        algorithm : str, optional
+            Algorithm to use for solving the least squares problem.
+            Options are 'pinv', 'cg', or 'solve'. Default is 'pinv'.
         """
         self.solution_dims = solution_dims
+        self.algorithm = algorithm
 
         if isinstance(A, list):
             self.n_As = len(A)
@@ -140,8 +151,6 @@ class LeastSquares:
                 raise ValueError("At least one regularization operator (L) is None.")
         else:
             self.stacked_arrays = weighted_A_stacked
-
-        self.left_matrix = self.stacked_arrays.T.dot(self.stacked_arrays)
 
         self.pinv_rtol = pinv_rtol
 
@@ -257,10 +266,45 @@ class LeastSquares:
             traversed_rows += self.A[i].array.shape[0]
 
         if vectors:
-            all_solutions = np.linalg.solve(self.left_matrix, np.hstack(vectors))
-            # all_solutions = (
-            #     self.left_matrix_pinv.dot(np.hstack(vectors))
-            # )
+            if self.algorithm == "cg":
+                from scipy.sparse.linalg import LinearOperator, cg
+
+                def matvec(y):
+                    # 1) compute z = A @ y  (length m)
+                    # 2) return A.T @ z     (length n)
+                    return self.stacked_arrays.T.dot(self.stacked_arrays.dot(y))
+
+                Aop = LinearOperator(
+                    (self.stacked_arrays.shape[1], self.stacked_arrays.shape[1]),
+                    matvec=matvec,
+                    dtype=self.stacked_arrays.dtype,
+                )
+                all_solutions = np.zeros(
+                    # sum over non-None b
+                    (self.stacked_arrays.shape[1], sum(vector.shape[1] for vector in vectors))
+                )
+                # Loop to solve the system using conjugate gradient
+                traversed_columns = 0
+                for vector in vectors:
+                    for i in range(vector.shape[1]):
+                        all_solutions[:, traversed_columns], info = cg(
+                            Aop,
+                            vector[:, i],
+                            rtol=1e-12,
+                            maxiter=1000,
+                            M=None,  # No preconditioner
+                        )
+                        if info != 0:
+                            raise RuntimeError(
+                                f"Conjugate gradient solver did not converge, info={info}"
+                            )
+                        traversed_columns += 1
+            elif self.algorithm == "pinv":
+                vectors_stacked = np.hstack(vectors)
+                all_solutions = self.left_matrix_pinv.dot(vectors_stacked)
+            elif self.algorithm == "solve":
+                vectors_stacked = np.hstack(vectors)
+                all_solutions = np.linalg.solve(self.left_matrix, vectors_stacked)
 
         solution = [None] * self.n_As
         traversed_columns = 0
@@ -279,6 +323,25 @@ class LeastSquares:
                 traversed_columns += b_list[i].array.shape[1]
 
         return solution
+
+    @property
+    def left_matrix(self):
+        """Compute the left matrix ``A^T W A + λL^T L``.
+
+        Returns
+        -------
+        ndarray
+            Left matrix of the least squares problem.
+
+        Notes
+        -----
+        Computes the left matrix as ``A^T W A + λL^T L``.
+        This matrix is used to solve the least squares problem.
+        """
+        if not hasattr(self, "_left_matrix"):
+            self._left_matrix = self.stacked_arrays.T.dot(self.stacked_arrays)
+
+        return self._left_matrix
 
     @property
     def left_matrix_pinv(self):
