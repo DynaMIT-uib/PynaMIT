@@ -238,9 +238,9 @@ class LeastSquares:
             n_leading_flattened=[len(self.A[i].full_shapes[0]) for i in range(self.n_As)],
         )
 
-        solution = [None] * self.n_As
-
         traversed_rows = 0
+
+        all_vectors = None
         for i in range(self.n_As):
             if b_list[i] is not None:
                 weighted_b = (
@@ -248,21 +248,38 @@ class LeastSquares:
                     if self.weights[i] is not None
                     else b_list[i].array
                 )
-
-                solution[i] = self.left_matrix_pinv.dot(
-                    self.stacked_arrays[
+                current_vector = self.stacked_arrays[
                         traversed_rows : traversed_rows + self.A[i].array.shape[0]
                     ].T.dot(weighted_b)
-                )
+            else:
+                current_vector = np.zeros((self.A[i].array.shape[1], 1))
 
+            if all_vectors is None:
+                all_vectors = current_vector
+            else:
+                all_vectors = np.hstack((all_vectors, current_vector))
+            traversed_rows += self.A[i].array.shape[0]
+
+        all_solutions = (
+            self.left_matrix_pinv.dot(all_vectors)
+        )  # Solve the combined system
+
+        solution = [None] * self.n_As
+        traversed_columns = 0
+        for i in range(self.n_As):
+            if b_list[i] is not None:
+                current_solution = all_solutions[:,
+                    traversed_columns : traversed_columns + b_list[i].array.shape[1]
+                ]
                 if len(b_list[i].shapes) == 2:
-                    solution[i] = solution[i].reshape(
+                    solution[i] = current_solution.reshape(
                         self.A[i].full_shapes[1] + b_list[i].full_shapes[1]
                     )
                 else:
-                    solution[i] = solution[i].reshape(self.A[i].full_shapes[1])
-
-            traversed_rows += self.A[i].array.shape[0]
+                    solution[i] = current_solution.reshape(self.A[i].full_shapes[1])
+                traversed_columns += b_list[i].array.shape[1]
+            else:
+                traversed_columns += 1
 
         return solution
 
