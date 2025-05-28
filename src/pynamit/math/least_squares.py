@@ -249,30 +249,29 @@ class LeastSquares:
                     else b_list[i].array
                 )
                 current_vector = self.stacked_arrays[
-                        traversed_rows : traversed_rows + self.A[i].array.shape[0]
-                    ].T.dot(weighted_b)
-            else:
-                current_vector = np.zeros((self.A[i].array.shape[1], 1))
+                    traversed_rows : traversed_rows + self.A[i].array.shape[0]
+                ].T.dot(weighted_b)
 
-            if all_vectors is None:
-                all_vectors = current_vector
-            else:
-                all_vectors = np.hstack((all_vectors, current_vector))
+                if all_vectors is None:
+                    all_vectors = current_vector
+                else:
+                    all_vectors = np.hstack((all_vectors, current_vector))
+                # print(all_vectors)
+
             traversed_rows += self.A[i].array.shape[0]
 
-        all_solutions = np.linalg.solve(
-            self.left_matrix, all_vectors
-        )
-#        all_solutions = (
-#            self.left_matrix_pinv.dot(all_vectors)
-#        )  # Solve the combined system
+        if all_vectors is not None:
+            all_solutions = np.linalg.solve(self.left_matrix, all_vectors)
+            # all_solutions = (
+            #     self.left_matrix_pinv.dot(all_vectors)
+            # )
 
         solution = [None] * self.n_As
         traversed_columns = 0
         for i in range(self.n_As):
             if b_list[i] is not None:
-                current_solution = all_solutions[:,
-                    traversed_columns : traversed_columns + b_list[i].array.shape[1]
+                current_solution = all_solutions[
+                    :, traversed_columns : traversed_columns + b_list[i].array.shape[1]
                 ]
                 if len(b_list[i].shapes) == 2:
                     solution[i] = current_solution.reshape(
@@ -281,8 +280,6 @@ class LeastSquares:
                 else:
                     solution[i] = current_solution.reshape(self.A[i].full_shapes[1])
                 traversed_columns += b_list[i].array.shape[1]
-            else:
-                traversed_columns += 1
 
         return solution
 
