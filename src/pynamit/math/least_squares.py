@@ -141,6 +141,8 @@ class LeastSquares:
         else:
             self.stacked_arrays = weighted_A_stacked
 
+        self.left_matrix = self.stacked_arrays.T.dot(self.stacked_arrays)
+
         self.pinv_rtol = pinv_rtol
 
     def count_elements(self, argument):
@@ -247,11 +249,11 @@ class LeastSquares:
                     else b_list[i].array
                 )
 
-                ATWbi = self.stacked_arrays[
-                    traversed_rows : traversed_rows + self.A[i].array.shape[0]
-                ].T.dot(weighted_b)
-
-                solution[i] = np.dot(self.ATWA_plus_R_pinv, ATWbi)
+                solution[i] = self.left_matrix_pinv.dot(
+                    self.stacked_arrays[
+                        traversed_rows : traversed_rows + self.A[i].array.shape[0]
+                    ].T.dot(weighted_b)
+                )
 
                 if len(b_list[i].shapes) == 2:
                     solution[i] = solution[i].reshape(
@@ -259,12 +261,13 @@ class LeastSquares:
                     )
                 else:
                     solution[i] = solution[i].reshape(self.A[i].full_shapes[1])
+
             traversed_rows += self.A[i].array.shape[0]
 
         return solution
 
     @property
-    def ATWA_plus_R_pinv(self):
+    def left_matrix_pinv(self):
         """Compute pseudoinverse of ``A^T W A + λL^T L``.
 
         Returns
@@ -276,11 +279,9 @@ class LeastSquares:
         -----
         Uses pseudoinverse with specified tolerance.
         """
-        if not hasattr(self, "_ATWA_plus_R_pinv"):
-            ATWA_plus_R = self.stacked_arrays.T.dot(self.stacked_arrays)
-
-            self._ATWA_plus_R_pinv = np.linalg.pinv(
-                ATWA_plus_R, rcond=self.pinv_rtol, hermitian=True
+        if not hasattr(self, "_left_matrix_pinv"):
+            self._left_matrix_pinv = np.linalg.pinv(
+                self.left_matrix, rcond=self.pinv_rtol, hermitian=True
             )
 
-        return self._ATWA_plus_R_pinv
+        return self._left_matrix_pinv

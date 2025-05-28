@@ -478,7 +478,9 @@ class State(object):
             m_ind_to_constraint_vector = np.tensordot(
                 self.coeffs_to_constraint_vectors[1], -self.m_ind_to_E_coeffs_direct, 2
             )
-            self.m_ind_to_m_imp = self.constraints_least_squares.solve([None, m_ind_to_constraint_vector])
+            self.m_ind_to_m_imp = self.constraints_least_squares.solve(
+                [None, m_ind_to_constraint_vector]
+            )
             self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp[1])
 
         # Construct matrix used in steady state calculations.
