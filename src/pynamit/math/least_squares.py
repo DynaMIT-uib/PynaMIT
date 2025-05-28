@@ -238,9 +238,9 @@ class LeastSquares:
             n_leading_flattened=[len(self.A[i].full_shapes[0]) for i in range(self.n_As)],
         )
 
+        vectors = []
         traversed_rows = 0
 
-        all_vectors = None
         for i in range(self.n_As):
             if b_list[i] is not None:
                 weighted_b = (
@@ -252,22 +252,19 @@ class LeastSquares:
                     traversed_rows : traversed_rows + self.A[i].array.shape[0]
                 ].T.dot(weighted_b)
 
-                if all_vectors is None:
-                    all_vectors = current_vector
-                else:
-                    all_vectors = np.hstack((all_vectors, current_vector))
-                # print(all_vectors)
+                vectors.append(current_vector)
 
             traversed_rows += self.A[i].array.shape[0]
 
-        if all_vectors is not None:
-            all_solutions = np.linalg.solve(self.left_matrix, all_vectors)
+        if vectors:
+            all_solutions = np.linalg.solve(self.left_matrix, np.hstack(vectors))
             # all_solutions = (
-            #     self.left_matrix_pinv.dot(all_vectors)
+            #     self.left_matrix_pinv.dot(np.hstack(vectors))
             # )
 
         solution = [None] * self.n_As
         traversed_columns = 0
+
         for i in range(self.n_As):
             if b_list[i] is not None:
                 current_solution = all_solutions[
