@@ -51,7 +51,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
 
 
 filename_prefix = "results_mage_2011"
-Nmax, Mmax, Ncs = 40, 40, 40
+Nmax, Mmax, Ncs = 5, 5, 10
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -109,6 +109,7 @@ conductance_plt_evaluator = pynamit.BasisEvaluator(
 
 time = file["time"][:]
 nstep = time.shape[0]
+nstep = 10
 
 for step in range(0, nstep):
     print("Processing input step", step + 1, "of", nstep)
@@ -303,6 +304,23 @@ for step in range(0, nstep):
             extend="both",
             title="u at RI",
         )
+
+# --- 2. Now call the plotting function ---
+times_for_figure = [0, 10, 20, 30] # Example times in seconds
+data_types_for_figure = ['Br', 'jr'] # Example data types
+
+
+pynamit.plot_input_vs_interpolated(
+    h5_filepath="mage_2011/data_H_int.h5",
+    dynamics=dynamics, # The pre-processed dynamics object
+    times_to_plot=times_for_figure,
+    data_types_to_plot=data_types_for_figure,
+    dt_inputs=10, # The dt used for time_index -> seconds conversion
+    noon_longitude=0, # Optional
+    #output_filename="input_vs_fitted_comparison.png" # Optional
+)
+
+
 
 print("Time evolution")
 final_time = 3600  # seconds

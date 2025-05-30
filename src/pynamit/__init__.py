@@ -39,6 +39,7 @@ from .simulation.dynamics import Dynamics
 from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
 from .simulation.visualization import debugplot, globalplot
+from .simulation.mage_simulation import plot_input_vs_interpolated
 from .spherical_harmonics.sh_basis import SHBasis
 
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "SHBasis",
     "debugplot",
     "globalplot",
+    "plot_input_vs_interpolated",
 ]
