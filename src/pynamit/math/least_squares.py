@@ -168,7 +168,7 @@ class LeastSquares:
 
         for i in range(self.n_constraints):
             if b_list[i] is not None:
-                solution[i] = np.dot(self.ATWA_plus_R_pinv_ATW[i], b_list[i].array)
+                solution[i] = np.dot(self.ATWA_plus_R_pinv, self.ATW[i].dot(b_list[i].array))
 
                 if len(b_list[i].shapes) == 2:
                     solution[i] = solution[i].reshape(
