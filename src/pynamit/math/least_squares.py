@@ -152,6 +152,10 @@ class LeastSquares:
         else:
             self.stacked_arrays = weighted_A_stacked
 
+        self.U, self.S, self.Vh = np.linalg.svd(
+            self.stacked_arrays, full_matrices=False, hermitian=False
+        )
+
         self.pinv_rtol = pinv_rtol
 
     def count_elements(self, argument):
@@ -247,7 +251,8 @@ class LeastSquares:
             n_leading_flattened=[len(self.A[i].full_shapes[0]) for i in range(self.n_As)],
         )
 
-        vectors = []
+        solution = [None] * self.n_As
+
         traversed_rows = 0
 
         for i in range(self.n_As):
@@ -257,108 +262,20 @@ class LeastSquares:
                     if self.weights[i] is not None
                     else b_list[i].array
                 )
-                current_vector = self.stacked_arrays[
-                    traversed_rows : traversed_rows + self.A[i].array.shape[0]
-                ].T.dot(weighted_b)
 
-                vectors.append(current_vector)
-
-            traversed_rows += self.A[i].array.shape[0]
-
-        if vectors:
-            if self.algorithm == "cg":
-                from scipy.sparse.linalg import LinearOperator, cg
-
-                def matvec(y):
-                    # 1) compute z = A @ y  (length m)
-                    # 2) return A.T @ z     (length n)
-                    return self.stacked_arrays.T.dot(self.stacked_arrays.dot(y))
-
-                Aop = LinearOperator(
-                    (self.stacked_arrays.shape[1], self.stacked_arrays.shape[1]),
-                    matvec=matvec,
-                    dtype=self.stacked_arrays.dtype,
+                solution[i] = self.Vh.T.dot(
+                    self.U[traversed_rows : traversed_rows + self.A[i].array.shape[0], :]
+                    .T.dot(weighted_b)
+                    / self.S.reshape((-1, 1))
                 )
-                all_solutions = np.zeros(
-                    # sum over non-None b
-                    (self.stacked_arrays.shape[1], sum(vector.shape[1] for vector in vectors))
-                )
-                # Loop to solve the system using conjugate gradient
-                traversed_columns = 0
-                for vector in vectors:
-                    for i in range(vector.shape[1]):
-                        all_solutions[:, traversed_columns], info = cg(
-                            Aop,
-                            vector[:, i],
-                            rtol=1e-12,
-                            maxiter=1000,
-                            M=None,  # No preconditioner
-                        )
-                        if info != 0:
-                            raise RuntimeError(
-                                f"Conjugate gradient solver did not converge, info={info}"
-                            )
-                        traversed_columns += 1
-            elif self.algorithm == "pinv":
-                vectors_stacked = np.hstack(vectors)
-                all_solutions = self.left_matrix_pinv.dot(vectors_stacked)
-            elif self.algorithm == "solve":
-                vectors_stacked = np.hstack(vectors)
-                all_solutions = np.linalg.solve(self.left_matrix, vectors_stacked)
 
-        solution = [None] * self.n_As
-        traversed_columns = 0
-
-        for i in range(self.n_As):
-            if b_list[i] is not None:
-                current_solution = all_solutions[
-                    :, traversed_columns : traversed_columns + b_list[i].array.shape[1]
-                ]
                 if len(b_list[i].shapes) == 2:
-                    solution[i] = current_solution.reshape(
+                    solution[i] = solution[i].reshape(
                         self.A[i].full_shapes[1] + b_list[i].full_shapes[1]
                     )
                 else:
-                    solution[i] = current_solution.reshape(self.A[i].full_shapes[1])
-                traversed_columns += b_list[i].array.shape[1]
+                    solution[i] = solution[i].reshape(self.A[i].full_shapes[1])
+
+            traversed_rows += self.A[i].array.shape[0]
 
         return solution
-
-    @property
-    def left_matrix(self):
-        """Compute the left matrix ``A^T W A + λL^T L``.
-
-        Returns
-        -------
-        ndarray
-            Left matrix of the least squares problem.
-
-        Notes
-        -----
-        Computes the left matrix as ``A^T W A + λL^T L``.
-        This matrix is used to solve the least squares problem.
-        """
-        if not hasattr(self, "_left_matrix"):
-            self._left_matrix = self.stacked_arrays.T.dot(self.stacked_arrays)
-
-        return self._left_matrix
-
-    @property
-    def left_matrix_pinv(self):
-        """Compute pseudoinverse of ``A^T W A + λL^T L``.
-
-        Returns
-        -------
-        ndarray
-            Pseudoinverse of ``A^T W A + λL^T L``.
-
-        Notes
-        -----
-        Uses pseudoinverse with specified tolerance.
-        """
-        if not hasattr(self, "_left_matrix_pinv"):
-            self._left_matrix_pinv = np.linalg.pinv(
-                self.left_matrix, rcond=self.pinv_rtol, hermitian=True
-            )
-
-        return self._left_matrix_pinv
