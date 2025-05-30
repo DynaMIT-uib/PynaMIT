@@ -59,7 +59,6 @@ class LeastSquares:
         reg_lambda=None,
         reg_L=None,
         pinv_rtol=1e-15,
-        algorithm="pinv",
     ):
         """Initialize the least squares solver.
 
@@ -77,12 +76,8 @@ class LeastSquares:
             Regularization operator array(s).
         pinv_rtol : float, optional
             Relative tolerance for pseudoinverse.
-        algorithm : str, optional
-            Algorithm to use for solving the least squares problem.
-            Options are 'pinv', 'cg', or 'solve'. Default is 'pinv'.
         """
         self.solution_dims = solution_dims
-        self.algorithm = algorithm
 
         if isinstance(A, list):
             self.n_As = len(A)
@@ -152,11 +147,24 @@ class LeastSquares:
         else:
             self.stacked_arrays = weighted_A_stacked
 
-        self.U, self.S, self.Vh = np.linalg.svd(
+        U, S, Vh = np.linalg.svd(
             self.stacked_arrays, full_matrices=False, hermitian=False
         )
 
-        self.pinv_rtol = pinv_rtol
+        # Filter out small singular values
+        if pinv_rtol:
+            mask = S <= pinv_rtol * S[0]
+        else:
+            mask = False
+
+        if np.any(mask):
+            first_zero = np.argmax(mask)
+        else:
+            first_zero = len(S)
+
+        self.S = S[:first_zero]
+        self.U = U[:, :first_zero]
+        self.Vh = Vh[:, :first_zero]
 
     def count_elements(self, argument):
         """Count elements in the argument.
