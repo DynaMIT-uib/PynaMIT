@@ -52,13 +52,7 @@ class LeastSquares:
     """
 
     def __init__(
-        self,
-        A,
-        solution_dims,
-        weights=None,
-        reg_lambda=None,
-        reg_L=None,
-        pinv_rtol=1e-15,
+        self, A, solution_dims, weights=None, reg_lambda=None, reg_L=None, pinv_rtol=1e-15
     ):
         """Initialize the least squares solver.
 
@@ -79,32 +73,14 @@ class LeastSquares:
         """
         self.solution_dims = solution_dims
 
-        if isinstance(A, list):
-            self.n_As = len(A)
-        else:
-            self.n_As = 1
-
+        self.n_As = self.count_elements(A)
         self.A = self.flatten_arrays(
             A, self.n_As, n_trailing_flattened=[solution_dims] * self.n_As
         )
+
         self.weights = self.flatten_arrays(
             weights, self.n_As, n_trailing_flattened=[0] * self.n_As
         )
-
-        self.n_Ls = self.count_elements(reg_L)
-
-        if any(a is None for a in self.A):
-            raise ValueError("At least one forward operator (A) is None.")
-        if self.n_Ls != self.count_elements(reg_lambda):
-            raise ValueError(
-                "Number of regularization operators (reg_L) must match number of regularization parameters (reg_lambda)."
-            )
-
-        for i in range(self.n_As):
-            if self.weights[i] is not None and np.any(self.weights[i].array < 0):
-                # W needs to be positive semidefinite
-                # (no negative elements for diagonal matrices)
-                raise ValueError(f"Weights for constraint {i} contain negative values.")
 
         weighted_A_stacked = np.vstack(
             [
@@ -117,26 +93,25 @@ class LeastSquares:
 
         weighted_A_stacked_scale = np.median(np.sum(weighted_A_stacked**2, axis=0))
 
-        if self.n_Ls > 0:
+        n_Ls = self.count_elements(reg_L)
+        if n_Ls > 0:
             if not isinstance(reg_lambda, list):
                 reg_lambda = [reg_lambda]
 
             self.reg_L = self.flatten_arrays(
                 reg_L,
-                self.n_Ls,
-                n_leading_flattened=[solution_dims] * self.n_Ls,
-                n_trailing_flattened=[solution_dims] * self.n_Ls,
+                n_Ls,
+                n_leading_flattened=[solution_dims] * n_Ls,
+                n_trailing_flattened=[solution_dims] * n_Ls,
             )
 
-            L_scales = [
-                np.median(np.sum(self.reg_L[i].array ** 2, axis=0)) for i in range(self.n_Ls)
-            ]
+            L_scales = [np.median(np.sum(self.reg_L[i].array ** 2, axis=0)) for i in range(n_Ls)]
 
             reg_stacked = np.vstack(
                 [
                     np.sqrt(reg_lambda[i] / L_scales[i] * weighted_A_stacked_scale)
                     * self.reg_L[i].array
-                    for i in range(self.n_Ls)
+                    for i in range(n_Ls)
                 ]
             )
 
@@ -147,9 +122,7 @@ class LeastSquares:
         else:
             self.stacked_arrays = weighted_A_stacked
 
-        U, S, Vh = np.linalg.svd(
-            self.stacked_arrays, full_matrices=False, hermitian=False
-        )
+        U, S, Vh = np.linalg.svd(self.stacked_arrays, full_matrices=False, hermitian=False)
 
         # Filter out small singular values
         if pinv_rtol:
@@ -272,8 +245,9 @@ class LeastSquares:
                 )
 
                 solution[i] = self.Vh.T.dot(
-                    self.U[traversed_rows : traversed_rows + self.A[i].array.shape[0], :]
-                    .T.dot(weighted_b)
+                    self.U[traversed_rows : traversed_rows + self.A[i].array.shape[0], :].T.dot(
+                        weighted_b
+                    )
                     / self.S.reshape((-1, 1))
                 )
 
