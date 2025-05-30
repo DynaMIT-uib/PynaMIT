@@ -91,8 +91,6 @@ class LeastSquares:
             ]
         )
 
-        weighted_A_stacked_scale = np.median(np.sum(weighted_A_stacked**2, axis=0))
-
         n_Ls = self.count_elements(reg_L)
         if n_Ls > 0:
             if not isinstance(reg_lambda, list):
@@ -105,6 +103,7 @@ class LeastSquares:
                 n_trailing_flattened=[solution_dims] * n_Ls,
             )
 
+            weighted_A_stacked_scale = np.median(np.sum(weighted_A_stacked**2, axis=0))
             L_scales = [np.median(np.sum(self.reg_L[i].array ** 2, axis=0)) for i in range(n_Ls)]
 
             reg_stacked = np.vstack(
@@ -138,6 +137,64 @@ class LeastSquares:
         self.S = S[:first_zero]
         self.U = U[:, :first_zero]
         self.Vh = Vh[:, :first_zero]
+
+    def solve(self, b):
+        """Solve the least squares system.
+
+        Parameters
+        ----------
+        b : list of ndarray or ndarray
+            Right-hand side array(s) for each constraint.
+
+        Returns
+        -------
+        list of ndarray
+            Solution array(s) with original dimensionality restored.
+            Returns list also for single solution.
+
+        Notes
+        -----
+        For each constraint ``i``, solves::
+
+            (Aᵢ^T Wᵢ Aᵢ + λᵢLᵢ^T Lᵢ)x = Aᵢ^T Wᵢ bᵢ
+
+        The complete solution minimizes the sum of all constraint terms.
+        """
+        b_list = self.flatten_arrays(
+            b,
+            self.n_As,
+            n_leading_flattened=[len(self.A[i].full_shapes[0]) for i in range(self.n_As)],
+        )
+
+        solution = [None] * self.n_As
+
+        traversed_rows = 0
+
+        for i in range(self.n_As):
+            if b_list[i] is not None:
+                weighted_b = (
+                    np.sqrt(self.weights[i].array) * b_list[i].array
+                    if self.weights[i] is not None
+                    else b_list[i].array
+                )
+
+                solution[i] = self.Vh.T.dot(
+                    self.U[traversed_rows : traversed_rows + self.A[i].array.shape[0], :].T.dot(
+                        weighted_b
+                    )
+                    / self.S.reshape((-1, 1))
+                )
+
+                if len(b_list[i].shapes) == 2:
+                    solution[i] = solution[i].reshape(
+                        self.A[i].full_shapes[1] + b_list[i].full_shapes[1]
+                    )
+                else:
+                    solution[i] = solution[i].reshape(self.A[i].full_shapes[1])
+
+            traversed_rows += self.A[i].array.shape[0]
+
+        return solution
 
     def count_elements(self, argument):
         """Count elements in the argument.
@@ -203,61 +260,3 @@ class LeastSquares:
                     )
 
         return arrays_compounded
-
-    def solve(self, b):
-        """Solve the least squares system.
-
-        Parameters
-        ----------
-        b : list of ndarray or ndarray
-            Right-hand side array(s) for each constraint.
-
-        Returns
-        -------
-        list of ndarray
-            Solution array(s) with original dimensionality restored.
-            Returns list also for single solution.
-
-        Notes
-        -----
-        For each constraint ``i``, solves::
-
-            (Aᵢ^T Wᵢ Aᵢ + λᵢLᵢ^T Lᵢ)x = Aᵢ^T Wᵢ bᵢ
-
-        The complete solution minimizes the sum of all constraint terms.
-        """
-        b_list = self.flatten_arrays(
-            b,
-            self.n_As,
-            n_leading_flattened=[len(self.A[i].full_shapes[0]) for i in range(self.n_As)],
-        )
-
-        solution = [None] * self.n_As
-
-        traversed_rows = 0
-
-        for i in range(self.n_As):
-            if b_list[i] is not None:
-                weighted_b = (
-                    np.sqrt(self.weights[i].array) * b_list[i].array
-                    if self.weights[i] is not None
-                    else b_list[i].array
-                )
-
-                solution[i] = self.Vh.T.dot(
-                    self.U[traversed_rows : traversed_rows + self.A[i].array.shape[0], :].T.dot(
-                        weighted_b
-                    )
-                    / self.S.reshape((-1, 1))
-                )
-
-                if len(b_list[i].shapes) == 2:
-                    solution[i] = solution[i].reshape(
-                        self.A[i].full_shapes[1] + b_list[i].full_shapes[1]
-                    )
-                else:
-                    solution[i] = solution[i].reshape(self.A[i].full_shapes[1])
-
-            traversed_rows += self.A[i].array.shape[0]
-
-        return solution
