@@ -103,7 +103,9 @@ plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
 plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis_evaluator_zero_added.basis, plt_grid)
+conductance_plt_evaluator = pynamit.BasisEvaluator(
+    dynamics.state.basis_evaluator_zero_added.basis, plt_grid
+)
 
 time = file["time"][:]
 nstep = time.shape[0]
