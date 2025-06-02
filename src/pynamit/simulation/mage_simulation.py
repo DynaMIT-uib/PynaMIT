@@ -20,22 +20,16 @@ from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
 # --- Helper plotting function (from your last code block) ---
-def plot_scalar_map_on_ax(ax, lon_coords_2d, lat_coords_2d, data_2d, title,
+def plot_scalar_map_on_ax(ax, lon_coords_2d, lat_coords_2d, data_2d_arr, title,
                           cmap='viridis', vmin=None, vmax=None, use_pcolormesh=False):
-    print(f"\n--- plot_scalar_map_on_ax for: {title} ---")
-    print(f"    Initial vmin={vmin}, vmax={vmax}, use_pcolormesh={use_pcolormesh}")
 
     ax.coastlines(color='grey', zorder=3, linewidth=0.5)
     gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--'); gl.top_labels=False; gl.right_labels=False
     plot_transform = ccrs.PlateCarree()
 
-    print(f"    lon_coords_2d received (len {lon_coords_2d.size}): min={np.min(lon_coords_2d):.2f}, max={np.max(lon_coords_2d):.2f}, is_monotonic={np.all(np.diff(lon_coords_2d) >= 0) or np.all(np.diff(lon_coords_2d) <= 0)}")
-    print(f"    lat_coords_2d received (len {lat_coords_2d.size}): min={np.min(lat_coords_2d):.2f}, max={np.max(lat_coords_2d):.2f}, is_monotonic={np.all(np.diff(lat_coords_2d) >= 0) or np.all(np.diff(lat_coords_2d) <= 0)}")
-    
-    data_2d_arr = np.asarray(data_2d)
-
     data_min_val, data_max_val, num_nans = np.nanmin(data_2d_arr), np.nanmax(data_2d_arr), np.isnan(data_2d_arr).sum()
     print(f"    data_2d stats: min={data_min_val:.4g}, max={data_max_val:.4g}, NaNs={num_nans}/{data_2d_arr.size}")
+
     current_vmin, current_vmax = vmin, vmax
     valid_data = data_2d_arr[~np.isnan(data_2d_arr)]
 
@@ -99,24 +93,12 @@ def plot_input_vs_interpolated(
     noon_longitude=0,
     output_filename=None
 ):
-    # ... (Initial prints, HDF5 opening, data shape determination, Pynamit settings/timeseries loading - identical to your last code) ...
-    print(f"--- Starting plot_input_vs_interpolated ---")
-    if output_filename: # ... (path debugging) ...
-        abs_output_path = os.path.abspath(output_filename)
-        print(f"    Absolute output path: {abs_output_path}")
-        output_dir = os.path.dirname(abs_output_path); 
-        if not output_dir: output_dir = "."
-        print(f"    Output directory '{output_dir}' exists: {os.path.isdir(output_dir)}")
-
     try: h5file = h5.File(h5_filepath, "r")
     except Exception as e: print(f"CRITICAL ERROR: Opening HDF5 {h5_filepath}: {e}"); return
 
-    try:
-        bu_data_shape = h5file["Bu"][0,:,:].shape
-        ionospheric_data_shape = h5file["FAC"][0,:,:].shape
-        num_h5_steps = h5file["Bu"].shape[0]
-    except KeyError as ke: print(f"CRITICAL ERROR: HDF5 missing 'Bu' or 'FAC': {ke}."); h5file.close(); return
-    print(f"HDF5 contains {num_h5_steps} time steps. Bu shape: {bu_data_shape}, Iono shape: {ionospheric_data_shape}")
+    bu_data_shape = h5file["Bu"][0,:,:].shape
+    ionospheric_data_shape = h5file["FAC"][0,:,:].shape
+    num_h5_steps = h5file["Bu"].shape[0]
     
     io = IO(interpolated_filename_prefix)
     settings = io.load_dataset("settings", print_info=False)
@@ -136,88 +118,77 @@ def plot_input_vs_interpolated(
 
     # --- HDF5 Grid Coordinate Setup ---
     # These are assumed to be 2D arrays of DEGREES from HDF5
-    raw_ionosphere_lat_h5 = h5file["glat"][:]
-    raw_ionosphere_lon_h5 = h5file["glon"][:]
-    raw_magnetosphere_lat_h5 = h5file["Blat"][:] 
-    raw_magnetosphere_lon_h5 = h5file["Blon"][:]
+    ionosphere_lat = h5file["glat"][:]
+    ionosphere_lon = h5file["glon"][:]
+    magnetosphere_lat = h5file["Blat"][:] 
+    magnetosphere_lon = h5file["Blon"][:]
 
-    print(f"Magnetosphere HDF5 raw coord (Blat,Blon) values (ASSUMED DEGREES): LAT {raw_magnetosphere_lat_h5.min():.2f}/{raw_magnetosphere_lat_h5.max():.2f}, LON {raw_magnetosphere_lon_h5.min():.2f}/{raw_magnetosphere_lon_h5.max():.2f}")
-    print(f"Ionosphere HDF5 raw coord (glat,glon) values (ASSUMED DEGREES): LAT {raw_ionosphere_lat_h5.min():.2f}/{raw_ionosphere_lat_h5.max():.2f}, LON {raw_ionosphere_lon_h5.min():.2f}/{raw_ionosphere_lon_h5.max():.2f}")
+    print(f"Magnetosphere HDF5 raw coord (Blat,Blon) values (ASSUMED DEGREES): LAT {magnetosphere_lat.min():.2f}/{magnetosphere_lat.max():.2f}, LON {magnetosphere_lon.min():.2f}/{magnetosphere_lon.max():.2f}")
+    print(f"Ionosphere HDF5 raw coord (glat,glon) values (ASSUMED DEGREES): LAT {ionosphere_lat.min():.2f}/{ionosphere_lat.max():.2f}, LON {ionosphere_lon.min():.2f}/{ionosphere_lon.max():.2f}")
 
-    ionosphere_lon_1d_plot, ionosphere_lat_1d_plot = raw_ionosphere_lon_h5, raw_ionosphere_lat_h5
-    magnetosphere_lon_1d_plot, magnetosphere_lat_1d_plot = raw_magnetosphere_lon_h5, raw_magnetosphere_lat_h5
-
-    # Flattened coordinates for BasisEvaluator should use the original HDF5 degree values
-    ionosphere_lat_flat_for_grid = raw_ionosphere_lat_h5#.flatten()
-    ionosphere_lon_flat_for_grid = raw_ionosphere_lon_h5#.flatten()
-    magnetosphere_lat_flat_for_grid = raw_magnetosphere_lat_h5#.flatten()
-    magnetosphere_lon_flat_for_grid = raw_magnetosphere_lon_h5#.flatten()
-    
     # ... (FAC_b_evaluator, figure setup as in your last full code) ...
-    ionosphere_input_grid_for_br = Grid(lat=ionosphere_lat_flat_for_grid, lon=ionosphere_lon_flat_for_grid)
-    FAC_b_evaluator_for_input_jr = FieldEvaluator(mainfield, ionosphere_input_grid_for_br, ri_value)
-    br_on_iono_input_grid_flat = FAC_b_evaluator_for_input_jr.br
-    br_on_iono_input_grid_2d = br_on_iono_input_grid_flat.reshape(ionospheric_data_shape)
+    ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
+    ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
+    ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionospheric_data_shape)
+
     num_rows = len(times_to_plot); num_cols = len(data_types_to_plot) * 2
-    fig_width = min(max(10, num_cols * 4.0), 40); fig_height = min(max(7, num_rows * 3.5), 35) 
+    fig_width = min(max(10, num_cols * 4.0), 40); fig_height = min(max(7, num_rows * 3.5), 35)
+
     print(f"Creating figure: {num_rows}x{num_cols}, size:({fig_width},{fig_height})")
+
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(fig_width, fig_height),
         subplot_kw={'projection': ccrs.PlateCarree(central_longitude=noon_longitude)}, squeeze=False)
 
 
     for row_idx, time_val_secs in enumerate(times_to_plot):
-        # ... (time loop as before) ...
         print(f"\n--- Processing plot row {row_idx+1}/{num_rows} for time_val_secs = {time_val_secs}s ---")
         target_step_idx_float = time_val_secs / dt_inputs; step_idx = int(round(target_step_idx_float))
+
         if step_idx < 0 or step_idx >= num_h5_steps:
-            print(f"Warning: HDF5 index {step_idx} out of bounds. Skipping row.");
+            print(f"Warning: HDF5 index {step_idx} out of bounds. Skipping row.")
             for col_idx_to_hide in range(num_cols): axes[row_idx, col_idx_to_hide].set_visible(False)
             continue
+
         actual_h5_sim_time = step_idx * dt_inputs
+
         if not np.isclose(actual_h5_sim_time, time_val_secs, atol=dt_inputs/1.9): print(f"Note: Requested {time_val_secs}s. Using HDF5 input from {actual_h5_sim_time}s (index {step_idx}).")
         if num_cols > 0: axes[row_idx, 0].set_ylabel(f"{time_val_secs}s", fontsize=10, labelpad=35, rotation=0, ha='right', va='center')
-            
+
         for data_type_idx, data_type_str in enumerate(data_types_to_plot):
-            # ... (column setup as before) ...
             print(f"  -- Processing data type '{data_type_str}' (column pair {data_type_idx*2}, {data_type_idx*2+1}) --")
             col_idx_input = data_type_idx * 2; col_idx_interpolated = col_idx_input + 1
             ax_input = axes[row_idx, col_idx_input]; ax_interpolated = axes[row_idx, col_idx_interpolated]
             input_data_2d, interpolated_data_2d = None, None
-            current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax, current_data_shape_for_plot = None, None, None
-            current_plotting_grid_flat_coords = None; data_label, cmap = data_type_str, 'viridis'
+            current_lon, current_lat, current_shape = None, None, None
+            data_label, cmap = data_type_str, 'viridis'
             
             if data_type_str == 'Br':
                 input_data_2d = h5file["Bu"][:][step_idx, :, :] * 1e-9
-                current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax = magnetosphere_lon_1d_plot, magnetosphere_lat_1d_plot
-                current_data_shape_for_plot = bu_data_shape 
-                current_plotting_grid_flat_coords = (magnetosphere_lat_flat_for_grid, magnetosphere_lon_flat_for_grid)
+                current_lon, current_lat = magnetosphere_lon, magnetosphere_lat
+                current_shape = bu_data_shape
                 data_label, cmap = r'$\Delta B_r$ [T]', 'bwr'
             elif data_type_str == 'jr':
                 FAC_input_2d = h5file["FAC"][:][step_idx, :, :] * 1e-6
-                input_data_2d = FAC_input_2d * br_on_iono_input_grid_2d 
-                current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax = ionosphere_lon_1d_plot, ionosphere_lat_1d_plot
-                current_data_shape_for_plot = ionospheric_data_shape
-                current_plotting_grid_flat_coords = (ionosphere_lat_flat_for_grid, ionosphere_lon_flat_for_grid)
+                input_data_2d = FAC_input_2d * ionosphere_br_2d 
+                current_lon, current_lat = ionosphere_lon, ionosphere_lat
+                current_shape = ionospheric_data_shape
                 data_label, cmap = r'$j_r$ [A/m$^2$]', 'bwr'
             # ... (SH, SP, u logic as before) ...
             elif data_type_str == 'SH':
                 input_data_2d = h5file["SH"][:][step_idx, :, :]
-                current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax = ionosphere_lon_1d_plot, ionosphere_lat_1d_plot
-                current_data_shape_for_plot = ionospheric_data_shape 
-                current_plotting_grid_flat_coords = (ionosphere_lat_flat_for_grid, ionosphere_lon_flat_for_grid)
+                current_lon, current_lat = ionosphere_lon, ionosphere_lat
+                current_shape = ionospheric_data_shape
                 data_label = r'$\Sigma_H$ [S]'
             elif data_type_str == 'SP':
                 input_data_2d = h5file["SP"][:][step_idx, :, :]
-                current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax = ionosphere_lon_1d_plot, ionosphere_lat_1d_plot
-                current_data_shape_for_plot = ionospheric_data_shape 
-                current_plotting_grid_flat_coords = (ionosphere_lat_flat_for_grid, ionosphere_lon_flat_for_grid)
+                current_lon, current_lat = ionosphere_lon, ionosphere_lat
+                current_shape = ionospheric_data_shape
                 data_label = r'$\Sigma_P$ [S]'
             elif data_type_str in ['u_mag', 'u_theta', 'u_phi']:
                 u_east_input = h5file["We"][:][step_idx, :, :]; u_north_input = h5file["Wn"][:][step_idx, :, :]
                 _u_theta_in_2d, _u_phi_in_2d = -u_north_input, u_east_input
-                current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax = ionosphere_lon_1d_plot, ionosphere_lat_1d_plot
-                current_data_shape_for_plot = ionospheric_data_shape 
-                current_plotting_grid_flat_coords = (ionosphere_lat_flat_for_grid, ionosphere_lon_flat_for_grid)
+                current_lon, current_lat = ionosphere_lon, ionosphere_lat
+                current_shape = ionospheric_data_shape 
                 if data_type_str == 'u_mag': input_data_2d = np.sqrt(_u_theta_in_2d**2 + _u_phi_in_2d**2)
                 elif data_type_str == 'u_theta': input_data_2d = _u_theta_in_2d
                 elif data_type_str == 'u_phi': input_data_2d = _u_phi_in_2d
@@ -225,7 +196,7 @@ def plot_input_vs_interpolated(
                 elif data_type_str == 'u_theta': data_label, cmap = r'$u_\theta$ (South) [m/s]', 'bwr'
                 elif data_type_str == 'u_phi': data_label, cmap = r'$u_\phi$ (East) [m/s]', 'bwr'
             else: print(f"ERROR: Unknown input data_type: {data_type_str}."); ax_input.set_visible(False); ax_interpolated.set_visible(False); continue
-            print(f"Input data for '{data_type_str}' loaded, shape: {input_data_2d.shape if input_data_2d is not None else 'None'}. Target plot data shape: {current_data_shape_for_plot}")
+            print(f"Input data for '{data_type_str}' loaded, shape: {input_data_2d.shape if input_data_2d is not None else 'None'}. Target plot data shape: {current_shape}")
             
             # ... (fitted data logic as before) ...
             timeseries_key_map = {'Br': 'Br', 'jr': 'jr', 'SH': 'conductance', 'SP': 'conductance', 'u_mag': 'u', 'u_theta': 'u', 'u_phi': 'u'}
@@ -236,14 +207,14 @@ def plot_input_vs_interpolated(
                 if timeseries_entry:
                     print(f"Timeseries entry found for '{timeseries_key}'. Keys: {list(timeseries_entry.keys())}")
                     storage_basis = input_timeseries.storage_bases[timeseries_key]
-                    target_plot_grid = Grid(lat=current_plotting_grid_flat_coords[0], lon=current_plotting_grid_flat_coords[1])
+                    target_plot_grid = Grid(lat=current_lat, lon=current_lon)
                     plot_evaluator = BasisEvaluator(storage_basis, target_plot_grid)
                     if timeseries_key == 'conductance': # ... (conductance logic)
                         if 'etaP' in timeseries_entry and 'etaH' in timeseries_entry:
                             etaP_coeffs = timeseries_entry['etaP']; etaH_coeffs = timeseries_entry['etaH']
                             field_exp_etaP = FieldExpansion(storage_basis, coeffs=etaP_coeffs, field_type='scalar'); field_exp_etaH = FieldExpansion(storage_basis, coeffs=etaH_coeffs, field_type='scalar')
                             etaP_fitted_flat = field_exp_etaP.to_grid(plot_evaluator); etaH_fitted_flat = field_exp_etaH.to_grid(plot_evaluator)
-                            etaP_fitted_2d = etaP_fitted_flat.reshape(current_data_shape_for_plot); etaH_fitted_2d = etaH_fitted_flat.reshape(current_data_shape_for_plot)
+                            etaP_fitted_2d = etaP_fitted_flat.reshape(current_shape); etaH_fitted_2d = etaH_fitted_flat.reshape(current_shape)
                             denominator = etaP_fitted_2d**2 + etaH_fitted_2d**2
                             sigma_H_fitted_2d = np.zeros_like(etaH_fitted_2d); sigma_P_fitted_2d = np.zeros_like(etaP_fitted_2d)
                             valid_den = denominator > 1e-12
@@ -256,7 +227,7 @@ def plot_input_vs_interpolated(
                             u_coeffs_helmholtz = timeseries_entry['u']
                             field_exp_u = FieldExpansion(storage_basis, coeffs=u_coeffs_helmholtz, field_type='tangential')
                             u_theta_flat, u_phi_flat = field_exp_u.to_grid(plot_evaluator)
-                            _u_theta_fit_2d = u_theta_flat.reshape(current_data_shape_for_plot); _u_phi_fit_2d = u_phi_flat.reshape(current_data_shape_for_plot)
+                            _u_theta_fit_2d = u_theta_flat.reshape(current_shape); _u_phi_fit_2d = u_phi_flat.reshape(current_shape)
                             if data_type_str == 'u_mag': interpolated_data_2d = np.sqrt(_u_theta_fit_2d**2 + _u_phi_fit_2d**2)
                             elif data_type_str == 'u_theta': interpolated_data_2d = _u_theta_fit_2d
                             elif data_type_str == 'u_phi': interpolated_data_2d = _u_phi_fit_2d
@@ -266,7 +237,7 @@ def plot_input_vs_interpolated(
                             field_coeffs = timeseries_entry[data_type_str]
                             field_exp = FieldExpansion(storage_basis, coeffs=field_coeffs, field_type='scalar')
                             interpolated_data_flat = field_exp.to_grid(plot_evaluator)
-                            interpolated_data_2d = interpolated_data_flat.reshape(current_data_shape_for_plot)
+                            interpolated_data_2d = interpolated_data_flat.reshape(current_shape)
                         else: print(f"Fitted Warning: {data_type_str} coeffs not found for '{timeseries_key}' at {time_val_secs}s.")
                     if interpolated_data_2d is not None: print(f"Fitted data for '{data_type_str}' processed, shape: {interpolated_data_2d.shape}")
                     else: print(f"Fitted data for '{data_type_str}' is None after processing.")
@@ -299,13 +270,13 @@ def plot_input_vs_interpolated(
             use_pcolor_for_fitted = (data_type_str == 'Br') # Fitted jr should be smooth
 
             #if input_data_2d is not None:
-            plot_scalar_map_on_ax(ax_input, current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax, 
+            plot_scalar_map_on_ax(ax_input, current_lon, current_lat, 
                                   input_data_2d, plot_title_input, cmap, vmin_shared, vmax_shared, 
                                   use_pcolormesh=True) 
            # else: print(f"Input data for '{data_label}' is None."); ax_input.set_visible(False)
 
             #if interpolated_data_2d is not None:
-            plot_scalar_map_on_ax(ax_interpolated, current_lon_1d_plot_for_ax, current_lat_1d_plot_for_ax, 
+            plot_scalar_map_on_ax(ax_interpolated, current_lon, current_lat, 
                                   interpolated_data_2d, plot_title_fitted, cmap, vmin_shared, vmax_shared,
                                   use_pcolormesh=True)
             #else: print(f"Fitted data for '{data_label}' is None."); ax_interpolated.set_visible(False)
