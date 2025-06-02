@@ -12,6 +12,13 @@ from pynamit.primitives.field_expansion import FieldExpansion
 import os
 import traceback # For printing full tracebacks
 
+from pynamit.primitives.io import IO
+from pynamit.primitives.timeseries import Timeseries
+from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.simulation.mainfield import Mainfield
+from pynamit.math.constants import RE
+
 # --- Helper plotting function with extensive debugging ---
 def plot_scalar_map_on_ax(ax, lon_coords_1d, lat_coords_1d, data_2d, title,
                           cmap='viridis', vmin=None, vmax=None, use_pcolormesh_for_debug=False):
@@ -186,7 +193,7 @@ def get_1d_coords_and_shape_from_h5(lat_arr_h5, lon_arr_h5, expected_data_shape,
 # --- Main plotting function ---
 def plot_input_vs_interpolated(
     h5_filepath,
-    dynamics,
+    interpolated_filename_prefix,
     times_to_plot,
     data_types_to_plot,
     dt_inputs,
@@ -218,6 +225,38 @@ def plot_input_vs_interpolated(
     print(f"    Magnetospheric data (Bu) shape from HDF5: {bu_data_shape}")
     print(f"    Ionospheric data (FAC, SH, etc.) shape from HDF5: {ionospheric_data_shape}")
 
+    io = IO(interpolated_filename_prefix)
+    settings = io.load_dataset("settings", print_info=True)
+
+    mainfield = Mainfield(
+        kind=settings.mainfield_kind,
+        epoch=settings.mainfield_epoch,
+        hI=(settings.RI - RE) * 1e-3,
+        B0=None if settings.mainfield_B0 == 0 else settings.mainfield_B0,
+    )
+
+    cs_basis = CSBasis(settings.Ncs)
+
+    sh_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin=0)
+    sh_basis_zero_removed = SHBasis(settings.Nmax, settings.Mmax)
+
+    # Specify input format and load input data.
+    input_vars = {
+        "jr": {"jr": "scalar"},
+        "Br": {"Br": "scalar"},
+        "conductance": {"etaP": "scalar", "etaH": "scalar"},
+        "u": {"u": "tangential"},
+    }
+
+    input_storage_bases = {
+        "jr": sh_basis_zero_removed,
+        "Br": sh_basis_zero_removed,
+        "conductance": sh_basis,
+        "u": sh_basis_zero_removed,
+    }
+
+    input_timeseries = Timeseries(cs_basis, input_storage_bases, input_vars)
+    input_timeseries.load_all(io)
 
     raw_ionosphere_lat_h5 = h5file["glat"][:]
     raw_ionosphere_lon_h5 = h5file["glon"][:]
@@ -237,9 +276,9 @@ def plot_input_vs_interpolated(
 
     ionosphere_input_grid_for_br = Grid(lat=ionosphere_lat_flat, lon=ionosphere_lon_flat)
     FAC_b_evaluator_for_input_jr = FieldEvaluator(
-        dynamics.mainfield,
+        mainfield,
         ionosphere_input_grid_for_br,
-        dynamics.settings.RI
+        settings.RI
     )
     br_on_iono_input_grid_flat = FAC_b_evaluator_for_input_jr.br
     # Reshape using the known ionospheric_data_shape
@@ -347,12 +386,12 @@ def plot_input_vs_interpolated(
             timeseries_key = timeseries_key_map.get(data_type_str)
             if timeseries_key: # ... (logic for timeseries_entry as before) ...
                 print(f"    Attempting to get fitted data for '{timeseries_key}' at sim_time {time_val_secs}s")
-                timeseries_entry = dynamics.input_timeseries.get_entry_if_changed(
+                timeseries_entry = input_timeseries.get_entry_if_changed(
                     timeseries_key, time_val_secs, interpolation=True
                 )
                 if timeseries_entry: # ... (process timeseries_entry as before) ...
                     print(f"    Timeseries entry found for '{timeseries_key}'. Keys: {list(timeseries_entry.keys())}")
-                    storage_basis = dynamics.input_timeseries.storage_bases[timeseries_key]
+                    storage_basis = input_timeseries.storage_bases[timeseries_key]
                     # Use the flat coordinates of the grid this data type belongs to
                     target_plot_grid = Grid(lat=current_plotting_grid_flat_coords[0], lon=current_plotting_grid_flat_coords[1])
                     plot_evaluator = BasisEvaluator(storage_basis, target_plot_grid)

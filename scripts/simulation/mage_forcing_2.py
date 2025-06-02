@@ -312,7 +312,7 @@ data_types_for_figure = ['Br', 'jr'] # Example data types
 
 pynamit.plot_input_vs_interpolated(
     h5_filepath="mage_2011/data_H_int.h5",
-    dynamics=dynamics, # The pre-processed dynamics object
+    interpolated_filename_prefix="results_mage_2011",
     times_to_plot=times_for_figure,
     data_types_to_plot=data_types_for_figure,
     dt_inputs=10, # The dt used for time_index -> seconds conversion
