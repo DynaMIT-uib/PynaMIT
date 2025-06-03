@@ -224,7 +224,7 @@ def plot_input_vs_interpolated(
 
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
-    ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(h5file["FAC"][0, :, :].shape)
+    ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionosphere_lat.shape)
 
     num_rows = len(timesteps_to_plot)
     num_cols = len(data_types_to_plot) * 2
@@ -242,7 +242,7 @@ def plot_input_vs_interpolated(
     )
 
     for row_idx, timestep in enumerate(timesteps_to_plot):
-        if timestep < 0 or timestep >= num_h5_steps:
+        if timestep < 0 or timestep > num_h5_steps:
             raise ValueError(
                 f"Invalid timestep {timestep} for HDF5 data with {num_h5_steps} steps."
             )
@@ -250,7 +250,7 @@ def plot_input_vs_interpolated(
         datetime = h5file["time"][timestep]
         time = timestep * input_dt
 
-        print(f"  -- Datetime: {datetime} (timestep {timestep + 1}/{num_rows}, time {time}s) --")
+        print(f"Processing timestep {timestep}/{num_h5_steps} at time {time}s ({datetime})")
 
         axes[row_idx, 0].set_ylabel(
             f"{time}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
@@ -267,33 +267,33 @@ def plot_input_vs_interpolated(
             ax_interpolated = axes[row_idx, col_idx_interpolated]
 
             if data_type_str == "Br":
-                input_data_2d = h5file["Bu"][:][row_idx, :, :] * 1e-9
+                input_data_2d = h5file["Bu"][:][timestep, :, :] * 1e-9
                 current_lon, current_lat = magnetosphere_lon, magnetosphere_lat
                 data_label = r"$\Delta B_r$ [T]"
                 cmap = "bwr"
 
             elif data_type_str == "jr":
-                FAC_input_2d = h5file["FAC"][:][row_idx, :, :] * 1e-6
+                FAC_input_2d = h5file["FAC"][:][timestep, :, :] * 1e-6
                 input_data_2d = FAC_input_2d * ionosphere_br_2d
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$j_r$ [A/m$^2$]"
                 cmap = "bwr"
 
             elif data_type_str == "SH":
-                input_data_2d = h5file["SH"][:][row_idx, :, :]
+                input_data_2d = h5file["SH"][:][timestep, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_H$ [S]"
                 cmap = "viridis"
 
             elif data_type_str == "SP":
-                input_data_2d = h5file["SP"][:][row_idx, :, :]
+                input_data_2d = h5file["SP"][:][timestep, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_P$ [S]"
                 cmap = "viridis"
 
             elif data_type_str in ["u_mag", "u_theta", "u_phi"]:
-                u_east_input = h5file["We"][:][row_idx, :, :]
-                u_north_input = h5file["Wn"][:][row_idx, :, :]
+                u_east_input = h5file["We"][:][timestep, :, :]
+                u_north_input = h5file["Wn"][:][timestep, :, :]
 
                 if data_type_str == "u_mag":
                     input_data_2d = np.sqrt(u_north_input**2 + u_east_input**2)
