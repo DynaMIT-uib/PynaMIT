@@ -239,6 +239,7 @@ def plot_input_vs_interpolated(
         figsize=(fig_width, fig_height),
         subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_longitude)},
         squeeze=False,
+        layout="constrained",
     )
 
     for row_idx, timestep in enumerate(timesteps_to_plot):
@@ -312,7 +313,7 @@ def plot_input_vs_interpolated(
                 raise ValueError(f"Unsupported data type '{data_type_str}' for plotting.")
 
             timeseries_key = timeseries_key_map.get(data_type_str)
-            timeseries_entry = input_timeseries.get_entry_if_changed(
+            timeseries_entry = input_timeseries.get_entry(
                 timeseries_key, time, interpolation=False
             )
             if timeseries_entry is None:
