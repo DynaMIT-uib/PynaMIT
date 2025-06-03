@@ -243,19 +243,10 @@ def plot_input_vs_interpolated(
 
     for row_idx, time in enumerate(times_to_plot):
         print(f"\n--- Processing plot row {row_idx + 1}/{num_rows} for time = {time}s ---")
-        target_step_idx_float = time / dt_inputs
-        step_idx = int(round(target_step_idx_float))
 
-        if step_idx < 0 or step_idx >= num_h5_steps:
+        if row_idx < 0 or row_idx >= num_h5_steps:
             raise ValueError(
-                f"Requested time {time}s corresponds to step index {step_idx}, which is out of bounds for HDF5 data with {num_h5_steps} steps."
-            )
-
-        actual_h5_sim_time = step_idx * dt_inputs
-
-        if not np.isclose(actual_h5_sim_time, time, atol=dt_inputs / 1.9):
-            print(
-                f"Note: Requested {time}s. Using HDF5 input from {actual_h5_sim_time}s (index {step_idx})."
+                f"Requested time {time}s corresponds to step index {row_idx}, which is out of bounds for HDF5 data with {num_h5_steps} steps."
             )
 
         if num_cols > 0:
@@ -276,26 +267,25 @@ def plot_input_vs_interpolated(
             data_label, cmap = data_type_str, "viridis"
 
             if data_type_str == "Br":
-                input_data_2d = h5file["Bu"][:][step_idx, :, :] * 1e-9
+                input_data_2d = h5file["Bu"][:][row_idx, :, :] * 1e-9
                 current_lon, current_lat = magnetosphere_lon, magnetosphere_lat
                 data_label, cmap = r"$\Delta B_r$ [T]", "bwr"
             elif data_type_str == "jr":
-                FAC_input_2d = h5file["FAC"][:][step_idx, :, :] * 1e-6
+                FAC_input_2d = h5file["FAC"][:][row_idx, :, :] * 1e-6
                 input_data_2d = FAC_input_2d * ionosphere_br_2d
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label, cmap = r"$j_r$ [A/m$^2$]", "bwr"
-            # ... (SH, SP, u logic as before) ...
             elif data_type_str == "SH":
-                input_data_2d = h5file["SH"][:][step_idx, :, :]
+                input_data_2d = h5file["SH"][:][row_idx, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_H$ [S]"
             elif data_type_str == "SP":
-                input_data_2d = h5file["SP"][:][step_idx, :, :]
+                input_data_2d = h5file["SP"][:][row_idx, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_P$ [S]"
             elif data_type_str in ["u_mag", "u_theta", "u_phi"]:
-                u_east_input = h5file["We"][:][step_idx, :, :]
-                u_north_input = h5file["Wn"][:][step_idx, :, :]
+                u_east_input = h5file["We"][:][row_idx, :, :]
+                u_north_input = h5file["Wn"][:][row_idx, :, :]
                 _u_theta_in_2d, _u_phi_in_2d = -u_north_input, u_east_input
                 input_data_2d.shape = ionospheric_data_shape
                 if data_type_str == "u_mag":
@@ -312,10 +302,10 @@ def plot_input_vs_interpolated(
                     data_label, cmap = r"$u_\phi$ (East) [m/s]", "bwr"
 
             else:
-                print(f"ERROR: Unknown input data_type: {data_type_str}.")
-                ax_input.set_visible(False)
-                ax_interpolated.set_visible(False)
-                continue
+                raise ValueError(
+                    f"Unsupported data type '{data_type_str}' for plotting."
+                )
+
             print(
                 f"Input data for '{data_type_str}' loaded, shape: {input_data_2d.shape if input_data_2d is not None else 'None'}. Target plot data shape: {input_data_2d.shape}"
             )
@@ -335,7 +325,7 @@ def plot_input_vs_interpolated(
             if timeseries_key:
                 print(f"Attempting to get fitted data for '{timeseries_key}' at sim_time {time}s")
                 timeseries_entry = input_timeseries.get_entry_if_changed(
-                    timeseries_key, time, interpolation=True
+                    timeseries_key, time, interpolation=False
                 )
                 if timeseries_entry:
                     print(
@@ -430,7 +420,7 @@ def plot_input_vs_interpolated(
                         f"Fitted Warning: No timeseries entry for '{timeseries_key}' at {time}s."
                     )
 
-            # --- Plotting call ---
+            # Plotting call
             vmin_shared, vmax_shared = None, None
             if input_data_2d is not None and interpolated_data_2d is not None:
                 d1_flat_valid = input_data_2d.astype(float).ravel()
@@ -466,7 +456,6 @@ def plot_input_vs_interpolated(
             plot_title_input = f"Input {data_label}" if row_idx == 0 else "Input"
             plot_title_fitted = f"Fitted {data_label}" if row_idx == 0 else "Fitted"
 
-            # if input_data_2d is not None:
             plot_scalar_map_on_ax(
                 ax_input,
                 current_lon,
