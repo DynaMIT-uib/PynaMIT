@@ -378,15 +378,15 @@ def plot_input_vs_interpolated(
                 )
 
             # Plotting call
-            d1_flat_valid = input_data_2d.astype(float).ravel()
-            d1_flat_valid = d1_flat_valid[~np.isnan(d1_flat_valid)]
-            d2_flat_valid = interpolated_data_2d.astype(float).ravel()
-            d2_flat_valid = d2_flat_valid[~np.isnan(d2_flat_valid)]
+            input_flat_valid = input_data_2d.ravel()
+            input_flat_valid = input_flat_valid[~np.isnan(input_flat_valid)]
+            interpolated_flat_valid = interpolated_data_2d.ravel()
+            interpolated_flat_valid = interpolated_flat_valid[~np.isnan(interpolated_flat_valid)]
             combined_valid_data = []
-            if d1_flat_valid.size > 0:
-                combined_valid_data.append(d1_flat_valid)
-            if d2_flat_valid.size > 0:
-                combined_valid_data.append(d2_flat_valid)
+            if input_flat_valid.size > 0:
+                combined_valid_data.append(input_flat_valid)
+            if interpolated_flat_valid.size > 0:
+                combined_valid_data.append(interpolated_flat_valid)
             if combined_valid_data:
                 combined_valid_data = np.concatenate(combined_valid_data)
                 if combined_valid_data.size > 0:
@@ -409,6 +409,9 @@ def plot_input_vs_interpolated(
 
             plot_title_input = f"Input {data_label}" if row_idx == 0 else "Input"
             plot_title_fitted = f"Fitted {data_label}" if row_idx == 0 else "Fitted"
+
+            print("Norms:")
+            print(np.linalg.norm(input_data_2d), np.linalg.norm(interpolated_data_2d))
 
             plot_scalar_map_on_ax(
                 ax_input,
