@@ -1,17 +1,12 @@
 import numpy as np
-import matplotlib
 
-# matplotlib.use('Agg') # Uncomment if running script-only and suspect backend issues
 import matplotlib.pyplot as plt
 import h5py as h5
 import cartopy.crs as ccrs
-import pynamit
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
-import os
-import traceback  # For printing full tracebacks
 
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
@@ -114,67 +109,46 @@ def plot_scalar_map_on_ax(
     print(f"    Final pre-plot vmin={current_vmin:.4g}, vmax={current_vmax:.4g}, cmap={cmap}")
 
     im = None
-    try:
-        if current_vmin < current_vmax and not (np.isnan(current_vmin) or np.isnan(current_vmax)):
-            data_to_plot_masked = np.ma.masked_invalid(data_2d_arr)
-            if use_pcolormesh:
-                print(f"    Using pcolormesh for '{title}' with transform={plot_transform}")
-                im = ax.pcolormesh(
-                    lon_coords_2d,
-                    lat_coords_2d,
-                    data_to_plot_masked,
-                    cmap=cmap,
-                    vmin=current_vmin,
-                    vmax=current_vmax,
-                    transform=plot_transform,
-                    shading="auto",
-                    zorder=1,
-                )
-            else:
-                print(f"    Using contourf for '{title}' with transform={plot_transform}")
-                if num_nans > 0:
-                    print(
-                        f"    NOTE: Data for '{title}' contains {num_nans} NaNs. Masking applied for contourf."
-                    )
-                print(lat_coords_2d.shape, lon_coords_2d.shape, data_to_plot_masked.shape)
-                im = ax.contourf(
-                    lon_coords_2d,
-                    lat_coords_2d,
-                    data_to_plot_masked,
-                    transform=plot_transform,
-                    cmap=cmap,
-                    vmin=current_vmin,
-                    vmax=current_vmax,
-                    levels=15,
-                    extend="both",
-                    zorder=1,
-                )
-            print(f"    Plotting call successful for '{title}'.")
-        else:
-            print(f"    Skipping plot for '{title}' due to invalid vmin/vmax range.")
-            ax.text(
-                0.5,
-                0.5,
-                "Data Range Issue",
-                ha="center",
-                va="center",
-                transform=ax.transAxes,
-                color="orange",
-                fontsize=8,
+    if current_vmin < current_vmax and not (np.isnan(current_vmin) or np.isnan(current_vmax)):
+        data_to_plot_masked = np.ma.masked_invalid(data_2d_arr)
+        if use_pcolormesh:
+            print(f"    Using pcolormesh for '{title}' with transform={plot_transform}")
+            im = ax.pcolormesh(
+                lon_coords_2d,
+                lat_coords_2d,
+                data_to_plot_masked,
+                cmap=cmap,
+                vmin=current_vmin,
+                vmax=current_vmax,
+                transform=plot_transform,
+                shading="auto",
+                zorder=1,
             )
-    except Exception as e:
-        print(f"    EXCEPTION during plotting for '{title}': {e}")
-        traceback.print_exc()
-        ax.text(
-            0.5,
-            0.5,
-            "Plotting Error",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            color="red",
-            fontsize=8,
+        else:
+            print(f"    Using contourf for '{title}' with transform={plot_transform}")
+            if num_nans > 0:
+                print(
+                    f"    NOTE: Data for '{title}' contains {num_nans} NaNs. Masking applied for contourf."
+                )
+            print(lat_coords_2d.shape, lon_coords_2d.shape, data_to_plot_masked.shape)
+            im = ax.contourf(
+                lon_coords_2d,
+                lat_coords_2d,
+                data_to_plot_masked,
+                transform=plot_transform,
+                cmap=cmap,
+                vmin=current_vmin,
+                vmax=current_vmax,
+                levels=15,
+                extend="both",
+                zorder=1,
+            )
+        print(f"    Plotting call successful for '{title}'.")
+    else:
+        raise ValueError(
+            f"CRITICAL ERROR: Invalid vmin/vmax for '{title}': vmin={current_vmin}, vmax={current_vmax}. Cannot plot."
         )
+
     ax.set_title(title, fontsize=10)
     return im
 
@@ -267,28 +241,26 @@ def plot_input_vs_interpolated(
         squeeze=False,
     )
 
-    for row_idx, time_val_secs in enumerate(times_to_plot):
-        print(
-            f"\n--- Processing plot row {row_idx + 1}/{num_rows} for time_val_secs = {time_val_secs}s ---"
-        )
-        target_step_idx_float = time_val_secs / dt_inputs
+    for row_idx, time in enumerate(times_to_plot):
+        print(f"\n--- Processing plot row {row_idx + 1}/{num_rows} for time = {time}s ---")
+        target_step_idx_float = time / dt_inputs
         step_idx = int(round(target_step_idx_float))
 
         if step_idx < 0 or step_idx >= num_h5_steps:
-            print(f"Warning: HDF5 index {step_idx} out of bounds. Skipping row.")
-            for col_idx_to_hide in range(num_cols):
-                axes[row_idx, col_idx_to_hide].set_visible(False)
-            continue
+            raise ValueError(
+                f"Requested time {time}s corresponds to step index {step_idx}, which is out of bounds for HDF5 data with {num_h5_steps} steps."
+            )
 
         actual_h5_sim_time = step_idx * dt_inputs
 
-        if not np.isclose(actual_h5_sim_time, time_val_secs, atol=dt_inputs / 1.9):
+        if not np.isclose(actual_h5_sim_time, time, atol=dt_inputs / 1.9):
             print(
-                f"Note: Requested {time_val_secs}s. Using HDF5 input from {actual_h5_sim_time}s (index {step_idx})."
+                f"Note: Requested {time}s. Using HDF5 input from {actual_h5_sim_time}s (index {step_idx})."
             )
+
         if num_cols > 0:
             axes[row_idx, 0].set_ylabel(
-                f"{time_val_secs}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
+                f"{time}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
             )
 
         for data_type_idx, data_type_str in enumerate(data_types_to_plot):
@@ -300,7 +272,7 @@ def plot_input_vs_interpolated(
             ax_input = axes[row_idx, col_idx_input]
             ax_interpolated = axes[row_idx, col_idx_interpolated]
             input_data_2d, interpolated_data_2d = None, None
-            current_lon, current_lat, input_data_2d.shape = None, None, None
+            current_lon, current_lat = None, None
             data_label, cmap = data_type_str, "viridis"
 
             if data_type_str == "Br":
@@ -357,13 +329,13 @@ def plot_input_vs_interpolated(
                 "u_theta": "u",
                 "u_phi": "u",
             }
+
             timeseries_key = timeseries_key_map.get(data_type_str)
+
             if timeseries_key:
-                print(
-                    f"Attempting to get fitted data for '{timeseries_key}' at sim_time {time_val_secs}s"
-                )
+                print(f"Attempting to get fitted data for '{timeseries_key}' at sim_time {time}s")
                 timeseries_entry = input_timeseries.get_entry_if_changed(
-                    timeseries_key, time_val_secs, interpolation=True
+                    timeseries_key, time, interpolation=True
                 )
                 if timeseries_entry:
                     print(
@@ -406,7 +378,7 @@ def plot_input_vs_interpolated(
                                 interpolated_data_2d = sigma_P_fitted_2d
                         else:
                             print(
-                                f"Fitted Warning: etaP/etaH coeffs not found for '{timeseries_key}' at {time_val_secs}s."
+                                f"Fitted Warning: etaP/etaH coeffs not found for '{timeseries_key}' at {time}s."
                             )
 
                     elif timeseries_key == "u":
@@ -428,7 +400,7 @@ def plot_input_vs_interpolated(
                                 interpolated_data_2d = _u_phi_fit_2d
                         else:
                             print(
-                                f"Fitted Warning: u coeffs not found for '{timeseries_key}' at {time_val_secs}s."
+                                f"Fitted Warning: u coeffs not found for '{timeseries_key}' at {time}s."
                             )
 
                     else:
@@ -443,7 +415,7 @@ def plot_input_vs_interpolated(
                             )
                         else:
                             print(
-                                f"Fitted Warning: {data_type_str} coeffs not found for '{timeseries_key}' at {time_val_secs}s."
+                                f"Fitted Warning: {data_type_str} coeffs not found for '{timeseries_key}' at {time}s."
                             )
 
                     if interpolated_data_2d is not None:
@@ -455,14 +427,12 @@ def plot_input_vs_interpolated(
 
                 else:
                     print(
-                        f"Fitted Warning: No timeseries entry for '{timeseries_key}' at {time_val_secs}s."
+                        f"Fitted Warning: No timeseries entry for '{timeseries_key}' at {time}s."
                     )
 
             # --- Plotting call ---
             vmin_shared, vmax_shared = None, None
-            if (
-                input_data_2d is not None and interpolated_data_2d is not None
-            ):  # ... (vmin/vmax calc) ...
+            if input_data_2d is not None and interpolated_data_2d is not None:
                 d1_flat_valid = input_data_2d.astype(float).ravel()
                 d1_flat_valid = d1_flat_valid[~np.isnan(d1_flat_valid)]
                 d2_flat_valid = interpolated_data_2d.astype(float).ravel()
@@ -496,12 +466,6 @@ def plot_input_vs_interpolated(
             plot_title_input = f"Input {data_label}" if row_idx == 0 else "Input"
             plot_title_fitted = f"Fitted {data_label}" if row_idx == 0 else "Fitted"
 
-            # Determine plotting method based on data type and NaNs
-            use_pcolor_for_input = (data_type_str == "Br") or (
-                data_type_str == "jr" and np.isnan(input_data_2d).any()
-            )
-            use_pcolor_for_fitted = data_type_str == "Br"  # Fitted jr should be smooth
-
             # if input_data_2d is not None:
             plot_scalar_map_on_ax(
                 ax_input,
@@ -534,26 +498,16 @@ def plot_input_vs_interpolated(
     # ... (Identical to your last full code version) ...
     print(f"\n--- Finalizing Figure ---")
     fig.subplots_adjust(left=0.05, right=0.98, top=0.93, bottom=0.05, hspace=0.4, wspace=0.15)
+
     if num_rows > 0 and num_cols > 0:
         fig.suptitle(
             f"Input vs. Fitted Data (bwr plots use shared vmin/vmax per pair, 'bwr' centered; other cmaps use 0.2-99.8 percentile)",
             fontsize=12,
         )
     if output_filename:
-        print(f"Attempting to save figure to: {output_filename}")
-        try:
-            plt.savefig(output_filename, dpi=200, bbox_inches="tight")
-            print(f"SUCCESS: Figure saved to {output_filename}")
-        except Exception as e_save:
-            print(f"CRITICAL ERROR during plt.savefig: {e_save}")
-            traceback.print_exc()
+        plt.savefig(output_filename, dpi=200, bbox_inches="tight")
     else:
-        print("Output filename not provided. Attempting plt.show().")
-        try:
-            plt.show()
-            print("plt.show() executed.")
-        except Exception as e_show:
-            print(f"ERROR during plt.show(): {e_show}")
-            traceback.print_exc()
+        plt.show()
+
     h5file.close()
     print("--- plot_input_vs_interpolated finished ---")
