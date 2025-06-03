@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import matplotlib.ticker as mticker
+import matplotlib.ticker as mticker 
 import h5py as h5
 import cartopy.crs as ccrs
 
@@ -18,163 +18,96 @@ from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
 
-# --- Helper for rounding color limits (BWR part significantly reworked again) ---
-def get_rounded_nice_limits(vmin_orig, vmax_orig, cmap_global, sig_figs_for_step=1): # sig_figs_for_step is mainly for non-bwr now
-    if vmin_orig > vmax_orig: vmin_orig, vmax_orig = vmax_orig, vmin_orig
-    if np.isclose(vmin_orig, vmax_orig):
-        # Adaptive delta based on magnitude, with a minimum for very small/zero values
-        delta_abs = abs(vmin_orig)
-        if delta_abs < 1e-10:  # If original value is extremely small or zero
-            delta = 1e-9       # Use a small absolute delta
-        elif delta_abs < 1e-2: # For small values, a slightly larger relative delta might be needed
-            delta = delta_abs * 0.2 + 1e-9 # Mix of relative and absolute
-        else:                  # For larger values, 10% relative is usually fine
-            delta = delta_abs * 0.1
-        
-        vmin_orig -= delta
-        vmax_orig += delta
-        # Ensure they are different after adjustment
-        if np.isclose(vmin_orig, vmax_orig): 
-            final_kick = 10**(np.floor(np.log10(abs(vmax_orig))) -2) if not np.isclose(vmax_orig,0) else 1e-9
-            vmin_orig -= final_kick
-            vmax_orig += final_kick
+# --- Helper for color limits (Ultra-Simplified: Uses percentiles directly, minimal change only if vmin == vmax) ---
+def get_final_plot_limits(vmin_orig, vmax_orig): 
+    # This function now only adjusts if vmin_orig is strictly equal to vmax_orig.
+    # It assumes vmin_orig <= vmax_orig has already been handled if necessary (e.g. for bwr symmetry).
     
-    vmin_r, vmax_r = vmin_orig, vmax_orig
+    # Note: For bwr colormaps, vmin_orig and vmax_orig should already be symmetric around 0.
+    # If abs_max_s from percentile was 0, then vmin_orig=-1e-9, vmax_orig=1e-9, so they won't be equal here.
+    # This strict equality check is mainly for non-bwr cases where percentiles could yield identical vmin/vmax.
 
-    if cmap_global == "bwr":
-        abs_max_val = max(abs(vmin_orig), abs(vmax_orig))
-
-        if abs_max_val < 1e-12: # If effectively zero
-            return -1e-9, 1e-9
-
-        # Manual "nice number" rounding for bwr, especially for small abs_max_val
-        if abs_max_val > 0:
-            exponent = np.floor(np.log10(abs_max_val))
-            mantissa = abs_max_val / (10**exponent) # Should be between 1.0 and <10.0
-
-            # Round mantissa UP to a "nice" value (e.g., 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10)
-            # This list can be adjusted for desired "roundness"
-            nice_mantissas = [1.0, 1.2, 1.5, 1.6, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 7.5, 8.0, 9.0, 10.0]
-            
-            rounded_mantissa = mantissa # Default if not found below
-            for r_m in nice_mantissas:
-                if mantissa <= r_m:
-                    rounded_mantissa = r_m
-                    break
-            # If mantissa was > largest nice_mantissa (e.g. 10), it would already be rounded_mantissa=10, exponent+1
-            if rounded_mantissa >= 9.999 and mantissa < 9.999 : # e.g. mantissa was 9.1, rounded to 10
-                 pass # This is fine, will become 1.0 * 10**(exponent+1)
-            
-            nice_abs_max = rounded_mantissa * (10**exponent)
-
-            # Sanity check: if nice_abs_max is still much larger than abs_max_val (e.g. >5x for tiny numbers)
-            # This can happen if abs_max_val is just above a very small nice_mantissa
-            if abs_max_val < 1e-6 and nice_abs_max / abs_max_val > 5:
-                 # Try rounding to 1 significant figure of abs_max_val itself more directly
-                 power_of_10_to_round = 10**np.floor(np.log10(abs_max_val))
-                 nice_abs_max = np.ceil(abs_max_val / power_of_10_to_round) * power_of_10_to_round
-
-
-        else: # abs_max_val is 0
-            nice_abs_max = 1e-9 # Default if input was truly 0
+    if vmin_orig == vmax_orig:
+        # print(f"  Limits are strictly equal: {vmin_orig:.3e}. Expanding by a minimal amount.")
+        # Expand by a tiny amount relative to the magnitude, or an absolute tiny amount if value is zero.
+        # The goal is just to make them numerically distinct for plotting.
+        if np.isclose(vmin_orig, 0.0, atol=1e-15): # If it's effectively zero
+            delta = 1e-12 
+        else:
+            delta = abs(vmin_orig) * 1e-6 # 0.0001% of the value
+            delta = max(delta, 1e-12) # Ensure delta is at least a very small number
         
-        vmin_r, vmax_r = -nice_abs_max, nice_abs_max
-        # print(f"DEBUG BWR: abs_max_val={abs_max_val:.3e}, nice_abs_max={nice_abs_max:.3e}, vmin_r={vmin_r:.3e}, vmax_r={vmax_r:.3e}")
+        vmin_r = vmin_orig - delta
+        vmax_r = vmax_orig + delta
+        # print(f"    Expanded to: {vmin_r:.3e}, {vmax_r:.3e}")
+        return vmin_r, vmax_r
 
-    else: # Not 'bwr' (existing logic, ensure sig_figs_for_step is positive)
-        effective_sig_figs = max(1, sig_figs_for_step)
-        data_range = vmax_orig - vmin_orig; locator = mticker.MaxNLocator(nbins=5, prune='both')
-        try:
-            ticks_in_range = locator.tick_values(vmin_orig, vmax_orig)
-            if len(ticks_in_range) >= 2: step = ticks_in_range[1] - ticks_in_range[0]
-            elif data_range > 1e-9: step = 10**(np.floor(np.log10(data_range)) - effective_sig_figs)
-            else: step = 10**(np.floor(np.log10(abs(vmin_orig) if not np.isclose(vmin_orig,0) else 1.0)) - effective_sig_figs)
-            
-            if np.isclose(step, 0) or step < 1e-12: # Prevent extremely small or zero steps
-                 min_sensible_step_abs = abs(vmin_orig * 1e-3) if not np.isclose(vmin_orig, 0) else 1e-9
-                 min_sensible_step_range = abs(data_range * 1e-2) if not np.isclose(data_range, 0) else 1e-9
-                 step = max(min_sensible_step_abs, min_sensible_step_range, 1e-9)
-
-            vmin_r = np.floor(vmin_orig / step) * step; vmax_r = np.ceil(vmax_orig / step) * step
-            if np.isclose(vmin_r, vmax_r): vmax_r += step;
-            if np.isclose(vmin_r, vmax_r): vmin_r -=step 
-        except Exception: # Fallback
-            if data_range > 1e-9: decimals = -int(np.floor(np.log10(data_range))) + effective_sig_figs
-            else: decimals = int(abs(np.floor(np.log10(abs(vmin_orig))))) + effective_sig_figs + 2 if not np.isclose(vmin_orig,0) else 9
-            vmin_r = np.round(vmin_orig - data_range*0.05, decimals); vmax_r = np.round(vmax_orig + data_range*0.05, decimals)
-
-    # Final safety check for all cmaps
-    if np.isclose(vmin_r, vmax_r) or vmin_r > vmax_r:
-        # print(f"Warning: Final safety check triggered for {cmap_global}. vmin_r={vmin_r:.2e}, vmax_r={vmax_r:.2e}. Originals: vmin={vmin_orig:.2e}, vmax={vmax_orig:.2e}")
-        v_center = (vmin_orig + vmax_orig) / 2.0; original_half_range = abs(vmax_orig - vmin_orig) / 2.0
-        
-        # Determine padding adaptively based on the original range or value
-        if original_half_range > 1e-7: padding = original_half_range * 0.1
-        elif abs(v_center) > 1e-7: padding = abs(v_center) * 0.1
-        else: padding = 1e-9 # Default small padding if range and center are tiny
-        padding = max(padding, 1e-9) # Ensure padding is at least a very small number
-
-        vmin_r = v_center - (original_half_range + padding); vmax_r = v_center + (original_half_range + padding)
-        
-        final_range = vmax_r - vmin_r
-        if final_range > 1e-9: 
-            # Try to get 2-3 significant figures for the limits
-            decimals = -int(np.floor(np.log10(final_range))) + 1 
-        else: 
-            decimals = int(abs(np.floor(np.log10(abs(vmin_r))))) + 2 if not np.isclose(vmin_r,0) else 9
-        
-        vmin_r = np.round(vmin_r, max(0,decimals)); vmax_r = np.round(vmax_r, max(0,decimals)) # Ensure non-negative decimals
-        
-        if np.isclose(vmin_r, vmax_r): # Ultimate fallback if still too close
-            smallest_step = 10**(-decimals if decimals < 10 else -9)
-            vmin_r -= smallest_step
-            vmax_r += smallest_step
-            # print(f"Post-ultimate fallback: vmin_r={vmin_r:.2e}, vmax_r={vmax_r:.2e}")
-            
-    return vmin_r, vmax_r
+    # If not strictly equal, return the original percentile values untouched.
+    # print(f"  Using direct percentile limits (not strictly equal): {vmin_orig:.3e}, {vmax_orig:.3e}")
+    return vmin_orig, vmax_orig
 
 
-# --- Helper plotting function (plot_scalar_map_on_ax - with refined gridline flags) ---
+# --- Helper plotting function (plot_scalar_map_on_ax - unchanged) ---
 def plot_scalar_map_on_ax(
     ax, lon_coords_2d, lat_coords_2d, data_2d_arr, title="", cmap="viridis",
     vmin=None, vmax=None, use_pcolormesh=False,
-    draw_top_labels=False, draw_right_labels=False # New flags for gridlines
+    draw_top_labels=False, draw_right_labels=False 
 ):
     ax.coastlines(color="grey", zorder=3, linewidth=0.5)
     gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
                       linewidth=0.5, color="gray", alpha=0.5, linestyle="--")
-    gl.top_labels = draw_top_labels
-    gl.right_labels = draw_right_labels
-    gl.left_labels = False 
-    gl.bottom_labels = False 
-    
+    gl.top_labels = draw_top_labels; gl.right_labels = draw_right_labels
+    gl.left_labels = False ; gl.bottom_labels = False 
+    if draw_top_labels: gl.xlocator = mticker.FixedLocator(np.arange(-180, 181, 60)) 
+    if draw_right_labels: gl.ylocator = mticker.FixedLocator(np.arange(-90, 91, 30)) 
     plot_transform = ccrs.PlateCarree() 
     current_vmin, current_vmax = vmin, vmax
-    if vmin is None or vmax is None:
+    if vmin is None or vmax is None: 
         valid_data = data_2d_arr[~np.isnan(data_2d_arr)]
         if valid_data.size == 0: auto_vmin, auto_vmax = 0.0, 1.0
         elif cmap == "bwr": abs_max_val = np.percentile(np.abs(valid_data), 99.5); auto_vmin, auto_vmax = (-abs_max_val if abs_max_val > 1e-9 else -0.1, abs_max_val if abs_max_val > 1e-9 else 0.1)
         else: auto_vmin, auto_vmax = np.percentile(valid_data, 0.5), np.percentile(valid_data, 99.5)
         if vmin is None: current_vmin = auto_vmin
         if vmax is None: current_vmax = auto_vmax
-    if not (isinstance(current_vmin, (int, float, np.number)) and np.isfinite(current_vmin) and
-            isinstance(current_vmax, (int, float, np.number)) and np.isfinite(current_vmax) and
-            current_vmin < current_vmax):
-        valid_data = data_2d_arr[~np.isnan(data_2d_arr)]
-        if valid_data.size > 0 : current_vmin, current_vmax = np.min(valid_data), np.max(valid_data)
-        else: current_vmin, current_vmax = 0.0, 1.0
-        if np.isclose(current_vmin, current_vmax) or current_vmin > current_vmax:
-            delta_abs = abs(current_vmin)
-            if delta_abs < 1e-10: delta = 1e-9
-            else: delta = delta_abs * 0.1
-            current_vmin -= delta; current_vmax += delta
-            if np.isclose(current_vmin, current_vmax): current_vmin -=1e-9; current_vmax +=1e-9
+    
+    # This check is crucial for the plotting functions themselves
+    if not (current_vmin < current_vmax):
+        # This situation means get_final_plot_limits still resulted in vmin >= vmax
+        # or vmin/vmax were not passed through it for some reason.
+        # Apply a minimal guaranteed separation.
+        # print(f"Warning: plot_scalar_map_on_ax received vmin>=vmax: {current_vmin}, {current_vmax}. Forcing separation.")
+        temp_v = current_vmin # Could be either if they are equal
+        if np.isclose(temp_v, 0.0, atol=1e-15):
+            current_vmin = -1e-9
+            current_vmax = 1e-9
+        else:
+            delta = abs(temp_v) * 1e-5 + 1e-10
+            current_vmin = temp_v - delta
+            current_vmax = temp_v + delta
+        if np.isclose(current_vmin, current_vmax): # Final, final fallback
+            current_vmin -= 1e-10
+            current_vmax += 1e-10
+
     data_to_plot_masked = np.ma.masked_invalid(data_2d_arr)
     im = None
     if use_pcolormesh:
         im = ax.pcolormesh(lon_coords_2d, lat_coords_2d, data_to_plot_masked, cmap=cmap, vmin=current_vmin, vmax=current_vmax, transform=plot_transform, shading="auto", zorder=1)
-    else:
-        im = ax.contourf(lon_coords_2d, lat_coords_2d, data_to_plot_masked, transform=plot_transform, cmap=cmap, vmin=current_vmin, vmax=current_vmax, levels=15, extend="both", zorder=1)
+    else: 
+        num_levels = 16
+        # Ensure levels are distinct even if current_vmin and current_vmax are extremely close
+        if abs(current_vmax - current_vmin) < 1e-9 * abs(current_vmin + current_vmax): # Heuristic for very small range
+             levels = np.array([current_vmin, (current_vmin+current_vmax)/2 , current_vmax]) # Minimal distinct levels
+             if len(np.unique(levels))<2 : levels = [current_vmin, current_vmax] # Ultimate fallback for levels
+        else:
+             levels = np.linspace(current_vmin, current_vmax, num_levels)
+        if len(levels)<2: # Ensure at least two levels for contourf
+            levels = np.array([current_vmin, current_vmax])
+
+
+        im = ax.contourf(lon_coords_2d, lat_coords_2d, data_to_plot_masked, 
+                         transform=plot_transform, cmap=cmap, 
+                         levels=levels, vmin=current_vmin, vmax=current_vmax, 
+                         extend="both", zorder=1) 
     if title: ax.set_title(title, fontsize=9)
     return im
 
@@ -208,8 +141,9 @@ def _calculate_interpolated_u_field(timeseries_entry, component, storage_basis, 
 # --- Main plotting function ---
 def plot_input_vs_interpolated(
     h5_filepath, interpolated_filename_prefix, timesteps_to_plot, input_dt, data_types_to_plot,
-    noon_longitude=0, output_filename=None, sig_figs_for_rounding_step=1, 
-    vmin_percentile=0.2, vmax_percentile=99.8
+    noon_longitude=0, output_filename=None, 
+    sig_figs_for_rounding_step=1, # No longer used
+    vmin_percentile=0.2, vmax_percentile=99.8 
 ):
     if not timesteps_to_plot: print("Warning: timesteps_to_plot is empty."); return
     if not data_types_to_plot: print("Warning: data_types_to_plot is empty."); return
@@ -237,9 +171,9 @@ def plot_input_vs_interpolated(
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon); ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
     ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionosphere_lat.shape)
 
-    print("Starting Pass 1: Collecting data for global vmin/vmax...")
+    print("Starting Pass 1: Collecting data for global vmin/vmax...") 
     all_data_for_scaling = {dt_str: {'input': [], 'interpolated': []} for dt_str in data_types_to_plot}
-    for timestep in timesteps_to_plot:
+    for timestep in timesteps_to_plot: 
         if not (0 <= timestep < num_h5_steps): continue
         time_val = timestep * input_dt
         for data_type_str in data_types_to_plot:
@@ -266,43 +200,54 @@ def plot_input_vs_interpolated(
                 elif pynamit_ts_key=="u": interpolated_data_2d=_calculate_interpolated_u_field(timeseries_entry,data_type_str,storage_basis,plot_evaluator,target_shape)
             if interpolated_data_2d is not None: all_data_for_scaling[data_type_str]['interpolated'].append(interpolated_data_2d.ravel())
 
-    print("Calculating and rounding global vmin/vmax using specified percentiles...")
+    print("Calculating global vmin/vmax from percentiles (minimal adjustment if identical)...")
     global_plot_scales = {}
     for data_type_str in data_types_to_plot:
         details = data_type_details[data_type_str]; cmap_global = details['cmap']
         cat_input_all = all_data_for_scaling[data_type_str]['input']; cat_interp_all = all_data_for_scaling[data_type_str]['interpolated']
         combined_flat = np.concatenate( (np.concatenate(cat_input_all) if cat_input_all else np.array([]), np.concatenate(cat_interp_all) if cat_interp_all else np.array([])) )
         valid_data = combined_flat[~np.isnan(combined_flat)]
-        vmin_orig, vmax_orig = 0.0, 1.0
+        
+        vmin_pctl, vmax_pctl = 0.0, 1.0 
         if valid_data.size > 0:
-            if cmap_global == "bwr": abs_max_s = np.percentile(np.abs(valid_data), vmax_percentile); vmin_orig, vmax_orig = (-abs_max_s if abs_max_s > 1e-12 else -1e-9, abs_max_s if abs_max_s > 1e-12 else 1e-9)
-            else: vmin_orig, vmax_orig = np.percentile(valid_data, vmin_percentile), np.percentile(valid_data, vmax_percentile)
-        else: print(f"    Warning: No valid data for '{data_type_str}'. Using default [0,1].")
+            if cmap_global == "bwr": 
+                abs_max_s = np.percentile(np.abs(valid_data), vmax_percentile)
+                # Ensure a tiny range for bwr if data is effectively zero, otherwise use exact percentiles
+                vmin_pctl = -abs_max_s 
+                vmax_pctl = abs_max_s
+                if np.isclose(vmin_pctl, 0.0, atol=1e-12) and np.isclose(vmax_pctl, 0.0, atol=1e-12):
+                    vmin_pctl, vmax_pctl = -1e-9, 1e-9 # Default tiny range if percentiles are zero
+            else: 
+                vmin_pctl = np.percentile(valid_data, vmin_percentile)
+                vmax_pctl = np.percentile(valid_data, vmax_percentile)
+        else: 
+            print(f"    Warning: No valid data for '{data_type_str}'. Using default [0,1].")
         
-        vmin_rounded, vmax_rounded = get_rounded_nice_limits(vmin_orig, vmax_orig, cmap_global, sig_figs_for_step=sig_figs_for_rounding_step)
+        # Get final plot limits: these are the percentiles, adjusted only if vmin_pctl == vmax_pctl
+        vmin_final, vmax_final = get_final_plot_limits(vmin_pctl, vmax_pctl) 
         
-        global_plot_scales[data_type_str] = {'vmin': vmin_rounded, 'vmax': vmax_rounded, 'cmap': cmap_global}
-        print(f"  Global scale for '{data_type_str}': vmin={vmin_rounded:.3e}, vmax={vmax_rounded:.3e} (from Pctl: {vmin_orig:.3e}, {vmax_orig:.3e})")
+        global_plot_scales[data_type_str] = {'vmin': vmin_final, 'vmax': vmax_final, 'cmap': cmap_global}
+        print(f"  Global scale for '{data_type_str}': vmin={vmin_final:.3e}, vmax={vmax_final:.3e} (Pctl used: {vmin_pctl:.3e}, {vmax_pctl:.3e})")
 
-    num_dt = len(data_types_to_plot); num_ts = len(timesteps_to_plot)
+    num_dt = len(data_types_to_plot); num_ts = len(timesteps_to_plot) 
     fig_plot_rows = num_dt * 2
     n_label_cols = 2; n_data_cols = num_ts; n_cbar_cols = 1; total_gs_cols = n_label_cols + n_data_cols + n_cbar_cols
-    label_main_w, label_sub_w, cbar_w = 0.08, 0.08, 0.10
+    label_main_w, label_sub_w, cbar_w = 0.08, 0.08, 0.10 
     data_plot_w_rel = 1.0
-    base_w_abs, base_h_abs = 2.8, 2.2
-    fig_width_est = (label_main_w + label_sub_w) * base_w_abs * 1.5 + n_data_cols * base_w_abs + cbar_w * base_w_abs * 1.5 + 0.5
-    fig_height_est = num_dt * base_h_abs * 1.05 + 1.5
-    fig_width = min(max(12, fig_width_est), 45); fig_height = min(max(8, fig_height_est), num_dt * 6)
+    base_w_abs, base_h_abs = 2.8, 2.2 
+    fig_width_est = (label_main_w + label_sub_w) * base_w_abs * 1.5 + n_data_cols * base_w_abs + cbar_w * base_w_abs * 1.5 + 0.8 
+    fig_height_est = num_dt * base_h_abs * 1.05 + 1.8 
+    fig_width = min(max(12, fig_width_est), 45); fig_height = min(max(8, fig_height_est), num_dt * 6) 
     print(f"Creating figure. Size: ({fig_width:.1f},{fig_height:.1f})")
     fig = plt.figure(figsize=(fig_width, fig_height))
     gs_width_ratios = [label_main_w, label_sub_w] + [data_plot_w_rel]*n_data_cols + [cbar_w]
     gs = gridspec.GridSpec(fig_plot_rows, total_gs_cols, figure=fig,
                            width_ratios=gs_width_ratios, height_ratios=[1]*fig_plot_rows,
-                           hspace=0.15, wspace=0.1,
-                           left=0.05, right=0.95, bottom=0.1, top=0.92)
+                           hspace=0.2, wspace=0.15, 
+                           left=0.06, right=0.93, bottom=0.12, top=0.90) 
     gs_col_main_type_label = 0; gs_col_sub_type_label = 1; gs_col_data_start = 2
 
-    for dt_idx, data_type_str in enumerate(data_types_to_plot):
+    for dt_idx, data_type_str in enumerate(data_types_to_plot): 
         details = data_type_details[data_type_str]; pynamit_ts_key = pynamit_timeseries_key_map[data_type_str]
         current_global_scale = global_plot_scales[data_type_str]
         vmin_use, vmax_use, cmap_use = current_global_scale['vmin'], current_global_scale['vmax'], current_global_scale['cmap']
@@ -314,17 +259,14 @@ def plot_input_vs_interpolated(
         ax_input_label.text(0.5, 0.5, 'Input', ha='center', va='center', rotation='vertical', fontsize=9, transform=ax_input_label.transAxes); ax_input_label.axis('off')
         ax_fitted_label = fig.add_subplot(gs[row_offset_fitted, gs_col_sub_type_label])
         ax_fitted_label.text(0.5, 0.5, 'Fitted', ha='center', va='center', rotation='vertical', fontsize=9, transform=ax_fitted_label.transAxes); ax_fitted_label.axis('off')
-
         for ts_idx, timestep in enumerate(timesteps_to_plot):
             gs_data_col_current = gs_col_data_start + ts_idx
             ax_input = fig.add_subplot(gs[row_offset_input, gs_data_col_current], projection=ccrs.PlateCarree(central_longitude=noon_longitude))
             ax_fitted = fig.add_subplot(gs[row_offset_fitted, gs_data_col_current], projection=ccrs.PlateCarree(central_longitude=noon_longitude), sharex=ax_input, sharey=ax_input)
-
-            if not (0 <= timestep < num_h5_steps):
+            if not (0 <= timestep < num_h5_steps): 
                 ax_input.text(0.5,0.5,"Data OOB", ha='center', va='center', transform=ax_input.transAxes); ax_fitted.text(0.5,0.5,"Data OOB", ha='center', va='center', transform=ax_fitted.transAxes)
                 continue
-            
-            time_val = timestep * input_dt
+            time_val = timestep * input_dt 
             current_lon, current_lat, target_shape = (magnetosphere_lon, magnetosphere_lat, magnetosphere_lat.shape) if details["grid_type"] == "magnetosphere" else (ionosphere_lon, ionosphere_lat, ionosphere_lat.shape)
             input_data_2d = np.full(target_shape, np.nan); h5_key_pri = details["h5_key_primary"]
             if data_type_str=="Br": input_data_2d = h5file[h5_key_pri][timestep,:,:] * 1e-9
@@ -342,33 +284,37 @@ def plot_input_vs_interpolated(
                 elif pynamit_ts_key=="jr": interpolated_data_2d=_calculate_interpolated_scalar_field(timeseries_entry,"jr",storage_basis,plot_evaluator,target_shape)
                 elif pynamit_ts_key=="conductance": interpolated_data_2d=_calculate_interpolated_conductance(timeseries_entry,data_type_str,storage_basis,plot_evaluator,target_shape)
                 elif pynamit_ts_key=="u": interpolated_data_2d=_calculate_interpolated_u_field(timeseries_entry,data_type_str,storage_basis,plot_evaluator,target_shape)
-
-            draw_top_lon_degrees = (dt_idx == 0)
-            draw_right_lat_degrees = (ts_idx == num_ts - 1)
-
+            draw_top_lon_degrees = (dt_idx == 0) 
+            draw_right_lat_degrees = (ts_idx == num_ts - 1) 
             im_input = plot_scalar_map_on_ax(ax_input, current_lon, current_lat, input_data_2d, "", cmap_use, vmin_use, vmax_use, use_pcolormesh=True, 
                                              draw_top_labels=draw_top_lon_degrees, draw_right_labels=draw_right_lat_degrees)
             if im_for_colorbar is None: im_for_colorbar = im_input
-            
             im_fitted = plot_scalar_map_on_ax(ax_fitted, current_lon, current_lat, interpolated_data_2d, "", cmap_use, vmin_use, vmax_use, use_pcolormesh=True, 
-                                              draw_top_labels=False, 
-                                              draw_right_labels=draw_right_lat_degrees)
+                                              draw_top_labels=False, draw_right_labels=draw_right_lat_degrees)
             if im_for_colorbar is None: im_for_colorbar = im_fitted
-            
-            if dt_idx == num_dt - 1:
-                ax_fitted.set_xlabel(f"{time_val}s", fontsize=8)
-            else: 
-                ax_fitted.tick_params(axis='x',which='both', bottom=False, top=False, labelbottom=False)
+            if dt_idx == num_dt - 1: ax_fitted.set_xlabel(f"{time_val}s", fontsize=8)
+            else: ax_fitted.tick_params(axis='x',which='both', bottom=False, top=False, labelbottom=False)
             ax_input.tick_params(axis='x',which='both', bottom=False, top=False, labelbottom=False)
 
         if im_for_colorbar:
             cax = fig.add_subplot(gs[row_offset_input:row_offset_fitted+1, -1])
-            cb = fig.colorbar(im_for_colorbar, cax=cax, orientation='vertical')
-            tick_locator = mticker.MaxNLocator(nbins=5); cb.set_ticks(tick_locator.tick_values(vmin_use, vmax_use))
+            cb = fig.colorbar(im_for_colorbar, cax=cax, orientation='vertical') 
+            
+            # Use MaxNLocator to suggest tick locations for the colorbar's axis.
+            # This will respect the vmin_use/vmax_use of the im_for_colorbar.
+            nbins_for_ticks = 5 
+            if cmap_use == 'bwr':
+                 # For bwr, ensure ticks are symmetric and don't necessarily prune endpoints if they are part of symmetric seq.
+                 tick_locator = mticker.MaxNLocator(nbins=nbins_for_ticks, symmetric=True, prune=None) 
+            else:
+                 # For others, pruning endpoints if they are too close to nice ticks often looks better.
+                 tick_locator = mticker.MaxNLocator(nbins=nbins_for_ticks, prune='both')
+            
+            cb.ax.yaxis.set_major_locator(tick_locator) # Apply locator to the colorbar's axis
             cb.ax.tick_params(labelsize=8)
 
-    fig.supxlabel("Time [s]", fontsize=10, y=0.045)
-    fig.suptitle(f"Input vs. Fitted Data (Color ranges from {vmin_percentile:.1f}-{vmax_percentile:.1f}th percentiles)", fontsize=12, y=0.97)
+    fig.supxlabel("Time [s]", fontsize=10, y=0.055) 
+    fig.suptitle(f"Input vs. Fitted Data (Color ranges are {vmin_percentile:.1f}-{vmax_percentile:.1f}th Pctl.)", fontsize=12, y=0.96) 
 
     if output_filename: plt.savefig(output_filename, dpi=200); print(f"Figure saved to {output_filename}")
     else: plt.show()
