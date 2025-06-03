@@ -157,9 +157,9 @@ def plot_scalar_map_on_ax(
 def plot_input_vs_interpolated(
     h5_filepath,
     interpolated_filename_prefix,
-    times_to_plot,
+    timesteps_to_plot,
+    input_dt,
     data_types_to_plot,
-    dt_inputs,
     noon_longitude=0,
     output_filename=None,
 ):
@@ -169,8 +169,6 @@ def plot_input_vs_interpolated(
         print(f"CRITICAL ERROR: Opening HDF5 {h5_filepath}: {e}")
         return
 
-    bu_data_shape = h5file["Bu"][0, :, :].shape
-    ionospheric_data_shape = h5file["FAC"][0, :, :].shape
     num_h5_steps = h5file["Bu"].shape[0]
 
     io = IO(interpolated_filename_prefix)
@@ -190,18 +188,21 @@ def plot_input_vs_interpolated(
     cs_basis = CSBasis(int(settings.Ncs))
     sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), Nmin=0)
     sh_basis_zero_removed = SHBasis(int(settings.Nmax), int(settings.Mmax))
+
     input_vars = {
         "jr": {"jr": "scalar"},
         "Br": {"Br": "scalar"},
         "conductance": {"etaP": "scalar", "etaH": "scalar"},
         "u": {"u": "tangential"},
     }
+
     input_storage_bases = {
         "jr": sh_basis_zero_removed,
         "Br": sh_basis_zero_removed,
         "conductance": sh_basis,
         "u": sh_basis_zero_removed,
     }
+
     input_timeseries = Timeseries(cs_basis, input_storage_bases, input_vars)
     input_timeseries.load_all(io)
 
@@ -213,9 +214,9 @@ def plot_input_vs_interpolated(
 
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
-    ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionospheric_data_shape)
+    ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(h5file["FAC"][0, :, :].shape)
 
-    num_rows = len(times_to_plot)
+    num_rows = len(timesteps_to_plot)
     num_cols = len(data_types_to_plot) * 2
     fig_width = min(max(10, num_cols * 4.0), 40)
     fig_height = min(max(7, num_rows * 3.5), 35)
@@ -230,13 +231,18 @@ def plot_input_vs_interpolated(
         squeeze=False,
     )
 
-    for row_idx, time in enumerate(times_to_plot):
-        print(f"\n--- Processing plot row {row_idx + 1}/{num_rows} for time = {time}s ---")
+    for row_idx, timestep in enumerate(timesteps_to_plot):
+        print(f"\n--- Processing timestep {timestep + 1}/{num_rows} ---")
 
-        if row_idx < 0 or row_idx >= num_h5_steps:
+        if timestep < 0 or timestep >= num_h5_steps:
             raise ValueError(
-                f"Requested time {time}s corresponds to step index {row_idx}, which is out of bounds for HDF5 data with {num_h5_steps} steps."
+                f"Invalid timestep {timestep} for HDF5 data with {num_h5_steps} steps."
             )
+
+        datetime = h5file["time"][timestep]
+        time = timestep * input_dt
+
+        print(f"  -- Datetime: {datetime} (timestep {timestep}, time {time}s) --")
 
         axes[row_idx, 0].set_ylabel(
             f"{time}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
@@ -279,7 +285,6 @@ def plot_input_vs_interpolated(
                 u_east_input = h5file["We"][:][row_idx, :, :]
                 u_north_input = h5file["Wn"][:][row_idx, :, :]
                 _u_theta_in_2d, _u_phi_in_2d = -u_north_input, u_east_input
-                input_data_2d.shape = ionospheric_data_shape
                 if data_type_str == "u_mag":
                     input_data_2d = np.sqrt(_u_theta_in_2d**2 + _u_phi_in_2d**2)
                 elif data_type_str == "u_theta":
@@ -294,13 +299,7 @@ def plot_input_vs_interpolated(
                     data_label, cmap = r"$u_\phi$ (East) [m/s]", "bwr"
 
             else:
-                raise ValueError(
-                    f"Unsupported data type '{data_type_str}' for plotting."
-                )
-
-            print(
-                f"Input data for '{data_type_str}' loaded, shape: {input_data_2d.shape if input_data_2d is not None else 'None'}. Target plot data shape: {input_data_2d.shape}"
-            )
+                raise ValueError(f"Unsupported data type '{data_type_str}' for plotting.")
 
             timeseries_key_map = {
                 "Br": "Br",
@@ -313,16 +312,19 @@ def plot_input_vs_interpolated(
             }
 
             timeseries_key = timeseries_key_map.get(data_type_str)
-
             if timeseries_key is None:
                 raise ValueError(
                     f"Unsupported data type '{data_type_str}' for timeseries key mapping."
                 )
 
-            print(f"Attempting to get fitted data for '{timeseries_key}' at sim_time {time}s")
             timeseries_entry = input_timeseries.get_entry_if_changed(
                 timeseries_key, time, interpolation=False
             )
+            if timeseries_entry is None:
+                raise ValueError(
+                    f"Timeseries entry for '{timeseries_key}' at time {time}s not found in input timeseries."
+                )
+
             if timeseries_entry:
                 print(
                     f"Timeseries entry found for '{timeseries_key}'. Keys: {list(timeseries_entry.keys())}"
@@ -339,12 +341,8 @@ def plot_input_vs_interpolated(
                     etaH = FieldExpansion(
                         storage_basis, coeffs=timeseries_entry["etaH"], field_type="scalar"
                     )
-                    etaP_fitted_2d = etaP.to_grid(plot_evaluator).reshape(
-                        input_data_2d.shape
-                    )
-                    etaH_fitted_2d = etaH.to_grid(plot_evaluator).reshape(
-                        input_data_2d.shape
-                    )
+                    etaP_fitted_2d = etaP.to_grid(plot_evaluator).reshape(input_data_2d.shape)
+                    etaH_fitted_2d = etaH.to_grid(plot_evaluator).reshape(input_data_2d.shape)
                     denominator = etaP_fitted_2d**2 + etaH_fitted_2d**2
                     sigma_H_fitted_2d = np.zeros_like(etaH_fitted_2d)
                     sigma_P_fitted_2d = np.zeros_like(etaP_fitted_2d)
@@ -361,40 +359,26 @@ def plot_input_vs_interpolated(
                         interpolated_data_2d = sigma_P_fitted_2d
 
                 elif timeseries_key == "u":
-                    u_coeffs_helmholtz = timeseries_entry["u"]
-                    field_exp_u = FieldExpansion(
-                        storage_basis, coeffs=u_coeffs_helmholtz, field_type="tangential"
+                    u = FieldExpansion(
+                        storage_basis, coeffs=timeseries_entry["u"], field_type="tangential"
                     )
-                    u_theta_flat, u_phi_flat = field_exp_u.to_grid(plot_evaluator)
-                    _u_theta_fit_2d = u_theta_flat.reshape(input_data_2d.shape)
-                    _u_phi_fit_2d = u_phi_flat.reshape(input_data_2d.shape)
+                    u_theta_flat, u_phi_flat = u.to_grid(plot_evaluator)
                     if data_type_str == "u_mag":
                         interpolated_data_2d = np.sqrt(
-                            _u_theta_fit_2d**2 + _u_phi_fit_2d**2
+                            u_theta_flat.reshape(input_data_2d.shape) ** 2
+                            + u_phi_flat.reshape(input_data_2d.shape) ** 2
                         )
                     elif data_type_str == "u_theta":
-                        interpolated_data_2d = _u_theta_fit_2d
+                        interpolated_data_2d = u_theta_flat.reshape(input_data_2d.shape)
                     elif data_type_str == "u_phi":
-                        interpolated_data_2d = _u_phi_fit_2d
+                        interpolated_data_2d = u_phi_flat.reshape(input_data_2d.shape)
 
                 else:
-                    field_coeffs = timeseries_entry[data_type_str]
                     field_exp = FieldExpansion(
-                        storage_basis, coeffs=field_coeffs, field_type="scalar"
+                        storage_basis, coeffs=timeseries_entry[data_type_str], field_type="scalar"
                     )
                     interpolated_data_flat = field_exp.to_grid(plot_evaluator)
-                    interpolated_data_2d = interpolated_data_flat.reshape(
-                        input_data_2d.shape
-                    )
-
-                if interpolated_data_2d is not None:
-                    print(
-                        f"Fitted data for '{data_type_str}' processed, shape: {interpolated_data_2d.shape}"
-                    )
-                else:
-                    print(f"Fitted data for '{data_type_str}' is None after processing.")
-
-
+                    interpolated_data_2d = interpolated_data_flat.reshape(input_data_2d.shape)
 
             # Plotting call
             vmin_shared, vmax_shared = None, None
@@ -429,6 +413,7 @@ def plot_input_vs_interpolated(
                     print(
                         f"Warning: Both input/fitted data for '{data_label}' are all NaN or empty."
                     )
+
             plot_title_input = f"Input {data_label}" if row_idx == 0 else "Input"
             plot_title_fitted = f"Fitted {data_label}" if row_idx == 0 else "Fitted"
 
@@ -459,20 +444,16 @@ def plot_input_vs_interpolated(
             )
             # else: print(f"Fitted data for '{data_label}' is None."); ax_interpolated.set_visible(False)
 
-    # --- 5. Finalize Figure ---
-    # ... (Identical to your last full code version) ...
-    print(f"\n--- Finalizing Figure ---")
     fig.subplots_adjust(left=0.05, right=0.98, top=0.93, bottom=0.05, hspace=0.4, wspace=0.15)
 
-    if num_rows > 0 and num_cols > 0:
-        fig.suptitle(
-            f"Input vs. Fitted Data (bwr plots use shared vmin/vmax per pair, 'bwr' centered; other cmaps use 0.2-99.8 percentile)",
-            fontsize=12,
-        )
+    fig.suptitle(
+        f"Input vs. Fitted Data (bwr plots use shared vmin/vmax per pair, 'bwr' centered; other cmaps use 0.2-99.8 percentile)",
+        fontsize=12,
+    )
+
     if output_filename:
         plt.savefig(output_filename, dpi=200, bbox_inches="tight")
     else:
         plt.show()
 
     h5file.close()
-    print("--- plot_input_vs_interpolated finished ---")
