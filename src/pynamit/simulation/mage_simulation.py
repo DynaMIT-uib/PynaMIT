@@ -204,24 +204,13 @@ def plot_input_vs_interpolated(
     }
     input_timeseries = Timeseries(cs_basis, input_storage_bases, input_vars)
     input_timeseries.load_all(io)
-    if not input_timeseries.datasets:
-        print("WARNING: Pynamit input_timeseries empty.")
 
-    # --- HDF5 Grid Coordinate Setup ---
-    # These are assumed to be 2D arrays of DEGREES from HDF5
+    # H5 coordinates are assumed to be 2D arrays of lat/lon in degrees.
     ionosphere_lat = h5file["glat"][:]
     ionosphere_lon = h5file["glon"][:]
     magnetosphere_lat = h5file["Blat"][:]
     magnetosphere_lon = h5file["Blon"][:]
 
-    print(
-        f"Magnetosphere HDF5 raw coord (Blat,Blon) values (ASSUMED DEGREES): LAT {magnetosphere_lat.min():.2f}/{magnetosphere_lat.max():.2f}, LON {magnetosphere_lon.min():.2f}/{magnetosphere_lon.max():.2f}"
-    )
-    print(
-        f"Ionosphere HDF5 raw coord (glat,glon) values (ASSUMED DEGREES): LAT {ionosphere_lat.min():.2f}/{ionosphere_lat.max():.2f}, LON {ionosphere_lon.min():.2f}/{ionosphere_lon.max():.2f}"
-    )
-
-    # ... (FAC_b_evaluator, figure setup as in your last full code) ...
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
     ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionospheric_data_shape)
@@ -249,10 +238,9 @@ def plot_input_vs_interpolated(
                 f"Requested time {time}s corresponds to step index {row_idx}, which is out of bounds for HDF5 data with {num_h5_steps} steps."
             )
 
-        if num_cols > 0:
-            axes[row_idx, 0].set_ylabel(
-                f"{time}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
-            )
+        axes[row_idx, 0].set_ylabel(
+            f"{time}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
+        )
 
         for data_type_idx, data_type_str in enumerate(data_types_to_plot):
             print(
@@ -270,19 +258,23 @@ def plot_input_vs_interpolated(
                 input_data_2d = h5file["Bu"][:][row_idx, :, :] * 1e-9
                 current_lon, current_lat = magnetosphere_lon, magnetosphere_lat
                 data_label, cmap = r"$\Delta B_r$ [T]", "bwr"
+
             elif data_type_str == "jr":
                 FAC_input_2d = h5file["FAC"][:][row_idx, :, :] * 1e-6
                 input_data_2d = FAC_input_2d * ionosphere_br_2d
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label, cmap = r"$j_r$ [A/m$^2$]", "bwr"
+
             elif data_type_str == "SH":
                 input_data_2d = h5file["SH"][:][row_idx, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_H$ [S]"
+
             elif data_type_str == "SP":
                 input_data_2d = h5file["SP"][:][row_idx, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_P$ [S]"
+
             elif data_type_str in ["u_mag", "u_theta", "u_phi"]:
                 u_east_input = h5file["We"][:][row_idx, :, :]
                 u_north_input = h5file["Wn"][:][row_idx, :, :]
@@ -322,103 +314,87 @@ def plot_input_vs_interpolated(
 
             timeseries_key = timeseries_key_map.get(data_type_str)
 
-            if timeseries_key:
-                print(f"Attempting to get fitted data for '{timeseries_key}' at sim_time {time}s")
-                timeseries_entry = input_timeseries.get_entry_if_changed(
-                    timeseries_key, time, interpolation=False
+            if timeseries_key is None:
+                raise ValueError(
+                    f"Unsupported data type '{data_type_str}' for timeseries key mapping."
                 )
-                if timeseries_entry:
-                    print(
-                        f"Timeseries entry found for '{timeseries_key}'. Keys: {list(timeseries_entry.keys())}"
+
+            print(f"Attempting to get fitted data for '{timeseries_key}' at sim_time {time}s")
+            timeseries_entry = input_timeseries.get_entry_if_changed(
+                timeseries_key, time, interpolation=False
+            )
+            if timeseries_entry:
+                print(
+                    f"Timeseries entry found for '{timeseries_key}'. Keys: {list(timeseries_entry.keys())}"
+                )
+
+                storage_basis = input_timeseries.storage_bases[timeseries_key]
+                target_plot_grid = Grid(lat=current_lat, lon=current_lon)
+                plot_evaluator = BasisEvaluator(storage_basis, target_plot_grid)
+
+                if timeseries_key == "conductance":
+                    etaP = FieldExpansion(
+                        storage_basis, coeffs=timeseries_entry["etaP"], field_type="scalar"
                     )
+                    etaH = FieldExpansion(
+                        storage_basis, coeffs=timeseries_entry["etaH"], field_type="scalar"
+                    )
+                    etaP_fitted_2d = etaP.to_grid(plot_evaluator).reshape(
+                        input_data_2d.shape
+                    )
+                    etaH_fitted_2d = etaH.to_grid(plot_evaluator).reshape(
+                        input_data_2d.shape
+                    )
+                    denominator = etaP_fitted_2d**2 + etaH_fitted_2d**2
+                    sigma_H_fitted_2d = np.zeros_like(etaH_fitted_2d)
+                    sigma_P_fitted_2d = np.zeros_like(etaP_fitted_2d)
+                    valid_den = denominator > 1e-12
+                    sigma_H_fitted_2d[valid_den] = (
+                        etaH_fitted_2d[valid_den] / denominator[valid_den]
+                    )
+                    sigma_P_fitted_2d[valid_den] = (
+                        etaP_fitted_2d[valid_den] / denominator[valid_den]
+                    )
+                    if data_type_str == "SH":
+                        interpolated_data_2d = sigma_H_fitted_2d
+                    elif data_type_str == "SP":
+                        interpolated_data_2d = sigma_P_fitted_2d
 
-                    storage_basis = input_timeseries.storage_bases[timeseries_key]
-                    target_plot_grid = Grid(lat=current_lat, lon=current_lon)
-                    plot_evaluator = BasisEvaluator(storage_basis, target_plot_grid)
-
-                    if timeseries_key == "conductance":
-                        if "etaP" in timeseries_entry and "etaH" in timeseries_entry:
-                            etaP_coeffs = timeseries_entry["etaP"]
-                            etaH_coeffs = timeseries_entry["etaH"]
-                            field_exp_etaP = FieldExpansion(
-                                storage_basis, coeffs=etaP_coeffs, field_type="scalar"
-                            )
-                            field_exp_etaH = FieldExpansion(
-                                storage_basis, coeffs=etaH_coeffs, field_type="scalar"
-                            )
-                            etaP_fitted_2d = field_exp_etaP.to_grid(plot_evaluator).reshape(
-                                input_data_2d.shape
-                            )
-                            etaH_fitted_2d = field_exp_etaH.to_grid(plot_evaluator).reshape(
-                                input_data_2d.shape
-                            )
-                            denominator = etaP_fitted_2d**2 + etaH_fitted_2d**2
-                            sigma_H_fitted_2d = np.zeros_like(etaH_fitted_2d)
-                            sigma_P_fitted_2d = np.zeros_like(etaP_fitted_2d)
-                            valid_den = denominator > 1e-12
-                            sigma_H_fitted_2d[valid_den] = (
-                                etaH_fitted_2d[valid_den] / denominator[valid_den]
-                            )
-                            sigma_P_fitted_2d[valid_den] = (
-                                etaP_fitted_2d[valid_den] / denominator[valid_den]
-                            )
-                            if data_type_str == "SH":
-                                interpolated_data_2d = sigma_H_fitted_2d
-                            elif data_type_str == "SP":
-                                interpolated_data_2d = sigma_P_fitted_2d
-                        else:
-                            print(
-                                f"Fitted Warning: etaP/etaH coeffs not found for '{timeseries_key}' at {time}s."
-                            )
-
-                    elif timeseries_key == "u":
-                        if "u" in timeseries_entry:
-                            u_coeffs_helmholtz = timeseries_entry["u"]
-                            field_exp_u = FieldExpansion(
-                                storage_basis, coeffs=u_coeffs_helmholtz, field_type="tangential"
-                            )
-                            u_theta_flat, u_phi_flat = field_exp_u.to_grid(plot_evaluator)
-                            _u_theta_fit_2d = u_theta_flat.reshape(input_data_2d.shape)
-                            _u_phi_fit_2d = u_phi_flat.reshape(input_data_2d.shape)
-                            if data_type_str == "u_mag":
-                                interpolated_data_2d = np.sqrt(
-                                    _u_theta_fit_2d**2 + _u_phi_fit_2d**2
-                                )
-                            elif data_type_str == "u_theta":
-                                interpolated_data_2d = _u_theta_fit_2d
-                            elif data_type_str == "u_phi":
-                                interpolated_data_2d = _u_phi_fit_2d
-                        else:
-                            print(
-                                f"Fitted Warning: u coeffs not found for '{timeseries_key}' at {time}s."
-                            )
-
-                    else:
-                        if data_type_str in timeseries_entry:
-                            field_coeffs = timeseries_entry[data_type_str]
-                            field_exp = FieldExpansion(
-                                storage_basis, coeffs=field_coeffs, field_type="scalar"
-                            )
-                            interpolated_data_flat = field_exp.to_grid(plot_evaluator)
-                            interpolated_data_2d = interpolated_data_flat.reshape(
-                                input_data_2d.shape
-                            )
-                        else:
-                            print(
-                                f"Fitted Warning: {data_type_str} coeffs not found for '{timeseries_key}' at {time}s."
-                            )
-
-                    if interpolated_data_2d is not None:
-                        print(
-                            f"Fitted data for '{data_type_str}' processed, shape: {interpolated_data_2d.shape}"
+                elif timeseries_key == "u":
+                    u_coeffs_helmholtz = timeseries_entry["u"]
+                    field_exp_u = FieldExpansion(
+                        storage_basis, coeffs=u_coeffs_helmholtz, field_type="tangential"
+                    )
+                    u_theta_flat, u_phi_flat = field_exp_u.to_grid(plot_evaluator)
+                    _u_theta_fit_2d = u_theta_flat.reshape(input_data_2d.shape)
+                    _u_phi_fit_2d = u_phi_flat.reshape(input_data_2d.shape)
+                    if data_type_str == "u_mag":
+                        interpolated_data_2d = np.sqrt(
+                            _u_theta_fit_2d**2 + _u_phi_fit_2d**2
                         )
-                    else:
-                        print(f"Fitted data for '{data_type_str}' is None after processing.")
+                    elif data_type_str == "u_theta":
+                        interpolated_data_2d = _u_theta_fit_2d
+                    elif data_type_str == "u_phi":
+                        interpolated_data_2d = _u_phi_fit_2d
 
                 else:
-                    print(
-                        f"Fitted Warning: No timeseries entry for '{timeseries_key}' at {time}s."
+                    field_coeffs = timeseries_entry[data_type_str]
+                    field_exp = FieldExpansion(
+                        storage_basis, coeffs=field_coeffs, field_type="scalar"
                     )
+                    interpolated_data_flat = field_exp.to_grid(plot_evaluator)
+                    interpolated_data_2d = interpolated_data_flat.reshape(
+                        input_data_2d.shape
+                    )
+
+                if interpolated_data_2d is not None:
+                    print(
+                        f"Fitted data for '{data_type_str}' processed, shape: {interpolated_data_2d.shape}"
+                    )
+                else:
+                    print(f"Fitted data for '{data_type_str}' is None after processing.")
+
+
 
             # Plotting call
             vmin_shared, vmax_shared = None, None
