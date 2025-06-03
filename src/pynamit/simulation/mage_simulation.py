@@ -203,6 +203,16 @@ def plot_input_vs_interpolated(
         "u": sh_basis_zero_removed,
     }
 
+    timeseries_key_map = {
+        "Br": "Br",
+        "jr": "jr",
+        "SH": "conductance",
+        "SP": "conductance",
+        "u_mag": "u",
+        "u_theta": "u",
+        "u_phi": "u",
+    }
+
     input_timeseries = Timeseries(cs_basis, input_storage_bases, input_vars)
     input_timeseries.load_all(io)
 
@@ -232,8 +242,6 @@ def plot_input_vs_interpolated(
     )
 
     for row_idx, timestep in enumerate(timesteps_to_plot):
-        print(f"\n--- Processing timestep {timestep + 1}/{num_rows} ---")
-
         if timestep < 0 or timestep >= num_h5_steps:
             raise ValueError(
                 f"Invalid timestep {timestep} for HDF5 data with {num_h5_steps} steps."
@@ -242,7 +250,7 @@ def plot_input_vs_interpolated(
         datetime = h5file["time"][timestep]
         time = timestep * input_dt
 
-        print(f"  -- Datetime: {datetime} (timestep {timestep}, time {time}s) --")
+        print(f"  -- Datetime: {datetime} (timestep {timestep + 1}/{num_rows}, time {time}s) --")
 
         axes[row_idx, 0].set_ylabel(
             f"{time}s", fontsize=10, labelpad=35, rotation=0, ha="right", va="center"
@@ -254,69 +262,56 @@ def plot_input_vs_interpolated(
             )
             col_idx_input = data_type_idx * 2
             col_idx_interpolated = col_idx_input + 1
+
             ax_input = axes[row_idx, col_idx_input]
             ax_interpolated = axes[row_idx, col_idx_interpolated]
-            input_data_2d, interpolated_data_2d = None, None
-            current_lon, current_lat = None, None
-            data_label, cmap = data_type_str, "viridis"
 
             if data_type_str == "Br":
                 input_data_2d = h5file["Bu"][:][row_idx, :, :] * 1e-9
                 current_lon, current_lat = magnetosphere_lon, magnetosphere_lat
-                data_label, cmap = r"$\Delta B_r$ [T]", "bwr"
+                data_label = r"$\Delta B_r$ [T]"
+                cmap = "bwr"
 
             elif data_type_str == "jr":
                 FAC_input_2d = h5file["FAC"][:][row_idx, :, :] * 1e-6
                 input_data_2d = FAC_input_2d * ionosphere_br_2d
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
-                data_label, cmap = r"$j_r$ [A/m$^2$]", "bwr"
+                data_label = r"$j_r$ [A/m$^2$]"
+                cmap = "bwr"
 
             elif data_type_str == "SH":
                 input_data_2d = h5file["SH"][:][row_idx, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_H$ [S]"
+                cmap = "viridis"
 
             elif data_type_str == "SP":
                 input_data_2d = h5file["SP"][:][row_idx, :, :]
                 current_lon, current_lat = ionosphere_lon, ionosphere_lat
                 data_label = r"$\Sigma_P$ [S]"
+                cmap = "viridis"
 
             elif data_type_str in ["u_mag", "u_theta", "u_phi"]:
                 u_east_input = h5file["We"][:][row_idx, :, :]
                 u_north_input = h5file["Wn"][:][row_idx, :, :]
-                _u_theta_in_2d, _u_phi_in_2d = -u_north_input, u_east_input
+
                 if data_type_str == "u_mag":
-                    input_data_2d = np.sqrt(_u_theta_in_2d**2 + _u_phi_in_2d**2)
-                elif data_type_str == "u_theta":
-                    input_data_2d = _u_theta_in_2d
-                elif data_type_str == "u_phi":
-                    input_data_2d = _u_phi_in_2d
-                if data_type_str == "u_mag":
+                    input_data_2d = np.sqrt(u_north_input**2 + u_east_input**2)
                     data_label = r"$|u|$ [m/s]"
+                    cmap = "viridis"
                 elif data_type_str == "u_theta":
-                    data_label, cmap = r"$u_\theta$ (South) [m/s]", "bwr"
+                    input_data_2d = -u_north_input
+                    data_label = r"$u_\theta$ (South) [m/s]"
+                    cmap = "bwr"
                 elif data_type_str == "u_phi":
-                    data_label, cmap = r"$u_\phi$ (East) [m/s]", "bwr"
+                    input_data_2d = u_east_input
+                    data_label = r"$u_\phi$ (East) [m/s]"
+                    cmap = "bwr"
 
             else:
                 raise ValueError(f"Unsupported data type '{data_type_str}' for plotting.")
 
-            timeseries_key_map = {
-                "Br": "Br",
-                "jr": "jr",
-                "SH": "conductance",
-                "SP": "conductance",
-                "u_mag": "u",
-                "u_theta": "u",
-                "u_phi": "u",
-            }
-
             timeseries_key = timeseries_key_map.get(data_type_str)
-            if timeseries_key is None:
-                raise ValueError(
-                    f"Unsupported data type '{data_type_str}' for timeseries key mapping."
-                )
-
             timeseries_entry = input_timeseries.get_entry_if_changed(
                 timeseries_key, time, interpolation=False
             )
@@ -326,13 +321,10 @@ def plot_input_vs_interpolated(
                 )
 
             if timeseries_entry:
-                print(
-                    f"Timeseries entry found for '{timeseries_key}'. Keys: {list(timeseries_entry.keys())}"
-                )
-
                 storage_basis = input_timeseries.storage_bases[timeseries_key]
-                target_plot_grid = Grid(lat=current_lat, lon=current_lon)
-                plot_evaluator = BasisEvaluator(storage_basis, target_plot_grid)
+                plot_evaluator = BasisEvaluator(
+                    storage_basis, Grid(lat=current_lat, lon=current_lon)
+                )
 
                 if timeseries_key == "conductance":
                     etaP = FieldExpansion(
@@ -380,39 +372,40 @@ def plot_input_vs_interpolated(
                     interpolated_data_flat = field_exp.to_grid(plot_evaluator)
                     interpolated_data_2d = interpolated_data_flat.reshape(input_data_2d.shape)
 
+            if input_data_2d is None or interpolated_data_2d is None:
+                raise ValueError(
+                    f"Input or interpolated data for '{data_label}' is None at timestep {timestep}."
+                )
+
             # Plotting call
-            vmin_shared, vmax_shared = None, None
-            if input_data_2d is not None and interpolated_data_2d is not None:
-                d1_flat_valid = input_data_2d.astype(float).ravel()
-                d1_flat_valid = d1_flat_valid[~np.isnan(d1_flat_valid)]
-                d2_flat_valid = interpolated_data_2d.astype(float).ravel()
-                d2_flat_valid = d2_flat_valid[~np.isnan(d2_flat_valid)]
-                combined_valid_data = []
-                if d1_flat_valid.size > 0:
-                    combined_valid_data.append(d1_flat_valid)
-                if d2_flat_valid.size > 0:
-                    combined_valid_data.append(d2_flat_valid)
-                if combined_valid_data:
-                    combined_valid_data = np.concatenate(combined_valid_data)
-                    if combined_valid_data.size > 0:
-                        if cmap == "bwr":
-                            abs_max_s = np.percentile(np.abs(combined_valid_data), 99.8)
-                            vmin_shared, vmax_shared = (
-                                -abs_max_s if abs_max_s > 1e-9 else -0.1,
-                                abs_max_s if abs_max_s > 1e-9 else 0.1,
-                            )
-                        else:
-                            vmin_shared = np.percentile(combined_valid_data, 0.2)
-                            vmax_shared = np.percentile(combined_valid_data, 99.8)
-                        print(
-                            f"Shared scale for '{data_label}': vmin={vmin_shared:.4g}, vmax={vmax_shared:.4g}"
+            d1_flat_valid = input_data_2d.astype(float).ravel()
+            d1_flat_valid = d1_flat_valid[~np.isnan(d1_flat_valid)]
+            d2_flat_valid = interpolated_data_2d.astype(float).ravel()
+            d2_flat_valid = d2_flat_valid[~np.isnan(d2_flat_valid)]
+            combined_valid_data = []
+            if d1_flat_valid.size > 0:
+                combined_valid_data.append(d1_flat_valid)
+            if d2_flat_valid.size > 0:
+                combined_valid_data.append(d2_flat_valid)
+            if combined_valid_data:
+                combined_valid_data = np.concatenate(combined_valid_data)
+                if combined_valid_data.size > 0:
+                    if cmap == "bwr":
+                        abs_max_s = np.percentile(np.abs(combined_valid_data), 99.8)
+                        vmin_shared, vmax_shared = (
+                            -abs_max_s if abs_max_s > 1e-9 else -0.1,
+                            abs_max_s if abs_max_s > 1e-9 else 0.1,
                         )
                     else:
-                        print(f"Warning: No valid data for '{data_label}' to set shared scale.")
-                else:
+                        vmin_shared = np.percentile(combined_valid_data, 0.2)
+                        vmax_shared = np.percentile(combined_valid_data, 99.8)
                     print(
-                        f"Warning: Both input/fitted data for '{data_label}' are all NaN or empty."
+                        f"Shared scale for '{data_label}': vmin={vmin_shared:.4g}, vmax={vmax_shared:.4g}"
                     )
+                else:
+                    print(f"Warning: No valid data for '{data_label}' to set shared scale.")
+            else:
+                print(f"Warning: Both input/fitted data for '{data_label}' are all NaN or empty.")
 
             plot_title_input = f"Input {data_label}" if row_idx == 0 else "Input"
             plot_title_fitted = f"Fitted {data_label}" if row_idx == 0 else "Fitted"
@@ -428,9 +421,7 @@ def plot_input_vs_interpolated(
                 vmax_shared,
                 use_pcolormesh=True,
             )
-            # else: print(f"Input data for '{data_label}' is None."); ax_input.set_visible(False)
 
-            # if interpolated_data_2d is not None:
             plot_scalar_map_on_ax(
                 ax_interpolated,
                 current_lon,
@@ -442,7 +433,6 @@ def plot_input_vs_interpolated(
                 vmax_shared,
                 use_pcolormesh=True,
             )
-            # else: print(f"Fitted data for '{data_label}' is None."); ax_interpolated.set_visible(False)
 
     fig.subplots_adjust(left=0.05, right=0.98, top=0.93, bottom=0.05, hspace=0.4, wspace=0.15)
 
