@@ -352,7 +352,7 @@ def plot_input_vs_interpolated(
 
                 elif timeseries_key == "u":
                     u = FieldExpansion(
-                        storage_basis, coeffs=timeseries_entry["u"], field_type="tangential"
+                        storage_basis, coeffs=timeseries_entry["u"].reshape((2, -1)), field_type="tangential"
                     )
                     u_theta_flat, u_phi_flat = u.to_grid(plot_evaluator)
                     if data_type_str == "u_mag":

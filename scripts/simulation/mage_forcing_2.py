@@ -18,10 +18,10 @@ PLOT_CONDUCTANCE = False
 PLOT_JR = False
 PLOT_U = False
 
-BR_LAMBDA = 1
-CONDUCTANCE_LAMBDA = 1
-JR_LAMBDA = 1
-U_LAMBDA = 1
+BR_LAMBDA = 0.01
+CONDUCTANCE_LAMBDA = 0.01
+JR_LAMBDA = 0.01
+U_LAMBDA = 0.01
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -304,9 +304,8 @@ for step in range(0, nstep):
             title="u at RI",
         )
 
-# --- 2. Now call the plotting function ---
-timesteps_for_figure = [0, 80, 160, 240, 320]  # Example times in seconds
-data_types_for_figure = ["Br", "jr"]  # Example data types
+timesteps_for_figure = [0, 80, 160, 240, 320]
+data_types_for_figure = ["Br", "jr", "u_mag"], #"SP", "SH"]
 
 
 pynamit.plot_input_vs_interpolated(
@@ -314,8 +313,8 @@ pynamit.plot_input_vs_interpolated(
     interpolated_filename_prefix="results_mage_2011",
     timesteps_to_plot=timesteps_for_figure,
     data_types_to_plot=data_types_for_figure,
-    input_dt=10,  # The dt used for time_index -> seconds conversion
-    noon_longitude=0,  # Optional
+    input_dt=10,
+    noon_longitude=0,
     # output_filename="input_vs_fitted_comparison.png" # Optional
 )
 
