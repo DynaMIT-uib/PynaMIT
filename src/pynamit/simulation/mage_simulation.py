@@ -412,27 +412,12 @@ def plot_input_vs_interpolated(
 
         norm_for_plot = None
         if current_scale_type == "log" and cmap_global != "bwr":
-            if vmin > 0 and vmax > vmin:
-                norm_for_plot = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
-            else:
-                print(
-                    f"    Warning: Cannot use log scale for {data_type_str} (vmin={vmin:.2e}, vmax={vmax:.2e}). Using linear."
+            if vmin <= 0 or vmax <= vmin:
+                raise ValueError(
+                    f"Invalid log scale for '{data_type_str}': vmin={vmin:.2e}, vmax={vmax:.2e}. Both must be positive and vmax > vmin."
                 )
-                current_scale_type = "linear"
-                if positive_definite_zeromin and (
-                    temp_valid_data.size == 0
-                    or np.percentile(temp_valid_data, vmin_percentile) >= 0
-                ):
-                    vmin_pctl_linear = 0.0
-                elif temp_valid_data.size > 0:
-                    vmin_pctl_linear = np.percentile(temp_valid_data, vmin_percentile)
-                else:
-                    vmin_pctl_linear = 0.0
-                if temp_valid_data.size > 0:
-                    vmax_pctl_linear = np.percentile(temp_valid_data, vmax_percentile)
-                else:
-                    vmax_pctl_linear = 1.0
-                vmin, vmax = vmin_pctl_linear, vmax_pctl_linear
+            norm_for_plot = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
+
         global_plot_scales[data_type_str] = {
             "vmin": vmin,
             "vmax": vmax,
