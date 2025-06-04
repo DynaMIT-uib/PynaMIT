@@ -70,7 +70,7 @@ def plot_input_vs_interpolated(
     output_filename=None,
     vmin_percentile=0.2,
     vmax_percentile=99.8,
-    strictly_positive_scale_type="linear",  # RENAMED from positive_only_scale_type
+    strictly_positive_scale_type="linear",
 ):
     try:
         h5file = h5.File(h5_filepath, "r")
@@ -94,7 +94,6 @@ def plot_input_vs_interpolated(
         h5file.close()
         print("Warning: No data types specified for plotting. Exiting.")
         return
-    # VALIDATION for RENAMED argument
     if strictly_positive_scale_type not in ["linear", "log"]:
         h5file.close()
         raise ValueError("strictly_positive_scale_type must be 'linear' or 'log'.")
@@ -139,7 +138,6 @@ def plot_input_vs_interpolated(
         "u_phi": "u",
     }
 
-    # --- MODIFIED data_type_details: Key RENAMED to "strictly_positive" ---
     data_type_details = {
         "Br": {
             "label": r"$\Delta B_r$ [T]",
@@ -305,8 +303,7 @@ def plot_input_vs_interpolated(
     global_plot_scales = {}
     for data_type_str in data_types_to_plot:
         details = data_type_details[data_type_str]
-        is_strictly_positive = details["strictly_positive"]  # RENAMED variable
-
+        is_strictly_positive = details["strictly_positive"]
         current_scale_type = strictly_positive_scale_type if is_strictly_positive else "linear"
         cmap_to_use = "viridis" if is_strictly_positive else "bwr"
 
@@ -333,7 +330,7 @@ def plot_input_vs_interpolated(
             raise ValueError(f"No valid (non-NaN) data for '{data_type_str}' for scales.")
 
         if is_strictly_positive:
-            if np.any(temp_valid_data < -1e-9):  # Check before filtering
+            if np.any(temp_valid_data < -1e-9):
                 h5file.close()
                 raise ValueError(
                     f"Data type '{data_type_str}' is 'strictly_positive' but contains values < -1e-9."
@@ -351,7 +348,7 @@ def plot_input_vs_interpolated(
         else:
             valid_data_for_percentile = temp_valid_data
 
-        if valid_data_for_percentile.size == 0:  # Catch if filtering resulted in empty array
+        if valid_data_for_percentile.size == 0:
             h5file.close()
             raise ValueError(
                 f"No valid data for percentile calculation for '{data_type_str}' after filtering for scale type."
@@ -363,7 +360,7 @@ def plot_input_vs_interpolated(
         else:
             vmin = np.percentile(valid_data_for_percentile, vmin_percentile)
             vmax = np.percentile(valid_data_for_percentile, vmax_percentile)
-            if current_scale_type == "linear":  # For strictly_positive, linear scale
+            if current_scale_type == "linear":
                 vmin = 0.0
 
         if vmin == vmax and current_scale_type != "log":
@@ -378,14 +375,14 @@ def plot_input_vs_interpolated(
                 raise RuntimeError(
                     f"Internal logic error: Log scale for non-strictly_positive data '{data_type_str}'."
                 )
-            if vmin <= 1e-12:  # Stricter check for log's vmin
+            if vmin <= 1e-12:
                 h5file.close()
                 raise ValueError(
                     f"Log scale for '{data_type_str}' requires vmin > 1e-12, got vmin={vmin:.3e}."
                 )
             try:
                 norm_for_plot = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
-            except ValueError as e:  # Catches vmin >= vmax from LogNorm
+            except ValueError as e:
                 h5file.close()
                 raise ValueError(
                     f"LogNorm error for '{data_type_str}' (vmin={vmin:.3e}, vmax={vmax:.3e}): {e}"
@@ -399,45 +396,63 @@ def plot_input_vs_interpolated(
             "cmap": cmap_to_use,
             "norm": norm_for_plot,
             "scale_type": current_scale_type,
-            "strictly_positive": is_strictly_positive,  # Store RENAMED flag
+            "strictly_positive": is_strictly_positive,
         }
-        # Print statement updated with RENAMED flag
         print(
             f"  Global scale for '{data_type_str}' ({current_scale_type}, strictly_positive={is_strictly_positive}): "
             f"vmin={vmin:.3e}, vmax={vmax:.3e}, cmap='{cmap_to_use}'"
         )
 
-    # --- Figure Creation (unchanged from previous good version) ---
+    # --- REVISED Figure Size Calculation ---
     num_dt = len(data_types_to_plot)
-    num_plot_rows = num_dt * 2
-    num_plot_cols = len(timesteps_to_plot)
-    time_row_h_frac, plots_row_h_frac = 0.04, 0.96
-    cbars_labels_col_w_frac, plots_col_w_frac = 0.20, 0.80
-    base_plot_w, base_plot_h = 2.0, 1.5
-    fig_width_est = (num_plot_cols * base_plot_w) / plots_col_w_frac
-    fig_height_est = (num_plot_rows * base_plot_h) / plots_row_h_frac
-    fig_width = min(max(8, fig_width_est), 25)
-    fig_height = min(
-        max(4 + time_row_h_frac * fig_height_est, fig_height_est),
-        num_plot_rows * (base_plot_h + 0.15) + 1.0,
-    )
+    num_plot_rows_maps = num_dt * 2
+    num_plot_cols_maps = len(timesteps_to_plot)
 
-    print(f"Creating figure. Target Size: ({fig_width:.1f},{fig_height:.1f})")
+    ref_map_cell_w = 2.2
+    ref_map_cell_h = 1.8
+
+    target_plots_area_w = num_plot_cols_maps * ref_map_cell_w
+    target_plots_area_h = num_plot_rows_maps * ref_map_cell_h
+
+    time_row_h_frac_user = 0.02
+    cbars_labels_col_w_frac_user = 0.15
+
+    plots_row_h_frac_user = 1.0 - time_row_h_frac_user
+    plots_col_w_frac_user = 1.0 - cbars_labels_col_w_frac_user
+
+    # Estimate total figure width and height based on the *actual plot area fraction*
+    # that will be used by fig.subfigures.
+    # This ensures the plot area gets its intended share of a larger, more stable figure.
+    est_total_fig_width = target_plots_area_w / plots_col_w_frac_user
+    est_total_fig_height = target_plots_area_h / plots_row_h_frac_user
+
+    fig_width = min(max(8.0, est_total_fig_width), 30.0)
+    min_practical_fig_height = num_dt * 2 * 0.75 + 1.5
+    fig_height_lower_bound = max(min_practical_fig_height, 5.0)
+    fig_height_upper_bound = num_plot_rows_maps * (ref_map_cell_h + 0.3) + 2.0
+    fig_height = min(max(fig_height_lower_bound, est_total_fig_height), fig_height_upper_bound)
+
+    print(
+        f'Target map cell: {ref_map_cell_w}"x{ref_map_cell_h}". Est. Total Fig: {est_total_fig_width:.1f}"x{est_total_fig_height:.1f}". Final Fig: {fig_width:.1f}"x{fig_height:.1f}"'
+    )
     fig = plt.figure(figsize=(fig_width, fig_height), layout="constrained")
+
     sfigs_grid = fig.subfigures(
         2,
         2,
-        height_ratios=[time_row_h_frac, plots_row_h_frac],
-        width_ratios=[cbars_labels_col_w_frac, plots_col_w_frac],
+        height_ratios=[time_row_h_frac_user, plots_row_h_frac_user],
+        width_ratios=[cbars_labels_col_w_frac_user, plots_col_w_frac_user],
         hspace=0.01,
         wspace=0.01,
     )
     sfigs_grid[0, 0].patch.set_alpha(0.0)
     [ax.remove() for ax in sfigs_grid[0, 0].get_axes()]
 
-    if num_plot_cols > 0:
-        time_label_axes_list = sfigs_grid[0, 1].subplots(1, num_plot_cols, sharey=True)
-        time_label_axes = [time_label_axes_list] if num_plot_cols == 1 else time_label_axes_list
+    if num_plot_cols_maps > 0:
+        time_label_axes_list = sfigs_grid[0, 1].subplots(1, num_plot_cols_maps, sharey=True)
+        time_label_axes = (
+            [time_label_axes_list] if num_plot_cols_maps == 1 else time_label_axes_list
+        )
         for ts_idx, timestep in enumerate(timesteps_to_plot):
             time_label_axes[ts_idx].text(
                 0.5, 0.5, f"{timestep * input_dt}s", ha="center", va="center", fontsize=9
@@ -445,23 +460,23 @@ def plot_input_vs_interpolated(
             time_label_axes[ts_idx].axis("off")
 
     map_axes_flat = sfigs_grid[1, 1].subplots(
-        num_plot_rows,
-        num_plot_cols,
+        num_plot_rows_maps,
+        num_plot_cols_maps,
         sharex=True,
         sharey=True,
         subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_longitude)},
     )
-    if num_plot_rows == 1 and num_plot_cols == 1:
+    if num_plot_rows_maps == 1 and num_plot_cols_maps == 1:
         map_axes = np.array([[map_axes_flat]])
-    elif num_plot_rows == 1:
+    elif num_plot_rows_maps == 1:
         map_axes = map_axes_flat[np.newaxis, :]
-    elif num_plot_cols == 1:
+    elif num_plot_cols_maps == 1:
         map_axes = map_axes_flat[:, np.newaxis]
     else:
         map_axes = map_axes_flat
 
     gs_bottom_left = gridspec.GridSpec(
-        num_plot_rows,
+        num_plot_rows_maps,
         2,
         figure=sfigs_grid[1, 0],
         width_ratios=[0.8, 0.2],
@@ -474,15 +489,15 @@ def plot_input_vs_interpolated(
         current_global_scale = global_plot_scales[data_type_str]
         cmap_use, norm_use = current_global_scale["cmap"], current_global_scale["norm"]
 
-        row_idx_input = dt_idx * 2
-        row_idx_fitted_maps = row_idx_input + 1
+        row_idx_input_map = dt_idx * 2
+        row_idx_fitted_map = row_idx_input_map + 1
 
         current_mappable_this_dt = None
 
         gs_dt_cbar_block = gridspec.GridSpecFromSubplotSpec(
             1,
             2,
-            subplot_spec=gs_bottom_left[row_idx_input : row_idx_input + 2, 0],
+            subplot_spec=gs_bottom_left[row_idx_input_map : row_idx_input_map + 2, 0],
             width_ratios=[0.4, 0.6],
             wspace=0.1,
         )
@@ -493,13 +508,13 @@ def plot_input_vs_interpolated(
         )
         ax_dt_label.axis("off")
 
-        ax_input_text_label = sfigs_grid[1, 0].add_subplot(gs_bottom_left[row_idx_input, 1])
+        ax_input_text_label = sfigs_grid[1, 0].add_subplot(gs_bottom_left[row_idx_input_map, 1])
         ax_input_text_label.text(
             0.5, 0.5, "Input", ha="center", va="center", rotation=90, fontsize=8
         )
         ax_input_text_label.axis("off")
 
-        ax_fitted_text_label = sfigs_grid[1, 0].add_subplot(gs_bottom_left[row_idx_fitted_maps, 1])
+        ax_fitted_text_label = sfigs_grid[1, 0].add_subplot(gs_bottom_left[row_idx_fitted_map, 1])
         ax_fitted_text_label.text(
             0.5, 0.5, "Fitted", ha="center", va="center", rotation=90, fontsize=8
         )
@@ -507,8 +522,8 @@ def plot_input_vs_interpolated(
 
         for ts_idx, timestep in enumerate(timesteps_to_plot):
             ax_input, ax_fitted = (
-                map_axes[row_idx_input, ts_idx],
-                map_axes[row_idx_fitted_maps, ts_idx],
+                map_axes[row_idx_input_map, ts_idx],
+                map_axes[row_idx_fitted_map, ts_idx],
             )
             ax_input.clear()
             ax_fitted.clear()
