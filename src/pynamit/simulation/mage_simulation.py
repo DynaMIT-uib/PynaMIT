@@ -394,46 +394,29 @@ def plot_input_vs_interpolated(
             valid_data_for_percentile = temp_valid_data[temp_valid_data > 0]
         else:
             valid_data_for_percentile = temp_valid_data
-        vmin_pctl, vmax_pctl = 0.0, 1.0
-        if valid_data_for_percentile.size > 0:
-            if cmap_global == "bwr":
-                abs_max_s = np.percentile(np.abs(valid_data_for_percentile), vmax_percentile)
-                vmin_pctl = -abs_max_s
-                vmax_pctl = abs_max_s
-                if np.isclose(vmin_pctl, 0.0, atol=1e-12) and np.isclose(
-                    vmax_pctl, 0.0, atol=1e-12
-                ):
-                    vmin_pctl, vmax_pctl = -1e-9, 1e-9
-            else:
-                vmin_pctl = np.percentile(valid_data_for_percentile, vmin_percentile)
-                vmax_pctl = np.percentile(valid_data_for_percentile, vmax_percentile)
-                if current_scale_type == "linear" and positive_definite_zeromin:
-                    if vmin_pctl >= 0:
-                        vmin_pctl = 0.0
-                elif current_scale_type == "log":
-                    smallest_positive_val = 1e-9
-                    if np.any(valid_data_for_percentile > 0):
-                        smallest_positive_val = np.min(
-                            valid_data_for_percentile[valid_data_for_percentile > 0]
-                        )
-                    if vmin_pctl <= 0:
-                        vmin_pctl = max(smallest_positive_val * 0.1, 1e-9)
-                    if vmax_pctl <= vmin_pctl:
-                        vmax_pctl = vmin_pctl * 100
-        else:
-            print(
-                f"    Warning: No valid data for percentiles of '{data_type_str}'. Using default [0,1]."
+
+        if valid_data_for_percentile.size == 0:
+            raise ValueError(
+                f"No valid data found for '{data_type_str}'. Ensure the data is present in the HDF5 file."
             )
-            if current_scale_type == "log":
-                vmin_pctl, vmax_pctl = 1e-3, 1e-1
-        vmin_final, vmax_final = vmin_pctl, vmax_pctl
+        if cmap_global == "bwr":
+            abs_max_s = np.percentile(np.abs(valid_data_for_percentile), vmax_percentile)
+            vmin = -abs_max_s
+            vmax = abs_max_s
+        else:
+            vmin = np.percentile(valid_data_for_percentile, vmin_percentile)
+            vmax = np.percentile(valid_data_for_percentile, vmax_percentile)
+            if current_scale_type == "linear" and positive_definite_zeromin:
+                if vmin >= 0:
+                    vmin = 0.0
+
         norm_for_plot = None
         if current_scale_type == "log" and cmap_global != "bwr":
-            if vmin_final > 0 and vmax_final > vmin_final:
-                norm_for_plot = mcolors.LogNorm(vmin=vmin_final, vmax=vmax_final, clip=True)
+            if vmin > 0 and vmax > vmin:
+                norm_for_plot = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
             else:
                 print(
-                    f"    Warning: Cannot use log scale for {data_type_str} (vmin={vmin_final:.2e}, vmax={vmax_final:.2e}). Using linear."
+                    f"    Warning: Cannot use log scale for {data_type_str} (vmin={vmin:.2e}, vmax={vmax:.2e}). Using linear."
                 )
                 current_scale_type = "linear"
                 if positive_definite_zeromin and (
@@ -449,16 +432,16 @@ def plot_input_vs_interpolated(
                     vmax_pctl_linear = np.percentile(temp_valid_data, vmax_percentile)
                 else:
                     vmax_pctl_linear = 1.0
-                vmin_final, vmax_final = vmin_pctl_linear, vmax_pctl_linear
+                vmin, vmax = vmin_pctl_linear, vmax_pctl_linear
         global_plot_scales[data_type_str] = {
-            "vmin": vmin_final,
-            "vmax": vmax_final,
+            "vmin": vmin,
+            "vmax": vmax,
             "cmap": cmap_global,
             "norm": norm_for_plot,
             "scale_type": current_scale_type,
         }
         print(
-            f"  Global scale for '{data_type_str}' ({current_scale_type}): vmin={vmin_final:.3e}, vmax={vmax_final:.3e}"
+            f"  Global scale for '{data_type_str}' ({current_scale_type}): vmin={vmin:.3e}, vmax={vmax:.3e}"
         )
 
     # --- Figure Creation using 2x2 Subfigures ---
