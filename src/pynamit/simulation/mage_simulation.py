@@ -18,21 +18,6 @@ from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
-# --- Helper for color limits (Ultra-Simplified) ---
-def get_final_plot_limits(vmin_orig, vmax_orig): 
-    if vmin_orig == vmax_orig:
-        delta_abs = abs(vmin_orig)
-        if np.isclose(delta_abs, 0.0, atol=1e-15): delta = 1e-12 
-        else: delta = delta_abs * 1e-6; delta = max(delta, 1e-12) 
-        vmin_r, vmax_r = vmin_orig - delta, vmax_orig + delta
-        if np.isclose(vmin_r, vmax_r): 
-            final_kick_mag = abs(vmax_r) if not np.isclose(vmax_r,0) else 1.0
-            final_kick = 10**(np.floor(np.log10(final_kick_mag)) -8); final_kick = max(final_kick, 1e-13) 
-            vmin_r -= final_kick; vmax_r += final_kick
-        return vmin_r, vmax_r
-    if vmin_orig > vmax_orig: return vmax_orig, vmin_orig
-    return vmin_orig, vmax_orig
-
 # --- Helper functions for calculating interpolated data ---
 # ... (These functions remain the same as your last working version)
 def _calculate_interpolated_scalar_field(timeseries_entry, data_key, storage_basis, plot_evaluator, target_shape):
@@ -69,20 +54,13 @@ def plot_scalar_map_on_ax(
     norm=None 
 ):
     ax.coastlines(color="grey", zorder=3, linewidth=0.5)
-    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, 
-                      linewidth=0.5, color="gray", alpha=0.5, linestyle="--")
-    current_vmin, current_vmax = vmin, vmax 
-    if not (isinstance(current_vmin, (float, int, np.number)) and isinstance(current_vmax, (float, int, np.number)) and current_vmin < current_vmax):
-        current_vmin, current_vmax = get_final_plot_limits(current_vmin if current_vmin is not None else 0.0, current_vmax if current_vmax is not None else 1.0)
     data_to_plot_masked = np.ma.masked_invalid(data_2d_arr)
-    if norm is None: norm = mcolors.Normalize(vmin=current_vmin, vmax=current_vmax)
-    elif isinstance(norm, mcolors.LogNorm): 
-        safe_vmin_log = max(current_vmin, 1e-9) if current_vmin is not None and current_vmin > 0 else 1e-9 
-        safe_vmax_log = current_vmax if current_vmax is not None and current_vmax > safe_vmin_log else safe_vmin_log * 10
-        if not (np.isclose(norm.vmin, safe_vmin_log) and np.isclose(norm.vmax, safe_vmax_log)): norm = mcolors.LogNorm(vmin=safe_vmin_log, vmax=safe_vmax_log, clip=True) 
-    elif isinstance(norm, mcolors.Normalize): 
-        if not (np.isclose(norm.vmin, current_vmin) and np.isclose(norm.vmax, current_vmax)):
-            norm.vmin = current_vmin; norm.vmax = current_vmax
+
+    if norm is None:
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    else:
+        norm.vmin = vmin; norm.vmax = vmax
+
     im = None
     if use_pcolormesh:
         im = ax.pcolormesh(lon_coords_2d, lat_coords_2d, data_to_plot_masked, cmap=cmap, norm=norm, transform=ccrs.PlateCarree(), shading="auto", zorder=1)
@@ -93,7 +71,7 @@ def plot_scalar_map_on_ax(
                  log_levels = np.geomspace(plot_vmin, plot_vmax, num_levels)
                  levels = log_levels[np.isfinite(log_levels)] 
                  if len(np.unique(np.round(levels,decimals=15))) < 2 : levels = np.array([plot_vmin, plot_vmax])
-            else: levels = np.array([current_vmin, current_vmax]); norm = mcolors.Normalize(vmin=current_vmin, vmax=current_vmax) 
+            else: levels = np.array([vmin, vmax]); norm = mcolors.Normalize(vmin=vmin, vmax=vmax) 
         else: 
             if abs(plot_vmax - plot_vmin) < 1e-12 : levels = np.array([plot_vmin, plot_vmax]) 
             else: levels = np.linspace(plot_vmin, plot_vmax, num_levels)
@@ -198,7 +176,7 @@ def plot_input_vs_interpolated(
         else: 
             print(f"    Warning: No valid data for percentiles of '{data_type_str}'. Using default [0,1].")
             if current_scale_type == 'log': vmin_pctl, vmax_pctl = 1e-3, 1e-1 
-        vmin_final, vmax_final = get_final_plot_limits(vmin_pctl, vmax_pctl) 
+        vmin_final, vmax_final = vmin_pctl, vmax_pctl
         norm_for_plot = None
         if current_scale_type == 'log' and cmap_global != 'bwr':
             if vmin_final > 0 and vmax_final > vmin_final: 
@@ -211,7 +189,7 @@ def plot_input_vs_interpolated(
                 else: vmin_pctl_linear = 0.0
                 if temp_valid_data.size > 0: vmax_pctl_linear = np.percentile(temp_valid_data, vmax_percentile)
                 else: vmax_pctl_linear = 1.0
-                vmin_final, vmax_final = get_final_plot_limits(vmin_pctl_linear, vmax_pctl_linear)
+                vmin_final, vmax_final = vmin_pctl_linear, vmax_pctl_linear
         global_plot_scales[data_type_str] = {'vmin': vmin_final, 'vmax': vmax_final, 'cmap': cmap_global, 'norm': norm_for_plot, 'scale_type': current_scale_type}
         print(f"  Global scale for '{data_type_str}' ({current_scale_type}): vmin={vmin_final:.3e}, vmax={vmax_final:.3e}")
 
@@ -310,6 +288,7 @@ def plot_input_vs_interpolated(
         ax_fitted_text_label.axis('off')
 
         for ts_idx, timestep in enumerate(timesteps_to_plot):
+            time_val = timestep * input_dt
             ax_input = map_axes[row_idx_input, ts_idx]
             ax_fitted = map_axes[row_idx_fitted, ts_idx]
             ax_input.clear(); ax_fitted.clear()
@@ -331,7 +310,6 @@ def plot_input_vs_interpolated(
             if data_type_str=="u_mag":input_data_2d=np.sqrt(u_n**2+u_e**2)
             elif data_type_str=="u_theta":input_data_2d=-u_n
             elif data_type_str=="u_phi":input_data_2d=u_e
-            if data_type_str == "u_mag" and np.all(np.isnan(input_data_2d)): print(f"    DEBUG u_mag INPUT timestep {timestep}: ALL NaNs")
             interpolated_data_2d = np.full(target_shape, np.nan)
             timeseries_entry = input_timeseries.get_entry(pynamit_timeseries_key_map[data_type_str], time_val, interpolation=False)
             if timeseries_entry:
@@ -340,7 +318,6 @@ def plot_input_vs_interpolated(
                 elif pynamit_timeseries_key_map[data_type_str]=="jr": interpolated_data_2d=_calculate_interpolated_scalar_field(timeseries_entry,"jr",storage_basis,plot_evaluator,target_shape)
                 elif pynamit_timeseries_key_map[data_type_str]=="conductance": interpolated_data_2d=_calculate_interpolated_conductance(timeseries_entry,data_type_str,storage_basis,plot_evaluator,target_shape)
                 elif pynamit_timeseries_key_map[data_type_str]=="u": interpolated_data_2d=_calculate_interpolated_u_field(timeseries_entry,data_type_str,storage_basis,plot_evaluator,target_shape)
-            if data_type_str == "u_mag" and np.all(np.isnan(interpolated_data_2d)): print(f"    DEBUG u_mag INTERP timestep {timestep}: ALL NaNs")
 
             im_input = plot_scalar_map_on_ax(ax_input, current_lon, current_lat, input_data_2d, plot_title, cmap_use, vmin_use, vmax_use, use_pcolormesh=True, norm=norm_use)
             if current_mappable_this_dt is None and not np.all(np.isnan(input_data_2d)): current_mappable_this_dt = im_input
