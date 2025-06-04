@@ -54,12 +54,8 @@ def _calculate_interpolated_u_field(timeseries_entry, component, storage_basis, 
     u_coeffs = timeseries_entry.get("u");
     if u_coeffs is None: return np.full(target_shape, np.nan)
     try:
-        if u_coeffs.ndim == 1: 
-            if storage_basis.Ncoeffs * 2 == u_coeffs.size: u_coeffs = u_coeffs.reshape((2, storage_basis.Ncoeffs))
-            else: return np.full(target_shape, np.nan)
-        elif u_coeffs.shape[0] != 2: return np.full(target_shape, np.nan)
-        u = FieldExpansion(storage_basis, coeffs=u_coeffs, field_type="tangential"); u_t, u_p = u.to_grid(plot_evaluator)
-        u_t_2d, u_p_2d = u_t.reshape(target_shape), u_p.reshape(target_shape)
+        u = FieldExpansion(storage_basis, coeffs=u_coeffs.reshape((2, -1)), field_type="tangential"); u_grid = u.to_grid(plot_evaluator)
+        u_t_2d, u_p_2d = u_grid[0].reshape(target_shape), u_grid[1].reshape(target_shape)
         if component == "u_mag": return np.sqrt(u_t_2d**2 + u_p_2d**2)
         elif component == "u_theta": return u_t_2d
         elif component == "u_phi": return u_p_2d
