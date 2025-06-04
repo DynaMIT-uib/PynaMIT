@@ -70,7 +70,7 @@ def plot_input_vs_interpolated(
     output_filename=None,
     vmin_percentile=0.2,
     vmax_percentile=99.8,
-    positive_only_scale_type="linear",  # Determines scale for positive_only=True data
+    strictly_positive_scale_type="linear",  # RENAMED from positive_only_scale_type
 ):
     try:
         h5file = h5.File(h5_filepath, "r")
@@ -94,9 +94,10 @@ def plot_input_vs_interpolated(
         h5file.close()
         print("Warning: No data types specified for plotting. Exiting.")
         return
-    if positive_only_scale_type not in ["linear", "log"]:
+    # VALIDATION for RENAMED argument
+    if strictly_positive_scale_type not in ["linear", "log"]:
         h5file.close()
-        raise ValueError("positive_only_scale_type must be 'linear' or 'log'.")
+        raise ValueError("strictly_positive_scale_type must be 'linear' or 'log'.")
 
     io = IO(interpolated_filename_prefix)
     settings = io.load_dataset("settings", print_info=False)
@@ -138,48 +139,49 @@ def plot_input_vs_interpolated(
         "u_phi": "u",
     }
 
+    # --- MODIFIED data_type_details: Key RENAMED to "strictly_positive" ---
     data_type_details = {
         "Br": {
             "label": r"$\Delta B_r$ [T]",
-            "positive_only": False,
+            "strictly_positive": False,
             "grid_type": "magnetosphere",
             "h5_key_primary": "Bu",
         },
         "jr": {
             "label": r"$j_r$ [A/m$^2$]",
-            "positive_only": False,
+            "strictly_positive": False,
             "grid_type": "ionosphere",
             "h5_key_primary": "FAC",
         },
         "SH": {
             "label": r"$\Sigma_H$ [S]",
-            "positive_only": True,
+            "strictly_positive": True,
             "grid_type": "ionosphere",
             "h5_key_primary": "SH",
         },
         "SP": {
             "label": r"$\Sigma_P$ [S]",
-            "positive_only": True,
+            "strictly_positive": True,
             "grid_type": "ionosphere",
             "h5_key_primary": "SP",
         },
         "u_mag": {
             "label": r"$|u|$ [m/s]",
-            "positive_only": True,
+            "strictly_positive": True,
             "grid_type": "ionosphere",
             "h5_key_primary": "We",
             "h5_key_secondary": "Wn",
         },
         "u_theta": {
             "label": r"$u_\theta$ (South) [m/s]",
-            "positive_only": False,
+            "strictly_positive": False,
             "grid_type": "ionosphere",
             "h5_key_primary": "We",
             "h5_key_secondary": "Wn",
         },
         "u_phi": {
             "label": r"$u_\phi$ (East) [m/s]",
-            "positive_only": False,
+            "strictly_positive": False,
             "grid_type": "ionosphere",
             "h5_key_primary": "We",
             "h5_key_secondary": "Wn",
@@ -303,9 +305,10 @@ def plot_input_vs_interpolated(
     global_plot_scales = {}
     for data_type_str in data_types_to_plot:
         details = data_type_details[data_type_str]
-        is_positive_only = details["positive_only"]
-        current_scale_type = positive_only_scale_type if is_positive_only else "linear"
-        cmap_to_use = "viridis" if is_positive_only else "bwr"
+        is_strictly_positive = details["strictly_positive"]  # RENAMED variable
+
+        current_scale_type = strictly_positive_scale_type if is_strictly_positive else "linear"
+        cmap_to_use = "viridis" if is_strictly_positive else "bwr"
 
         cat_input_all = all_data_for_scaling[data_type_str]["input"]
         cat_interp_all = all_data_for_scaling[data_type_str]["interpolated"]
@@ -329,11 +332,11 @@ def plot_input_vs_interpolated(
             h5file.close()
             raise ValueError(f"No valid (non-NaN) data for '{data_type_str}' for scales.")
 
-        if is_positive_only:
-            if np.any(temp_valid_data < -1e-9):
+        if is_strictly_positive:
+            if np.any(temp_valid_data < -1e-9):  # Check before filtering
                 h5file.close()
                 raise ValueError(
-                    f"Data type '{data_type_str}' is 'positive_only' but contains values < -1e-9."
+                    f"Data type '{data_type_str}' is 'strictly_positive' but contains values < -1e-9."
                 )
             valid_data_for_percentile = temp_valid_data[temp_valid_data >= 0]
             if current_scale_type == "log":
@@ -343,24 +346,24 @@ def plot_input_vs_interpolated(
                 if valid_data_for_percentile.size == 0:
                     h5file.close()
                     raise ValueError(
-                        f"No strictly positive data for '{data_type_str}' for log scale."
+                        f"No data > 1e-12 for '{data_type_str}' for log scale when 'strictly_positive' is true."
                     )
         else:
             valid_data_for_percentile = temp_valid_data
 
-        if valid_data_for_percentile.size == 0:
+        if valid_data_for_percentile.size == 0:  # Catch if filtering resulted in empty array
             h5file.close()
             raise ValueError(
-                f"No valid data for percentile calculation for '{data_type_str}' after filtering."
+                f"No valid data for percentile calculation for '{data_type_str}' after filtering for scale type."
             )
 
-        if not is_positive_only:
+        if not is_strictly_positive:
             abs_max_s = np.percentile(np.abs(valid_data_for_percentile), vmax_percentile)
             vmin, vmax = -abs_max_s, abs_max_s
         else:
             vmin = np.percentile(valid_data_for_percentile, vmin_percentile)
             vmax = np.percentile(valid_data_for_percentile, vmax_percentile)
-            if current_scale_type == "linear":
+            if current_scale_type == "linear":  # For strictly_positive, linear scale
                 vmin = 0.0
 
         if vmin == vmax and current_scale_type != "log":
@@ -370,19 +373,19 @@ def plot_input_vs_interpolated(
 
         norm_for_plot = None
         if current_scale_type == "log":
-            if not is_positive_only:
+            if not is_strictly_positive:
                 h5file.close()
                 raise RuntimeError(
-                    f"Internal logic error: Log scale for non-positive_only data '{data_type_str}'."
+                    f"Internal logic error: Log scale for non-strictly_positive data '{data_type_str}'."
                 )
-            if vmin <= 1e-12:
+            if vmin <= 1e-12:  # Stricter check for log's vmin
                 h5file.close()
                 raise ValueError(
-                    f"Log scale for '{data_type_str}' requires vmin > 0 (actual > 1e-12), got vmin={vmin:.3e}."
+                    f"Log scale for '{data_type_str}' requires vmin > 1e-12, got vmin={vmin:.3e}."
                 )
             try:
                 norm_for_plot = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
-            except ValueError as e:
+            except ValueError as e:  # Catches vmin >= vmax from LogNorm
                 h5file.close()
                 raise ValueError(
                     f"LogNorm error for '{data_type_str}' (vmin={vmin:.3e}, vmax={vmax:.3e}): {e}"
@@ -396,13 +399,15 @@ def plot_input_vs_interpolated(
             "cmap": cmap_to_use,
             "norm": norm_for_plot,
             "scale_type": current_scale_type,
-            "positive_only": is_positive_only,
+            "strictly_positive": is_strictly_positive,  # Store RENAMED flag
         }
+        # Print statement updated with RENAMED flag
         print(
-            f"  Global scale for '{data_type_str}' ({current_scale_type}, positive_only={is_positive_only}): "
+            f"  Global scale for '{data_type_str}' ({current_scale_type}, strictly_positive={is_strictly_positive}): "
             f"vmin={vmin:.3e}, vmax={vmax:.3e}, cmap='{cmap_to_use}'"
         )
 
+    # --- Figure Creation (unchanged from previous good version) ---
     num_dt = len(data_types_to_plot)
     num_plot_rows = num_dt * 2
     num_plot_cols = len(timesteps_to_plot)
@@ -470,17 +475,14 @@ def plot_input_vs_interpolated(
         cmap_use, norm_use = current_global_scale["cmap"], current_global_scale["norm"]
 
         row_idx_input = dt_idx * 2
-        row_idx_fitted_maps = row_idx_input + 1  # For map axes and "Fitted" label
+        row_idx_fitted_maps = row_idx_input + 1
 
         current_mappable_this_dt = None
 
-        # Corrected subplot_spec for gs_dt_cbar_block to span two rows for the data type label and cbar
         gs_dt_cbar_block = gridspec.GridSpecFromSubplotSpec(
             1,
-            2,  # 1 row, 2 columns for Label | Cbar within this block
-            subplot_spec=gs_bottom_left[
-                row_idx_input : row_idx_input + 2, 0
-            ],  # Spans 2 rows of parent gs
+            2,
+            subplot_spec=gs_bottom_left[row_idx_input : row_idx_input + 2, 0],
             width_ratios=[0.4, 0.6],
             wspace=0.1,
         )
