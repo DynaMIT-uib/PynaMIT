@@ -66,23 +66,15 @@ def _calculate_interpolated_u_field(timeseries_entry, component, storage_basis, 
     except Exception: return np.full(target_shape, np.nan)
 
 
-# --- Helper plotting function (plot_scalar_map_on_ax) ---
+# --- Helper plotting function (plot_scalar_map_on_ax - Degree labels always off) ---
 def plot_scalar_map_on_ax(
     ax, lon_coords_2d, lat_coords_2d, data_2d_arr, title="", cmap="viridis",
     vmin=None, vmax=None, use_pcolormesh=False,
-    draw_bottom_labels=False, draw_left_labels=False, 
     norm=None 
 ):
     ax.coastlines(color="grey", zorder=3, linewidth=0.5)
-    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, 
                       linewidth=0.5, color="gray", alpha=0.5, linestyle="--")
-    gl.top_labels = False 
-    gl.right_labels = False 
-    gl.left_labels = draw_left_labels 
-    gl.bottom_labels = draw_bottom_labels 
-    
-    if draw_bottom_labels: gl.xlocator = mticker.FixedLocator(np.arange(-180, 181, 60)) 
-    if draw_left_labels: gl.ylocator = mticker.FixedLocator(np.arange(-90, 91, 30)) 
     
     current_vmin, current_vmax = vmin, vmax 
     if not (isinstance(current_vmin, (float, int, np.number)) and isinstance(current_vmax, (float, int, np.number)) and current_vmin < current_vmax):
@@ -116,7 +108,7 @@ def plot_scalar_map_on_ax(
         if len(levels)<2: levels = np.array([plot_vmin, plot_vmax]) 
         im = ax.contourf(lon_coords_2d, lat_coords_2d, data_to_plot_masked, levels=levels, norm=norm, cmap=cmap, extend="both", transform=ccrs.PlateCarree(), zorder=1) 
     
-    ax.set_title(title, fontsize=9) 
+    # ax.set_title(title, fontsize=9) # Titles are handled in sfig_TR_times
     return im
 
 # --- Main plotting function ---
@@ -232,32 +224,54 @@ def plot_input_vs_interpolated(
         global_plot_scales[data_type_str] = {'vmin': vmin_final, 'vmax': vmax_final, 'cmap': cmap_global, 'norm': norm_for_plot, 'scale_type': current_scale_type}
         print(f"  Global scale for '{data_type_str}' ({current_scale_type}): vmin={vmin_final:.3e}, vmax={vmax_final:.3e}")
 
-    # --- Figure Creation using Subfigures ---
+
+    # --- Figure Creation using 2x2 Subfigures ---
     num_dt = len(data_types_to_plot)
     num_plot_rows = num_dt * 2 
     num_plot_cols = len(timesteps_to_plot)
 
-    base_plot_w, base_plot_h = 2.2, 1.8  
-    # Define fractional widths for subfigures
-    sfig_main_plots_width_fraction = 0.85 # Main area for plots and their immediate labels
-    sfig_cbars_width_fraction = 0.15 # Area for data type label + cbar
+    # Define relative sizes for subfigures - make top row and left col narrow
+    time_row_h_frac = 0.04   # Small height for the top row (time labels)
+    plots_row_h_frac = 1.0 - time_row_h_frac
     
-    fig_width = num_plot_cols * base_plot_w / sfig_main_plots_width_fraction 
-    fig_height = num_plot_rows * base_plot_h + 0.8 
-    
-    fig_width = min(max(10, fig_width), 28) 
-    fig_height = min(max(5, fig_height), num_plot_rows * (base_plot_h + 0.1) + 1.0) 
+    cbars_labels_col_w_frac = 0.20 # Width for Bottom-Left (cbars, data type labels, Input/Fitted)
+    plots_col_w_frac = 1.0 - cbars_labels_col_w_frac  # Width for Bottom-Right (plots)
 
-    print(f"Creating figure with subfigures. Target Size: ({fig_width:.1f},{fig_height:.1f})")
+    # Estimate overall figure size
+    base_plot_w, base_plot_h = 2.0, 1.5  # Smaller base size per plot
+    fig_width = (num_plot_cols * base_plot_w) / plots_col_w_frac 
+    fig_height = (num_plot_rows * base_plot_h) / plots_row_h_frac 
+    
+    fig_width = min(max(8, fig_width), 22) # Adjusted caps for potentially more compact layout
+    fig_height = min(max(4 + time_row_h_frac*fig_height , fig_height), num_plot_rows * (base_plot_h + 0.1) + 1.0) 
+
+
+    print(f"Creating figure with 2x2 subfigures. Target Size: ({fig_width:.1f},{fig_height:.1f})")
     fig = plt.figure(figsize=(fig_width, fig_height), layout="constrained")
     
-    sfigs = fig.subfigures(1, 2, width_ratios=[sfig_main_plots_width_fraction, sfig_cbars_width_fraction], 
-                           wspace=0.03) 
+    sfigs_grid = fig.subfigures(2, 2, height_ratios=[time_row_h_frac, plots_row_h_frac], 
+                                width_ratios=[cbars_labels_col_w_frac, plots_col_w_frac], 
+                                hspace=0.01, wspace=0.01) # Minimal space between subfigures
     
-    sfig_main_plots = sfigs[0]
-    sfig_right_panel = sfigs[1]
+    sfig_TL_empty = sfigs_grid[0, 0]
+    sfig_TR_times = sfigs_grid[0, 1]
+    sfig_BL_cbars_and_labels = sfigs_grid[1, 0]
+    sfig_BR_plots = sfigs_grid[1, 1]
 
-    map_axes_flat = sfig_main_plots.subplots(num_plot_rows, num_plot_cols, sharex=True, sharey=True,
+    sfig_TL_empty.patch.set_alpha(0.0) 
+    for ax_ in sfig_TL_empty.get_axes(): ax_.remove() # Ensure it's truly empty
+
+    # --- Time Labels in sfig_TR_times (Top-Right) ---
+    if num_plot_cols > 0 :
+        time_label_axes_flat = sfig_TR_times.subplots(1, num_plot_cols, sharey=True) # sharey for vertical alignment
+        time_label_axes = [time_label_axes_flat] if num_plot_cols == 1 else time_label_axes_flat
+        for ts_idx, timestep in enumerate(timesteps_to_plot):
+            time_val = timestep * input_dt
+            time_label_axes[ts_idx].text(0.5, 0.5, f"{time_val}s", ha='center', va='center', fontsize=8) # Centered
+            time_label_axes[ts_idx].axis('off')
+
+    # --- Main Map Plots in sfig_BR_plots (Bottom-Right) ---
+    map_axes_flat = sfig_BR_plots.subplots(num_plot_rows, num_plot_cols, sharex=True, sharey=True,
                                      subplot_kw={'projection': ccrs.PlateCarree(central_longitude=noon_longitude)})
     if num_plot_rows == 0 or num_plot_cols == 0: 
         if h5file: h5file.close(); return
@@ -266,7 +280,11 @@ def plot_input_vs_interpolated(
     elif num_plot_cols == 1: map_axes = map_axes_flat[:, np.newaxis]
     else: map_axes = map_axes_flat
     
-    gs_right_panel = gridspec.GridSpec(num_dt, 1, figure=sfig_right_panel, hspace=0.3) 
+    # --- Bottom-Left Panel (sfig_BL_cbars_and_labels) ---
+    # GridSpec with num_plot_rows and 3 columns: DataTypeLabel | Colorbar | Input/Fitted Label
+    gs_bottom_left = gridspec.GridSpec(num_plot_rows, 3, figure=sfig_BL_cbars_and_labels, 
+                                       width_ratios=[0.4, 0.3, 0.3], # DataType | Cbar | Input/Fitted
+                                       wspace=0.1, hspace=0.05) # Reduced hspace
 
     mappables_for_cbars = [None] * num_dt
 
@@ -280,6 +298,21 @@ def plot_input_vs_interpolated(
         row_idx_fitted = row_idx_input + 1
         current_mappable_this_dt = None
 
+        # Data Type Label for this block (spans two rows in gs_bottom_left, first column)
+        ax_dt_label = sfig_BL_cbars_and_labels.add_subplot(gs_bottom_left[row_idx_input:row_idx_input+2, 0])
+        ax_dt_label.text(0.5, 0.5, details['label'], ha='center', va='center', rotation=90, fontsize=9) # rotation 90
+        ax_dt_label.axis('off')
+        
+        # Input/Fitted Labels (in the third column of gs_bottom_left, for each specific row)
+        ax_input_text_label = sfig_BL_cbars_and_labels.add_subplot(gs_bottom_left[row_idx_input, 2])
+        ax_input_text_label.text(0.5, 0.5, "Input", ha='center', va='center', rotation=90, fontsize=8) # rotation 90
+        ax_input_text_label.axis('off')
+
+        ax_fitted_text_label = sfig_BL_cbars_and_labels.add_subplot(gs_bottom_left[row_idx_fitted, 2])
+        ax_fitted_text_label.text(0.5, 0.5, "Fitted", ha='center', va='center', rotation=90, fontsize=8) # rotation 90
+        ax_fitted_text_label.axis('off')
+
+
         for ts_idx, timestep in enumerate(timesteps_to_plot):
             ax_input = map_axes[row_idx_input, ts_idx]
             ax_fitted = map_axes[row_idx_fitted, ts_idx]
@@ -290,10 +323,10 @@ def plot_input_vs_interpolated(
                 ax_fitted.text(0.5,0.5,"Data OOB", ha='center', va='center', transform=ax_fitted.transAxes); ax_fitted.set_xticks([]); ax_fitted.set_yticks([])
                 continue
             
-            time_val = timestep * input_dt 
-            plot_title = f"{time_val}s" if row_idx_input == 0 else "" 
+            plot_title = "" # Time labels are in sfig_TR_times
 
             current_lon, current_lat, target_shape = (magnetosphere_lon, magnetosphere_lat, magnetosphere_lat.shape) if details["grid_type"] == "magnetosphere" else (ionosphere_lon, ionosphere_lat, ionosphere_lat.shape)
+            # ... (Data calculation - unchanged) ...
             input_data_2d = np.full(target_shape, np.nan); h5_key_pri = details["h5_key_primary"]
             if data_type_str=="Br": input_data_2d = h5file[h5_key_pri][timestep,:,:] * 1e-9
             elif data_type_str=="jr": input_data_2d = (h5file[h5_key_pri][timestep,:,:] * 1e-6) * ionosphere_br_2d
@@ -313,60 +346,25 @@ def plot_input_vs_interpolated(
                 elif pynamit_timeseries_key_map[data_type_str]=="u": interpolated_data_2d=_calculate_interpolated_u_field(timeseries_entry,data_type_str,storage_basis,plot_evaluator,target_shape)
             if data_type_str == "u_mag" and np.all(np.isnan(interpolated_data_2d)): print(f"    DEBUG u_mag INTERP timestep {timestep}: ALL NaNs")
 
-            draw_bottom_lon_degrees = (row_idx_fitted == num_plot_rows - 1) 
-            draw_left_lat_degrees = (ts_idx == 0) 
-
-            im_input = plot_scalar_map_on_ax(ax_input, current_lon, current_lat, input_data_2d, plot_title, cmap_use, vmin_use, vmax_use, use_pcolormesh=True, 
-                                             draw_bottom_labels=False, 
-                                             draw_left_labels=draw_left_lat_degrees, norm=norm_use)
+            im_input = plot_scalar_map_on_ax(ax_input, current_lon, current_lat, input_data_2d, plot_title, cmap_use, vmin_use, vmax_use, use_pcolormesh=True, norm=norm_use)
             if current_mappable_this_dt is None and not np.all(np.isnan(input_data_2d)): current_mappable_this_dt = im_input
             
-            im_fitted = plot_scalar_map_on_ax(ax_fitted, current_lon, current_lat, interpolated_data_2d, "", cmap_use, vmin_use, vmax_use, use_pcolormesh=True, 
-                                              draw_bottom_labels=draw_bottom_lon_degrees, 
-                                              draw_left_labels=draw_left_lat_degrees, norm=norm_use)
+            im_fitted = plot_scalar_map_on_ax(ax_fitted, current_lon, current_lat, interpolated_data_2d, "", cmap_use, vmin_use, vmax_use, use_pcolormesh=True, norm=norm_use)
             if current_mappable_this_dt is None and not np.all(np.isnan(interpolated_data_2d)): current_mappable_this_dt = im_fitted
-            
-            # "Input" / "Fitted" labels to the right of the last plot in each row
-            if ts_idx == num_plot_cols - 1: 
-                # These x, y are in axes coordinates (0-1 is within the axes, >1 is outside)
-                # Rotation is 270 to make them vertical, reading bottom-to-top
-                ax_input.text(1.02, 0.5, "Input", transform=ax_input.transAxes,
-                              ha='left', va='center', fontsize=8, rotation=270)
-                ax_fitted.text(1.02, 0.5, "Fitted", transform=ax_fitted.transAxes,
-                               ha='left', va='center', fontsize=8, rotation=270)
         
         mappables_for_cbars[dt_idx] = current_mappable_this_dt
 
-    # Add DataType Labels and Colorbars in the right subfigure
+    # Add Colorbars in the Bottom-Left subfigure (sfig_BL_cbars_and_labels)
     for i in range(num_dt): 
         mappable = mappables_for_cbars[i]
-        dt_label_text = data_type_details[data_types_to_plot[i]]['label']
-        cmap_for_cbar = global_plot_scales[data_types_to_plot[i]]['cmap'] 
-        norm_for_cbar = global_plot_scales[data_types_to_plot[i]]['norm'] 
-        current_scale_type_for_cbar = global_plot_scales[data_types_to_plot[i]]['scale_type']
-
-        gs_nested_cbar = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_right_panel[i], 
-                                                     width_ratios=[0.35, 0.65], wspace=0.1) 
         
-        ax_dt_label = sfig_right_panel.add_subplot(gs_nested_cbar[0]) 
-        ax_dt_label.text(0.5, 0.5, dt_label_text, ha='center', va='center', rotation=270, fontsize=9) 
-        ax_dt_label.axis('off')
-
+        row_start_bl = i * 2
         if mappable:
-            ax_cbar = sfig_right_panel.add_subplot(gs_nested_cbar[1]) 
+            ax_cbar = sfig_BL_cbars_and_labels.add_subplot(gs_bottom_left[row_start_bl:row_start_bl+2, 1]) 
             cb = fig.colorbar(mappable, cax=ax_cbar, orientation='vertical')
             cb.ax.tick_params(labelsize=7) 
-            # Optional: Guide tick locator if Matplotlib's default isn't ideal
-            # nbins_for_ticks = 4 
-            # if cmap_for_cbar == 'bwr':
-            #      tick_locator = mticker.MaxNLocator(nbins=nbins_for_ticks, symmetric=True, prune=None) 
-            # elif isinstance(norm_for_cbar, mcolors.LogNorm): 
-            #      tick_locator = mticker.LogLocator(base=10, numticks=nbins_for_ticks)
-            # else: 
-            #      tick_locator = mticker.MaxNLocator(nbins=nbins_for_ticks, prune='both')
-            # cb.ax.yaxis.set_major_locator(tick_locator)
         else: 
-            ax_cbar = sfig_right_panel.add_subplot(gs_nested_cbar[1])
+            ax_cbar = sfig_BL_cbars_and_labels.add_subplot(gs_bottom_left[row_start_bl:row_start_bl+2, 1])
             ax_cbar.text(0.5, 0.5, "No Data", ha='center', va='center', fontsize=7)
             ax_cbar.axis('off')
     
