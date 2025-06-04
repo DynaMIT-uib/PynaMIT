@@ -25,63 +25,45 @@ def _calculate_interpolated_scalar_field(
     timeseries_entry, data_key, storage_basis, plot_evaluator, target_shape
 ):
     coeffs = timeseries_entry.get(data_key)
-    if coeffs is None:
-        return np.full(target_shape, np.nan)
-    try:
-        field_exp = FieldExpansion(storage_basis, coeffs=coeffs, field_type="scalar")
-        return field_exp.to_grid(plot_evaluator).reshape(target_shape)
-    except Exception:
-        return np.full(target_shape, np.nan)
-
+    field_exp = FieldExpansion(storage_basis, coeffs=coeffs, field_type="scalar")
+    return field_exp.to_grid(plot_evaluator).reshape(target_shape)
 
 def _calculate_interpolated_conductance(
     timeseries_entry, component, storage_basis, plot_evaluator, target_shape
 ):
     etaP_coeffs, etaH_coeffs = timeseries_entry.get("etaP"), timeseries_entry.get("etaH")
-    if etaP_coeffs is None or etaH_coeffs is None:
-        return np.full(target_shape, np.nan)
-    try:
-        etaP, etaH = (
-            FieldExpansion(storage_basis, coeffs=etaP_coeffs, field_type="scalar"),
-            FieldExpansion(storage_basis, coeffs=etaH_coeffs, field_type="scalar"),
-        )
-        etaP_f, etaH_f = (
-            etaP.to_grid(plot_evaluator).reshape(target_shape),
-            etaH.to_grid(plot_evaluator).reshape(target_shape),
-        )
-        den = etaP_f**2 + etaH_f**2
-        sH_f, sP_f = np.zeros_like(etaH_f), np.zeros_like(etaP_f)
-        valid = den > 1e-12
-        sH_f[valid] = etaH_f[valid] / den[valid]
-        sP_f[valid] = etaP_f[valid] / den[valid]
-        return sH_f if component == "SH" else sP_f
-    except Exception:
-        return np.full(target_shape, np.nan)
 
+    etaP, etaH = (
+        FieldExpansion(storage_basis, coeffs=etaP_coeffs, field_type="scalar"),
+        FieldExpansion(storage_basis, coeffs=etaH_coeffs, field_type="scalar"),
+    )
+    etaP_f, etaH_f = (
+        etaP.to_grid(plot_evaluator).reshape(target_shape),
+        etaH.to_grid(plot_evaluator).reshape(target_shape),
+    )
+    den = etaP_f**2 + etaH_f**2
+    sH_f, sP_f = np.zeros_like(etaH_f), np.zeros_like(etaP_f)
+    valid = den > 1e-12
+    sH_f[valid] = etaH_f[valid] / den[valid]
+    sP_f[valid] = etaP_f[valid] / den[valid]
+    return sH_f if component == "SH" else sP_f
 
 def _calculate_interpolated_u_field(
     timeseries_entry, component, storage_basis, plot_evaluator, target_shape
 ):
     u_coeffs = timeseries_entry.get("u")
-    if u_coeffs is None:
-        return np.full(target_shape, np.nan)
-    try:
-        u = FieldExpansion(
-            storage_basis, coeffs=u_coeffs.reshape((2, -1)), field_type="tangential"
-        )
-        u_grid = u.to_grid(plot_evaluator)
-        u_t_2d, u_p_2d = u_grid[0].reshape(target_shape), u_grid[1].reshape(target_shape)
-        if component == "u_mag":
-            return np.sqrt(u_t_2d**2 + u_p_2d**2)
-        elif component == "u_theta":
-            return u_t_2d
-        elif component == "u_phi":
-            return u_p_2d
-    except Exception:
-        return np.full(target_shape, np.nan)
+    u = FieldExpansion(
+        storage_basis, coeffs=u_coeffs.reshape((2, -1)), field_type="tangential"
+    )
+    u_grid = u.to_grid(plot_evaluator)
+    u_t_2d, u_p_2d = u_grid[0].reshape(target_shape), u_grid[1].reshape(target_shape)
+    if component == "u_mag":
+        return np.sqrt(u_t_2d**2 + u_p_2d**2)
+    elif component == "u_theta":
+        return u_t_2d
+    elif component == "u_phi":
+        return u_p_2d
 
-
-# --- Helper plotting function (plot_scalar_map_on_ax - Degree labels always off) ---
 def plot_scalar_map_on_ax(
     ax,
     lon_coords_2d,
@@ -148,8 +130,6 @@ def plot_scalar_map_on_ax(
     ax.set_title(title, fontsize=9)
     return im
 
-
-# --- Main plotting function ---
 def plot_input_vs_interpolated(
     h5_filepath,
     interpolated_filename_prefix,
@@ -163,25 +143,18 @@ def plot_input_vs_interpolated(
     positive_definite_zeromin=True,
     non_bwr_scale_type="linear",
 ):
-    # ... (Initial checks and Pynamit setup - unchanged) ...
-    if not timesteps_to_plot:
-        print("Warning: timesteps_to_plot is empty.")
-        return
-    if not data_types_to_plot:
-        print("Warning: data_types_to_plot is empty.")
-        return
     try:
         h5file = h5.File(h5_filepath, "r")
     except Exception as e:
-        print(f"CRITICAL ERROR: Opening HDF5 {h5_filepath}: {e}")
-        return
-    num_h5_steps = h5file["Bu"].shape[0]
+        raise ValueError(f"Failed to open HDF5 file '{h5_filepath}': {e}")
+
+    num_h5_steps = h5file["time"].shape[0]
     io = IO(interpolated_filename_prefix)
+
     settings = io.load_dataset("settings", print_info=False)
     if settings is None:
-        print(f"CRITICAL ERROR: No 'settings' from '{interpolated_filename_prefix}'.")
-        h5file.close()
-        return
+        raise ValueError("Settings dataset not found in the HDF5 file.")
+
     ri_value = float(settings.RI)
     mainfield = Mainfield(
         kind=str(settings.mainfield_kind),
@@ -189,21 +162,25 @@ def plot_input_vs_interpolated(
         hI=(ri_value - RE) * 1e-3,
         B0=None if float(settings.mainfield_B0) == 0 else float(settings.mainfield_B0),
     )
+
     cs_basis = CSBasis(int(settings.Ncs))
     sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), Nmin=0)
     sh_basis_zero_removed = SHBasis(int(settings.Nmax), int(settings.Mmax))
+
     input_vars_pynamit = {
         "jr": {"jr": "scalar"},
         "Br": {"Br": "scalar"},
         "conductance": {"etaP": "scalar", "etaH": "scalar"},
         "u": {"u": "tangential"},
     }
+
     input_storage_bases = {
         "jr": sh_basis_zero_removed,
         "Br": sh_basis_zero_removed,
         "conductance": sh_basis,
         "u": sh_basis_zero_removed,
     }
+
     pynamit_timeseries_key_map = {
         "Br": "Br",
         "jr": "jr",
@@ -213,6 +190,7 @@ def plot_input_vs_interpolated(
         "u_theta": "u",
         "u_phi": "u",
     }
+
     data_type_details = {
         "Br": {
             "label": r"$\Delta B_r$ [T]",
@@ -267,8 +245,10 @@ def plot_input_vs_interpolated(
             "scale_type": "linear",
         },
     }
+
     input_timeseries = Timeseries(cs_basis, input_storage_bases, input_vars_pynamit)
     input_timeseries.load_all(io)
+
     ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]
     magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
@@ -282,7 +262,6 @@ def plot_input_vs_interpolated(
 
     plot_evaluators = {}
 
-    # ... (Data collection loop - unchanged) ...
     for timestep in timesteps_to_plot:
         if (timestep < 0) or (timestep >= num_h5_steps):
             raise ValueError(f"Invalid timestep {timestep}. Must be in range [0, {num_h5_steps}).")
