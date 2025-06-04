@@ -305,7 +305,7 @@ for step in range(0, nstep):
         )
 
 timesteps_for_figure = [0, 80, 160, 240, 320]
-data_types_for_figure = ["Br", "jr", "u_mag"], #"SP", "SH"]
+data_types_for_figure = (["Br", "jr", "u_mag"],)  # "SP", "SH"]
 
 
 pynamit.plot_input_vs_interpolated(
