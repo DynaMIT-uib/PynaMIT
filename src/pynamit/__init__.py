@@ -36,12 +36,11 @@ from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_expansion import FieldExpansion
 from .primitives.grid import Grid
 from .simulation.dynamics import Dynamics
+from .simulation.input_vs_interpolated import plot_input_vs_interpolated
 from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
 from .simulation.visualization import debugplot, globalplot
-from .simulation.input_vs_interpolated import plot_input_vs_interpolated
 from .spherical_harmonics.sh_basis import SHBasis
-from .simulation.debug import debug_br_plot
 
 __all__ = [
     "BasisEvaluator",
@@ -56,5 +55,4 @@ __all__ = [
     "debugplot",
     "globalplot",
     "plot_input_vs_interpolated",
-    "debug_br_plot"
 ]
