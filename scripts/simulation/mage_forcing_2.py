@@ -13,15 +13,12 @@ RI = 6.5e6
 latitude_boundary = 35
 latitude_step = 0.5
 
-PLOT_BR = False
-PLOT_CONDUCTANCE = False
-PLOT_JR = False
-PLOT_U = False
+PLOT = True
 
-BR_LAMBDA = 0.01
-CONDUCTANCE_LAMBDA = 0.01
-JR_LAMBDA = 0.01
-U_LAMBDA = 0.01
+BR_LAMBDA = 0.001
+CONDUCTANCE_LAMBDA = 1.0
+JR_LAMBDA = 0.001
+U_LAMBDA = 0.001
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -220,103 +217,22 @@ for step in range(0, nstep):
         reg_lambda=U_LAMBDA,
     )
 
-    print("Setting input state variables")
-    dynamics.state.update(dynamics.input_timeseries, dynamics.current_time)
+if PLOT:
+    print("Plotting input data")
+    timesteps_for_figure = [0, 80, 160, 240, 320]
+    data_types_for_figure = ["Br", "jr", "u_mag", "SP", "SH"]
 
-    if PLOT_BR:
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.Br.to_grid(plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.bwr,
-            extend="both",
-            title="Br at 1.5 RI",
-        )
-
-    if PLOT_JR:
-        # Note: no minlat, 50 deg default?
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.jr.to_grid(plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.bwr,
-            extend="both",
-            title="jr at RI",
-        )
-
-    if PLOT_CONDUCTANCE:
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.etaP.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="etaP at RI",
-        )
-
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.etaH.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="etaH at RI",
-        )
-
-    if PLOT_U:
-        # Quiver plot tangential vector field.
-        fig, ax = plt.subplots(
-            1,
-            1,
-            figsize=(15, 6),
-            subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_lon)},
-        )
-
-        ax.coastlines()
-
-        ax.quiver(
-            plt_lon,
-            plt_lat,
-            dynamics.state.u.to_grid(plt_evaluator)[1].flatten(),
-            -dynamics.state.u.to_grid(plt_evaluator)[0].flatten(),
-            color="blue",
-            transform=ccrs.PlateCarree(),
-        )
-
-        plt.show()
-
-        # Alternative: plot theta and phi components separately.
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="u at RI",
-        )
-
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="u at RI",
-        )
-
-timesteps_for_figure = [0, 80, 160, 240, 320]
-data_types_for_figure = (["Br", "jr", "u_mag"],)  # "SP", "SH"]
-
-
-pynamit.plot_input_vs_interpolated(
-    h5_filepath="mage_2011/data_H_int.h5",
-    interpolated_filename_prefix="results_mage_2011",
-    timesteps_to_plot=timesteps_for_figure,
-    data_types_to_plot=data_types_for_figure,
-    input_dt=10,
-    noon_longitude=0,
-    # output_filename="input_vs_fitted_comparison.png" # Optional
-)
+    pynamit.plot_input_vs_interpolated(
+        h5_filepath="mage_2011/data_H_int.h5",
+        interpolated_filename_prefix="results_mage_2011",
+        timesteps_to_plot=timesteps_for_figure,
+        data_types_to_plot=data_types_for_figure,
+        input_dt=10,
+        noon_longitude=0,
+        vmin_percentile=0,
+        vmax_percentile=95,
+        # output_filename="input_vs_fitted_comparison.png" # Optional
+    )
 
 
 print("Time evolution")
