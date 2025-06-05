@@ -229,7 +229,7 @@ if PLOT:
         noon_longitude=0,
         vmin_percentile=0,
         vmax_percentile=95,
-        # output_filename="input_vs_fitted_comparison.png" # Optional
+        output_filename="input_vs_fitted_comparison.png" # Optional
     )
 
 
