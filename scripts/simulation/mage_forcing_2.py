@@ -8,8 +8,7 @@ import h5py as h5
 
 RE = 6381e3
 RI = 6.5e6
-latitude_boundary = 35
-latitude_step = 0.5
+latitude_boundary = 25.625
 
 PLOT = True
 
