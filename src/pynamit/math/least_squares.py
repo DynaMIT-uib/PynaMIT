@@ -232,8 +232,16 @@ class LeastSquares:
             ATWA_plus_R = self.ATWA.copy()
             for i in range(self.n_constraints):
                 if self.reg_lambda[i] is not None:
-                    LTLi = np.dot(self.reg_L[i].array.T, self.reg_L[i].array)
-                    LTLi_scale = np.median(np.diag(LTLi))
+                    Li_diagonal = np.diag(self.reg_L[i].array)
+
+                    if np.all(self.reg_L[i].array == np.diag(Li_diagonal)):
+                        LTLi_diagonal = Li_diagonal**2
+                        LTLi = np.diag(LTLi_diagonal)
+                        LTLi_scale = np.median(LTLi_diagonal)
+                    else:
+                        LTLi = np.dot(self.reg_L[i].array.T, self.reg_L[i].array)
+                        LTLi_scale = np.median(np.diag(LTLi))
+
                     ATWA_plus_R += self.reg_lambda[i] / LTLi_scale * ATWA_scale * LTLi
 
             self._ATWA_plus_R_pinv = np.linalg.pinv(
