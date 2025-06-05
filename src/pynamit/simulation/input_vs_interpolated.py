@@ -5,7 +5,6 @@ import matplotlib.colors as mcolors
 import h5py as h5
 import cartopy.crs as ccrs
 
-# Assuming pynamit imports are correct
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
@@ -71,6 +70,8 @@ def plot_input_vs_interpolated(
     vmin_percentile=0.2,
     vmax_percentile=99.8,
     strictly_positive_scale_type="linear",
+    time_row_h_frac_user=0.015,
+    cbars_labels_col_w_frac_user=0.11,
 ):
     try:
         h5file = h5.File(h5_filepath, "r")
@@ -363,9 +364,26 @@ def plot_input_vs_interpolated(
             if current_scale_type == "linear":
                 vmin = 0.0
 
-        if vmin == vmax and current_scale_type != "log":
+        if abs(vmax - vmin) < 1e-12 and current_scale_type != "log":
+            original_vmin, original_vmax = vmin, vmax
+            if abs(vmax) > 1e-9:
+                epsilon = abs(vmax) * 0.05
+            else:
+                epsilon = 0.05
+
+            if vmin == vmax and vmin == 0:
+                vmax = epsilon
+                if not (is_strictly_positive and current_scale_type == "linear"):
+                    vmin = -epsilon
+            else:
+                vmin -= epsilon
+                vmax += epsilon
+
+            if is_strictly_positive and current_scale_type == "linear" and vmin < 0:
+                vmin = 0.0
+
             print(
-                f"Warning: vmin ({vmin:.3e}) == vmax ({vmax:.3e}) for '{data_type_str}'. Plot may be single color."
+                f"Warning: vmin ({original_vmin:.3e}) was close to vmax ({original_vmax:.3e}) for '{data_type_str}'. Adjusted to: vmin={vmin:.3e}, vmax={vmax:.3e}"
             )
 
         norm_for_plot = None
@@ -403,26 +421,18 @@ def plot_input_vs_interpolated(
             f"vmin={vmin:.3e}, vmax={vmax:.3e}, cmap='{cmap_to_use}'"
         )
 
-    # --- REVISED Figure Size Calculation ---
     num_dt = len(data_types_to_plot)
     num_plot_rows_maps = num_dt * 2
     num_plot_cols_maps = len(timesteps_to_plot)
 
     ref_map_cell_w = 2.2
     ref_map_cell_h = 1.8
-
     target_plots_area_w = num_plot_cols_maps * ref_map_cell_w
     target_plots_area_h = num_plot_rows_maps * ref_map_cell_h
-
-    time_row_h_frac_user = 0.02
-    cbars_labels_col_w_frac_user = 0.15
 
     plots_row_h_frac_user = 1.0 - time_row_h_frac_user
     plots_col_w_frac_user = 1.0 - cbars_labels_col_w_frac_user
 
-    # Estimate total figure width and height based on the *actual plot area fraction*
-    # that will be used by fig.subfigures.
-    # This ensures the plot area gets its intended share of a larger, more stable figure.
     est_total_fig_width = target_plots_area_w / plots_col_w_frac_user
     est_total_fig_height = target_plots_area_h / plots_row_h_frac_user
 
@@ -433,8 +443,12 @@ def plot_input_vs_interpolated(
     fig_height = min(max(fig_height_lower_bound, est_total_fig_height), fig_height_upper_bound)
 
     print(
+        f"User fractions: TimeRow={time_row_h_frac_user:.2f}, CbarLabelCol={cbars_labels_col_w_frac_user:.2f}"
+    )
+    print(
         f'Target map cell: {ref_map_cell_w}"x{ref_map_cell_h}". Est. Total Fig: {est_total_fig_width:.1f}"x{est_total_fig_height:.1f}". Final Fig: {fig_width:.1f}"x{fig_height:.1f}"'
     )
+
     fig = plt.figure(figsize=(fig_width, fig_height), layout="constrained")
 
     sfigs_grid = fig.subfigures(
@@ -445,11 +459,16 @@ def plot_input_vs_interpolated(
         hspace=0.01,
         wspace=0.01,
     )
-    sfigs_grid[0, 0].patch.set_alpha(0.0)
-    [ax.remove() for ax in sfigs_grid[0, 0].get_axes()]
+    sfig_TL_empty = sfigs_grid[0, 0]
+    sfig_TR_times = sfigs_grid[0, 1]
+    sfig_BL_cbars_and_labels = sfigs_grid[1, 0]
+    sfig_BR_plots = sfigs_grid[1, 1]
+
+    sfig_TL_empty.patch.set_alpha(0.0)
+    [ax.remove() for ax in sfig_TL_empty.get_axes()]
 
     if num_plot_cols_maps > 0:
-        time_label_axes_list = sfigs_grid[0, 1].subplots(1, num_plot_cols_maps, sharey=True)
+        time_label_axes_list = sfig_TR_times.subplots(1, num_plot_cols_maps, sharey=True)
         time_label_axes = (
             [time_label_axes_list] if num_plot_cols_maps == 1 else time_label_axes_list
         )
@@ -459,7 +478,7 @@ def plot_input_vs_interpolated(
             )
             time_label_axes[ts_idx].axis("off")
 
-    map_axes_flat = sfigs_grid[1, 1].subplots(
+    map_axes_flat = sfig_BR_plots.subplots(
         num_plot_rows_maps,
         num_plot_cols_maps,
         sharex=True,
@@ -475,13 +494,17 @@ def plot_input_vs_interpolated(
     else:
         map_axes = map_axes_flat
 
-    gs_bottom_left = gridspec.GridSpec(
-        num_plot_rows_maps,
-        2,
-        figure=sfigs_grid[1, 0],
-        width_ratios=[0.8, 0.2],
-        wspace=0.05,
-        hspace=0.05,
+    # --- Layout for sfig_BL_cbars_and_labels (num_dt rows, 3 columns) ---
+    # Column 0: DataType Label
+    # Column 1: Colorbar
+    # Column 2: Input/Fitted text (this column will be internally gridded into 2 rows)
+    gs_main_left_panel = gridspec.GridSpec(
+        num_dt,
+        3,  # num_dt rows, 3 columns
+        figure=sfig_BL_cbars_and_labels,
+        width_ratios=[0.30, 0.45, 0.25],  # DataTypeLabel | Colorbar | Input/Fitted Text column
+        hspace=0.15,  # Vertical space between data type blocks
+        wspace=0.05,  # Horizontal space between the 3 main columns
     )
 
     for dt_idx, data_type_str in enumerate(data_types_to_plot):
@@ -491,35 +514,36 @@ def plot_input_vs_interpolated(
 
         row_idx_input_map = dt_idx * 2
         row_idx_fitted_map = row_idx_input_map + 1
-
         current_mappable_this_dt = None
 
-        gs_dt_cbar_block = gridspec.GridSpecFromSubplotSpec(
-            1,
-            2,
-            subplot_spec=gs_bottom_left[row_idx_input_map : row_idx_input_map + 2, 0],
-            width_ratios=[0.4, 0.6],
-            wspace=0.1,
-        )
-
-        ax_dt_label = sfigs_grid[1, 0].add_subplot(gs_dt_cbar_block[0])
+        # Column 0: DataType Label
+        ax_dt_label = sfig_BL_cbars_and_labels.add_subplot(gs_main_left_panel[dt_idx, 0])
         ax_dt_label.text(
             0.5, 0.5, details["label"], ha="center", va="center", rotation=90, fontsize=9
         )
         ax_dt_label.axis("off")
 
-        ax_input_text_label = sfigs_grid[1, 0].add_subplot(gs_bottom_left[row_idx_input_map, 1])
-        ax_input_text_label.text(
-            0.5, 0.5, "Input", ha="center", va="center", rotation=90, fontsize=8
-        )
-        ax_input_text_label.axis("off")
+        # Column 1: Colorbar Placeholder
+        ax_cbar_placeholder = sfig_BL_cbars_and_labels.add_subplot(gs_main_left_panel[dt_idx, 1])
 
-        ax_fitted_text_label = sfigs_grid[1, 0].add_subplot(gs_bottom_left[row_idx_fitted_map, 1])
-        ax_fitted_text_label.text(
-            0.5, 0.5, "Fitted", ha="center", va="center", rotation=90, fontsize=8
+        # Column 2: Input/Fitted Text Labels (using a nested GridSpec for vertical division)
+        gs_input_fitted_text_block = gridspec.GridSpecFromSubplotSpec(
+            2,
+            1,  # 2 rows, 1 column
+            subplot_spec=gs_main_left_panel[dt_idx, 2],
+            height_ratios=[0.5, 0.5],  # Equal height for Input and Fitted rows
+            hspace=0.01,  # Minimal vertical space between Input and Fitted text
         )
-        ax_fitted_text_label.axis("off")
 
+        ax_input_text = sfig_BL_cbars_and_labels.add_subplot(gs_input_fitted_text_block[0, 0])
+        ax_input_text.text(0.5, 0.5, "Input", ha="center", va="center", rotation=90, fontsize=8)
+        ax_input_text.axis("off")
+
+        ax_fitted_text = sfig_BL_cbars_and_labels.add_subplot(gs_input_fitted_text_block[1, 0])
+        ax_fitted_text.text(0.5, 0.5, "Fitted", ha="center", va="center", rotation=90, fontsize=8)
+        ax_fitted_text.axis("off")
+
+        # Plotting maps
         for ts_idx, timestep in enumerate(timesteps_to_plot):
             ax_input, ax_fitted = (
                 map_axes[row_idx_input_map, ts_idx],
@@ -568,12 +592,13 @@ def plot_input_vs_interpolated(
             ):
                 current_mappable_this_dt = im_fitted
 
-        ax_cbar = sfigs_grid[1, 0].add_subplot(gs_dt_cbar_block[1])
         if current_mappable_this_dt:
-            cb = fig.colorbar(current_mappable_this_dt, cax=ax_cbar, orientation="vertical")
+            cb = fig.colorbar(
+                current_mappable_this_dt, cax=ax_cbar_placeholder, orientation="vertical"
+            )
             cb.ax.tick_params(labelsize=7)
         else:
-            ax_cbar.text(
+            ax_cbar_placeholder.text(
                 0.5,
                 0.5,
                 "No Valid Data\nfor Colorbar",
@@ -582,7 +607,7 @@ def plot_input_vs_interpolated(
                 fontsize=7,
                 wrap=True,
             )
-            ax_cbar.axis("off")
+            ax_cbar_placeholder.axis("off")
 
     if output_filename:
         plt.savefig(output_filename, dpi=200)

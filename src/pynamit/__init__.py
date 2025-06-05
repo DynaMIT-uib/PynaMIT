@@ -39,7 +39,7 @@ from .simulation.dynamics import Dynamics
 from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
 from .simulation.visualization import debugplot, globalplot
-from .simulation.mage_simulation import plot_input_vs_interpolated
+from .simulation.input_vs_interpolated import plot_input_vs_interpolated
 from .spherical_harmonics.sh_basis import SHBasis
 from .simulation.debug import debug_br_plot
 
