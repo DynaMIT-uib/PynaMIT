@@ -256,7 +256,7 @@ class BasisEvaluator(object):
                 weights=self.weights,
                 reg_lambda=self.reg_lambda,
                 reg_L=self.L,
-                pinv_rtol=self.pinv_rtol,
+                tolerance=self.pinv_rtol,
             )
 
         return self._least_squares
@@ -279,7 +279,7 @@ class BasisEvaluator(object):
                 weights=self.weights,
                 reg_lambda=self.reg_lambda,
                 reg_L=self.L_helmholtz,
-                pinv_rtol=self.pinv_rtol,
+                tolerance=self.pinv_rtol,
             )
 
         return self._least_squares_helmholtz
