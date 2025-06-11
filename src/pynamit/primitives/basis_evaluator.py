@@ -254,8 +254,8 @@ class BasisEvaluator(object):
                 self.G,
                 1,
                 weights=self.weights,
-                reg_lambda=self.reg_lambda,
-                reg_L=self.L,
+                regularization_weights=self.reg_lambda,
+                regularization_matrices=self.L,
                 tolerance=self.pinv_rtol,
             )
 
@@ -277,8 +277,8 @@ class BasisEvaluator(object):
                 self.G_helmholtz,
                 2,
                 weights=self.weights,
-                reg_lambda=self.reg_lambda,
-                reg_L=self.L_helmholtz,
+                regularization_weights=self.reg_lambda,
+                regularization_matrices=self.L_helmholtz,
                 tolerance=self.pinv_rtol,
             )
 

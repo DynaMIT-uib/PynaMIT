@@ -1,191 +1,286 @@
 import numpy as np
-from scipy.sparse.linalg import LinearOperator, svds, cg, lsmr
+from scipy.sparse.linalg import LinearOperator, cg, lsmr
 import math
+from collections import namedtuple
 
-class FlattenedArray(object):
-    def __init__(self, full_array, n_leading_flattened=None, n_trailing_flattened=None):
-        if full_array is None: raise ValueError("Input array cannot be None.")
-        if n_leading_flattened is None and n_trailing_flattened is None:
-            n_leading_flattened = full_array.ndim - 1 if full_array.ndim > 1 else full_array.ndim
-            n_trailing_flattened = 1 if full_array.ndim > 1 else 0
-        elif n_leading_flattened is None: n_leading_flattened = full_array.ndim - n_trailing_flattened
-        elif n_trailing_flattened is None: n_trailing_flattened = full_array.ndim - n_leading_flattened
-        if n_leading_flattened + n_trailing_flattened != full_array.ndim:
-            raise ValueError(f"Dimension mismatch during flattening.")
-        self.full_array = full_array
-        self.full_shapes = (full_array.shape[:n_leading_flattened], full_array.shape[n_leading_flattened:])
-        self.shapes = (math.prod(self.full_shapes[0]) if self.full_shapes[0] else 1, math.prod(self.full_shapes[1]) if self.full_shapes[1] else 1)
-        self.array = full_array.reshape(self.shapes)
+# An internal container for processed arrays, holding the 2D matrix and shape info.
+_ProcessedArray = namedtuple('_ProcessedArray', ['matrix', 'trailing_shape', 'leading_dim_count'])
 
-class LeastSquares: # Benchmark Class
-    def __init__(self, A, solution_dims, weights=None, reg_lambda=None, reg_L=None, solver='iterative', tolerance=1e-10):
+class LeastSquares:
+    """
+    Solves complex least-squares problems with multiple data and regularization terms.
+
+    The problem is to find x that minimizes:
+    sum_i || sqrt(W_i) * (A_i @ x - b_i) ||^2 + sum_j || lambda_j * L_j @ x ||^2
+    """
+    
+    def __init__(self, A, solution_ndim, weights=None, regularization_weights=None, regularization_matrices=None, solver='normal', tolerance=1e-10):
+        solvers = ['normal', 'lsmr', 'cg']
+        if solver not in solvers:
+            raise ValueError(f"Solver must be one of {solvers}")
         self.solver = solver
         self.tolerance = tolerance
-        A_list = A if isinstance(A, list) else [A]
-        self.n_data_terms = len(A_list)
-        self.solution_dims = solution_dims
-        self.A = self._flatten_arrays(A_list, self.n_data_terms, n_trailing_flattened=[solution_dims] * self.n_data_terms)
-        self.weights = self._flatten_arrays(weights, self.n_data_terms, n_trailing_flattened=[0] * self.n_data_terms)
-        reg_L_list = reg_L if isinstance(reg_L, list) else [reg_L] if reg_L is not None else []
-        self.n_reg_terms = len(reg_L_list)
-        n_leading_L = [l.ndim - solution_dims if l is not None else None for l in reg_L_list]
-        self.reg_L = self._flatten_arrays(reg_L_list, self.n_reg_terms, n_leading_flattened=n_leading_L)
-        if reg_lambda is None: self.reg_lambda = [0.0] * self.n_reg_terms
-        elif not isinstance(reg_lambda, list): self.reg_lambda = [reg_lambda] * self.n_reg_terms
-        else: self.reg_lambda = reg_lambda
-        op = self.as_normal_eq_operator()
-        self._ATWA_plus_R_cache = op @ np.eye(op.shape[0], dtype=op.dtype)
-        self._ATW_cache = [((w.array.reshape(-1, 1) * a.array).T if w is not None else a.array.T) for a, w in zip(self.A, self.weights)]
-    def _flatten_arrays(self, arrays, n_terms, n_leading_flattened=None, n_trailing_flattened=None):
-        if arrays is None: return [None] * n_terms
-        arr_list = arrays if isinstance(arrays, list) else [arrays]
-        if len(arr_list) == 1 and n_terms > 1: arr_list = arr_list * n_terms
-        lead_list = n_leading_flattened if n_leading_flattened and len(n_leading_flattened) == n_terms else [None] * n_terms
-        trail_list = n_trailing_flattened if n_trailing_flattened and len(n_trailing_flattened) == n_terms else [None] * n_terms
-        arrays_compounded = []
-        for i in range(n_terms):
-            arr = arr_list[i] if i < len(arr_list) else None
-            if arr is not None: arrays_compounded.append(FlattenedArray(arr, n_leading_flattened=lead_list[i], n_trailing_flattened=trail_list[i]))
-            else: arrays_compounded.append(None)
-        return arrays_compounded
+        self.solution_ndim = solution_ndim
+
+        A_list = self._prepare_input_list(A, 'A', allow_single_item=True)
+        self.num_data_terms = len(A_list)
+
+        self.A = [self._flatten(arr, num_trailing_dims=self.solution_ndim) for arr in A_list]
+        
+        weights_list = self._prepare_input_list(weights, 'weights', count=self.num_data_terms)
+        self.weights = [self._flatten(w, num_trailing_dims=0) if w is not None else None for w in weights_list]
+        
+        reg_L_list = self._prepare_input_list(regularization_matrices, 'regularization_matrices', allow_single_item=True, is_optional=True)
+        self.num_reg_terms = len(reg_L_list)
+        self.regularization_matrices = [self._flatten(L, num_trailing_dims=self.solution_ndim) if L is not None else None for L in reg_L_list]
+        
+        self.regularization_weights = self._prepare_input_list(regularization_weights, 'regularization_weights', count=self.num_reg_terms, default_val=0.0)
+        
+        # Pre-calculate matrix for the 'normal' solver to avoid re-computation.
+        if self.solver == 'normal':
+            self._full_normal_matrix = self._create_full_normal_matrix()
+
+    @staticmethod
+    def _prepare_input_list(input_item, name, count=None, allow_single_item=False, is_optional=False, default_val=None):
+        """Prepares and validates a list of inputs (e.g., A, weights)."""
+        if input_item is None:
+            if is_optional: return []
+            return [default_val] * count
+        
+        input_list = input_item if isinstance(input_item, list) else [input_item]
+        
+        if allow_single_item and count is None:
+            count = len(input_list)
+
+        if len(input_list) == 1 and count > 1:
+            input_list = input_list * count
+        
+        if len(input_list) != count:
+            raise ValueError(f"Input '{name}' has {len(input_list)} elements, but {count} were expected.")
+        return input_list
+
+    @staticmethod
+    def _flatten(array, num_leading_dims=None, num_trailing_dims=None):
+        """Reshapes a multi-dimensional array into a 2D matrix."""
+        if array is None: raise ValueError("Input array cannot be None.")
+        
+        if num_leading_dims is None and num_trailing_dims is None:
+            split_at_dim_index = array.ndim - 1 if array.ndim > 1 else array.ndim
+        elif num_leading_dims is None:
+            split_at_dim_index = array.ndim - num_trailing_dims
+        elif num_trailing_dims is None:
+            split_at_dim_index = num_leading_dims
+        else:
+            if num_leading_dims + num_trailing_dims != array.ndim:
+                raise ValueError(f"Dimension mismatch: {num_leading_dims} + {num_trailing_dims} != {array.ndim}")
+            split_at_dim_index = num_leading_dims
+            
+        leading_shape = array.shape[:split_at_dim_index]
+        trailing_shape = array.shape[split_at_dim_index:]
+        
+        new_shape = (math.prod(leading_shape) if leading_shape else 1,
+                     math.prod(trailing_shape) if trailing_shape else 1)
+        
+        return _ProcessedArray(array.reshape(new_shape), trailing_shape, len(leading_shape))
+
     @property
-    def _scaled_regularization_params(self):
-        if not hasattr(self, "_scaled_lambdas_cache"):
-            n_features = self.A[0].array.shape[1]
-            diag_ATWA = np.zeros(n_features)
-            for i in range(self.n_data_terms):
-                A_i = self.A[i].array
-                if self.weights[i] is not None: diag_ATWA += np.sum(self.weights[i].array.flatten()[:, np.newaxis] * A_i**2, axis=0)
-                else: diag_ATWA += np.sum(A_i**2, axis=0)
-            ATWA_scale = np.median(diag_ATWA) if len(diag_ATWA) > 0 else 1.0
-            lambdas = []
-            for i in range(self.n_reg_terms):
-                lambda_val = 0.0
-                if self.reg_lambda[i] > 0 and self.reg_L[i] is not None:
-                    Li = self.reg_L[i].array
-                    LTLi_scale = np.median(np.diag(Li.T @ Li)) if Li.shape[0] > 0 and Li.shape[1] > 0 else 1.0
-                    if LTLi_scale > 1e-12: lambda_val = self.reg_lambda[i] / LTLi_scale * ATWA_scale
-                lambdas.append(lambda_val)
-            self._scaled_lambdas_cache = lambdas
-        return self._scaled_lambdas_cache
-    def as_normal_eq_operator(self):
-        if hasattr(self, "_normal_eq_op_cache"): return self._normal_eq_op_cache
-        n_features = self.A[0].array.shape[1]; shape = (n_features, n_features); dtype = self.A[0].array.dtype
-        scaled_lambdas = self._scaled_regularization_params
-        def _matvec(x_flat):
-            x_matrix = x_flat.reshape(n_features, -1, order='F'); y_matrix = np.zeros_like(x_matrix, dtype=dtype)
-            for i in range(self.n_data_terms):
-                Ax = self.A[i].array @ x_matrix
-                if self.weights[i] is not None: Ax *= self.weights[i].array.reshape(-1, 1)
-                y_matrix += self.A[i].array.T @ Ax
-            for i in range(self.n_reg_terms):
-                if scaled_lambdas[i] > 0 and self.reg_L[i] is not None: y_matrix += scaled_lambdas[i] * (self.reg_L[i].array.T @ (self.reg_L[i].array @ x_matrix))
-            return y_matrix.flatten('F')
-        self._normal_eq_op_cache = LinearOperator(shape, matvec=_matvec, rmatvec=_matvec, dtype=dtype)
-        return self._normal_eq_op_cache
-    def solve_normal(self, b):
-        b_list = self._flatten_arrays(b, self.n_data_terms, n_leading_flattened=[len(a.full_shapes[0]) for a in self.A])
-        solutions = []
-        for i in range(len(b_list)):
-            if b_list[i] is None: solutions.append(None); continue
-            ref_b = b_list[i]; ATWb = self._ATW_cache[i] @ ref_b.array
-            sol_matrix = np.linalg.solve(self._ATWA_plus_R_cache, ATWb)
-            solutions.append(sol_matrix.reshape(self.A[0].full_shapes[1] + ref_b.full_shapes[1]))
-        return solutions
-    def solve(self, b, **kwargs):
-        """Solves the system using the method specified at initialization."""
-        if self.solver == 'iterative': return self.solve_lsmr_mega(b, **kwargs)
-        elif self.solver == 'normal': return self.solve_normal(b)
-        #elif self.solver == 'svds': return self._solve_svds(b, **kwargs)
+    def _scaled_regularization_weights(self):
+        """Computes scaled regularization weights to balance data and reg terms."""
+        if not hasattr(self, "_scaled_reg_weights_cache"):
+            num_solution_features = self.A[0].matrix.shape[1]
+            diag_data_normal_term = np.zeros(num_solution_features)
+            for i in range(self.num_data_terms):
+                A_i = self.A[i].matrix
+                w_i = self.weights[i].matrix if self.weights[i] is not None else 1.0
+                diag_data_normal_term += np.sum(w_i * A_i**2, axis=0)
+            
+            data_term_scale = np.median(diag_data_normal_term) if diag_data_normal_term.size > 0 else 1.0
+            
+            scaled_weights = []
+            for i in range(self.num_reg_terms):
+                scaled_weight = 0.0
+                if self.regularization_weights[i] > 0 and self.regularization_matrices[i] is not None:
+                    L_i = self.regularization_matrices[i].matrix
+                    diag_reg_normal_term = np.sum(L_i**2, axis=0)
+                    reg_term_scale = np.median(diag_reg_normal_term) if diag_reg_normal_term.size > 0 else 1.0
+                    if reg_term_scale > 1e-12:
+                        scaled_weight = self.regularization_weights[i] * data_term_scale / reg_term_scale
+                scaled_weights.append(scaled_weight)
+            self._scaled_reg_weights_cache = scaled_weights
+        return self._scaled_reg_weights_cache
 
-    def as_mega_augmented_operator(self, scenario_counts):
-        n_features = self.A[0].array.shape[1]
-        sqrt_scaled_lambdas = [np.sqrt(l) for l in self._scaled_regularization_params]
-        A_rows = [a.array.shape[0] for a in self.A]
-        L_rows = [l.array.shape[0] if l is not None and sqrt_scaled_lambdas[i] > 0 else 0 for i, l in enumerate(self.reg_L)]
-        base_op_rows = sum(A_rows) + sum(L_rows)
-        total_input_elements = n_features * sum(scenario_counts)
-        total_output_elements = base_op_rows * sum(scenario_counts)
-        shape = (total_output_elements, total_input_elements); dtype = self.A[0].array.dtype
-        input_slices = np.cumsum([0] + [n_features * s for s in scenario_counts])
-        output_slices = np.cumsum([0] + [base_op_rows * s for s in scenario_counts])
-        def _matvec(x_mega_flat):
-            y_mega_parts = []
-            for i, n_scen in enumerate(scenario_counts):
-                if n_scen == 0: continue
-                x_flat = x_mega_flat[input_slices[i]:input_slices[i+1]]
-                x_matrix = x_flat.reshape(n_features, n_scen, order='F')
-                y_parts = []
-                for j in range(self.n_data_terms):
-                    res = self.A[j].array @ x_matrix
-                    if self.weights[j] is not None: res *= np.sqrt(self.weights[j].array.flatten())[:, np.newaxis]
-                    y_parts.append(res)
-                for j in range(self.n_reg_terms):
-                    if sqrt_scaled_lambdas[j] > 0 and self.reg_L[j] is not None:
-                        y_parts.append(sqrt_scaled_lambdas[j] * (self.reg_L[j].array @ x_matrix))
-                y_mega_parts.append(np.concatenate(y_parts).flatten('F'))
-            return np.concatenate(y_mega_parts)
-        def _rmatvec(y_mega_flat):
-            x_mega_parts = []
-            for i, n_scen in enumerate(scenario_counts):
-                if n_scen == 0: continue
-                y_flat = y_mega_flat[output_slices[i]:output_slices[i+1]]
-                y_matrix_full = y_flat.reshape(base_op_rows, n_scen, order='F')
-                x_matrix = np.zeros((n_features, n_scen), dtype=dtype)
-                pos = 0
-                for j in range(self.n_data_terms):
-                    y_part = y_matrix_full[pos:pos+A_rows[j], :]
-                    if self.weights[j] is not None: y_part = y_part * np.sqrt(self.weights[j].array.flatten())[:, np.newaxis]
-                    x_matrix += self.A[j].array.T @ y_part
-                    pos += A_rows[j]
-                for j in range(self.n_reg_terms):
-                    if sqrt_scaled_lambdas[j] > 0 and self.reg_L[j] is not None:
-                        y_part = y_matrix_full[pos:pos+L_rows[j], :]
-                        x_matrix += sqrt_scaled_lambdas[j] * (self.reg_L[j].array.T @ y_part)
-                        pos += L_rows[j]
-                x_mega_parts.append(x_matrix.flatten('F'))
-            return np.concatenate(x_mega_parts)
-        return LinearOperator(shape, matvec=_matvec, rmatvec=_rmatvec, dtype=dtype)
-    
-    def solve_lsmr_mega(self, b, **kwargs):
-        b_list = self._flatten_arrays(b, self.n_data_terms, n_leading_flattened=[len(a.full_shapes[0]) for a in self.A])
-        scenario_counts = [(b_item.array.shape[1] if b_item.array.ndim > 1 else 1) if b_item is not None else 0 for b_item in b_list]
+    def _create_full_normal_matrix(self):
+        """Pre-computes the normal matrix A.T*W*A + L.T*L."""
+        num_solution_features = self.A[0].matrix.shape[1]
+        dtype = self.A[0].matrix.dtype
         
-        # 1. Create the mega augmented operator M
-        M = self.as_mega_augmented_operator(scenario_counts)
+        normal_matrix_data_term = np.zeros((num_solution_features, num_solution_features), dtype=dtype)
+        for i in range(self.num_data_terms):
+            A_i = self.A[i].matrix
+            w_i = self.weights[i].matrix if self.weights[i] else 1.0
+            normal_matrix_data_term += A_i.T @ (w_i * A_i)
         
-        # 2. Create the b_mega vector for the augmented system
-        A_rows = [a.array.shape[0] for a in self.A]
-        L_rows = [l.array.shape[0] if l is not None and np.sqrt(self._scaled_regularization_params[i]) > 0 else 0 for i, l in enumerate(self.reg_L)]
-        base_op_rows = sum(A_rows) + sum(L_rows)
+        normal_matrix_reg_term = np.zeros_like(normal_matrix_data_term)
+        for i, scaled_weight in enumerate(self._scaled_regularization_weights):
+            if scaled_weight > 0 and self.regularization_matrices[i] is not None:
+                L_i = self.regularization_matrices[i].matrix
+                normal_matrix_reg_term += scaled_weight * (L_i.T @ L_i)
         
-        b_mega_parts = []
-        for i, b_item in enumerate(b_list):
-            # For each problem, create its RHS vector for the base augmented system
-            b_prime = np.zeros((base_op_rows, scenario_counts[i]), dtype=M.dtype)
-            if b_item is not None:
-                b_weighted = b_item.array
+        return normal_matrix_data_term + normal_matrix_reg_term
+
+    def _get_linear_operator(self, num_scenarios=1):
+        """Creates a LinearOperator M for the system M*x = d."""
+        num_solution_features = self.A[0].matrix.shape[1]
+        sqrt_scaled_reg_weights = [np.sqrt(w) for w in self._scaled_regularization_weights]
+
+        def matvec_block(x_block):
+            parts = []
+            for i in range(self.num_data_terms):
+                res = self.A[i].matrix @ x_block
+                if self.weights[i] is not None: res *= np.sqrt(self.weights[i].matrix)
+                parts.append(res)
+            for i in range(self.num_reg_terms):
+                if sqrt_scaled_reg_weights[i] > 0 and self.regularization_matrices[i] is not None:
+                    res = sqrt_scaled_reg_weights[i] * (self.regularization_matrices[i].matrix @ x_block)
+                    parts.append(res)
+            return np.concatenate(parts, axis=0)
+        
+        def rmatvec_block(y_block):
+            current_scenarios = y_block.shape[1] if y_block.ndim > 1 else 1
+            x_block = np.zeros((num_solution_features, current_scenarios), dtype=y_block.dtype)
+            current_row = 0
+            for i in range(self.num_data_terms):
+                n_rows = self.A[i].matrix.shape[0]
+                y_part = y_block[current_row : current_row + n_rows]
+                current_row += n_rows
                 if self.weights[i] is not None:
-                    b_weighted = np.sqrt(self.weights[i].array.flatten())[:, np.newaxis] * b_weighted
-                # Position of the non-zero block is based on which b_i is active
-                pos = sum(A_rows[k] for k in range(i))
-                b_prime[pos : pos + A_rows[i], :] = b_weighted
-            b_mega_parts.append(b_prime.flatten('F'))
-        b_mega = np.concatenate(b_mega_parts)
+                    # THE FIX: Avoid in-place modification which corrupts solver's internal state
+                    y_part = y_part * np.sqrt(self.weights[i].matrix)
+                x_block += self.A[i].matrix.T @ y_part
+            for i in range(self.num_reg_terms):
+                if sqrt_scaled_reg_weights[i] > 0 and self.regularization_matrices[i] is not None:
+                    n_rows = self.regularization_matrices[i].matrix.shape[0]
+                    y_part = y_block[current_row : current_row + n_rows]
+                    current_row += n_rows
+                    x_block += sqrt_scaled_reg_weights[i] * (self.regularization_matrices[i].matrix.T @ y_part)
+            return x_block.squeeze()
+
+        op_rows_A = sum(a.matrix.shape[0] for a in self.A)
+        op_rows_L = sum(l.matrix.shape[0] for i, l in enumerate(self.regularization_matrices) 
+                        if l is not None and self._scaled_regularization_weights[i] > 0)
+        operator_rows = op_rows_A + op_rows_L
+        shape = (operator_rows * num_scenarios, num_solution_features * num_scenarios)
         
-        # 3. Solve Mx = d directly using LSMR
-        lsmr_kwargs = {'atol': self.tolerance, 'btol': self.tolerance}; lsmr_kwargs.update(kwargs)
-        sol_mega, *_ = lsmr(M, b_mega, **lsmr_kwargs)
+        def _matvec_flat(x_flat):
+            x_block = x_flat.reshape(num_solution_features, num_scenarios, order='F')
+            return matvec_block(x_block).flatten('F')
+        def _rmatvec_flat(y_flat):
+            y_block = y_flat.reshape(operator_rows, num_scenarios, order='F')
+            return rmatvec_block(y_block).flatten('F')
         
-        # 4. Unpack solution
-        solutions = []; n_features = self.A[0].array.shape[1]
-        slices = np.cumsum([0] + [n_features * s for s in scenario_counts])
-        for i, b_item in enumerate(b_list):
-            if b_item is not None:
-                sol_i_flat = sol_mega[slices[i]:slices[i+1]]
-                sol_i_matrix = sol_i_flat.reshape((n_features, scenario_counts[i]), order='F')
-                solutions.append(sol_i_matrix.reshape(self.A[0].full_shapes[1] + b_item.full_shapes[1]))
-            else: solutions.append(None)
+        linear_op = LinearOperator(shape, matvec=_matvec_flat, rmatvec=_rmatvec_flat, dtype=self.A[0].matrix.dtype)
+        return linear_op, rmatvec_block
+
+    def solve(self, b, **kwargs):
+        """Solves the least-squares problem for the given right-hand side(s) b."""
+        rhs_b_list = self._prepare_input_list(b, 'b', count=self.num_data_terms)
+        processed_b_list = [
+            self._flatten(b, num_leading_dims=self.A[i].leading_dim_count) if b is not None else None
+            for i, b in enumerate(rhs_b_list)
+        ]
+        
+        if self.solver == 'lsmr':
+            return self._solve_lsmr_vectorized(processed_b_list, **kwargs)
+
+        # For 'normal' and 'cg', we can loop through each b term
+        solutions = []
+        for i, rhs_b in enumerate(processed_b_list):
+            if rhs_b is None:
+                solutions.append(None)
+                continue
+            
+            num_scenarios = rhs_b.matrix.shape[1] if rhs_b.matrix.ndim > 1 else 1
+            num_solution_features = self.A[0].matrix.shape[1]
+            solution_matrix = None
+            
+            if self.solver == 'normal':
+                w_i = self.weights[i].matrix if self.weights[i] else 1.0
+                rhs_for_normal_eq = self.A[i].matrix.T @ (w_i * rhs_b.matrix)
+                solution_matrix = np.linalg.solve(self._full_normal_matrix, rhs_for_normal_eq)
+            
+            elif self.solver == 'cg':
+                base_linear_op, rmatvec_block_func = self._get_linear_operator(num_scenarios=1)
+                normal_op_matvec = lambda x: base_linear_op.rmatvec(base_linear_op.matvec(x))
+                normal_op = LinearOperator(
+                    (num_solution_features, num_solution_features),
+                    matvec=normal_op_matvec,
+                    dtype=base_linear_op.dtype
+                )
+                
+                operator_rows = base_linear_op.shape[0]
+                rhs_d_block = np.zeros((operator_rows, num_scenarios), dtype=base_linear_op.dtype)
+                start_row = sum(self.A[k].matrix.shape[0] for k in range(i))
+                end_row = start_row + self.A[i].matrix.shape[0]
+                weighted_b = np.sqrt(self.weights[i].matrix) * rhs_b.matrix if self.weights[i] else rhs_b.matrix
+                rhs_d_block[start_row:end_row, :] = weighted_b
+
+                rhs_for_cg = rmatvec_block_func(rhs_d_block)
+                if rhs_for_cg.ndim == 1:
+                    rhs_for_cg = rhs_for_cg.reshape(-1, 1)
+
+                solution_matrix = np.zeros((num_solution_features, num_scenarios), dtype=base_linear_op.dtype)
+                cg_kwargs = {'atol': self.tolerance, 'rtol': self.tolerance, **kwargs}
+                for k in range(num_scenarios):
+                    solution_matrix[:, k], info = cg(normal_op, rhs_for_cg[:, k], **cg_kwargs)
+                    if info != 0: print(f"Warning: CG did not converge for scenario {k}. Info: {info}")
+            
+            output_shape = self.A[0].trailing_shape + rhs_b.trailing_shape
+            solutions.append(solution_matrix.reshape(output_shape))
+            
         return solutions
+    
+    def _solve_lsmr_vectorized(self, processed_b_list, **kwargs):
+        """Solves the full system for all b-terms at once using lsmr."""
+        scenario_counts = [(b.matrix.shape[1] if b.matrix.ndim > 1 else 1) if b else 0 for b in processed_b_list]
+        total_scenarios = sum(scenario_counts)
+        if total_scenarios == 0:
+            return [None] * len(processed_b_list)
 
+        linear_op, _ = self._get_linear_operator(total_scenarios)
+        operator_rows, dtype = linear_op.shape[0] // total_scenarios, linear_op.dtype
 
+        # Build the single, large right-hand-side vector
+        rhs_d_block = np.zeros((operator_rows, total_scenarios), dtype=dtype)
+        scen_offset = 0
+        for i, b_item in enumerate(processed_b_list):
+            if b_item is None:
+                continue
+            
+            num_scen_i = scenario_counts[i]
+            weighted_b = np.sqrt(self.weights[i].matrix) * b_item.matrix if self.weights[i] else b_item.matrix
+            
+            start_row = sum(self.A[k].matrix.shape[0] for k in range(i))
+            end_row = start_row + self.A[i].matrix.shape[0]
+            rhs_d_block[start_row:end_row, scen_offset : scen_offset + num_scen_i] = weighted_b
+            scen_offset += num_scen_i
+        
+        # Solve the single large system
+        lsmr_kwargs = {'atol': self.tolerance, 'btol': self.tolerance, **kwargs}
+        sol_flat, *_ = lsmr(linear_op, rhs_d_block.flatten('F'), **lsmr_kwargs)
+        
+        # Deconstruct the solution vector
+        solutions = []
+        num_solution_features = self.A[0].matrix.shape[1]
+        solution_block = sol_flat.reshape(num_solution_features, total_scenarios, order='F')
+        scen_offset = 0
+        for i, b_item in enumerate(processed_b_list):
+            if b_item is not None:
+                num_scen_i = scenario_counts[i]
+                solution_i = solution_block[:, scen_offset : scen_offset + num_scen_i]
+                scen_offset += num_scen_i
+                
+                output_shape = self.A[0].trailing_shape + b_item.trailing_shape
+                solutions.append(solution_i.reshape(output_shape))
+            else:
+                solutions.append(None)
+        return solutions
