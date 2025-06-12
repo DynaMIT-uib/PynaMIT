@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse.linalg import LinearOperator, cg, lsmr
+from scipy.sparse.linalg import LinearOperator, cg, lsmr, svds
 import math
 from collections import namedtuple
 
@@ -16,7 +16,7 @@ class LeastSquaresSolver:
     
     def __init__(self, A, solution_ndim, weights=None, regularization_weights=None, 
                  regularization_matrices=None, solver='normal', tolerance=1e-10, preconditioner=None):
-        solvers = ['normal', 'lsmr', 'cg']
+        solvers = ['normal', 'lsmr', 'cg', 'svd']
         if solver not in solvers: raise ValueError(f"Solver must be one of {solvers}")
         if preconditioner is not None and preconditioner != 'jacobi':
             raise ValueError("Currently, the only supported preconditioner is 'jacobi'.")
@@ -139,6 +139,25 @@ class LeastSquaresSolver:
             else:
                 self._cached_preconditioner = None
         return True
+        
+    @property
+    def _svd_solver_setup(self):
+        if not hasattr(self, "_svd_U"):
+            base_op, _ = self._get_linear_operator(num_scenarios=1)
+            self._cached_base_op_rows = base_op.shape[0]
+            num_features = base_op.shape[1]
+
+            M_dense = base_op @ np.eye(num_features)
+            u, s, vt = np.linalg.svd(M_dense, full_matrices=False)
+            
+            s_inv = np.zeros_like(s)
+            stable_s = s > (self.tolerance * (s[0] if s.size > 0 else 0))
+            s_inv[stable_s] = 1.0 / s[stable_s]
+            
+            self._svd_U = u
+            self._svd_s_inv = s_inv
+            self._svd_Vt = vt
+        return True
 
     def _get_linear_operator(self, num_scenarios=1):
         num_features = self.A[0].matrix.shape[1]
@@ -199,7 +218,7 @@ class LeastSquaresSolver:
                 processed_b = LeastSquaresSolver._flatten(b_item, num_leading_dims=a_info.leading_dim_count)
             processed_b_list.append(processed_b)
 
-        solver_map = {'normal': self._solve_normal, 'lsmr': self._solve_lsmr, 'cg': self._solve_cg}
+        solver_map = {'normal': self._solve_normal, 'lsmr': self._solve_lsmr, 'cg': self._solve_cg, 'svd': self._solve_svd}
         return solver_map[self.solver](processed_b_list, **kwargs)
 
     def _solve_normal(self, processed_b_list, **kwargs):
@@ -241,7 +260,6 @@ class LeastSquaresSolver:
         total_scenarios = sum(scenario_counts)
         if total_scenarios == 0: return [None] * len(processed_b_list)
 
-        # Use a tuple of individual scenario counts as the robust cache key.
         cache_key = scenario_counts
         if cache_key not in self._lsmr_op_cache:
             self._lsmr_op_cache[cache_key], _ = self._get_linear_operator(total_scenarios)
@@ -253,10 +271,11 @@ class LeastSquaresSolver:
         offset = 0
         for i, b in enumerate(processed_b_list):
             if b is None: continue
+            num_scen_i = scenario_counts[i]
             weighted_b = np.sqrt(self.weights[i].matrix) * b.matrix if self.weights[i] else b.matrix
             start_row = sum(self.A[k].matrix.shape[0] for k in range(i))
-            rhs[start_row:start_row+weighted_b.shape[0], offset:offset+scenario_counts[i]] = weighted_b
-            offset += scenario_counts[i]
+            rhs[start_row:start_row+weighted_b.shape[0], offset:offset+num_scen_i] = weighted_b
+            offset += num_scen_i
             
         lsmr_kwargs = {'atol': self.tolerance, 'btol': self.tolerance, **kwargs}
         sol_flat, *_ = lsmr(linear_op, rhs.flatten('F'), **lsmr_kwargs)
@@ -265,9 +284,32 @@ class LeastSquaresSolver:
         sol_block = sol_flat.reshape(self.A[0].matrix.shape[1], total_scenarios, order='F')
         for i, b in enumerate(processed_b_list):
             if b:
-                sol = sol_block[:, offset:offset+scenario_counts[i]]
+                num_scen_i = scenario_counts[i]
+                sol = sol_block[:, offset:offset+num_scen_i]
                 solutions.append(sol.reshape(self.A[0].trailing_shape + b.trailing_shape))
-                offset += scenario_counts[i]
+                offset += num_scen_i
             else:
                 solutions.append(None)
+        return solutions
+
+    def _solve_svd(self, processed_b_list, **kwargs):
+        _ = self._svd_solver_setup
+        
+        solutions = []
+        for i, rhs_b in enumerate(processed_b_list):
+            if rhs_b is None:
+                solutions.append(None)
+                continue
+            
+            num_scenarios = rhs_b.matrix.shape[1]
+            d_block = np.zeros((self._cached_base_op_rows, num_scenarios), dtype=self._svd_U.dtype)
+            start_row = sum(self.A[j].matrix.shape[0] for j in range(i))
+            weighted_b = np.sqrt(self.weights[i].matrix) * rhs_b.matrix if self.weights[i] else rhs_b.matrix
+            d_block[start_row : start_row + weighted_b.shape[0], :] = weighted_b
+            
+            ut_d_block = self._svd_U.T @ d_block
+            s_inv_ut_d = self._svd_s_inv[:, np.newaxis] * ut_d_block
+            solution_matrix = self._svd_Vt.T @ s_inv_ut_d
+
+            solutions.append(solution_matrix.reshape(self.A[0].trailing_shape + rhs_b.trailing_shape))
         return solutions
