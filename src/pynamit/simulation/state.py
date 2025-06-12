@@ -12,7 +12,7 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
-from pynamit.math.least_squares import LeastSquares
+from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 TRIPLE_PRODUCT = False
@@ -468,7 +468,7 @@ class State(object):
                 self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling
             )
 
-        constraints_least_squares = LeastSquares(constraint_matrices, 1)
+        constraints_least_squares = LeastSquaresSolver(constraint_matrices, 1)
         self.coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
 
         # Construct m_ind matrices. Negative sign is from moving the

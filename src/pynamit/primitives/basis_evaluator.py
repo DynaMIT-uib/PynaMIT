@@ -5,7 +5,7 @@ expansions on a grid.
 """
 
 import numpy as np
-from pynamit.math.least_squares import LeastSquares
+from pynamit.math.least_squares_solver import LeastSquaresSolver
 
 
 class BasisEvaluator(object):
@@ -245,12 +245,12 @@ class BasisEvaluator(object):
 
         Returns
         -------
-        LeastSquares
+        LeastSquaresSolver
             Least squares solver for finding the basis expansion
             coefficients of a scalar field.
         """
         if not hasattr(self, "_least_squares"):
-            self._least_squares = LeastSquares(
+            self._least_squares = LeastSquaresSolver(
                 self.G,
                 1,
                 weights=self.weights,
@@ -267,13 +267,13 @@ class BasisEvaluator(object):
 
         Returns
         -------
-        LeastSquares
+        LeastSquaresSolver
             Least squares solver for finding the basis expansion
             coefficients of the curl-free and divergence-free parts of
             a horizontal vector field.
         """
         if not hasattr(self, "_least_squares_helmholtz"):
-            self._least_squares_helmholtz = LeastSquares(
+            self._least_squares_helmholtz = LeastSquaresSolver(
                 self.G_helmholtz,
                 2,
                 weights=self.weights,
