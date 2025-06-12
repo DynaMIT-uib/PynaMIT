@@ -46,12 +46,7 @@ class LeastSquaresSolver:
 
         self.regularization_weights = LeastSquaresSolver._prepare_input_list(regularization_weights, 'regularization_weights', count=self.num_reg_terms, default_val=0.0)
         
-        # Caching attributes will be populated by @property calls
-        self._cached_lsmr_op = None
-        self._cached_cg_op = None
-        self._cached_rmatvec_func = None
-        self._cached_preconditioner = None
-        self._cached_base_op_rows = None
+        self._lsmr_op_cache = {}
 
     @staticmethod
     def _prepare_input_list(input_item, name, count=None, allow_single_item=False, is_optional=False, default_val=None):
@@ -92,6 +87,8 @@ class LeastSquaresSolver:
             for i in range(self.num_data_terms):
                 w_i = self.weights[i].matrix if self.weights[i] is not None else 1.0
                 diag_data += np.sum(w_i * self.A[i].matrix**2, axis=0)
+            
+            full_normal_diag = diag_data.copy()
             data_scale = np.median(diag_data[diag_data > 0]) if np.any(diag_data > 0) else 1.0
             
             scaled_weights = []
@@ -100,17 +97,20 @@ class LeastSquaresSolver:
                 if self.regularization_weights[i] > 0 and self.regularization_matrices[i] is not None:
                     diag_reg = np.sum(self.regularization_matrices[i].matrix**2, axis=0)
                     reg_scale = np.median(diag_reg[diag_reg > 0]) if np.any(diag_reg > 0) else 1.0
-                    if reg_scale > 1e-12: weight = self.regularization_weights[i] * data_scale / reg_scale
+                    if reg_scale > 1e-12:
+                        weight = self.regularization_weights[i] * data_scale / reg_scale
+                        full_normal_diag += weight * diag_reg
                 scaled_weights.append(weight)
+            
             self._scaled_reg_weights_cache = scaled_weights
+            self._jacobi_precond_diag = full_normal_diag
         return self._scaled_reg_weights_cache
 
     @property
     def _full_normal_matrix(self):
         if not hasattr(self, "_full_normal_matrix_cache"):
             num_features = self.A[0].matrix.shape[1]
-            dtype = self.A[0].matrix.dtype
-            normal_matrix = np.zeros((num_features, num_features), dtype=dtype)
+            normal_matrix = np.zeros((num_features, num_features), dtype=self.A[0].matrix.dtype)
             for i in range(self.num_data_terms):
                 w_i = self.weights[i].matrix if self.weights[i] else 1.0
                 normal_matrix += self.A[i].matrix.T @ (w_i * self.A[i].matrix)
@@ -121,14 +121,33 @@ class LeastSquaresSolver:
             self._full_normal_matrix_cache = normal_matrix
         return self._full_normal_matrix_cache
 
+    @property
+    def _cg_solver_setup(self):
+        if not hasattr(self, "_cached_cg_op"):
+            num_features = self.A[0].matrix.shape[1]
+            base_op, rmatvec = self._get_linear_operator(num_scenarios=1)
+            
+            self._cached_base_op_rows = base_op.shape[0]
+            self._cached_cg_op = LinearOperator((num_features, num_features), matvec=lambda x: base_op.rmatvec(base_op.matvec(x)), dtype=base_op.dtype)
+            self._cached_rmatvec_func = rmatvec
+            
+            if self.preconditioner == 'jacobi':
+                _ = self._scaled_regularization_weights
+                diag = self._jacobi_precond_diag
+                diag[diag < 1e-12] = 1.0
+                self._cached_preconditioner = LinearOperator((num_features, num_features), matvec=lambda x: x / diag, dtype=base_op.dtype)
+            else:
+                self._cached_preconditioner = None
+        return True
+
     def _get_linear_operator(self, num_scenarios=1):
         num_features = self.A[0].matrix.shape[1]
+        sqrt_scaled_reg_weights = [np.sqrt(w) for w in self._scaled_regularization_weights]
         op_rows = sum(a.matrix.shape[0] for a in self.A) + \
                   sum(l.matrix.shape[0] for i, l in enumerate(self.regularization_matrices) 
-                      if l is not None and self._scaled_regularization_weights[i] > 0)
+                      if l is not None and sqrt_scaled_reg_weights[i] > 0)
         
         def matvec(x_block):
-            sqrt_scaled_reg_weights = [np.sqrt(w) for w in self._scaled_regularization_weights]
             out = np.zeros((op_rows, x_block.shape[1]), dtype=self.A[0].matrix.dtype)
             row = 0
             for i in range(self.num_data_terms):
@@ -144,7 +163,6 @@ class LeastSquaresSolver:
             return out
 
         def rmatvec(y_block):
-            sqrt_scaled_reg_weights = [np.sqrt(w) for w in self._scaled_regularization_weights]
             x_block = np.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype)
             row = 0
             for i in range(self.num_data_terms):
@@ -197,25 +215,7 @@ class LeastSquaresSolver:
         return solutions
 
     def _solve_cg(self, processed_b_list, **kwargs):
-        if self._cached_cg_op is None:
-            num_features = self.A[0].matrix.shape[1]
-            base_op, rmatvec = self._get_linear_operator(num_scenarios=1)
-            self._cached_base_op_rows = base_op.shape[0]
-            self._cached_cg_op = LinearOperator((num_features, num_features), matvec=lambda x: base_op.rmatvec(base_op.matvec(x)), dtype=base_op.dtype)
-            self._cached_rmatvec_func = rmatvec
-            if self.preconditioner == 'jacobi':
-                _ = self._scaled_regularization_weights
-                diag = np.zeros(num_features, dtype=base_op.dtype)
-                diag_data = np.zeros_like(diag)
-                for i in range(self.num_data_terms):
-                    w_i = self.weights[i].matrix if self.weights[i] is not None else 1.0
-                    diag_data += np.sum(w_i * self.A[i].matrix**2, axis=0)
-                diag += diag_data
-                for i, scaled_weight in enumerate(self._scaled_regularization_weights):
-                     if scaled_weight > 0 and self.regularization_matrices[i] is not None:
-                        diag += scaled_weight * np.sum(self.regularization_matrices[i].matrix**2, axis=0)
-                diag[diag < 1e-12] = 1.0
-                self._cached_preconditioner = LinearOperator((num_features, num_features), matvec=lambda x: x / diag, dtype=base_op.dtype)
+        _ = self._cg_solver_setup
         
         solutions = []
         for i, rhs_b in enumerate(processed_b_list):
@@ -230,7 +230,6 @@ class LeastSquaresSolver:
             rhs_for_cg = self._cached_rmatvec_func(d_block)
             if rhs_for_cg.ndim == 1: rhs_for_cg = rhs_for_cg.reshape(-1, 1)
             sol = np.zeros_like(rhs_for_cg)
-            # --- FIX: Use atol/rtol instead of tol ---
             cg_kwargs = {'atol': self.tolerance, 'rtol': self.tolerance, 'M': self._cached_preconditioner, **kwargs}
             for k in range(num_scenarios):
                 sol[:, k], _ = cg(self._cached_cg_op, rhs_for_cg[:, k], **cg_kwargs)
@@ -238,13 +237,18 @@ class LeastSquaresSolver:
         return solutions
 
     def _solve_lsmr(self, processed_b_list, **kwargs):
-        scenario_counts = [(b.matrix.shape[1] if b else 1) for b in processed_b_list]
+        scenario_counts = tuple((b.matrix.shape[1] if b else 0) for b in processed_b_list)
         total_scenarios = sum(scenario_counts)
         if total_scenarios == 0: return [None] * len(processed_b_list)
-        if self._cached_lsmr_op is None or self._cached_lsmr_op.shape[1] != self.A[0].matrix.shape[1] * total_scenarios:
-            self._cached_lsmr_op, _ = self._get_linear_operator(total_scenarios)
-        linear_op, dtype = self._cached_lsmr_op, self._cached_lsmr_op.dtype
-        op_rows = linear_op.shape[0] // total_scenarios
+
+        # Use a tuple of individual scenario counts as the robust cache key.
+        cache_key = scenario_counts
+        if cache_key not in self._lsmr_op_cache:
+            self._lsmr_op_cache[cache_key], _ = self._get_linear_operator(total_scenarios)
+        
+        linear_op = self._lsmr_op_cache[cache_key]
+        
+        op_rows, dtype = linear_op.shape[0] // total_scenarios, linear_op.dtype
         rhs = np.zeros((op_rows, total_scenarios), dtype=dtype)
         offset = 0
         for i, b in enumerate(processed_b_list):
@@ -253,8 +257,10 @@ class LeastSquaresSolver:
             start_row = sum(self.A[k].matrix.shape[0] for k in range(i))
             rhs[start_row:start_row+weighted_b.shape[0], offset:offset+scenario_counts[i]] = weighted_b
             offset += scenario_counts[i]
+            
         lsmr_kwargs = {'atol': self.tolerance, 'btol': self.tolerance, **kwargs}
         sol_flat, *_ = lsmr(linear_op, rhs.flatten('F'), **lsmr_kwargs)
+        
         solutions, offset = [], 0
         sol_block = sol_flat.reshape(self.A[0].matrix.shape[1], total_scenarios, order='F')
         for i, b in enumerate(processed_b_list):
