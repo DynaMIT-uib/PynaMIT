@@ -563,12 +563,22 @@ class State(object):
         """
         from scipy.linalg import expm
 
-        m_ind_to_ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
-
         if self.integrator == "euler":
+            E_ind_direct = self.m_ind_to_E_coeffs_direct.dot(m_ind)
+
+            ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * E_ind_direct[1]
+            if self.connect_hemispheres and E_MAPPING:
+                ddt_m_ind += (
+                    dt
+                    * self.E_df_to_d_m_ind_dt
+                    * self.m_imp_to_E_coeffs.dot(
+                        np.tensordot(self.coeffs_to_m_imp[1], -E_ind_direct, 2)
+                    )[1]
+                )
+
             new_m_ind = (
                 m_ind
-                + m_ind_to_ddt_m_ind.dot(m_ind)
+                + ddt_m_ind
                 + dt * self.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
             )
 
@@ -576,6 +586,7 @@ class State(object):
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
 
+            m_ind_to_ddt_m_ind = dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_coeffs[1]
             propagator = expm(m_ind_to_ddt_m_ind)
 
             inductive_m_ind = propagator.dot(m_ind - steady_state_m_ind)
