@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse.linalg import LinearOperator, cg, lsmr, svds
+from scipy.sparse.linalg import LinearOperator, cg, lsmr
 import math
 from collections import namedtuple
 
