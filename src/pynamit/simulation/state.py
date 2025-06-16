@@ -472,18 +472,54 @@ class State(object):
         constraints_least_squares = LeastSquaresSolver(constraint_matrices, 1)
         self.coeffs_to_m_imp = constraints_least_squares.solve(coeffs_to_constraint_vectors)
 
-        # Construct m_ind matrices. Negative sign is from moving the
-        # induction terms to the right hand side of E - E^cp = 0 (in
-        # apex coordinates).
-        self.m_ind_to_E_coeffs = self.m_ind_to_E_coeffs_direct.copy()
-        if self.connect_hemispheres and E_MAPPING:
-            self.m_ind_to_m_imp = np.tensordot(
-                self.coeffs_to_m_imp[1], -self.m_ind_to_E_coeffs_direct, 2
-            )
-            self.m_ind_to_E_coeffs += self.m_imp_to_E_coeffs.dot(self.m_ind_to_m_imp)
+        self.build_m_ind_to_E_df()
 
-        # Construct matrix used in steady state calculations.
-        self.E_noind_to_m_ind_steady = -np.linalg.pinv(self.m_ind_to_E_coeffs[1])
+    def build_m_ind_to_E_df(self):
+        """
+        Builds the operator that maps induced magnetic field
+        coefficients to divergence-free electric field coefficients.
+        """
+        # Define the forward operation.
+        def matvec(m_ind):
+            m_ind = m_ind.flatten()
+
+            E_ind = np.einsum("ijk,k->ij", self.m_ind_to_E_coeffs_direct, m_ind)
+
+            final_E_comp = E_ind[1]
+
+            if self.connect_hemispheres and E_MAPPING:
+                m_imp = np.einsum("ijk,jk->i", self.coeffs_to_m_imp[1], -E_ind)
+                hemisphere_term = np.einsum("jk,k->j", self.m_imp_to_E_coeffs[1], m_imp)
+                final_E_comp = final_E_comp + hemisphere_term
+
+            return final_E_comp
+
+        # Define the adjoint operation.
+        def rmatvec(grad_output):
+            grad_final_E_comp = grad_output.flatten()
+
+            total_grad_E_ind = np.zeros(
+                (self.m_ind_to_E_coeffs_direct.shape[0], self.m_ind_to_E_coeffs_direct.shape[1]),
+                dtype=np.float64,
+            )
+            total_grad_E_ind[1] = grad_final_E_comp
+
+            if self.connect_hemispheres and E_MAPPING:
+                C_imp_h = self.m_imp_to_E_coeffs[1]
+                T_imp = self.coeffs_to_m_imp[1]
+                grad_m_imp = np.einsum("j,jk->k", grad_final_E_comp, C_imp_h)
+                grad_E_ind_from_hemi = -np.einsum("i,ijk->jk", grad_m_imp, T_imp)
+                total_grad_E_ind = total_grad_E_ind + grad_E_ind_from_hemi
+
+            return np.einsum("ij,ijk->k", total_grad_E_ind, self.m_ind_to_E_coeffs_direct)
+
+        # Create the operator
+        self.m_ind_to_E_df = LinearOperator(
+            shape=(self.m_ind_to_E_coeffs_direct.shape[1], self.m_ind_to_E_coeffs_direct.shape[2]),
+            matvec=matvec,
+            rmatvec=rmatvec,
+            dtype=np.float64,
+        )
 
     def calculate_noind_coeffs(self):
         """Calculate noind coefficients.
@@ -552,53 +588,6 @@ class State(object):
 
         return E_coeffs, m_imp_ind
 
-    def _build_ddt_m_ind_self_operator(self):
-        """
-        Builds the evolution operator by defining local matvec/rmatvec functions
-        and passing them directly to the LinearOperator constructor.
-        """
-        dim = self.m_ind_to_E_coeffs_direct.shape[1]
-
-        # Define the forward operation.
-        def matvec(m_ind):
-            m_ind = m_ind.flatten()
-
-            E_ind = np.einsum("ijk,k->ij", self.m_ind_to_E_coeffs_direct, m_ind)
-
-            final_E_comp = E_ind[1]
-
-            if self.connect_hemispheres and E_MAPPING:
-                m_imp = np.einsum("ijk,jk->i", self.coeffs_to_m_imp[1], -E_ind)
-                hemisphere_term = np.einsum("jk,k->j", self.m_imp_to_E_coeffs[1], m_imp)
-                final_E_comp = final_E_comp + hemisphere_term
-
-            return self.E_df_to_d_m_ind_dt * final_E_comp
-
-        # Define the adjoint operation.
-        def rmatvec(grad_output):
-            grad_output = grad_output.flatten()
-
-            grad_final_E_comp = self.E_df_to_d_m_ind_dt * grad_output
-
-            total_grad_E_ind = np.zeros(
-                (self.m_ind_to_E_coeffs_direct.shape[0], dim), dtype=np.float64
-            )
-            total_grad_E_ind[1] = grad_final_E_comp
-
-            if self.connect_hemispheres and E_MAPPING:
-                C_imp_h = self.m_imp_to_E_coeffs[1]
-                T_imp = self.coeffs_to_m_imp[1]
-                grad_m_imp = np.einsum("j,jk->k", grad_final_E_comp, C_imp_h)
-                grad_E_ind_from_hemi = -np.einsum("i,ijk->jk", grad_m_imp, T_imp)
-                total_grad_E_ind = total_grad_E_ind + grad_E_ind_from_hemi
-
-            return np.einsum("ij,ijk->k", total_grad_E_ind, self.m_ind_to_E_coeffs_direct)
-
-        # Create the operator instance.
-        self.ddt_m_ind_self = LinearOperator(
-            shape=(dim, dim), matvec=matvec, rmatvec=rmatvec, dtype=np.float64
-        )
-
     def evolve_m_ind(self, m_ind, dt, E_coeffs_noind, steady_state_m_ind=None):
         """Evolve induced magnetic field coefficients.
 
@@ -611,12 +600,10 @@ class State(object):
         """
         from scipy.sparse.linalg import expm_multiply
 
-        self._build_ddt_m_ind_self_operator()
-
         if self.integrator == "euler":
             new_m_ind = (
                 m_ind
-                + dt * self.ddt_m_ind_self.matvec(m_ind)
+                + dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df.matvec(m_ind)
                 + dt * self.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
             )
 
@@ -624,21 +611,21 @@ class State(object):
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
 
-            inductive_m_ind = expm_multiply(dt * self.ddt_m_ind_self, m_ind - steady_state_m_ind)
+            inductive_m_ind = expm_multiply(
+                dt * self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df, m_ind - steady_state_m_ind
+            )
 
             new_m_ind = inductive_m_ind + steady_state_m_ind
 
         return new_m_ind
 
     def steady_state_m_ind(self, E_coeffs_noind):
-        """Calculate coefficients for induced field in steady state.
-
-        Returns
-        -------
-        array
-            Coefficients for the induced magnetic field in steady state.
         """
-        m_ind = self.E_noind_to_m_ind_steady.dot(E_coeffs_noind[1])
+        Calculate coefficients for induced field in steady state.
+        """
+        from scipy.sparse.linalg import gmres
+
+        m_ind = gmres(self.m_ind_to_E_df, -E_coeffs_noind[1], rtol=1e-12, atol=1e-12)[0]
 
         return m_ind
 
