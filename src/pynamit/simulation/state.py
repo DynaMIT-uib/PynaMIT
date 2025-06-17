@@ -31,25 +31,7 @@ class State(object):
     ----------
     basis : Basis
         Main state variable basis.
-    jr_basis : Basis
-        Radial current basis.
-    Br_basis : Basis
-        Radial magnetic field basis.
-    conductance_basis : Basis
-        Conductance basis.
-    u_basis : Basis
-        Neutral wind basis.
-    grid : Grid
-        Computational grid.
-    mainfield : Mainfield
-        Main magnetic field model.
-    m_ind : FieldExpansion
-        Induced magnetic field coefficients.
-    m_imp : FieldExpansion
-        Imposed magnetic field coefficients.
-    E : FieldExpansion
-        Electric field expansion (tangential).
-    ... (other attributes as defined in the implementation) ...
+    # ... (other attributes as defined in the implementation) ...
     """
 
     def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
@@ -57,17 +39,12 @@ class State(object):
 
         Parameters
         ----------
-        bases : dict
-            Dictionary of bases with keys:
-            - 'state': for state variables
-            - 'jr': for radial current
-            - 'Br': for radial magnetic field
-            - 'conductance': for conductivity
-            - 'u': for neutral wind
+        basis : Basis
+            The basis for state variables.
         mainfield : Mainfield
             Main magnetic field model.
-        grid : Grid
-            Spatial grid for computations.
+        cs_basis : Basis
+            The basis for the coordinate system.
         settings : object
             Configuration settings containing parameters such as RI,
             latitude_boundary, ignore_PFAC, connect_hemispheres,
@@ -145,6 +122,7 @@ class State(object):
             )
             self.G_m_ind_to_JS *= 1 + m_ind_to_m_S
 
+        # Construct the matrix elements for electric field calculations.
         self.bP = np.array(
             [
                 [
@@ -196,6 +174,7 @@ class State(object):
         if TRIPLE_PRODUCT:
             self.prepare_triple_product_tensors(plot=False)
 
+        # Conductance and neutral wind should be set after state initialization.
         self.u, self.Br, self.jr = None, None, None
         self.initialize_constraints()
 
@@ -221,7 +200,7 @@ class State(object):
         array
             Matrix that maps coefficients of a toroidal field to
             coefficients of a poloidal field that shields the region
-            under the ionosphere from the poloidal field of inclined
+            under the ionosphere from the poloidal field of inclined FACs.
         """
         if not hasattr(self, "_T_to_Ve"):
             self._T_to_Ve = xr.DataArray(
@@ -359,8 +338,12 @@ class State(object):
                     )
 
     def update_matrices(self):
-        """
-        Update the resistance-dependent matrices.
+        """Update the resistance-dependent matrices.
+
+        This method updates the matrices used to calculate the electric
+        field and imposed magnetic field from the induced magnetic field
+        and input variables. It invalidates caches for operators that
+        depend on these matrices.
         """
         if TRIPLE_PRODUCT:
             self.m_ind_to_E_coeffs_direct = self.etaP_m_ind_to_E_coeffs.dot(
@@ -392,14 +375,19 @@ class State(object):
                     G_Br_to_E_direct
                 )
 
-        # Invalidate caches. They will be recomputed on the next call that needs them.
+        # Invalidate caches that depend on the updated matrices.
         self._coeffs_to_m_imp_cache = None
         self.m_ind_to_E_df = None
 
     def _get_or_compute_coeffs_to_m_imp(self):
         """
-        Calculates and returns the coeffs_to_m_imp tensor, which represents
-        the complex constrained mapping. Caches the result for performance.
+        Calculates and returns the `coeffs_to_m_imp` tensor.
+
+        This tensor represents the complex constrained mapping from source
+        coefficients (like `jr_coeffs` or E-field coeffs) to the imposed
+        magnetic field coefficients (`m_imp`). The result is cached for
+        performance, as it is expensive to compute but constant within a
+        single time step.
         """
         if self._coeffs_to_m_imp_cache is not None:
             return self._coeffs_to_m_imp_cache
@@ -423,9 +411,11 @@ class State(object):
 
     def build_m_ind_to_E_df(self):
         """
-        Builds the operator that maps m_ind -> E_df. This is the core time-evolution
-        operator used by the integrators.
+        Builds the operator that maps induced magnetic field coefficients
+        to divergence-free electric field coefficients. This is the core
+        time-evolution operator `L` where `d(m_ind)/dt ~ L(m_ind)`.
         """
+        # The matvec closure needs access to the correct tensor, so we fetch it here.
         coeffs_to_m_imp = self._get_or_compute_coeffs_to_m_imp()
 
         op_shape = (self.m_ind_to_E_coeffs_direct.shape[2], self.m_ind_to_E_coeffs_direct.shape[1])
@@ -458,7 +448,13 @@ class State(object):
         )
 
     def calculate_noind_coeffs(self):
-        """Calculate noind coefficients using the new helper method."""
+        """Calculate no-induction coefficients.
+
+        Calculate the coefficients for the electric field and
+        imposed magnetic field from external sources like winds and
+        field-aligned currents, without the induced contribution.
+        """
+        # Get the cached or newly computed mapping tensor
         coeffs_to_m_imp = self._get_or_compute_coeffs_to_m_imp()
 
         E_coeffs_direct_noind = np.zeros((2, self.basis.index_length))
@@ -479,7 +475,13 @@ class State(object):
         return E_coeffs_noind, m_imp_noind
 
     def calculate_ind_coeffs(self, m_ind):
-        """Calculate induced coefficients using the new helper method."""
+        """Calculate induced coefficients.
+
+        Calculate the coefficients for the induced contribution to
+        the electric field and imposed magnetic field from a given
+        set of induced magnetic field coefficients.
+        """
+        # Get the cached or newly computed mapping tensor
         coeffs_to_m_imp = self._get_or_compute_coeffs_to_m_imp()
 
         E_coeffs_direct_ind = self.m_ind_to_E_coeffs_direct.dot(m_ind)
@@ -491,10 +493,16 @@ class State(object):
         return E_coeffs, m_imp_ind
 
     def evolve_m_ind(self, m_ind, dt, E_coeffs_noind, steady_state_m_ind=None):
-        """Evolve induced magnetic field coefficients."""
+        """Evolve induced magnetic field coefficients.
+
+        Updates m_ind by time-stepping the induction equation forward using
+        either a simple Euler step or a more advanced exponential integrator.
+        """
+        # Build operator just-in-time, ensuring all dependencies are met.
         if self.m_ind_to_E_df is None:
             self.build_m_ind_to_E_df()
 
+        # The full time evolution operator, L = s * L_part
         ddt_m_ind_operator = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df
 
         if self.integrator == "euler":
@@ -506,19 +514,29 @@ class State(object):
         elif self.integrator == "exponential":
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
+            # expm_multiply requires an adjoint, which our operator now has.
             inductive_m_ind = expm_multiply(dt * ddt_m_ind_operator, m_ind - steady_state_m_ind)
             new_m_ind = inductive_m_ind + steady_state_m_ind
 
         return new_m_ind
 
     def steady_state_m_ind(self, E_coeffs_noind):
-        """Calculate coefficients for induced field in steady state."""
+        """
+        Calculate coefficients for induced field in steady state.
+
+        Solves the steady-state equation `L(m_ind) = -F` using an efficient
+        iterative solver (GMRES) on the matrix-free time-evolution operator.
+        """
+        # Build operator just-in-time
         if self.m_ind_to_E_df is None:
             self.build_m_ind_to_E_df()
 
+        # In steady state, d(m_ind)/dt = 0 => L(m_ind) = -F
+        # The operator for GMRES is L itself.
         steady_state_op = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df
         b = -self.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
 
+        # GMRES is the correct iterative solver for this square system.
         m_ind, exit_code = gmres(steady_state_op, b, rtol=1e-12, atol=0)
         if exit_code != 0:
             print(f"Warning: GMRES failed to converge with exit code: {exit_code}")
@@ -526,7 +544,13 @@ class State(object):
         return m_ind
 
     def prepare_triple_product_tensors(self, plot=True):
-        # ... This method is correct and unchanged ...
+        """Prepare tensors for triple product calculation.
+
+        Parameters
+        ----------
+        plot : bool, optional
+            Whether to plot the tensors.
+        """
         etaP_m_ind_to_E = np.einsum(
             "ijk,jl->ijkl", self.m_ind_to_bP_JS, self.basis_evaluator_zero_added.G, optimize=True
         )
