@@ -50,16 +50,9 @@ class State(object):
 
         self.m_ind_to_Br, self.m_imp_to_jr = -(self.RI**2) * self.basis.laplacian(self.RI), self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_d_m_ind_dt = 1 / self.RI
-        self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * (-self.RI / mu0 * self.basis.coeffs_to_delta_V)
-        self.G_T_to_JS = -1 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
-        self.G_m_ind_to_JS = self.G_Ve_to_JS
+        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
+        self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
 
-        if self.RM is not None:
-            br_shift, vi_shift = self.basis.radial_shift_Ve(self.RM, self.RI), self.basis.radial_shift_Vi(self.RI, self.RM)
-            den = 1 - br_shift * vi_shift
-            self.G_Br_to_JS = self.G_Ve_to_JS * (-1 / den * br_shift / self.m_ind_to_Br)
-            self.G_m_ind_to_JS *= 1 + (1 / den * br_shift * vi_shift)
-        
         self.bP, self.bH, self.bu = None, None, None
         
         self.initialize_constraints()
@@ -68,10 +61,26 @@ class State(object):
 
     # --- Properties for lazy computation ---
     @property
-    def G_m_imp_to_JS_prop(self):
-        if not hasattr(self, "_G_m_imp_to_JS"): self._G_m_imp_to_JS = self.G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2],[0]))
+    def G_m_imp_to_JS(self):
+        if not hasattr(self, "_G_m_imp_to_JS"):
+            T_to_J_cf_coeffs = self.RI / mu0
+            G_T_to_JS = -1 / self.RI * self.basis_evaluator.G_grad * T_to_J_cf_coeffs
+            self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2],[0]))
         return self._G_m_imp_to_JS
-    
+
+    @property
+    def G_m_ind_to_JS(self):
+        if not hasattr(self, "_G_m_ind_to_JS"):
+            self._G_m_ind_to_JS = self.G_Ve_to_JS
+
+            if self.RM is not None:
+                br_shift, vi_shift = self.basis.radial_shift_Ve(self.RM, self.RI), self.basis.radial_shift_Vi(self.RI, self.RM)
+                den = 1 - br_shift * vi_shift
+                self.G_Br_to_JS = self.G_Ve_to_JS * (-1 / den * br_shift / self.m_ind_to_Br)
+                self._G_m_ind_to_JS *= 1 + (1 / den * br_shift * vi_shift)
+
+        return self._G_m_ind_to_JS
+
     @property
     def bP_prop(self):
         if self.bP is None: self.bP = np.array([[self.b_evaluator.bphi**2+self.b_evaluator.br**2, -self.b_evaluator.btheta*self.b_evaluator.bphi], [-self.b_evaluator.btheta*self.b_evaluator.bphi, self.b_evaluator.btheta**2+self.b_evaluator.br**2]])
@@ -99,12 +108,12 @@ class State(object):
         
     @property
     def m_imp_to_bP_JS_prop(self):
-        if not hasattr(self, "_m_imp_to_bP_JS"): self._m_imp_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_m_imp_to_JS_prop, optimize=True)
+        if not hasattr(self, "_m_imp_to_bP_JS"): self._m_imp_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_m_imp_to_JS, optimize=True)
         return self._m_imp_to_bP_JS
         
     @property
     def m_imp_to_bH_JS_prop(self):
-        if not hasattr(self, "_m_imp_to_bH_JS"): self._m_imp_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_m_imp_to_JS_prop, optimize=True)
+        if not hasattr(self, "_m_imp_to_bH_JS"): self._m_imp_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_m_imp_to_JS, optimize=True)
         return self._m_imp_to_bH_JS
 
     @property
@@ -188,10 +197,8 @@ class State(object):
             etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
             etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
             m_ind_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_ind_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_ind_to_bH_JS_prop)
-            if self.use_matrix_free:
-                self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(m_ind_to_E_grid)
-            else:
-                self._m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_ind_to_E_grid)
+            dense_op = self.basis_evaluator.least_squares_solution_helmholtz(m_ind_to_E_grid)
+            self._m_ind_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
         return self._m_ind_to_E_coeffs
         
     @property
@@ -201,10 +208,8 @@ class State(object):
             etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
             etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
             m_imp_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_imp_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_imp_to_bH_JS_prop)
-            if self.use_matrix_free:
-                self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(m_imp_to_E_grid)
-            else:
-                self._m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_imp_to_E_grid)
+            dense_op = self.basis_evaluator.least_squares_solution_helmholtz(m_imp_to_E_grid)
+            self._m_imp_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
         return self._m_imp_to_E_coeffs
 
     @property
@@ -215,22 +220,16 @@ class State(object):
             etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
             etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
             Br_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.Br_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.Br_to_bH_JS_prop)
-            if self.use_matrix_free:
-                self._Br_to_E_coeffs = self._create_E_coeffs_operator(Br_to_E_grid)
-            else:
-                self._Br_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(Br_to_E_grid)
+            dense_op = self.basis_evaluator.least_squares_solution_helmholtz(Br_to_E_grid)
+            self._Br_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
         return self._Br_to_E_coeffs
 
     def _invalidate_caches(self):
         """Invalidate all cached matrices and operators that depend on conductance."""
-        self._m_ind_to_E_coeffs = None
-        self._m_imp_to_E_coeffs = None
-        self._Br_to_E_coeffs = None
+        self._m_ind_to_E_coeffs, self._m_imp_to_E_coeffs, self._Br_to_E_coeffs = None, None, None
         self.m_ind_to_E_df = None
-        if self.use_matrix_free:
-            self._fwd_solver_cache, self._adj_solver_cache, self._E_map_constraint_operator = {}, {}, None
-        else:
-            self._coeffs_to_m_imp_cache = None
+        if self.use_matrix_free: self._fwd_solver_cache, self._adj_solver_cache, self._E_map_constraint_operator = {}, {}, None
+        else: self._coeffs_to_m_imp_cache = None
 
     def initialize_constraints(self):
         """Initialize constraints."""
@@ -300,49 +299,51 @@ class State(object):
 
     def _build_u_coeffs_to_E_coeffs(self):
         """Builds the conductance-independent mapping from wind to E-field."""
-        u_coeffs_to_uxB_grid = np.einsum('ijg,jgkl->igkl', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
-        if self.use_matrix_free:
-            self.u_coeffs_to_E_coeffs = self._create_vector_E_coeffs_operator(u_coeffs_to_uxB_grid)
-        else:
-            self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB_grid)
+        u_coeffs_to_uxB_grid = np.einsum('ijk,jklm->iklm', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
+        dense_op = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB_grid)
+        self.u_coeffs_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
 
-    def _create_E_coeffs_operator(self, G_to_E_grid):
-        """Helper for SCALAR coefficient mappings (e.g., m_ind -> E)."""
-        output_dim, input_dim = self.basis.index_length, G_to_E_grid.shape[2]
-        shape = (2 * output_dim, input_dim)
-        def matvec(v_in): return self.basis_evaluator.least_squares_solution_helmholtz(np.einsum('ijk,k->ij', G_to_E_grid, v_in.flatten())).flatten()
-        def rmatvec(v_out):
-            grad_E_grid = self.basis_evaluator.least_squares_helmholtz.rmatvec(v_out).reshape(2, -1)
-            return np.einsum('ijk,ij->k', G_to_E_grid, grad_E_grid, optimize=True)
-        return LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
-
-    def _create_vector_E_coeffs_operator(self, G_to_E_grid_4d):
-        """Helper for VECTOR coefficient mappings (u -> E). Mimics a (2,n,2,n) tensor."""
+    def _create_operator_from_dense(self, dense_op):
+        """Creates a LinearOperator that mimics a dense tensor's contraction rules."""
         n_c = self.basis.index_length
-        shape = (2 * n_c, 2 * n_c)
-        dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_to_E_grid_4d)
-        def matvec(v_in_flat):
-            v_in = v_in_flat.reshape(2, -1)
-            v_out = np.tensordot(dense_op, v_in, 2)
-            return v_out.flatten()
-        def rmatvec(v_out_flat):
-            v_out = v_out_flat.reshape(2, -1)
-            A_adj = np.conj(dense_op).transpose(2,3,0,1)
-            v_in = np.tensordot(A_adj, v_out, axes=2)
-            return v_in.flatten()
-        return LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
+        is_vector_map = (dense_op.ndim == 4)
 
+        if is_vector_map:
+            shape = (2 * n_c, 2 * n_c)
+            def matvec(v_in_flat): return np.tensordot(dense_op, v_in_flat.reshape(2, -1), 2).flatten()
+            def rmatvec(v_out_flat):
+                A_adj = np.conj(dense_op).transpose(2,3,0,1)
+                return np.tensordot(A_adj, v_out_flat.reshape(2, -1), 2).flatten()
+        else: # Scalar mapping
+            shape = (2 * n_c, n_c)
+            def matvec(v_in): return dense_op.dot(v_in)
+            def rmatvec(v_out): return dense_op.T.dot(v_out)
+        
+        return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
+
+    def _contract(self, op, coeffs, output_shape):
+        """Agnostic helper to apply an operator to coefficients, returning a specific shape."""
+        # --- DEFINITIVE FIX ---
+        if op is None or (isinstance(coeffs, int) and coeffs == 0):
+            return np.zeros(output_shape)
+        
+        if isinstance(op, LinearOperator):
+            return op.dot(coeffs.flatten()).reshape(output_shape)
+        
+        # Dense numpy array logic
+        if coeffs.ndim == 1: # Scalar input coeffs
+            return op.dot(coeffs).reshape(output_shape)
+        elif coeffs.ndim == 2: # Vector input coeffs
+            return np.tensordot(op, coeffs, 2)
+        else:
+            raise ValueError(f"Unsupported coefficient shape: {coeffs.shape}")
+    
     def calculate_noind_coeffs(self):
         """Calculate no-induction coefficients using the selected mode."""
-        E_direct = np.zeros((2, self.basis.index_length))
-        if self.u is not None:
-            if self.use_matrix_free:
-                E_direct += self.u_coeffs_to_E_coeffs.dot(self.u.coeffs.flatten()).reshape(2, -1)
-            else:
-                E_direct += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
+        E_direct = self._contract(self.u_coeffs_to_E_coeffs, self.u.coeffs if self.u else 0, output_shape=(2, self.basis.index_length))
         
-        if self.Br is not None and self.Br_to_E_coeffs is not None:
-             E_direct += self.Br_to_E_coeffs.dot(self.Br.coeffs).reshape(2,-1)
+        if self.Br is not None:
+            E_direct += self._contract(self.Br_to_E_coeffs, self.Br.coeffs, output_shape=(2, self.basis.index_length))
 
         if self.use_matrix_free:
             jr_c = self.jr.coeffs if self.jr is not None else None
@@ -354,12 +355,12 @@ class State(object):
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
                 m_imp += np.tensordot(coeffs_to_m_imp[1], -E_direct, 2)
         
-        E_imp = self.m_imp_to_E_coeffs.dot(m_imp).reshape(2,-1)
+        E_imp = self._contract(self.m_imp_to_E_coeffs, m_imp, output_shape=(2, self.basis.index_length))
         return E_direct + E_imp, m_imp
 
     def calculate_ind_coeffs(self, m_ind):
         """Calculate induced coefficients using the selected mode."""
-        E_direct_ind = self.m_ind_to_E_coeffs.dot(m_ind).reshape(2,-1)
+        E_direct_ind = self._contract(self.m_ind_to_E_coeffs, m_ind, output_shape=(2, self.basis.index_length))
         if self.use_matrix_free:
             m_imp_ind = self._solve_for_m_imp_iteratively(None, E_direct_ind)
         else:
@@ -367,7 +368,7 @@ class State(object):
             m_imp_ind = np.zeros(self.basis.index_length)
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
                 m_imp_ind = np.tensordot(coeffs_to_m_imp[1], -E_direct_ind, 2)
-        E_imp_ind = self.m_imp_to_E_coeffs.dot(m_imp_ind).reshape(2,-1)
+        E_imp_ind = self._contract(self.m_imp_to_E_coeffs, m_imp_ind, output_shape=(2, self.basis.index_length))
         return E_direct_ind + E_imp_ind, m_imp_ind
 
     # --- Mode-Specific Methods and Time Evolution ---
