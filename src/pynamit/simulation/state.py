@@ -63,17 +63,12 @@ class State(object):
         self.bP, self.bH, self.bu = None, None, None
         
         self.initialize_constraints()
-        
-        # This is conductance-independent and can be created once.
+
+        # This is conductance-independent and can be created here.
         self._build_u_coeffs_to_E_coeffs()
-        
-        self.m_ind_to_E_coeffs = self.m_imp_to_E_coeffs = self.Br_to_E_coeffs = None
-        self.m_ind_to_E_df = None
-        
-        if self.use_matrix_free:
-            self._fwd_solver_cache, self._adj_solver_cache, self._E_map_constraint_operator = {}, {}, None
-        else:
-            self._coeffs_to_m_imp_cache = None
+
+        # Invalidate all caches
+        self._invalidate_caches()
 
     # --- Properties for lazy computation ---
     @property
@@ -189,7 +184,58 @@ class State(object):
                         Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2)
                     )
         return self._T_to_Ve
+
+    @property
+    def m_ind_to_E_coeffs(self):
+        if self._m_ind_to_E_coeffs is None:
+            if self.etaP is None: raise RuntimeError("Conductance must be set before accessing operators.")
+            etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
+            etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
+            m_ind_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_ind_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_ind_to_bH_JS_prop)
+            if self.use_matrix_free:
+                self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(m_ind_to_E_grid)
+            else:
+                self._m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_ind_to_E_grid)
+        return self._m_ind_to_E_coeffs
         
+    @property
+    def m_imp_to_E_coeffs(self):
+        if self._m_imp_to_E_coeffs is None:
+            if self.etaP is None: raise RuntimeError("Conductance must be set before accessing operators.")
+            etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
+            etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
+            m_imp_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_imp_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_imp_to_bH_JS_prop)
+            if self.use_matrix_free:
+                self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(m_imp_to_E_grid)
+            else:
+                self._m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_imp_to_E_grid)
+        return self._m_imp_to_E_coeffs
+
+    @property
+    def Br_to_E_coeffs(self):
+        if self._Br_to_E_coeffs is None:
+            if self.RM is None: return None
+            if self.etaP is None: raise RuntimeError("Conductance must be set before accessing operators.")
+            etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
+            etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
+            Br_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.Br_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.Br_to_bH_JS_prop)
+            if self.use_matrix_free:
+                self._Br_to_E_coeffs = self._create_E_coeffs_operator(Br_to_E_grid)
+            else:
+                self._Br_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(Br_to_E_grid)
+        return self._Br_to_E_coeffs
+
+    def _invalidate_caches(self):
+        """Invalidate all cached matrices and operators."""
+        self._m_ind_to_E_coeffs = None
+        self._m_imp_to_E_coeffs = None
+        self._Br_to_E_coeffs = None
+        self.m_ind_to_E_df = None
+        if self.use_matrix_free:
+            self._fwd_solver_cache, self._adj_solver_cache, self._E_map_constraint_operator = {}, {}, None
+        else:
+            self._coeffs_to_m_imp_cache = None
+
     def initialize_constraints(self):
         """Initialize constraints."""
         if self.mainfield.kind == "dipole":
@@ -198,14 +244,25 @@ class State(object):
             mlat, _ = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.RI - RE) * 1e-3)
             self.ll_mask = np.abs(mlat) < self.latitude_boundary
         else:
+            # Default to no low-latitude mask if field type is unknown
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
+            
         self.jr_coeffs_to_j_apex = (self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
+        
+        # --- THIS IS THE FIX ---
+        # Only perform conjugate point calculations if hemispheres are connected
         if self.connect_hemispheres:
-            if self.mainfield.kind == "radial": raise ValueError("Hemispheres cannot be connected with a radial magnetic field.")
+            if self.mainfield.kind == "radial": 
+                raise ValueError("Hemispheres cannot be connected with a radial magnetic field.")
+            
+            # These objects are only guaranteed to exist if connect_hemispheres is True
             if self.cp_b_evaluator is not None and self.cp_basis_evaluator is not None:
+                # J-mapping constraint
                 jr_coeffs_to_j_apex_cp = (self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G)
                 self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
+                
+                # E-mapping constraint
                 E_coeffs_to_E_apex = np.einsum("ijk,jklm->iklm", self.b_evaluator.horizontal_to_apex, self.basis_evaluator.G_helmholtz, optimize=True)
                 E_coeffs_to_E_apex_cp = np.einsum("ijk,jklm->iklm", self.cp_b_evaluator.horizontal_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize=True)
                 self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask])
@@ -242,12 +299,11 @@ class State(object):
                         field_type=input_timeseries.vars["u"]["u"],
                     )
 
-        if conductance_updated or (self.m_imp_to_E_coeffs is None and self.etaP is not None):
-            self._update_conductance_dependents()
+        if conductance_updated:
+            self._invalidate_caches()
 
     def _build_u_coeffs_to_E_coeffs(self):
         """Builds the conductance-independent mapping from wind to E-field."""
-        n_c = self.basis.index_length
         u_coeffs_to_uxB_grid = np.einsum('ijg,jgkl->igkl', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
         if self.use_matrix_free:
             self.u_coeffs_to_E_coeffs = self._create_vector_E_coeffs_operator(u_coeffs_to_uxB_grid)
@@ -267,7 +323,6 @@ class State(object):
             if self.RM is not None and self.Br_to_bP_JS_prop is not None:
                 Br_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.Br_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.Br_to_bH_JS_prop)
                 self.Br_to_E_coeffs = self._create_E_coeffs_operator(Br_to_E_grid)
-            self._fwd_solver_cache.clear(); self._adj_solver_cache.clear(); self._E_map_constraint_operator = None
         else:
             self.m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_ind_to_E_grid)
             self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_imp_to_E_grid)
@@ -291,16 +346,16 @@ class State(object):
         """Helper for VECTOR coefficient mappings (u -> E). Mimics a (2,n,2,n) tensor."""
         n_c = self.basis.index_length
         shape = (2 * n_c, 2 * n_c)
-        A_dense = self.basis_evaluator.least_squares_solution_helmholtz(G_to_E_grid_4d)
         def matvec(v_in_flat):
             v_in = v_in_flat.reshape(2, -1)
-            v_out = np.einsum("ijkl,ij->kl", A_dense, v_in, optimize=True)
-            return v_out.flatten()
-        A_adj = np.conj(A_dense).transpose(2, 3, 0, 1)
+            E_grid = np.einsum('ijkl,kl->ij', G_to_E_grid_4d, v_in, optimize=True)
+            return self.basis_evaluator.least_squares_solution_helmholtz(E_grid).flatten()
         def rmatvec(v_out_flat):
-            v_out = v_out_flat.reshape(2, -1)
-            v_in = np.einsum("ijkl,kl->ij", A_adj, v_out, optimize=True)
-            return v_in.flatten()
+            # --- DEFINITIVE FIX for matrix-free rmatvec ---
+            grad_E_coeffs = v_out_flat.reshape(2, -1)
+            grad_E_grid = self.basis_evaluator.least_squares_helmholtz.rmatvec(grad_E_coeffs.flatten()).reshape(2, -1)
+            grad_u_coeffs = np.einsum('ijkl,ij->kl', G_to_E_grid_4d, grad_E_grid, optimize=True)
+            return grad_u_coeffs.flatten()
         return LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
 
     def calculate_noind_coeffs(self):
@@ -311,11 +366,10 @@ class State(object):
                 E_direct += self.u_coeffs_to_E_coeffs.dot(self.u.coeffs.flatten()).reshape(2, -1)
             else:
                 E_direct += np.einsum("ijkl,kl->ij", self.u_coeffs_to_E_coeffs, self.u.coeffs)
-        if self.Br is not None:
-             if self.Br_to_E_coeffs is not None:
-                 E_direct += self.Br_to_E_coeffs.dot(self.Br.coeffs).reshape(2,-1)
-             else: raise RuntimeError("Br_to_E_coeffs not created. Call update() first.")
         
+        if self.Br is not None and self.Br_to_E_coeffs is not None:
+             E_direct += self.Br_to_E_coeffs.dot(self.Br.coeffs).reshape(2,-1)
+
         if self.use_matrix_free:
             jr_c = self.jr.coeffs if self.jr is not None else None
             m_imp = self._solve_for_m_imp_iteratively(jr_c, E_direct)
