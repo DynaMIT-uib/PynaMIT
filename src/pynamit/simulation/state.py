@@ -96,39 +96,35 @@ class State(object):
         if self.bu is None: self.bu = -np.array([[np.zeros(self.b_evaluator.grid.size), self.b_evaluator.Br], [-self.b_evaluator.Br, np.zeros(self.b_evaluator.grid.size)]])
         return self.bu
 
-    @property
-    def m_ind_to_bP_JS_prop(self):
-        if not hasattr(self, "_m_ind_to_bP_JS"): self._m_ind_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_m_ind_to_JS, optimize=True)
-        return self._m_ind_to_bP_JS
-    
-    @property
-    def m_ind_to_bH_JS_prop(self):
-        if not hasattr(self, "_m_ind_to_bH_JS"): self._m_ind_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_m_ind_to_JS, optimize=True)
-        return self._m_ind_to_bH_JS
-        
-    @property
-    def m_imp_to_bP_JS_prop(self):
-        if not hasattr(self, "_m_imp_to_bP_JS"): self._m_imp_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_m_imp_to_JS, optimize=True)
-        return self._m_imp_to_bP_JS
-        
-    @property
-    def m_imp_to_bH_JS_prop(self):
-        if not hasattr(self, "_m_imp_to_bH_JS"): self._m_imp_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_m_imp_to_JS, optimize=True)
-        return self._m_imp_to_bH_JS
-
-    @property
-    def Br_to_bP_JS_prop(self):
-        if not hasattr(self, "_Br_to_bP_JS"):
-            if self.RM is None: self._Br_to_bP_JS = None
-            else: self._Br_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_Br_to_JS, optimize=True)
-        return self._Br_to_bP_JS
-
-    @property
-    def Br_to_bH_JS_prop(self):
-        if not hasattr(self, "_Br_to_bH_JS"):
-            if self.RM is None: self._Br_to_bH_JS = None
-            else: self._Br_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_Br_to_JS, optimize=True)
-        return self._Br_to_bH_JS
+    # DEPRECATED PROPERTIES - Kept for reference if needed, but no longer used by the new method
+    # @property
+    # def m_ind_to_bP_JS_prop(self):
+    #     if not hasattr(self, "_m_ind_to_bP_JS"): self._m_ind_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_m_ind_to_JS, optimize=True)
+    #     return self._m_ind_to_bP_JS
+    # @property
+    # def m_ind_to_bH_JS_prop(self):
+    #     if not hasattr(self, "_m_ind_to_bH_JS"): self._m_ind_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_m_ind_to_JS, optimize=True)
+    #     return self._m_ind_to_bH_JS
+    # @property
+    # def m_imp_to_bP_JS_prop(self):
+    #     if not hasattr(self, "_m_imp_to_bP_JS"): self._m_imp_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_m_imp_to_JS, optimize=True)
+    #     return self._m_imp_to_bP_JS
+    # @property
+    # def m_imp_to_bH_JS_prop(self):
+    #     if not hasattr(self, "_m_imp_to_bH_JS"): self._m_imp_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_m_imp_to_JS, optimize=True)
+    #     return self._m_imp_to_bH_JS
+    # @property
+    # def Br_to_bP_JS_prop(self):
+    #     if not hasattr(self, "_Br_to_bP_JS"):
+    #         if self.RM is None: self._Br_to_bP_JS = None
+    #         else: self._Br_to_bP_JS = np.einsum("ijk,jkl->ikl", self.bP_prop, self.G_Br_to_JS, optimize=True)
+    #     return self._Br_to_bP_JS
+    # @property
+    # def Br_to_bH_JS_prop(self):
+    #     if not hasattr(self, "_Br_to_bH_JS"):
+    #         if self.RM is None: self._Br_to_bH_JS = None
+    #         else: self._Br_to_bH_JS = np.einsum("ijk,jkl->ikl", self.bH_prop, self.G_Br_to_JS, optimize=True)
+    #     return self._Br_to_bH_JS
         
     @property
     def T_to_Ve(self):
@@ -190,38 +186,74 @@ class State(object):
                     )
         return self._T_to_Ve
 
+    def _calculate_E_coeffs_operator(self, G_X_to_JS):
+        """
+        Calculates the full operator from input coefficients X to E-field 
+        coefficients using a highly optimized, two-step einsum process that
+        is both fast and memory-efficient across all scaling regimes.
+
+        Args:
+            G_X_to_JS (np.ndarray): The operator mapping input coefficients 
+                                    of type X to sheet current JS on the grid. 
+                                    Shape: (2, n_grid_points, n_coeffs_in).
+
+        Returns:
+            np.ndarray or LinearOperator: The final operator mapping X_coeffs to E_coeffs.
+        """
+        if self.etaP is None: 
+            raise RuntimeError("Conductance must be set before accessing operators.")
+        if G_X_to_JS is None: 
+            return None
+
+        # --- Tensors for the Contraction ---
+        G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
+        G_eta = self.basis_evaluator_zero_added.G
+        b_stacked = np.stack([self.bP_prop, self.bH_prop], axis=0)
+        eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
+
+        # --- Step 1: Create the total current-to-E-field tensor on the grid ---
+        # This single einsum evaluates the conductances on the grid and simultaneously
+        # uses them to weight the geometry tensors, summing the Pedersen and Hall
+        # contributions. This is highly optimized and avoids large intermediate arrays.
+        M_total_on_grid = np.einsum(
+            'sijk, kp, sp -> ijk',
+            b_stacked,
+            G_eta,
+            eta_stacked_coeffs,
+            optimize=True
+        )
+
+        # --- Step 2: Contract all parts to get the final coefficient operator ---
+        # This uses the compact grid operator from Step 1 to build the final
+        # coefficient-space operator.
+        dense_op = np.einsum(
+            'cmik, ijk, jkl -> cml',
+            G_helmholtz_pinv,
+            M_total_on_grid,
+            G_X_to_JS,
+            optimize=True
+        )
+        
+        return self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
+        
     @property
     def m_ind_to_E_coeffs(self):
         if self._m_ind_to_E_coeffs is None:
-            if self.etaP is None: raise RuntimeError("Conductance must be set before accessing operators.")
-            etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
-            etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
-            m_ind_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_ind_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_ind_to_bH_JS_prop)
-            dense_op = self.basis_evaluator.least_squares_solution_helmholtz(m_ind_to_E_grid)
-            self._m_ind_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
+            self._m_ind_to_E_coeffs = self._calculate_E_coeffs_operator(self.G_m_ind_to_JS)
         return self._m_ind_to_E_coeffs
         
     @property
     def m_imp_to_E_coeffs(self):
         if self._m_imp_to_E_coeffs is None:
-            if self.etaP is None: raise RuntimeError("Conductance must be set before accessing operators.")
-            etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
-            etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
-            m_imp_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_imp_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_imp_to_bH_JS_prop)
-            dense_op = self.basis_evaluator.least_squares_solution_helmholtz(m_imp_to_E_grid)
-            self._m_imp_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
+            self._m_imp_to_E_coeffs = self._calculate_E_coeffs_operator(self.G_m_imp_to_JS)
         return self._m_imp_to_E_coeffs
 
     @property
     def Br_to_E_coeffs(self):
         if self._Br_to_E_coeffs is None:
-            if self.RM is None: return None
-            if self.etaP is None: raise RuntimeError("Conductance must be set before accessing operators.")
-            etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
-            etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
-            Br_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.Br_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.Br_to_bH_JS_prop)
-            dense_op = self.basis_evaluator.least_squares_solution_helmholtz(Br_to_E_grid)
-            self._Br_to_E_coeffs = self._create_operator_from_dense(dense_op) if self.use_matrix_free else dense_op
+            # G_Br_to_JS is only defined if RM is set
+            G_Br_to_JS = getattr(self, "G_Br_to_JS", None)
+            self._Br_to_E_coeffs = self._calculate_E_coeffs_operator(G_Br_to_JS)
         return self._Br_to_E_coeffs
 
     def _invalidate_caches(self):
@@ -230,6 +262,8 @@ class State(object):
         self.m_ind_to_E_df = None
         if self.use_matrix_free: self._fwd_solver_cache, self._adj_solver_cache, self._E_map_constraint_operator = {}, {}, None
         else: self._coeffs_to_m_imp_cache = None
+        
+    # --- The rest of the class methods are unchanged ---
 
     def initialize_constraints(self):
         """Initialize constraints."""
@@ -305,6 +339,25 @@ class State(object):
 
     def _create_operator_from_dense(self, dense_op):
         """Creates a LinearOperator that mimics a dense tensor's contraction rules."""
+        if dense_op is None:
+            # Handle cases like Br_to_E_coeffs when RM is None
+            n_c = self.basis.index_length
+            shape = (2 * n_c, n_c) # Default to scalar->vector shape
+            is_vector_map = False # Will be determined by use case
+            if hasattr(self, '_Br_to_E_coeffs') and dense_op is self._Br_to_E_coeffs:
+                is_vector_map = False # Br is scalar
+            elif hasattr(self, '_m_ind_to_E_coeffs') and dense_op is self._m_ind_to_E_coeffs:
+                 is_vector_map = False # m_ind is scalar
+            elif hasattr(self, '_m_imp_to_E_coeffs') and dense_op is self._m_imp_to_E_coeffs:
+                 is_vector_map = False # m_imp is scalar
+            elif hasattr(self, 'u_coeffs_to_E_coeffs') and dense_op is self.u_coeffs_to_E_coeffs:
+                 is_vector_map = True # u is vector
+            
+            if is_vector_map:
+                shape = (2*n_c, 2*n_c)
+
+            return LinearOperator(shape, matvec=lambda v: np.zeros(shape[0]), rmatvec=lambda v: np.zeros(shape[1]))
+
         n_c = self.basis.index_length
         is_vector_map = (dense_op.ndim == 4)
 
