@@ -63,11 +63,7 @@ class State(object):
         self.bP, self.bH, self.bu = None, None, None
         
         self.initialize_constraints()
-
-        # This is conductance-independent and can be created here.
         self._build_u_coeffs_to_E_coeffs()
-
-        # Invalidate all caches
         self._invalidate_caches()
 
     # --- Properties for lazy computation ---
@@ -226,7 +222,7 @@ class State(object):
         return self._Br_to_E_coeffs
 
     def _invalidate_caches(self):
-        """Invalidate all cached matrices and operators."""
+        """Invalidate all cached matrices and operators that depend on conductance."""
         self._m_ind_to_E_coeffs = None
         self._m_imp_to_E_coeffs = None
         self._Br_to_E_coeffs = None
@@ -310,28 +306,6 @@ class State(object):
         else:
             self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(u_coeffs_to_uxB_grid)
 
-    def _update_conductance_dependents(self):
-        """Unified method to create/update conductance-dependent objects."""
-        etaP_grid = self.etaP.to_grid(self.basis_evaluator_zero_added)
-        etaH_grid = self.etaH.to_grid(self.basis_evaluator_zero_added)
-        m_ind_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_ind_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_ind_to_bH_JS_prop)
-        m_imp_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.m_imp_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.m_imp_to_bH_JS_prop)
-        
-        if self.use_matrix_free:
-            self.m_ind_to_E_coeffs = self._create_E_coeffs_operator(m_ind_to_E_grid)
-            self.m_imp_to_E_coeffs = self._create_E_coeffs_operator(m_imp_to_E_grid)
-            if self.RM is not None and self.Br_to_bP_JS_prop is not None:
-                Br_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.Br_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.Br_to_bH_JS_prop)
-                self.Br_to_E_coeffs = self._create_E_coeffs_operator(Br_to_E_grid)
-        else:
-            self.m_ind_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_ind_to_E_grid)
-            self.m_imp_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(m_imp_to_E_grid)
-            if self.RM is not None and self.Br_to_bP_JS_prop is not None:
-                Br_to_E_grid = np.einsum("i,jik->jik", etaP_grid, self.Br_to_bP_JS_prop) + np.einsum("i,jik->jik", etaH_grid, self.Br_to_bH_JS_prop)
-                self.Br_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(Br_to_E_grid)
-            self._coeffs_to_m_imp_cache = None
-        self.m_ind_to_E_df = None
-
     def _create_E_coeffs_operator(self, G_to_E_grid):
         """Helper for SCALAR coefficient mappings (e.g., m_ind -> E)."""
         output_dim, input_dim = self.basis.index_length, G_to_E_grid.shape[2]
@@ -346,16 +320,16 @@ class State(object):
         """Helper for VECTOR coefficient mappings (u -> E). Mimics a (2,n,2,n) tensor."""
         n_c = self.basis.index_length
         shape = (2 * n_c, 2 * n_c)
+        dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_to_E_grid_4d)
         def matvec(v_in_flat):
             v_in = v_in_flat.reshape(2, -1)
-            E_grid = np.einsum('ijkl,kl->ij', G_to_E_grid_4d, v_in, optimize=True)
-            return self.basis_evaluator.least_squares_solution_helmholtz(E_grid).flatten()
+            v_out = np.tensordot(dense_op, v_in, 2)
+            return v_out.flatten()
         def rmatvec(v_out_flat):
-            # --- DEFINITIVE FIX for matrix-free rmatvec ---
-            grad_E_coeffs = v_out_flat.reshape(2, -1)
-            grad_E_grid = self.basis_evaluator.least_squares_helmholtz.rmatvec(grad_E_coeffs.flatten()).reshape(2, -1)
-            grad_u_coeffs = np.einsum('ijkl,ij->kl', G_to_E_grid_4d, grad_E_grid, optimize=True)
-            return grad_u_coeffs.flatten()
+            v_out = v_out_flat.reshape(2, -1)
+            A_adj = np.conj(dense_op).transpose(2,3,0,1)
+            v_in = np.tensordot(A_adj, v_out, axes=2)
+            return v_in.flatten()
         return LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
 
     def calculate_noind_coeffs(self):
@@ -365,7 +339,7 @@ class State(object):
             if self.use_matrix_free:
                 E_direct += self.u_coeffs_to_E_coeffs.dot(self.u.coeffs.flatten()).reshape(2, -1)
             else:
-                E_direct += np.einsum("ijkl,kl->ij", self.u_coeffs_to_E_coeffs, self.u.coeffs)
+                E_direct += np.tensordot(self.u_coeffs_to_E_coeffs, self.u.coeffs, 2)
         
         if self.Br is not None and self.Br_to_E_coeffs is not None:
              E_direct += self.Br_to_E_coeffs.dot(self.Br.coeffs).reshape(2,-1)
