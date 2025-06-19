@@ -151,41 +151,108 @@ class LeastSquaresSolver:
         return self._normal_matrix_cache
 
     def _get_linear_operator(self, num_scenarios=1):
+        """
+        Creates the master LinearOperator for the least-squares problem.
+        The internal matvec/rmatvec are corrected to handle LinearOperator
+        components by iterating over the scenarios (columns) of the input block.
+        """
         cache_key = num_scenarios
         if cache_key in self._op_cache: return self._op_cache[cache_key]
+
         num_features = self.A[0].op.shape[1]
         sqrt_scaled_reg_weights = [np.sqrt(w) for w in self._scaled_regularization_weights]
+
         op_rows = sum(a.op.shape[0] for a in self.A) + sum(l.op.shape[0] for i, l in enumerate(self.regularization_matrices) if l and sqrt_scaled_reg_weights[i] > 0)
 
+        # This internal function receives a 2D block from the lambda wrapper.
         def matvec(x_block):
-            out = np.zeros((op_rows, x_block.shape[1]), dtype=self.A[0].op.dtype)
+            num_scenarios_in_block = x_block.shape[1]
+            out = np.zeros((op_rows, num_scenarios_in_block), dtype=self.A[0].op.dtype)
             row = 0
+
+            # --- Data Terms ---
             for i in range(self.num_data_terms):
-                res = self._get_matvec(self.A[i])(x_block)
-                if self.sqrt_weights[i] is not None: res *= self._densify_op(self.sqrt_weights[i])
-                out[row : row + res.shape[0]] = res; row += res.shape[0]
+                item = self.A[i]
+                # Dispatch based on type
+                if isinstance(item.op, LinearOperator):
+                    # For LinearOperators, we must iterate over scenarios.
+                    res_block = np.zeros((item.op.shape[0], num_scenarios_in_block), dtype=out.dtype)
+                    for k in range(num_scenarios_in_block):
+                        res_block[:, k] = self._get_matvec(item)(x_block[:, k])
+                else: # Dense array
+                    # For dense arrays, perform an efficient block product.
+                    res_block = self._get_matvec(item)(x_block)
+
+                if self.sqrt_weights[i] is not None:
+                    res_block *= self._densify_op(self.sqrt_weights[i])
+                out[row : row + res_block.shape[0]] = res_block
+                row += res_block.shape[0]
+
+            # --- Regularization Terms ---
             for i, L in enumerate(self.regularization_matrices):
                 if L and sqrt_scaled_reg_weights[i] > 0:
-                    res = sqrt_scaled_reg_weights[i] * self._get_matvec(L)(x_block)
-                    out[row : row + res.shape[0]] = res; row += res.shape[0]
+                    weight = sqrt_scaled_reg_weights[i]
+                    if isinstance(L.op, LinearOperator):
+                        res_block = np.zeros((L.op.shape[0], num_scenarios_in_block), dtype=out.dtype)
+                        for k in range(num_scenarios_in_block):
+                            res_block[:, k] = weight * self._get_matvec(L)(x_block[:, k])
+                    else: # Dense
+                        res_block = weight * self._get_matvec(L)(x_block)
+                    
+                    out[row : row + res_block.shape[0]] = res_block
+                    row += res_block.shape[0]
             return out
 
+        # This internal function receives a 2D block from the lambda wrapper.
         def rmatvec(y_block):
-            x_block = np.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype)
+            num_scenarios_in_block = y_block.shape[1]
+            x_block = np.zeros((num_features, num_scenarios_in_block), dtype=y_block.dtype)
             row = 0
+
+            # --- Data Terms ---
             for i in range(self.num_data_terms):
-                y_part = y_block[row : row + self.A[i].op.shape[0]]
-                if self.sqrt_weights[i] is not None: y_part = y_part * self._densify_op(self.sqrt_weights[i])
-                x_block += self._get_rmatvec(self.A[i])(y_part); row += self.A[i].op.shape[0]
+                item = self.A[i]
+                y_part = y_block[row : row + item.op.shape[0]]
+                if self.sqrt_weights[i] is not None:
+                    y_part = y_part * self._densify_op(self.sqrt_weights[i])
+
+                if isinstance(item.op, LinearOperator):
+                    # For LinearOperators, we must iterate over scenarios.
+                    res_block = np.zeros((item.op.shape[1], num_scenarios_in_block), dtype=x_block.dtype)
+                    for k in range(num_scenarios_in_block):
+                        res_block[:, k] = self._get_rmatvec(item)(y_part[:, k])
+                    x_block += res_block
+                else: # Dense
+                    x_block += self._get_rmatvec(item)(y_part)
+                
+                row += item.op.shape[0]
+
+            # --- Regularization Terms ---
             for i, L in enumerate(self.regularization_matrices):
                 if L and sqrt_scaled_reg_weights[i] > 0:
+                    weight = sqrt_scaled_reg_weights[i]
                     y_part = y_block[row : row + L.op.shape[0]]
-                    x_block += sqrt_scaled_reg_weights[i] * self._get_rmatvec(L)(y_part); row += L.op.shape[0]
+                    
+                    if isinstance(L.op, LinearOperator):
+                        res_block = np.zeros((L.op.shape[1], num_scenarios_in_block), dtype=x_block.dtype)
+                        for k in range(num_scenarios_in_block):
+                            res_block[:, k] = L.op.rmatvec(y_part[:, k])
+                        x_block += weight * res_block
+                    else: # Dense
+                        x_block += weight * self._get_rmatvec(L)(y_part)
+                    
+                    row += L.op.shape[0]
             return x_block.squeeze()
 
+        # The lambda functions correctly bridge the 1D world of lsmr and the
+        # 2D block world of the internal matvec/rmatvec functions.
         shape = (op_rows * num_scenarios, num_features * num_scenarios)
-        op = LinearOperator(shape, matvec=lambda x: matvec(x.reshape(num_features, -1, order="F")).flatten("F"),
-                              rmatvec=lambda y: rmatvec(y.reshape(op_rows, -1, order="F")).flatten("F"), dtype=self.A[0].op.dtype)
+        op = LinearOperator(
+            shape,
+            matvec=lambda x: matvec(x.reshape(num_features, -1, order="F")).flatten("F"),
+            rmatvec=lambda y: rmatvec(y.reshape(op_rows, -1, order="F")).flatten("F"),
+            dtype=self.A[0].op.dtype
+        )
         self._op_cache[cache_key] = (op, rmatvec)
         return op, rmatvec
 

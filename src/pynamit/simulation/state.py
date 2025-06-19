@@ -138,46 +138,62 @@ class State(object):
         dense_op = np.einsum('cmik, ijk, jkl -> cml', G_helmholtz_pinv, M_total_on_grid, G_X_to_JS, optimize=True)
         return dense_op
 
-    def _create_E_coeffs_linear_operator(self, G_X_to_JS, is_vector_input=False):
-        """Creates a LinearOperator for `use_matrix_free=True`."""
+    def _create_E_coeffs_linear_operator(self, G_X_to_JS, M_total_on_grid, is_vector_input=False):
+        """
+        Creates a "fast" LinearOperator for `use_matrix_free=True` by using a
+        pre-computed total conductance grid tensor (M_total_on_grid).
+        """
         if G_X_to_JS is None: return None
-        
+
         n_c_in = G_X_to_JS.shape[3] if is_vector_input else G_X_to_JS.shape[2]
         n_c_out = self.basis.index_length
         shape_in = (2, n_c_in) if is_vector_input else (n_c_in,)
-        shape = (2 * n_c_out, 2 * n_c_in if is_vector_input else n_c_in)
+        shape_out = (2, n_c_out)
+        shape = (np.prod(shape_out), np.prod(shape_in))
 
+        # Pre-fetch the time-independent parts
         G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
-        G_eta = self.basis_evaluator_zero_added.G
-        b_stacked = np.stack([self.bP_prop, self.bH_prop], axis=0)
 
         def matvec(x_coeffs_flat):
-            if self.etaP is None: raise RuntimeError("Conductance must be set.")
             x_coeffs = x_coeffs_flat.reshape(shape_in)
-            eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
-            M_total_on_grid = np.einsum('sijk, kp, sp -> ijk', b_stacked, G_eta, eta_stacked_coeffs, optimize=True)
             
-            einsum_str = 'cmik, ijk, jklm, lm -> cm' if is_vector_input else 'cmik, ijk, jkl, l -> cm'
+            # This is now an efficient, single einsum using the pre-computed M_total_on_grid
+            if is_vector_input:
+                einsum_str = 'cmik, ijk, jklm, lm -> cm'
+            else:
+                einsum_str = 'cmik, ijk, jkl, l -> cm'
             E_coeffs = np.einsum(einsum_str, G_helmholtz_pinv, M_total_on_grid, G_X_to_JS, x_coeffs, optimize=True)
             return E_coeffs.flatten()
 
         def rmatvec(grad_E_coeffs_flat):
-            if self.etaP is None: raise RuntimeError("Conductance must be set.")
-            grad_E_coeffs = grad_E_coeffs_flat.reshape(2, n_c_out)
-            eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
-            M_total_on_grid = np.einsum('sijk, kp, sp -> ijk', b_stacked, G_eta, eta_stacked_coeffs, optimize=True)
-
-            einsum_str = 'cmik, ijk, jklm, cm -> lm' if is_vector_input else 'cmik, ijk, jkl, cm -> l'
+            grad_E_coeffs = grad_E_coeffs_flat.reshape(shape_out)
+            
+            # The corresponding adjoint operation
+            if is_vector_input:
+                einsum_str = 'cmik, ijk, jklm, cm -> lm'
+            else:
+                einsum_str = 'cmik, ijk, jkl, cm -> l'
             grad_x_coeffs = np.einsum(einsum_str, G_helmholtz_pinv.conj(), M_total_on_grid.conj(), G_X_to_JS.conj(), grad_E_coeffs, optimize=True)
             return grad_x_coeffs.flatten()
 
         return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
 
     @property
+    def M_total_on_grid(self):
+        if not hasattr(self, "_M_total_on_grid"):
+            if (self.etaP is None) or (self.etaH is None): raise RuntimeError("Conductance must be set.")
+            eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
+            G_eta = self.basis_evaluator_zero_added.G
+            b_stacked = np.stack([self.bP_prop, self.bH_prop], axis=0)
+            self._M_total_on_grid = np.einsum('sijk, kp, sp -> ijk', b_stacked, G_eta, eta_stacked_coeffs, optimize=True)
+        return self._M_total_on_grid
+
+    @property
     def m_ind_to_E_coeffs(self):
         if not hasattr(self, "_m_ind_to_E_coeffs") or self._m_ind_to_E_coeffs is None:
             if self.use_matrix_free:
-                self._m_ind_to_E_coeffs = self._create_E_coeffs_linear_operator(self.G_m_ind_to_JS, is_vector_input=False)
+                # Pass the pre-computed M_total_on_grid to the factory
+                self._m_ind_to_E_coeffs = self._create_E_coeffs_linear_operator(self.G_m_ind_to_JS, self.M_total_on_grid, is_vector_input=False)
             else:
                 self._m_ind_to_E_coeffs = self._calculate_E_coeffs_operator_dense(self.G_m_ind_to_JS)
         return self._m_ind_to_E_coeffs
@@ -186,7 +202,8 @@ class State(object):
     def m_imp_to_E_coeffs(self):
         if not hasattr(self, "_m_imp_to_E_coeffs") or self._m_imp_to_E_coeffs is None:
             if self.use_matrix_free:
-                self._m_imp_to_E_coeffs = self._create_E_coeffs_linear_operator(self.G_m_imp_to_JS, is_vector_input=False)
+                # Pass the pre-computed M_total_on_grid to the factory
+                self._m_imp_to_E_coeffs = self._create_E_coeffs_linear_operator(self.G_m_imp_to_JS, self.M_total_on_grid, is_vector_input=False)
             else:
                 self._m_imp_to_E_coeffs = self._calculate_E_coeffs_operator_dense(self.G_m_imp_to_JS)
         return self._m_imp_to_E_coeffs
@@ -196,13 +213,18 @@ class State(object):
         if not hasattr(self, "_Br_to_E_coeffs") or self._Br_to_E_coeffs is None:
             G_Br_to_JS = getattr(self, "G_Br_to_JS", None)
             if self.use_matrix_free:
-                self._Br_to_E_coeffs = self._create_E_coeffs_linear_operator(G_Br_to_JS, is_vector_input=False)
+                # Pass the pre-computed M_total_on_grid to the factory
+                self._Br_to_E_coeffs = self._create_E_coeffs_linear_operator(G_Br_to_JS, self.M_total_on_grid, is_vector_input=False)
             else:
                 self._Br_to_E_coeffs = self._calculate_E_coeffs_operator_dense(G_Br_to_JS)
         return self._Br_to_E_coeffs
 
+    # Don't forget to invalidate the new cached property
     def _invalidate_caches(self):
+        """Invalidate all cached matrices and operators that depend on conductance."""
         self._m_ind_to_E_coeffs, self._m_imp_to_E_coeffs, self._Br_to_E_coeffs = None, None, None
+        if hasattr(self, "_M_total_on_grid"):
+            del self._M_total_on_grid # Invalidate the grid tensor cache
         self.m_ind_to_E_df = None
         if self.use_matrix_free: self._fwd_solver_cache, self._adj_solver_cache, self._E_map_constraint_operator = {}, {}, None
         else: self._coeffs_to_m_imp_cache = None
@@ -240,12 +262,62 @@ class State(object):
                 elif key == "u": self.u = FieldExpansion(input_timeseries.storage_bases["u"], coeffs=updated_input_entry["u"].reshape((2, -1)), field_type=input_timeseries.vars["u"]["u"])
         if conductance_updated: self._invalidate_caches()
 
+    def _create_conductance_independent_linear_operator(self, G_X_to_Y_grid, is_vector_input=False):
+        """
+        Creates a "fast" LinearOperator for conductance-INDEPENDENT mappings
+        (e.g., u x B -> E_coeffs).
+        """
+        if G_X_to_Y_grid is None: return None
+
+        # Determine shapes based on input G tensor
+        n_c_out = self.basis.index_length
+        if is_vector_input:
+            n_c_in = G_X_to_Y_grid.shape[3]
+            shape_in = (2, n_c_in)
+        else:
+            n_c_in = G_X_to_Y_grid.shape[2]
+            shape_in = (n_c_in,)
+        
+        shape = (2 * n_c_out, 2 * n_c_in if is_vector_input else n_c_in)
+
+        G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
+
+        def matvec(x_coeffs_flat):
+            x_coeffs = x_coeffs_flat.reshape(shape_in)
+            
+            if is_vector_input: # G_u_to_uxB_grid has shape (2, n_grid, 2, n_coeffs)
+                 # G_helm_pinv (cmik), G_u_to_uxB (iklm), u_coeffs (lm) -> E_coeffs (cm)
+                 einsum_str = 'cmik,iklm,lm->cm'
+            else: # Not used in this case, but for completeness
+                 # G_helm_pinv (cmik), G_X (ikl), x_coeffs(l) -> Y_coeffs(cm)
+                 einsum_str = 'cmik,ikl,l->cm'
+
+            Y_coeffs = np.einsum(einsum_str, G_helmholtz_pinv, G_X_to_Y_grid, x_coeffs, optimize=True)
+            return Y_coeffs.flatten()
+
+        def rmatvec(grad_Y_coeffs_flat):
+            grad_Y_coeffs = grad_Y_coeffs_flat.reshape(2, n_c_out)
+            
+            if is_vector_input:
+                 einsum_str = 'cmik,iklm,cm->lm'
+            else:
+                 einsum_str = 'cmik,ikl,cm->l'
+                 
+            grad_x_coeffs = np.einsum(einsum_str, G_helmholtz_pinv.conj(), G_X_to_Y_grid.conj(), grad_Y_coeffs, optimize=True)
+            return grad_x_coeffs.flatten()
+
+        return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
+
     def _build_u_coeffs_to_E_coeffs(self):
         """Builds the conductance-independent mapping from wind to E-field."""
+        # G_u_to_uxB_grid has shape: (2, n_grid, 2, n_coeffs_u)
         G_u_to_uxB_grid = np.einsum('ijk, jklm -> iklm', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
+        
         if self.use_matrix_free:
-            self.u_coeffs_to_E_coeffs = self._create_E_coeffs_linear_operator(G_u_to_uxB_grid, is_vector_input=True)
+            # Call the new, conductance-independent factory
+            self.u_coeffs_to_E_coeffs = self._create_conductance_independent_linear_operator(G_u_to_uxB_grid, is_vector_input=True)
         else:
+            # The dense path remains the same
             dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
             self.u_coeffs_to_E_coeffs = self._create_operator_from_dense(dense_op)
 
@@ -357,19 +429,42 @@ class State(object):
         return grad_b_list[0] if has_jr else None, grad_b_list[-1] if has_E else None
     
     def build_m_ind_to_E_df(self):
+        """Builds the time-evolution operator L for the selected mode."""
         if self.m_ind_to_E_df is not None: return
         shape = (self.basis.index_length, self.basis.index_length)
         def matvec(m): return self.calculate_ind_coeffs(m)[0][1]
+        
         if self.use_matrix_free:
             def rmatvec(grad_out):
-                grad_E = np.zeros((2, shape[0])); grad_E[1] = grad_out
-                grad_m_imp = self.m_imp_to_E_coeffs.rmatvec(grad_E.flatten())
-                _, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp)
+                # grad_E_df is the incoming gradient for the E_phi component
+                grad_E = np.zeros((2, shape[0]));
+                grad_E[1] = grad_out.flatten()
+                
+                # Backpropagate through: E_total = E_direct_ind + E_imp_ind
+                # 1. Gradient from E_imp_ind = m_imp_to_E_coeffs @ m_imp_ind
+                grad_m_imp_ind = self.m_imp_to_E_coeffs.rmatvec(grad_E.flatten())
+                
+                # 2. Backpropagate through the least-squares solve for m_imp_ind.
+                # The forward solve was: m_imp_ind = solve(A, -E_direct_ind)
+                # The adjoint is: grad_E_direct_ind = solve(A_adj, grad_m_imp_ind)
+                grad_b_jr, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
+                
+                grad_E_from_solve = np.zeros_like(grad_E)
                 if grad_b_E is not None:
                     E_diff = self.E_coeffs_to_E_apex_ll_diff
-                    grad_E_from_solve = -np.einsum('ij,ijkl->kl', grad_b_E.reshape(E_diff.shape[0], E_diff.shape[1]), E_diff)
-                    grad_E += grad_E_from_solve * self.ih_constraint_scaling
-                return self.m_ind_to_E_coeffs.rmatvec(grad_E.flatten())
+                    # Reshape the output of the adjoint solve
+                    grad_b_E_reshaped = grad_b_E.reshape(E_diff.shape[0], E_diff.shape[1], order="F")
+                    # The adjoint of b = -A @ x is grad_x = -A.T @ grad_b
+                    grad_E_from_solve = -np.einsum('ij,ijkl->kl', grad_b_E_reshaped, E_diff)
+                    grad_E_from_solve *= self.ih_constraint_scaling
+
+                # 3. Total gradient w.r.t E_direct_ind is sum of two paths
+                total_grad_E_direct_ind = grad_E + grad_E_from_solve
+
+                # 4. Backpropagate through E_direct_ind = m_ind_to_E_coeffs @ m_ind
+                # This gives the final gradient w.r.t m_ind
+                return self.m_ind_to_E_coeffs.rmatvec(total_grad_E_direct_ind.flatten())
+                
             self.m_ind_to_E_df = LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec)
         else:
             L_dense = np.array([matvec(v) for v in np.eye(shape[1])]).T
