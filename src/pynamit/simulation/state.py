@@ -374,17 +374,29 @@ class State(object):
         return E_direct_ind + E_imp_ind, m_imp_ind
 
     def _get_or_compute_coeffs_to_m_imp(self):
-        if hasattr(self, '_coeffs_to_m_imp_cache') and self._coeffs_to_m_imp_cache is not None: return self._coeffs_to_m_imp_cache
+        """
+        Computes and caches the operator that maps (jr_coeffs, E_direct_coeffs) to m_imp_coeffs.
+        This method is for the DENSE path only and is now optimized to use the 'svd' solver.
+        """
+        if hasattr(self, '_coeffs_to_m_imp_cache') and self._coeffs_to_m_imp_cache is not None:
+            return self._coeffs_to_m_imp_cache
+
         constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
         rhs_B = [self.jr_coeffs_to_j_apex]
+        
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+            # In dense mode, m_imp_to_E_coeffs is a dense numpy array.
             m_imp_op = self.m_imp_to_E_coeffs
-            if isinstance(m_imp_op, LinearOperator):
-                dense_op_mat = m_imp_op.matmat(np.eye(m_imp_op.shape[1]))
-                m_imp_op = dense_op_mat.reshape(2, self.basis.index_length, -1)
+            
+            # This pre-computation of the constraint matrix is a one-time cost
+            # for the dense setup. It's acceptable here.
             constraint_A.append(np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_op, 2) * self.ih_constraint_scaling)
             rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
-        solver = LeastSquaresSolver(constraint_A, 1, solver="lsmr")
+        
+        # --- THE FIX ---
+        # Explicitly use the fast 'svd' solver for this dense system.
+        solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
+        
         self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
         return self._coeffs_to_m_imp_cache
 
@@ -437,23 +449,18 @@ class State(object):
     def _solve_for_m_imp_iteratively(self, jr_coeffs, E_coeffs_direct):
         """
         Solves for the imposed potential coefficients m_imp using an iterative
-        least-squares solver. This version is optimized to be fast in the
-        matrix-free path.
+        least-squares solver. This version is optimized for the matrix-free path.
         """
         A_list, b_list = [], []
         
-        # Term 1: jr constraint (unchanged)
         if jr_coeffs is not None:
             A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
             b_list.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
 
-        # Term 2: E-mapping constraint (now using the fast, fused operator)
         if self.E_coeffs_to_E_apex_ll_diff is not None:
-            # This call now creates the highly efficient fused operator
             E_map_op = self._get_or_create_E_map_constraint_operator()
             A_list.append(self.ih_constraint_scaling * E_map_op)
             
-            # The RHS is -1 * the E-field at the apex from the direct sources (u, Br)
             E_apex_from_direct = np.einsum('ijkl,kl->ij', self.E_coeffs_to_E_apex_ll_diff, E_coeffs_direct)
             b_list.append(-E_apex_from_direct.flatten("F") * self.ih_constraint_scaling)
         
@@ -461,6 +468,8 @@ class State(object):
         
         key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
         if key not in self._fwd_solver_cache:
+            # --- CONFIRMATION ---
+            # Correctly uses 'lsmr' for the matrix-free/iterative case.
             self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="lsmr")
         
         solutions = self._fwd_solver_cache[key].solve(b_list)
@@ -469,7 +478,8 @@ class State(object):
     def _solve_for_m_imp_adjoint(self, grad_m_imp):
         """
         Solves the adjoint least-squares system to backpropagate gradients.
-        This version is optimized to use the fast, fused E-mapping operator.
+        This version is optimized for the matrix-free path and explicitly
+        uses the 'lsmr' iterative solver.
         """
         A_adj_list = []
         
@@ -492,10 +502,12 @@ class State(object):
         # The cache key should be for the adjoint problem
         key = ("adj", has_jr, has_E)
         if key not in self._adj_solver_cache:
-            # The solver works with the list of adjoint operators
+            # --- THE FIX ---
+            # Explicitly use the 'lsmr' solver, which is necessary for the
+            # LinearOperators used in this matrix-free path.
             self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="lsmr")
             
-        # Solve A_adj.T @ x_adj = grad_m_imp. Note A_adj.T = A.
+        # Solve A_adj.T @ x_adj = grad_m_imp.
         # This gives the gradient with respect to the RHS of the forward problem.
         grad_b_list = self._adj_solver_cache[key].solve([grad_m_imp])
         
