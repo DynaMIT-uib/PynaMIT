@@ -11,7 +11,6 @@ from collections import namedtuple
 
 _ProcessedItem = namedtuple("_ProcessedItem", ["op", "trailing_shape", "leading_dim_count"])
 
-
 class LeastSquaresSolver:
     """
     Solves complex least-squares problems with multiple data and regularization terms.
@@ -45,8 +44,7 @@ class LeastSquaresSolver:
                 self.sqrt_weights.append(
                     _ProcessedItem(op=sqrt_op, trailing_shape=w_item.trailing_shape, leading_dim_count=w_item.leading_dim_count)
                 )
-            else:
-                self.sqrt_weights.append(None)
+            else: self.sqrt_weights.append(None)
 
         reg_L_list = self._prepare_input_list(regularization_matrices, "regularization_matrices", allow_single_item=True, is_optional=True)
         self.num_reg_terms = len(reg_L_list)
@@ -99,7 +97,6 @@ class LeastSquaresSolver:
 
     @property
     def _scaled_regularization_weights(self):
-        # This property remains unchanged as its logic is sound for dense pre-scaling.
         if hasattr(self, "_scaled_reg_weights_cache"): return self._scaled_reg_weights_cache
         if self.is_matrix_free:
             print("Warning: Cannot auto-scale regularization for matrix-free operators. Using raw weights.")
@@ -146,7 +143,8 @@ class LeastSquaresSolver:
         op_rows = sum(a.op.shape[0] for a in self.A) + \
                   sum(l.op.shape[0] for i, l in enumerate(self.regularization_matrices) if l and sqrt_scaled_reg_weights[i] > 0)
 
-        def _apply_op_to_block(item, x_block, num_scenarios_in_block):
+        def _apply_op_to_block(item, x_block):
+            num_scenarios_in_block = x_block.shape[1]
             if isinstance(item.op, LinearOperator):
                 # CRITICAL FIX: Iterate for LinearOperator components
                 res_block = np.zeros((item.op.shape[0], num_scenarios_in_block), dtype=x_block.dtype)
@@ -157,7 +155,8 @@ class LeastSquaresSolver:
                 # Efficient block product for dense arrays
                 return item.op @ x_block
         
-        def _apply_op_T_to_block(item, y_block, num_scenarios_in_block):
+        def _apply_op_T_to_block(item, y_block):
+            num_scenarios_in_block = y_block.shape[1]
             if isinstance(item.op, LinearOperator):
                 # CRITICAL FIX: Iterate for LinearOperator components
                 res_block = np.zeros((item.op.shape[1], num_scenarios_in_block), dtype=y_block.dtype)
@@ -166,14 +165,14 @@ class LeastSquaresSolver:
                 return res_block
             else:
                 # Efficient block product for dense arrays
-                return item.op.T @ y_block
+                return item.op.T.conj() @ y_block
 
-        def matvec(x_block): # Receives 2D block (features, scenarios)
-            num_scenarios_in_block = x_block.shape[1]
-            out = np.zeros((op_rows, num_scenarios_in_block), dtype=self.A[0].op.dtype)
+        # This is the block-based matvec. It operates on 2D arrays (features, scenarios).
+        def matvec_block(x_block):
+            out = np.zeros((op_rows, x_block.shape[1]), dtype=self.A[0].op.dtype)
             row = 0
             for i in range(self.num_data_terms):
-                res_block = _apply_op_to_block(self.A[i], x_block, num_scenarios_in_block)
+                res_block = _apply_op_to_block(self.A[i], x_block)
                 if self.sqrt_weights[i] is not None:
                     res_block *= self._densify_op(self.sqrt_weights[i])
                 out[row : row + res_block.shape[0]] = res_block
@@ -181,40 +180,41 @@ class LeastSquaresSolver:
             for i, L in enumerate(self.regularization_matrices):
                 if L and sqrt_scaled_reg_weights[i] > 0:
                     weight = sqrt_scaled_reg_weights[i]
-                    res_block = _apply_op_to_block(L, x_block, num_scenarios_in_block)
+                    res_block = _apply_op_to_block(L, x_block)
                     out[row : row + res_block.shape[0]] = weight * res_block
                     row += res_block.shape[0]
             return out
 
-        def rmatvec(y_block): # Receives 2D block (rows, scenarios)
-            num_scenarios_in_block = y_block.shape[1]
-            x_block = np.zeros((num_features, num_scenarios_in_block), dtype=y_block.dtype)
+        # This is the block-based rmatvec.
+        def rmatvec_block(y_block):
+            x_block = np.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype)
             row = 0
             for i in range(self.num_data_terms):
                 item = self.A[i]
                 y_part = y_block[row : row + item.op.shape[0]]
                 if self.sqrt_weights[i] is not None:
                     y_part = y_part * self._densify_op(self.sqrt_weights[i])
-                x_block += _apply_op_T_to_block(item, y_part, num_scenarios_in_block)
+                x_block += _apply_op_T_to_block(item, y_part)
                 row += item.op.shape[0]
             for i, L in enumerate(self.regularization_matrices):
                 if L and sqrt_scaled_reg_weights[i] > 0:
                     weight = sqrt_scaled_reg_weights[i]
                     y_part = y_block[row : row + L.op.shape[0]]
-                    x_block += weight * _apply_op_T_to_block(L, y_part, num_scenarios_in_block)
+                    x_block += weight * _apply_op_T_to_block(L, y_part)
                     row += L.op.shape[0]
             return x_block.squeeze()
 
-        # Lambda functions are the "bridge" between lsmr's 1D world and our block-based 2D world
+        # THE BRIDGE: These lambda functions connect lsmr's 1D world to our block-based 2D world.
+        # They flatten/reshape using Fortran ordering ('F') which is crucial for column-major logic.
         shape = (op_rows * num_scenarios, num_features * num_scenarios)
         op = LinearOperator(
             shape,
-            matvec=lambda x: matvec(x.reshape(num_features, -1, order="F")).flatten("F"),
-            rmatvec=lambda y: rmatvec(y.reshape(op_rows, -1, order="F")).flatten("F"),
+            matvec=lambda x: matvec_block(x.reshape(num_features, -1, order="F")).flatten("F"),
+            rmatvec=lambda y: rmatvec_block(y.reshape(op_rows, -1, order="F")).flatten("F"),
             dtype=self.A[0].op.dtype
         )
-        self._op_cache[cache_key] = (op, rmatvec)
-        return op, rmatvec
+        self._op_cache[cache_key] = (op, rmatvec_block)
+        return op, rmatvec_block
 
     def solve(self, b, **kwargs):
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
@@ -231,18 +231,18 @@ class LeastSquaresSolver:
         op_rows, dtype = linear_op.shape[0] // total_scenarios, linear_op.dtype
         
         # Build the combined RHS vector
-        rhs = np.zeros((op_rows, total_scenarios), dtype=dtype)
+        rhs_block = np.zeros((op_rows, total_scenarios), dtype=dtype)
         offset = 0
         for i, b in enumerate(proc_b):
             if b is None: continue
             num_scen_i = scenarios[i]
             weighted_b = self._densify_op(self.sqrt_weights[i]) * b.op if self.sqrt_weights[i] is not None else b.op
             start_row = sum(a.op.shape[0] for a in self.A[:i])
-            rhs[start_row : start_row + weighted_b.shape[0], offset : offset + num_scen_i] = weighted_b
+            rhs_block[start_row : start_row + weighted_b.shape[0], offset : offset + num_scen_i] = weighted_b
             offset += num_scen_i
         
         lsmr_kwargs = {"atol": self.tolerance, "btol": self.tolerance, **kwargs}
-        sol_flat, *_ = lsmr(linear_op, rhs.flatten("F"), **lsmr_kwargs)
+        sol_flat, *_ = lsmr(linear_op, rhs_block.flatten("F"), **lsmr_kwargs)
         
         # Unpack the solution
         solutions, offset = [], 0
@@ -254,11 +254,8 @@ class LeastSquaresSolver:
                 offset += num_scen_i
             else: solutions.append(None)
         return solutions
-    
-    # --- Other solver methods (_solve_normal, _solve_cg, _solve_svd) ---
-    # These methods are mostly unchanged as their internal logic was correct,
-    # but they now benefit from the robust _get_linear_operator method.
 
+    # --- Other solver methods are largely unchanged but benefit from the robust backend ---
     @property
     def _full_normal_matrix(self):
         if not hasattr(self, "_normal_matrix_cache"):
@@ -276,35 +273,32 @@ class LeastSquaresSolver:
         return self._normal_matrix_cache
 
     def _solve_normal(self, proc_b, **kwargs):
-        solutions = []
-        full_rhs = np.zeros((self.A[0].op.shape[1], 1)) # Assuming single scenario for normal
-        
-        total_rhs = np.zeros((self.A[0].op.shape[1], proc_b[0].op.shape[1]))
-        for i, rhs in enumerate(proc_b):
-            if rhs is None: continue
-            w_i = self._densify_op(self.weights[i]) if self.weights[i] is not None else 1.0
-            A_i_T = self._densify_op(self.A[i]).T
-            total_rhs += A_i_T @ (w_i * self._densify_op(rhs))
-
-        sol = np.linalg.solve(self._full_normal_matrix, total_rhs)
-        
-        # This part assumes the output shape is determined by the first b
-        if proc_b[0] is not None:
-            solutions = [sol.reshape(self.A[0].trailing_shape + proc_b[0].trailing_shape)]
-        else: # Handle case where no b is provided
-            solutions = [None]
+        # Normal equation solver is typically for a single scenario
+        total_rhs_list = []
+        for rhs in proc_b:
+            if rhs is None:
+                total_rhs_list.append(None)
+                continue
             
-        # Pad with Nones if other b's were expected
-        solutions.extend([None] * (len(proc_b) - 1))
-        return solutions
+            total_rhs = np.zeros((self.A[0].op.shape[1], rhs.op.shape[1]))
+            for i, A_item in enumerate(self.A):
+                if i < len(proc_b) and proc_b[i] is not None: # only add if b exists for this A
+                    w_i = self._densify_op(self.weights[i]) if self.weights[i] is not None else 1.0
+                    A_i_T = self._densify_op(A_item).T
+                    total_rhs += A_i_T @ (w_i * self._densify_op(proc_b[i]))
 
+            sol = np.linalg.solve(self._full_normal_matrix, total_rhs)
+            total_rhs_list.append(sol.reshape(self.A[0].trailing_shape + rhs.trailing_shape))
+
+        return total_rhs_list
+    
     def _solve_cg(self, proc_b, **kwargs):
         if 'op' not in self._cg_op_cache:
             num_features = self.A[0].op.shape[1]
             base_op, rmatvec_func = self._get_linear_operator(num_scenarios=1)
             self._cg_op_cache['op'] = LinearOperator((num_features, num_features), matvec=lambda x: base_op.rmatvec(base_op.matvec(x)), dtype=base_op.dtype)
-            self._cg_op_cache['rmatvec'] = rmatvec_func
-            self._cg_op_cache['base_op_rows'] = base_op.shape[0]
+            self._cg_op_cache['rmatvec_block'] = rmatvec_func
+            self._cg_op_cache['base_op_rows'] = base_op.shape[0] // 1 # num_scenarios=1
             if self.preconditioner == "jacobi":
                 if self.is_matrix_free:
                     print("Warning: Cannot compute Jacobi preconditioner for matrix-free operators. Preconditioner disabled.")
@@ -314,8 +308,8 @@ class LeastSquaresSolver:
                     diag = self._jacobi_precond_diag
                     diag[diag < 1e-12] = 1.0
                     self._cg_op_cache['M'] = LinearOperator((num_features, num_features), matvec=lambda x: x / diag, dtype=base_op.dtype)
-        
-        cg_op, rmatvec_func, base_op_rows, M = self._cg_op_cache['op'], self._cg_op_cache['rmatvec'], self._cg_op_cache['base_op_rows'], self._cg_op_cache.get('M')
+    
+        cg_op, rmatvec_block, base_op_rows, M = self._cg_op_cache['op'], self._cg_op_cache['rmatvec_block'], self._cg_op_cache['base_op_rows'], self._cg_op_cache.get('M')
         solutions = []
         for i, rhs_b in enumerate(proc_b):
             if rhs_b is None: solutions.append(None); continue
@@ -324,7 +318,7 @@ class LeastSquaresSolver:
             start_row = sum(self.A[k].op.shape[0] for k in range(i))
             weighted_b = self._densify_op(self.sqrt_weights[i]) * rhs_b.op if self.sqrt_weights[i] is not None else rhs_b.op
             d_block[start_row : start_row + weighted_b.shape[0], :] = weighted_b
-            rhs_for_cg = rmatvec_func(d_block)
+            rhs_for_cg = rmatvec_block(d_block)
             if rhs_for_cg.ndim == 1: rhs_for_cg = rhs_for_cg.reshape(-1, 1)
             sol = np.zeros_like(rhs_for_cg)
             cg_kwargs = {"atol": self.tolerance, "rtol": self.tolerance, "M": M, **kwargs}
@@ -341,7 +335,7 @@ class LeastSquaresSolver:
             M_dense = base_op.matmat(np.eye(num_features))
             u, s, vt = np.linalg.svd(M_dense, full_matrices=False)
             s_inv = np.zeros_like(s); stable_s = s > (self.tolerance * (s[0] if s.size > 0 else 0)); s_inv[stable_s] = 1.0 / s[stable_s]
-            self._svd_cache.update({'U': u, 's_inv': s_inv, 'Vt': vt, 'base_op_rows': base_op.shape[0]})
+            self._svd_cache.update({'U': u, 's_inv': s_inv, 'Vt': vt, 'base_op_rows': base_op.shape[0] // 1})
         U, s_inv, Vt, base_op_rows = self._svd_cache['U'], self._svd_cache['s_inv'], self._svd_cache['Vt'], self._svd_cache['base_op_rows']
         solutions = []
         for i, rhs_b in enumerate(proc_b):

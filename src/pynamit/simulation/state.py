@@ -25,7 +25,7 @@ class State(object):
     """
 
     def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
-        self.use_matrix_free = bool(getattr(settings, 'use_matrix_free', False))
+        self.use_matrix_free = bool(getattr(settings, 'use_matrix_free', True))
         print(f"INFO: State class in {'MATRIX-FREE (iterative)' if self.use_matrix_free else 'DENSE (direct)'} mode.")
 
         self.basis, self.mainfield = basis, mainfield
@@ -90,7 +90,7 @@ class State(object):
     def bH_prop(self):
         if self.bH is None: self.bH = np.array([[np.zeros(self.b_evaluator.grid.size), self.b_evaluator.br], [-self.b_evaluator.br, np.zeros(self.b_evaluator.grid.size)]])
         return self.bH
-        
+    
     @property
     def bu_prop(self):
         if self.bu is None: self.bu = -np.array([[np.zeros(self.b_evaluator.grid.size), self.b_evaluator.Br], [-self.b_evaluator.Br, np.zeros(self.b_evaluator.grid.size)]])
@@ -131,8 +131,10 @@ class State(object):
         if G_X_to_JS is None: return None
         G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         # Final einsum contracts all pre-computed tensors into the final operator
-        dense_op = np.einsum('cmik, ijk, jkl -> cml', G_helmholtz_pinv, M_total_on_grid, G_X_to_JS, optimize=True)
-        return dense_op
+        einsum_str = 'cmik, ijk, jkl -> cml'
+        if G_X_to_JS.ndim == 4: # Vector input
+            einsum_str = 'cmik, ijk, jklm -> cmlm'
+        return np.einsum(einsum_str, G_helmholtz_pinv, M_total_on_grid, G_X_to_JS, optimize=True)
 
     def _create_E_coeffs_linear_operator(self, G_X_to_JS, M_total_on_grid, is_vector_input=False):
         """
@@ -181,7 +183,7 @@ class State(object):
             else:
                 self._m_ind_to_E_coeffs = self._calculate_E_coeffs_operator_dense(self.G_m_ind_to_JS, self.M_total_on_grid)
         return self._m_ind_to_E_coeffs
-        
+    
     @property
     def m_imp_to_E_coeffs(self):
         if not hasattr(self, "_m_imp_to_E_coeffs") or self._m_imp_to_E_coeffs is None:
@@ -207,8 +209,9 @@ class State(object):
         if hasattr(self, "_M_total_on_grid"): del self._M_total_on_grid
         if hasattr(self, "_E_map_constraint_operator"): del self._E_map_constraint_operator
         self.m_ind_to_E_df = None
-        if self.use_matrix_free: self._fwd_solver_cache, self._adj_solver_cache = {}, {}
-        else: self._coeffs_to_m_imp_cache = None
+        # Invalidate solvers, as they depend on conductance-related operators
+        self._fwd_solver_cache, self._adj_solver_cache = {}, {}
+        self._coeffs_to_m_imp_cache = None
 
     def initialize_constraints(self):
         if self.mainfield.kind == "dipole": self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
@@ -226,7 +229,7 @@ class State(object):
                 E_coeffs_to_E_apex = np.einsum("ijk,jklm->iklm", self.b_evaluator.horizontal_to_apex, self.basis_evaluator.G_helmholtz, optimize=True)
                 E_coeffs_to_E_apex_cp = np.einsum("ijk,jklm->iklm", self.cp_b_evaluator.horizontal_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize=True)
                 self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask])
-        
+    
     def update(self, input_timeseries, time, interpolation=False):
         conductance_updated = False
         for key in input_timeseries.datasets.keys():
@@ -243,61 +246,48 @@ class State(object):
                 elif key == "u": self.u = FieldExpansion(input_timeseries.storage_bases["u"], coeffs=updated_input_entry["u"].reshape((2, -1)), field_type=input_timeseries.vars["u"]["u"])
         if conductance_updated: self._invalidate_caches()
 
-    def _create_conductance_independent_linear_operator(self, G_X_to_Y_grid, is_vector_input=False):
-        if G_X_to_Y_grid is None: return None
-        n_c_out = self.basis.index_length
-        n_c_in = G_X_to_Y_grid.shape[3] if is_vector_input else G_X_to_Y_grid.shape[2]
-        shape_in = (2, n_c_in) if is_vector_input else (n_c_in,)
-        shape = (2 * n_c_out, np.prod(shape_in))
-        G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
-
-        def matvec(x_coeffs_flat):
-            x_coeffs = x_coeffs_flat.reshape(shape_in)
-            einsum_str = 'cmik,iklm,lm->cm' if is_vector_input else 'cmik,ikl,l->cm'
-            Y_coeffs = np.einsum(einsum_str, G_helmholtz_pinv, G_X_to_Y_grid, x_coeffs, optimize=True)
-            return Y_coeffs.flatten()
-
-        def rmatvec(grad_Y_coeffs_flat):
-            grad_Y_coeffs = grad_Y_coeffs_flat.reshape(2, n_c_out)
-            einsum_str = 'cmik,iklm,cm->lm' if is_vector_input else 'cmik,ikl,cm->l'
-            grad_x_coeffs = np.einsum(einsum_str, G_helmholtz_pinv.conj(), G_X_to_Y_grid.conj(), grad_Y_coeffs, optimize=True)
-            return grad_x_coeffs.flatten()
-
-        return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
-
     def _build_u_coeffs_to_E_coeffs(self):
         G_u_to_uxB_grid = np.einsum('ijk, jklm -> iklm', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
+        # This operator is conductance-independent, so it can be built once.
         if self.use_matrix_free:
-            self.u_coeffs_to_E_coeffs = self._create_conductance_independent_linear_operator(G_u_to_uxB_grid, is_vector_input=True)
+            # For sparse mode, we still need a LinearOperator to conform to the _contract interface
+            def matvec(u_coeffs_flat):
+                u_coeffs = u_coeffs_flat.reshape(2, -1)
+                E_coeffs = np.einsum('iklm, lm -> ik', self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid), u_coeffs, optimize=True)
+                return E_coeffs.flatten()
+            def rmatvec(grad_E_coeffs_flat):
+                grad_E_coeffs = grad_E_coeffs_flat.reshape(2, -1)
+                grad_u_coeffs = np.einsum('iklm, ik -> lm', self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid).conj(), grad_E_coeffs, optimize=True)
+                return grad_u_coeffs.flatten()
+            shape_in = (2, self.basis.index_length)
+            shape_out = (2, self.basis.index_length)
+            shape = (np.prod(shape_out), np.prod(shape_in))
+            self.u_coeffs_to_E_coeffs = LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
         else:
             self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
-    
+
     def _contract(self, op, coeffs, output_shape):
-        if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0): return np.zeros(output_shape)
-        if isinstance(coeffs, (int, float)) and coeffs == 0: return np.zeros(output_shape)
+        if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
+            return np.zeros(output_shape)
         
-        # Handle both LinearOperator and dense array uniformly
         if isinstance(op, LinearOperator):
             in_vec = coeffs.flatten() if isinstance(coeffs, np.ndarray) else coeffs
             return op.dot(in_vec).reshape(output_shape)
         
         # Handle dense array contractions
-        if coeffs.ndim == 1: return np.tensordot(op, coeffs, 1).reshape(output_shape)
-        elif coeffs.ndim == 2: return np.tensordot(op, coeffs, 2)
-        else: raise ValueError(f"Unsupported coefficient shape: {coeffs.shape}")
+        if coeffs.ndim == 1:
+            return np.tensordot(op, coeffs, 1).reshape(output_shape)
+        elif coeffs.ndim == 2:
+            return np.tensordot(op, coeffs, axes=2)
+        else:
+            raise ValueError(f"Unsupported coefficient shape: {coeffs.shape}")
 
     def calculate_noind_coeffs(self):
         E_direct = self._contract(self.u_coeffs_to_E_coeffs, self.u.coeffs if self.u else 0, output_shape=(2, self.basis.index_length))
-        if self.Br is not None: E_direct += self._contract(self.Br_to_E_coeffs, self.Br.coeffs, output_shape=(2, self.basis.index_length))
+        if self.Br is not None:
+            E_direct += self._contract(self.Br_to_E_coeffs, self.Br.coeffs, output_shape=(2, self.basis.index_length))
         
-        if self.use_matrix_free:
-            m_imp = self._solve_for_m_imp_iteratively(self.jr.coeffs if self.jr else None, E_direct)
-        else:
-            coeffs_to_m_imp = self._get_or_compute_coeffs_to_m_imp()
-            m_imp = np.zeros(self.basis.index_length)
-            if self.jr is not None: m_imp += np.dot(coeffs_to_m_imp[0], self.jr.coeffs)
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                m_imp += np.tensordot(coeffs_to_m_imp[1], -E_direct, 2)
+        m_imp = self._solve_for_m_imp(self.jr.coeffs if self.jr else None, E_direct)
         
         E_imp = self._contract(self.m_imp_to_E_coeffs, m_imp, output_shape=(2, self.basis.index_length))
         return E_direct + E_imp, m_imp
@@ -305,48 +295,55 @@ class State(object):
     def calculate_ind_coeffs(self, m_ind):
         E_direct_ind = self._contract(self.m_ind_to_E_coeffs, m_ind, output_shape=(2, self.basis.index_length))
         
-        if self.use_matrix_free:
-            m_imp_ind = self._solve_for_m_imp_iteratively(None, E_direct_ind)
-        else:
-            coeffs_to_m_imp = self._get_or_compute_coeffs_to_m_imp()
-            m_imp_ind = np.zeros(self.basis.index_length)
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                m_imp_ind = np.tensordot(coeffs_to_m_imp[1], -E_direct_ind, 2)
+        m_imp_ind = self._solve_for_m_imp(None, E_direct_ind) # No jr driving term
         
         E_imp_ind = self._contract(self.m_imp_to_E_coeffs, m_imp_ind, output_shape=(2, self.basis.index_length))
         return E_direct_ind + E_imp_ind, m_imp_ind
+    
+    def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
+        """Unified solver for m_imp for both dense and sparse modes."""
+        if self.use_matrix_free:
+            return self._solve_for_m_imp_iteratively(jr_coeffs, E_direct_coeffs)
+        else:
+            return self._solve_for_m_imp_dense(jr_coeffs, E_direct_coeffs)
 
-    def _get_or_compute_coeffs_to_m_imp(self):
-        """DENSE PATH ONLY: Computes and caches the operator that maps (jr, E_direct) to m_imp."""
-        if hasattr(self, '_coeffs_to_m_imp_cache') and self._coeffs_to_m_imp_cache is not None:
-            return self._coeffs_to_m_imp_cache
-
-        constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
-        rhs_B = [self.jr_coeffs_to_j_apex]
-        
-        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+    def _solve_for_m_imp_dense(self, jr_coeffs, E_direct_coeffs):
+        """DENSE PATH ONLY: Solves for m_imp using a pre-computed inverse operator."""
+        if self._coeffs_to_m_imp_cache is None:
+            constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
             # For dense path, m_imp_to_E_coeffs is a dense numpy array.
-            m_imp_op = self.m_imp_to_E_coeffs
-            constraint_A.append(np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_op, 2) * self.ih_constraint_scaling)
-            rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
-        
-        # Use the fast 'svd' solver for this dense system.
-        solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
-        self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
-        return self._coeffs_to_m_imp_cache
+            m_imp_to_E = self.m_imp_to_E_coeffs
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                E_map_op = np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E, axes=2)
+                constraint_A.append(E_map_op * self.ih_constraint_scaling)
+            # Use the fast 'svd' solver for this dense system.
+            solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
+            
+            rhs_B = [self.jr_coeffs_to_j_apex]
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                 rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
+            
+            self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
+
+        # Apply the pre-computed operators
+        solvers = self._coeffs_to_m_imp_cache
+        m_imp = np.zeros(self.basis.index_length)
+        if jr_coeffs is not None:
+            m_imp += np.dot(solvers[0], jr_coeffs)
+        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+            m_imp += np.tensordot(solvers[1], -E_direct_coeffs, axes=2)
+        return m_imp
 
     def _get_or_create_E_map_constraint_operator(self):
         """
-        Creates a highly efficient LinearOperator for the full E-mapping
-        constraint by fusing all operations into a single einsum. This operator
+        SPARSE PATH OPTIMIZATION: Creates a highly efficient LinearOperator for the full 
+        E-mapping constraint by fusing all operations into a single einsum. This operator
         maps m_imp_coeffs directly to the E_apex_diff grid values.
-        THIS IS THE KEY OPTIMIZATION FOR THE SPARSE HEMISPHERE COUPLING.
         """
         if hasattr(self, "_E_map_constraint_operator") and self._E_map_constraint_operator is not None:
             return self._E_map_constraint_operator
         if self.E_coeffs_to_E_apex_ll_diff is None: return None
         
-        # Get all tensors required for the full operation chain
         G_final_map = self.E_coeffs_to_E_apex_ll_diff
         G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         M_total = self.M_total_on_grid
@@ -363,9 +360,9 @@ class State(object):
         def rmatvec(grad_E_apex_flat):
             grad_E_apex = grad_E_apex_flat.reshape(G_final_map.shape[0], G_final_map.shape[1], order="F")
             # The full adjoint operation, also fused
-            grad_m = np.einsum('ab, abcm, cmik, ijk, jkl -> l',
-                               grad_E_apex.conj(), G_final_map.conj(), G_helm_pinv.conj(),
-                               M_total.conj(), G_first_op.conj(), optimize=True)
+            grad_m = np.einsum('abcm, cmik, ijk, jkl, ab -> l',
+                               G_final_map.conj(), G_helm_pinv.conj(), M_total.conj(), 
+                               G_first_op.conj(), grad_E_apex, optimize=True)
             return grad_m
 
         self._E_map_constraint_operator = LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
@@ -380,15 +377,19 @@ class State(object):
             b_list.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
 
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+            # Use the highly optimized fused operator for the constraint
             E_map_op = self._get_or_create_E_map_constraint_operator()
             A_list.append(self.ih_constraint_scaling * E_map_op)
+            
             E_apex_from_direct = np.einsum('ijkl,kl->ij', self.E_coeffs_to_E_apex_ll_diff, E_coeffs_direct, optimize=True)
             b_list.append(-E_apex_from_direct.flatten("F") * self.ih_constraint_scaling)
-        
+    
         if not A_list: return np.zeros(self.basis.index_length)
         
+        # Cache the solver based on which constraints are active
         key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
         if key not in self._fwd_solver_cache:
+            # Use lsmr for potentially ill-conditioned systems
             self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="lsmr")
         
         solutions = self._fwd_solver_cache[key].solve(b_list)
@@ -396,30 +397,32 @@ class State(object):
 
     def _solve_for_m_imp_adjoint(self, grad_m_imp):
         """SPARSE PATH ONLY: Solves the adjoint least-squares system."""
-        A_adj_list = []
+        A_adj_list, grad_b_list = [], []
         has_jr = self.jr is not None
-        has_E = self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None
+        has_E_constraint = self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None
         
+        if not (has_jr or has_E_constraint): return None, None
+
+        # Build list of adjoint operators
         if has_jr:
             A_adj_list.append((self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))).T)
-        if has_E:
+        if has_E_constraint:
             E_map_op = self._get_or_create_E_map_constraint_operator()
-            A_adj_list.append(self.ih_constraint_scaling * E_map_op.T)
+            A_adj_list.append(self.ih_constraint_scaling * E_map_op.T) # .T is the adjoint
             
-        if not A_adj_list: return None, None
-        
-        key = ("adj", has_jr, has_E)
+        key = ("adj", has_jr, has_E_constraint)
         if key not in self._adj_solver_cache:
             self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="lsmr")
             
         grad_b_list = self._adj_solver_cache[key].solve([grad_m_imp])
         grad_b_jr, grad_b_E = None, None
         
+        # Unpack results
         list_idx = 0
         if has_jr:
             grad_b_jr = grad_b_list[list_idx]
             list_idx += 1
-        if has_E:
+        if has_E_constraint:
             grad_b_E = grad_b_list[list_idx]
 
         return grad_b_jr, grad_b_E
@@ -428,26 +431,38 @@ class State(object):
         """Builds the time-evolution operator L for the selected mode."""
         if self.m_ind_to_E_df is not None: return
         shape = (self.basis.index_length, self.basis.index_length)
-        def matvec(m): return self.calculate_ind_coeffs(m)[0][1] # E_phi component
         
+        def matvec(m):
+            E_ind, _ = self.calculate_ind_coeffs(m)
+            return E_ind[1] # E_phi component
+
         if self.use_matrix_free:
             def rmatvec(grad_out):
-                grad_E = np.zeros((2, shape[0])); grad_E[1] = grad_out.flatten()
+                grad_E_phi = grad_out.flatten()
+                grad_E = np.zeros((2, shape[0]), dtype=grad_E_phi.dtype)
+                grad_E[1] = grad_E_phi
+                
+                # Trace back through E_ind = E_direct_ind + E_imp_ind
                 total_grad_E_direct_ind = grad_E.copy()
-                grad_m_imp_ind = self._contract(self.m_imp_to_E_coeffs.T, grad_E, output_shape=(self.basis.index_length,))
+                grad_m_imp_ind = self._contract(self.m_imp_to_E_coeffs.T, grad_E, output_shape=(shape[1],))
                 
-                if self.connect_hemispheres:
-                    _, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
-                    if grad_b_E is not None:
-                        E_diff = self.E_coeffs_to_E_apex_ll_diff
-                        grad_b_E_reshaped = grad_b_E.reshape(E_diff.shape[0], E_diff.shape[1], order="F")
-                        grad_E_from_b = -np.einsum('ij,ijkl->kl', grad_b_E_reshaped.conj(), E_diff.conj(), optimize=True)
-                        total_grad_E_direct_ind += grad_E_from_b * self.ih_constraint_scaling
+                # Adjoint of the LS solve for m_imp_ind
+                _, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
+                
+                if grad_b_E is not None:
+                    E_diff_op = self.E_coeffs_to_E_apex_ll_diff
+                    # grad_b_E is the gradient w.r.t b, which was -E_direct_ind (flattened)
+                    # We need to compute the gradient contribution to E_direct_ind
+                    grad_b_E_reshaped = grad_b_E.reshape(E_diff_op.shape[0], E_diff_op.shape[1], order="F")
+                    grad_E_from_b = -np.einsum('ij,ijkl->kl', grad_b_E_reshaped.conj(), E_diff_op.conj(), optimize=True)
+                    total_grad_E_direct_ind += grad_E_from_b * self.ih_constraint_scaling
 
-                return self._contract(self.m_ind_to_E_coeffs.T, total_grad_E_direct_ind, output_shape=(self.basis.index_length,))
-                
+                # Final step: trace back through E_direct_ind = op @ m_ind
+                return self._contract(self.m_ind_to_E_coeffs.T, total_grad_E_direct_ind, output_shape=(shape[1],))
+
             self.m_ind_to_E_df = LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
         else:
+            # Dense mode: build the matrix explicitly
             L_dense = np.array([matvec(v) for v in np.eye(shape[1])]).T
             self.m_ind_to_E_df = L_dense
 
