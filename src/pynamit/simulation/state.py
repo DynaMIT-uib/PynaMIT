@@ -59,6 +59,19 @@ class State(object):
         self._build_u_coeffs_to_E_coeffs()
         self._invalidate_caches()
 
+    def _invalidate_caches(self):
+        """Invalidate all cached data that depends on conductance or other state."""
+        self._m_ind_to_E_coeffs = None
+        self._m_imp_to_E_coeffs = None
+        self._Br_to_E_coeffs = None
+        self.m_ind_to_E_df = None
+        self._coeffs_to_m_imp_cache = None
+        self._fwd_solver_cache, self._adj_solver_cache = {}, {}
+        
+        # These objects are expensive and depend on conductance
+        if hasattr(self, "_M_total_on_grid"): del self._M_total_on_grid
+        if hasattr(self, "_E_map_constraint_operator"): del self._E_map_constraint_operator
+
     # --- Properties for lazy computation of physics operators ---
     @property
     def G_m_imp_to_JS(self):
@@ -122,22 +135,31 @@ class State(object):
                     self._T_to_Ve += (Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2))
         return self._T_to_Ve
 
-    # --- UNIFIED OPERATOR CONSTRUCTION HELPERS ---
+    # --- UNIFIED OPERATOR CONSTRUCTION ---
 
-    def _create_E_coeffs_dense_operator(self, G_X_to_JS):
+    def _create_E_coeffs_operator(self, G_X_to_JS, is_vector_input):
+        """
+        Unified factory for creating operators that map input coefficients (X)
+        to electric field coefficients (E). Dispatches to dense or sparse methods.
+        """
+        if G_X_to_JS is None:
+            return None
+        if self.use_matrix_free:
+            return self._create_E_coeffs_linear_operator(G_X_to_JS, is_vector_input)
+        else:
+            return self._create_E_coeffs_dense_operator(G_X_to_JS, is_vector_input)
+
+    def _create_E_coeffs_dense_operator(self, G_X_to_JS, is_vector_input):
         """Builds the final, dense operator matrix for `use_matrix_free=False`."""
-        if G_X_to_JS is None: return None
         G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         # Pre-compute the expensive contraction into a single tensor
         einsum_str = 'cmik,ijk,jkl->cml'
-        if G_X_to_JS.ndim == 4: # Vector input
+        if is_vector_input: # Vector input (e.g., u_coeffs)
             einsum_str = 'cmik,ijk,jklm->cmlm'
         return np.einsum(einsum_str, G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS, optimize=True)
 
-    def _create_E_coeffs_linear_operator(self, G_X_to_JS, is_vector_input=False):
+    def _create_E_coeffs_linear_operator(self, G_X_to_JS, is_vector_input):
         """Creates a high-performance LinearOperator for `use_matrix_free=True`."""
-        if G_X_to_JS is None: return None
-        
         n_c_in = G_X_to_JS.shape[3] if is_vector_input else G_X_to_JS.shape[2]
         n_c_out = self.basis.index_length
         shape_in = (2, n_c_in) if is_vector_input else (n_c_in,)
@@ -172,7 +194,8 @@ class State(object):
     @property
     def M_total_on_grid(self):
         if not hasattr(self, "_M_total_on_grid"):
-            if (self.etaP is None) or (self.etaH is None): raise RuntimeError("Conductance must be set before use.")
+            if (self.etaP is None) or (self.etaH is None):
+                raise RuntimeError("Conductance must be set before use.")
             eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
             G_eta = self.basis_evaluator_zero_added.G
             b_stacked = np.stack([self.bP_prop, self.bH_prop], axis=0)
@@ -181,42 +204,24 @@ class State(object):
 
     @property
     def m_ind_to_E_coeffs(self):
-        if not hasattr(self, "_m_ind_to_E_coeffs") or self._m_ind_to_E_coeffs is None:
-            if self.use_matrix_free:
-                self._m_ind_to_E_coeffs = self._create_E_coeffs_linear_operator(self.G_m_ind_to_JS, is_vector_input=False)
-            else:
-                self._m_ind_to_E_coeffs = self._create_E_coeffs_dense_operator(self.G_m_ind_to_JS)
+        if self._m_ind_to_E_coeffs is None:
+            self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(self.G_m_ind_to_JS, is_vector_input=False)
         return self._m_ind_to_E_coeffs
     
     @property
     def m_imp_to_E_coeffs(self):
-        if not hasattr(self, "_m_imp_to_E_coeffs") or self._m_imp_to_E_coeffs is None:
-            if self.use_matrix_free:
-                self._m_imp_to_E_coeffs = self._create_E_coeffs_linear_operator(self.G_m_imp_to_JS, is_vector_input=False)
-            else:
-                self._m_imp_to_E_coeffs = self._create_E_coeffs_dense_operator(self.G_m_imp_to_JS)
+        if self._m_imp_to_E_coeffs is None:
+            self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(self.G_m_imp_to_JS, is_vector_input=False)
         return self._m_imp_to_E_coeffs
 
     @property
     def Br_to_E_coeffs(self):
-        if not hasattr(self, "_Br_to_E_coeffs") or self._Br_to_E_coeffs is None:
+        if self._Br_to_E_coeffs is None:
             G_Br_to_JS = getattr(self, "G_Br_to_JS", None)
-            if self.use_matrix_free:
-                self._Br_to_E_coeffs = self._create_E_coeffs_linear_operator(G_Br_to_JS, is_vector_input=False)
-            else:
-                self._Br_to_E_coeffs = self._create_E_coeffs_dense_operator(G_Br_to_JS)
+            self._Br_to_E_coeffs = self._create_E_coeffs_operator(G_Br_to_JS, is_vector_input=False)
         return self._Br_to_E_coeffs
-
-    def _invalidate_caches(self):
-        """Invalidate all cached data that depends on conductance."""
-        self._m_ind_to_E_coeffs = None
-        self._m_imp_to_E_coeffs = None
-        self._Br_to_E_coeffs = None
-        self.m_ind_to_E_df = None
-        self._coeffs_to_m_imp_cache = None
-        self._fwd_solver_cache, self._adj_solver_cache = {}, {}
-        if hasattr(self, "_M_total_on_grid"): del self._M_total_on_grid
-        if hasattr(self, "_E_map_constraint_operator"): del self._E_map_constraint_operator
+    
+    # --- Other Methods ---
 
     def initialize_constraints(self):
         if self.mainfield.kind == "dipole": self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
@@ -254,6 +259,7 @@ class State(object):
     def _build_u_coeffs_to_E_coeffs(self):
         G_u_to_uxB_grid = np.einsum('ijk, jklm -> iklm', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
         dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
+        
         if self.use_matrix_free:
             def matvec(u_coeffs_flat):
                 u_coeffs = u_coeffs_flat.reshape(2, -1)
@@ -267,7 +273,8 @@ class State(object):
         else:
             self.u_coeffs_to_E_coeffs = dense_op
 
-    def _contract(self, op, coeffs, output_shape):
+    def _apply_operator(self, op, coeffs, output_shape):
+        """Helper to apply a dense or sparse operator to coefficients."""
         if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return np.zeros(output_shape)
         
@@ -275,27 +282,30 @@ class State(object):
             in_vec = coeffs.flatten() if isinstance(coeffs, np.ndarray) else coeffs
             return op.matvec(in_vec).reshape(output_shape)
         
-        if coeffs.ndim == 1:
+        # Dense operator (numpy array)
+        if coeffs.ndim == 1: # scalar -> vector field
             return np.tensordot(op, coeffs, 1)
-        elif coeffs.ndim == 2:
+        elif coeffs.ndim == 2: # vector -> vector field
             return np.tensordot(op, coeffs, axes=2)
         else:
             raise ValueError(f"Unsupported coefficient shape: {coeffs.shape}")
 
     def calculate_noind_coeffs(self):
-        E_direct = self._contract(self.u_coeffs_to_E_coeffs, self.u.coeffs if self.u else 0, output_shape=(2, self.basis.index_length))
+        E_shape = (2, self.basis.index_length)
+        E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, self.u.coeffs if self.u else 0, E_shape)
         if self.Br is not None:
-            E_direct += self._contract(self.Br_to_E_coeffs, self.Br.coeffs, output_shape=(2, self.basis.index_length))
+            E_direct += self._apply_operator(self.Br_to_E_coeffs, self.Br.coeffs, E_shape)
         
         m_imp = self._solve_for_m_imp(self.jr.coeffs if self.jr else None, E_direct)
         
-        E_imp = self._contract(self.m_imp_to_E_coeffs, m_imp, output_shape=(2, self.basis.index_length))
+        E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
         return E_direct + E_imp, m_imp
 
     def calculate_ind_coeffs(self, m_ind):
-        E_direct_ind = self._contract(self.m_ind_to_E_coeffs, m_ind, output_shape=(2, self.basis.index_length))
+        E_shape = (2, self.basis.index_length)
+        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, m_ind, E_shape)
         m_imp_ind = self._solve_for_m_imp(None, E_direct_ind)
-        E_imp_ind = self._contract(self.m_imp_to_E_coeffs, m_imp_ind, output_shape=(2, self.basis.index_length))
+        E_imp_ind = self._apply_operator(self.m_imp_to_E_coeffs, m_imp_ind, E_shape)
         return E_direct_ind + E_imp_ind, m_imp_ind
     
     def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
@@ -305,7 +315,6 @@ class State(object):
             return self._solve_for_m_imp_dense(jr_coeffs, E_direct_coeffs)
 
     def _solve_for_m_imp_dense(self, jr_coeffs, E_direct_coeffs):
-        # ... (no changes needed in this method)
         if self._coeffs_to_m_imp_cache is None:
             constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
             m_imp_to_E = self.m_imp_to_E_coeffs
@@ -383,13 +392,20 @@ class State(object):
         
         key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
         if key not in self._fwd_solver_cache:
-            self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="lsmr")
+            # PERFORMANCE NOTE: The 'connect_hemispheres' constraint can make the
+            # problem ill-conditioned, causing 'lsmr' to converge very slowly.
+            # For better performance in this case, switch to the 'cg' solver
+            # which can use a preconditioner to accelerate convergence.
+            # For example:
+            # solver = "cg" if self.connect_hemispheres else "lsmr"
+            # preconditioner = "jacobi" if self.connect_hemispheres else None
+            # self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver=solver, preconditioner=preconditioner)
+            self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="cg", preconditioner="jacobi")
         
         solutions = self._fwd_solver_cache[key].solve(b_list)
         return sum(s.flatten() for s in solutions if s is not None)
 
     def _solve_for_m_imp_adjoint(self, grad_m_imp):
-        # ... (no changes needed in this method)
         A_adj_list, grad_b_list = [], []
         has_jr = self.jr is not None
         has_E_constraint = self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None
@@ -403,7 +419,7 @@ class State(object):
             
         key = ("adj", has_jr, has_E_constraint)
         if key not in self._adj_solver_cache:
-            self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="lsmr")
+            self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="cg", preconditioner="jacobi")
             
         grad_b_list = self._adj_solver_cache[key].solve([grad_m_imp])
         grad_b_jr, grad_b_E = None, None
@@ -430,7 +446,8 @@ class State(object):
                 grad_E = np.zeros((2, shape[0]), dtype=grad_E_phi.dtype); grad_E[1] = grad_E_phi
                 
                 total_grad_E_direct_ind = grad_E.copy()
-                grad_m_imp_ind = self.m_imp_to_E_coeffs.rmatvec(grad_E.flatten())
+                grad_m_imp_ind_flat = self.m_imp_to_E_coeffs.rmatvec(grad_E.flatten())
+                grad_m_imp_ind = grad_m_imp_ind_flat.reshape(self.basis.index_length,)
                 
                 _, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
                 
@@ -440,8 +457,8 @@ class State(object):
                     grad_E_from_b = -np.einsum('ij,ijkl->kl', grad_b_E_reshaped.conj(), E_diff_op.conj(), optimize=True)
                     total_grad_E_direct_ind += grad_E_from_b * self.ih_constraint_scaling
 
-                grad_m_ind = self.m_ind_to_E_coeffs.rmatvec(total_grad_E_direct_ind.flatten())
-                return grad_m_ind
+                grad_m_ind_flat = self.m_ind_to_E_coeffs.rmatvec(total_grad_E_direct_ind.flatten())
+                return grad_m_ind_flat
 
             self.m_ind_to_E_df = LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
         else:
