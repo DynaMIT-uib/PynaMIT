@@ -389,45 +389,121 @@ class State(object):
         return self._coeffs_to_m_imp_cache
 
     def _get_or_create_E_map_constraint_operator(self):
-        if hasattr(self, '_E_map_constraint_operator') and self._E_map_constraint_operator is not None: return self._E_map_constraint_operator
+        """
+        Creates a highly efficient LinearOperator for the full E-mapping
+        constraint by fusing all operations into a single einsum.
+        This operator maps m_imp_coeffs directly to E_apex_diff grid values.
+        """
+        if hasattr(self, "_E_map_constraint_operator") and self._E_map_constraint_operator is not None:
+            return self._E_map_constraint_operator
+
         if self.E_coeffs_to_E_apex_ll_diff is None: return None
-        A, B = self.E_coeffs_to_E_apex_ll_diff, self.m_imp_to_E_coeffs
-        if B is None: return None
-        shape = (A.shape[0] * A.shape[1], B.shape[1])
-        def matvec(m): return np.einsum('ijkl,kl->ij', A, B.dot(m).reshape(2, -1)).flatten()
-        def rmatvec(y): return B.rmatvec(np.einsum('ij,ijkl->kl', y.reshape(A.shape[0], A.shape[1]), A).flatten())
-        self._E_map_constraint_operator = LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec)
+        
+        # Get the component operators and tensors
+        G_final_map = self.E_coeffs_to_E_apex_ll_diff # A_op in the chain
+        m_imp_to_E_coeffs_op = self.m_imp_to_E_coeffs # B_op in the chain
+
+        # B_op itself is a LinearOperator that knows how to go from m_imp to E_coeffs
+        # Its matvec performs: G_helm_pinv @ M_total @ G_m_imp_to_JS @ m_imp_coeffs
+        # We need to chain this with G_final_map.
+        
+        # Let's get the tensors needed for the full chain
+        G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
+        M_total = self.M_total_on_grid
+        G_first_op = self.G_m_imp_to_JS
+        
+        # Define the operator shape
+        shape = (G_final_map.shape[0] * G_final_map.shape[1], G_first_op.shape[2])
+
+        def matvec(m_coeffs): # m_coeffs is 1D (n_m,)
+            # Fused operation: m_coeffs -> JS -> E_grid -> E_coeffs -> E_apex
+            # This is the most efficient way to perform the mat-vec product.
+            E_apex = np.einsum('abcm, cmik, ijk, jkl, l -> ab',
+                               G_final_map, G_helm_pinv, M_total,
+                               G_first_op, m_coeffs, optimize=True)
+            return E_apex.flatten("F") # Use F-order for solver compatibility
+
+        def rmatvec(grad_E_apex_flat):
+            grad_E_apex = grad_E_apex_flat.reshape(G_final_map.shape[0], G_final_map.shape[1], order="F")
+            # The full adjoint operation
+            grad_m = np.einsum('ab, abcm, cmik, ijk, jkl -> l',
+                               grad_E_apex, G_final_map.conj(), G_helm_pinv.conj(),
+                               M_total.conj(), G_first_op.conj(), optimize=True)
+            return grad_m
+
+        self._E_map_constraint_operator = LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
         return self._E_map_constraint_operator
 
     def _solve_for_m_imp_iteratively(self, jr_coeffs, E_coeffs_direct):
+        """
+        Solves for the imposed potential coefficients m_imp using an iterative
+        least-squares solver. This version is optimized to be fast in the
+        matrix-free path.
+        """
         A_list, b_list = [], []
+        
+        # Term 1: jr constraint (unchanged)
         if jr_coeffs is not None:
             A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
             b_list.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
-        E_map_op = self._get_or_create_E_map_constraint_operator()
-        if E_map_op is not None:
+
+        # Term 2: E-mapping constraint (now using the fast, fused operator)
+        if self.E_coeffs_to_E_apex_ll_diff is not None:
+            # This call now creates the highly efficient fused operator
+            E_map_op = self._get_or_create_E_map_constraint_operator()
             A_list.append(self.ih_constraint_scaling * E_map_op)
-            b_E = -np.einsum('ijkl,kl->ij', self.E_coeffs_to_E_apex_ll_diff, E_coeffs_direct)
-            b_list.append(b_E.flatten() * self.ih_constraint_scaling)
+            
+            # The RHS is -1 * the E-field at the apex from the direct sources (u, Br)
+            E_apex_from_direct = np.einsum('ijkl,kl->ij', self.E_coeffs_to_E_apex_ll_diff, E_coeffs_direct)
+            b_list.append(-E_apex_from_direct.flatten("F") * self.ih_constraint_scaling)
+        
         if not A_list: return np.zeros(self.basis.index_length)
-        key = (jr_coeffs is not None, E_map_op is not None)
-        if not hasattr(self, '_fwd_solver_cache') or key not in self._fwd_solver_cache:
+        
+        key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
+        if key not in self._fwd_solver_cache:
             self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="lsmr")
+        
         solutions = self._fwd_solver_cache[key].solve(b_list)
         return sum(s.flatten() for s in solutions if s is not None)
 
     def _solve_for_m_imp_adjoint(self, grad_m_imp):
-        A_adj_list, has_jr = [], any(item is not None for item in [self.jr])
-        E_map_op = self._get_or_create_E_map_constraint_operator(); has_E = E_map_op is not None
-        if has_jr: A_adj_list.append((self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))).T)
-        if has_E: A_adj_list.append(self.ih_constraint_scaling * E_map_op.T)
-        if not A_adj_list: return None, None
-        key = (has_jr, has_E)
-        if not hasattr(self, '_adj_solver_cache') or key not in self._adj_solver_cache:
+        """
+        Solves the adjoint least-squares system to backpropagate gradients.
+        This version is optimized to use the fast, fused E-mapping operator.
+        """
+        A_adj_list = []
+        
+        # Term 1: Adjoint of jr constraint
+        has_jr = any(item is not None for item in [self.jr])
+        if has_jr:
+            A_adj_list.append((self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))).T)
+        
+        # Term 2: Adjoint of E-mapping constraint
+        has_E = self.E_coeffs_to_E_apex_ll_diff is not None
+        if has_E:
+            # Get the fast, fused forward operator
+            E_map_op = self._get_or_create_E_map_constraint_operator()
+            # The .T property automatically and efficiently uses the rmatvec of E_map_op
+            A_adj_list.append(self.ih_constraint_scaling * E_map_op.T)
+            
+        if not A_adj_list:
+            return None, None
+        
+        # The cache key should be for the adjoint problem
+        key = ("adj", has_jr, has_E)
+        if key not in self._adj_solver_cache:
+            # The solver works with the list of adjoint operators
             self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="lsmr")
+            
+        # Solve A_adj.T @ x_adj = grad_m_imp. Note A_adj.T = A.
+        # This gives the gradient with respect to the RHS of the forward problem.
         grad_b_list = self._adj_solver_cache[key].solve([grad_m_imp])
-        return grad_b_list[0] if has_jr else None, grad_b_list[-1] if has_E else None
-    
+        
+        grad_b_jr = grad_b_list[0] if has_jr else None
+        grad_b_E = grad_b_list[1] if has_E else None
+        
+        return grad_b_jr, grad_b_E
+
     def build_m_ind_to_E_df(self):
         """Builds the time-evolution operator L for the selected mode."""
         if self.m_ind_to_E_df is not None: return
@@ -440,29 +516,29 @@ class State(object):
                 grad_E = np.zeros((2, shape[0]));
                 grad_E[1] = grad_out.flatten()
                 
-                # Backpropagate through: E_total = E_direct_ind + E_imp_ind
-                # 1. Gradient from E_imp_ind = m_imp_to_E_coeffs @ m_imp_ind
+                # Forward path was: E_total = E_direct_ind + E_imp_ind
+                # So, grad_E_direct_ind += grad_E and grad_E_imp_ind += grad_E
+                total_grad_E_direct_ind = grad_E.copy()
+
+                # --- Backpropagate through E_imp_ind path ---
+                # 1. E_imp_ind = m_imp_to_E_coeffs @ m_imp_ind
                 grad_m_imp_ind = self.m_imp_to_E_coeffs.rmatvec(grad_E.flatten())
                 
-                # 2. Backpropagate through the least-squares solve for m_imp_ind.
-                # The forward solve was: m_imp_ind = solve(A, -E_direct_ind)
-                # The adjoint is: grad_E_direct_ind = solve(A_adj, grad_m_imp_ind)
-                grad_b_jr, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
+                # 2. m_imp_ind = lsmr(A, b(E_direct_ind))
+                # grad_b is found by solving the adjoint system
+                _, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
                 
-                grad_E_from_solve = np.zeros_like(grad_E)
+                # 3. Backpropagate grad_b through b = f(E_direct_ind)
+                # b_E = - (E_coeffs_to_E_apex @ E_direct_ind)
                 if grad_b_E is not None:
                     E_diff = self.E_coeffs_to_E_apex_ll_diff
-                    # Reshape the output of the adjoint solve
                     grad_b_E_reshaped = grad_b_E.reshape(E_diff.shape[0], E_diff.shape[1], order="F")
-                    # The adjoint of b = -A @ x is grad_x = -A.T @ grad_b
-                    grad_E_from_solve = -np.einsum('ij,ijkl->kl', grad_b_E_reshaped, E_diff)
-                    grad_E_from_solve *= self.ih_constraint_scaling
-
-                # 3. Total gradient w.r.t E_direct_ind is sum of two paths
-                total_grad_E_direct_ind = grad_E + grad_E_from_solve
+                    
+                    # This is an efficient mat-vec product, NOT mat-mat
+                    grad_E_from_b = -np.einsum('ij,ijkl->kl', grad_b_E_reshaped, E_diff.conj())
+                    total_grad_E_direct_ind += grad_E_from_b * self.ih_constraint_scaling
 
                 # 4. Backpropagate through E_direct_ind = m_ind_to_E_coeffs @ m_ind
-                # This gives the final gradient w.r.t m_ind
                 return self.m_ind_to_E_coeffs.rmatvec(total_grad_E_direct_ind.flatten())
                 
             self.m_ind_to_E_df = LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec)
