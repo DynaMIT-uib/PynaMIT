@@ -124,7 +124,7 @@ for step in range(0, nstep):
         lat=magnetosphere_lat,
         lon=magnetosphere_lon,
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - magnetosphere_lat).flatten()))),
         reg_lambda=BR_LAMBDA,
     )
 
@@ -145,7 +145,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
         reg_lambda=JR_LAMBDA,
     )
 
@@ -181,7 +181,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
@@ -210,7 +210,7 @@ for step in range(0, nstep):
         lat=u_lat,
         lon=u_lon,
         time=dt * step,
-        weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+        sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
         reg_lambda=U_LAMBDA,
     )
 

@@ -82,7 +82,7 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 #     u_phi=u_phi,
 #     lat=u_lat,
 #     lon=u_lon,
-#     weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+#     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten())=), (2, 1)),
 # )
 
 ## CONDUCTANCE GRID

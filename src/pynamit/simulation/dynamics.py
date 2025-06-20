@@ -362,7 +362,7 @@ class Dynamics(object):
         theta=None,
         phi=None,
         time=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -382,8 +382,8 @@ class Dynamics(object):
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the FAC data.
-        weights : array-like, optional
-            Weights for the FAC data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the FAC data points.
         reg_lambda : float, optional
             Regularization parameter for the least squares solver.
         pinv_rtol : float, optional
@@ -400,7 +400,7 @@ class Dynamics(object):
             theta=theta,
             phi=phi,
             time=time,
-            weights=weights,
+            sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
@@ -413,7 +413,7 @@ class Dynamics(object):
         theta=None,
         phi=None,
         time=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -429,8 +429,8 @@ class Dynamics(object):
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the current data.
-        weights : array-like, optional
-            Weights for the current data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the current data points.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -447,7 +447,7 @@ class Dynamics(object):
             lon=lon,
             theta=theta,
             phi=phi,
-            weights=weights,
+            sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
@@ -462,7 +462,7 @@ class Dynamics(object):
         theta=None,
         phi=None,
         time=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -478,8 +478,8 @@ class Dynamics(object):
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the current data.
-        weights : array-like, optional
-            Weights for the current data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the current data points.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -499,7 +499,7 @@ class Dynamics(object):
             lon=lon,
             theta=theta,
             phi=phi,
-            weights=weights,
+            sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
@@ -515,7 +515,7 @@ class Dynamics(object):
         theta=None,
         phi=None,
         time=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -533,8 +533,8 @@ class Dynamics(object):
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the conductance data.
-        weights : array-like, optional
-            Weights for the conductance data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the conductance data points.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -561,7 +561,7 @@ class Dynamics(object):
             lon=lon,
             theta=theta,
             phi=phi,
-            weights=weights,
+            sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
@@ -577,7 +577,7 @@ class Dynamics(object):
         theta=None,
         phi=None,
         time=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -595,8 +595,8 @@ class Dynamics(object):
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the wind data.
-        weights : array-like, optional
-            Weights for the wind data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the wind data points.
         reg_lambda : float, optional
             Regularization parameter.
         """
@@ -614,7 +614,7 @@ class Dynamics(object):
             lon=lon,
             theta=theta,
             phi=phi,
-            weights=weights,
+            sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )

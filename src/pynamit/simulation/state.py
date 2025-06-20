@@ -68,11 +68,9 @@ class State(object):
         self._coeffs_to_m_imp_cache = None
         self._fwd_solver_cache, self._adj_solver_cache = {}, {}
         
-        # These objects are expensive and depend on conductance
         if hasattr(self, "_M_total_on_grid"): del self._M_total_on_grid
         if hasattr(self, "_E_map_constraint_operator"): del self._E_map_constraint_operator
 
-    # --- Properties for lazy computation of physics operators ---
     @property
     def G_m_imp_to_JS(self):
         if not hasattr(self, "_G_m_imp_to_JS"):
@@ -135,62 +133,41 @@ class State(object):
                     self._T_to_Ve += (Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, 2))
         return self._T_to_Ve
 
-    # --- UNIFIED OPERATOR CONSTRUCTION ---
-
     def _create_E_coeffs_operator(self, G_X_to_JS, is_vector_input):
-        """
-        Unified factory for creating operators that map input coefficients (X)
-        to electric field coefficients (E). Dispatches to dense or sparse methods.
-        """
-        if G_X_to_JS is None:
-            return None
+        if G_X_to_JS is None: return None
         if self.use_matrix_free:
             return self._create_E_coeffs_linear_operator(G_X_to_JS, is_vector_input)
         else:
             return self._create_E_coeffs_dense_operator(G_X_to_JS, is_vector_input)
 
     def _create_E_coeffs_dense_operator(self, G_X_to_JS, is_vector_input):
-        """Builds the final, dense operator matrix for `use_matrix_free=False`."""
         G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
-        # Pre-compute the expensive contraction into a single tensor
         einsum_str = 'cmik,ijk,jkl->cml'
-        if is_vector_input: # Vector input (e.g., u_coeffs)
-            einsum_str = 'cmik,ijk,jklm->cmlm'
+        if is_vector_input: einsum_str = 'cmik,ijk,jklm->cmlm'
         return np.einsum(einsum_str, G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS, optimize=True)
 
     def _create_E_coeffs_linear_operator(self, G_X_to_JS, is_vector_input):
-        """Creates a high-performance LinearOperator for `use_matrix_free=True`."""
         n_c_in = G_X_to_JS.shape[3] if is_vector_input else G_X_to_JS.shape[2]
         n_c_out = self.basis.index_length
         shape_in = (2, n_c_in) if is_vector_input else (n_c_in,)
         shape_out = (2, n_c_out)
         shape = (np.prod(shape_out), np.prod(shape_in))
-
-        # These will be captured by the matvec/rmatvec closures
         G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         M_total = self.M_total_on_grid
-
         def matvec(x_coeffs_flat):
             x_coeffs = x_coeffs_flat.reshape(shape_in)
-            # Fused operation: x_coeffs -> JS_grid -> E_grid -> E_coeffs
             einsum_str = 'cmik,ijk,jkl,l->cm'
-            if is_vector_input:
-                einsum_str = 'cmik,ijk,jklm,lm->cm'
+            if is_vector_input: einsum_str = 'cmik,ijk,jklm,lm->cm'
             E_coeffs = np.einsum(einsum_str, G_helm_pinv, M_total, G_X_to_JS, x_coeffs, optimize=True)
             return E_coeffs.flatten()
-
         def rmatvec(grad_E_coeffs_flat):
             grad_E_coeffs = grad_E_coeffs_flat.reshape(shape_out)
-            # Fused adjoint operation
             einsum_str = 'cmik,ijk,jkl,cm->l'
-            if is_vector_input:
-                einsum_str = 'cmik,ijk,jklm,cm->lm'
+            if is_vector_input: einsum_str = 'cmik,ijk,jklm,cm->lm'
             grad_x_coeffs = np.einsum(einsum_str, G_helm_pinv.conj(), M_total.conj(), G_X_to_JS.conj(), grad_E_coeffs, optimize=True)
             return grad_x_coeffs.flatten()
-
         return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
 
-    # --- Properties for conductance-dependent operators ---
     @property
     def M_total_on_grid(self):
         if not hasattr(self, "_M_total_on_grid"):
@@ -221,8 +198,6 @@ class State(object):
             self._Br_to_E_coeffs = self._create_E_coeffs_operator(G_Br_to_JS, is_vector_input=False)
         return self._Br_to_E_coeffs
     
-    # --- Other Methods ---
-
     def initialize_constraints(self):
         if self.mainfield.kind == "dipole": self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
         elif self.mainfield.kind == "igrf":
@@ -259,7 +234,6 @@ class State(object):
     def _build_u_coeffs_to_E_coeffs(self):
         G_u_to_uxB_grid = np.einsum('ijk, jklm -> iklm', self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True)
         dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
-        
         if self.use_matrix_free:
             def matvec(u_coeffs_flat):
                 u_coeffs = u_coeffs_flat.reshape(2, -1)
@@ -274,30 +248,21 @@ class State(object):
             self.u_coeffs_to_E_coeffs = dense_op
 
     def _apply_operator(self, op, coeffs, output_shape):
-        """Helper to apply a dense or sparse operator to coefficients."""
         if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return np.zeros(output_shape)
-        
         if isinstance(op, LinearOperator):
             in_vec = coeffs.flatten() if isinstance(coeffs, np.ndarray) else coeffs
             return op.matvec(in_vec).reshape(output_shape)
-        
-        # Dense operator (numpy array)
-        if coeffs.ndim == 1: # scalar -> vector field
-            return np.tensordot(op, coeffs, 1)
-        elif coeffs.ndim == 2: # vector -> vector field
-            return np.tensordot(op, coeffs, axes=2)
-        else:
-            raise ValueError(f"Unsupported coefficient shape: {coeffs.shape}")
+        if coeffs.ndim == 1: return np.tensordot(op, coeffs, 1)
+        elif coeffs.ndim == 2: return np.tensordot(op, coeffs, axes=2)
+        else: raise ValueError(f"Unsupported coefficient shape: {coeffs.shape}")
 
     def calculate_noind_coeffs(self):
         E_shape = (2, self.basis.index_length)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, self.u.coeffs if self.u else 0, E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(self.Br_to_E_coeffs, self.Br.coeffs, E_shape)
-        
         m_imp = self._solve_for_m_imp(self.jr.coeffs if self.jr else None, E_direct)
-        
         E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
         return E_direct + E_imp, m_imp
 
@@ -321,8 +286,10 @@ class State(object):
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
                 E_map_op = np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E, axes=2)
                 constraint_A.append(E_map_op * self.ih_constraint_scaling)
-            solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
             
+            # Use the new, more general solver.
+            solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
+
             rhs_B = [self.jr_coeffs_to_j_apex]
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
                  rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
@@ -334,36 +301,29 @@ class State(object):
         if jr_coeffs is not None:
             m_imp += np.dot(solvers[0], jr_coeffs)
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-            m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
+             m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
         return m_imp
 
     def _get_or_create_E_map_constraint_operator(self):
-        """
-        SPARSE PATH OPTIMIZATION: Creates a highly efficient LinearOperator for the full 
-        E-mapping constraint by fusing all operations into a single einsum. This operator
-        maps m_imp_coeffs directly to the E_apex_diff grid values, which is key to performance.
-        """
         if hasattr(self, "_E_map_constraint_operator") and self._E_map_constraint_operator is not None:
             return self._E_map_constraint_operator
         if self.E_coeffs_to_E_apex_ll_diff is None: return None
         
-        # Capture tensors for closure
         G_final_map = self.E_coeffs_to_E_apex_ll_diff
         G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         M_total = self.M_total_on_grid
         G_m_imp = self.G_m_imp_to_JS
         shape = (G_final_map.shape[0] * G_final_map.shape[1], G_m_imp.shape[2])
 
-        def matvec(m_coeffs): # m_coeffs is 1D (n_m,)
-            # Fused operation: m_imp -> JS -> E_grid -> E_coeffs -> E_apex_diff
+        def matvec(m_coeffs_in):
+            m_coeffs = m_coeffs_in.flatten()
             E_apex = np.einsum('abcm,cmik,ijk,jkl,l->ab',
                                G_final_map, G_helm_pinv, M_total,
                                G_m_imp, m_coeffs, optimize=True)
-            return E_apex.flatten("F") # Fortran order for solver compatibility
+            return E_apex.flatten("F")
 
         def rmatvec(grad_E_apex_flat):
             grad_E_apex = grad_E_apex_flat.reshape(G_final_map.shape[0], G_final_map.shape[1], order="F")
-            # The full adjoint operation, also fused
             grad_m = np.einsum('abcm,cmik,ijk,jkl,ab->l',
                                G_final_map.conj(), G_helm_pinv.conj(), M_total.conj(), 
                                G_m_imp.conj(), grad_E_apex, optimize=True)
@@ -375,12 +335,10 @@ class State(object):
     def _solve_for_m_imp_iteratively(self, jr_coeffs, E_coeffs_direct):
         A_list, b_list = [], []
         
-        # Term 1: Driving current
         if jr_coeffs is not None:
             A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
             b_list.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
 
-        # Term 2: Interhemispheric coupling constraint
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
             E_map_op = self._get_or_create_E_map_constraint_operator()
             A_list.append(self.ih_constraint_scaling * E_map_op)
@@ -392,14 +350,6 @@ class State(object):
         
         key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
         if key not in self._fwd_solver_cache:
-            # PERFORMANCE NOTE: The 'connect_hemispheres' constraint can make the
-            # problem ill-conditioned, causing 'lsmr' to converge very slowly.
-            # For better performance in this case, switch to the 'cg' solver
-            # which can use a preconditioner to accelerate convergence.
-            # For example:
-            # solver = "cg" if self.connect_hemispheres else "lsmr"
-            # preconditioner = "jacobi" if self.connect_hemispheres else None
-            # self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver=solver, preconditioner=preconditioner)
             self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="cg", preconditioner="jacobi")
         
         solutions = self._fwd_solver_cache[key].solve(b_list)
@@ -429,7 +379,6 @@ class State(object):
             grad_b_jr = grad_b_list[list_idx]; list_idx += 1
         if has_E_constraint:
             grad_b_E = grad_b_list[list_idx]
-
         return grad_b_jr, grad_b_E
 
     def build_m_ind_to_E_df(self):

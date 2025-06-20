@@ -24,15 +24,15 @@ class BasisEvaluator(object):
         Basis object representing the basis of the field.
     grid : Grid
         Grid object representing the spatial grid.
-    weights : array-like, optional
-        Weights for the least squares solver.
+    sqrt_weights : array-like, optional
+        sqrt_weights for the least squares solver.
     reg_lambda : float, optional
         Regularization parameter for the least squares solver.
     pinv_rtol : float, optional
         Relative tolerance for the pseudo-inverse.
     """
 
-    def __init__(self, basis, grid, weights=None, reg_lambda=None, pinv_rtol=1e-15):
+    def __init__(self, basis, grid, sqrt_weights=None, reg_lambda=None, pinv_rtol=1e-15):
         """Initialize the BasisEvaluator object.
 
         Parameters
@@ -41,8 +41,8 @@ class BasisEvaluator(object):
             Basis object representing the basis of the field.
         grid : Grid
             Grid object representing the spatial grid.
-        weights : array-like, optional
-            Weights for the least squares solver.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the least squares solver.
         reg_lambda : float, optional
             Regularization parameter for the least squares solver.
         pinv_rtol : float, optional
@@ -50,7 +50,7 @@ class BasisEvaluator(object):
         """
         self.basis = basis
         self.grid = grid
-        self.weights = weights
+        self.sqrt_weights = sqrt_weights
         self.reg_lambda = reg_lambda
         self.pinv_rtol = pinv_rtol
 
@@ -253,7 +253,7 @@ class BasisEvaluator(object):
             self._least_squares = LeastSquaresSolver(
                 self.G,
                 1,
-                weights=self.weights,
+                sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
                 regularization_matrices=self.L,
                 tolerance=self.pinv_rtol,
@@ -276,7 +276,7 @@ class BasisEvaluator(object):
             self._least_squares_helmholtz = LeastSquaresSolver(
                 self.G_helmholtz,
                 2,
-                weights=self.weights,
+                sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
                 regularization_matrices=self.L_helmholtz,
                 tolerance=self.pinv_rtol,

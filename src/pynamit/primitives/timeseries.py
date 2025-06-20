@@ -144,7 +144,7 @@ class Timeseries:
         lon=None,
         theta=None,
         phi=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -162,8 +162,8 @@ class Timeseries:
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the input data.
-        weights : array-like, optional
-            Weights for the input data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the input data points.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -200,7 +200,7 @@ class Timeseries:
             self.input_basis_evaluators[key] = BasisEvaluator(
                 interpolation_basis,
                 input_grid,
-                weights=weights,
+                sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
