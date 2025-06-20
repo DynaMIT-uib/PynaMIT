@@ -34,10 +34,11 @@ class LeastSquaresSolver:
         for i, sw in enumerate(sqrt_weights_list):
             if sw is None:
                 self.sqrt_weights.append(None)
-            elif sw.ndim == 2 and sw.shape[0] == sw.shape[1]:
-                self.sqrt_weights.append(self._flatten(sw, num_leading_dims=1))
+            elif sw.ndim == 1:
+                self.sqrt_weights.append(sw)
             else:
-                self.sqrt_weights.append(sw.flatten())
+                num_leading_dims = self.A[i].leading_dim_count
+                self.sqrt_weights.append(self._flatten(sw, num_leading_dims=num_leading_dims))
         
         reg_L_list = self._prepare_input_list(regularization_matrices, "regularization_matrices", allow_single_item=True, is_optional=True)
         self.num_reg_terms = len(reg_L_list)
@@ -103,12 +104,12 @@ class LeastSquaresSolver:
             A_dense = self._densify_op(a)
             if sqrt_w_item is None:
                 term_diag = np.sum(A_dense**2, axis=0)
-            elif isinstance(sqrt_w_item, _ProcessedItem):
+            elif isinstance(sqrt_w_item, _ProcessedItem) and sqrt_w_item.op.shape[0] == sqrt_w_item.op.shape[1]:
                 L_dense = self._densify_op(sqrt_w_item)
                 G = L_dense @ A_dense
                 term_diag = np.sum(G**2, axis=0)
             else:
-                w_diag = sqrt_w_item**2
+                w_diag = self._densify_op(sqrt_w_item).flatten()**2
                 if A_dense.shape[0] != w_diag.shape[0]:
                     if A_dense.shape[0] % w_diag.shape[0] == 0:
                         repeat_factor = A_dense.shape[0] // w_diag.shape[0]
@@ -169,9 +170,10 @@ class LeastSquaresSolver:
                 res_block = _apply_op_to_block(self.A[i], x_block)
                 sqrt_w_item = self.sqrt_weights[i]
                 if sqrt_w_item is not None:
-                    if isinstance(sqrt_w_item, _ProcessedItem): res_block = sqrt_w_item.op @ res_block
+                    if isinstance(sqrt_w_item, _ProcessedItem) and sqrt_w_item.op.shape[0] == sqrt_w_item.op.shape[1]:
+                        res_block = sqrt_w_item.op @ res_block
                     else: 
-                        sqrt_w_diag = sqrt_w_item
+                        sqrt_w_diag = self._densify_op(sqrt_w_item).flatten()
                         if res_block.shape[0] != sqrt_w_diag.shape[0]:
                             sqrt_w_diag = np.repeat(sqrt_w_diag, res_block.shape[0] // sqrt_w_diag.shape[0])
                         res_block *= sqrt_w_diag[:, np.newaxis]
@@ -191,9 +193,10 @@ class LeastSquaresSolver:
                 y_part = y_block[row : row + item.op.shape[0]]
                 sqrt_w_item = self.sqrt_weights[i]
                 if sqrt_w_item is not None:
-                    if isinstance(sqrt_w_item, _ProcessedItem): y_part = sqrt_w_item.op.T.conj() @ y_part
+                    if isinstance(sqrt_w_item, _ProcessedItem) and sqrt_w_item.op.shape[0] == sqrt_w_item.op.shape[1]:
+                        y_part = sqrt_w_item.op.T.conj() @ y_part
                     else:
-                        sqrt_w_diag = sqrt_w_item
+                        sqrt_w_diag = self._densify_op(sqrt_w_item).flatten()
                         if y_part.shape[0] != sqrt_w_diag.shape[0]:
                             sqrt_w_diag = np.repeat(sqrt_w_diag, y_part.shape[0] // sqrt_w_diag.shape[0])
                         y_part *= sqrt_w_diag[:, np.newaxis]
@@ -216,9 +219,10 @@ class LeastSquaresSolver:
 
     def _apply_weight_to_b(self, b_op, sqrt_w_item):
         if sqrt_w_item is None or b_op is None: return b_op
-        if isinstance(sqrt_w_item, _ProcessedItem): return sqrt_w_item.op @ b_op
+        if isinstance(sqrt_w_item, _ProcessedItem) and sqrt_w_item.op.shape[0] == sqrt_w_item.op.shape[1]:
+            return sqrt_w_item.op @ b_op
         else:
-            sqrt_w_diag = sqrt_w_item
+            sqrt_w_diag = self._densify_op(sqrt_w_item).flatten()
             if b_op.shape[0] != sqrt_w_diag.shape[0]:
                 sqrt_w_diag = np.repeat(sqrt_w_diag, b_op.shape[0] // sqrt_w_diag.shape[0])
             return sqrt_w_diag[:, np.newaxis] * b_op
@@ -230,39 +234,30 @@ class LeastSquaresSolver:
         return solver_map[self.solver](proc_b, **kwargs)
 
     def _solve_lsmr(self, proc_b, **kwargs):
-        # --- FINAL FIX: Isolate each solve for LSMR ---
         solutions = []
         lsmr_kwargs = {"atol": self.tolerance, "btol": self.tolerance, **kwargs}
         for i, b_item in enumerate(proc_b):
             if b_item is None:
-                solutions.append(None)
-                continue
+                solutions.append(None); continue
             
-            # Determine number of scenarios for THIS b_item only
             num_scenarios = b_item.op.shape[1]
             if num_scenarios == 0:
-                solutions.append(None)
-                continue
+                solutions.append(None); continue
 
-            # Get a linear operator correctly sized for this specific solve
             linear_op, _ = self._get_linear_operator(num_scenarios)
             op_rows = linear_op.shape[0] // num_scenarios
             
-            # Build the RHS for THIS b_item only
             rhs_block = np.zeros((op_rows, num_scenarios), dtype=linear_op.dtype)
             weighted_b = self._apply_weight_to_b(b_item.op, self.sqrt_weights[i])
             start_row = sum(a.op.shape[0] for a in self.A[:i])
             rhs_block[start_row : start_row + weighted_b.shape[0], :] = weighted_b
             
-            # Solve for this b_item
             sol_flat, *_ = lsmr(linear_op, rhs_block.flatten("F"), **lsmr_kwargs)
             
-            # Reshape and append the solution
             sol_block = sol_flat.reshape(self.A[0].op.shape[1], num_scenarios, order="F")
             solutions.append(sol_block.reshape(self.A[0].trailing_shape + b_item.trailing_shape))
             
         return solutions
-        # --- END FIX ---
 
     def _solve_cg(self, proc_b, **kwargs):
         if 'op' not in self._cg_op_cache:
@@ -312,12 +307,12 @@ class LeastSquaresSolver:
             sqrt_w_item = self.sqrt_weights[i]
             if sqrt_w_item is None:
                 normal_matrix += A_i.T @ A_i
-            elif isinstance(sqrt_w_item, _ProcessedItem):
+            elif isinstance(sqrt_w_item, _ProcessedItem) and sqrt_w_item.op.shape[0] == sqrt_w_item.op.shape[1]:
                 L_i = self._densify_op(sqrt_w_item)
                 G_i = L_i @ A_i
                 normal_matrix += G_i.T @ G_i
             else:
-                w_diag = sqrt_w_item**2
+                w_diag = self._densify_op(sqrt_w_item).flatten()**2
                 if A_i.shape[0] != w_diag.shape[0]:
                     w_diag = np.repeat(w_diag, A_i.shape[0] // w_diag.shape[0])
                 normal_matrix += A_i.T @ (w_diag[:, np.newaxis] * A_i)
@@ -340,11 +335,11 @@ class LeastSquaresSolver:
             rhs_for_term = None
             if sqrt_w_item is None:
                 rhs_for_term = A_i.T @ b_i
-            elif isinstance(sqrt_w_item, _ProcessedItem):
+            elif isinstance(sqrt_w_item, _ProcessedItem) and sqrt_w_item.op.shape[0] == sqrt_w_item.op.shape[1]:
                 L_i = self._densify_op(sqrt_w_item)
                 rhs_for_term = A_i.T @ L_i.T @ (L_i @ b_i)
             else:
-                w_diag = sqrt_w_item**2
+                w_diag = self._densify_op(sqrt_w_item).flatten()**2
                 if b_i.shape[0] != w_diag.shape[0]:
                     w_diag = np.repeat(w_diag, b_i.shape[0] // w_diag.shape[0])
                 rhs_for_term = A_i.T @ (w_diag[:, np.newaxis] * b_i)

@@ -152,19 +152,19 @@ class State(object):
         shape_in = (2, n_c_in) if is_vector_input else (n_c_in,)
         shape_out = (2, n_c_out)
         shape = (np.prod(shape_out), np.prod(shape_in))
-        G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
+        G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         M_total = self.M_total_on_grid
         def matvec(x_coeffs_flat):
             x_coeffs = x_coeffs_flat.reshape(shape_in)
             einsum_str = 'cmik,ijk,jkl,l->cm'
             if is_vector_input: einsum_str = 'cmik,ijk,jklm,lm->cm'
-            E_coeffs = np.einsum(einsum_str, G_helm_pinv, M_total, G_X_to_JS, x_coeffs, optimize=True)
+            E_coeffs = np.einsum(einsum_str, G_helmholtz_pinv, M_total, G_X_to_JS, x_coeffs, optimize=True)
             return E_coeffs.flatten()
         def rmatvec(grad_E_coeffs_flat):
             grad_E_coeffs = grad_E_coeffs_flat.reshape(shape_out)
             einsum_str = 'cmik,ijk,jkl,cm->l'
             if is_vector_input: einsum_str = 'cmik,ijk,jklm,cm->lm'
-            grad_x_coeffs = np.einsum(einsum_str, G_helm_pinv.conj(), M_total.conj(), G_X_to_JS.conj(), grad_E_coeffs, optimize=True)
+            grad_x_coeffs = np.einsum(einsum_str, G_helmholtz_pinv.conj(), M_total.conj(), G_X_to_JS.conj(), grad_E_coeffs, optimize=True)
             return grad_x_coeffs.flatten()
         return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
 
@@ -287,9 +287,8 @@ class State(object):
                 E_map_op = np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E, axes=2)
                 constraint_A.append(E_map_op * self.ih_constraint_scaling)
             
-            # Use the new, more general solver.
             solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
-
+            
             rhs_B = [self.jr_coeffs_to_j_apex]
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
                  rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
@@ -301,7 +300,7 @@ class State(object):
         if jr_coeffs is not None:
             m_imp += np.dot(solvers[0], jr_coeffs)
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-             m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
+            m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
         return m_imp
 
     def _get_or_create_E_map_constraint_operator(self):
