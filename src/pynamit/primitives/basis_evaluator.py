@@ -252,7 +252,8 @@ class BasisEvaluator(object):
         if not hasattr(self, "_least_squares"):
             self._least_squares = LeastSquaresSolver(
                 self.G,
-                1,
+                self.basis.index_length,
+                self.grid.size,
                 sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
                 regularization_matrices=self.L,
@@ -275,7 +276,8 @@ class BasisEvaluator(object):
         if not hasattr(self, "_least_squares_helmholtz"):
             self._least_squares_helmholtz = LeastSquaresSolver(
                 self.G_helmholtz,
-                2,
+                (2, self.basis.index_length),
+                (2, self.grid.size),
                 sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
                 regularization_matrices=self.L_helmholtz,

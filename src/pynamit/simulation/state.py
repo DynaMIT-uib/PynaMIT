@@ -16,7 +16,9 @@ from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
-from scipy.linalg import expm
+from scipy.linalg import expm, sqrtm
+
+TEST_THINGS = False
 
 class State(object):
     """
@@ -279,19 +281,77 @@ class State(object):
         else:
             return self._solve_for_m_imp_dense(jr_coeffs, E_direct_coeffs)
 
+
+    @property
+    def jr_constraint_L_matrix(self):
+        if not hasattr(self, "_jr_constraint_L_matrix_cache"):
+            H_jr = self.jr_coeffs_to_j_apex
+            self._jr_constraint_L_matrix_cache = sqrtm(H_jr.T @ H_jr).real
+        return self._jr_constraint_L_matrix_cache
+
+    @property
+    def E_constraint_L_matrix(self):
+        if not self.connect_hemispheres:
+            raise ValueError("Should not happen")
+        if not hasattr(self, "_E_constraint_L_matrix_cache"):
+            H_E = self.E_coeffs_to_E_apex_ll_diff
+            H_E_T_H_4D = np.tensordot(H_E, H_E, axes=([0, 1], [0, 1]))
+            n_c = H_E.shape[3]
+            H_E_T_H_2D = H_E_T_H_4D.reshape(2 * n_c, 2 * n_c)
+            L_E_2D = sqrtm(H_E_T_H_2D).real
+            self._E_constraint_L_matrix_cache = L_E_2D.reshape(2, n_c, 2, n_c)
+        return self._E_constraint_L_matrix_cache
+
     def _solve_for_m_imp_dense(self, jr_coeffs, E_direct_coeffs):
         if self._coeffs_to_m_imp_cache is None:
-            constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
-            m_imp_to_E = self.m_imp_to_E_coeffs
+            if TEST_THINGS:
+                constraint_A = [np.diag(self.m_imp_to_jr)]
+                data_shapes = [self.basis.index_length]
+                sqrt_weights = [self.jr_constraint_L_matrix]
+            else:
+                constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
+                data_shapes = [self.grid.size]
+                sqrt_weights = [None]
+
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                E_map_op = np.tensordot(self.E_coeffs_to_E_apex_ll_diff, m_imp_to_E, axes=2)
-                constraint_A.append(E_map_op * self.ih_constraint_scaling)
+                if TEST_THINGS:
+                    constraint_A.append(self.m_imp_to_E_coeffs)
+                    data_shapes.append((2, self.basis.index_length))
+                    sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
+                else:
+                    E_map_op = np.tensordot(self.E_coeffs_to_E_apex_ll_diff, self.m_imp_to_E_coeffs, axes=2)
+                    constraint_A.append(E_map_op * self.ih_constraint_scaling)
+                    data_shapes.append((2, np.sum(self.ll_mask)))
+                    sqrt_weights.append(None)
             
-            solver = LeastSquaresSolver(constraint_A, 1, solver="svd")
-            
-            rhs_B = [self.jr_coeffs_to_j_apex]
+            # Use the new, more general solver.
+            solver = LeastSquaresSolver(constraint_A, self.basis.index_length, data_shapes, sqrt_weights=sqrt_weights)
+
+            if TEST_THINGS:
+                rhs_B = [np.eye(self.basis.index_length)]
+            else:
+                rhs_B = [self.jr_coeffs_to_j_apex]
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                 rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
+                if TEST_THINGS:
+                    cf_eye = np.stack(
+                        [
+                            np.eye(self.basis.index_length),
+                            np.zeros((self.basis.index_length, self.basis.index_length)),
+                        ],
+                        axis=1,
+                    )
+                    df_eye = np.stack(
+                        [
+                            np.zeros((self.basis.index_length, self.basis.index_length)),
+                            np.eye(self.basis.index_length),
+                        ],
+                        axis=1,
+                    )
+
+                    eye = np.array([cf_eye, df_eye])
+                    rhs_B.append(eye * self.ih_constraint_scaling)
+                else:
+                    rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
             
             self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
 
@@ -304,10 +364,9 @@ class State(object):
         return m_imp
 
     def _get_or_create_E_map_constraint_operator(self):
-        if hasattr(self, "_E_map_constraint_operator") and self._E_map_constraint_operator is not None:
+        if hasattr(self, "_E_map_constraint_operator"):
             return self._E_map_constraint_operator
-        if self.E_coeffs_to_E_apex_ll_diff is None: return None
-        
+
         G_final_map = self.E_coeffs_to_E_apex_ll_diff
         G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         M_total = self.M_total_on_grid
@@ -334,22 +393,23 @@ class State(object):
     def _solve_for_m_imp_iteratively(self, jr_coeffs, E_coeffs_direct):
         A_list, b_list = [], []
         
-        if jr_coeffs is not None:
-            A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
-            b_list.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
+        A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
+        b_list.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None)
+        data_shapes = [self.grid.size]
 
-        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+        if self.connect_hemispheres:
             E_map_op = self._get_or_create_E_map_constraint_operator()
             A_list.append(self.ih_constraint_scaling * E_map_op)
-            
+            data_shapes.append((2, np.sum(self.ll_mask)))
+
             E_apex_from_direct = np.einsum('ijkl,kl->ij', self.E_coeffs_to_E_apex_ll_diff, E_coeffs_direct, optimize=True)
             b_list.append(-E_apex_from_direct.flatten("F") * self.ih_constraint_scaling)
-    
+
         if not A_list: return np.zeros(self.basis.index_length)
         
         key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
         if key not in self._fwd_solver_cache:
-            self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, 1, solver="cg", preconditioner="jacobi")
+            self._fwd_solver_cache[key] = LeastSquaresSolver(A_list, self.basis.index_length, data_shapes, solver="lsmr")
         
         solutions = self._fwd_solver_cache[key].solve(b_list)
         return sum(s.flatten() for s in solutions if s is not None)
@@ -360,13 +420,14 @@ class State(object):
         has_E_constraint = self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None
         if not (has_jr or has_E_constraint): return None, None
 
-        if has_jr:
-            A_adj_list.append((self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))).T)
-        if has_E_constraint:
+        A_adj_list.append((self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))).T)
+        data_shapes = [self.grid.size]
+
+        if self.connect_hemispheres is not None:
             E_map_op = self._get_or_create_E_map_constraint_operator()
             A_adj_list.append(self.ih_constraint_scaling * E_map_op.T)
             
-        key = ("adj", has_jr, has_E_constraint)
+        key = ("adj", has_jr, self.connect_hemisphere)
         if key not in self._adj_solver_cache:
             self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="cg", preconditioner="jacobi")
             
