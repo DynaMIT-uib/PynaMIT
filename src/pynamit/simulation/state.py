@@ -633,9 +633,7 @@ class State(object):
 
         key = ("adj", has_jr, self.connect_hemisphere)
         if key not in self._adj_solver_cache:
-            self._adj_solver_cache[key] = LeastSquaresSolver(
-                A_adj_list, 1, solver="cg", preconditioner="jacobi"
-            )
+            self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="cg")
 
         grad_b_list = self._adj_solver_cache[key].solve([grad_m_imp])
         grad_b_jr, grad_b_E = None, None

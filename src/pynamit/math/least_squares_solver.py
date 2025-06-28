@@ -82,7 +82,7 @@ class LeastSquaresSolver:
         sqrt_weights=None,
         regularization_weights=None,
         regularization_matrices=None,
-        solver="svd",
+        solver="lsmr",
         tolerance=1e-12,
         preconditioner=None,
     ):
@@ -283,18 +283,12 @@ class LeastSquaresSolver:
         self._scaled_reg_weights_cache = scaled_weights
         return scaled_weights
 
-    @staticmethod
-    def _apply_op_to_block(op, x_block, adjoint=False):
-        """Applies an operator to a C-ordered block of row-vectors."""
-        if isinstance(op, LinearOperator):
-            func = op.rmatvec if adjoint else op.matvec
-            return np.array([func(x_k) for x_k in x_block])
-        # For row-vectors, forward op is A.T and adjoint is A.conj()
-        op_to_use = op.conj() if adjoint else op.T.conj()
-        return x_block @ op_to_use
-
     def _get_multi_scenario_operator(self, num_scenarios):
-        """Builds the LinearOperator using the internal C-ordered, row-vector convention."""
+        """
+        Builds the LinearOperator for the full system using the direct, C-ordered,
+        column-vector convention. This is a faithful port of the original code's
+        operator construction to ensure numerical stability for iterative solvers.
+        """
         cache_key = f"op_{num_scenarios}"
         if cache_key in self._op_cache:
             return self._op_cache[cache_key]
@@ -308,56 +302,81 @@ class LeastSquaresSolver:
         )
         dtype = self.A[0].op.dtype
 
+        def _apply_op_to_block(op, x_block):
+            if isinstance(op, LinearOperator):
+                # If the operator is itself a LinearOperator, we must loop over scenarios
+                # as it does not support vectorized block operations.
+                res_block = np.zeros((op.shape[0], num_scenarios), dtype=x_block.dtype)
+                for k in range(num_scenarios):
+                    res_block[:, k] = op.matvec(x_block[:, k])
+                return res_block
+            # For dense numpy arrays, the vectorized matrix-matrix product is used.
+            return op @ x_block
+
+        def _apply_op_T_to_block(op, y_block):
+            if isinstance(op, LinearOperator):
+                res_block = np.zeros((op.shape[1], num_scenarios), dtype=y_block.dtype)
+                for k in range(num_scenarios):
+                    res_block[:, k] = op.rmatvec(y_block[:, k])
+                return res_block
+            return op.T.conj() @ y_block
+
         def matvec_block(x_block):
+            # The full `matvec` stacks the results of each term vertically.
             output_blocks = []
             for i, a_item in enumerate(self.A):
-                res_block = self._apply_op_to_block(a_item.op, x_block)
+                res_block = _apply_op_to_block(a_item.op, x_block)
                 w_item = self.sqrt_weights[i]
                 if w_item is not None:
-                    if w_item.input_shape == (1,):
-                        res_block = res_block * w_item.op.T
-                    else:
-                        res_block = self._apply_op_to_block(w_item.op, res_block)
+                    res_block = (
+                        w_item.op * res_block
+                        if w_item.input_shape == (1,)
+                        else w_item.op @ res_block
+                    )
                 output_blocks.append(res_block)
             for i, L_item in enumerate(self.regularization_matrices):
                 if L_item and sqrt_scaled_lambdas[i] > 0:
-                    res_block = self._apply_op_to_block(L_item.op, x_block)
+                    res_block = _apply_op_to_block(L_item.op, x_block)
                     output_blocks.append(sqrt_scaled_lambdas[i] * res_block)
-            return np.concatenate(output_blocks, axis=1)
+            return np.vstack(output_blocks)
 
         def rmatvec_block(y_block):
-            x_block = np.zeros((num_scenarios, num_features), dtype=y_block.dtype)
-            col = 0
+            # The full `rmatvec` slices the input vector and sums the contributions.
+            x_block = np.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype)
+            row = 0
             for i, a_item in enumerate(self.A):
                 num_a_rows = a_item.op.shape[0]
-                y_part = y_block[:, col : col + num_a_rows]
+                y_part = y_block[row : row + num_a_rows, :]
                 w_item = self.sqrt_weights[i]
                 if w_item is not None:
-                    if w_item.input_shape == (1,):
-                        y_part = y_part * w_item.op.conj().T
-                    else:
-                        y_part = self._apply_op_to_block(w_item.op, y_part, adjoint=True)
-                x_block += self._apply_op_to_block(a_item.op, y_part, adjoint=True)
-                col += num_a_rows
+                    y_part = (
+                        w_item.op.conj() * y_part
+                        if w_item.input_shape == (1,)
+                        else w_item.op.T.conj() @ y_part
+                    )
+                x_block += _apply_op_T_to_block(a_item.op, y_part)
+                row += num_a_rows
             for i, L_item in enumerate(self.regularization_matrices):
                 if L_item and sqrt_scaled_lambdas[i] > 0:
                     num_L_rows = L_item.op.shape[0]
-                    y_part = y_block[:, col : col + num_L_rows]
-                    res_block = self._apply_op_to_block(L_item.op, y_part, adjoint=True)
-                    x_block += sqrt_scaled_lambdas[i] * res_block
-                    col += num_L_rows
+                    y_part = y_block[row : row + num_L_rows, :]
+                    x_block += sqrt_scaled_lambdas[i] * _apply_op_T_to_block(L_item.op, y_part)
+                    row += num_L_rows
             return x_block
 
         shape = (op_rows * num_scenarios, num_features * num_scenarios)
 
-        # The final matvec/rmatvec functions flatten/reshape the data to bridge
-        # the 1D vector view of the SciPy solver with the internal 2D block view.
-        # Default C-ordering is used, which is standard for NumPy.
+        # This is the contract with the 1D solver. We define a consistent way to
+        # move between the 1D view of the solver and our 2D column-block view.
+        # By using the default C-ordering for both reshape and flatten, we establish
+        # a simple, consistent, and NumPy-native contract.
         def matvec_final(x_flat):
-            return matvec_block(x_flat.reshape(num_scenarios, num_features)).flatten()
+            x_block = x_flat.reshape(num_features, num_scenarios)
+            return matvec_block(x_block).flatten()
 
         def rmatvec_final(y_flat):
-            return rmatvec_block(y_flat.reshape(num_scenarios, op_rows)).flatten()
+            y_block = y_flat.reshape(op_rows, num_scenarios)
+            return rmatvec_block(y_block).flatten()
 
         op = LinearOperator(shape, matvec=matvec_final, rmatvec=rmatvec_final, dtype=dtype)
         self._op_cache[cache_key] = (op, rmatvec_block)
@@ -423,7 +442,7 @@ class LeastSquaresSolver:
         return G_dense
 
     def _solve_normal_or_svd(self, b_list, **kwargs):
-        """Solves using dense methods, which natively use the public column-vector convention."""
+        """Handles the dense solvers (SVD and Normal Equations)."""
         G_dense = self._get_full_stacked_operator()
         if self.solver == "svd":
             if "svd" not in self._op_cache:
@@ -467,7 +486,7 @@ class LeastSquaresSolver:
         return solutions
 
     def _solve_lsmr(self, b_list, **kwargs):
-        """Solves using LSMR, bridging the public and private data conventions."""
+        """Solves the system using LSMR, iterating through each b term."""
         solutions, lsmr_kwargs = [], {"atol": self.tolerance, "btol": self.tolerance, **kwargs}
         for i, b_val in enumerate(b_list):
             b_col_block, scenario_shape = self._process_b_vector(b_val, self.data_shapes[i])
@@ -479,31 +498,26 @@ class LeastSquaresSolver:
             op, _ = self._get_multi_scenario_operator(num_scenarios)
             op_rows = op.shape[0] // num_scenarios
 
-            # --- INPUT BRIDGE: Convert public column-block to private row-block ---
-            b_row_block = b_col_block.T.copy()
-            rhs_row_block = np.zeros((num_scenarios, op_rows), dtype=op.dtype)
-
+            rhs_block = np.zeros((op_rows, num_scenarios), dtype=op.dtype)
             w_item = self.sqrt_weights[i]
-            weighted_b = b_row_block
+            weighted_b = b_col_block
             if w_item is not None:
-                if w_item.input_shape == (1,):
-                    weighted_b = b_row_block * w_item.op.T
-                else:
-                    weighted_b = b_row_block @ w_item.op.T.conj()
+                weighted_b = (
+                    w_item.op * b_col_block
+                    if w_item.input_shape == (1,)
+                    else w_item.op @ b_col_block
+                )
 
-            start_col = sum(a.op.shape[0] for a in self.A[:i])
-            rhs_row_block[:, start_col : start_col + weighted_b.shape[1]] = weighted_b
+            start_row = sum(a.op.shape[0] for a in self.A[:i])
+            rhs_block[start_row : start_row + weighted_b.shape[0], :] = weighted_b
 
-            sol_flat, *_ = lsmr(op, rhs_row_block.flatten(), **lsmr_kwargs)
-            sol_row_block = sol_flat.reshape(num_scenarios, self.solution_size)
-
-            # --- OUTPUT BRIDGE: Convert private row-block to public column-block ---
-            sol_col_block = sol_row_block.T
-            solutions.append(sol_col_block.reshape(self.solution_shape + scenario_shape))
+            sol_flat, *_ = lsmr(op, rhs_block.flatten(), **lsmr_kwargs)
+            sol_block = sol_flat.reshape(self.solution_size, num_scenarios)
+            solutions.append(sol_block.reshape(self.solution_shape + scenario_shape))
         return solutions
 
     def _solve_cg(self, b_list, **kwargs):
-        """Solves using CG, bridging the public and private data conventions."""
+        """Solves the system using Conjugate Gradient on the normal equations."""
         cg_op, M = self._get_cg_system()
         solutions, cg_kwargs = (
             [],
@@ -516,37 +530,32 @@ class LeastSquaresSolver:
                 continue
 
             num_scenarios = b_col_block.shape[1]
-            # Get the block-aware rmatvec for the current number of scenarios
             _, rmatvec_block = self._get_multi_scenario_operator(num_scenarios)
             base_op_rows = self._op_cache[f"op_{num_scenarios}"][0].shape[0] // num_scenarios
 
-            # --- INPUT BRIDGE: Convert public column-block to private row-block ---
-            b_row_block = b_col_block.T.copy()
-            d_row_block = np.zeros((num_scenarios, base_op_rows), dtype=cg_op.dtype)
-
+            d_block = np.zeros((base_op_rows, num_scenarios), dtype=cg_op.dtype)
             w_item = self.sqrt_weights[i]
-            weighted_b = b_row_block
+            weighted_b = b_col_block
             if w_item is not None:
-                if w_item.input_shape == (1,):
-                    weighted_b = b_row_block * w_item.op.T
-                else:
-                    weighted_b = b_row_block @ w_item.op.T.conj()
+                weighted_b = (
+                    w_item.op * b_col_block
+                    if w_item.input_shape == (1,)
+                    else w_item.op @ b_col_block
+                )
 
-            start_col = sum(a.op.shape[0] for a in self.A[:i])
-            d_row_block[:, start_col : start_col + weighted_b.shape[1]] = weighted_b
+            start_row = sum(a.op.shape[0] for a in self.A[:i])
+            d_block[start_row : start_row + weighted_b.shape[0], :] = weighted_b
 
-            rhs_row_block = rmatvec_block(d_row_block)
-            sol_row_block = np.zeros_like(rhs_row_block)
+            rhs_block = rmatvec_block(d_block)
+            sol_block = np.zeros_like(rhs_block)
             for k in range(num_scenarios):
-                sol_row_block[k, :], exit_code = cg(cg_op, rhs_row_block[k, :], **cg_kwargs)
+                sol_block[:, k], exit_code = cg(cg_op, rhs_block[:, k], **cg_kwargs)
                 if exit_code != 0:
                     print(
                         f"Warning: CG solver did not converge for b-term {i}, scenario {k}, exit code {exit_code}"
                     )
 
-            # --- OUTPUT BRIDGE: Convert private row-block to public column-block ---
-            sol_col_block = sol_row_block.T
-            solutions.append(sol_col_block.reshape(self.solution_shape + scenario_shape))
+            solutions.append(sol_block.reshape(self.solution_shape + scenario_shape))
         return solutions
 
     def _get_cg_system(self):
