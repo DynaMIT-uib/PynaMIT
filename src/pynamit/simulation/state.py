@@ -18,7 +18,7 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
 from scipy.linalg import expm
 
-DENSE_SOLVER="svd"
+LEAST_SQUARES_SOLVER = "svd"
 MATRIX_WEIGHTS = False
 MATRIX_FREE_A = False
 
@@ -31,48 +31,28 @@ class State(object):
     def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
         self.basis, self.mainfield = basis, mainfield
         self.RI, self.RM = settings.RI, (None if settings.RM == 0 else settings.RM)
-        self.latitude_boundary, self.ignore_PFAC = (
-            settings.latitude_boundary,
-            bool(settings.ignore_PFAC),
-        )
-        self.connect_hemispheres, self.FAC_integration_steps = (
-            bool(settings.connect_hemispheres),
-            settings.FAC_integration_steps,
-        )
-        self.ih_constraint_scaling, self.integrator = (
-            settings.ih_constraint_scaling,
-            settings.integrator,
-        )
-        if PFAC_matrix is not None:
-            self._T_to_Ve = PFAC_matrix
+        self.latitude_boundary, self.ignore_PFAC = (settings.latitude_boundary, bool(settings.ignore_PFAC))
+        self.connect_hemispheres, self.FAC_integration_steps = (bool(settings.connect_hemispheres), settings.FAC_integration_steps)
+        self.ih_constraint_scaling, self.integrator = (settings.ih_constraint_scaling, settings.integrator)
+        if PFAC_matrix is not None: self._T_to_Ve = PFAC_matrix
         self.u, self.Br, self.jr, self.etaP, self.etaH = None, None, None, None, None
-
         self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
-        self.basis_evaluator_zero_added = BasisEvaluator(
-            SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid
-        )
+        self.basis_evaluator_zero_added = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
-
         self.cp_grid, self.cp_basis_evaluator, self.cp_b_evaluator = None, None, None
         if self.connect_hemispheres:
-            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
-                self.RI, self.grid.theta, self.grid.phi
-            )
+            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(self.RI, self.grid.theta, self.grid.phi)
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
-
-        self.m_ind_to_Br, self.m_imp_to_jr = (
-            -(self.RI**2) * self.basis.laplacian(self.RI),
-            self.RI / mu0 * self.basis.laplacian(self.RI),
-        )
+        self.m_ind_to_Br, self.m_imp_to_jr = (-(self.RI**2) * self.basis.laplacian(self.RI), self.RI / mu0 * self.basis.laplacian(self.RI))
         self.E_df_to_d_m_ind_dt = 1 / self.RI
         Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
         self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
-
         self.bP, self.bH, self.bu = None, None, None
-
+        self._coeffs_to_m_imp_cache = {}
+        self._adj_solver_cache = {}
         self.initialize_constraints()
         self._build_u_coeffs_to_E_coeffs()
         self._invalidate_caches()
@@ -83,13 +63,10 @@ class State(object):
         self._m_imp_to_E_coeffs = None
         self._Br_to_E_coeffs = None
         self.m_ind_to_E_df = None
-        self._coeffs_to_m_imp_cache = None
-        self._fwd_solver_cache, self._adj_solver_cache = {}, {}
-
-        if hasattr(self, "_M_total_on_grid"):
-            del self._M_total_on_grid
-        if hasattr(self, "_E_map_constraint_operator"):
-            del self._E_map_constraint_operator
+        self._coeffs_to_m_imp_cache = {}
+        self._adj_solver_cache = {}
+        if hasattr(self, "_M_total_on_grid"): del self._M_total_on_grid
+        if hasattr(self, "_E_map_constraint_operator"): del self._E_map_constraint_operator
 
     @property
     def G_m_imp_to_JS(self):
@@ -448,12 +425,6 @@ class State(object):
         E_imp_ind = self._apply_operator(self.m_imp_to_E_coeffs, m_imp_ind, E_shape)
         return E_direct_ind + E_imp_ind, m_imp_ind
 
-    def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
-        if MATRIX_FREE_A:
-            return self._solve_for_m_imp_iteratively(jr_coeffs, E_direct_coeffs)
-        else:
-            return self._solve_for_m_imp_dense(jr_coeffs, E_direct_coeffs)
-
     @property
     def jr_constraint_L_matrix(self):
         if not hasattr(self, "_jr_constraint_L_matrix_cache"):
@@ -483,202 +454,197 @@ class State(object):
             self._E_constraint_L_matrix_cache = L_E
         return self._E_constraint_L_matrix_cache
 
-    def _solve_for_m_imp_dense(self, jr_coeffs, E_direct_coeffs):
-        if self._coeffs_to_m_imp_cache is None:
-            if MATRIX_WEIGHTS:
-                constraint_A = [np.diag(self.m_imp_to_jr)]
-                data_shapes = [self.basis.index_length]
-                sqrt_weights = [self.jr_constraint_L_matrix]
-            else:
-                constraint_A = [self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))]
-                data_shapes = [self.grid.size]
-                sqrt_weights = [None]
-
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                if MATRIX_WEIGHTS:
-                    constraint_A.append(self.m_imp_to_E_coeffs)
-                    data_shapes.append((2, self.basis.index_length))
-                    sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
-                else:
-                    E_map_op = np.tensordot(
-                        self.E_coeffs_to_E_apex_ll_diff, self.m_imp_to_E_coeffs, axes=2
-                    )
-                    constraint_A.append(E_map_op * self.ih_constraint_scaling)
-                    data_shapes.append((2, np.sum(self.ll_mask)))
-                    sqrt_weights.append(None)
-
-            # Use the new, more general solver.
-            solver = LeastSquaresSolver(
-                constraint_A, self.basis.index_length, data_shapes, sqrt_weights=sqrt_weights, solver=DENSE_SOLVER,
-            )
-
-            self._coeffs_to_m_imp_cache = solver
-
-        # Build the combined RHS list for the solve
-        rhs_B = []
-        if jr_coeffs is not None:
-            if MATRIX_WEIGHTS:
-                rhs_B.append(jr_coeffs)
-            else:
-                rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
-        else:
-            rhs_B.append(None)
-
-        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-            if MATRIX_WEIGHTS:
-                rhs_B.append(-E_direct_coeffs)
-            else:
-                rhs_B.append(
-                    -np.tensordot(
-                        self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, axes=2
-                    ) * self.ih_constraint_scaling
-                )
-
-        # Call solve(). It ALWAYS returns the single, final solution array.
-        m_imp = self._coeffs_to_m_imp_cache.solve(rhs_B)
-
-        return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
 
     def _get_or_create_E_map_constraint_operator(self):
+        """
+        Creates the complete mapping from m_imp coefficients to the E-field apex difference.
+        This operator is A_2 in the least-squares problem.
+
+        CRITICALLY: It returns a dense array if MATRIX_FREE_A is False,
+        and a LinearOperator if it is True.
+        """
         if hasattr(self, "_E_map_constraint_operator"):
             return self._E_map_constraint_operator
 
-        G_final_map = self.E_coeffs_to_E_apex_ll_diff
-        G_helm_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
-        M_total = self.M_total_on_grid
-        G_m_imp = self.G_m_imp_to_JS
-        shape = (G_final_map.shape[0] * G_final_map.shape[1], G_m_imp.shape[2])
+        if not MATRIX_FREE_A:
+            # --- DENSE MODE ---
+            # Pre-compute the full dense operator with a single tensor contraction.
+            # A_2 = H_E @ M_E->m_imp
+            op = np.tensordot(
+                self.E_coeffs_to_E_apex_ll_diff, # (c,i, d,k)
+                self.m_imp_to_E_coeffs,         # (d,k, l)
+                axes=([2, 3], [0, 1])           # Sum over d and k
+            ) # Resulting shape (c, i, l)
 
-        def matvec(m_coeffs_in):
-            m_coeffs = m_coeffs_in.flatten()
-            E_apex = np.einsum(
-                "abcm,cmik,ijk,jkl,l->ab",
-                G_final_map,
-                G_helm_pinv,
-                M_total,
-                G_m_imp,
-                m_coeffs,
-                optimize=True,
-            )
-            return E_apex.flatten("F")
+            # Reshape to 2D matrix for the solver: (c*i, l)
+            n_ll = np.sum(self.ll_mask)
+            op_2d = op.reshape(2 * n_ll, self.basis.index_length)
+            self._E_map_constraint_operator = op_2d
 
-        def rmatvec(grad_E_apex_flat):
-            grad_E_apex = grad_E_apex_flat.reshape(
-                G_final_map.shape[0], G_final_map.shape[1], order="F"
-            )
-            grad_m = np.einsum(
-                "abcm,cmik,ijk,jkl,ab->l",
-                G_final_map.conj(),
-                G_helm_pinv.conj(),
-                M_total.conj(),
-                G_m_imp.conj(),
-                grad_E_apex,
-                optimize=True,
-            )
-            return grad_m
+        else:
+            # --- MATRIX-FREE MODE ---
+            # This is your existing logic, which is correct for this mode.
+            n_ll = np.sum(self.ll_mask)
+            n_c_imp = self.basis.index_length
+            shape_out = (2, n_ll)
+            shape_in = (n_c_imp,)
+            shape = (np.prod(shape_out), np.prod(shape_in))
 
-        self._E_map_constraint_operator = LinearOperator(
-            shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64
-        )
+            def matvec(m_coeffs_in):
+                m_coeffs = m_coeffs_in.flatten()
+                E_coeffs = self._apply_operator(self.m_imp_to_E_coeffs, m_coeffs, (2, self.basis.index_length))
+                E_apex_diff = np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_coeffs, optimize=True)
+                return E_apex_diff.flatten()
+
+            def rmatvec(grad_E_apex_flat):
+                grad_E_apex = grad_E_apex_flat.reshape(shape_out)
+                grad_E_coeffs = np.einsum("cikl,ci->kl", self.E_coeffs_to_E_apex_ll_diff.conj(), grad_E_apex, optimize=True)
+                op = self.m_imp_to_E_coeffs
+                if isinstance(op, LinearOperator):
+                    grad_m_coeffs_flat = op.rmatvec(grad_E_coeffs.flatten())
+                else:
+                    grad_m_coeffs_flat = op.T.conj() @ grad_E_coeffs.flatten()
+                return grad_m_coeffs_flat
+
+            self._E_map_constraint_operator = LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
+
         return self._E_map_constraint_operator
 
-    def _solve_for_m_imp_iteratively(self, jr_coeffs, E_coeffs_direct):
-        A_list, b_list = [], []
+    def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
+        """
+        Unified solver for m_imp that works for all modes and weighting schemes.
+        """
+        cache_key = (LEAST_SQUARES_SOLVER, self.connect_hemispheres, MATRIX_FREE_A, MATRIX_WEIGHTS)
 
-        A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
-        b_list.append(
-            np.dot(self.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None
-        )
-        data_shapes = [self.grid.size]
+        if cache_key not in self._coeffs_to_m_imp_cache:
+            A_list, data_shapes, sqrt_weights = [], [], []
 
-        if self.connect_hemispheres:
-            E_map_op = self._get_or_create_E_map_constraint_operator()
-            A_list.append(self.ih_constraint_scaling * E_map_op)
-            data_shapes.append((2, np.sum(self.ll_mask)))
+            if MATRIX_WEIGHTS:
+                A_list.append(np.diag(self.m_imp_to_jr))
+                data_shapes.append([self.basis.index_length])
+                sqrt_weights.append(self.jr_constraint_L_matrix)
+                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                    A_list.append(self.m_imp_to_E_coeffs)
+                    data_shapes.append((2, self.basis.index_length))
+                    sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
+            else: # Not MATRIX_WEIGHTS
+                A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
+                data_shapes.append((self.grid.size,))
+                sqrt_weights.append(None)
+                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                    A_list.append(self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling)
+                    data_shapes.append((2, np.sum(self.ll_mask)))
+                    sqrt_weights.append(None)
 
-            E_apex_from_direct = np.einsum(
-                "ijkl,kl->ij", self.E_coeffs_to_E_apex_ll_diff, E_coeffs_direct, optimize=True
-            )
-            b_list.append(-E_apex_from_direct.flatten("F") * self.ih_constraint_scaling)
+            solver = LeastSquaresSolver(A_list, self.basis.index_length, data_shapes, 
+                                        sqrt_weights=sqrt_weights, solver=LEAST_SQUARES_SOLVER)
+            self._coeffs_to_m_imp_cache[cache_key] = solver
 
-        if not A_list:
-            return np.zeros(self.basis.index_length)
+        solver = self._coeffs_to_m_imp_cache[cache_key]
+        rhs_B = []
 
-        key = (jr_coeffs is not None, self.E_coeffs_to_E_apex_ll_diff is not None)
-        if key not in self._fwd_solver_cache:
-            self._fwd_solver_cache[key] = LeastSquaresSolver(
-                A_list, self.basis.index_length, data_shapes, solver="lsmr"
-            )
+        if MATRIX_WEIGHTS:
+            if jr_coeffs is not None: rhs_B.append(jr_coeffs)
+            else: rhs_B.append(None)
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                rhs_B.append(-E_direct_coeffs)
+        else: # Not MATRIX_WEIGHTS
+            if jr_coeffs is not None: rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
+            else: rhs_B.append(None)
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                E_apex_from_direct = np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, optimize=True)
+                rhs_B.append(-E_apex_from_direct.flatten() * self.ih_constraint_scaling)
 
-        solutions = self._fwd_solver_cache[key].solve(b_list)
-        return sum(s.flatten() for s in solutions if s is not None)
-
+        m_imp = solver.solve(rhs_B)
+        return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
+        
     def _solve_for_m_imp_adjoint(self, grad_m_imp):
-        A_adj_list, grad_b_list = [], []
-        has_jr = self.jr is not None
-        has_E_constraint = self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None
-        if not (has_jr or has_E_constraint):
-            return None, None
+        """
+        Calculates the gradient of the loss w.r.t. the inputs `b` of the m_imp problem.
+        """
+        # Adjoint always uses an iterative solver for efficiency, even in dense mode.
+        solver_choice = "cg" 
+        cache_key = (solver_choice, self.connect_hemispheres, MATRIX_FREE_A, MATRIX_WEIGHTS)
 
-        A_adj_list.append((self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))).T)
-        data_shapes = [self.grid.size]
+        # Ensure the forward solver is cached to get its components.
+        # This will create the solver if it doesn't exist.
+        if cache_key not in self._coeffs_to_m_imp_cache:
+            self._solve_for_m_imp(np.zeros(self.basis.index_length), np.zeros((2, self.basis.index_length)))
+        
+        solver = self._coeffs_to_m_imp_cache[cache_key]
 
-        if self.connect_hemispheres is not None:
-            E_map_op = self._get_or_create_E_map_constraint_operator()
-            A_adj_list.append(self.ih_constraint_scaling * E_map_op.T)
+        # 1. Solve (G.T @ G) @ y = grad_m_imp for y using CG
+        cg_op, M = solver._cg_components
+        y, exit_code = cg(cg_op, grad_m_imp.flatten(), M=M, atol=1e-12, rtol=1e-12)
+        if exit_code != 0:
+            print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
 
-        key = ("adj", has_jr, self.connect_hemisphere)
-        if key not in self._adj_solver_cache:
-            self._adj_solver_cache[key] = LeastSquaresSolver(A_adj_list, 1, solver="cg")
+        # 2. Propagate y back through the A operators to get grad_b = A @ y
+        grad_b_list = []
+        for A_op_item in solver.A:
+            grad_b = self._apply_operator(A_op_item.op, y, A_op_item.output_shape)
+            grad_b_list.append(grad_b)
 
-        grad_b_list = self._adj_solver_cache[key].solve([grad_m_imp])
+        # 3. Unpack and handle scaling for the gradients
         grad_b_jr, grad_b_E = None, None
+        
+        if self.jr is not None: # Check if the jr term was active
+            grad_b_jr_raw = grad_b_list[0]
+            if not MATRIX_WEIGHTS:
+                 # grad_b is for (H_jr @ b_jr), so we need to map back to b_jr
+                 grad_b_jr = np.dot(self.jr_coeffs_to_j_apex.T, grad_b_jr_raw)
+            else:
+                 grad_b_jr = grad_b_jr_raw
+        
+        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+            grad_b_E_raw = grad_b_list[1]
+            if not MATRIX_WEIGHTS:
+                grad_E_apex = -grad_b_E_raw.reshape(2, np.sum(self.ll_mask)) / self.ih_constraint_scaling
+                grad_b_E = np.einsum("ci,cikl->kl", grad_E_apex.conj(), self.E_coeffs_to_E_apex_ll_diff.conj(), optimize=True)
+            else:
+                grad_b_E = -grad_b_E_raw / self.ih_constraint_scaling
 
-        list_idx = 0
-        if has_jr:
-            grad_b_jr = grad_b_list[list_idx]
-            list_idx += 1
-        if has_E_constraint:
-            grad_b_E = grad_b_list[list_idx]
         return grad_b_jr, grad_b_E
 
     def build_m_ind_to_E_df(self):
-        if self.m_ind_to_E_df is not None:
-            return
+        # This method's rmatvec depends on the adjoint solver.
+        if self.m_ind_to_E_df is not None: return
         shape = (self.basis.index_length, self.basis.index_length)
-
+        
         def matvec(m):
             E_ind, _ = self.calculate_ind_coeffs(m)
-            return E_ind[1]  # E_phi component
+            return E_ind[1] # E_phi component
 
         if MATRIX_FREE_A:
             def rmatvec(grad_out):
                 grad_E_phi = grad_out.flatten()
                 grad_E = np.zeros((2, shape[0]), dtype=grad_E_phi.dtype)
                 grad_E[1] = grad_E_phi
-
+                
                 total_grad_E_direct_ind = grad_E.copy()
-                grad_m_imp_ind_flat = self.m_imp_to_E_coeffs.rmatvec(grad_E.flatten())
-                grad_m_imp_ind = grad_m_imp_ind_flat.reshape(self.basis.index_length)
-
-                _, grad_b_E = self._solve_for_m_imp_adjoint(grad_m_imp_ind)
-
-                if grad_b_E is not None:
-                    E_diff_op = self.E_coeffs_to_E_apex_ll_diff
-                    grad_b_E_reshaped = grad_b_E.reshape(
-                        E_diff_op.shape[0], E_diff_op.shape[1], order="F"
-                    )
-                    grad_E_from_b = -np.einsum(
-                        "ij,ijkl->kl", grad_b_E_reshaped.conj(), E_diff_op.conj(), optimize=True
-                    )
-                    total_grad_E_direct_ind += grad_E_from_b * self.ih_constraint_scaling
-
-                grad_m_ind_flat = self.m_ind_to_E_coeffs.rmatvec(total_grad_E_direct_ind.flatten())
+                
+                # Gradient from the E_imp_ind term
+                op_m_imp_E = self.m_imp_to_E_coeffs
+                if isinstance(op_m_imp_E, LinearOperator):
+                    grad_m_imp_ind_flat = op_m_imp_E.rmatvec(grad_E.flatten())
+                else:
+                    grad_m_imp_ind_flat = op_m_imp_E.T.conj() @ grad_E.flatten()
+                
+                # Gradient from the m_imp_ind term
+                _, grad_E_direct_ind_from_m_imp = self._solve_for_m_imp_adjoint(grad_m_imp_ind_flat)
+                if grad_E_direct_ind_from_m_imp is not None:
+                    total_grad_E_direct_ind += grad_E_direct_ind_from_m_imp
+                
+                # Final gradient w.r.t m_ind from E_direct_ind
+                op_m_ind_E = self.m_ind_to_E_coeffs
+                if isinstance(op_m_ind_E, LinearOperator):
+                    grad_m_ind_flat = op_m_ind_E.rmatvec(total_grad_E_direct_ind.flatten())
+                else:
+                    grad_m_ind_flat = op_m_ind_E.T.conj() @ total_grad_E_direct_ind.flatten()
+                    
                 return grad_m_ind_flat
 
-            self.m_ind_to_E_df = LinearOperator(
-                shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64
-            )
+            self.m_ind_to_E_df = LinearOperator(shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
         else:
             self.m_ind_to_E_df = np.array([matvec(v) for v in np.eye(shape[1])]).T
 
