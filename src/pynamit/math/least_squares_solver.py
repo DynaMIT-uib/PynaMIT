@@ -284,19 +284,25 @@ class LeastSquaresSolver:
         """Builds a single dense matrix G for the entire system for SVD/Normal solvers."""
         cache_key = "G_dense"
         if cache_key in self._op_cache: return self._op_cache[cache_key]
-        if self.is_matrix_free: raise ValueError("SVD and Normal solvers require dense numpy arrays.")
+
         scaled_weights = self._get_scaled_regularization_weights()
         sqrt_scaled_lambdas = [np.sqrt(w) for w in scaled_weights]
         all_A_weighted, all_L_weighted = [], []
         for i, a_item in enumerate(self.A):
+            # _densify_op will convert LinearOperator to np.ndarray if necessary
             op, w_item = self._densify_op(a_item), self.sqrt_weights[i]
-            if w_item is not None: op = (w_item.op * op if w_item.input_shape == (1,) else self._densify_op(w_item) @ op)
+            if w_item is not None:
+                op = (w_item.op * op if w_item.input_shape == (1,) else self._densify_op(w_item) @ op)
             all_A_weighted.append(op)
         for i, L_item in enumerate(self.regularization_matrices):
-            if L_item and sqrt_scaled_lambdas[i] > 1e-12: all_L_weighted.append(sqrt_scaled_lambdas[i] * self._densify_op(L_item))
+            if L_item and sqrt_scaled_lambdas[i] > 1e-12:
+                # _densify_op will convert LinearOperator to np.ndarray if necessary
+                all_L_weighted.append(sqrt_scaled_lambdas[i] * self._densify_op(L_item))
+        
         G_dense = np.vstack(all_A_weighted + all_L_weighted)
         self._op_cache[cache_key] = G_dense
         return G_dense
+
 
     @property
     def _svd_components(self):
