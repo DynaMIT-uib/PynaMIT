@@ -300,7 +300,7 @@ class BasisEvaluator(object):
             Least squares solution for the coefficients representing a
             scalar field in the basis.
         """
-        return self.least_squares.solve(grid_values)[0]
+        return self.least_squares.solve(grid_values)
 
     def least_squares_solution_helmholtz(self, grid_values):
         """Least squares decomposition of a horizontal vector field.
@@ -317,7 +317,7 @@ class BasisEvaluator(object):
             curl-free and divergence-free components of a horizontal
             vector field in the basis.
         """
-        return self.least_squares_helmholtz.solve(grid_values)[0]
+        return self.least_squares_helmholtz.solve(grid_values)
 
     def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values.

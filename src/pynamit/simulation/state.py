@@ -18,8 +18,9 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
 from scipy.linalg import expm
 
-TEST_THINGS = True
-DENSIFICATION = True
+DENSE_SOLVER="svd"
+MATRIX_WEIGHTS = False
+MATRIX_FREE_A = False
 
 class State(object):
     """
@@ -28,11 +29,6 @@ class State(object):
     """
 
     def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
-        self.use_matrix_free = bool(getattr(settings, "use_matrix_free", False))
-        print(
-            f"INFO: State class in {'MATRIX-FREE (iterative)' if self.use_matrix_free else 'DENSE (direct)'} mode."
-        )
-
         self.basis, self.mainfield = basis, mainfield
         self.RI, self.RM = settings.RI, (None if settings.RM == 0 else settings.RM)
         self.latitude_boundary, self.ignore_PFAC = (
@@ -228,7 +224,7 @@ class State(object):
     def _create_E_coeffs_operator(self, G_X_to_JS, is_vector_input):
         if G_X_to_JS is None:
             return None
-        if self.use_matrix_free:
+        if MATRIX_FREE_A:
             return self._create_E_coeffs_linear_operator(G_X_to_JS, is_vector_input)
         else:
             return self._create_E_coeffs_dense_operator(G_X_to_JS, is_vector_input)
@@ -401,7 +397,7 @@ class State(object):
             "ijk, jklm -> iklm", self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True
         )
         dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
-        if self.use_matrix_free:
+        if MATRIX_FREE_A:
 
             def matvec(u_coeffs_flat):
                 u_coeffs = u_coeffs_flat.reshape(2, -1)
@@ -453,7 +449,7 @@ class State(object):
         return E_direct_ind + E_imp_ind, m_imp_ind
 
     def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
-        if self.use_matrix_free:
+        if MATRIX_FREE_A:
             return self._solve_for_m_imp_iteratively(jr_coeffs, E_direct_coeffs)
         else:
             return self._solve_for_m_imp_dense(jr_coeffs, E_direct_coeffs)
@@ -489,7 +485,7 @@ class State(object):
 
     def _solve_for_m_imp_dense(self, jr_coeffs, E_direct_coeffs):
         if self._coeffs_to_m_imp_cache is None:
-            if TEST_THINGS:
+            if MATRIX_WEIGHTS:
                 constraint_A = [np.diag(self.m_imp_to_jr)]
                 data_shapes = [self.basis.index_length]
                 sqrt_weights = [self.jr_constraint_L_matrix]
@@ -499,7 +495,7 @@ class State(object):
                 sqrt_weights = [None]
 
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                if TEST_THINGS:
+                if MATRIX_WEIGHTS:
                     constraint_A.append(self.m_imp_to_E_coeffs)
                     data_shapes.append((2, self.basis.index_length))
                     sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
@@ -513,73 +509,35 @@ class State(object):
 
             # Use the new, more general solver.
             solver = LeastSquaresSolver(
-                constraint_A, self.basis.index_length, data_shapes, sqrt_weights=sqrt_weights
+                constraint_A, self.basis.index_length, data_shapes, sqrt_weights=sqrt_weights, solver=DENSE_SOLVER,
             )
 
-            if DENSIFICATION:
-                if TEST_THINGS:
-                    rhs_B = [np.eye(self.basis.index_length)]
-                else:
-                    rhs_B = [self.jr_coeffs_to_j_apex]
-                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                    if TEST_THINGS:
-                        cf_eye = np.stack(
-                            [
-                                np.eye(self.basis.index_length),
-                                np.zeros((self.basis.index_length, self.basis.index_length)),
-                            ],
-                            axis=1,
-                        )
-                        df_eye = np.stack(
-                            [
-                                np.zeros((self.basis.index_length, self.basis.index_length)),
-                                np.eye(self.basis.index_length),
-                            ],
-                            axis=1,
-                        )
+            self._coeffs_to_m_imp_cache = solver
 
-                        eye = np.array([cf_eye, df_eye])
-                        rhs_B.append(eye)
-                    else:
-                        rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
-
-                self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
+        # Build the combined RHS list for the solve
+        rhs_B = []
+        if jr_coeffs is not None:
+            if MATRIX_WEIGHTS:
+                rhs_B.append(jr_coeffs)
             else:
-                self._coeffs_to_m_imp_cache = solver
-
-        if DENSIFICATION:
-            solvers = self._coeffs_to_m_imp_cache
-            m_imp = np.zeros(self.basis.index_length)
-            if jr_coeffs is not None:
-                m_imp += np.dot(solvers[0], jr_coeffs)
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
-            return m_imp
+                rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
         else:
-            rhs_B = []
-            if jr_coeffs is not None:
-                if TEST_THINGS:
-                    rhs_B.append(jr_coeffs)
-                else:
-                    rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
+            rhs_B.append(None)
+
+        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+            if MATRIX_WEIGHTS:
+                rhs_B.append(-E_direct_coeffs)
             else:
-                rhs_B.append(None)
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                if TEST_THINGS:
-                    rhs_B.append(-E_direct_coeffs)
-                else:
-                    rhs_B.append(
-                        -np.tensordot(
-                            self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, axes=2
-                        ) * self.ih_constraint_scaling
-                    )
-            solutions = self._coeffs_to_m_imp_cache.solve(rhs_B)
-            m_imp = np.zeros(self.basis.index_length)
-            if solutions[0] is not None:
-                m_imp += solutions[0]
-            if len(solutions) > 1 and solutions[1] is not None:
-                m_imp += solutions[1]
-            return m_imp
+                rhs_B.append(
+                    -np.tensordot(
+                        self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, axes=2
+                    ) * self.ih_constraint_scaling
+                )
+
+        # Call solve(). It ALWAYS returns the single, final solution array.
+        m_imp = self._coeffs_to_m_imp_cache.solve(rhs_B)
+
+        return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
 
     def _get_or_create_E_map_constraint_operator(self):
         if hasattr(self, "_E_map_constraint_operator"):
@@ -693,8 +651,7 @@ class State(object):
             E_ind, _ = self.calculate_ind_coeffs(m)
             return E_ind[1]  # E_phi component
 
-        if self.use_matrix_free:
-
+        if MATRIX_FREE_A:
             def rmatvec(grad_out):
                 grad_E_phi = grad_out.flatten()
                 grad_E = np.zeros((2, shape[0]), dtype=grad_E_phi.dtype)
@@ -737,7 +694,7 @@ class State(object):
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
             diff = m_ind - steady_state_m_ind
-            if self.use_matrix_free:
+            if MATRIX_FREE_A:
                 return expm_multiply(dt * op, diff) + steady_state_m_ind
             else:
                 return (expm(dt * op) @ diff) + steady_state_m_ind
@@ -749,7 +706,7 @@ class State(object):
             self.build_m_ind_to_E_df()
         op = self.m_ind_to_E_df
         b = -E_coeffs_noind[1]
-        if self.use_matrix_free:
+        if MATRIX_FREE_A:
             m_ind, exit_code = gmres(op, b, rtol=1e-12, atol=0)
             if exit_code != 0:
                 print(f"Warning: GMRES failed with exit code {exit_code}")
