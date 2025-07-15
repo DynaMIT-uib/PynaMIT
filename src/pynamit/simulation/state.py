@@ -16,10 +16,9 @@ from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
-from scipy.linalg import expm, sqrtm
+from scipy.linalg import expm
 
 TEST_THINGS = False
-
 
 class State(object):
     """
@@ -462,20 +461,29 @@ class State(object):
     def jr_constraint_L_matrix(self):
         if not hasattr(self, "_jr_constraint_L_matrix_cache"):
             H_jr = self.jr_coeffs_to_j_apex
-            self._jr_constraint_L_matrix_cache = sqrtm(H_jr.T @ H_jr).real
+
+            # Construct the square root of H_jr^T * H_jr
+            _, S, Vt = np.linalg.svd(H_jr, full_matrices=False)
+            L_jr_2D = Vt.T @ np.diag(S) @ Vt
+
+            self._jr_constraint_L_matrix_cache = L_jr_2D
+
         return self._jr_constraint_L_matrix_cache
 
     @property
     def E_constraint_L_matrix(self):
-        if not self.connect_hemispheres:
-            raise ValueError("Should not happen")
         if not hasattr(self, "_E_constraint_L_matrix_cache"):
-            H_E = self.E_coeffs_to_E_apex_ll_diff
-            H_E_T_H_4D = np.tensordot(H_E, H_E, axes=([0, 1], [0, 1]))
-            n_c = H_E.shape[3]
-            H_E_T_H_2D = H_E_T_H_4D.reshape(2 * n_c, 2 * n_c)
-            L_E_2D = sqrtm(H_E_T_H_2D).real
-            self._E_constraint_L_matrix_cache = L_E_2D.reshape(2, n_c, 2, n_c)
+            L_E = None
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                H_E = self.E_coeffs_to_E_apex_ll_diff
+
+                # Flatten to 2D and compute sqrt(H_E.T @ H_E)
+                H_E_2D = H_E.reshape((np.prod(H_E.shape[:2]), np.prod(H_E.shape[2:])))
+                _, S, Vt = np.linalg.svd(H_E_2D, full_matrices=False)
+                L_E_2D = Vt.T @ np.diag(S) @ Vt
+                L_E = L_E_2D.reshape(H_E.shape[2:] + H_E.shape[2:])
+
+            self._E_constraint_L_matrix_cache = L_E
         return self._E_constraint_L_matrix_cache
 
     def _solve_for_m_imp_dense(self, jr_coeffs, E_direct_coeffs):
@@ -529,7 +537,7 @@ class State(object):
                     )
 
                     eye = np.array([cf_eye, df_eye])
-                    rhs_B.append(eye * self.ih_constraint_scaling)
+                    rhs_B.append(eye)
                 else:
                     rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
 
