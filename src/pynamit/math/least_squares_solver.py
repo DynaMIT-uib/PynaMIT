@@ -82,7 +82,7 @@ class LeastSquaresSolver:
         sqrt_weights=None,
         regularization_weights=None,
         regularization_matrices=None,
-        solver="lsmr",
+        solver="svd",
         tolerance=1e-12,
         preconditioner=None,
     ):

@@ -18,7 +18,8 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
 from scipy.linalg import expm
 
-TEST_THINGS = False
+TEST_THINGS = True
+DENSIFICATION = True
 
 class State(object):
     """
@@ -515,41 +516,70 @@ class State(object):
                 constraint_A, self.basis.index_length, data_shapes, sqrt_weights=sqrt_weights
             )
 
-            if TEST_THINGS:
-                rhs_B = [np.eye(self.basis.index_length)]
+            if DENSIFICATION:
+                if TEST_THINGS:
+                    rhs_B = [np.eye(self.basis.index_length)]
+                else:
+                    rhs_B = [self.jr_coeffs_to_j_apex]
+                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                    if TEST_THINGS:
+                        cf_eye = np.stack(
+                            [
+                                np.eye(self.basis.index_length),
+                                np.zeros((self.basis.index_length, self.basis.index_length)),
+                            ],
+                            axis=1,
+                        )
+                        df_eye = np.stack(
+                            [
+                                np.zeros((self.basis.index_length, self.basis.index_length)),
+                                np.eye(self.basis.index_length),
+                            ],
+                            axis=1,
+                        )
+
+                        eye = np.array([cf_eye, df_eye])
+                        rhs_B.append(eye)
+                    else:
+                        rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
+
+                self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
             else:
-                rhs_B = [self.jr_coeffs_to_j_apex]
+                self._coeffs_to_m_imp_cache = solver
+
+        if DENSIFICATION:
+            solvers = self._coeffs_to_m_imp_cache
+            m_imp = np.zeros(self.basis.index_length)
+            if jr_coeffs is not None:
+                m_imp += np.dot(solvers[0], jr_coeffs)
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
+            return m_imp
+        else:
+            rhs_B = []
+            if jr_coeffs is not None:
+                if TEST_THINGS:
+                    rhs_B.append(jr_coeffs)
+                else:
+                    rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
+            else:
+                rhs_B.append(None)
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
                 if TEST_THINGS:
-                    cf_eye = np.stack(
-                        [
-                            np.eye(self.basis.index_length),
-                            np.zeros((self.basis.index_length, self.basis.index_length)),
-                        ],
-                        axis=1,
-                    )
-                    df_eye = np.stack(
-                        [
-                            np.zeros((self.basis.index_length, self.basis.index_length)),
-                            np.eye(self.basis.index_length),
-                        ],
-                        axis=1,
-                    )
-
-                    eye = np.array([cf_eye, df_eye])
-                    rhs_B.append(eye)
+                    rhs_B.append(-E_direct_coeffs)
                 else:
-                    rhs_B.append(self.E_coeffs_to_E_apex_ll_diff * self.ih_constraint_scaling)
-
-            self._coeffs_to_m_imp_cache = solver.solve(rhs_B)
-
-        solvers = self._coeffs_to_m_imp_cache
-        m_imp = np.zeros(self.basis.index_length)
-        if jr_coeffs is not None:
-            m_imp += np.dot(solvers[0], jr_coeffs)
-        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-            m_imp -= np.tensordot(solvers[1], E_direct_coeffs, axes=2)
-        return m_imp
+                    rhs_B.append(
+                        -np.tensordot(
+                            self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, axes=2
+                        ) * self.ih_constraint_scaling
+                    )
+            solutions = self._coeffs_to_m_imp_cache.solve(rhs_B)
+            m_imp = np.zeros(self.basis.index_length)
+            if solutions[0] is not None:
+                m_imp += solutions[0]
+            if len(solutions) > 1 and solutions[1] is not None:
+                m_imp += solutions[1]
+            return m_imp
 
     def _get_or_create_E_map_constraint_operator(self):
         if hasattr(self, "_E_map_constraint_operator"):
