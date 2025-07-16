@@ -264,7 +264,7 @@ class State(object):
         solver = self.m_imp_solver
 
         # 2. Solve (A.T @ A) @ y = grad_m_imp for y using CG.
-        cg_op, M = solver._cg_components
+        cg_op, M = solver._get_cg_components()
         y, exit_code = cg(cg_op, grad_m_imp.flatten(), M=M, atol=1e-12, rtol=1e-12)
         if exit_code != 0:
             print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
