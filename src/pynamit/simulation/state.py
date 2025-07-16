@@ -193,87 +193,79 @@ class State(object):
                     )
         return self._T_to_Ve
 
-    def _create_E_coeffs_operator(self, G_X_to_JS, is_vector_input):
+    def _create_E_coeffs_operator(self, G_X_to_JS):
+        """
+        Creates a dense or matrix-free operator for the transformation from input coefficients 
+        (X_coeffs) to electric field coefficients (E_coeffs).
+
+        Parameters
+        ----------
+        G_X_to_JS : np.ndarray
+            The operator mapping input coefficients to sheet currents on the grid.
+        """
         if G_X_to_JS is None:
             return None
         if MATRIX_FREE_A:
-            return self._create_E_coeffs_linear_operator(G_X_to_JS, is_vector_input)
+            return self._create_E_coeffs_linear_operator(G_X_to_JS)
         else:
-            return self._create_E_coeffs_dense_operator(G_X_to_JS, is_vector_input)
+            return self._create_E_coeffs_dense_operator(G_X_to_JS)
 
-    def _create_E_coeffs_dense_operator(self, G_X_to_JS, is_vector_input):
-        
-        einsum_str = "cmik,ijk,jkl->cml"
-        if is_vector_input:
-            einsum_str = "cmik,ijk,jklm->cmlm"
+    def _create_E_coeffs_dense_operator(self, G_X_to_JS):
+        # The ellipsis (...) stands for the dimensions of the input coefficients (X_coeffs).
+        # This string computes the full operator that maps from X_coeffs to E_coeffs.
+        einsum_str = "cmik,ijk,jk...->cm..."
+            
         return np.einsum(
             einsum_str, self.G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS, optimize=True
         )
 
-    def _create_E_coeffs_linear_operator(self, G_X_to_JS, is_vector_input):
-        n_c_in = G_X_to_JS.shape[3] if is_vector_input else G_X_to_JS.shape[2]
-        n_c_out = self.basis.index_length
-        shape_in = (2, n_c_in) if is_vector_input else (n_c_in,)
-        shape_out = (2, n_c_out)
+    def _create_E_coeffs_linear_operator(self, G_X_to_JS):
+        """
+        Creates a LinearOperator for the transformation from input coefficients (X) 
+        to electric field coefficients (E_coeffs).
+        
+        This corresponds to the operation: E_coeffs = G_helm_pinv @ M @ G_JS @ x_coeffs
+        """
+        # The shape of the input coefficients is inferred from the trailing dimensions
+        # of the G_X_to_JS operator.
+        shape_in = G_X_to_JS.shape[2:] 
+
+        shape_out = (2, self.basis.index_length)
         shape = (np.prod(shape_out), np.prod(shape_in))
         
-        # Pre-compute operators needed for both matvec and rmatvec
         M_total = self.M_total_on_grid
 
         def matvec(x_coeffs_flat):
-            """Forward operation: E_coeffs = G_helm_pinv @ M @ G_JS @ x_coeffs"""
+            """Forward operation: E_coeffs = G_helm_pinv @ (M @ (G_JS @ x_coeffs))"""
             x_coeffs = x_coeffs_flat.reshape(shape_in)
-            
-            # This single einsum is correct for the forward pass
-            einsum_str = "cmik,ijk,jkl,l->cm"
-            if is_vector_input:
-                einsum_str = "cmik,ijk,jklm,lm->cm"
-            
-            E_coeffs = np.einsum(
-                einsum_str, self.G_helmholtz_pinv, M_total, G_X_to_JS, x_coeffs, optimize=True
-            )
+
+            # Step 1: Apply G_X_to_JS. The ellipsis (...) stands for the dimensions of x_coeffs.
+            js_on_grid = np.einsum("jk...,...->jk", G_X_to_JS, x_coeffs, optimize=True)
+
+            # Step 2: Apply M_total_on_grid (conductivity tensor)
+            j_div_free_on_grid = np.einsum("ijk,jk->ik", M_total, js_on_grid, optimize=True)
+
+            # Step 3: Apply G_helmholtz_pinv to get E_field coefficients
+            E_coeffs = np.einsum("cmik,ik->cm", self.G_helmholtz_pinv, j_div_free_on_grid, optimize=True)
+
             return E_coeffs.flatten()
 
         def rmatvec(grad_E_coeffs_flat):
-            """
-            Adjoint operation: grad_x = G_JS^H @ M^H @ G_helm_pinv^H @ grad_E
-            This must be done sequentially in reverse order.
-            """
+            """Adjoint operation: grad_x = G_JS^H @ M^H @ G_helm_pinv^H @ grad_E"""
             grad_E_coeffs = grad_E_coeffs_flat.reshape(shape_out)
 
-            # Step 1: Apply G_helmholtz_pinv^H
-            # Input: grad_E_coeffs (c,m), Output: grad_intermediate_1 (i,k)
-            grad_intermediate_1 = np.einsum(
-                "cmik,cm->ik", 
-                self.G_helmholtz_pinv.conj(), grad_E_coeffs, optimize=True
-            )
+            # Step 1: Adjoint of G_helmholtz_pinv
+            grad_intermediate_1 = np.einsum("cmik,cm->ik", self.G_helmholtz_pinv.conj(), grad_E_coeffs, optimize=True)
             
-            # Step 2: Apply M_total^H
-            # Input: grad_intermediate_1 (i,k), Output: grad_intermediate_2 (j,k)
-            grad_intermediate_2 = np.einsum(
-                "ijk,ik->jk", 
-                M_total.conj(), grad_intermediate_1, optimize=True
-            )
+            # Step 2: Adjoint of M_total
+            grad_intermediate_2 = np.einsum("ijk,ik->jk", M_total.conj(), grad_intermediate_1, optimize=True)
 
-            # Step 3: Apply G_X_to_JS^H
-            # Input: grad_intermediate_2 (j,k), Output: grad_x_coeffs
-            if is_vector_input:
-                # Output shape (l,m)
-                grad_x_coeffs = np.einsum(
-                    "jklm,jk->lm", 
-                    G_X_to_JS.conj(), grad_intermediate_2, optimize=True
-                )
-            else:
-                # Output shape (l,)
-                grad_x_coeffs = np.einsum(
-                    "jkl,jk->l", 
-                    G_X_to_JS.conj(), grad_intermediate_2, optimize=True
-                )
+            # Step 3: Adjoint of G_X_to_JS. The ... dimensions are preserved in the output.
+            grad_x_coeffs = np.einsum("jk...,jk->...", G_X_to_JS.conj(), grad_intermediate_2, optimize=True)
                 
             return grad_x_coeffs.flatten()
 
         return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
-    # --- END OF CORRECTED METHOD ---
 
     @property
     def M_total_on_grid(self):
@@ -292,7 +284,7 @@ class State(object):
     def m_ind_to_E_coeffs(self):
         if self._m_ind_to_E_coeffs is None:
             self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(
-                self.G_m_ind_to_JS, is_vector_input=False
+                self.G_m_ind_to_JS
             )
         return self._m_ind_to_E_coeffs
 
@@ -300,7 +292,7 @@ class State(object):
     def m_imp_to_E_coeffs(self):
         if self._m_imp_to_E_coeffs is None:
             self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(
-                self.G_m_imp_to_JS, is_vector_input=False
+                self.G_m_imp_to_JS
             )
         return self._m_imp_to_E_coeffs
 
@@ -309,7 +301,7 @@ class State(object):
         if self._Br_to_E_coeffs is None:
             G_Br_to_JS = getattr(self, "G_Br_to_JS", None)
             self._Br_to_E_coeffs = self._create_E_coeffs_operator(
-                G_Br_to_JS, is_vector_input=False
+                G_Br_to_JS
             )
         return self._Br_to_E_coeffs
 
