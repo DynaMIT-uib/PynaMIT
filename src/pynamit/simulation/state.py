@@ -1,4 +1,3 @@
-# I am including all necessary imports for the State class to be self-contained.
 import numpy as np
 import xarray as xr
 from pynamit.math.constants import mu0, RE
@@ -7,7 +6,7 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
-from pynamit.math.least_squares_solver import LeastSquaresSolver # This is in the provided code block
+from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres, cg
 from scipy.linalg import expm
@@ -46,8 +45,9 @@ class State(object):
         Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
         self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
         self.bP, self.bH, self.bu = None, None, None
-        self._coeffs_to_m_imp_cache = {}
-        self._adj_solver_cache = {}
+
+        self._m_imp_solver = None
+        
         self.initialize_constraints()
         self._build_u_coeffs_to_E_coeffs()
         self._invalidate_caches()
@@ -58,8 +58,9 @@ class State(object):
         self._m_imp_to_E_coeffs = None
         self._Br_to_E_coeffs = None
         self.m_ind_to_E_df = None
-        self._coeffs_to_m_imp_cache = {}
-        self._adj_solver_cache = {}
+
+        self._m_imp_solver = None
+ 
         if hasattr(self, "_M_total_on_grid"): del self._M_total_on_grid
         if hasattr(self, "_E_map_constraint_operator"): del self._E_map_constraint_operator
 
@@ -193,15 +194,111 @@ class State(object):
                     )
         return self._T_to_Ve
 
+    @property
+    def m_imp_solver(self):
+        """
+        A lazy-loaded property that builds and caches the LeastSquaresSolver
+        for the m_imp calculation.
+        """
+        # With this simplified design, we just check if the solver has been built.
+        if self._m_imp_solver is None:
+            A_list, data_shapes, sqrt_weights = [], [], []
+            if MATRIX_WEIGHTS:
+                A_list.append(np.diag(self.m_imp_to_jr))
+                data_shapes.append([self.basis.index_length])
+                sqrt_weights.append(self.jr_constraint_L_matrix)
+                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                    A_list.append(self.m_imp_to_E_coeffs)
+                    data_shapes.append((2, self.basis.index_length))
+                    sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
+            else:
+                A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
+                data_shapes.append((self.grid.size,))
+                sqrt_weights.append(None)
+                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                    A_list.append(self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling)
+                    data_shapes.append((2, np.sum(self.ll_mask)))
+                    sqrt_weights.append(None)
+            
+            # The solver is now built based on the current global settings
+            solver = LeastSquaresSolver(A_list, self.basis.index_length, data_shapes,
+                                        sqrt_weights=sqrt_weights, solver=LEAST_SQUARES_SOLVER)
+            self._m_imp_solver = solver
+            
+        return self._m_imp_solver
+
+    def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
+        """
+        Calculates the imposed potential coefficients (m_imp) by solving a
+        least-squares problem.
+        """
+        # 1. Get the pre-configured solver instance
+        solver = self.m_imp_solver
+
+        # 2. Construct the right-hand-side vector `b`
+        rhs_B = []
+        if MATRIX_WEIGHTS:
+            rhs_B.append(jr_coeffs)
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                rhs_B.append(-E_direct_coeffs)
+        else:
+            if jr_coeffs is not None: 
+                rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
+            else: 
+                rhs_B.append(None)
+                
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                E_apex_from_direct = np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, optimize=True)
+                rhs_B.append(-E_apex_from_direct.flatten() * self.ih_constraint_scaling)
+        
+        # 3. Solve the system
+        m_imp = solver.solve(rhs_B)
+        return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
+
+    def _solve_for_m_imp_adjoint(self, grad_m_imp):
+        """
+        Calculates the gradient of the loss w.r.t. the inputs `b` of the m_imp problem.
+        """
+        # 1. Get the pre-configured solver instance. This call is now clean and
+        # will create the solver if it doesn't exist, or retrieve it from cache.
+        solver = self.m_imp_solver
+
+        # 2. Solve (A.T @ A) @ y = grad_m_imp for y using CG.
+        cg_op, M = solver._cg_components
+        y, exit_code = cg(cg_op, grad_m_imp.flatten(), M=M, atol=1e-12, rtol=1e-12)
+        if exit_code != 0:
+            print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
+
+        # 3. Propagate y back through the A operators to get grad_b = A @ y
+        grad_b_list = []
+        for A_op_item in solver.A:
+            grad_b = self._apply_operator(A_op_item.op, y, A_op_item.output_shape)
+            grad_b_list.append(grad_b)
+
+        # 4. Unpack and handle scaling for the gradients
+        grad_b_jr, grad_b_E = None, None
+        
+        if len(grad_b_list) > 0 and self.jr is not None:
+            grad_b_jr_raw = grad_b_list[0]
+            if not MATRIX_WEIGHTS:
+                 grad_b_jr = np.dot(self.jr_coeffs_to_j_apex.T, grad_b_jr_raw)
+            else:
+                 grad_b_jr = grad_b_jr_raw
+        
+        if len(grad_b_list) > 1 and self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+            grad_b_E_raw = grad_b_list[1]
+            if not MATRIX_WEIGHTS:
+                grad_E_apex = -grad_b_E_raw.reshape(2, np.sum(self.ll_mask)) / self.ih_constraint_scaling
+                grad_b_E = np.einsum("ci,cikl->kl", grad_E_apex.conj(), self.E_coeffs_to_E_apex_ll_diff.conj(), optimize=True)
+            else:
+                grad_b_E = -grad_b_E_raw.reshape(2, self.basis.index_length)
+
+        return grad_b_jr, grad_b_E
+
     def _create_E_coeffs_operator(self, G_X_to_JS):
         """
-        Creates a dense or matrix-free operator for the transformation from input coefficients 
+        Creates a dense or matrix-free operator for the transformation from input coefficients
         (X_coeffs) to electric field coefficients (E_coeffs).
-
-        Parameters
-        ----------
-        G_X_to_JS : np.ndarray
-            The operator mapping input coefficients to sheet currents on the grid.
         """
         if G_X_to_JS is None:
             return None
@@ -211,58 +308,36 @@ class State(object):
             return self._create_E_coeffs_dense_operator(G_X_to_JS)
 
     def _create_E_coeffs_dense_operator(self, G_X_to_JS):
-        # The ellipsis (...) stands for the dimensions of the input coefficients (X_coeffs).
-        # This string computes the full operator that maps from X_coeffs to E_coeffs.
         einsum_str = "cmik,ijk,jk...->cm..."
-            
         return np.einsum(
             einsum_str, self.G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS, optimize=True
         )
 
     def _create_E_coeffs_linear_operator(self, G_X_to_JS):
         """
-        Creates a LinearOperator for the transformation from input coefficients (X) 
+        Creates a LinearOperator for the transformation from input coefficients (X)
         to electric field coefficients (E_coeffs).
-        
         This corresponds to the operation: E_coeffs = G_helm_pinv @ M @ G_JS @ x_coeffs
         """
-        # The shape of the input coefficients is inferred from the trailing dimensions
-        # of the G_X_to_JS operator.
-        shape_in = G_X_to_JS.shape[2:] 
-
+        shape_in = G_X_to_JS.shape[2:]
         shape_out = (2, self.basis.index_length)
         shape = (np.prod(shape_out), np.prod(shape_in))
-        
         M_total = self.M_total_on_grid
 
         def matvec(x_coeffs_flat):
-            """Forward operation: E_coeffs = G_helm_pinv @ (M @ (G_JS @ x_coeffs))"""
+            """Forward: E_coeffs = G_helm_pinv @ (M @ (G_JS @ x_coeffs))"""
             x_coeffs = x_coeffs_flat.reshape(shape_in)
-
-            # Step 1: Apply G_X_to_JS. The ellipsis (...) stands for the dimensions of x_coeffs.
             js_on_grid = np.einsum("jk...,...->jk", G_X_to_JS, x_coeffs, optimize=True)
-
-            # Step 2: Apply M_total_on_grid (conductivity tensor)
             j_div_free_on_grid = np.einsum("ijk,jk->ik", M_total, js_on_grid, optimize=True)
-
-            # Step 3: Apply G_helmholtz_pinv to get E_field coefficients
             E_coeffs = np.einsum("cmik,ik->cm", self.G_helmholtz_pinv, j_div_free_on_grid, optimize=True)
-
             return E_coeffs.flatten()
 
         def rmatvec(grad_E_coeffs_flat):
-            """Adjoint operation: grad_x = G_JS^H @ M^H @ G_helm_pinv^H @ grad_E"""
+            """Adjoint: grad_x = G_JS^H @ M^H @ G_helm_pinv^H @ grad_E"""
             grad_E_coeffs = grad_E_coeffs_flat.reshape(shape_out)
-
-            # Step 1: Adjoint of G_helmholtz_pinv
             grad_intermediate_1 = np.einsum("cmik,cm->ik", self.G_helmholtz_pinv.conj(), grad_E_coeffs, optimize=True)
-            
-            # Step 2: Adjoint of M_total
             grad_intermediate_2 = np.einsum("ijk,ik->jk", M_total.conj(), grad_intermediate_1, optimize=True)
-
-            # Step 3: Adjoint of G_X_to_JS. The ... dimensions are preserved in the output.
             grad_x_coeffs = np.einsum("jk...,jk->...", G_X_to_JS.conj(), grad_intermediate_2, optimize=True)
-                
             return grad_x_coeffs.flatten()
 
         return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
@@ -492,105 +567,13 @@ class State(object):
             def rmatvec(grad_E_apex_flat):
                 grad_E_apex = grad_E_apex_flat.reshape(shape_out)
                 grad_E_coeffs = np.einsum("cikl,ci->kl", self.E_coeffs_to_E_apex_ll_diff.conj(), grad_E_apex, optimize=True)
-                op = self.m_imp_to_E_coeffs # This is a LinearOperator now
-                # op.rmatvec will call the corrected rmatvec in _create_E_coeffs_linear_operator
+                op = self.m_imp_to_E_coeffs
                 grad_m_coeffs_flat = op.rmatvec(grad_E_coeffs.flatten())
                 return grad_m_coeffs_flat
 
             self._E_map_constraint_operator = LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64)
 
         return self._E_map_constraint_operator
-
-    # The rest of your State class methods remain unchanged as they should now work correctly
-    # with the fixed LinearOperator definitions. I am including them for completeness.
-
-    def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
-        cache_key = (LEAST_SQUARES_SOLVER, self.connect_hemispheres, MATRIX_FREE_A, MATRIX_WEIGHTS)
-        if cache_key not in self._coeffs_to_m_imp_cache:
-            A_list, data_shapes, sqrt_weights = [], [], []
-            if MATRIX_WEIGHTS:
-                A_list.append(np.diag(self.m_imp_to_jr))
-                data_shapes.append([self.basis.index_length])
-                sqrt_weights.append(self.jr_constraint_L_matrix)
-                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                    A_list.append(self.m_imp_to_E_coeffs)
-                    data_shapes.append((2, self.basis.index_length))
-                    sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
-            else:
-                A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
-                data_shapes.append((self.grid.size,))
-                sqrt_weights.append(None)
-                if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                    A_list.append(self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling)
-                    data_shapes.append((2, np.sum(self.ll_mask)))
-                    sqrt_weights.append(None)
-            solver = LeastSquaresSolver(A_list, self.basis.index_length, data_shapes, 
-                                        sqrt_weights=sqrt_weights, solver=LEAST_SQUARES_SOLVER)
-            self._coeffs_to_m_imp_cache[cache_key] = solver
-        solver = self._coeffs_to_m_imp_cache[cache_key]
-        rhs_B = []
-        if MATRIX_WEIGHTS:
-            rhs_B.append(jr_coeffs)
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                rhs_B.append(-E_direct_coeffs)
-        else:
-            if jr_coeffs is not None: rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
-            else: rhs_B.append(None)
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                E_apex_from_direct = np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, optimize=True)
-                rhs_B.append(-E_apex_from_direct.flatten() * self.ih_constraint_scaling)
-        m_imp = solver.solve(rhs_B)
-        return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
-        
-    def _solve_for_m_imp_adjoint(self, grad_m_imp):
-        """
-        Calculates the gradient of the loss w.r.t. the inputs `b` of the m_imp problem.
-        """
-        # FIX: Use the key for the forward solver to retrieve it from the cache.
-        # This ensures we find the solver instance regardless of its type ('svd', 'cg', etc.).
-        cache_key = (LEAST_SQUARES_SOLVER, self.connect_hemispheres, MATRIX_FREE_A, MATRIX_WEIGHTS)
-
-        # Ensure the forward solver is cached to get its components.
-        # This will create the solver if it doesn't exist by calling the forward method.
-        if cache_key not in self._coeffs_to_m_imp_cache:
-            self._solve_for_m_imp(np.zeros(self.basis.index_length), np.zeros((2, self.basis.index_length)))
-        
-        solver = self._coeffs_to_m_imp_cache[cache_key]
-
-        # 1. Solve (A.T @ A) @ y = grad_m_imp for y using CG.
-        # We can get the (A.T @ A) operator from the forward solver's _cg_components
-        # property, which is computed on-demand. This works even if solver.solver is 'svd'.
-        cg_op, M = solver._cg_components
-        y, exit_code = cg(cg_op, grad_m_imp.flatten(), M=M, atol=1e-12, rtol=1e-12)
-        if exit_code != 0:
-            print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
-
-        # 2. Propagate y back through the A operators to get grad_b = A @ y
-        grad_b_list = []
-        for A_op_item in solver.A:
-            grad_b = self._apply_operator(A_op_item.op, y, A_op_item.output_shape)
-            grad_b_list.append(grad_b)
-
-        # 3. Unpack and handle scaling for the gradients
-        grad_b_jr, grad_b_E = None, None
-        
-        # This part of the logic remains the same
-        if len(grad_b_list) > 0 and self.jr is not None:
-            grad_b_jr_raw = grad_b_list[0]
-            if not MATRIX_WEIGHTS:
-                 grad_b_jr = np.dot(self.jr_coeffs_to_j_apex.T, grad_b_jr_raw)
-            else:
-                 grad_b_jr = grad_b_jr_raw
-        
-        if len(grad_b_list) > 1 and self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-            grad_b_E_raw = grad_b_list[1]
-            if not MATRIX_WEIGHTS:
-                grad_E_apex = -grad_b_E_raw.reshape(2, np.sum(self.ll_mask)) / self.ih_constraint_scaling
-                grad_b_E = np.einsum("ci,cikl->kl", grad_E_apex.conj(), self.E_coeffs_to_E_apex_ll_diff.conj(), optimize=True)
-            else:
-                grad_b_E = -grad_b_E_raw.reshape(2, self.basis.index_length) / self.ih_constraint_scaling
-
-        return grad_b_jr, grad_b_E
 
     def build_m_ind_to_E_df(self):
         if self.m_ind_to_E_df is not None: return
