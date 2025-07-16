@@ -212,12 +212,17 @@ class State(object):
                     data_shapes.append((2, self.basis.index_length))
                     sqrt_weights.append(self.E_constraint_L_matrix * self.ih_constraint_scaling)
             else:
-                A_list.append(self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
+                # This operator maps m_imp_coeffs to j_apex
+                A_jr_op = (self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)))
+                A_list.append(A_jr_op)
                 data_shapes.append((self.grid.size,))
                 sqrt_weights.append(None)
+
                 if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                    A_list.append(self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling)
-                    data_shapes.append((2, np.sum(self.ll_mask)))
+                    # This operator maps m_imp_coeffs to E_apex_diff
+                    A_E_op = self._get_or_create_E_map_constraint_operator()
+                    A_list.append(A_E_op * self.ih_constraint_scaling)
+                    data_shapes.append((2 * np.sum(self.ll_mask),))
                     sqrt_weights.append(None)
             
             # The solver is now built based on the current global settings
@@ -243,55 +248,61 @@ class State(object):
                 rhs_B.append(-E_direct_coeffs)
         else:
             if jr_coeffs is not None: 
+                # b_jr = jr_coeffs_to_j_apex @ jr_coeffs
                 rhs_B.append(np.dot(self.jr_coeffs_to_j_apex, jr_coeffs))
             else: 
                 rhs_B.append(None)
                 
             if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                # b_E = - (E_coeffs_to_E_apex @ E_direct_coeffs) * scaling
                 E_apex_from_direct = np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs, optimize=True)
                 rhs_B.append(-E_apex_from_direct.flatten() * self.ih_constraint_scaling)
-        
+            else:
+                # Ensure rhs_B has correct length if only jr is present
+                if len(solver.A) > 1: rhs_B.append(None)
+
         # 3. Solve the system
         m_imp = solver.solve(rhs_B)
         return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
 
     def _solve_for_m_imp_adjoint(self, grad_m_imp):
         """
-        Calculates the gradient of the loss w.r.t. the inputs `b` of the m_imp problem.
+        Calculates the gradient of the loss w.r.t. the inputs (`jr_coeffs` and
+        `E_direct_coeffs`) of the m_imp problem using the adjoint of the solver.
         """
-        # 1. Get the pre-configured solver instance. This call is now clean and
-        # will create the solver if it doesn't exist, or retrieve it from cache.
+        # 1. Get the pre-configured solver instance.
         solver = self.m_imp_solver
 
-        # 2. Solve (A.T @ A) @ y = grad_m_imp for y using CG.
-        cg_op, M = solver._get_cg_components()
-        y, exit_code = cg(cg_op, grad_m_imp.flatten(), M=M, atol=1e-12, rtol=1e-12)
-        if exit_code != 0:
-            print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
+        # 2. Solve the adjoint problem. This computes G @ (G.T @ G)^-1 @ grad_m_imp
+        # The result is a list of gradients, one for each `b` term in the forward problem.
+        grad_b_list = solver.solve_adjoint(grad_m_imp)
 
-        # 3. Propagate y back through the A operators to get grad_b = A @ y
-        grad_b_list = []
-        for A_op_item in solver.A:
-            grad_b = self._apply_operator(A_op_item.op, y, A_op_item.output_shape)
-            grad_b_list.append(grad_b)
-
-        # 4. Unpack and handle scaling for the gradients
+        # 3. Unpack and transform gradients from the `b` space back to the original input space.
         grad_b_jr, grad_b_E = None, None
         
+        # Term 1: jr constraint
         if len(grad_b_list) > 0 and self.jr is not None:
             grad_b_jr_raw = grad_b_list[0]
             if not MATRIX_WEIGHTS:
+                 # b_jr = jr_coeffs_to_j_apex @ jr_coeffs
+                 # grad_jr_coeffs = jr_coeffs_to_j_apex.T @ grad_b_jr
                  grad_b_jr = np.dot(self.jr_coeffs_to_j_apex.T, grad_b_jr_raw)
             else:
+                 # b_jr = jr_coeffs, so grad_b_jr is the final gradient.
                  grad_b_jr = grad_b_jr_raw
         
+        # Term 2: Interhemispheric E-field constraint
         if len(grad_b_list) > 1 and self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
             grad_b_E_raw = grad_b_list[1]
             if not MATRIX_WEIGHTS:
-                grad_E_apex = -grad_b_E_raw.reshape(2, np.sum(self.ll_mask)) / self.ih_constraint_scaling
+                # b_E = -scaling * (einsum_op @ E_direct_coeffs)
+                # grad_E_direct = (-scaling * einsum_op).T @ grad_b_E
+                grad_E_apex = -grad_b_E_raw.reshape(2, -1) / self.ih_constraint_scaling
+                # Adjoint of einsum("cikl,kl->ci") is einsum("ci,cikl->kl")
                 grad_b_E = np.einsum("ci,cikl->kl", grad_E_apex.conj(), self.E_coeffs_to_E_apex_ll_diff.conj(), optimize=True)
             else:
-                grad_b_E = -grad_b_E_raw.reshape(2, self.basis.index_length)
+                # b_E = -E_direct_coeffs * scaling
+                grad_b_E = -grad_b_E_raw.reshape(2, self.basis.index_length) * self.ih_constraint_scaling
 
         return grad_b_jr, grad_b_E
 

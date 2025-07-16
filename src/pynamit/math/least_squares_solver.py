@@ -406,4 +406,111 @@ class LeastSquaresSolver:
                 sol_block[:, k], exit_code = cg(cg_op, rhs_block[:, k], **cg_kwargs)
                 if exit_code != 0: print(f"Warning: CG solver did not converge for scenario {k} (exit_code={exit_code}).")
         
-        return sol_block.reshape(self.solution_shape + scenario_shape)
+        final_shape = self.solution_shape + scenario_shape
+        return sol_block.reshape(final_shape)
+
+    def solve_adjoint(self, y, **kwargs):
+        """
+        Solves the adjoint of the least-squares problem.
+
+        If the forward problem is x = S(b), this computes S^T @ y.
+        Mathematically, this is S^T @ y = G @ (G^T @ G)^-1 @ y, where G is the
+        full (weighted and regularized) system matrix and y is a vector with the
+        same shape as the solution x.
+
+        Parameters
+        ----------
+        y : np.ndarray
+            The input vector for the adjoint operation. Must have a shape
+            that is broadcastable to `self.solution_shape`. Can include
+            additional trailing dimensions for multiple scenarios.
+        **kwargs : dict
+            Additional keyword arguments passed to the underlying iterative solvers
+            (e.g., `rtol`, `atol`, `maxiter` for `cg`). Defaults are inherited
+            from the solver instance.
+
+        Returns
+        -------
+        list[np.ndarray]
+            A list of gradients, one for each of the `b` terms in the forward
+            problem. The shape of each gradient matches the shape of the
+            corresponding `b` term (including any scenario dimensions).
+        """
+        self._calculate_and_cache_scaled_lambdas()
+
+        # 1. Process input vector `y` into a block of column vectors
+        if not isinstance(y, np.ndarray): y = np.array(y, dtype=self.A[0].op.dtype)
+        y_ndim, sol_ndim = y.ndim, len(self.solution_shape)
+
+        if y_ndim < sol_ndim or y.shape[:sol_ndim] != self.solution_shape:
+            if y_ndim == 1 and y.size % self.solution_size == 0: # Flattened input
+                num_scenarios = y.size // self.solution_size
+                scenario_shape = (num_scenarios,) if num_scenarios > 1 else ()
+            else:
+                raise ValueError(f"Shape of y {y.shape} is incompatible with solution_shape {self.solution_shape}.")
+        else: # Multi-dimensional input with potential scenario dimensions
+            scenario_shape = y.shape[sol_ndim:]
+        
+        num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
+        y_block = np.ascontiguousarray(y).reshape(self.solution_size, num_scenarios)
+
+        # 2. Solve (G^T G) z = y for z. This intermediate step is required for all solver types.
+        z_block = np.zeros_like(y_block)
+        
+        if self.solver == "svd":
+            # For SVD, the solution is direct. Tolerance was used when creating s_inv.
+            _, s_inv, vt = self._get_svd_components()
+            s_inv_sq = s_inv**2
+            z_block = vt.T.conj() @ (s_inv_sq[:, np.newaxis] * (vt @ y_block))
+        elif self.solver == "normal":
+            # For normal equations, the solution is direct.
+            G_T_G, _ = self._get_normal_components()
+            z_block = np.linalg.solve(G_T_G, y_block)
+        elif self.solver in ["cg", "lsmr"]:
+            # For iterative solvers, we solve the system using CG.
+            # This is the most efficient way to solve the symmetric positive definite system (G^T G)z = y.
+            cg_op, M = self._get_cg_components()
+            
+            # --- MODIFIED SECTION ---
+            # Set up CG arguments, inheriting defaults from the solver instance
+            # and allowing overrides from the user's call to this function.
+            # This ensures consistent tolerance behavior with the forward solve.
+            max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
+            cg_kwargs = {
+                "rtol": self.tolerance, # Use instance's tolerance as default rtol
+                "M": M,
+                "maxiter": max_iter,
+                **kwargs # User-provided kwargs override the defaults
+            }
+            # --- END MODIFIED SECTION ---
+
+            for k in range(num_scenarios):
+                sol, exit_code = cg(cg_op, y_block[:, k], **cg_kwargs)
+                if exit_code != 0: print(f"Warning: Adjoint CG solver did not converge for scenario {k} (exit_code={exit_code}).")
+                z_block[:, k] = sol
+        
+        # 3. Compute grad_d = G @ z
+        _, _, matvec_block_fn = self._get_multi_scenario_operator(num_scenarios, use_scaled_lambdas=True, include_regularization=True)
+        grad_d_block = matvec_block_fn(z_block)
+        
+        # 4. Un-stack and un-weight to get gradients w.r.t. each b term
+        grad_b_list = []
+        current_row = 0
+        for i in range(self.num_data_terms):
+            num_a_rows = self.A[i].op.shape[0]
+            grad_d_i = grad_d_block[current_row : current_row + num_a_rows, :]
+            
+            grad_b_i = grad_d_i
+            w_item = self.sqrt_weights[i]
+            if w_item is not None:
+                if w_item.input_shape == (1,): # Diagonal weight
+                    grad_b_i = w_item.op.conj() * grad_d_i
+                else: # Matrix/LinearOperator weight
+                    w_op = w_item.op
+                    grad_b_i = w_op.rmatmat(grad_d_i) if isinstance(w_op, LinearOperator) else w_op.T.conj() @ grad_d_i
+            
+            output_shape = self.data_shapes[i] + scenario_shape
+            grad_b_list.append(grad_b_i.reshape(output_shape))
+            current_row += num_a_rows
+            
+        return grad_b_list
