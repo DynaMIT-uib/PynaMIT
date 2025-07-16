@@ -31,30 +31,30 @@ class LeastSquaresSolver:
     The solver uses a lazy initialization pattern. The constructor (`__init__`) is
     lightweight and only defines the problem. The expensive one-time setup
     (e.g., matrix decomposition or preconditioner calculation) is deferred and
-    performed transparently on the first call to the `solve()` method.
+    performed transparently on the first call to the `solve()` or `solve_adjoint()`
+    methods.
 
     Parameters
     ----------
     A : np.ndarray | LinearOperator | list
-        A single N-D array/LinearOperator or a list of them for the data-fitting terms.
+        A single N-D array/LinearOperator or a list of them for the data-fitting terms `A_i`.
     solution_shape : int | tuple
         The multi-dimensional shape of the solution vector `x`.
     data_shapes : tuple | list[tuple]
         A list of tuples, where `data_shapes[i]` is the multi-dimensional shape
-        of the output space for operator `A[i]`.
+        of the output space for operator `A[i]`. Must be provided for each `A_i`.
     sqrt_weights : np.ndarray | list, optional
         A single N-D weight array or a list of them, representing the square root
-        of the desired weights. These define the problem and modify the solution.
+        of the desired weights `W_i`. These can be diagonal (1D array) or dense.
     regularization_weights : float | list[float], optional
         A single scalar weight or a list of weights `lambda_j` for each regularization term.
-        These are auto-scaled to be commensurate with the data terms.
     regularization_matrices : np.ndarray | LinearOperator | list, optional
         A single N-D regularization operator `L_j` or a list of them.
     solver : str, default="svd"
         The solver to use. One of {"svd", "normal", "lsmr", "cg"}.
     tolerance : float, default=1e-12
         The tolerance for iterative solvers ("lsmr", "cg") or for SVD truncation.
-    preconditioner : str, optional
+    preconditioner : str, default="jacobi"
         The preconditioner to use. If set to "jacobi", a Jacobi (diagonal)
         preconditioner is used for the "cg" and "lsmr" solvers.
     """
@@ -105,6 +105,7 @@ class LeastSquaresSolver:
         if self.is_matrix_free and solver in ["normal", "svd"]: print(f"Warning: Solver '{solver}' with matrix-free operators requires densification, which may be slow or memory-intensive.")
         self._op_cache = {}
 
+    # --- Internal helper methods ---
     @staticmethod
     def _prepare_input_list(item, name, count=None, allow_single_item=False, is_optional=False, default_val=None):
         """Standardizes user input into a list of a specific length."""
@@ -171,22 +172,15 @@ class LeastSquaresSolver:
         data_op, _, _ = self._get_multi_scenario_operator(num_scenarios=1, use_scaled_lambdas=False, include_regularization=False)
         diag_A_T_A = np.zeros(self.solution_size, dtype=data_op.dtype)
         for i in range(self.solution_size):
-            e_i = np.zeros(self.solution_size); e_i[i] = 1.0
-            col_i = data_op.matvec(e_i)
-            diag_A_T_A[i] = np.dot(col_i.conj(), col_i).real
+            e_i = np.zeros(self.solution_size); e_i[i] = 1.0; col_i = data_op.matvec(e_i); diag_A_T_A[i] = np.dot(col_i.conj(), col_i).real
         data_scale = np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
         scaled_lambdas = []
         for i, L_item in enumerate(self.regularization_matrices):
             raw_weight = self.regularization_weights[i]
-            if raw_weight == 0 or L_item is None:
-                scaled_lambdas.append(0.0)
-                continue
-            diag_L_T_L = np.zeros(self.solution_size, dtype=L_item.op.dtype)
-            L_op = L_item.op
+            if raw_weight == 0 or L_item is None: scaled_lambdas.append(0.0); continue
+            diag_L_T_L = np.zeros(self.solution_size, dtype=L_item.op.dtype); L_op = L_item.op
             for j in range(self.solution_size):
-                e_j = np.zeros(self.solution_size); e_j[j] = 1.0
-                col_j = L_op.matvec(e_j) if isinstance(L_op, LinearOperator) else self._densify_op(L_item)[:, j]
-                diag_L_T_L[j] = np.dot(col_j.conj(), col_j).real
+                e_j = np.zeros(self.solution_size); e_j[j] = 1.0; col_j = L_op.matvec(e_j) if isinstance(L_op, LinearOperator) else self._densify_op(L_item)[:, j]; diag_L_T_L[j] = np.dot(col_j.conj(), col_j).real
             reg_scale = np.median(diag_L_T_L[diag_L_T_L > 0]) if np.any(diag_L_T_L > 0) else 1.0
             scaled_lambda = np.sqrt(raw_weight) * np.sqrt(data_scale / reg_scale) if reg_scale > 1e-14 else 0.0
             scaled_lambdas.append(scaled_lambda)
@@ -200,47 +194,38 @@ class LeastSquaresSolver:
         op_rows_reg = sum(l.op.shape[0] for i, l in enumerate(self.regularization_matrices) if i < len(lambdas) and l and lambdas[i] > 0) if include_regularization else 0
         op_rows = op_rows_data + op_rows_reg
         dtype = self.A[0].op.dtype
+
         def _apply_op_to_block(op, x_block):
-            if isinstance(op, LinearOperator):
-                return op.matmat(x_block)
+            if isinstance(op, LinearOperator): return op.matmat(x_block) if x_block.shape[1] > 1 else op.matvec(x_block[:,0])[:,np.newaxis]
             return op @ x_block
         def _apply_op_T_to_block(op, y_block):
-            if isinstance(op, LinearOperator):
-                return op.rmatmat(y_block)
+            if isinstance(op, LinearOperator): return op.rmatmat(y_block) if y_block.shape[1] > 1 else op.rmatvec(y_block[:,0])[:,np.newaxis]
             return op.T.conj() @ y_block
+
         def matvec_block(x_block):
             output_blocks = []
             for i, a_item in enumerate(self.A):
                 res_block = _apply_op_to_block(a_item.op, x_block)
                 w_item = self.sqrt_weights[i]
-                if w_item is not None:
-                    res_block = w_item.op * res_block if w_item.input_shape == (1,) else _apply_op_to_block(w_item.op, res_block)
+                if w_item is not None: res_block = w_item.op * res_block if w_item.input_shape == (1,) else _apply_op_to_block(w_item.op, res_block)
                 output_blocks.append(res_block)
             if include_regularization:
                 for i, L_item in enumerate(self.regularization_matrices):
                     if i < len(lambdas) and L_item and lambdas[i] > 0:
-                        res_block = _apply_op_to_block(L_item.op, x_block)
-                        output_blocks.append(lambdas[i] * res_block)
+                        res_block = _apply_op_to_block(L_item.op, x_block); output_blocks.append(lambdas[i] * res_block)
             return np.vstack(output_blocks) if output_blocks else np.zeros((0, x_block.shape[1]), dtype=dtype)
         def rmatvec_block(y_block):
-            x_block = np.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype)
-            row = 0
+            x_block = np.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype); row = 0
             for i, a_item in enumerate(self.A):
-                num_a_rows = a_item.op.shape[0]
-                y_part = y_block[row : row + num_a_rows, :]
-                w_item = self.sqrt_weights[i]
-                if w_item is not None:
-                    y_part = w_item.op.conj() * y_part if w_item.input_shape == (1,) else _apply_op_T_to_block(w_item.op, y_part)
-                x_block += _apply_op_T_to_block(a_item.op, y_part)
-                row += num_a_rows
+                num_a_rows = a_item.op.shape[0]; y_part = y_block[row : row + num_a_rows, :]; w_item = self.sqrt_weights[i]
+                if w_item is not None: y_part = w_item.op.conj() * y_part if w_item.input_shape == (1,) else _apply_op_T_to_block(w_item.op, y_part)
+                x_block += _apply_op_T_to_block(a_item.op, y_part); row += num_a_rows
             if include_regularization:
                 for i, L_item in enumerate(self.regularization_matrices):
                     if i < len(lambdas) and L_item and lambdas[i] > 0:
-                        num_L_rows = L_item.op.shape[0]
-                        y_part = y_block[row : row + num_L_rows, :]
-                        x_block += lambdas[i] * _apply_op_T_to_block(L_item.op, y_part)
-                        row += num_L_rows
+                        num_L_rows = L_item.op.shape[0]; y_part = y_block[row : row + num_L_rows, :]; x_block += lambdas[i] * _apply_op_T_to_block(L_item.op, y_part); row += num_L_rows
             return x_block
+            
         shape = (op_rows * num_scenarios, num_features * num_scenarios)
         def matvec_final(x_flat): return matvec_block(x_flat.reshape(num_features, num_scenarios)).flatten()
         def rmatvec_final(y_flat): return rmatvec_block(y_flat.reshape(op_rows, num_scenarios)).flatten()
@@ -258,12 +243,10 @@ class LeastSquaresSolver:
             all_A_weighted, all_L_weighted = [], []
             for i, a_item in enumerate(self.A):
                 op, w_item = self._densify_op(a_item), self.sqrt_weights[i]
-                if w_item is not None:
-                    op = (self._densify_op(w_item) * op if w_item.input_shape == (1,) else self._densify_op(w_item) @ op)
+                if w_item is not None: op = (self._densify_op(w_item) * op if w_item.input_shape == (1,) else self._densify_op(w_item) @ op)
                 all_A_weighted.append(op)
             for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(lambdas) and L_item and lambdas[i] > 1e-12:
-                    all_L_weighted.append(lambdas[i] * self._densify_op(L_item))
+                if i < len(lambdas) and L_item and lambdas[i] > 1e-12: all_L_weighted.append(lambdas[i] * self._densify_op(L_item))
             G_dense = np.vstack(all_A_weighted + all_L_weighted)
         self._op_cache["G_dense"] = G_dense
         return G_dense
@@ -271,20 +254,15 @@ class LeastSquaresSolver:
     def _get_svd_components(self):
         """Lazily computes and caches the SVD components."""
         if "svd_components" not in self._op_cache:
-            G_dense = self._get_full_stacked_operator()
-            u, s, vt = np.linalg.svd(G_dense, full_matrices=False)
-            s_inv = np.zeros_like(s)
-            stable_s = s > (self.tolerance * (s[0] if s.size > 0 else 0))
-            s_inv[stable_s] = 1.0 / s[stable_s]
+            G_dense = self._get_full_stacked_operator(); u, s, vt = np.linalg.svd(G_dense, full_matrices=False)
+            s_inv = np.zeros_like(s); stable_s = s > (self.tolerance * (s[0] if s.size > 0 else 0)); s_inv[stable_s] = 1.0 / s[stable_s]
             self._op_cache["svd_components"] = (u, s_inv, vt)
         return self._op_cache["svd_components"]
 
     def _get_normal_components(self):
         """Lazily computes and caches the matrices for the normal equations."""
         if "normal_components" not in self._op_cache:
-            G_dense = self._get_full_stacked_operator()
-            G_T_G = G_dense.T.conj() @ G_dense
-            G_T = G_dense.T.conj()
+            G_dense = self._get_full_stacked_operator(); G_T_G = G_dense.T.conj() @ G_dense; G_T = G_dense.T.conj()
             self._op_cache["normal_components"] = (G_T_G, G_T)
         return self._op_cache["normal_components"]
 
@@ -295,37 +273,22 @@ class LeastSquaresSolver:
         base_op, _, _ = self._get_multi_scenario_operator(num_scenarios=1, use_scaled_lambdas=True, include_regularization=True)
         diag_G_T_G = np.zeros(self.solution_size, dtype=base_op.dtype)
         for i in range(self.solution_size):
-            e_i = np.zeros(self.solution_size); e_i[i] = 1.0
-            col_i = base_op.matvec(e_i)
-            diag_G_T_G[i] = np.dot(col_i.conj(), col_i).real
+            e_i = np.zeros(self.solution_size); e_i[i] = 1.0; col_i = base_op.matvec(e_i); diag_G_T_G[i] = np.dot(col_i.conj(), col_i).real
         self._op_cache["jacobi_diag"] = diag_G_T_G
 
     def _get_lsmr_components(self, num_scenarios):
         """Gets the operator and solution transform needed for the LSMR solver."""
         if f"lsmr_components_{num_scenarios}" in self._op_cache: return self._op_cache[f"lsmr_components_{num_scenarios}"]
         base_op, _, _ = self._get_multi_scenario_operator(num_scenarios, use_scaled_lambdas=True, include_regularization=True)
-        op_to_solve = base_op
-        solution_transform = lambda sol_block: sol_block
+        op_to_solve = base_op; solution_transform = lambda sol_block: sol_block
         if self.preconditioner == "jacobi":
-            self._setup_preconditioner_components()
-            diag = self._op_cache["jacobi_diag"]
-            sqrt_inv_diag = np.sqrt(1.0 / diag)
-            sqrt_inv_diag[np.isinf(sqrt_inv_diag)] = 1.0
-            def precond_matvec(y_flat):
-                y_block = y_flat.reshape(self.solution_size, num_scenarios)
-                x_block = y_block * sqrt_inv_diag[:, np.newaxis]
-                return base_op.matvec(x_block.flatten())
-            def precond_rmatvec(d_flat):
-                d_block_in = d_flat.reshape(-1, num_scenarios)
-                x_block_T_flat = base_op.rmatvec(d_block_in.flatten())
-                x_block_T = x_block_T_flat.reshape(self.solution_size, num_scenarios)
-                return (x_block_T * sqrt_inv_diag[:, np.newaxis]).flatten()
+            self._setup_preconditioner_components(); diag = self._op_cache["jacobi_diag"]; sqrt_inv_diag = np.sqrt(1.0 / diag); sqrt_inv_diag[np.isinf(sqrt_inv_diag)] = 1.0
+            def precond_matvec(y_flat): y_block = y_flat.reshape(self.solution_size, num_scenarios); x_block = y_block * sqrt_inv_diag[:, np.newaxis]; return base_op.matvec(x_block.flatten())
+            def precond_rmatvec(d_flat): d_block_in = d_flat.reshape(-1, num_scenarios); x_block_T_flat = base_op.rmatvec(d_block_in.flatten()); x_block_T = x_block_T_flat.reshape(self.solution_size, num_scenarios); return (x_block_T * sqrt_inv_diag[:, np.newaxis]).flatten()
             op_to_solve = LinearOperator(base_op.shape, matvec=precond_matvec, rmatvec=precond_rmatvec, dtype=base_op.dtype)
             solution_transform = lambda sol_y_block: sol_y_block * sqrt_inv_diag[:, np.newaxis]
-        
-        components = (op_to_solve, solution_transform)
-        self._op_cache[f"lsmr_components_{num_scenarios}"] = components
-        return components
+        self._op_cache[f"lsmr_components_{num_scenarios}"] = (op_to_solve, solution_transform)
+        return op_to_solve, solution_transform
 
     def _get_cg_components(self):
         """Gets the operator and preconditioner needed for the CG solver."""
@@ -335,57 +298,59 @@ class LeastSquaresSolver:
         cg_op = LinearOperator((self.solution_size, self.solution_size), matvec=normal_op_matvec, rmatvec=normal_op_matvec, dtype=base_op.dtype)
         M = None
         if self.preconditioner == "jacobi":
-            self._setup_preconditioner_components()
-            diag = self._op_cache.get("jacobi_diag")
-            diag_inv = 1.0 / diag
-            diag_inv[np.isinf(diag_inv)] = 1.0
+            self._setup_preconditioner_components(); diag = self._op_cache.get("jacobi_diag"); diag_inv = 1.0 / diag; diag_inv[np.isinf(diag_inv)] = 1.0
             def precon_matvec(x): return x * diag_inv
             M = LinearOperator((self.solution_size, self.solution_size), matvec=precon_matvec, rmatvec=precon_matvec, dtype=diag.dtype)
-        
-        components = (cg_op, M)
-        self._op_cache["cg_components"] = components
-        return components
+        self._op_cache["cg_components"] = (cg_op, M)
+        return cg_op, M
 
+    # --- Public API Methods ---
     def solve(self, b, **kwargs):
-        """Solves the least-squares problem for the given RHS data."""
-        self._calculate_and_cache_scaled_lambdas()
-        b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
+        """
+        Solves the least-squares problem for the given right-hand-side data.
+
+        Parameters
+        ----------
+        b : np.ndarray | None | list[np.ndarray | None]
+            The right-hand-side data vector(s) `b_i`. Can be a single array
+            if there is only one data term, or a list of arrays corresponding
+            to each operator in `A`. Use `None` for terms that are missing.
+            Each array can have additional trailing "scenario" dimensions.
+        **kwargs : dict
+            Additional keyword arguments passed to the underlying iterative solver
+            (`cg` or `lsmr`), e.g., `atol`, `maxiter`.
+
+        Returns
+        -------
+        np.ndarray
+            The solution vector `x`. Its shape will be `self.solution_shape`
+            concatenated with any scenario dimensions from `b`.
+        """
+        self._calculate_and_cache_scaled_lambdas(); b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
         processed_b = [self._process_b_vector(b_val, self.data_shapes[i]) for i, b_val in enumerate(b_list)]
         valid_b = [(p[0], p[1]) for p in processed_b if p[0] is not None]
-        dtype = self.A[0].op.dtype
-        if not valid_b: return np.zeros(self.solution_shape, dtype=dtype)
-        
-        scenario_shape = valid_b[0][1]
-        num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
-
-        lambdas = self._op_cache.get("scaled_lambdas")
-        op_rows_data = sum(a.op.shape[0] for a in self.A)
-        op_rows_reg = sum(l.op.shape[0] for i, l in enumerate(self.regularization_matrices) if i < len(lambdas) and l and lambdas[i] > 0)
-        op_rows = op_rows_data + op_rows_reg
-        d_block = np.zeros((op_rows, num_scenarios), dtype=dtype)
-        
+        if not valid_b: return np.zeros(self.solution_shape, dtype=self.A[0].op.dtype)
+        scenario_shape = valid_b[0][1]; num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
+        base_op, rmatvec_block, _ = self._get_multi_scenario_operator(num_scenarios, use_scaled_lambdas=True, include_regularization=True)
+        d_block = np.zeros((base_op.shape[0] // num_scenarios, num_scenarios), dtype=base_op.dtype)
         current_row = 0
         for i, b_val in enumerate(b_list):
             num_a_rows = self.A[i].op.shape[0]
-            if b_val is None:
-                current_row += num_a_rows
-                continue
-            b_col_block, b_scenario_shape = processed_b[i]
-            if b_scenario_shape != scenario_shape: raise ValueError("Inconsistent scenario shapes in b terms.")
-            w_item = self.sqrt_weights[i]
-            if w_item is not None:
-                w_op = self._densify_op(w_item) if not isinstance(w_item.op, np.ndarray) or w_item.input_shape != (1,) else w_item.op
-                b_col_block = w_op * b_col_block if w_item.input_shape == (1,) else w_op @ b_col_block
-            d_block[current_row : current_row + num_a_rows, :] = b_col_block
+            if b_val is not None:
+                b_col_block, b_scenario_shape = processed_b[i]
+                if b_scenario_shape != scenario_shape: raise ValueError("Inconsistent scenario shapes in b terms.")
+                w_item = self.sqrt_weights[i]
+                if w_item is not None:
+                    w_op = self._densify_op(w_item) if not isinstance(w_item.op, np.ndarray) or w_item.input_shape != (1,) else w_item.op
+                    b_col_block = w_op * b_col_block if w_item.input_shape == (1,) else w_op @ b_col_block
+                d_block[current_row : current_row + num_a_rows, :] = b_col_block
             current_row += num_a_rows
         
+        sol_block = None
         if self.solver == "svd":
-            u, s_inv, vt = self._get_svd_components()
-            sol_block = vt.T.conj() @ (s_inv[:, np.newaxis] * (u.T.conj() @ d_block))
+            u, s_inv, vt = self._get_svd_components(); sol_block = vt.T.conj() @ (s_inv[:, np.newaxis] * (u.T.conj() @ d_block))
         elif self.solver == "normal":
-            G_T_G, G_T = self._get_normal_components()
-            G_T_d = G_T @ d_block
-            sol_block = np.linalg.solve(G_T_G, G_T_d)
+            G_T_G, G_T = self._get_normal_components(); G_T_d = G_T @ d_block; sol_block = np.linalg.solve(G_T_G, G_T_d)
         elif self.solver == "lsmr":
             op_to_solve, solution_transform = self._get_lsmr_components(num_scenarios)
             m, n = op_to_solve.shape; m, n = m // num_scenarios, n // num_scenarios
@@ -393,40 +358,36 @@ class LeastSquaresSolver:
             lsmr_kwargs = {"atol": self.tolerance, "btol": self.tolerance, "maxiter": max_iter, **kwargs}
             sol_y_flat, istop, *_ = lsmr(op_to_solve, d_block.flatten(), **lsmr_kwargs)
             if istop not in [0, 1, 2]: print(f"Warning: LSMR may not have fully converged (istop={istop}).")
-            sol_y_block = sol_y_flat.reshape(self.solution_size, num_scenarios)
-            sol_block = solution_transform(sol_y_block)
+            sol_y_block = sol_y_flat.reshape(self.solution_size, num_scenarios); sol_block = solution_transform(sol_y_block)
         elif self.solver == "cg":
-            _, rmatvec_block, _ = self._get_multi_scenario_operator(num_scenarios, use_scaled_lambdas=True, include_regularization=True)
-            cg_op, M = self._get_cg_components()
-            rhs_block = rmatvec_block(d_block)
-            sol_block = np.zeros_like(rhs_block)
-            max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
-            cg_kwargs = {"rtol": self.tolerance, "M": M, "maxiter": max_iter, **kwargs}
+            cg_op, M = self._get_cg_components(); rhs_block = rmatvec_block(d_block); sol_block = np.zeros_like(rhs_block)
+            max_iter = ITERATION_SAFETY_FACTOR * self.solution_size; cg_kwargs = {"rtol": self.tolerance, "M": M, "maxiter": max_iter, **kwargs}
             for k in range(num_scenarios):
                 sol_block[:, k], exit_code = cg(cg_op, rhs_block[:, k], **cg_kwargs)
                 if exit_code != 0: print(f"Warning: CG solver did not converge for scenario {k} (exit_code={exit_code}).")
         
-        final_shape = self.solution_shape + scenario_shape
-        return sol_block.reshape(final_shape)
+        return sol_block.reshape(self.solution_shape + scenario_shape)
 
     def solve_adjoint(self, y, **kwargs):
         """
         Solves the adjoint of the least-squares problem.
 
-        If the forward problem is x = S(b), this computes S^T @ y.
-        Mathematically, this is S^T @ y = G @ (G^T @ G)^-1 @ y, where G is the
-        full (weighted and regularized) system matrix and y is a vector with the
-        same shape as the solution x.
+        If the forward problem is `x = S(b)`, this computes `S^T @ y`.
+        Mathematically, this is `G @ (G^T @ G)^-1 @ y`, where `G` is the
+        full (weighted and regularized) system matrix and `y` is a vector with the
+        same shape as the solution `x`. This is useful for sensitivity analysis
+        and backpropagation of gradients.
 
         Parameters
         ----------
         y : np.ndarray
-            The input vector for the adjoint operation. Must have a shape
-            that is broadcastable to `self.solution_shape`. Can include
-            additional trailing dimensions for multiple scenarios.
+            The input vector for the adjoint operation. This typically represents the
+            gradient of a scalar loss with respect to the solution `x`. It must have
+            a shape that is broadcastable to `self.solution_shape`. It can also
+            include additional trailing "scenario" dimensions.
         **kwargs : dict
-            Additional keyword arguments passed to the underlying iterative solvers
-            (e.g., `rtol`, `atol`, `maxiter` for `cg`). Defaults are inherited
+            Additional keyword arguments passed to the underlying iterative `cg`
+            solver (e.g., `atol`, `rtol`, `maxiter`). Defaults are inherited
             from the solver instance.
 
         Returns
@@ -434,83 +395,48 @@ class LeastSquaresSolver:
         list[np.ndarray]
             A list of gradients, one for each of the `b` terms in the forward
             problem. The shape of each gradient matches the shape of the
-            corresponding `b` term (including any scenario dimensions).
+            corresponding `b` term (including any scenario dimensions from `y`).
         """
-        self._calculate_and_cache_scaled_lambdas()
-
-        # 1. Process input vector `y` into a block of column vectors
+        self._calculate_and_cache_scaled_lambdas();
         if not isinstance(y, np.ndarray): y = np.array(y, dtype=self.A[0].op.dtype)
         y_ndim, sol_ndim = y.ndim, len(self.solution_shape)
 
         if y_ndim < sol_ndim or y.shape[:sol_ndim] != self.solution_shape:
-            if y_ndim == 1 and y.size % self.solution_size == 0: # Flattened input
-                num_scenarios = y.size // self.solution_size
-                scenario_shape = (num_scenarios,) if num_scenarios > 1 else ()
-            else:
-                raise ValueError(f"Shape of y {y.shape} is incompatible with solution_shape {self.solution_shape}.")
-        else: # Multi-dimensional input with potential scenario dimensions
-            scenario_shape = y.shape[sol_ndim:]
-        
+            if y_ndim == 1 and y.size % self.solution_size == 0:
+                num_scenarios = y.size // self.solution_size; scenario_shape = (num_scenarios,) if num_scenarios > 1 else ()
+            else: raise ValueError(f"Shape of y {y.shape} is incompatible with solution_shape {self.solution_shape}.")
+        else: scenario_shape = y.shape[sol_ndim:]
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
         y_block = np.ascontiguousarray(y).reshape(self.solution_size, num_scenarios)
 
-        # 2. Solve (G^T G) z = y for z. This intermediate step is required for all solver types.
         z_block = np.zeros_like(y_block)
-        
         if self.solver == "svd":
-            # For SVD, the solution is direct. Tolerance was used when creating s_inv.
-            _, s_inv, vt = self._get_svd_components()
-            s_inv_sq = s_inv**2
-            z_block = vt.T.conj() @ (s_inv_sq[:, np.newaxis] * (vt @ y_block))
+            _, s_inv, vt = self._get_svd_components(); s_inv_sq = s_inv**2; z_block = vt.T.conj() @ (s_inv_sq[:, np.newaxis] * (vt @ y_block))
         elif self.solver == "normal":
-            # For normal equations, the solution is direct.
-            G_T_G, _ = self._get_normal_components()
-            z_block = np.linalg.solve(G_T_G, y_block)
+            G_T_G, _ = self._get_normal_components(); z_block = np.linalg.solve(G_T_G, y_block)
         elif self.solver in ["cg", "lsmr"]:
-            # For iterative solvers, we solve the system using CG.
-            # This is the most efficient way to solve the symmetric positive definite system (G^T G)z = y.
-            cg_op, M = self._get_cg_components()
-            
-            # --- MODIFIED SECTION ---
-            # Set up CG arguments, inheriting defaults from the solver instance
-            # and allowing overrides from the user's call to this function.
-            # This ensures consistent tolerance behavior with the forward solve.
-            max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
-            cg_kwargs = {
-                "rtol": self.tolerance, # Use instance's tolerance as default rtol
-                "M": M,
-                "maxiter": max_iter,
-                **kwargs # User-provided kwargs override the defaults
-            }
-            # --- END MODIFIED SECTION ---
-
+            cg_op, M = self._get_cg_components(); max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
+            cg_kwargs = {"rtol": self.tolerance, "M": M, "maxiter": max_iter, **kwargs}
             for k in range(num_scenarios):
                 sol, exit_code = cg(cg_op, y_block[:, k], **cg_kwargs)
                 if exit_code != 0: print(f"Warning: Adjoint CG solver did not converge for scenario {k} (exit_code={exit_code}).")
                 z_block[:, k] = sol
         
-        # 3. Compute grad_d = G @ z
         _, _, matvec_block_fn = self._get_multi_scenario_operator(num_scenarios, use_scaled_lambdas=True, include_regularization=True)
         grad_d_block = matvec_block_fn(z_block)
         
-        # 4. Un-stack and un-weight to get gradients w.r.t. each b term
-        grad_b_list = []
-        current_row = 0
+        grad_b_list = []; current_row = 0
         for i in range(self.num_data_terms):
-            num_a_rows = self.A[i].op.shape[0]
-            grad_d_i = grad_d_block[current_row : current_row + num_a_rows, :]
-            
-            grad_b_i = grad_d_i
-            w_item = self.sqrt_weights[i]
+            num_a_rows = self.A[i].op.shape[0]; grad_d_i = grad_d_block[current_row : current_row + num_a_rows, :]
+            grad_b_i = grad_d_i; w_item = self.sqrt_weights[i]
             if w_item is not None:
-                if w_item.input_shape == (1,): # Diagonal weight
-                    grad_b_i = w_item.op.conj() * grad_d_i
-                else: # Matrix/LinearOperator weight
+                if w_item.input_shape == (1,): grad_b_i = w_item.op.conj() * grad_d_i
+                else:
                     w_op = w_item.op
-                    grad_b_i = w_op.rmatmat(grad_d_i) if isinstance(w_op, LinearOperator) else w_op.T.conj() @ grad_d_i
-            
+                    if isinstance(w_op, LinearOperator):
+                        # Apply same matvec/matmat optimization for the adjoint pass
+                        grad_b_i = w_op.rmatmat(grad_d_i) if grad_d_i.shape[1] > 1 else w_op.rmatvec(grad_d_i[:,0])[:,np.newaxis]
+                    else: grad_b_i = w_op.T.conj() @ grad_d_i
             output_shape = self.data_shapes[i] + scenario_shape
-            grad_b_list.append(grad_b_i.reshape(output_shape))
-            current_row += num_a_rows
-            
+            grad_b_list.append(grad_b_i.reshape(output_shape)); current_row += num_a_rows
         return grad_b_list
