@@ -32,6 +32,7 @@ class State(object):
         self.u, self.Br, self.jr, self.etaP, self.etaH = None, None, None, None, None
         self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
+        self.G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         self.basis_evaluator_zero_added = BasisEvaluator(SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid)
         self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
         self.cp_grid, self.cp_basis_evaluator, self.cp_b_evaluator = None, None, None
@@ -201,15 +202,14 @@ class State(object):
             return self._create_E_coeffs_dense_operator(G_X_to_JS, is_vector_input)
 
     def _create_E_coeffs_dense_operator(self, G_X_to_JS, is_vector_input):
-        G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
+        
         einsum_str = "cmik,ijk,jkl->cml"
         if is_vector_input:
             einsum_str = "cmik,ijk,jklm->cmlm"
         return np.einsum(
-            einsum_str, G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS, optimize=True
+            einsum_str, self.G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS, optimize=True
         )
 
-    # --- THIS IS THE CORRECTED METHOD ---
     def _create_E_coeffs_linear_operator(self, G_X_to_JS, is_vector_input):
         n_c_in = G_X_to_JS.shape[3] if is_vector_input else G_X_to_JS.shape[2]
         n_c_out = self.basis.index_length
@@ -218,7 +218,6 @@ class State(object):
         shape = (np.prod(shape_out), np.prod(shape_in))
         
         # Pre-compute operators needed for both matvec and rmatvec
-        G_helmholtz_pinv = tensor_pinv(self.basis_evaluator.G_helmholtz, n_leading_flattened=2)
         M_total = self.M_total_on_grid
 
         def matvec(x_coeffs_flat):
@@ -231,7 +230,7 @@ class State(object):
                 einsum_str = "cmik,ijk,jklm,lm->cm"
             
             E_coeffs = np.einsum(
-                einsum_str, G_helmholtz_pinv, M_total, G_X_to_JS, x_coeffs, optimize=True
+                einsum_str, self.G_helmholtz_pinv, M_total, G_X_to_JS, x_coeffs, optimize=True
             )
             return E_coeffs.flatten()
 
@@ -246,7 +245,7 @@ class State(object):
             # Input: grad_E_coeffs (c,m), Output: grad_intermediate_1 (i,k)
             grad_intermediate_1 = np.einsum(
                 "cmik,cm->ik", 
-                G_helmholtz_pinv.conj(), grad_E_coeffs, optimize=True
+                self.G_helmholtz_pinv.conj(), grad_E_coeffs, optimize=True
             )
             
             # Step 2: Apply M_total^H
