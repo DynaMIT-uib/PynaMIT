@@ -477,40 +477,55 @@ class LeastSquaresSolver:
         self._op_cache[f"lsmr_components_{num_scenarios}"] = (op_to_solve, solution_transform)
         return op_to_solve, solution_transform
 
-    def _get_cg_components(self):
-        """Gets the operator and preconditioner needed for the CG solver."""
-        if "cg_components" in self._op_cache:
-            return self._op_cache["cg_components"]
+    def _get_cg_components(self, num_scenarios=1):
+        """
+        Gets the multi-scenario normal-equations operator (G^T G) and CG preconditioner.
+        """
+        cache_key = f"cg_components_{num_scenarios}"
+        if cache_key in self._op_cache:
+            return self._op_cache[cache_key]
+
+        # Get the multi-scenario base operator G, which operates on flattened vectors
         base_op, _, _ = self._get_multi_scenario_operator(
-            num_scenarios=1, use_scaled_lambdas=True, include_regularization=True
+            num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
 
-        def normal_op_matvec(x):
-            return base_op.rmatvec(base_op.matvec(x))
+        def normal_op_matvec(x_flat):
+            """Computes (G^T G) @ x for a flattened block of vectors."""
+            # This is the core of the normal equations operator
+            return base_op.rmatvec(base_op.matvec(x_flat))
 
+        # The operator H = G^T G for all scenarios
         cg_op = LinearOperator(
-            (self.solution_size, self.solution_size),
+            (self.solution_size * num_scenarios, self.solution_size * num_scenarios),
             matvec=normal_op_matvec,
-            rmatvec=normal_op_matvec,
+            rmatvec=normal_op_matvec,  # H is Hermitian
             dtype=base_op.dtype,
         )
+
         M = None
         if self.preconditioner == "jacobi":
             self._setup_preconditioner_components()
             diag = self._op_cache.get("jacobi_diag")
+            # For CG, the preconditioner M should approximate (G^T G)^-1.
+            # The inverse of the diagonal of (G^T G) is a good choice.
             diag_inv = 1.0 / diag
             diag_inv[np.isinf(diag_inv)] = 1.0
 
-            def precon_matvec(x):
-                return x * diag_inv
+            # Create a tiled diagonal for all scenarios
+            full_diag_inv = np.tile(diag_inv, num_scenarios)
+
+            def precon_matvec(x_flat):
+                return x_flat * full_diag_inv
 
             M = LinearOperator(
-                (self.solution_size, self.solution_size),
+                (self.solution_size * num_scenarios, self.solution_size * num_scenarios),
                 matvec=precon_matvec,
                 rmatvec=precon_matvec,
                 dtype=diag.dtype,
             )
-        self._op_cache["cg_components"] = (cg_op, M)
+
+        self._op_cache[cache_key] = (cg_op, M)
         return cg_op, M
 
     # --- Public API Methods ---
@@ -594,25 +609,25 @@ class LeastSquaresSolver:
             sol_y_block = sol_y_flat.reshape(self.solution_size, num_scenarios)
             sol_block = solution_transform(sol_y_block)
         elif self.solver == "cg":
-            cg_op, M = self._get_cg_components()
-            rhs_block = rmatvec_block(d_block)
-            sol_block = np.zeros_like(rhs_block)
+            # The forward CG method solves the normal equations (G^T G) x = G^T d
+            cg_op, M = self._get_cg_components(num_scenarios=num_scenarios)
+            rhs_flat = rmatvec_block(d_block).flatten()
+
             max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
             cg_kwargs = {"rtol": self.tolerance, "M": M, "maxiter": max_iter, **kwargs}
-            for k in range(num_scenarios):
-                sol_block[:, k], exit_code = cg(cg_op, rhs_block[:, k], **cg_kwargs)
-                if exit_code != 0:
-                    print(
-                        f"Warning: CG solver did not converge for scenario {k} (exit_code={exit_code})."
-                    )
+
+            sol_flat, exit_code = cg(cg_op, rhs_flat, **cg_kwargs)
+            if exit_code != 0:
+                print(f"Warning: CG solver did not converge (exit_code={exit_code}).")
+            sol_block = sol_flat.reshape(self.solution_size, num_scenarios)
 
         return sol_block.reshape(self.solution_shape + scenario_shape)
 
     def solve_adjoint(self, y, **kwargs):
         """
-        Solves the adjoint of the least-squares problem.
+        Solves the adjoint of the least-squares problem. (Fully Vectorized)
 
-        If the forward problem is `x = S(b)`, this computes `S^T @ y`.
+        If the forward problem is `x = S(b)`, this computes `S^H @ y`.
         Mathematically, this is `G @ (G^T @ G)^-1 @ y`, where `G` is the
         full (weighted and regularized) system matrix and `y` is a vector with the
         same shape as the solution `x`. This is useful for sensitivity analysis
@@ -626,9 +641,8 @@ class LeastSquaresSolver:
             a shape that is broadcastable to `self.solution_shape`. It can also
             include additional trailing "scenario" dimensions.
         **kwargs : dict
-            Additional keyword arguments passed to the underlying iterative `cg`
-            solver (e.g., `atol`, `rtol`, `maxiter`). Defaults are inherited
-            from the solver instance.
+            Additional keyword arguments passed to the underlying iterative solver
+            (`cg` or `lsmr`), e.g., `atol`, `rtol`, `maxiter`.
 
         Returns
         -------
@@ -655,7 +669,9 @@ class LeastSquaresSolver:
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
         y_block = np.ascontiguousarray(y).reshape(self.solution_size, num_scenarios)
 
+        # Step 1: Solve (G^T G) z = y for z, for all scenarios at once
         z_block = np.zeros_like(y_block)
+
         if self.solver == "svd":
             _, s_inv, vt = self._get_svd_components()
             s_inv_sq = s_inv**2
@@ -663,37 +679,90 @@ class LeastSquaresSolver:
         elif self.solver == "normal":
             G_T_G, _ = self._get_normal_components()
             z_block = np.linalg.solve(G_T_G, y_block)
-        elif self.solver in ["cg", "lsmr"]:
-            cg_op, M = self._get_cg_components()
+        elif self.solver == "cg":
+            normal_op, M = self._get_cg_components(num_scenarios=num_scenarios)
             max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
             cg_kwargs = {"rtol": self.tolerance, "M": M, "maxiter": max_iter, **kwargs}
-            for k in range(num_scenarios):
-                sol, exit_code = cg(cg_op, y_block[:, k], **cg_kwargs)
-                if exit_code != 0:
-                    print(
-                        f"Warning: Adjoint CG solver did not converge for scenario {k} (exit_code={exit_code})."
-                    )
-                z_block[:, k] = sol
+            sol_flat, exit_code = cg(normal_op, y_block.flatten(), **cg_kwargs)
+            if exit_code != 0:
+                print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
+            z_block = sol_flat.reshape(self.solution_size, num_scenarios)
+        elif self.solver == "lsmr":
+            # LSMR requires manual preconditioning for the adjoint system (G^T G)z = y.
+            # The forward pass uses P = sqrt(diag(G^T G)). We transform the system:
+            # Let z = P^-1 w. Then (G^T G P^-1)w = y.
+            # Left-precondition: (P^-1 G^T G P^-1)w = P^-1 y.
+            # We solve this symmetric system for w, then compute z = P^-1 w.
+            normal_op, _ = self._get_cg_components(num_scenarios=num_scenarios)
+            max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
+            lsmr_kwargs = {
+                "atol": self.tolerance,
+                "btol": self.tolerance,
+                "maxiter": max_iter,
+                **kwargs,
+            }
 
+            if self.preconditioner == "jacobi":
+                self._setup_preconditioner_components()
+                diag = self._op_cache["jacobi_diag"]
+                # P_inv_diag is the diagonal of P^-1
+                P_inv_diag = np.sqrt(1.0 / diag)
+                P_inv_diag[np.isinf(P_inv_diag)] = 1.0
+                full_P_inv_diag = np.tile(P_inv_diag, num_scenarios)
+
+                def precond_normal_op_matvec(w_flat):
+                    # Computes (P^-1 G^T G P^-1) @ w
+                    temp = normal_op.matvec(w_flat * full_P_inv_diag)
+                    return temp * full_P_inv_diag
+
+                op_to_solve = LinearOperator(
+                    normal_op.shape, matvec=precond_normal_op_matvec, dtype=normal_op.dtype
+                )
+                # Precondition the RHS: y' = P^-1 y
+                y_prime_flat = y_block.flatten() * full_P_inv_diag
+            else:  # No preconditioning
+                op_to_solve = normal_op
+                y_prime_flat = y_block.flatten()
+
+            # Since (P^-1 G^T G P^-1) is positive definite, CG is a better choice.
+            # However, we use LSMR as requested to mirror the solver choice.
+            print(
+                "Warning: Using LSMR to solve the symmetric positive-definite adjoint system. CG is generally more efficient for this task."
+            )
+
+            w_flat, istop, *_ = lsmr(op_to_solve, y_prime_flat, **lsmr_kwargs)
+            if istop not in [0, 1, 2]:
+                print(f"Warning: Adjoint LSMR may not have fully converged (istop={istop}).")
+
+            # Transform back to the original variable: z = P^-1 w
+            if self.preconditioner == "jacobi":
+                sol_flat = w_flat * full_P_inv_diag
+            else:
+                sol_flat = w_flat
+            z_block = sol_flat.reshape(self.solution_size, num_scenarios)
+
+        # Step 2: Compute final gradient grad_d = G @ z
         _, _, matvec_block_fn = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
         grad_d_block = matvec_block_fn(z_block)
 
+        # Unpack the result into gradients for each b_i term
         grad_b_list = []
         current_row = 0
         for i in range(self.num_data_terms):
             num_a_rows = self.A[i].op.shape[0]
             grad_d_i = grad_d_block[current_row : current_row + num_a_rows, :]
+
+            # Un-apply the weights, which is the adjoint of the weighting operation
             grad_b_i = grad_d_i
             w_item = self.sqrt_weights[i]
             if w_item is not None:
-                if w_item.input_shape == (1,):
+                if w_item.input_shape == (1,):  # Diagonal weight
                     grad_b_i = w_item.op.conj() * grad_d_i
-                else:
+                else:  # Matrix weight
                     w_op = w_item.op
                     if isinstance(w_op, LinearOperator):
-                        # Apply same matvec/matmat optimization for the adjoint pass
                         grad_b_i = (
                             w_op.rmatmat(grad_d_i)
                             if grad_d_i.shape[1] > 1
@@ -701,6 +770,7 @@ class LeastSquaresSolver:
                         )
                     else:
                         grad_b_i = w_op.T.conj() @ grad_d_i
+
             output_shape = self.data_shapes[i] + scenario_shape
             grad_b_list.append(grad_b_i.reshape(output_shape))
             current_row += num_a_rows
