@@ -29,6 +29,7 @@ def run_pynamit(
     jr_lambda=None,
     conductance_lambda=None,
     u_lambda=None,
+    multi_data=False,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -125,9 +126,6 @@ def run_pynamit(
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
     )
-    dynamics.set_conductance(
-        hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=conductance_lambda
-    )
 
     # Get and set jr input.
     jr_lat = dynamics.state.grid.lat
@@ -149,7 +147,6 @@ def run_pynamit(
     jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
     # Filter low latitude jr.
     jr[np.abs(jr_lat) < 50] = 0
-    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda)
 
     # Get and set wind input.
     if wind:
@@ -168,13 +165,36 @@ def run_pynamit(
         u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
         u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
+    if multi_data:
+        # Divide the simulation time into 0 to final_time in 4 steps.
+        time = np.linspace(0, final_time, 4)
+
+        # Creates 4 copies of data (as rows), and scale the rows with a factor increasing linearly from 1 to 2.
+        scaling_factor = np.linspace(1, 2, 4)[:, np.newaxis]
+    else:
+        time = None
+        scaling_factor = 1.0
+
+    dynamics.set_conductance(
+        hall * scaling_factor,
+        pedersen * scaling_factor,
+        lat=conductance_lat,
+        lon=conductance_lon,
+        reg_lambda=conductance_lambda,
+        time=time,
+    )
+
+    dynamics.set_jr(jr * scaling_factor, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
+
+    if wind:
         dynamics.set_u(
-            u_theta=u_theta,
-            u_phi=u_phi,
+            u_theta=u_theta * scaling_factor,
+            u_phi=u_phi * scaling_factor,
             lat=u_lat,
             lon=u_lon,
             sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
             reg_lambda=u_lambda,
+            time=time,
         )
 
     dynamics.evolve_to_time(

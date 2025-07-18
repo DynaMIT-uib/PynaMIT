@@ -1,4 +1,4 @@
-"""Dipole and PFAC test."""
+"""Dipole, PFAC and exponential test."""
 
 import os
 import tempfile
@@ -8,8 +8,8 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_2d_dipole_pfac():
-    """Test 2D simulation with dipole and PFAC."""
+def test_2d_dipole_pfac_exp():
+    """Test 2D simulation with dipole, PFAC and exponential."""
     # Arrange.
     expected_coeff_norm = 1.2338075343593047e-07
     expected_coeff_max = 7.073347099606215e-10
