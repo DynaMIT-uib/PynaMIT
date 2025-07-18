@@ -346,16 +346,6 @@ for step in range(0, nstep):
             title="etaH",
         )
 
-    # dynamics.set_conductance(
-    #    full_conductance_hall_padded.flatten(),
-    #    full_conductance_pedersen_padded.flatten(),
-    #    theta=full_theta_padded_centered.flatten(),
-    #    phi=full_phi_padded_centered.flatten(),
-    #    time=dt * step,
-    #    sqrt_weights=np.sqrt(np.sin(np.deg2rad(full_theta_centered.flatten()))),
-    #    reg_lambda=1e-3,
-    # )
-
     minlat = 35
 
     if PLOT_CONDUCTANCE:

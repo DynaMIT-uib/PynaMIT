@@ -1,3 +1,5 @@
+"""Plot input vs interpolated data from HDF5 file."""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -18,6 +20,7 @@ from pynamit.math.constants import RE
 
 
 def _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, plot_evaluator, target_shape):
+    """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
         return np.full(target_shape, np.nan)
     field_exp = FieldExpansion(storage_basis, coeffs=coeffs, field_type="scalar")
@@ -27,6 +30,7 @@ def _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, plot_evaluator, targe
 def _evaluate_tangential_coeffs_to_grid_components(
     coeffs, storage_basis, plot_evaluator, target_shape
 ):
+    """Evaluate tangential coefficients to grid components."""
     if coeffs is None:
         return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
     field_exp = FieldExpansion(
@@ -41,6 +45,7 @@ def _evaluate_tangential_coeffs_to_grid_components(
 def plot_scalar_map_on_ax(
     ax, lon_coords_2d, lat_coords_2d, data_2d_arr, title="", cmap="viridis", norm=None
 ):
+    """Plot a scalar map with specified coordinates and data."""
     if norm is None:
         raise ValueError("Norm object must be provided to plot_scalar_map_on_ax.")
     ax.coastlines(color="grey", zorder=3, linewidth=0.5)
@@ -73,6 +78,7 @@ def plot_input_vs_interpolated(
     time_row_h_frac_user=0.015,
     cbars_labels_col_w_frac_user=0.11,
 ):
+    """Plot input vs interpolated data from HDF5 file."""
     try:
         h5file = h5.File(h5_filepath, "r")
     except Exception as e:
@@ -334,7 +340,8 @@ def plot_input_vs_interpolated(
             if np.any(temp_valid_data < -1e-9):
                 h5file.close()
                 raise ValueError(
-                    f"Data type '{data_type_str}' is 'strictly_positive' but contains values < -1e-9."
+                    f"Data type '{data_type_str}' is 'strictly_positive' "
+                    "but contains values < -1e-9."
                 )
             valid_data_for_percentile = temp_valid_data[temp_valid_data >= 0]
             if current_scale_type == "log":
@@ -344,7 +351,8 @@ def plot_input_vs_interpolated(
                 if valid_data_for_percentile.size == 0:
                     h5file.close()
                     raise ValueError(
-                        f"No data > 1e-12 for '{data_type_str}' for log scale when 'strictly_positive' is true."
+                        f"No data > 1e-12 for '{data_type_str}' for log scale when "
+                        "'strictly_positive' is true."
                     )
         else:
             valid_data_for_percentile = temp_valid_data
@@ -352,7 +360,8 @@ def plot_input_vs_interpolated(
         if valid_data_for_percentile.size == 0:
             h5file.close()
             raise ValueError(
-                f"No valid data for percentile calculation for '{data_type_str}' after filtering for scale type."
+                f"No valid data for percentile calculation for '{data_type_str}' "
+                "after filtering for scale type."
             )
 
         if not is_strictly_positive:
@@ -383,7 +392,8 @@ def plot_input_vs_interpolated(
                 vmin = 0.0
 
             print(
-                f"Warning: vmin ({original_vmin:.3e}) was close to vmax ({original_vmax:.3e}) for '{data_type_str}'. Adjusted to: vmin={vmin:.3e}, vmax={vmax:.3e}"
+                f"Warning: vmin ({original_vmin:.3e}) was close to vmax ({original_vmax:.3e}) "
+                f"for '{data_type_str}'. Adjusted to: vmin={vmin:.3e}, vmax={vmax:.3e}"
             )
 
         norm_for_plot = None
@@ -391,7 +401,8 @@ def plot_input_vs_interpolated(
             if not is_strictly_positive:
                 h5file.close()
                 raise RuntimeError(
-                    f"Internal logic error: Log scale for non-strictly_positive data '{data_type_str}'."
+                    "Internal logic error: "
+                    f"Log scale for non-strictly_positive data '{data_type_str}'."
                 )
             if vmin <= 1e-12:
                 h5file.close()
@@ -417,7 +428,8 @@ def plot_input_vs_interpolated(
             "strictly_positive": is_strictly_positive,
         }
         print(
-            f"  Global scale for '{data_type_str}' ({current_scale_type}, strictly_positive={is_strictly_positive}): "
+            f"  Global scale for '{data_type_str}' ({current_scale_type}, "
+            f"strictly_positive={is_strictly_positive}): "
             f"vmin={vmin:.3e}, vmax={vmax:.3e}, cmap='{cmap_to_use}'"
         )
 
@@ -443,10 +455,13 @@ def plot_input_vs_interpolated(
     fig_height = min(max(fig_height_lower_bound, est_total_fig_height), fig_height_upper_bound)
 
     print(
-        f"User fractions: TimeRow={time_row_h_frac_user:.2f}, CbarLabelCol={cbars_labels_col_w_frac_user:.2f}"
+        f"User fractions: TimeRow={time_row_h_frac_user:.2f}, "
+        f"CbarLabelCol={cbars_labels_col_w_frac_user:.2f}"
     )
     print(
-        f'Target map cell: {ref_map_cell_w}"x{ref_map_cell_h}". Est. Total Fig: {est_total_fig_width:.1f}"x{est_total_fig_height:.1f}". Final Fig: {fig_width:.1f}"x{fig_height:.1f}"'
+        f'Target map cell: {ref_map_cell_w}"x{ref_map_cell_h}". '
+        f'"Est. Total Fig: {est_total_fig_width:.1f}"x{est_total_fig_height:.1f}". '
+        f'Final Fig: {fig_width:.1f}"x{fig_height:.1f}"'
     )
 
     fig = plt.figure(figsize=(fig_width, fig_height), layout="constrained")
@@ -494,10 +509,11 @@ def plot_input_vs_interpolated(
     else:
         map_axes = map_axes_flat
 
-    # --- Layout for sfig_BL_cbars_and_labels (num_dt rows, 3 columns) ---
+    # Layout for sfig_BL_cbars_and_labels (num_dt rows, 3 columns):
     # Column 0: DataType Label
     # Column 1: Colorbar
-    # Column 2: Input/Fitted text (this column will be internally gridded into 2 rows)
+    # Column 2: Input/Fitted text
+    # (this column will be internally gridded into 2 rows)
     gs_main_left_panel = gridspec.GridSpec(
         num_dt,
         3,  # num_dt rows, 3 columns
@@ -526,7 +542,8 @@ def plot_input_vs_interpolated(
         # Column 1: Colorbar Placeholder
         ax_cbar_placeholder = sfig_BL_cbars_and_labels.add_subplot(gs_main_left_panel[dt_idx, 1])
 
-        # Column 2: Input/Fitted Text Labels (using a nested GridSpec for vertical division)
+        # Column 2: Input/Fitted Text Labels
+        # (using a nested GridSpec for vertical division)
         gs_input_fitted_text_block = gridspec.GridSpecFromSubplotSpec(
             2,
             1,  # 2 rows, 1 column

@@ -14,7 +14,7 @@ ITERATION_SAFETY_FACTOR = 10
 
 @dataclass
 class _ProcessedItem:
-    """Holds a processed operator and its logical multi-dimensional shape information."""
+    """Holds a operator and its multi-dimensional shape information."""
 
     op: "np.ndarray | LinearOperator"
     output_shape: tuple
@@ -23,43 +23,52 @@ class _ProcessedItem:
 
 class LeastSquaresSolver:
     """
-    Solves complex least-squares problems with a fully lazy-loaded, unified API.
+    Solves least-squares problems.
 
-    This class provides a flexible and explicit API for defining and solving problems
-    of the form:
+    This class provides a flexible and explicit API for defining and
+    solving problems of the form:
 
-        minimize || A_1 x - b_1 ||_W_1^2 + ... + || A_n x - b_n ||_W_n^2 +
-                 || L_1 x ||_lambda_1^2 + ... + || L_m x ||_lambda_m^2
+        minimize || A_1 x - b_1 ||_W_1^2
+                 + ... + || A_n x - b_n ||_W_n^2
+                 + || L_1 x ||_lambda_1^2
+                 + ... + || L_m x ||_lambda_m^2
 
-    The solver uses a lazy initialization pattern. The constructor (`__init__`) is
-    lightweight and only defines the problem. The expensive one-time setup
-    (e.g., matrix decomposition or preconditioner calculation) is deferred and
-    performed transparently on the first call to the `solve()` or `solve_adjoint()`
-    methods.
+    The solver uses a lazy initialization pattern. The constructor
+    (`__init__`) is lightweight and only defines the problem. The
+    expensive one-time setup (e.g., matrix decomposition or
+    preconditioner calculation) is deferred and performed transparently
+    on the first call to the `solve()` or `solve_adjoint()` methods.
 
     Parameters
     ----------
     A : np.ndarray | LinearOperator | list
-        A single N-D array/LinearOperator or a list of them for the data-fitting terms `A_i`.
+        A single N-D array/LinearOperator or a list of them for the
+        data-fitting terms `A_i`.
     solution_shape : int | tuple
         The multi-dimensional shape of the solution vector `x`.
     data_shapes : tuple | list[tuple]
-        A list of tuples, where `data_shapes[i]` is the multi-dimensional shape
-        of the output space for operator `A[i]`. Must be provided for each `A_i`.
+        A list of tuples, where `data_shapes[i]` is the
+        multi-dimensional shape of the output space for operator `A[i]`.
+        Must be provided for each `A_i`.
     sqrt_weights : np.ndarray | list, optional
-        A single N-D weight array or a list of them, representing the square root
-        of the desired weights `W_i`. These can be diagonal (1D array) or dense.
+        A single N-D weight array or a list of them, representing the
+        square root of the desired weights `W_i`. These can be diagonal
+        (1D array) or dense.
     regularization_weights : float | list[float], optional
-        A single scalar weight or a list of weights `lambda_j` for each regularization term.
-    regularization_matrices : np.ndarray | LinearOperator | list, optional
+        A single scalar weight or a list of weights `lambda_j` for each
+        regularization term.
+    regularization_matrices : np.ndarray | LinearOperator
+                              | list, optional
         A single N-D regularization operator `L_j` or a list of them.
     solver : str, default="svd"
         The solver to use. One of {"svd", "normal", "lsmr", "cg"}.
     tolerance : float, default=1e-12
-        The tolerance for iterative solvers ("lsmr", "cg") or for SVD truncation.
+        The tolerance for iterative solvers ("lsmr", "cg") or for SVD
+        truncation.
     preconditioner : str, default="jacobi"
-        The preconditioner to use. If set to "jacobi", a Jacobi (diagonal)
-        preconditioner is used for the "cg" and "lsmr" solvers.
+        The preconditioner to use. If set to "jacobi", a Jacobi
+        (diagonal) preconditioner is used for the "cg" and "lsmr"
+        solvers.
     """
 
     def __init__(
@@ -80,7 +89,7 @@ class LeastSquaresSolver:
         if preconditioner is not None and preconditioner != "jacobi":
             raise ValueError("Only 'jacobi' preconditioner supported.")
         if preconditioner is not None and solver not in ["cg", "lsmr"]:
-            print(f"Warning: Preconditioner is set but only applies to 'cg' or 'lsmr' solvers.")
+            print("Warning: Preconditioner is set but only applies to 'cg' or 'lsmr' solvers.")
         self.solver = solver
         self.tolerance = tolerance
         self.preconditioner = preconditioner
@@ -130,7 +139,8 @@ class LeastSquaresSolver:
         for l_item in self.regularization_matrices:
             if l_item and l_item.op.shape[-1] != self.solution_size:
                 raise ValueError(
-                    f"Shape mismatch in regularization term. Expected {self.solution_size} columns, got {l_item.op.shape[-1]}"
+                    "Shape mismatch in regularization term. "
+                    f"Expected {self.solution_size} columns, got {l_item.op.shape[-1]}"
                 )
         self.regularization_weights = self._prepare_input_list(
             regularization_weights,
@@ -144,7 +154,8 @@ class LeastSquaresSolver:
         )
         if self.is_matrix_free and solver in ["normal", "svd"]:
             print(
-                f"Warning: Solver '{solver}' with matrix-free operators requires densification, which may be slow or memory-intensive."
+                f"Warning: Solver '{solver}' with matrix-free operators requires "
+                "densification, which may be slow or memory-intensive."
             )
         self._op_cache = {}
 
@@ -175,13 +186,14 @@ class LeastSquaresSolver:
             data_shapes *= expected_count
         if len(data_shapes) != expected_count:
             raise ValueError(
-                f"Number of data_shapes ({len(data_shapes)}) does not match number of A operators ({expected_count})."
+                f"Number of data_shapes ({len(data_shapes)}) does not match number of "
+                f"A operators ({expected_count})."
             )
         return [(shape,) if isinstance(shape, int) else tuple(shape) for shape in data_shapes]
 
     @staticmethod
     def _flatten(array, output_shape=None, input_shape=None):
-        """Converts an N-D operator into a 2D matrix representation."""
+        """Convert an N-D operator into a 2D matrix representation."""
         if isinstance(array, LinearOperator):
             return _ProcessedItem(array, (array.shape[0],), (array.shape[1],))
         if not isinstance(array, np.ndarray):
@@ -195,7 +207,8 @@ class LeastSquaresSolver:
             flat_output_dim = math.prod(output_shape)
             if array.size % flat_output_dim != 0:
                 raise ValueError(
-                    f"Array size {array.size} not divisible by product of output_shape {output_shape}"
+                    f"Array size {array.size} not divisible by product of "
+                    f"output_shape {output_shape}"
                 )
             flat_input_dim = array.size // flat_output_dim
             input_shape = (flat_input_dim,)
@@ -203,7 +216,8 @@ class LeastSquaresSolver:
             flat_input_dim = math.prod(input_shape)
             if array.size % flat_input_dim != 0:
                 raise ValueError(
-                    f"Array size {array.size} not divisible by product of input_shape {input_shape}"
+                    f"Array size {array.size} not divisible by product of "
+                    f"input_shape {input_shape}"
                 )
             flat_output_dim = array.size // flat_input_dim
             output_shape = (flat_output_dim,)
@@ -214,7 +228,7 @@ class LeastSquaresSolver:
         )
 
     def _densify_op(self, item):
-        """Converts a _ProcessedItem into a dense numpy array if it isn't one already."""
+        """Ensure a _ProcessedItem is a dense numpy array."""
         if item is None:
             return None
         op = item.op
@@ -223,7 +237,7 @@ class LeastSquaresSolver:
         return op
 
     def _process_b_vector(self, b_val, data_shape):
-        """Validates and reshapes a `b` vector into a 2D column-block format."""
+        """Reshape a `b` vector into a 2D column-block format."""
         if b_val is None:
             return None, None
         num_data_dims = len(data_shape)
@@ -242,7 +256,7 @@ class LeastSquaresSolver:
         return b_col_block, scenario_shape
 
     def _calculate_and_cache_scaled_lambdas(self):
-        """Auto-scales regularization weights to be commensurate with the data terms."""
+        """Auto-scales regularization weights."""
         if "scaled_lambdas" in self._op_cache:
             return
         data_op, _, _ = self._get_multi_scenario_operator(
@@ -282,7 +296,7 @@ class LeastSquaresSolver:
     def _get_multi_scenario_operator(
         self, num_scenarios, use_scaled_lambdas, include_regularization
     ):
-        """Builds the full system LinearOperator G such that the problem is min ||Gx - d||."""
+        """Build the full system LinearOperator."""
         lambdas = (
             self._op_cache.get("scaled_lambdas", self.regularization_weights)
             if use_scaled_lambdas
@@ -292,9 +306,9 @@ class LeastSquaresSolver:
         op_rows_data = sum(a.op.shape[0] for a in self.A)
         op_rows_reg = (
             sum(
-                l.op.shape[0]
-                for i, l in enumerate(self.regularization_matrices)
-                if i < len(lambdas) and l and lambdas[i] > 0
+                lambda_.op.shape[0]
+                for i, lambda_ in enumerate(self.regularization_matrices)
+                if i < len(lambdas) and lambda_ and lambdas[i] > 0
             )
             if include_regularization
             else 0
@@ -379,7 +393,7 @@ class LeastSquaresSolver:
         return op, rmatvec_block, matvec_block
 
     def _get_full_stacked_operator(self):
-        """Builds a single dense matrix G for the entire system, using the most efficient path."""
+        """Build a single dense matrix G for the entire system."""
         if "G_dense" in self._op_cache:
             return self._op_cache["G_dense"]
         if self.is_matrix_free:
@@ -418,7 +432,7 @@ class LeastSquaresSolver:
         return self._op_cache["svd_components"]
 
     def _get_normal_components(self):
-        """Lazily computes and caches the matrices for the normal equations."""
+        """Return the matrices for the normal equations."""
         if "normal_components" not in self._op_cache:
             G_dense = self._get_full_stacked_operator()
             G_T_G = G_dense.T.conj() @ G_dense
@@ -427,11 +441,12 @@ class LeastSquaresSolver:
         return self._op_cache["normal_components"]
 
     def _setup_preconditioner_components(self):
-        """Calculates and caches the Jacobi preconditioner diagonal."""
+        """Return the Jacobi preconditioner diagonal."""
         if "jacobi_diag" in self._op_cache:
             return
         print(
-            f"Calculating Jacobi preconditioner for {'matrix-free' if self.is_matrix_free else 'dense'} operator..."
+            "Calculating Jacobi preconditioner for "
+            f"{'matrix-free' if self.is_matrix_free else 'dense'} operator..."
         )
         base_op, _, _ = self._get_multi_scenario_operator(
             num_scenarios=1, use_scaled_lambdas=True, include_regularization=True
@@ -445,14 +460,17 @@ class LeastSquaresSolver:
         self._op_cache["jacobi_diag"] = diag_G_T_G
 
     def _get_lsmr_components(self, num_scenarios):
-        """Gets the operator and solution transform needed for the LSMR solver."""
+        """Return components for the LSMR solver."""
         if f"lsmr_components_{num_scenarios}" in self._op_cache:
             return self._op_cache[f"lsmr_components_{num_scenarios}"]
         base_op, _, _ = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
         op_to_solve = base_op
-        solution_transform = lambda sol_block: sol_block
+
+        def solution_transform(sol_block):
+            sol_block
+
         if self.preconditioner == "jacobi":
             self._setup_preconditioner_components()
             diag = self._op_cache["jacobi_diag"]
@@ -473,25 +491,27 @@ class LeastSquaresSolver:
             op_to_solve = LinearOperator(
                 base_op.shape, matvec=precond_matvec, rmatvec=precond_rmatvec, dtype=base_op.dtype
             )
-            solution_transform = lambda sol_y_block: sol_y_block * sqrt_inv_diag[:, np.newaxis]
+
+            def solution_transform(sol_y_block):
+                return sol_y_block * sqrt_inv_diag[:, np.newaxis]
+
         self._op_cache[f"lsmr_components_{num_scenarios}"] = (op_to_solve, solution_transform)
         return op_to_solve, solution_transform
 
     def _get_cg_components(self, num_scenarios=1):
-        """
-        Gets the multi-scenario normal-equations operator (G^T G) and CG preconditioner.
-        """
+        """Return components for the CG solver."""
         cache_key = f"cg_components_{num_scenarios}"
         if cache_key in self._op_cache:
             return self._op_cache[cache_key]
 
-        # Get the multi-scenario base operator G, which operates on flattened vectors
+        # Get the multi-scenario base operator G,
+        # which operates on flattened vectors
         base_op, _, _ = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
 
         def normal_op_matvec(x_flat):
-            """Computes (G^T G) @ x for a flattened block of vectors."""
+            """Compute (G^T G) @ x for a flattened block of vectors."""
             # This is the core of the normal equations operator
             return base_op.rmatvec(base_op.matvec(x_flat))
 
@@ -507,7 +527,8 @@ class LeastSquaresSolver:
         if self.preconditioner == "jacobi":
             self._setup_preconditioner_components()
             diag = self._op_cache.get("jacobi_diag")
-            # For CG, the preconditioner M should approximate (G^T G)^-1.
+            # For CG, the preconditioner M should approximate
+            # (G^T G)^-1.
             # The inverse of the diagonal of (G^T G) is a good choice.
             diag_inv = 1.0 / diag
             diag_inv[np.isinf(diag_inv)] = 1.0
@@ -528,27 +549,27 @@ class LeastSquaresSolver:
         self._op_cache[cache_key] = (cg_op, M)
         return cg_op, M
 
-    # --- Public API Methods ---
     def solve(self, b, **kwargs):
-        """
-        Solves the least-squares problem for the given right-hand-side data.
+        """Solve least-squares problem for right-hand-side data.
 
         Parameters
         ----------
         b : np.ndarray | None | list[np.ndarray | None]
-            The right-hand-side data vector(s) `b_i`. Can be a single array
-            if there is only one data term, or a list of arrays corresponding
-            to each operator in `A`. Use `None` for terms that are missing.
-            Each array can have additional trailing "scenario" dimensions.
+            The right-hand-side data vector(s) `b_i`. Can be a single
+            array if there is only one data term, or a list of arrays
+            corresponding to each operator in `A`. Use `None` for terms
+            that are missing. Each array can have additional trailing
+            "scenario" dimensions.
         **kwargs : dict
-            Additional keyword arguments passed to the underlying iterative solver
-            (`cg` or `lsmr`), e.g., `atol`, `maxiter`.
+            Additional keyword arguments passed to the underlying
+            iterative solver (`cg` or `lsmr`), e.g., `atol`, `maxiter`.
 
         Returns
         -------
         np.ndarray
-            The solution vector `x`. Its shape will be `self.solution_shape`
-            concatenated with any scenario dimensions from `b`.
+            The solution vector `x`. Its shape will be
+            `self.solution_shape` concatenated with any scenario
+            dimensions from `b`.
         """
         self._calculate_and_cache_scaled_lambdas()
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
@@ -608,7 +629,7 @@ class LeastSquaresSolver:
             sol_y_block = sol_y_flat.reshape(self.solution_size, num_scenarios)
             sol_block = solution_transform(sol_y_block)
         elif self.solver == "cg":
-            # The forward CG method solves the normal equations (G^T G) x = G^T d
+            # The forward CG method solves (G^T G) x = G^T d.
             cg_op, M = self._get_cg_components(num_scenarios=num_scenarios)
             rhs_flat = rmatvec_block(d_block).flatten()
 
@@ -623,32 +644,34 @@ class LeastSquaresSolver:
         return sol_block.reshape(self.solution_shape + scenario_shape)
 
     def solve_adjoint(self, y, **kwargs):
-        """
-        Solves the adjoint of the least-squares problem. (Fully Vectorized)
+        """Solves the adjoint of the least-squares problem.
 
         If the forward problem is `x = S(b)`, this computes `S^H @ y`.
         Mathematically, this is `G @ (G^T @ G)^-1 @ y`, where `G` is the
-        full (weighted and regularized) system matrix and `y` is a vector with the
-        same shape as the solution `x`. This is useful for sensitivity analysis
-        and backpropagation of gradients.
+        full (weighted and regularized) system matrix and `y` is a
+        vector with the same shape as the solution `x`. This is useful
+        for sensitivity analysis and backpropagation of gradients.
 
         Parameters
         ----------
         y : np.ndarray
-            The input vector for the adjoint operation. This typically represents the
-            gradient of a scalar loss with respect to the solution `x`. It must have
-            a shape that is broadcastable to `self.solution_shape`. It can also
-            include additional trailing "scenario" dimensions.
+            The input vector for the adjoint operation. This typically
+            represents the gradient of a scalar loss with respect to the
+            solution `x`. It must have a shape that is broadcastable to
+            `self.solution_shape`. It can also include additional
+            trailing "scenario" dimensions.
         **kwargs : dict
-            Additional keyword arguments passed to the underlying iterative solver
-            (`cg` or `lsmr`), e.g., `atol`, `rtol`, `maxiter`.
+            Additional keyword arguments passed to the underlying
+            iterative solver (`cg` or `lsmr`), e.g., `atol`, `rtol`,
+            `maxiter`.
 
         Returns
         -------
         list[np.ndarray]
-            A list of gradients, one for each of the `b` terms in the forward
-            problem. The shape of each gradient matches the shape of the
-            corresponding `b` term (including any scenario dimensions from `y`).
+            A list of gradients, one for each of the `b` terms in the
+            forward problem. The shape of each gradient matches the
+            shape of the corresponding `b` term (including any scenario
+            dimensions from `y`).
         """
         self._calculate_and_cache_scaled_lambdas()
         if not isinstance(y, np.ndarray):
@@ -661,7 +684,8 @@ class LeastSquaresSolver:
                 scenario_shape = (num_scenarios,) if num_scenarios > 1 else ()
             else:
                 raise ValueError(
-                    f"Shape of y {y.shape} is incompatible with solution_shape {self.solution_shape}."
+                    f"Shape of y {y.shape} is incompatible with "
+                    f"solution_shape {self.solution_shape}."
                 )
         else:
             scenario_shape = y.shape[sol_ndim:]
@@ -687,11 +711,14 @@ class LeastSquaresSolver:
                 print(f"Warning: Adjoint CG solver did not converge (exit_code={exit_code}).")
             z_block = sol_flat.reshape(self.solution_size, num_scenarios)
         elif self.solver == "lsmr":
-            # LSMR requires manual preconditioning for the adjoint system (G^T G)z = y.
-            # The forward pass uses P = sqrt(diag(G^T G)). We transform the system:
+            # LSMR requires manual preconditioning for the adjoint
+            # system (G^T G)z = y.
+            # The forward pass uses P = sqrt(diag(G^T G)). We transform
+            # the system:
             # Let z = P^-1 w. Then (G^T G P^-1)w = y.
             # Left-precondition: (P^-1 G^T G P^-1)w = P^-1 y.
-            # We solve this symmetric system for w, then compute z = P^-1 w.
+            # We solve this symmetric system for w,
+            # then compute z = P^-1 w.
             normal_op, _ = self._get_cg_components(num_scenarios=num_scenarios)
             max_iter = ITERATION_SAFETY_FACTOR * self.solution_size
             lsmr_kwargs = {
@@ -723,12 +750,6 @@ class LeastSquaresSolver:
                 op_to_solve = normal_op
                 y_prime_flat = y_block.flatten()
 
-            # Since (P^-1 G^T G P^-1) is positive definite, CG is a better choice.
-            # However, we use LSMR as requested to mirror the solver choice.
-            print(
-                "Warning: Using LSMR to solve the symmetric positive-definite adjoint system. CG is generally more efficient for this task."
-            )
-
             w_flat, istop, *_ = lsmr(op_to_solve, y_prime_flat, **lsmr_kwargs)
             if istop not in [0, 1, 2]:
                 print(f"Warning: Adjoint LSMR may not have fully converged (istop={istop}).")
@@ -753,7 +774,7 @@ class LeastSquaresSolver:
             num_a_rows = self.A[i].op.shape[0]
             grad_d_i = grad_d_block[current_row : current_row + num_a_rows, :]
 
-            # Un-apply the weights, which is the adjoint of the weighting operation
+            # Un-apply the weights (adjoint of the weighting operation).
             grad_b_i = grad_d_i
             w_item = self.sqrt_weights[i]
             if w_item is not None:

@@ -77,13 +77,13 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 #     np.load("utheta.npy"),
 # )
 # u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-# dynamics.set_u(
-#     u_theta=u_theta,
-#     u_phi=u_phi,
-#     lat=u_lat,
-#     lon=u_lon,
-#     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
-# )
+dynamics.set_u(
+    u_theta=u_theta,
+    u_phi=u_phi,
+    lat=u_lat,
+    lon=u_lon,
+    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+)
 
 # Get and set conductance input.
 conductance_lat = dynamics.state.grid.lat

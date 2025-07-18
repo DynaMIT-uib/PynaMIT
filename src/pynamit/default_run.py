@@ -169,7 +169,8 @@ def run_pynamit(
         # Divide the simulation time into 0 to final_time in 4 steps.
         time = np.linspace(0, final_time, 4)
 
-        # Creates 4 copies of data (as rows), and scale the rows with a factor increasing linearly from 1 to 2.
+        # Creates 4 copies of data (as rows), and scale the rows with a
+        # factor increasing linearly from 1 to 2.
         scaling_factor = np.linspace(1, 2, 4)[:, np.newaxis]
     else:
         time = None
