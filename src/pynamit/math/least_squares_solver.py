@@ -583,7 +583,6 @@ class LeastSquaresSolver:
                     )
                 d_block[current_row : current_row + num_a_rows, :] = b_col_block
             current_row += num_a_rows
-
         sol_block = None
         if self.solver == "svd":
             u, s_inv, vt = self._get_svd_components()

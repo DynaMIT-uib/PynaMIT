@@ -65,6 +65,7 @@ class State(object):
         self.matrix_weights = getattr(settings, "matrix_weights", False)
         self.solver_type = getattr(settings, "least_squares_solver", "svd")
         self.integrator = settings.integrator
+        self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
 
         # --- Physical and Model Parameters ---
         self.basis = basis
@@ -332,11 +333,32 @@ class State(object):
         """Lazily-loaded least-squares solver for the imposed potential."""
         if self._m_imp_solver is None:
             terms = self._get_m_imp_solver_terms()
+
+            reg_weights = []
+            reg_matrices = []
+
+            # If lambda is set, add the Tikhonov regularization term
+            # This term is to improve the convergence of the m_imp
+            # solution, as the m_imp problem is often ill-posed.
+            if self.m_imp_regularization_lambda > 0:
+                n_coeffs = self.basis.index_length
+                identity_op = LinearOperator(
+                    shape=(n_coeffs, n_coeffs),
+                    matvec=lambda x: x,
+                    rmatvec=lambda x: x,
+                    dtype=np.float64,
+                )
+
+                reg_weights.append(self.m_imp_regularization_lambda)
+                reg_matrices.append(identity_op)
+
             self._m_imp_solver = LeastSquaresSolver(
                 A=[t["A"] for t in terms],
                 solution_shape=self.basis.index_length,
                 data_shapes=[t["data_shape"] for t in terms],
                 sqrt_weights=[t["sqrt_W"] for t in terms],
+                regularization_weights=reg_weights,
+                regularization_matrices=reg_matrices,
                 solver=self.solver_type,
             )
         return self._m_imp_solver
