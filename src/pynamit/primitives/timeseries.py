@@ -144,7 +144,7 @@ class Timeseries:
         lon=None,
         theta=None,
         phi=None,
-        weights=None,
+        sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
@@ -162,8 +162,8 @@ class Timeseries:
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the input data.
-        weights : array-like, optional
-            Weights for the input data points.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the input data points.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -200,7 +200,7 @@ class Timeseries:
             self.input_basis_evaluators[key] = BasisEvaluator(
                 interpolation_basis,
                 input_grid,
-                weights=weights,
+                sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
@@ -269,6 +269,50 @@ class Timeseries:
             Dictionary containing the latest data for the specified
             key, or None if no new data is available.
         """
+        current_data = self.get_entry(key, time, interpolation=interpolation)
+
+        if current_data is not None:
+            # Check if the data has changed since the last time.
+            if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
+                not all(
+                    [
+                        np.allclose(
+                            current_data[var],
+                            self.previous_data[var],
+                            rtol=FLOAT_ERROR_MARGIN,
+                            atol=0.0,
+                        )
+                        for var in self.vars[key]
+                    ]
+                )
+            ):
+                # Update the previous data with the current data.
+                for var in self.vars[key]:
+                    self.previous_data[var] = current_data[var]
+
+                return current_data
+
+        # No new data available.
+        return None
+
+    def get_entry(self, key, time, interpolation=False):
+        """Select time series data corresponding to the specified time.
+
+        Parameters
+        ----------
+        key : str
+            Key for the time series.
+        time : float
+            Current time for which to select data.
+        interpolation : bool, optional
+            Whether to use linear interpolation.
+
+        Returns
+        -------
+        dict or None
+            Dictionary containing the latest data for the specified
+            key, or None if no data is available.
+        """
         if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
             current_data = {}
 
@@ -303,28 +347,10 @@ class Timeseries:
                         )
                     )
 
-            # Check if the data has changed since the last time.
-            if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
-                not all(
-                    [
-                        np.allclose(
-                            current_data[var],
-                            self.previous_data[var],
-                            rtol=FLOAT_ERROR_MARGIN,
-                            atol=0.0,
-                        )
-                        for var in self.vars[key]
-                    ]
-                )
-            ):
-                # Update the previous data with the current data.
-                for var in self.vars[key]:
-                    self.previous_data[var] = current_data[var]
-
-                return current_data
-
-        # No new data available.
-        return None
+            return current_data
+        else:
+            # No data available for the specified time.
+            return None
 
     def save(self, key, io):
         """Save a timeseries to NetCDF file.

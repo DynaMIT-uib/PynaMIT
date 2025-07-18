@@ -88,8 +88,8 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     #     u_phi=u_phi,
     #     lat=u_lat,
     #     lon=u_lon,
-    #     weights=np.tile(
-    #         np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)
+    #     sqrt_weights=np.tile(
+    #         np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)
     #     ),
     # )
 

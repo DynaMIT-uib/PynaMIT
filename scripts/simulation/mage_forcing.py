@@ -79,7 +79,7 @@ Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
 Br_basis_evaluator = pynamit.BasisEvaluator(
     dynamics.state.basis,
     Br_grid,
-    weights=np.sin(np.deg2rad(theta.flatten())),
+    sqrt_weights=np.sqrt(np.sin(np.deg2rad(theta.flatten()))),
     reg_lambda=BR_LAMBDA,
 )
 
@@ -301,7 +301,7 @@ for step in range(0, nstep):
         theta=full_theta_padded_centered.flatten(),
         phi=full_phi_padded_centered.flatten(),
         time=dt * step,
-        weights=np.sin(np.deg2rad(full_theta_padded_centered.flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad(full_theta_padded_centered.flatten()))),
         reg_lambda=JR_LAMBDA,
     )
 
@@ -311,7 +311,7 @@ for step in range(0, nstep):
         theta=full_theta_centered.flatten(),
         phi=full_phi_centered.flatten(),
         time=dt * step,
-        weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad(full_theta_centered.flatten()))),
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
@@ -345,16 +345,6 @@ for step in range(0, nstep):
             extend="both",
             title="etaH",
         )
-
-    # dynamics.set_conductance(
-    #    full_conductance_hall_padded.flatten(),
-    #    full_conductance_pedersen_padded.flatten(),
-    #    theta=full_theta_padded_centered.flatten(),
-    #    phi=full_phi_padded_centered.flatten(),
-    #    time=dt * step,
-    #    weights=np.sin(np.deg2rad(full_theta_centered.flatten())),
-    #    reg_lambda=1e-3,
-    # )
 
     minlat = 35
 

@@ -4,24 +4,18 @@ import numpy as np
 import pynamit
 import dipole
 import datetime
-import matplotlib.pyplot as plt
 import h5py as h5
-import cartopy.crs as ccrs
 
 RE = 6381e3
 RI = 6.5e6
-latitude_boundary = 35
-latitude_step = 0.5
+latitude_boundary = 25.625
 
-PLOT_BR = False
-PLOT_CONDUCTANCE = False
-PLOT_JR = False
-PLOT_U = False
+PLOT = True
 
-BR_LAMBDA = 1
-CONDUCTANCE_LAMBDA = 1
-JR_LAMBDA = 1
-U_LAMBDA = 1
+BR_LAMBDA = 0.5
+CONDUCTANCE_LAMBDA = 5.0
+JR_LAMBDA = 0.5
+U_LAMBDA = 0.5
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -51,7 +45,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
 
 
 filename_prefix = "results_mage_2011"
-Nmax, Mmax, Ncs = 40, 40, 40
+Nmax, Mmax, Ncs = 50, 50, 50
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -103,7 +97,9 @@ plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
 plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis_evaluator_zero_added.basis, plt_grid)
+conductance_plt_evaluator = pynamit.BasisEvaluator(
+    dynamics.state.basis_evaluator_zero_added.basis, plt_grid
+)
 
 time = file["time"][:]
 nstep = time.shape[0]
@@ -128,7 +124,7 @@ for step in range(0, nstep):
         lat=magnetosphere_lat,
         lon=magnetosphere_lon,
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - magnetosphere_lat).flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - magnetosphere_lat).flatten()))),
         reg_lambda=BR_LAMBDA,
     )
 
@@ -149,7 +145,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
         reg_lambda=JR_LAMBDA,
     )
 
@@ -185,7 +181,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        weights=np.sin(np.deg2rad((90 - ionosphere_lat).flatten())),
+        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
@@ -214,93 +210,27 @@ for step in range(0, nstep):
         lat=u_lat,
         lon=u_lon,
         time=dt * step,
-        weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+        sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
         reg_lambda=U_LAMBDA,
     )
 
-    print("Setting input state variables")
-    dynamics.state.update(dynamics.input_timeseries, dynamics.current_time)
+if PLOT:
+    print("Plotting input data")
+    timesteps_for_figure = [0, 80, 160, 240, 320]
+    data_types_for_figure = ["Br", "jr", "u_mag", "SP", "SH"]
 
-    if PLOT_BR:
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.Br.to_grid(plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.bwr,
-            extend="both",
-            title="Br at 1.5 RI",
-        )
+    pynamit.plot_input_vs_interpolated(
+        h5_filepath="mage_2011/data_H_int.h5",
+        interpolated_filename_prefix="results_mage_2011",
+        timesteps_to_plot=timesteps_for_figure,
+        data_types_to_plot=data_types_for_figure,
+        input_dt=10,
+        noon_longitude=0,
+        vmin_percentile=0,
+        vmax_percentile=95,
+        output_filename="input_vs_fitted_comparison.png",  # Optional
+    )
 
-    if PLOT_JR:
-        # Note: no minlat, 50 deg default?
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.jr.to_grid(plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.bwr,
-            extend="both",
-            title="jr at RI",
-        )
-
-    if PLOT_CONDUCTANCE:
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.etaP.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="etaP at RI",
-        )
-
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.etaH.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="etaH at RI",
-        )
-
-    if PLOT_U:
-        # Quiver plot tangential vector field.
-        fig, ax = plt.subplots(
-            1,
-            1,
-            figsize=(15, 6),
-            subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_lon)},
-        )
-
-        ax.coastlines()
-
-        ax.quiver(
-            plt_lon,
-            plt_lat,
-            dynamics.state.u.to_grid(plt_evaluator)[1].flatten(),
-            -dynamics.state.u.to_grid(plt_evaluator)[0].flatten(),
-            color="blue",
-            transform=ccrs.PlateCarree(),
-        )
-
-        plt.show()
-
-        # Alternative: plot theta and phi components separately.
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.u.to_grid(plt_evaluator)[0].reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="u at RI",
-        )
-
-        pynamit.globalplot(
-            plt_lon,
-            plt_lat,
-            dynamics.state.u.to_grid(plt_evaluator)[1].reshape(plt_lon.shape),
-            cmap=plt.cm.viridis,
-            extend="both",
-            title="u at RI",
-        )
 
 print("Time evolution")
 final_time = 3600  # seconds

@@ -90,7 +90,7 @@ dynamics.set_u(
     u_phi=u_phi.flatten(),
     lat=u_lat.flatten(),
     lon=u_lon.flatten(),
-    weights=np.tile(np.sin(np.deg2rad(90 - u_lat.flatten())), (2, 1)),
+    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
 )
 
 # Get and set conductance input.

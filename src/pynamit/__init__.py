@@ -36,6 +36,7 @@ from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_expansion import FieldExpansion
 from .primitives.grid import Grid
 from .simulation.dynamics import Dynamics
+from .simulation.input_vs_interpolated import plot_input_vs_interpolated
 from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
 from .simulation.visualization import debugplot, globalplot
@@ -53,4 +54,5 @@ __all__ = [
     "SHBasis",
     "debugplot",
     "globalplot",
+    "plot_input_vs_interpolated",
 ]
