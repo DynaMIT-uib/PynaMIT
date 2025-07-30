@@ -8,14 +8,14 @@ import h5py as h5
 
 RE = 6381e3
 RI = 6.5e6
-latitude_boundary = 25.625
+latitude_boundary = 35
 
 PLOT = True
 
-BR_LAMBDA = 0.5
-CONDUCTANCE_LAMBDA = 5.0
-JR_LAMBDA = 0.5
-U_LAMBDA = 0.5
+BR_LAMBDA = 0.1
+CONDUCTANCE_LAMBDA = 2.0
+JR_LAMBDA = 0.1
+U_LAMBDA = 0.1
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
