@@ -81,6 +81,7 @@ class State(object):
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.FAC_integration_steps = settings.FAC_integration_steps
         self.ih_constraint_scaling = settings.ih_constraint_scaling
+        self.eta_0 = getattr(settings, "eta_0", 0)
 
         if PFAC_matrix is not None:
             self._T_to_Ve = PFAC_matrix
@@ -116,8 +117,8 @@ class State(object):
         Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
         self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
 
-        # Magnetic Field Tensors (used for conductivity).
-        self.bP, self.bH, self.bu = None, None, None
+        # Magnetic Field Tensors (used for resistance).
+        self._b_etaP, self._b_etaH, self._b_eta0, self._b_u = None, None, None, None
 
         # Solver cache.
         self._m_imp_solver = None
@@ -165,30 +166,38 @@ class State(object):
         return self._G_m_ind_to_JS
 
     @property
-    def bP_prop(self):
+    def b_etaP(self):
         """Main field's contribution to the Pedersen tensor."""
-        if self.bP is None:
+        if self._b_etaP is None:
             b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
-            self.bP = np.array(
+            self._b_etaP = np.array(
                 [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
             )
-        return self.bP
+        return self._b_etaP
 
     @property
-    def bH_prop(self):
+    def b_etaH(self):
         """Main field's contribution to the Hall tensor."""
-        if self.bH is None:
+        if self._b_etaH is None:
             br = self.b_evaluator.br
-            self.bH = np.array([[np.zeros_like(br), br], [-br, np.zeros_like(br)]])
-        return self.bH
+            self._b_etaH = np.array([[np.zeros_like(br), br], [-br, np.zeros_like(br)]])
+        return self._b_etaH
 
     @property
-    def bu_prop(self):
+    def b_eta0(self):
+        """Main field's contribution from the parallel tensor."""
+        if self._b_eta0 is None:
+            b_th, b_ph = self.b_evaluator.btheta, self.b_evaluator.bphi
+            self._b_eta0 = np.array([[b_th**2, b_th * b_ph], [b_th * b_ph, b_ph**2]])
+        return self._b_eta0
+
+    @property
+    def b_u(self):
         """Main field's contribution to the u x B electric field."""
-        if self.bu is None:
+        if self._b_u is None:
             Br = self.b_evaluator.Br
-            self.bu = -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
-        return self.bu
+            self._b_u = -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
+        return self._b_u
 
     @property
     def T_to_Ve(self):
@@ -400,16 +409,30 @@ class State(object):
 
     @property
     def M_total_on_grid(self):
-        """The 2x2 conductivity tensor on each grid point."""
+        """The 2x2 resistance tensor on each grid point.
+
+        This method constructs the full, robust H_eff tensor by
+        combining the Pedersen, Hall, and parallel resistivity
+        (regularization) terms.
+        """
         if not hasattr(self, "_M_total_on_grid"):
             if (self.etaP is None) or (self.etaH is None):
                 raise RuntimeError("Conductance must be set before use.")
+
+            # Perpendicular resistivity tensor.
             eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
             G_eta = self.basis_evaluator_zero_added.G
-            b_stacked = np.stack([self.bP_prop, self.bH_prop], axis=0)
-            self._M_total_on_grid = np.einsum(
+            b_stacked = np.stack([self.b_etaP, self.b_etaH], axis=0)
+            M_pynamit = np.einsum(
                 "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked_coeffs, optimize=True
             )
+
+            # Correction term from the parallel resistivity.
+            M_correction = self.eta_0 * self.b_eta0
+
+            # Add the correction to get the final tensor.
+            self._M_total_on_grid = M_pynamit + M_correction
+
         return self._M_total_on_grid
 
     def _create_E_coeffs_operator(self, G_X_to_JS):
@@ -568,7 +591,7 @@ class State(object):
     def _build_u_coeffs_to_E_coeffs(self):
         """Operator mapping u to E-field coeffs."""
         G_u_to_uxB_grid = np.einsum(
-            "ijk, jklm -> iklm", self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True
+            "ijk, jklm -> iklm", self.b_u, self.basis_evaluator.G_helmholtz, optimize=True
         )
         dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
         if self.matrix_free:
