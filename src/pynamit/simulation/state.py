@@ -81,7 +81,7 @@ class State(object):
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.FAC_integration_steps = settings.FAC_integration_steps
         self.ih_constraint_scaling = settings.ih_constraint_scaling
-        self.eta_0 = getattr(settings, "eta_0", 0)
+        self.eta_0 = getattr(settings, "eta_0", 1e-9)
 
         if PFAC_matrix is not None:
             self._T_to_Ve = PFAC_matrix
