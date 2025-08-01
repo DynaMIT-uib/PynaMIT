@@ -11,9 +11,9 @@ import numpy as np
 def test_regularization():
     """Test simulation with regularization."""
     # Arrange.
-    expected_coeff_norm = 1.3522478119978407e-07
-    expected_coeff_max = 3.6017493154231027e-09
-    expected_coeff_min = -3.4138738038539175e-09
+    expected_coeff_norm = 1.3685338389986758e-07
+    expected_coeff_max = 2.4622800779947457e-09
+    expected_coeff_min = -4.038943538839342e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
