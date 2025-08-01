@@ -472,7 +472,7 @@ class LeastSquaresSolver:
         op_to_solve = base_op
 
         def solution_transform(sol_block):
-            sol_block
+            return sol_block
 
         if self.preconditioner == "jacobi":
             self._setup_preconditioner_components()
