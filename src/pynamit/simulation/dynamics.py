@@ -252,9 +252,9 @@ class Dynamics(object):
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
-            inductive_m_ind = self.output_timeseries.get_entry_if_changed(
+            inductive_m_ind = self.output_timeseries.get_entry(
                 "state", self.current_time, interpolation=False
-            )
+            )["SH_m_ind"]
         else:
             if steady_state_initialization:
                 self.state.update(self.input_timeseries, self.current_time)
