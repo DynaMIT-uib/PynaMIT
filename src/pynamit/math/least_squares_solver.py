@@ -82,6 +82,7 @@ class LeastSquaresSolver:
         solver="svd",
         tolerance=1e-12,
         preconditioner="jacobi",
+        plot_singular_values=False,
     ):
         solvers = ["normal", "lsmr", "cg", "svd"]
         if solver not in solvers:
@@ -159,7 +160,9 @@ class LeastSquaresSolver:
             )
         self._op_cache = {}
 
-    # --- Internal helper methods ---
+        if plot_singular_values:
+            self.plot_singular_values()
+
     @staticmethod
     def _prepare_input_list(
         item, name, count=None, allow_single_item=False, is_optional=False, default_val=None
@@ -505,7 +508,7 @@ class LeastSquaresSolver:
             return self._op_cache[cache_key]
 
         # Get the multi-scenario base operator G,
-        # which operates on flattened vectors
+        # which operates on flattened vectors.
         base_op, _, _ = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
@@ -515,11 +518,11 @@ class LeastSquaresSolver:
             # This is the core of the normal equations operator
             return base_op.rmatvec(base_op.matvec(x_flat))
 
-        # The operator H = G^T G for all scenarios
+        # The operator H = G^T G for all scenarios.
         cg_op = LinearOperator(
             (self.solution_size * num_scenarios, self.solution_size * num_scenarios),
             matvec=normal_op_matvec,
-            rmatvec=normal_op_matvec,  # H is Hermitian
+            rmatvec=normal_op_matvec,  # H is Hermitian.
             dtype=base_op.dtype,
         )
 
@@ -533,7 +536,7 @@ class LeastSquaresSolver:
             diag_inv = 1.0 / diag
             diag_inv[np.isinf(diag_inv)] = 1.0
 
-            # Create a tiled diagonal for all scenarios
+            # Create a tiled diagonal for all scenarios.
             full_diag_inv = np.tile(diag_inv, num_scenarios)
 
             def precon_matvec(x_flat):
@@ -692,7 +695,7 @@ class LeastSquaresSolver:
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
         y_block = np.ascontiguousarray(y).reshape(self.solution_size, num_scenarios)
 
-        # Step 1: Solve (G^T G) z = y for z, for all scenarios at once
+        # Step 1: Solve (G^T G) z = y for z, for all scenarios at once.
         z_block = np.zeros_like(y_block)
 
         if self.solver == "svd":
@@ -731,22 +734,22 @@ class LeastSquaresSolver:
             if self.preconditioner == "jacobi":
                 self._setup_preconditioner_components()
                 diag = self._op_cache["jacobi_diag"]
-                # P_inv_diag is the diagonal of P^-1
+                # P_inv_diag is the diagonal of P^-1.
                 P_inv_diag = np.sqrt(1.0 / diag)
                 P_inv_diag[np.isinf(P_inv_diag)] = 1.0
                 full_P_inv_diag = np.tile(P_inv_diag, num_scenarios)
 
                 def precond_normal_op_matvec(w_flat):
-                    # Computes (P^-1 G^T G P^-1) @ w
+                    # Computes (P^-1 G^T G P^-1) @ w.
                     temp = normal_op.matvec(w_flat * full_P_inv_diag)
                     return temp * full_P_inv_diag
 
                 op_to_solve = LinearOperator(
                     normal_op.shape, matvec=precond_normal_op_matvec, dtype=normal_op.dtype
                 )
-                # Precondition the RHS: y' = P^-1 y
+                # Precondition the RHS: y' = P^-1 y.
                 y_prime_flat = y_block.flatten() * full_P_inv_diag
-            else:  # No preconditioning
+            else:  # No preconditioning.
                 op_to_solve = normal_op
                 y_prime_flat = y_block.flatten()
 
@@ -754,20 +757,20 @@ class LeastSquaresSolver:
             if istop not in [0, 1, 2]:
                 print(f"Warning: Adjoint LSMR may not have fully converged (istop={istop}).")
 
-            # Transform back to the original variable: z = P^-1 w
+            # Transform back to the original variable: z = P^-1 w.
             if self.preconditioner == "jacobi":
                 sol_flat = w_flat * full_P_inv_diag
             else:
                 sol_flat = w_flat
             z_block = sol_flat.reshape(self.solution_size, num_scenarios)
 
-        # Step 2: Compute final gradient grad_d = G @ z
+        # Step 2: Compute final gradient grad_d = G @ z.
         _, _, matvec_block_fn = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
         grad_d_block = matvec_block_fn(z_block)
 
-        # Unpack the result into gradients for each b_i term
+        # Unpack the result into gradients for each b_i term.
         grad_b_list = []
         current_row = 0
         for i in range(self.num_data_terms):
@@ -795,3 +798,70 @@ class LeastSquaresSolver:
             grad_b_list.append(grad_b_i.reshape(output_shape))
             current_row += num_a_rows
         return grad_b_list
+
+    def plot_singular_values(self, title=None, ax=None, **plot_kwargs):
+        """
+        Compute and plot singular values of the full system matrix.
+
+        This method is useful for diagnosing the conditioning of the
+        least-squares problem and visualizing the effect of
+        regularization. It requires the problem to be densifiable
+        (i.e., not using matrix-free operators, or willing to accept
+        the memory cost of densification).
+
+        Parameters
+        ----------
+        title : str, optional
+            The title for the plot. If None, a default title is
+            generated.
+        ax : matplotlib.axes.Axes, optional
+            An existing matplotlib axes object to plot on. If None, a
+            new figure and axes are created.
+        **plot_kwargs : dict
+            Additional keyword arguments passed to the `ax.semilogy()`
+            plotting function (e.g., `label`, `color`, `linestyle`).
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes object containing the plot.
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("Matplotlib is required for this method.")
+            return
+
+        # Ensure that the full system operator G is built.
+        # This uses the scaled regularization weights, which is what we
+        # want to inspect.
+        print("Constructing the full system matrix G...")
+        G_dense = self._get_full_stacked_operator()
+
+        # Compute the singular values of G.
+        print("Computing singular values using SVD...")
+        s = np.linalg.svd(G_dense, compute_uv=False)
+        print("...done.")
+
+        # Create the plot.
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        # Plot the singular values.
+        index = np.arange(1, len(s) + 1)
+        ax.semilogy(index, s, "o-", markersize=3, **plot_kwargs)
+
+        ax.set_xlabel("Singular Value Index")
+        ax.set_ylabel("Singular Value Magnitude")
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+        title = "Singular Values"
+        ax.set_title(title)
+
+        # Add a legend if multiple plots are on the same axes.
+        if "label" in plot_kwargs:
+            ax.legend()
+
+        plt.tight_layout()
+        plt.show()
+        return ax
