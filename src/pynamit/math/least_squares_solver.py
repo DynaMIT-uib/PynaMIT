@@ -79,9 +79,9 @@ class LeastSquaresSolver:
         sqrt_weights=None,
         regularization_weights=None,
         regularization_matrices=None,
-        solver="svd",
+        solver="normal",
         tolerance=1e-12,
-        preconditioner="jacobi",
+        preconditioner=None,
     ):
         solvers = ["normal", "lsmr", "cg", "svd"]
         if solver not in solvers:

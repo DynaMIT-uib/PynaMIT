@@ -67,7 +67,7 @@ class State(object):
         # Configuration from settings
         self.matrix_free = getattr(settings, "matrix_free", False)
         self.matrix_weights = getattr(settings, "matrix_weights", False)
-        self.solver_type = getattr(settings, "least_squares_solver", "svd")
+        self.solver_type = getattr(settings, "least_squares_solver", "normal")
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
 
