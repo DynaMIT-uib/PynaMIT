@@ -254,7 +254,7 @@ class Dynamics(object):
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
             inductive_m_ind = self.output_timeseries.get_entry(
                 "state", self.current_time, interpolation=False
-            )["SH_m_ind"]
+            )["m_ind"]
         else:
             if steady_state_initialization:
                 self.state.update(self.input_timeseries, self.current_time)
@@ -345,12 +345,7 @@ class Dynamics(object):
         m_imp = m_imp_noind + m_imp_ind
 
         # Append current state to time series.
-        state_data = {
-            "SH_m_ind": m_ind,
-            "SH_m_imp": m_imp,
-            "SH_Phi": E_coeffs[0],
-            "SH_W": E_coeffs[1],
-        }
+        state_data = {"m_ind": m_ind, "m_imp": m_imp, "Phi": E_coeffs[0], "W": E_coeffs[1]}
 
         self.output_timeseries.add_entry(key, state_data, time=self.current_time)
 

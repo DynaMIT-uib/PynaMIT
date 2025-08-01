@@ -302,7 +302,6 @@ class State(object):
             )
         else:
             sqrt_W = self.b_evaluator.br
-            #sqrt_W = self.b_evaluator.br * self.cp_b_evaluator.br if self.cp_b_evaluator else self.b_evaluator.br
             terms.append(
                 {
                     "A": self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)),
@@ -332,9 +331,9 @@ class State(object):
                 )
             else:
                 A_E = self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling
-                sqrt_W = np.array((self.b_evaluator.br[self.ll_mask], self.b_evaluator.br[self.ll_mask]))
-                #sqrt_W = (np.array((self.b_evaluator.br[self.ll_mask], self.b_evaluator.br[self.ll_mask]))
-                #          * np.array((self.cp_b_evaluator.br[self.ll_mask], self.cp_b_evaluator.br[self.ll_mask])))
+                sqrt_W = np.array(
+                    (self.b_evaluator.br[self.ll_mask], self.b_evaluator.br[self.ll_mask])
+                )
                 terms.append(
                     {
                         "A": A_E,
@@ -389,7 +388,7 @@ class State(object):
                 regularization_weights=reg_weights,
                 regularization_matrices=reg_matrices,
                 solver=self.solver_type,
-                #plot_singular_values=True,
+                # plot_singular_values=True,
             )
         return self._m_imp_solver
 

@@ -117,7 +117,10 @@ class Timeseries:
         """
         data_vars = {}
         for var in data:
-            data_vars[var] = (["time", "i"], data[var].reshape((1, -1)))
+            data_vars[self.storage_bases[key].kind + "_" + var] = (
+                ["time", "i"],
+                data[var].reshape((1, -1)),
+            )
 
         dataset = xr.Dataset(
             data_vars=data_vars,
@@ -247,7 +250,7 @@ class Timeseries:
                     field_type=self.vars[key][var],
                 )
 
-                interpolated_data[self.storage_bases[key].kind + "_" + var] = vector.coeffs
+                interpolated_data[var] = vector.coeffs
 
             self.add_entry(key, interpolated_data, time[time_index])
 
