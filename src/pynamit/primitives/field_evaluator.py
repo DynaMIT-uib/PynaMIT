@@ -391,6 +391,31 @@ class FieldEvaluator(object):
         return self._horizontal_to_field_orthogonal
 
     @property
+    def field_orthogonal_to_horizontal(self):
+        """Matrix mapping field-orthogonal to horizontal. (Inverse)
+
+        This is the inverse of `horizontal_to_field_orthogonal`.
+
+        Returns
+        -------
+        array
+            Matrix that maps the three spherical coordinate components
+            of a field-orthogonal vector to the two components of the
+            corresponding horizontal vector field. This is a simple
+            projection that discards the radial component.
+        """
+        if not hasattr(self, "_field_orthogonal_to_horizontal"):
+            # This matrix projects a 3D vector [vr, vtheta, vphi]
+            # to a 2D vector [vtheta, vphi].
+            self._field_orthogonal_to_horizontal = np.array(
+                [
+                    [np.zeros(self.grid.size), np.ones(self.grid.size), np.zeros(self.grid.size)],
+                    [np.zeros(self.grid.size), np.zeros(self.grid.size), np.ones(self.grid.size)],
+                ]
+            )
+        return self._field_orthogonal_to_horizontal
+
+    @property
     def field_orthogonal_to_apex(self):
         """Matrix mapping field-orthogonal to apex.
 
@@ -408,6 +433,27 @@ class FieldEvaluator(object):
             )
 
         return self._field_orthogonal_to_apex
+
+    @property
+    def apex_to_field_orthogonal(self):
+        """Matrix mapping apex to field-orthogonal. (Inverse)
+
+        This is the inverse of `field_orthogonal_to_apex`.
+
+        Returns
+        -------
+        array
+            Matrix that maps the two magnetic apex coordinate components
+            to the three spherical coordinate components of a vector
+            field that is orthogonal to the magnetic field. This is the
+            transpose of the `field_orthogonal_to_apex` matrix.
+        """
+        if not hasattr(self, "_apex_to_field_orthogonal"):
+            # The inverse of the basis change is its transpose.
+            self._apex_to_field_orthogonal = np.einsum(
+                "ijk->jik", self.field_orthogonal_to_apex
+            )
+        return self._apex_to_field_orthogonal
 
     @property
     def horizontal_to_apex(self):
@@ -432,6 +478,28 @@ class FieldEvaluator(object):
         return self._horizontal_to_apex
 
     @property
+    def apex_to_horizontal(self):
+        """Matrix mapping apex to horizontal coordinates. (Inverse)
+
+        This is the inverse of `horizontal_to_apex`.
+
+        Returns
+        -------
+        array
+            Matrix that maps the two magnetic apex coordinate components
+            to the two components of the corresponding horizontal
+            vector field.
+        """
+        if not hasattr(self, "_apex_to_horizontal"):
+            self._apex_to_horizontal = np.einsum(
+                "ijk,jlk->ilk",
+                self.field_orthogonal_to_horizontal,
+                self.apex_to_field_orthogonal,
+                optimize=True,
+            )
+        return self._apex_to_horizontal
+
+    @property
     def radial_to_field_parallel(self):
         """Matrix mapping radial to field-parallel.
 
@@ -451,6 +519,27 @@ class FieldEvaluator(object):
         return self._radial_to_field_parallel
 
     @property
+    def field_parallel_to_radial(self):
+        """Matrix mapping field-parallel to radial. (Inverse)
+
+        This is the inverse of `radial_to_field_parallel`.
+
+        Returns
+        -------
+        array
+            Matrix that maps the three spherical coordinate components
+            of a field-parallel vector to its single radial component.
+            This is a simple projection that extracts the first component.
+        """
+        if not hasattr(self, "_field_parallel_to_radial"):
+            # This matrix projects a 3D vector [vr, vtheta, vphi]
+            # to a 1D vector [vr].
+            self._field_parallel_to_radial = np.array(
+                [[np.ones(self.grid.size), np.zeros(self.grid.size), np.zeros(self.grid.size)]]
+            )
+        return self._field_parallel_to_radial
+
+    @property
     def field_parallel_to_apex(self):
         """Matrix mapping field-parallel to apex.
 
@@ -466,6 +555,28 @@ class FieldEvaluator(object):
             self._field_parallel_to_apex = np.array([[self.d3r, self.d3theta, self.d3phi]])
 
         return self._field_parallel_to_apex
+
+    @property
+    def apex_to_field_parallel(self):
+        """Matrix mapping apex to field-parallel. (Inverse)
+
+        This is the inverse of `field_parallel_to_apex`.
+
+        Returns
+        -------
+        array
+            Matrix that maps a single magnetic apex coordinate component
+            to the three spherical coordinate components of the
+            corresponding vector field that is parallel with the
+            magnetic field. This is the transpose of the
+            `field_parallel_to_apex` matrix.
+        """
+        if not hasattr(self, "_apex_to_field_parallel"):
+            # The inverse of the basis change is its transpose.
+            self._apex_to_field_parallel = np.einsum(
+                "ijk->jik", self.field_parallel_to_apex
+            )
+        return self._apex_to_field_parallel
 
     @property
     def radial_to_apex(self):
@@ -487,3 +598,24 @@ class FieldEvaluator(object):
             )
 
         return self._radial_to_apex
+
+    @property
+    def apex_to_radial(self):
+        """Matrix mapping apex to radial component. (Inverse)
+
+        This is the inverse of `radial_to_apex`.
+
+        Returns
+        -------
+        array
+            Matrix that maps the parallel magnetic apex coordinate component
+            to the radial component of the corresponding vector field.
+        """
+        if not hasattr(self, "_apex_to_radial"):
+            self._apex_to_radial = np.einsum(
+                "ijk,jlk->ilk",
+                self.field_parallel_to_radial,
+                self.apex_to_field_parallel,
+                optimize=True,
+            )
+        return self._apex_to_radial
