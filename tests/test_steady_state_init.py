@@ -11,9 +11,9 @@ import numpy as np
 def test_steady_state_init():
     """Test simulation with steady state initialization."""
     # Arrange.
-    expected_coeff_norm = 1.354651883193553e-07
-    expected_coeff_max = 3.6073876055986197e-09
-    expected_coeff_min = -3.428225117146539e-09
+    expected_coeff_norm = 1.0670654147058465e-07
+    expected_coeff_max = 2.561491276819012e-09
+    expected_coeff_min = -3.4985713579924696e-09
     expected_n_coeffs = 201
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")

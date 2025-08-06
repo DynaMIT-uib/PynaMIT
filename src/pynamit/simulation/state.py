@@ -18,6 +18,20 @@ from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
 from scipy.linalg import expm
 
 
+import numpy as np
+import xarray as xr
+from pynamit.math.constants import mu0, RE
+from pynamit.primitives.grid import Grid
+from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.math.tensor_operations import tensor_pinv
+from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.spherical_harmonics.sh_basis import SHBasis
+from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
+from scipy.linalg import expm
+
+
 class State(object):
     """Class for managing the electrodynamic state of the ionosphere.
 
@@ -277,70 +291,129 @@ class State(object):
                     )
         return self._T_to_Ve
 
+    @property
+    def jr_coeffs_to_j_apex_pinv(self):
+        """Cached pseudoinverse of jr_coeffs_to_j_apex."""
+        if not hasattr(self, "_jr_coeffs_to_j_apex_pinv"):
+            self._jr_coeffs_to_j_apex_pinv = tensor_pinv(
+                self.jr_coeffs_to_j_apex, n_leading_flattened=1
+            )
+        return self._jr_coeffs_to_j_apex_pinv
+
+    @property
+    def E_coeffs_to_E_apex_ll_diff_pinv(self):
+        """Cached pseudoinverse of E_coeffs_to_E_apex_ll_diff."""
+        if not hasattr(self, "_E_coeffs_to_E_apex_ll_diff_pinv"):
+            if self.E_coeffs_to_E_apex_ll_diff is None:
+                self._E_coeffs_to_E_apex_ll_diff_pinv = None
+            else:
+                self._E_coeffs_to_E_apex_ll_diff_pinv = tensor_pinv(
+                    self.E_coeffs_to_E_apex_ll_diff, n_leading_flattened=2
+                )
+        return self._E_coeffs_to_E_apex_ll_diff_pinv
+
+    @property
+    def jr_projection_matrix(self):
+        """Cached projection matrix for the jr constraint."""
+        if not hasattr(self, "_jr_projection_matrix"):
+            self._jr_projection_matrix = np.dot(
+                self.jr_coeffs_to_j_apex_pinv, self.jr_coeffs_to_j_apex
+            )
+        return self._jr_projection_matrix
+
+    @property
+    def E_projection_matrix(self):
+        """Cached projection matrix for the E-field constraint."""
+        if not hasattr(self, "_E_projection_matrix"):
+            if self.E_coeffs_to_E_apex_ll_diff is None:
+                self._E_projection_matrix = None
+            else:
+                self._E_projection_matrix = np.tensordot(
+                    self.E_coeffs_to_E_apex_ll_diff_pinv,
+                    self.E_coeffs_to_E_apex_ll_diff,
+                    axes=([2, 3], [0, 1])
+                )
+        return self._E_projection_matrix
+
     def _get_m_imp_solver_terms(self):
         """Return terms for the m_imp least squares problem."""
         terms = []
+        n_coeffs = self.basis.index_length
+
         # Term 1: Field-aligned current constraint (jr)
         if self.matrix_weights:
-            terms.append(
-                {
-                    "A": np.diag(self.m_imp_to_jr),
-                    "data_shape": (self.basis.index_length,),
-                    "sqrt_W": self.jr_constraint_L_matrix,
-                    "get_b": lambda jr, E: jr,
-                    "get_grad_contrib": lambda grad_b: {"grad_jr": grad_b},
-                }
-            )
+            terms.append({
+                "A": np.diag(self.m_imp_to_jr), "data_shape": (n_coeffs,),
+                "sqrt_W": self.jr_constraint_L_matrix,
+                "get_b": lambda jr, E: jr,
+                "get_grad_contrib": lambda grad_b: {"grad_jr": grad_b},
+            })
         else:
-            terms.append(
-                {
-                    "A": self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)),
-                    "data_shape": (self.grid.size,),
-                    "sqrt_W": None,
-                    "get_b": lambda jr, E: np.dot(self.jr_coeffs_to_j_apex, jr)
-                    if jr is not None
-                    else None,
-                    "get_grad_contrib": lambda grad_b: {
-                        "grad_jr": np.dot(self.jr_coeffs_to_j_apex.T, grad_b)
-                    },
-                }
-            )
+            Proj_jr = self.jr_projection_matrix
+            # A_jr = Proj_jr @ M_jr. Since M_jr is diagonal, this is an element-wise
+            # multiplication of each row of Proj_jr with the diagonal of M_jr.
+            A_jr = Proj_jr * self.m_imp_to_jr
+
+            def get_b_jr(jr, E):
+                return np.dot(Proj_jr, jr) if jr is not None else None
+
+            def get_grad_contrib_jr(grad_b):
+                # Proj_jr is Hermitian, so Proj_jr.conj().T == Proj_jr
+                return {"grad_jr": np.dot(Proj_jr.conj().T, grad_b)}
+
+            terms.append({
+                "A": A_jr, "data_shape": (n_coeffs,), "sqrt_W": None,
+                "get_b": get_b_jr, "get_grad_contrib": get_grad_contrib_jr,
+            })
+
         # Term 2: Interhemispheric E-field constraint
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
             if self.matrix_weights:
-                terms.append(
-                    {
-                        "A": self.m_imp_to_E_coeffs,
-                        "data_shape": (2, self.basis.index_length),
-                        "sqrt_W": self.E_constraint_L_matrix * self.ih_constraint_scaling,
-                        "get_b": lambda jr, E: -E,
-                        "get_grad_contrib": lambda grad_b: {
-                            "grad_E": -grad_b.reshape(2, self.basis.index_length)
-                        },
-                    }
-                )
+                terms.append({
+                    "A": self.m_imp_to_E_coeffs, "data_shape": (2, n_coeffs),
+                    "sqrt_W": self.E_constraint_L_matrix * self.ih_constraint_scaling,
+                    "get_b": lambda jr, E: -E,
+                    "get_grad_contrib": lambda grad_b: {"grad_E": -grad_b.reshape(2, n_coeffs)},
+                })
             else:
-                A_E = self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling
-                terms.append(
-                    {
-                        "A": A_E,
-                        "data_shape": (A_E.shape[0],),
-                        "sqrt_W": None,
-                        "get_b": lambda jr, E: -np.einsum(
-                            "cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E
-                        ).flatten()
-                        * self.ih_constraint_scaling
-                        if E is not None
-                        else None,
-                        "get_grad_contrib": lambda grad_b: {
-                            "grad_E": -np.einsum(
-                                "ci,cikl->kl",
-                                (grad_b.reshape(2, -1) / self.ih_constraint_scaling).conj(),
-                                self.E_coeffs_to_E_apex_ll_diff.conj(),
-                            ).conj()
-                        },
-                    }
-                )
+                Proj_E = self.E_projection_matrix
+                M_E = self.m_imp_to_E_coeffs
+                A_E_shape = (2 * n_coeffs, n_coeffs)
+
+                if self.matrix_free:
+                    def matvec_E(m_imp_coeffs):
+                        E_coeffs = M_E.matvec(m_imp_coeffs).reshape(2, n_coeffs)
+                        res = np.tensordot(Proj_E, E_coeffs, axes=([2, 3], [0, 1]))
+                        return res.flatten()
+
+                    def rmatvec_E(grad_b):
+                        grad_b_reshaped = grad_b.reshape(2, n_coeffs)
+                        # Proj_E is Hermitian
+                        grad_E_proj = np.tensordot(Proj_E.conj().T, grad_b_reshaped, axes=([2, 3], [0, 1]))
+                        return M_E.rmatvec(grad_E_proj.flatten())
+
+                    A_E = LinearOperator(shape=A_E_shape, matvec=matvec_E, rmatvec=rmatvec_E)
+                else: # dense
+                    A_E_multi = np.tensordot(Proj_E, M_E, axes=([2, 3], [0, 1]))
+                    A_E = A_E_multi.reshape(A_E_shape)
+
+                def get_b_E(jr, E):
+                    if E is None: return None
+                    b_proj = np.tensordot(Proj_E, E, axes=([2, 3], [0, 1]))
+                    return -b_proj.flatten()
+
+                def get_grad_contrib_E(grad_b):
+                    grad_b_reshaped = grad_b.reshape(2, n_coeffs) / self.ih_constraint_scaling
+                    # Proj_E is Hermitian
+                    grad_E = -np.tensordot(Proj_E.conj().T, grad_b_reshaped, axes=([2, 3], [0, 1]))
+                    return {"grad_E": grad_E}
+
+                terms.append({
+                    "A": A_E * self.ih_constraint_scaling,
+                    "data_shape": (2 * n_coeffs,), "sqrt_W": None,
+                    "get_b": lambda jr, E: get_b_E(jr, E) * self.ih_constraint_scaling if E is not None else None,
+                    "get_grad_contrib": get_grad_contrib_E,
+                })
         return terms
 
     @property
