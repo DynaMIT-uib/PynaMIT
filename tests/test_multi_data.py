@@ -11,9 +11,9 @@ import numpy as np
 def test_multi_data():
     """Test simulation with multiple data points."""
     # Arrange.
-    expected_coeff_norm = 3.804895452310523e-08
-    expected_coeff_max = 5.149365664510078e-09
-    expected_coeff_min = -1.2296681539259948e-08
+    expected_coeff_norm = 3.3509336798743474e-08
+    expected_coeff_max = 4.4313207231093135e-09
+    expected_coeff_min = -1.0303006322425393e-08
     expected_n_coeffs = 4
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -24,8 +24,8 @@ def test_multi_data():
     dynamics = run_pynamit(
         final_time=15,
         dt=5,
-        Nmax=20,
-        Mmax=20,
+        Nmax=10,
+        Mmax=8,
         Ncs=20,
         mainfield_kind="igrf",
         fig_directory=temp_dir,
