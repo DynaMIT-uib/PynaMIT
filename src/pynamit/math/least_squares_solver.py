@@ -801,13 +801,15 @@ class LeastSquaresSolver:
         return grad_b_list
 
     def picard_plot(self, title=None, ax=None, **plot_kwargs):
-        """
+        """Performas a Picard plot.
+
         Compute and plot singular values of the full system matrix.
         This method is useful for diagnosing the conditioning of the
         least-squares problem and visualizing the effect of
         regularization. It requires the problem to be densifiable
         (i.e., not using matrix-free operators, or willing to accept
         the memory cost of densification).
+
         Parameters
         ----------
         title : str, optional
@@ -819,6 +821,7 @@ class LeastSquaresSolver:
         **plot_kwargs : dict
             Additional keyword arguments passed to the `ax.semilogy()`
             plotting function (e.g., `label`, `color`, `linestyle`).
+
         Returns
         -------
         matplotlib.axes.Axes
