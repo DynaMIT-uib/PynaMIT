@@ -82,6 +82,7 @@ class LeastSquaresSolver:
         solver="normal",
         tolerance=1e-12,
         preconditioner=None,
+        picard_plot=False,
     ):
         solvers = ["normal", "lsmr", "cg", "svd"]
         if solver not in solvers:
@@ -158,6 +159,9 @@ class LeastSquaresSolver:
                 "densification, which may be slow or memory-intensive."
             )
         self._op_cache = {}
+
+        if picard_plot:
+            self.picard_plot()
 
     # --- Internal helper methods ---
     @staticmethod
@@ -795,3 +799,63 @@ class LeastSquaresSolver:
             grad_b_list.append(grad_b_i.reshape(output_shape))
             current_row += num_a_rows
         return grad_b_list
+
+    def picard_plot(self, title=None, ax=None, **plot_kwargs):
+        """
+        Compute and plot singular values of the full system matrix.
+        This method is useful for diagnosing the conditioning of the
+        least-squares problem and visualizing the effect of
+        regularization. It requires the problem to be densifiable
+        (i.e., not using matrix-free operators, or willing to accept
+        the memory cost of densification).
+        Parameters
+        ----------
+        title : str, optional
+            The title for the plot. If None, a default title is
+            generated.
+        ax : matplotlib.axes.Axes, optional
+            An existing matplotlib axes object to plot on. If None, a
+            new figure and axes are created.
+        **plot_kwargs : dict
+            Additional keyword arguments passed to the `ax.semilogy()`
+            plotting function (e.g., `label`, `color`, `linestyle`).
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes object containing the plot.
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("Matplotlib is required for this method.")
+            return
+
+        # Ensure that the full system operator G is built.
+        # This uses the scaled regularization weights, which is what we
+        # want to inspect.
+        print("Constructing the full system matrix G...")
+        G_dense = self._get_full_stacked_operator()
+
+        # Compute the singular values of G.
+        print("Computing singular values using SVD...")
+        s = np.linalg.svd(G_dense, compute_uv=False)
+        print("...done.")
+
+        # Create the plot.
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 5))
+
+        # Plot the singular values.
+        index = np.arange(1, len(s) + 1)
+        ax.semilogy(index, s, "o-", markersize=3, **plot_kwargs)
+
+        ax.set_xlabel("Singular Value Index")
+        ax.set_ylabel("Singular Value Magnitude")
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+        # Add a legend if multiple plots are on the same axes.
+        if "label" in plot_kwargs:
+            ax.legend()
+
+        plt.tight_layout()
+        plt.show()

@@ -375,6 +375,7 @@ class State(object):
                 regularization_weights=reg_weights,
                 regularization_matrices=reg_matrices,
                 solver=self.solver_type,
+                picard_plot=False,
             )
         return self._m_imp_solver
 
