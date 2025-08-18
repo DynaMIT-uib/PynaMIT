@@ -79,10 +79,10 @@ class LeastSquaresSolver:
         sqrt_weights=None,
         regularization_weights=None,
         regularization_matrices=None,
-        solver="svd",
+        solver="normal",
         tolerance=1e-12,
-        preconditioner="jacobi",
-        plot_singular_values=False,
+        preconditioner=None,
+        picard_plot=False,
     ):
         solvers = ["normal", "lsmr", "cg", "svd"]
         if solver not in solvers:
@@ -160,9 +160,10 @@ class LeastSquaresSolver:
             )
         self._op_cache = {}
 
-        if plot_singular_values:
-            self.plot_singular_values()
+        if picard_plot:
+            self.picard_plot()
 
+    # --- Internal helper methods ---
     @staticmethod
     def _prepare_input_list(
         item, name, count=None, allow_single_item=False, is_optional=False, default_val=None
@@ -472,7 +473,7 @@ class LeastSquaresSolver:
         op_to_solve = base_op
 
         def solution_transform(sol_block):
-            sol_block
+            return sol_block
 
         if self.preconditioner == "jacobi":
             self._setup_preconditioner_components()
@@ -799,10 +800,10 @@ class LeastSquaresSolver:
             current_row += num_a_rows
         return grad_b_list
 
-    def plot_singular_values(self, title=None, ax=None, **plot_kwargs):
-        """
-        Compute and plot singular values of the full system matrix.
+    def picard_plot(self, title=None, ax=None, **plot_kwargs):
+        """Performas a Picard plot.
 
+        Compute and plot singular values of the full system matrix.
         This method is useful for diagnosing the conditioning of the
         least-squares problem and visualizing the effect of
         regularization. It requires the problem to be densifiable
@@ -855,13 +856,9 @@ class LeastSquaresSolver:
         ax.set_ylabel("Singular Value Magnitude")
         ax.grid(True, which="both", linestyle="--", linewidth=0.5)
 
-        title = "Singular Values"
-        ax.set_title(title)
-
         # Add a legend if multiple plots are on the same axes.
         if "label" in plot_kwargs:
             ax.legend()
 
         plt.tight_layout()
         plt.show()
-        return ax
