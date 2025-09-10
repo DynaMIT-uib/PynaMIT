@@ -65,10 +65,13 @@ class LeastSquaresSolver:
     tolerance : float, default=1e-12
         The tolerance for iterative solvers ("lsmr", "cg") or for SVD
         truncation.
-    preconditioner : str, default="jacobi"
-        The preconditioner to use. If set to "jacobi", a Jacobi
-        (diagonal) preconditioner is used for the "cg" and "lsmr"
-        solvers.
+    preconditioner : str, optional
+        The preconditioner to use for "cg" and "lsmr" solvers.
+        One of {None, "jacobi", "pinv"}.
+        - "jacobi": A diagonal (Jacobi) preconditioner. Fast to compute.
+        - "pinv": A preconditioner based on the pseudoinverse (via SVD).
+          Much more expensive to compute, but can significantly accelerate
+          convergence. Requires densification of all operators.
     """
 
     def __init__(
@@ -81,16 +84,22 @@ class LeastSquaresSolver:
         regularization_matrices=None,
         solver="normal",
         tolerance=1e-12,
-        preconditioner=None,
+        preconditioner="pinv",
         picard_plot=False,
     ):
         solvers = ["normal", "lsmr", "cg", "svd"]
         if solver not in solvers:
             raise ValueError(f"Solver must be one of {solvers}")
-        if preconditioner is not None and preconditioner != "jacobi":
-            raise ValueError("Only 'jacobi' preconditioner supported.")
+
+        preconditioners = [None, "jacobi", "pinv"]
+        if preconditioner not in preconditioners:
+            raise ValueError(f"Preconditioner must be one of {preconditioners}")
+
         if preconditioner is not None and solver not in ["cg", "lsmr"]:
             print("Warning: Preconditioner is set but only applies to 'cg' or 'lsmr' solvers.")
+
+        self._op_cache = {}
+
         self.solver = solver
         self.tolerance = tolerance
         self.preconditioner = preconditioner
@@ -98,34 +107,12 @@ class LeastSquaresSolver:
             (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
         )
         self.solution_size = math.prod(self.solution_shape)
-        A_list = self._prepare_input_list(A, "A", allow_single_item=True)
-        self.num_data_terms = len(A_list)
-        self.data_shapes = self._normalize_data_shapes(data_shapes, self.num_data_terms)
-        self.A = [
-            self._flatten(op, output_shape=self.data_shapes[i], input_shape=self.solution_shape)
-            for i, op in enumerate(A_list)
-        ]
-        sqrt_weights_list = self._prepare_input_list(
-            sqrt_weights, "sqrt_weights", count=self.num_data_terms
-        )
-        self.sqrt_weights = []
-        for i, w_val in enumerate(sqrt_weights_list):
-            if w_val is None:
-                self.sqrt_weights.append(None)
-                continue
-            flat_data_dim = math.prod(self.data_shapes[i])
-            is_diagonal = not isinstance(w_val, LinearOperator) and w_val.size == flat_data_dim
-            if is_diagonal:
-                w_op = np.ascontiguousarray(w_val).reshape(flat_data_dim, 1)
-                self.sqrt_weights.append(
-                    _ProcessedItem(op=w_op, output_shape=self.data_shapes[i], input_shape=(1,))
-                )
-            else:
-                self.sqrt_weights.append(
-                    self._flatten(
-                        w_val, output_shape=self.data_shapes[i], input_shape=self.data_shapes[i]
-                    )
-                )
+        self.num_data_terms = 0  # Will be set in update_matrices
+        self.is_matrix_free = False  # Will be set in update_matrices
+
+        # Defer matrix processing to a separate method
+        self.update_matrices(A, sqrt_weights=sqrt_weights, data_shapes=data_shapes)
+
         reg_L_list = self._prepare_input_list(
             regularization_matrices,
             "regularization_matrices",
@@ -149,19 +136,131 @@ class LeastSquaresSolver:
             count=self.num_reg_terms,
             default_val=0.0,
         )
-        self.is_matrix_free = any(isinstance(a.op, LinearOperator) for a in self.A) or any(
+
+        is_reg_matrix_free = any(
             L is not None and isinstance(L.op, LinearOperator)
             for L in self.regularization_matrices
         )
-        if self.is_matrix_free and solver in ["normal", "svd"]:
-            print(
-                f"Warning: Solver '{solver}' with matrix-free operators requires "
-                "densification, which may be slow or memory-intensive."
-            )
-        self._op_cache = {}
+        self.is_matrix_free = self.is_matrix_free or is_reg_matrix_free
+
+        if self.is_matrix_free:
+            if solver in ["normal", "svd"]:
+                print(
+                    f"Warning: Solver '{solver}' with matrix-free operators requires "
+                    "densification, which may be slow or memory-intensive."
+                )
+            if self.preconditioner == "pinv":
+                raise ValueError(
+                    "The 'pinv' preconditioner requires densifying the full system "
+                    "matrix and cannot be used with matrix-free operators."
+                )
 
         if picard_plot:
             self.picard_plot()
+
+    def update_matrices(self, A, sqrt_weights=None, data_shapes=None):
+        """
+        Updates the data-fitting matrices (A) and weights for the problem.
+
+        This method is designed for time-stepping scenarios where the system
+        operators change but the problem structure (and potentially the
+        preconditioner) remains the same. It updates the internal `A` and
+        `sqrt_weights` attributes and clears any cached operators that depend
+        on them, but preserves the expensive-to-calculate preconditioner
+        by default.
+
+        Parameters
+        ----------
+        A : np.ndarray | LinearOperator | list
+            A single N-D array/LinearOperator or a list of them for the
+            data-fitting terms `A_i`.
+        sqrt_weights : np.ndarray | list, optional
+            New weights corresponding to the new `A` matrices. If None,
+            the existing weights are cleared.
+        data_shapes : tuple | list[tuple], optional
+            New data shapes corresponding to the new `A` matrices. Must be
+            provided if the number or shape of operators changes. If None,
+            the existing shapes are reused.
+        """
+        A_list = self._prepare_input_list(A, "A", allow_single_item=True)
+        self.num_data_terms = len(A_list)
+
+        if data_shapes is not None:
+            self.data_shapes = self._normalize_data_shapes(data_shapes, self.num_data_terms)
+        elif not hasattr(self, "data_shapes") or len(self.data_shapes) != self.num_data_terms:
+            raise ValueError(
+                "data_shapes must be provided when setting A for the first time or changing the number of A operators."
+            )
+
+        self.A = [
+            self._flatten(op, output_shape=self.data_shapes[i], input_shape=self.solution_shape)
+            for i, op in enumerate(A_list)
+        ]
+
+        sqrt_weights_list = self._prepare_input_list(
+            sqrt_weights, "sqrt_weights", count=self.num_data_terms
+        )
+        self.sqrt_weights = []
+        for i, w_val in enumerate(sqrt_weights_list):
+            if w_val is None:
+                self.sqrt_weights.append(None)
+                continue
+            flat_data_dim = math.prod(self.data_shapes[i])
+            is_diagonal = not isinstance(w_val, LinearOperator) and w_val.size == flat_data_dim
+            if is_diagonal:
+                w_op = np.ascontiguousarray(w_val).reshape(flat_data_dim, 1)
+                self.sqrt_weights.append(
+                    _ProcessedItem(op=w_op, output_shape=self.data_shapes[i], input_shape=(1,))
+                )
+            else:
+                self.sqrt_weights.append(
+                    self._flatten(
+                        w_val, output_shape=self.data_shapes[i], input_shape=self.data_shapes[i]
+                    )
+                )
+
+        self.is_matrix_free = any(isinstance(a.op, LinearOperator) for a in self.A)
+        # Clear caches that depend on A, but not the preconditioner itself.
+        self.clear_cache(clear_preconditioner=False)
+
+    def update_preconditioner(self):
+        """
+        Flags the preconditioner to be re-calculated on the next `solve` call.
+
+        This method should be called when changes to the system matrices are
+        significant enough to warrant re-computing the (potentially expensive)
+        preconditioner.
+        """
+        print("Preconditioner invalidated. It will be re-computed on the next call to solve().")
+        self.clear_cache(clear_preconditioner=True)
+
+    def clear_cache(self, clear_preconditioner=True):
+        """
+        Clears cached internal matrices and operators.
+
+        Parameters
+        ----------
+        clear_preconditioner : bool, default=True
+            If True, clears all cached items, including any computed
+            preconditioners ('jacobi_diag', 'pinv_components').
+            If False, preserves the preconditioner cache but clears caches
+            that depend on the system matrices ('G_dense', solver components, etc.).
+        """
+        problem_specific_keys = ["scaled_lambdas", "G_dense", "normal_components"]
+        # Remove solver-specific components which depend on G
+        solver_keys = [
+            k for k in self._op_cache if k.startswith(("lsmr_components", "cg_components"))
+        ]
+
+        for key in problem_specific_keys + solver_keys:
+            if key in self._op_cache:
+                del self._op_cache[key]
+
+        if clear_preconditioner:
+            preconditioner_keys = ["jacobi_diag", "pinv_components", "svd_components"]
+            for key in preconditioner_keys:
+                if key in self._op_cache:
+                    del self._op_cache[key]
 
     # --- Internal helper methods ---
     @staticmethod
@@ -463,11 +562,36 @@ class LeastSquaresSolver:
             diag_G_T_G[i] = np.dot(col_i.conj(), col_i).real
         self._op_cache["jacobi_diag"] = diag_G_T_G
 
+    def _setup_pinv_preconditioner(self):
+        """Computes and caches SVD components for the 'pinv' preconditioner."""
+        if "pinv_components" in self._op_cache:
+            return
+
+        print("Calculating SVD for 'pinv' preconditioner...")
+        if self.is_matrix_free:
+            # This case is blocked in __init__, but check again for safety.
+            raise RuntimeError("Cannot use 'pinv' preconditioner with matrix-free operators.")
+
+        G_dense = self._get_full_stacked_operator()
+        u, s, vt = np.linalg.svd(G_dense, full_matrices=False)
+
+        # For preconditioning, s_pinv is 1/s for s > tol, 0 otherwise
+        s_pinv = np.zeros_like(s)
+        cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
+        stable_s_mask = s > cutoff
+        s_pinv[stable_s_mask] = 1.0 / s[stable_s_mask]
+
+        # For CG, we need (G^T G)^-1 = V S^-2 V^T
+        s_inv_sq = s_pinv**2
+
+        self._op_cache["pinv_components"] = (u, s, vt, s_pinv, s_inv_sq)
+        print("...SVD calculation complete.")
+
     def _get_lsmr_components(self, num_scenarios):
         """Return components for the LSMR solver."""
         if f"lsmr_components_{num_scenarios}" in self._op_cache:
             return self._op_cache[f"lsmr_components_{num_scenarios}"]
-        base_op, _, _ = self._get_multi_scenario_operator(
+        base_op, _, matvec_block = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
         op_to_solve = base_op
@@ -499,6 +623,40 @@ class LeastSquaresSolver:
             def solution_transform(sol_y_block):
                 return sol_y_block * sqrt_inv_diag[:, np.newaxis]
 
+        elif self.preconditioner == "pinv":
+            self._setup_pinv_preconditioner()
+            _, _, vt, s_pinv, _ = self._op_cache["pinv_components"]
+
+            # We are solving G x = d
+            # Right preconditioning: x = P y, solve (G P) y = d
+            # We choose P = V S_pinv.
+            # Then G P = (U S V^T) (V S_pinv) = U S S_pinv.
+            # This is a near-identity mapping in the range of G.
+            # The operator to solve is G' = G P.
+            # x is recovered by x = P y = V S_pinv y.
+            # Note: s_pinv is 1D, vt is 2D. Broadcasting is used.
+            def precond_matvec(y_flat):
+                y_block = y_flat.reshape(self.solution_size, num_scenarios)
+                p_y_block = vt.T @ (s_pinv[:, np.newaxis] * (vt @ y_block))
+                # Now apply original G to the result
+                return matvec_block(p_y_block).flatten()
+
+            def precond_rmatvec(d_flat):
+                d_block_in = d_flat.reshape(-1, num_scenarios)
+                # Apply G^T first
+                g_t_d_block_flat = base_op.rmatvec(d_block_in.flatten())
+                g_t_d_block = g_t_d_block_flat.reshape(self.solution_size, num_scenarios)
+                # Then apply P^T = (V S_pinv V^T)^T = V S_pinv V^T
+                return (vt.T @ (s_pinv[:, np.newaxis] * (vt @ g_t_d_block))).flatten()
+
+            op_to_solve = LinearOperator(
+                base_op.shape, matvec=precond_matvec, rmatvec=precond_rmatvec, dtype=base_op.dtype
+            )
+
+            def solution_transform(sol_y_block):
+                # x = P y = V S_pinv V^T y
+                return vt.T @ (s_pinv[:, np.newaxis] * (vt @ sol_y_block))
+
         self._op_cache[f"lsmr_components_{num_scenarios}"] = (op_to_solve, solution_transform)
         return op_to_solve, solution_transform
 
@@ -508,22 +666,18 @@ class LeastSquaresSolver:
         if cache_key in self._op_cache:
             return self._op_cache[cache_key]
 
-        # Get the multi-scenario base operator G,
-        # which operates on flattened vectors
         base_op, _, _ = self._get_multi_scenario_operator(
             num_scenarios, use_scaled_lambdas=True, include_regularization=True
         )
 
         def normal_op_matvec(x_flat):
             """Compute (G^T G) @ x for a flattened block of vectors."""
-            # This is the core of the normal equations operator
             return base_op.rmatvec(base_op.matvec(x_flat))
 
-        # The operator H = G^T G for all scenarios
         cg_op = LinearOperator(
             (self.solution_size * num_scenarios, self.solution_size * num_scenarios),
             matvec=normal_op_matvec,
-            rmatvec=normal_op_matvec,  # H is Hermitian
+            rmatvec=normal_op_matvec,
             dtype=base_op.dtype,
         )
 
@@ -531,13 +685,8 @@ class LeastSquaresSolver:
         if self.preconditioner == "jacobi":
             self._setup_preconditioner_components()
             diag = self._op_cache.get("jacobi_diag")
-            # For CG, the preconditioner M should approximate
-            # (G^T G)^-1.
-            # The inverse of the diagonal of (G^T G) is a good choice.
             diag_inv = 1.0 / diag
             diag_inv[np.isinf(diag_inv)] = 1.0
-
-            # Create a tiled diagonal for all scenarios
             full_diag_inv = np.tile(diag_inv, num_scenarios)
 
             def precon_matvec(x_flat):
@@ -548,6 +697,21 @@ class LeastSquaresSolver:
                 matvec=precon_matvec,
                 rmatvec=precon_matvec,
                 dtype=diag.dtype,
+            )
+        elif self.preconditioner == "pinv":
+            self._setup_pinv_preconditioner()
+            _, _, vt, _, s_inv_sq = self._op_cache["pinv_components"]
+
+            # Preconditioner M approximates (G^T G)^-1 = V S^-2 V^T
+            def precon_matvec_block(x_block):
+                return vt.T @ (s_inv_sq[:, np.newaxis] * (vt @ x_block))
+
+            def precon_matvec(x_flat):
+                x_block = x_flat.reshape(self.solution_size, num_scenarios)
+                return precon_matvec_block(x_block).flatten()
+
+            M = LinearOperator(
+                cg_op.shape, matvec=precon_matvec, rmatvec=precon_matvec, dtype=vt.dtype
             )
 
         self._op_cache[cache_key] = (cg_op, M)
