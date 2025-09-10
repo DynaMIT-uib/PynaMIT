@@ -84,7 +84,7 @@ class LeastSquaresSolver:
         regularization_matrices=None,
         solver="normal",
         tolerance=1e-12,
-        preconditioner="pinv",
+        preconditioner=None,
         picard_plot=False,
     ):
         solvers = ["normal", "lsmr", "cg", "svd"]

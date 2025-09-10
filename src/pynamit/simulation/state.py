@@ -67,7 +67,8 @@ class State(object):
         # Configuration from settings
         self.matrix_free = getattr(settings, "matrix_free", False)
         self.matrix_weights = getattr(settings, "matrix_weights", False)
-        self.solver_type = getattr(settings, "least_squares_solver", "normal")
+        self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
+        self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
 
@@ -133,7 +134,6 @@ class State(object):
         self._m_imp_to_E_coeffs = None
         self._Br_to_E_coeffs = None
         self.m_ind_to_E_df = None
-        self._m_imp_solver = None
 
         if hasattr(self, "_M_total_on_grid"):
             del self._M_total_on_grid
@@ -345,16 +345,20 @@ class State(object):
 
     @property
     def m_imp_solver(self):
-        """Least-squares solver for the m_imp."""
+        """
+        Least-squares solver for m_imp.
+
+        This property creates the solver on its first access. Subsequent
+        conductance updates should modify the solver via its `update_matrices`
+        method, rather than destroying and recreating it. This allows for
+        reusing an expensive-to-compute preconditioner.
+        """
         if self._m_imp_solver is None:
             terms = self._get_m_imp_solver_terms()
 
             reg_weights = []
             reg_matrices = []
 
-            # If lambda is set, add the Tikhonov regularization term
-            # This term is to improve the convergence of the m_imp
-            # solution, as the m_imp problem is often ill-posed.
             if self.m_imp_regularization_lambda > 0:
                 n_coeffs = self.basis.index_length
                 identity_op = LinearOperator(
@@ -363,10 +367,10 @@ class State(object):
                     rmatvec=lambda x: x,
                     dtype=np.float64,
                 )
-
                 reg_weights.append(self.m_imp_regularization_lambda)
                 reg_matrices.append(identity_op)
 
+            # --- MODIFIED: Pass preconditioner setting to solver ---
             self._m_imp_solver = LeastSquaresSolver(
                 A=[t["A"] for t in terms],
                 solution_shape=self.basis.index_length,
@@ -375,8 +379,10 @@ class State(object):
                 regularization_weights=reg_weights,
                 regularization_matrices=reg_matrices,
                 solver=self.solver_type,
+                preconditioner=self.preconditioner,
                 picard_plot=False,
             )
+            # --- END MODIFIED ---
         return self._m_imp_solver
 
     def _solve_for_m_imp(self, jr_coeffs, E_direct_coeffs):
@@ -563,8 +569,27 @@ class State(object):
                         coeffs=updated_input_entry["u"].reshape((2, -1)),
                         field_type=input_timeseries.vars["u"]["u"],
                     )
+        
+        # --- MODIFIED: Smartly update the solver to reuse preconditioner ---
         if conductance_updated:
+            # Clear caches for operators that depend on conductance.
+            # This does NOT destroy the _m_imp_solver object.
             self._invalidate_caches()
+
+            # If the solver has already been created, we update its
+            # matrices instead of rebuilding it from scratch. This preserves
+            # the preconditioner.
+            if self._m_imp_solver is not None:
+                print("Conductance updated. Updating solver matrices while reusing preconditioner.")
+                # Get the new set of system matrices (A) and weights (W), which
+                # are rebuilt on-the-fly because their caches were just cleared.
+                new_terms = self._get_m_imp_solver_terms()
+                new_A = [t["A"] for t in new_terms]
+                new_sqrt_W = [t["sqrt_W"] for t in new_terms]
+
+                # Push the new matrices into the existing solver.
+                self.m_imp_solver.update_matrices(A=new_A, sqrt_weights=new_sqrt_W)
+        # --- END MODIFIED ---
 
     def _build_u_coeffs_to_E_coeffs(self):
         """Operator mapping u to E-field coeffs."""
