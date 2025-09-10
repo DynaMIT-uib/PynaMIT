@@ -25,13 +25,32 @@ class _ProcessedItem:
 class TensorChainOperator(LinearOperator):
     """
     A specialized LinearOperator that represents a chain of tensor contractions.
-    (Docstring is the same as previous version)
+    (Docstring unchanged)
     """
 
     def __init__(self, shape, matvec, rmatvec, dtype, einsum_string, component_tensors):
-        super().__init__(dtype=dtype, shape=shape, matvec=matvec, rmatvec=rmatvec)
+        # Call super().__init__ with ONLY the arguments it expects.
+        super().__init__(dtype=dtype, shape=shape)
+
+        # Store the user-provided functions to be called by _matvec and _rmatvec.
+        self._user_matvec = matvec
+        self._user_rmatvec = rmatvec
+
+        # Store custom attributes
         self.einsum_string = einsum_string
         self.component_tensors = component_tensors
+
+    def _matvec(self, x):
+        """
+        Implements the matrix-vector product. This is called by the base class.
+        """
+        return self._user_matvec(x)
+
+    def _rmatvec(self, x):
+        """
+        Implements the adjoint matrix-vector product. This is called by the base class.
+        """
+        return self._user_rmatvec(x)
 
     def densify(self):
         """
