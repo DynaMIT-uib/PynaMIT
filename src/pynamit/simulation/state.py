@@ -12,51 +12,11 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
-from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.math.least_squares_solver import LeastSquaresSolver, TensorChain
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from scipy.sparse.linalg import LinearOperator, expm_multiply, gmres
 from scipy.linalg import expm
 import math
-
-
-class TensorChainOperator(LinearOperator):
-    """
-    A specialized LinearOperator that represents a chain of tensor contractions.
-    (Docstring unchanged)
-    """
-
-    def __init__(self, shape, matvec, rmatvec, dtype, einsum_string, component_tensors):
-        # Call super().__init__ with ONLY the arguments it expects.
-        super().__init__(dtype=dtype, shape=shape)
-
-        # Store the user-provided functions to be called by _matvec and _rmatvec.
-        self._user_matvec = matvec
-        self._user_rmatvec = rmatvec
-
-        # Store custom attributes
-        self.einsum_string = einsum_string
-        self.component_tensors = component_tensors
-
-    def _matvec(self, x):
-        """
-        Implements the matrix-vector product. This is called by the base class.
-        """
-        return self._user_matvec(x)
-
-    def _rmatvec(self, x):
-        """
-        Implements the adjoint matrix-vector product. This is called by the base class.
-        """
-        return self._user_rmatvec(x)
-
-    def densify(self):
-        """
-        Contracts the component tensors using the stored einsum string
-        to form a single dense matrix.
-        """
-        print(f"Densifying TensorChainOperator via einsum ('{self.einsum_string}')...")
-        dense_matrix = np.einsum(self.einsum_string, *self.component_tensors, optimize=True)
-        return dense_matrix.reshape(self.shape)
 
 
 class State(object):
@@ -67,9 +27,8 @@ class State(object):
     def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
         """Initialize the ionospheric state."""
         # This method is correct and unchanged from the previous version.
-        self.matrix_free = getattr(settings, "matrix_free", False)
         self.matrix_weights = getattr(settings, "matrix_weights", False)
-        self.solver_type = getattr(settings, "least_squares_solver", "svd")
+        self.solver_type = getattr(settings, "least_squares_solver", "cg")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
@@ -275,11 +234,12 @@ class State(object):
                     }
                 )
             else:
-                A_E = self._get_or_create_E_map_constraint_operator() * self.ih_constraint_scaling
+                original_chain = self._get_or_create_E_map_constraint_operator()
+                A_E = original_chain.with_scaling(self.ih_constraint_scaling)
                 terms.append(
                     {
                         "A": A_E,
-                        "data_shape": (A_E.shape[0],),
+                        "data_shape": A_E.output_shape,
                         "sqrt_W": None,
                         "get_b": lambda jr, E: -np.einsum(
                             "cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E
@@ -290,7 +250,7 @@ class State(object):
                         "get_grad_contrib": lambda grad_b: {
                             "grad_E": -np.einsum(
                                 "ci,cikl->kl",
-                                (grad_b.reshape(2, -1) / self.ih_constraint_scaling).conj(),
+                                (grad_b.reshape(A_E.output_shape) / self.ih_constraint_scaling).conj(),
                                 self.E_coeffs_to_E_apex_ll_diff.conj(),
                             ).conj()
                         },
@@ -359,57 +319,65 @@ class State(object):
 
     def _create_E_coeffs_operator(self, G_X_to_JS):
         """
-        Create an operator for the E-field transformation.
+        Creates a TensorChain "recipe" for an E-field transformation.
         """
         if G_X_to_JS is None:
             return None
-
+    
         M_total = self.M_total_on_grid
         G_helm_pinv = self.G_helmholtz_pinv
-
-        input_tensor_shape = G_X_to_JS.shape[2:]
-        input_indices = "lmnopqrstuv"[: len(input_tensor_shape)]
-        g_x_js_indices = "jk" + input_indices
-        einsum_string = f"cmik,ijk,{g_x_js_indices}->cm{input_indices}"
         component_tensors = [G_helm_pinv, M_total, G_X_to_JS]
+    
+        output_shape = (2, self.basis.index_length)
+        input_shape = G_X_to_JS.shape[2:]
+        
+        # Tensor Shapes and Indices:
+        # G_helm_pinv (A): (c,m,p,g)
+        # M_total (B)    : (p,q,g)
+        # G_X_to_JS (C)  : (q,g,l)
+        
+        einsum_string_dense = "cmpg,pqg,qgl->cml"
+        einsum_string_matvec = "cmpg,pqg,qgl,l->cm"
+        einsum_string_rmatvec = "qgl,pqg,cmpg,cm->l"
 
-        if not self.matrix_free:
-            dense_op = np.einsum(einsum_string, *component_tensors, optimize=True)
-            return dense_op
-
-        input_flat_size = math.prod(input_tensor_shape)
-        output_tensor_shape = (2, self.basis.index_length)
-        output_flat_size = math.prod(output_tensor_shape)
-        final_op_shape = (output_flat_size, input_flat_size)
-
-        def matvec(x_coeffs_flat):
-            x_coeffs = x_coeffs_flat.reshape(input_tensor_shape)
-            js_on_grid = np.tensordot(
-                G_X_to_JS,
-                x_coeffs,
-                axes=(tuple(range(2, G_X_to_JS.ndim)), tuple(range(len(input_tensor_shape)))),
-            )
-            j_div_free_on_grid = np.einsum("ijk,jk->ik", M_total, js_on_grid, optimize=True)
-            E_coeffs = np.einsum("cmik,ik->cm", G_helm_pinv, j_div_free_on_grid, optimize=True)
-            return E_coeffs.flatten()
-
-        def rmatvec(grad_E_coeffs_flat):
-            grad_E_coeffs = grad_E_coeffs_flat.reshape(output_tensor_shape)
-            grad_j_div_free = np.einsum(
-                "cmik,cm->ik", G_helm_pinv.conj(), grad_E_coeffs, optimize=True
-            )
-            grad_js = np.einsum("ijk,ik->jk", M_total.conj(), grad_j_div_free, optimize=True)
-            grad_x_coeffs = np.tensordot(grad_js, G_X_to_JS.conj(), axes=([0, 1], [0, 1]))
-            return grad_x_coeffs.flatten()
-
-        return TensorChainOperator(
-            shape=final_op_shape,
-            matvec=matvec,
-            rmatvec=rmatvec,
-            dtype=np.result_type(*[t.dtype for t in component_tensors]),
-            einsum_string=einsum_string,
+        return TensorChain(
             component_tensors=component_tensors,
+            einsum_string_dense=einsum_string_dense,
+            einsum_string_matvec=einsum_string_matvec,
+            einsum_string_rmatvec=einsum_string_rmatvec,
+            output_shape=output_shape,
+            input_shape=input_shape,
+            dtype=np.result_type(*[t.dtype for t in component_tensors]),
         )
+
+    def _get_or_create_E_map_constraint_operator(self):
+        if hasattr(self, "_E_map_constraint_operator"):
+            return self._E_map_constraint_operator
+
+        inner_chain = self.m_imp_to_E_coeffs
+        outer_tensor = self.E_coeffs_to_E_apex_ll_diff # Indices: ticm
+        new_component_tensors = [outer_tensor] + inner_chain.component_tensors
+
+        # Tensors and indices:
+        # outer_tensor (D): ticm
+        # G_helm_pinv (A) : cmpg
+        # M_total (B)     : pqg
+        # G_X_to_JS (C)   : qgl
+        
+        einsum_string_dense = "ticm,cmpg,pqg,qgl->til"
+        einsum_string_matvec = "ticm,cmpg,pqg,qgl,l->ti"
+        einsum_string_rmatvec = "qgl,pqg,cmpg,ticm,ti->l"
+
+        self._E_map_constraint_operator = TensorChain(
+            component_tensors=new_component_tensors,
+            einsum_string_dense=einsum_string_dense,
+            einsum_string_matvec=einsum_string_matvec,
+            einsum_string_rmatvec=einsum_string_rmatvec,
+            output_shape=(2, int(np.sum(self.ll_mask))),
+            input_shape=inner_chain.input_shape,
+            dtype=inner_chain.dtype
+        )
+        return self._E_map_constraint_operator
 
     @property
     def m_ind_to_E_coeffs(self):
@@ -523,33 +491,28 @@ class State(object):
         G_u_to_uxB_grid = np.einsum(
             "ijk, jklm -> iklm", self.bu_prop, self.basis_evaluator.G_helmholtz, optimize=True
         )
-        dense_op = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
-        if self.matrix_free:
+        self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
 
-            def matvec(u_coeffs_flat):
-                return np.einsum(
-                    "iklm, lm -> ik", dense_op, u_coeffs_flat.reshape(2, -1), optimize=True
-                ).flatten()
-
-            def rmatvec(grad_E_coeffs_flat):
-                return np.einsum(
-                    "iklm, ik -> lm",
-                    dense_op.conj(),
-                    grad_E_coeffs_flat.reshape(2, -1),
-                    optimize=True,
-                ).flatten()
-
-            shape_in_out = (2, self.basis.index_length)
-            shape = (np.prod(shape_in_out), np.prod(shape_in_out))
-            self.u_coeffs_to_E_coeffs = LinearOperator(
-                shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64
+    def _execute_tensor_chain(self, chain: TensorChain, x: np.ndarray = None):
+        """Helper to execute a TensorChain recipe, for internal State use."""
+        if x is None:  # Densify
+            dense_op = np.einsum(
+                chain.einsum_string_dense, *chain.component_tensors, optimize=True
             )
-        else:
-            self.u_coeffs_to_E_coeffs = dense_op
+            return dense_op.reshape(chain.output_shape + chain.input_shape)
+        else:  # Matvec
+            x_tensor = x.reshape(chain.input_shape)
+            all_tensors = chain.component_tensors + [x_tensor]
+            res_tensor = np.einsum(
+                chain.einsum_string_matvec, *all_tensors, optimize=True
+            )
+            return res_tensor
 
     def _apply_operator(self, op, coeffs, output_shape):
         if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return np.zeros(output_shape)
+        if isinstance(op, TensorChain):
+            return self._execute_tensor_chain(op, x=coeffs).reshape(output_shape)
         if isinstance(op, LinearOperator):
             return op.matvec(
                 coeffs.flatten() if isinstance(coeffs, np.ndarray) else coeffs
@@ -596,48 +559,6 @@ class State(object):
             self._E_constraint_L_matrix_cache = L_E
         return self._E_constraint_L_matrix_cache
 
-    def _get_or_create_E_map_constraint_operator(self):
-        if hasattr(self, "_E_map_constraint_operator"):
-            return self._E_map_constraint_operator
-        if not self.matrix_free:
-            op = np.tensordot(
-                self.E_coeffs_to_E_apex_ll_diff, self.m_imp_to_E_coeffs, axes=([2, 3], [0, 1])
-            )
-            n_ll = np.sum(self.ll_mask)
-            self._E_map_constraint_operator = op.reshape(2 * n_ll, self.basis.index_length)
-        else:
-            n_ll = np.sum(self.ll_mask)
-            n_c_imp = self.basis.index_length
-            shape_out = (2, n_ll)
-            shape_in = (n_c_imp,)
-            shape = (np.prod(shape_out), np.prod(shape_in))
-
-            def matvec(m_coeffs_in):
-                m_coeffs = m_coeffs_in.flatten()
-                E_coeffs = self._apply_operator(
-                    self.m_imp_to_E_coeffs, m_coeffs, (2, self.basis.index_length)
-                )
-                E_apex_diff = np.einsum(
-                    "cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_coeffs, optimize=True
-                )
-                return E_apex_diff.flatten()
-
-            def rmatvec(grad_E_apex_flat):
-                grad_E_apex = grad_E_apex_flat.reshape(shape_out)
-                grad_E_coeffs = np.einsum(
-                    "cikl,ci->kl",
-                    self.E_coeffs_to_E_apex_ll_diff.conj(),
-                    grad_E_apex,
-                    optimize=True,
-                )
-                op = self.m_imp_to_E_coeffs
-                grad_m_coeffs_flat = op.rmatvec(grad_E_coeffs.flatten())
-                return grad_m_coeffs_flat
-
-            self._E_map_constraint_operator = LinearOperator(
-                shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64
-            )
-        return self._E_map_constraint_operator
 
     def build_m_ind_to_E_df(self):
         if self.m_ind_to_E_df is not None:
@@ -648,29 +569,8 @@ class State(object):
             E_ind, _ = self.calculate_ind_coeffs(m)
             return E_ind[1]
 
-        if self.matrix_free:
-
-            def rmatvec(grad_out):
-                grad_E_phi = grad_out.flatten()
-                grad_E = np.zeros((2, shape[0]), dtype=grad_E_phi.dtype)
-                grad_E[1] = grad_E_phi
-                total_grad_E_direct_ind = grad_E.copy()
-                op_m_imp_E = self.m_imp_to_E_coeffs
-                grad_m_imp_ind_flat = op_m_imp_E.rmatvec(grad_E.flatten())
-                _, grad_E_direct_ind_from_m_imp = self._solve_for_m_imp_adjoint(
-                    grad_m_imp_ind_flat
-                )
-                if grad_E_direct_ind_from_m_imp is not None:
-                    total_grad_E_direct_ind += grad_E_direct_ind_from_m_imp
-                op_m_ind_E = self.m_ind_to_E_coeffs
-                grad_m_ind_flat = op_m_ind_E.rmatvec(total_grad_E_direct_ind.flatten())
-                return grad_m_ind_flat
-
-            self.m_ind_to_E_df = LinearOperator(
-                shape=shape, matvec=matvec, rmatvec=rmatvec, dtype=np.float64
-            )
-        else:
-            self.m_ind_to_E_df = np.array([matvec(v) for v in np.eye(shape[1])]).T
+        # Always build the dense operator for internal use
+        self.m_ind_to_E_df = np.array([matvec(v) for v in np.eye(shape[1])]).T
 
     def evolve_m_ind(self, m_ind, dt, E_coeffs_noind, steady_state_m_ind=None):
         if self.m_ind_to_E_df is None:
@@ -678,15 +578,12 @@ class State(object):
         op = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df
         b = self.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
         if self.integrator == "euler":
-            return m_ind + dt * (op.dot(m_ind) + b)
+            return m_ind + dt * (op @ m_ind + b)
         elif self.integrator == "exponential":
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
             diff = m_ind - steady_state_m_ind
-            if self.matrix_free:
-                return expm_multiply(dt * op, diff) + steady_state_m_ind
-            else:
-                return (expm(dt * op) @ diff) + steady_state_m_ind
+            return (expm(dt * op) @ diff) + steady_state_m_ind
         else:
             raise ValueError(f"Unknown integrator: {self.integrator}")
 
@@ -695,10 +592,4 @@ class State(object):
             self.build_m_ind_to_E_df()
         op = self.m_ind_to_E_df
         b = -E_coeffs_noind[1]
-        if self.matrix_free:
-            m_ind, exit_code = gmres(op, b, rtol=1e-12, atol=0)
-            if exit_code != 0:
-                print(f"Warning: GMRES failed with exit code {exit_code}")
-            return m_ind
-        else:
-            return np.linalg.solve(op, b)
+        return np.linalg.solve(op, b)

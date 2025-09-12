@@ -8,9 +8,37 @@ structured, matrix-free operators.
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import List
 
 ITERATION_SAFETY_FACTOR = 10
+
+
+@dataclass
+class TensorChain:
+    """A recipe for a tensor contraction operation.
+
+    This is a pure data class that describes a physical operation without
+    committing to a numerical implementation. It contains the tensors
+    and the einsum strings needed to execute the operation either as a dense
+    matrix or as a matrix-vector product.
+    """
+
+    component_tensors: List[np.ndarray]
+    einsum_string_dense: str
+    einsum_string_matvec: str
+    einsum_string_rmatvec: str
+    output_shape: tuple
+    input_shape: tuple
+    dtype: np.dtype
+    scaling_factor: float = 1.0
+    # These will be populated by the solver for performance
+    einsum_path_matvec: list = None
+    einsum_path_rmatvec: list = None
+
+    def with_scaling(self, factor: float) -> "TensorChain":
+        """Returns a new TensorChain with the given scaling factor."""
+        return replace(self, scaling_factor=factor)
 
 
 @dataclass
@@ -28,7 +56,9 @@ class TensorChainOperator(LinearOperator):
     (Docstring unchanged)
     """
 
-    def __init__(self, shape, matvec, rmatvec, dtype, einsum_string, component_tensors):
+    def __init__(
+        self, shape, matvec, rmatvec, dtype, einsum_string_dense, component_tensors
+    ):
         # Call super().__init__ with ONLY the arguments it expects.
         super().__init__(dtype=dtype, shape=shape)
 
@@ -37,7 +67,7 @@ class TensorChainOperator(LinearOperator):
         self._user_rmatvec = rmatvec
 
         # Store custom attributes
-        self.einsum_string = einsum_string
+        self.einsum_string_dense = einsum_string_dense
         self.component_tensors = component_tensors
 
     def _matvec(self, x):
@@ -54,11 +84,13 @@ class TensorChainOperator(LinearOperator):
 
     def densify(self):
         """
-        Contracts the component tensors using the stored einsum string
-        to form a single dense matrix.
+        Contracts the component tensors using the stored dense einsum string
+        to form a single dense matrix. This is the fast-path for densification.
         """
-        print(f"Densifying TensorChainOperator via einsum ('{self.einsum_string}')...")
-        dense_matrix = np.einsum(self.einsum_string, *self.component_tensors, optimize=True)
+        print(f"Densifying TensorChainOperator via optimized einsum ('{self.einsum_string_dense}')...")
+        dense_matrix = np.einsum(
+            self.einsum_string_dense, *self.component_tensors, optimize=True
+        )
         return dense_matrix.reshape(self.shape)
 
 
@@ -77,7 +109,7 @@ class LeastSquaresSolver:
         regularization_weights=None,
         regularization_matrices=None,
         solver="normal",
-        tolerance=1e-12,
+        tolerance=1e-13,
         preconditioner=None,
         picard_plot=False,
     ):
@@ -102,7 +134,7 @@ class LeastSquaresSolver:
         )
         self.solution_size = math.prod(self.solution_shape)
         self.num_data_terms = 0
-        self.is_matrix_free = False
+        self.is_matrix_free = solver in ["cg", "lsmr"]
 
         self.update_matrices(A, sqrt_weights=sqrt_weights, data_shapes=data_shapes)
 
@@ -192,7 +224,8 @@ class LeastSquaresSolver:
                     )
                 )
 
-        self.is_matrix_free = any(isinstance(a.op, LinearOperator) for a in self.A)
+        is_data_matrix_free = any(isinstance(a.op, LinearOperator) for a in self.A)
+        self.is_matrix_free = (self.solver in ["cg", "lsmr"]) or is_data_matrix_free
         self.clear_cache(clear_preconditioner=False)
 
     def update_preconditioner(self):
@@ -206,8 +239,6 @@ class LeastSquaresSolver:
         """
         Clears cached internal matrices and operators.
         """
-        # "svd_components" is part of the direct solution, not a preconditioner.
-        # It must be cleared whenever the system matrices change.
         problem_specific_keys = [
             "scaled_lambdas",
             "G_dense",
@@ -224,13 +255,11 @@ class LeastSquaresSolver:
                 del self._op_cache[key]
 
         if clear_preconditioner:
-            # "svd_components" is no longer here.
             preconditioner_keys = ["jacobi_diag", "pinv_components"]
             for key in preconditioner_keys:
                 if key in self._op_cache:
                     del self._op_cache[key]
 
-    # --- Internal helper methods ---
     @staticmethod
     def _prepare_input_list(
         item, name, count=None, allow_single_item=False, is_optional=False, default_val=None
@@ -263,12 +292,111 @@ class LeastSquaresSolver:
         return [(shape,) if isinstance(shape, int) else tuple(shape) for shape in data_shapes]
 
     @staticmethod
-    def _flatten(array, output_shape=None, input_shape=None):
+    def _get_adjoint_einsum_recipe(chain: "TensorChain"):
+        """
+        Generates the einsum string and tensor list for the adjoint operation (rmatvec)
+        from a matvec TensorChain recipe. This correctly reverses the order of operators.
+        """
+        matvec_str = chain.einsum_string_matvec
+
+        # 1. Split the einsum string into operands and result
+        operands_str, result_indices = matvec_str.split("->")
+        operand_list = operands_str.split(',')
+
+        # 2. Separate the core tensor subscripts from the input vector's subscript
+        input_indices = operand_list[-1]
+        tensor_operands_list = operand_list[:-1]
+
+        # 3. REVERSE the core tensors and their subscripts for the adjoint
+        reversed_tensor_operands_str = ",".join(reversed(tensor_operands_list))
+        reversed_conjugated_tensors = [t.conj() for t in reversed(chain.component_tensors)]
+
+        # 4. Construct the rmatvec string. The rmatvec input (the gradient, which has
+        #    the original `result_indices`) is the LAST operand.
+        rmatvec_str = f"{reversed_tensor_operands_str},{result_indices}->{input_indices}"
+
+        return rmatvec_str, reversed_conjugated_tensors
+
+    def _flatten(self, array, output_shape=None, input_shape=None):
         """Convert an N-D operator into a 2D matrix representation."""
+        if isinstance(array, TensorChain):
+            chain = array
+            output_shape, input_shape = chain.output_shape, chain.input_shape
+            flat_output_dim = math.prod(output_shape)
+            flat_input_dim = math.prod(input_shape)
+
+            if self.solver in ["svd", "normal"]:
+                print(f"Directly densifying TensorChain via einsum ('{chain.einsum_string_dense}')...")
+                dense_op = np.einsum(
+                    chain.einsum_string_dense, *chain.component_tensors, optimize=True
+                )
+                dense_op *= chain.scaling_factor
+                return _ProcessedItem(
+                    dense_op.reshape(flat_output_dim, flat_input_dim), output_shape, input_shape
+                )
+
+            # Pre-compute optimal einsum path for matvec performance
+            if chain.einsum_path_matvec is None:
+                dummy_input = np.empty(chain.input_shape, dtype=chain.dtype)
+                all_tensors = chain.component_tensors + [dummy_input]
+                chain.einsum_path_matvec = np.einsum_path(
+                    chain.einsum_string_matvec, *all_tensors, optimize='greedy'
+                )[0]
+                print(f"Pre-computed matvec einsum path for '{chain.einsum_string_matvec}'")
+
+            # Pre-compute optimal einsum path for rmatvec performance
+            if chain.einsum_path_rmatvec is None:
+                # Use the MANUALLY PROVIDED rmatvec string from the chain.
+                adjoint_einsum_str = chain.einsum_string_rmatvec
+                
+                # The tensors for the adjoint are the original tensors, reversed and conjugated.
+                reversed_conjugated_tensors = [t.conj() for t in reversed(chain.component_tensors)]
+                
+                # Create a dummy gradient vector with the correct shape for path finding
+                dummy_grad = np.empty(chain.output_shape, dtype=chain.dtype)
+                
+                # The full list of operands for the path finder
+                all_adjoint_tensors = reversed_conjugated_tensors + [dummy_grad]
+                
+                # Find and cache the path
+                chain.einsum_path_rmatvec = np.einsum_path(
+                    adjoint_einsum_str, *all_adjoint_tensors, optimize='greedy'
+                )[0]
+                print(f"Pre-computed rmatvec einsum path for '{adjoint_einsum_str}'")
+
+            def matvec(x_flat):
+                x_tensor = x_flat.reshape(input_shape)
+                # Vector is the LAST operand
+                all_tensors = chain.component_tensors + [x_tensor]
+                res = np.einsum(chain.einsum_string_matvec, *all_tensors, optimize=chain.einsum_path_matvec)
+                return res.flatten() * chain.scaling_factor
+
+            def rmatvec(y_flat):
+                grad_tensor = y_flat.reshape(chain.output_shape)
+                reversed_conjugated_tensors = [t.conj() for t in reversed(chain.component_tensors)]
+                all_adjoint_tensors = reversed_conjugated_tensors + [grad_tensor]
+
+                # Use the correct rmatvec string from the chain and the pre-computed path.
+                grad_x_coeffs = np.einsum(
+                    chain.einsum_string_rmatvec, *all_adjoint_tensors, optimize=chain.einsum_path_rmatvec
+                )
+
+                return grad_x_coeffs.flatten() * chain.scaling_factor.conjugate()
+
+            op = TensorChainOperator(
+                shape=(flat_output_dim, flat_input_dim),
+                matvec=matvec,
+                rmatvec=rmatvec, # Use the new rmatvec
+                dtype=chain.dtype,
+                einsum_string_dense=chain.einsum_string_dense,
+                component_tensors=chain.component_tensors,
+            )
+            return _ProcessedItem(op, output_shape, input_shape)
+
         if isinstance(array, LinearOperator):
             return _ProcessedItem(array, (array.shape[0],), (array.shape[1],))
         if not isinstance(array, np.ndarray):
-            raise TypeError(f"Input must be a numpy array or LinearOperator, got {type(array)}")
+            raise TypeError(f"Input must be a numpy array, TensorChain, or LinearOperator, got {type(array)}")
         if output_shape is None and input_shape is None:
             raise ValueError(
                 "At least one of output_shape or input_shape must be provided for an operator."
@@ -308,10 +436,11 @@ class LeastSquaresSolver:
             return op.densify()
 
         if isinstance(op, LinearOperator):
-            # Fallback for generic LinearOperators
+            print(f"Warning: Densifying a generic LinearOperator of shape {op.shape} using slow fallback.")
             return op.matmat(np.eye(op.shape[1], dtype=op.dtype))
         return op
-
+    
+    # ... (the rest of the file is unchanged) ...
     def _process_b_vector(self, b_val, data_shape):
         """Reshape a `b` vector into a 2D column-block format."""
         if b_val is None:
