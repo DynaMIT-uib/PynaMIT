@@ -476,20 +476,30 @@ class State:
                 self.m_imp_solver.update_matrices(A=[t["A"] for t in new_terms], sqrt_weights=[t.get("sqrt_W") for t in new_terms])
 
     def _apply_operator(self, op, coeffs, output_shape: Tuple[int, ...]):
-        """Uniformly apply an operator or tensor to flatten coefficients and
-        reshape into the desired output shape.
+        """Apply op to coeffs and return array shaped `output_shape`.
+    
+        Supports: None, TensorChain, LinearOperator, ndarray.
         """
         if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return np.zeros(output_shape)
-        # TensorChain -> LinearOperator, LinearOperator -> matvec, ndarray -> tensordot
+    
+        coeffs_arr = np.asarray(coeffs)
+        flat_coeffs = coeffs_arr.flatten()
+    
+        # TensorChain -> LinearOperator -> matvec
         if isinstance(op, TensorChain):
             linop = op.as_linear_operator()
-            return linop.matvec(np.asarray(coeffs).flatten()).reshape(output_shape)
+            return linop.matvec(flat_coeffs).reshape(output_shape)
+    
         if isinstance(op, LinearOperator):
-            return op.matvec(np.asarray(coeffs).flatten()).reshape(output_shape)
-        # assume ndarray with appropriate shape
-        coeffs_arr = np.asarray(coeffs)
-        return np.tensordot(op, coeffs_arr, axes=coeffs_arr.ndim)
+            return op.matvec(flat_coeffs).reshape(output_shape)
+    
+        # assume ndarray-like operator: use tensordot; ensure op is contiguous ndarray
+        op_arr = np.ascontiguousarray(op)
+        # axes: contract last coeffs_arr.ndim axes of op with coeffs_arr
+        # tensordot returns flattened result if appropriate; we then reshape.
+        res = np.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
+        return res.reshape(output_shape)
 
     # ----- calculations / ODE evolution -----
 
