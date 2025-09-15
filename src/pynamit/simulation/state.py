@@ -65,7 +65,6 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.matrix_weights = getattr(settings, "matrix_weights", False)
         self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.integrator = settings.integrator
@@ -153,7 +152,7 @@ class State:
             Br = self.b_evaluator.Br
             self._bu = -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
         return self._bu
-    
+
     @property
     def T_to_Ve(self) -> xr.DataArray:
         """Operator mapping imposed potential (T) to electric potential (Ve)."""
@@ -216,20 +215,7 @@ class State:
                 factor = -1.0
 
             JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
-            # Ensure arrays are numpy arrays and shapes align before contracting.
-            a = np.asarray(JS_rk_to_Ve)
-            b = np.asarray(m_imp_to_JS_rk)
-            # Expectation: contract last two axes of `a` with first two axes of `b`.
-            if a.shape[-2:] != b.shape[:2]:
-                raise ValueError(f"tensordot shape mismatch in _build_T_to_Ve: JS_rk_to_Ve.shape={a.shape}, m_imp_to_JS_rk.shape={b.shape}")
-            # Use axes=2 to contract (last-2,last-1) of `a` with (0,1) of `b` (matches original behavior).
-            self._T_to_Ve += Delta_k[i] * factor * np.tensordot(a, b, axes=2)
-
-    @property
-    def T_to_Ve(self) -> xr.DataArray:
-        if self._T_to_Ve is None:
-            self._build_T_to_Ve()
-        return self._T_to_Ve
+            self._T_to_Ve += Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
 
     # ----- G operators mapping to sheet current (JS) -----
 
@@ -319,7 +305,7 @@ class State:
         self.jr_coeffs_to_j_apex = (self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
 
-        if self.connect_hemispheres and self.cp_b_evaluator is not None and self.cp_basis_evaluator is not None:
+        if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
             jr_coeffs_to_j_apex_cp = (self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G)
             self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
@@ -328,74 +314,29 @@ class State:
             E_coeffs_to_E_apex = np.einsum("ijk,jklm->iklm", self.b_evaluator.horizontal_to_apex, self.basis_evaluator.G_helmholtz, optimize=True)
             E_coeffs_to_E_apex_cp = np.einsum("ijk,jklm->iklm", self.cp_b_evaluator.horizontal_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize=True)
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask])
-    
-    @property
-    def jr_constraint_L_matrix(self):
-        """SVD-based weight matrix for the jr constraint."""
-        if not hasattr(self, "_jr_constraint_L_matrix"):
-            H_jr = self.jr_coeffs_to_j_apex
-            _, S, Vt = np.linalg.svd(H_jr, full_matrices=False)
-            self._jr_constraint_L_matrix = Vt.T @ np.diag(S) @ Vt
-        return self._jr_constraint_L_matrix
-
-    @property
-    def E_constraint_L_matrix(self):
-        """SVD-based weight matrix for the interhemispheric E-field constraint."""
-        if not hasattr(self, "_E_constraint_L_matrix"):
-            L_E = None
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                H_E = self.E_coeffs_to_E_apex_ll_diff
-                H_E_2D = H_E.reshape((np.prod(H_E.shape[:2]), -1))
-                _, S, Vt = np.linalg.svd(H_E_2D, full_matrices=False)
-                L_E_2D = Vt.T @ np.diag(S) @ Vt
-                L_E = L_E_2D.reshape(H_E.shape[2:] * 2)
-            self._E_constraint_L_matrix = L_E
-        return self._E_constraint_L_matrix
 
     # ----- Solver Setup and Execution -----
-
-    def _get_m_imp_solver_terms(self) -> List[Dict[str, Any]]:
-        """Construct the list of terms for the least-squares solver."""
-        terms = []
-        
-        # Term 1: Radial current (jr) constraint
-        if self.matrix_weights:
-            A_jr, sqrt_W_jr = np.diag(self.m_imp_to_jr), self.jr_constraint_L_matrix
-            get_b_jr = lambda jr, E: jr
-            get_grad_jr = lambda grad_b: {"grad_jr": grad_b}
-        else:
-            A_jr = self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))
-            sqrt_W_jr = None
-            get_b_jr = lambda jr, E: np.dot(self.jr_coeffs_to_j_apex, jr) if jr is not None else None
-            get_grad_jr = lambda grad_b: {"grad_jr": np.dot(self.jr_coeffs_to_j_apex.T, grad_b)}
-        terms.append({"A": A_jr, "sqrt_W": sqrt_W_jr, "get_b": get_b_jr, "get_grad_contrib": get_grad_jr})
-
-        # Term 2: Interhemispheric E-field constraint
-        if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-            if self.matrix_weights:
-                A_E = self.m_imp_to_E_coeffs.to_dense()
-                sqrt_W_E = self.E_constraint_L_matrix * self.ih_constraint_scaling
-                get_b_E = lambda jr, E: -E
-                get_grad_E = lambda grad_b: {"grad_E": -grad_b.reshape(2, -1)}
-            else:
-                A_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
-                sqrt_W_E = None
-                get_b_E = lambda jr, E: -np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E).flatten() * self.ih_constraint_scaling if E is not None else None
-                get_grad_E = lambda grad_b: {"grad_E": -np.einsum("ci,cikl->kl", (grad_b.reshape(A_E.output_shape) / self.ih_constraint_scaling).conj(), self.E_coeffs_to_E_apex_ll_diff.conj()).conj()}
-            terms.append({"A": A_E, "sqrt_W": sqrt_W_E, "get_b": get_b_E, "get_grad_contrib": get_grad_E})
-
-        # Add data shapes to all terms
-        for term in terms:
-            A = term["A"]
-            term["data_shape"] = A.output_shape if hasattr(A, "output_shape") else A.shape[:-1]
-
-        return terms
 
     @property
     def m_imp_solver(self) -> LeastSquaresSolver:
         """The least-squares solver instance for the imposed potential."""
         if self._m_imp_solver is None:
-            terms = self._get_m_imp_solver_terms()
+            # Build the list of operators (A) and their corresponding data shapes
+            A_list = []
+            data_shapes = []
+
+            # Term 1: Radial current (jr) constraint
+            A_jr = self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))
+            A_list.append(A_jr)
+            data_shapes.append(A_jr.shape[:-1])
+
+            # Term 2: Interhemispheric E-field constraint
+            if self.connect_hemispheres:
+                A_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
+                A_list.append(A_E)
+                data_shapes.append(A_E.output_shape)
+
+            # Setup regularization
             reg_ops = []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
@@ -403,10 +344,10 @@ class State:
                 reg_ops.append({"weight": self.m_imp_regularization_lambda, "matrix": identity_op})
 
             self._m_imp_solver = LeastSquaresSolver(
-                A=[t["A"] for t in terms],
+                A=A_list,
                 solution_shape=self.basis.index_length,
-                data_shapes=[t["data_shape"] for t in terms],
-                sqrt_weights=[t.get("sqrt_W") for t in terms],
+                data_shapes=data_shapes,
+                sqrt_weights=[None] * len(A_list), # No explicit weights
                 regularization_weights=[r["weight"] for r in reg_ops],
                 regularization_matrices=[r["matrix"] for r in reg_ops],
                 solver=self.solver_type,
@@ -416,22 +357,40 @@ class State:
 
     def _solve_for_m_imp(self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray) -> np.ndarray:
         """Solves for the imposed potential coefficients `m_imp`."""
-        terms = self._get_m_imp_solver_terms()
-        rhs_B = [t["get_b"](jr_coeffs, E_direct_coeffs) for t in terms]
+        # Build the right-hand-side vector (B) for the least-squares problem
+        rhs_B = []
+
+        # Term 1: RHS for jr constraint
+        b_jr = np.dot(self.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None
+        rhs_B.append(b_jr)
+
+        # Term 2: RHS for E-field constraint
+        if self.connect_hemispheres:
+            b_E = -np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E_direct_coeffs).flatten() * self.ih_constraint_scaling if E_direct_coeffs is not None else None
+            rhs_B.append(b_E)
+
         m_imp = self.m_imp_solver.solve(rhs_B)
         return m_imp if m_imp is not None else np.zeros(self.basis.index_length)
 
     def _solve_for_m_imp_adjoint(self, grad_m_imp: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Performs the adjoint solve for `m_imp`."""
-        terms = self._get_m_imp_solver_terms()
         grad_b_list = self.m_imp_solver.solve_adjoint(grad_m_imp)
+
         grad_jr = grad_E = None
-        for i, term in enumerate(terms):
-            contribution = term["get_grad_contrib"](grad_b_list[i])
-            if "grad_jr" in contribution and self.jr is not None:
-                grad_jr = contribution["grad_jr"]
-            if "grad_E" in contribution and self.connect_hemispheres:
-                grad_E = contribution["grad_E"]
+        term_idx = 0
+
+        # Term 1: Gradient contribution from jr constraint
+        if self.jr is not None:
+            grad_jr = np.dot(self.jr_coeffs_to_j_apex.T, grad_b_list[term_idx])
+        term_idx += 1
+
+        # Term 2: Gradient contribution from E-field constraint
+        if self.connect_hemispheres:
+            A_E_shape = self.m_imp_solver.A[term_idx].output_shape
+            grad_b_E = grad_b_list[term_idx].reshape(A_E_shape) / self.ih_constraint_scaling
+            grad_E = -np.einsum("ci,cikl->kl", grad_b_E.conj(), self.E_coeffs_to_E_apex_ll_diff.conj()).conj()
+            term_idx += 1
+
         return grad_jr, grad_E
 
     # ----- State Update and Evolution -----
@@ -443,7 +402,7 @@ class State:
             updated_input = input_timeseries.get_entry_if_changed(key, time, interpolation=interpolation)
             if updated_input is None:
                 continue
-            
+
             storage_base = input_timeseries.storage_bases.get(key)
             if key == "conductance":
                 conductance_updated = True
@@ -475,14 +434,14 @@ class State:
         """
         if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return np.zeros(output_shape)
-    
+
         coeffs_arr = np.asarray(coeffs)
         flat_coeffs = coeffs_arr.flatten()
-    
+
         if isinstance(op, (TensorChain, LinearOperator)):
             linop = op if isinstance(op, LinearOperator) else op.as_linear_operator()
             return linop.matvec(flat_coeffs).reshape(output_shape)
-    
+
         op_arr = np.ascontiguousarray(op)
         res = np.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
         return res.reshape(output_shape)
@@ -493,7 +452,7 @@ class State:
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, getattr(self.u, 'coeffs', 0), E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(self.Br_to_E_coeffs, self.Br.coeffs, E_shape)
-        
+
         m_imp = self._solve_for_m_imp(getattr(self.jr, 'coeffs', None), E_direct)
         E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
         return E_direct + E_imp, m_imp
@@ -530,13 +489,13 @@ class State:
 
         if self.integrator == "euler":
             return m_ind + dt * (op @ m_ind + b)
-        
+
         if self.integrator == "exponential":
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
             diff = m_ind - steady_state_m_ind
             return expm(dt * op) @ diff + steady_state_m_ind
-        
+
         raise ValueError(f"Unknown integrator: {self.integrator}")
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
