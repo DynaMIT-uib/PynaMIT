@@ -14,25 +14,42 @@ from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.tensor_operations import tensor_pinv
 from pynamit.math.least_squares_solver import LeastSquaresSolver, TensorChain
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from scipy.sparse.linalg import LinearOperator, expm
-from scipy.linalg import pinv
+from scipy.sparse.linalg import LinearOperator
+from scipy.linalg import expm
 
 
-class State(object):
-    """Class for managing the electrodynamic state of the ionosphere.
-    (Docstring unchanged)
-    """
+class State:
+    """Class for managing the electrodynamic state of the ionosphere."""
 
     def __init__(self, basis, mainfield, cs_basis, settings, PFAC_matrix=None):
         """Initialize the ionospheric state."""
+        self.basis = basis
+        self.mainfield = mainfield
+
+        # 1. Initialize from settings
+        self._init_settings(settings)
+
+        # 2. Initialize geometry, grids, and evaluators
+        self._init_geom_and_evaluators(cs_basis)
+
+        # 3. Pre-calculate operators that don't depend on conductance
+        self._invalidate_caches()
+        self._init_precomputed_operators(PFAC_matrix)
+
+        # 4. Initialize constraint operators
+        self.initialize_constraints()
+
+        # 5. Initialize state variables and caches
+        self.u, self.Br, self.jr, self.etaP, self.etaH = None, None, None, None, None
+        self._m_imp_solver = None
+
+    def _init_settings(self, settings):
+        """Initialize attributes from the settings object."""
         self.matrix_weights = getattr(settings, "matrix_weights", False)
         self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
-
-        self.basis = basis
-        self.mainfield = mainfield
         self.RI = settings.RI
         self.RM = None if settings.RM == 0 else settings.RM
         self.latitude_boundary = settings.latitude_boundary
@@ -41,18 +58,26 @@ class State(object):
         self.FAC_integration_steps = settings.FAC_integration_steps
         self.ih_constraint_scaling = settings.ih_constraint_scaling
 
-        # State variables
-        self.u, self.Br, self.jr, self.etaP, self.etaH = None, None, None, None, None
-
-        # Grid and evaluators
+    def _init_geom_and_evaluators(self, cs_basis):
+        """Initialize grids and evaluators for basis and field transformations."""
         self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         self.basis_evaluator_zero_added = BasisEvaluator(
-            SHBasis(settings.Nmax, settings.Mmax, Nmin=0), self.grid
+            SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin=0), self.grid
         )
-        self.b_evaluator = FieldEvaluator(mainfield, self.grid, self.RI)
+        self.b_evaluator = FieldEvaluator(self.mainfield, self.grid, self.RI)
 
-        # Pre-calculated operators and factors
+        self.cp_grid, self.cp_basis_evaluator, self.cp_b_evaluator = None, None, None
+        if self.connect_hemispheres:
+            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
+                self.RI, self.grid.theta, self.grid.phi
+            )
+            self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
+            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
+            self.cp_b_evaluator = FieldEvaluator(self.mainfield, self.cp_grid, self.RI)
+
+    def _init_precomputed_operators(self, PFAC_matrix):
+        """Pre-calculate operators and factors that are constant."""
         self.G_helmholtz_pinv = tensor_pinv(
             self.basis_evaluator.G_helmholtz, n_leading_flattened=2
         )
@@ -62,22 +87,11 @@ class State(object):
         Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
         self.G_Ve_to_JS = 1 / self.RI * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
 
-        # Handle conjugate point connections
-        self.cp_grid, self.cp_basis_evaluator, self.cp_b_evaluator = None, None, None
-        if self.connect_hemispheres:
-            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
-                self.RI, self.grid.theta, self.grid.phi
-            )
-            self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
-            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
-            self.cp_b_evaluator = FieldEvaluator(mainfield, self.cp_grid, self.RI)
-
-        # Initialize constraints and cached properties to None
         self._T_to_Ve = PFAC_matrix
-        self._m_imp_solver = None
-        self.initialize_constraints()
-        self._invalidate_caches()
-        self._build_u_coeffs_to_E_coeffs()
+
+        # This operator is static as it does not depend on conductance
+        G_u_to_uxB_grid = np.einsum("ijk, jklm -> iklm", self.bu, self.basis_evaluator.G_helmholtz, optimize=True)
+        self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
 
     def _invalidate_caches(self):
         """Invalidate all cached properties that depend on conductance."""
@@ -89,16 +103,16 @@ class State(object):
         self._m_imp_to_E_coeffs = None
         self._Br_to_E_coeffs = None
         self._E_map_constraint_operator = None
-        self.m_ind_to_E_df = None
+        self._m_ind_to_E_df_matrix = None # Invalidate the cached dense matrix
+
+    # --- Properties for Magnetic Field, Operators, and Constraints ---
 
     @property
     def bP(self):
         """Pedersen component of the magnetic field geometric factor."""
         if self._bP is None:
             b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
-            self._bP = np.array(
-                [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
-            )
+            self._bP = np.array([[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]])
         return self._bP
 
     @property
@@ -203,8 +217,8 @@ class State(object):
     def M_total_on_grid(self):
         """The full conductance tensor projected onto the grid."""
         if self._M_total_on_grid is None:
-            if (self.etaP is None) or (self.etaH is None):
-                raise RuntimeError("Conductance must be set before use.")
+            if self.etaP is None or self.etaH is None:
+                raise RuntimeError("Conductance must be set before properties that depend on it can be accessed.")
             eta_stacked_coeffs = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
             G_eta = self.basis_evaluator_zero_added.G
             b_stacked = np.stack([self.bP, self.bH], axis=0)
@@ -214,14 +228,8 @@ class State(object):
         return self._M_total_on_grid
 
     def _create_E_coeffs_operator(self, G_X_to_JS):
-        """Creates a TensorChain for an E-field transformation from source X."""
-        if G_X_to_JS is None:
-            return None
-
-        # Tensor Shapes and Indices:
-        # G_helm_pinv (A): (c,m,p,g)
-        # M_total (B)    : (p,q,g)
-        # G_X_to_JS (C)  : (q,g,l...)
+        """Helper to create a TensorChain for E-field transformation from source X."""
+        if G_X_to_JS is None: return None
         return TensorChain(
             component_tensors=[self.G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS],
             einsum_string_dense="cmpg,pqg,qgl->cml",
@@ -246,9 +254,7 @@ class State(object):
     @property
     def Br_to_E_coeffs(self):
         if self._Br_to_E_coeffs is None:
-            self._Br_to_E_coeffs = self._create_E_coeffs_operator(
-                getattr(self, "G_Br_to_JS", None)
-            )
+            self._Br_to_E_coeffs = self._create_E_coeffs_operator(getattr(self, "G_Br_to_JS", None))
         return self._Br_to_E_coeffs
 
     @property
@@ -256,13 +262,7 @@ class State(object):
         """Matrix-free operator for E-field mapping constraint."""
         if self._E_map_constraint_operator is None:
             inner_chain = self.m_imp_to_E_coeffs
-            outer_tensor = self.E_coeffs_to_E_apex_ll_diff  # Indices: ticm
-            
-            # Tensors and indices:
-            # outer_tensor (D): ticm
-            # G_helm_pinv (A) : cmpg
-            # M_total (B)     : pqg
-            # G_X_to_JS (C)   : qgl
+            outer_tensor = self.E_coeffs_to_E_apex_ll_diff
             self._E_map_constraint_operator = TensorChain(
                 component_tensors=[outer_tensor] + inner_chain.component_tensors,
                 einsum_string_dense="ticm,cmpg,pqg,qgl->til",
@@ -273,44 +273,60 @@ class State(object):
             )
         return self._E_map_constraint_operator
 
+    @property
+    def jr_constraint_L_matrix(self):
+        if not hasattr(self, "_jr_constraint_L_matrix"):
+            H_jr = self.jr_coeffs_to_j_apex
+            _, S, Vt = np.linalg.svd(H_jr, full_matrices=False)
+            self._jr_constraint_L_matrix = Vt.T @ np.diag(S) @ Vt
+        return self._jr_constraint_L_matrix
+
+    @property
+    def E_constraint_L_matrix(self):
+        if not hasattr(self, "_E_constraint_L_matrix"):
+            L_E = None
+            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
+                H_E = self.E_coeffs_to_E_apex_ll_diff
+                H_E_2D = H_E.reshape((np.prod(H_E.shape[:2]), np.prod(H_E.shape[2:])))
+                _, S, Vt = np.linalg.svd(H_E_2D, full_matrices=False)
+                L_E_2D = Vt.T @ np.diag(S) @ Vt
+                L_E = L_E_2D.reshape(H_E.shape[2:] + H_E.shape[2:])
+            self._E_constraint_L_matrix = L_E
+        return self._E_constraint_L_matrix
+    
+    # --- Solver Setup and Execution ---
+
     def _get_m_imp_solver_terms(self):
         """Constructs the list of terms for the imposed potential solver."""
         terms = []
+        # Term 1: Radial current (jr) constraint
         if self.matrix_weights:
-            terms.append({
-                "A": np.diag(self.m_imp_to_jr),
-                "data_shape": (self.basis.index_length,),
-                "sqrt_W": self.jr_constraint_L_matrix,
-                "get_b": lambda jr, E: jr,
-                "get_grad_contrib": lambda grad_b: {"grad_jr": grad_b},
-            })
+            A_jr = np.diag(self.m_imp_to_jr)
+            sqrt_W_jr = self.jr_constraint_L_matrix
         else:
-            terms.append({
-                "A": self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1)),
-                "data_shape": (self.grid.size,),
-                "sqrt_W": None,
-                "get_b": lambda jr, E: np.dot(self.jr_coeffs_to_j_apex, jr) if jr is not None else None,
-                "get_grad_contrib": lambda grad_b: {"grad_jr": np.dot(self.jr_coeffs_to_j_apex.T, grad_b)},
-            })
+            A_jr = self.jr_coeffs_to_j_apex * self.m_imp_to_jr.reshape((1, -1))
+            sqrt_W_jr = None
+        
+        terms.append({
+            "A": A_jr, "data_shape": A_jr.shape[:-1], "sqrt_W": sqrt_W_jr,
+            "get_b": lambda jr, E: jr if self.matrix_weights else (np.dot(self.jr_coeffs_to_j_apex, jr) if jr is not None else None),
+            "get_grad_contrib": lambda grad_b: {"grad_jr": grad_b if self.matrix_weights else np.dot(self.jr_coeffs_to_j_apex.T, grad_b)}
+        })
 
+        # Term 2: Interhemispheric E-field constraint
         if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
             if self.matrix_weights:
-                terms.append({
-                    "A": self.m_imp_to_E_coeffs.to_dense(), # Densify for matrix weights
-                    "data_shape": (2, self.basis.index_length),
-                    "sqrt_W": self.E_constraint_L_matrix * self.ih_constraint_scaling,
-                    "get_b": lambda jr, E: -E,
-                    "get_grad_contrib": lambda grad_b: {"grad_E": -grad_b.reshape(2, self.basis.index_length)},
-                })
+                A_E = self.m_imp_to_E_coeffs.to_dense()
+                sqrt_W_E = self.E_constraint_L_matrix * self.ih_constraint_scaling
             else:
                 A_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
-                terms.append({
-                    "A": A_E,
-                    "data_shape": A_E.output_shape,
-                    "sqrt_W": None,
-                    "get_b": lambda jr, E: -np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E).flatten() * self.ih_constraint_scaling if E is not None else None,
-                    "get_grad_contrib": lambda grad_b: { "grad_E": -np.einsum("ci,cikl->kl", (grad_b.reshape(A_E.output_shape) / self.ih_constraint_scaling).conj(), self.E_coeffs_to_E_apex_ll_diff.conj()).conj()},
-                })
+                sqrt_W_E = None
+            
+            terms.append({
+                "A": A_E, "data_shape": A_E.output_shape, "sqrt_W": sqrt_W_E,
+                "get_b": lambda jr, E: -E if self.matrix_weights else (-np.einsum("cikl,kl->ci", self.E_coeffs_to_E_apex_ll_diff, E).flatten() * self.ih_constraint_scaling if E is not None else None),
+                "get_grad_contrib": lambda grad_b: {"grad_E": -grad_b.reshape(2, self.basis.index_length)} if self.matrix_weights else {"grad_E": -np.einsum("ci,cikl->kl", (grad_b.reshape(A_E.output_shape) / self.ih_constraint_scaling).conj(), self.E_coeffs_to_E_apex_ll_diff.conj()).conj()}
+            })
         return terms
 
     @property
@@ -359,6 +375,8 @@ class State(object):
             if "grad_E" in grad_contribs and self.connect_hemispheres:
                 grad_E = grad_contribs["grad_E"]
         return grad_jr, grad_E
+    
+    # --- Main Interface Methods ---
 
     def initialize_constraints(self):
         """Initializes operators related to interhemispheric constraints."""
@@ -413,30 +431,21 @@ class State(object):
                 new_terms = self._get_m_imp_solver_terms()
                 self.m_imp_solver.update_matrices(A=[t["A"] for t in new_terms], sqrt_weights=[t.get("sqrt_W") for t in new_terms])
 
-    def _build_u_coeffs_to_E_coeffs(self):
-        """Builds the operator mapping neutral wind to electric field coeffs."""
-        G_u_to_uxB_grid = np.einsum("ijk, jklm -> iklm", self.bu, self.basis_evaluator.G_helmholtz, optimize=True)
-        self.u_coeffs_to_E_coeffs = self.basis_evaluator.least_squares_solution_helmholtz(G_u_to_uxB_grid)
-
     def _apply_operator(self, op, coeffs, output_shape):
         """Applies a given operator to a set of coefficients."""
         if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return np.zeros(output_shape)
-        
-        if isinstance(op, TensorChain):
-            # Use the matrix-free matvec operation of the TensorChain
-            op_as_linop = op.as_linear_operator()
-            return op_as_linop.matvec(coeffs.flatten()).reshape(output_shape)
-        
-        if isinstance(op, LinearOperator):
-            return op.matvec(coeffs.flatten()).reshape(output_shape)
-        
-        # Assume op is a dense numpy array
-        return np.tensordot(op, coeffs, coeffs.ndim)
+        if isinstance(op, (TensorChain, LinearOperator)):
+            lin_op = op if isinstance(op, LinearOperator) else op.as_linear_operator()
+            return lin_op.matvec(np.asarray(coeffs).flatten()).reshape(output_shape)
+        return np.tensordot(op, coeffs, axes=coeffs.ndim)
 
+    # --- Core Calculation and Time Evolution (PERFORMANCE CORRECTED) ---
+    
     def calculate_noind_coeffs(self):
         """Calculates E-field and imposed potential from non-inductive sources."""
         E_shape = (2, self.basis.index_length)
+        
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, self.u.coeffs if self.u else 0, E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(self.Br_to_E_coeffs, self.Br.coeffs, E_shape)
@@ -446,7 +455,7 @@ class State(object):
         return E_direct + E_imp, m_imp
 
     def calculate_ind_coeffs(self, m_ind):
-        """Calculates E-field and imposed potential from inductive sources."""
+        """Calculates total E-field from inductive sources (m_ind)."""
         E_shape = (2, self.basis.index_length)
         E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, m_ind, E_shape)
         m_imp_ind = self._solve_for_m_imp(None, E_direct_ind)
@@ -454,46 +463,41 @@ class State(object):
         return E_direct_ind + E_imp_ind, m_imp_ind
 
     @property
-    def jr_constraint_L_matrix(self):
-        if not hasattr(self, "_jr_constraint_L_matrix"):
-            H_jr = self.jr_coeffs_to_j_apex
-            _, S, Vt = np.linalg.svd(H_jr, full_matrices=False)
-            self._jr_constraint_L_matrix = Vt.T @ np.diag(S) @ Vt
-        return self._jr_constraint_L_matrix
+    def m_ind_to_E_df_matrix(self):
+        """
+        The dense matrix mapping induced potential to E-field. This is cached
+        for performance. Building this is expensive but faster than repeated
+        matrix-free solves.
+        """
+        if self._m_ind_to_E_df_matrix is None:
+            self._build_m_ind_to_E_df_matrix()
+        return self._m_ind_to_E_df_matrix
 
-    @property
-    def E_constraint_L_matrix(self):
-        if not hasattr(self, "_E_constraint_L_matrix"):
-            L_E = None
-            if self.connect_hemispheres and self.E_coeffs_to_E_apex_ll_diff is not None:
-                H_E = self.E_coeffs_to_E_apex_ll_diff
-                H_E_2D = H_E.reshape((np.prod(H_E.shape[:2]), np.prod(H_E.shape[2:])))
-                _, S, Vt = np.linalg.svd(H_E_2D, full_matrices=False)
-                L_E_2D = Vt.T @ np.diag(S) @ Vt
-                L_E = L_E_2D.reshape(H_E.shape[2:] + H_E.shape[2:])
-            self._E_constraint_L_matrix = L_E
-        return self._E_constraint_L_matrix
-
-    def build_m_ind_to_E_df(self):
-        """Builds the dense matrix mapping induced potential to E-field."""
-        if self.m_ind_to_E_df is not None:
-            return
+    def _build_m_ind_to_E_df_matrix(self):
+        """Builds the dense matrix by probing the operator with basis vectors."""
+        print("Building dense induction operator matrix (m_ind -> E_df)...")
         n_coeffs = self.basis.index_length
         identity = np.eye(n_coeffs)
-        # Apply the operator to each basis vector to construct the dense matrix
-        self.m_ind_to_E_df = np.array([self.calculate_ind_coeffs(v)[0][1] for v in identity]).T
-
+        # This is the expensive part: call the solver for each basis vector once.
+        # The result is cached until conductance changes.
+        # [0][1] selects the total E-field's divergence-free component.
+        self._m_ind_to_E_df_matrix = np.array(
+            [self.calculate_ind_coeffs(v)[0][1] for v in identity]
+        ).T
+        print("...done building induction operator matrix.")
+        
     def evolve_m_ind(self, m_ind, dt, E_coeffs_noind, steady_state_m_ind=None):
-        """Evolves the induced potential (m_ind) forward in time by dt."""
-        if self.m_ind_to_E_df is None:
-            self.build_m_ind_to_E_df()
-
-        op = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df
+        """Evolves the induced potential (m_ind) forward by dt using the pre-built dense matrix."""
+        # Reverting to the dense matrix approach for performance.
+        # The ODE is: d(m_ind)/dt = A @ m_ind + b
+        
+        op = self.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix
         b = self.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
-
+        
         if self.integrator == "euler":
             return m_ind + dt * (op @ m_ind + b)
         elif self.integrator == "exponential":
+            # Solution to y' = Ay+b is y(t) = exp(tA)(y(0) - y_ss) + y_ss
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
             diff = m_ind - steady_state_m_ind
@@ -502,10 +506,12 @@ class State(object):
             raise ValueError(f"Unknown integrator: {self.integrator}")
 
     def steady_state_m_ind(self, E_coeffs_noind):
-        """Calculates the steady-state induced potential for a given E-field."""
-        if self.m_ind_to_E_df is None:
-            self.build_m_ind_to_E_df()
-
-        op = self.m_ind_to_E_df
+        """Calculates the steady-state m_ind using a direct solve on the dense matrix."""
+        # We need to solve d(m_ind)/dt = 0, which means:
+        # op @ m_ind = -E_df_noind
+        
+        op = self.m_ind_to_E_df_matrix
         b = -E_coeffs_noind[1]
+        
+        # Use a fast direct solver now that we have the dense matrix
         return np.linalg.solve(op, b)

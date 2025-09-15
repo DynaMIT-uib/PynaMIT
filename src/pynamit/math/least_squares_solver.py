@@ -119,20 +119,12 @@ class LeastSquaresSolver:
         sqrt_weights: Optional[Union[Any, List[Any]]] = None,
         regularization_weights: Optional[Union[float, List[float]]] = None,
         regularization_matrices: Optional[Union[Any, List[Any]]] = None,
-        solver: str = "normal",
+        solver: str = "lsmr",
         tolerance: float = 1e-13,
         preconditioner: Optional[str] = None,
         picard_plot: bool = False,
     ):
-        """
-        Args:
-            A: An operator or a list of operators. Each can be a numpy array,
-               a SciPy LinearOperator, or a TensorChain.
-            solution_shape: The desired shape of the solution vector `x`.
-            data_shapes: A shape or a list of shapes, one for each corresponding
-                         data vector `b` associated with an operator in `A`.
-            ...
-        """
+        """Initializes the least-squares solver."""
         solvers = ["normal", "lsmr", "cg", "svd"]
         if solver not in solvers:
             raise ValueError(f"Solver must be one of {solvers}")
@@ -142,7 +134,7 @@ class LeastSquaresSolver:
             raise ValueError(f"Preconditioner must be one of {preconditioners}")
 
         if preconditioner is not None and solver not in ["cg", "lsmr"]:
-            print("Warning: Preconditioner is set but only applies to 'cg' or 'lsmr' solvers.")
+            print(f"Warning: Preconditioner is set but only applies to 'cg' or 'lsmr' solvers.")
 
         self._op_cache = {}
         self.solver = solver
@@ -151,7 +143,6 @@ class LeastSquaresSolver:
         self.solution_shape = (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
         self.solution_size = math.prod(self.solution_shape)
 
-        self.is_matrix_free = solver in ["cg", "lsmr"]
         self.update_matrices(A, sqrt_weights=sqrt_weights, data_shapes=data_shapes)
 
         reg_L_list = self._prepare_input_list(regularization_matrices, "regularization_matrices", is_optional=True)
@@ -167,7 +158,8 @@ class LeastSquaresSolver:
         is_reg_matrix_free = any(
             L is not None and isinstance(L.op, LinearOperator) for L in self.regularization_matrices
         )
-        self.is_matrix_free = self.is_matrix_free or is_reg_matrix_free
+        if is_reg_matrix_free:
+            self.is_matrix_free = True
 
         if self.is_matrix_free:
             if self.preconditioner == "pinv":
@@ -188,6 +180,11 @@ class LeastSquaresSolver:
         elif not hasattr(self, "data_shapes") or len(self.data_shapes) != self.num_data_terms:
             raise ValueError("data_shapes must be provided when setting A for the first time or changing the number of A operators.")
 
+        self.is_matrix_free = self.solver in ["cg", "lsmr"]
+        is_any_A_matrix_free = any(isinstance(op, (LinearOperator, TensorChain)) for op in A_list)
+        if is_any_A_matrix_free:
+            self.is_matrix_free = True
+
         self.A = [
             self._flatten(op, output_shape=self.data_shapes[i], input_shape=self.solution_shape)
             for i, op in enumerate(A_list)
@@ -202,7 +199,13 @@ class LeastSquaresSolver:
                 self.sqrt_weights.append(None)
                 continue
             flat_data_dim = math.prod(self.data_shapes[i])
+            
+            # --- THIS IS THE CORRECTED LINE ---
+            # Removed the `np.ndim(w_val) == 1` condition which was too restrictive.
+            # Now it correctly identifies any array with the same number of elements as the data
+            # as a diagonal weight matrix.
             is_diagonal = not isinstance(w_val, LinearOperator) and w_val.size == flat_data_dim
+            
             if is_diagonal:
                 w_op = np.ascontiguousarray(w_val).reshape(flat_data_dim, 1)
                 self.sqrt_weights.append(
@@ -213,8 +216,6 @@ class LeastSquaresSolver:
                     self._flatten(w_val, output_shape=self.data_shapes[i], input_shape=self.data_shapes[i])
                 )
 
-        is_data_matrix_free = any(isinstance(a.op, LinearOperator) for a in self.A)
-        self.is_matrix_free = (self.solver in ["cg", "lsmr"]) or is_data_matrix_free
         self.clear_cache(clear_preconditioner=False)
 
     def update_preconditioner(self):
@@ -245,7 +246,6 @@ class LeastSquaresSolver:
             if count is None: raise ValueError(f"Input '{name}' cannot be None if 'count' is not specified.")
             return [default_val] * count
         
-        # This is the key change: flexibly accept a single item or a list
         lst = item if isinstance(item, list) else [item]
         
         if count is not None and len(lst) != count:
@@ -306,7 +306,6 @@ class LeastSquaresSolver:
             return op.matmat(np.eye(op.shape[1], dtype=op.dtype))
         return op
 
-    # The rest of the file is identical to the previous version
     def _process_b_vector(self, b_val, data_shape):
         """Reshape a `b` vector into a 2D column-block format."""
         if b_val is None:
