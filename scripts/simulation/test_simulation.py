@@ -53,7 +53,12 @@ lon0 = d.mlt2mlon(12, date)  # noon longitude
 conductance_lat = dynamics.state.geometry.grid.lat
 conductance_lon = dynamics.state.geometry.grid.lon
 hall, pedersen = conductance.hardy_EUV(
-    dynamics.state.geometry.grid.lon, dynamics.state.geometry.grid.lat, Kp, date, starlight=1, dipole=True
+    dynamics.state.geometry.grid.lon,
+    dynamics.state.geometry.grid.lat,
+    Kp,
+    date,
+    starlight=1,
+    dipole=True,
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 

@@ -20,6 +20,7 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 logger = logging.getLogger(__name__)
 
+
 class Geometry:
     """Encapsulates the geometric setup for the ionospheric simulation.
 
@@ -29,7 +30,14 @@ class Geometry:
     geometric quantities.
     """
 
-    def __init__(self, basis: SHBasis, cs_basis: SHBasis, mainfield: Any, settings: Any):
+    def __init__(
+        self,
+        basis: SHBasis,
+        cs_basis: SHBasis,
+        mainfield: Any,
+        settings: Any,
+        PFAC_matrix: Optional[xr.DataArray] = None,
+    ) -> None:
         """Initialize the geometric context."""
         self.basis = basis
         self.mainfield = mainfield
@@ -50,7 +58,29 @@ class Geometry:
         self._bP: Optional[np.ndarray] = None
         self._bH: Optional[np.ndarray] = None
         self._bu: Optional[np.ndarray] = None
-        self._T_to_Ve: Optional[xr.DataArray] = None
+
+        # Allow pre-computed PFAC matrix
+        if PFAC_matrix is not None:
+            self._T_to_Ve = PFAC_matrix
+        else:
+            self._T_to_Ve: Optional[xr.DataArray] = None
+
+        self._G_m_ind_to_JS = None
+        self._G_m_imp_to_JS = None
+
+        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        self.E_df_to_d_m_ind_dt = 1.0 / self.RI
+        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
+        self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+
+        self.G_helmholtz_pinv = tensor_pinv(
+            self.basis_evaluator.G_helmholtz, n_leading_flattened=2
+        )
+
+    def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
+        """Convert a tangential vector field on the grid to Helmholtz basis coeffs."""
+        return np.tensordot(self.G_helmholtz_pinv, vec, 2)
 
     def _init_evaluators(self, cs_basis: SHBasis) -> None:
         """Set up grid, basis evaluators, and field evaluators."""
@@ -77,30 +107,50 @@ class Geometry:
         if kind == "dipole":
             self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
         elif kind == "igrf":
-            mlat, _ = self.mainfield.apx.geo2apex(self.grid.lat, self.grid.lon, (self.RI - 6371e3) * 1e-3)
+            mlat, _ = self.mainfield.apx.geo2apex(
+                self.grid.lat, self.grid.lon, (self.RI - 6371e3) * 1e-3
+            )
             self.ll_mask = np.abs(mlat) < self.latitude_boundary
         else:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
-        self.jr_coeffs_to_j_apex = (self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G).copy()
+        self.jr_coeffs_to_j_apex = (
+            self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
+        ).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
 
         if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
-            jr_coeffs_to_j_apex_cp = (self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G)
+            jr_coeffs_to_j_apex_cp = (
+                self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            )
             self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
             # Create E-field mapping difference operator for constraint
-            E_coeffs_to_E_apex = np.einsum("ijk,jklm->iklm", self.b_evaluator.horizontal_to_apex, self.basis_evaluator.G_helmholtz, optimize=True)
-            E_coeffs_to_E_apex_cp = np.einsum("ijk,jklm->iklm", self.cp_b_evaluator.horizontal_to_apex, self.cp_basis_evaluator.G_helmholtz, optimize=True)
-            self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray((E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask])
+            E_coeffs_to_E_apex = np.einsum(
+                "ijk,jklm->iklm",
+                self.b_evaluator.horizontal_to_apex,
+                self.basis_evaluator.G_helmholtz,
+                optimize=True,
+            )
+            E_coeffs_to_E_apex_cp = np.einsum(
+                "ijk,jklm->iklm",
+                self.cp_b_evaluator.horizontal_to_apex,
+                self.cp_basis_evaluator.G_helmholtz,
+                optimize=True,
+            )
+            self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
+                (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
+            )
 
     @property
     def bP(self) -> np.ndarray:
         """Pedersen geometric factor for conductance tensor."""
         if self._bP is None:
             b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
-            self._bP = np.array([[b_ph ** 2 + b_r ** 2, -b_th * b_ph], [-b_th * b_ph, b_th ** 2 + b_r ** 2]])
+            self._bP = np.array(
+                [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
+            )
         return self._bP
 
     @property
@@ -128,9 +178,6 @@ class Geometry:
 
     def _build_T_to_Ve(self) -> None:
         """Construct the T_to_Ve operator by integrating along field lines."""
-        # This operator connects the divergence-free sheet current to the potential
-        G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * (-self.RI / mu0 * self.basis.coeffs_to_delta_V)
-
         n = self.basis.index_length
         self._T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
@@ -141,33 +188,77 @@ class Geometry:
         rks = rk_steps[:-1] + 0.5 * Delta_k
 
         if np.any(rks < self.RI):
-            raise ValueError("All FAC integration steps must be outside the ionospheric boundary (RI).")
+            raise ValueError(
+                "All FAC integration steps must be outside the ionospheric boundary (RI)."
+            )
         if self.RM is not None and np.any(rks > self.RM):
-            raise ValueError("All FAC integration steps must be inside the magnetospheric boundary (RM).")
+            raise ValueError(
+                "All FAC integration steps must be inside the magnetospheric boundary (RM)."
+            )
 
-        JS_rk_to_Ve_rk = tensor_pinv(G_Ve_to_JS, n_leading_flattened=2, rtol=0)
+        JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
         m_imp_to_jr_coeffs = self.RI / mu0 * self.basis.laplacian(self.RI)
 
         for i, rk in enumerate(rks):
             logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
-            theta_mapped, phi_mapped = self.mainfield.map_coords(self.RI, rk, self.grid.theta, self.grid.phi)
+            theta_mapped, phi_mapped = self.mainfield.map_coords(
+                self.RI, rk, self.grid.theta, self.grid.phi
+            )
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
             mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
 
             m_imp_to_jr_grid = mapped_basis_evaluator.scaled_G(m_imp_to_jr_coeffs)
-            jr_to_JS_rk = np.array([rk_b_evaluator.Btheta / mapped_b_evaluator.Br, rk_b_evaluator.Bphi / mapped_b_evaluator.Br])
+            jr_to_JS_rk = np.array(
+                [
+                    rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
+                    rk_b_evaluator.Bphi / mapped_b_evaluator.Br,
+                ]
+            )
             m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
 
             Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
             if self.RM is not None:
                 Ve_rk_to_Ve -= (
-                    self.basis.radial_shift_Ve(self.RM, self.RI) * self.basis.radial_shift_Vi(rk, self.RM)
+                    self.basis.radial_shift_Ve(self.RM, self.RI)
+                    * self.basis.radial_shift_Vi(rk, self.RM)
                 ).reshape((-1, 1, 1))
-                factor = -1.0 / (1.0 - self.basis.radial_shift_Ve(self.RM, self.RI) * self.basis.radial_shift_Vi(self.RI, self.RM))
+                factor = -1.0 / (
+                    1.0
+                    - self.basis.radial_shift_Ve(self.RM, self.RI)
+                    * self.basis.radial_shift_Vi(self.RI, self.RM)
+                )
             else:
                 factor = -1.0
 
             JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
-            self._T_to_Ve += Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
+            self._T_to_Ve += (
+                Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
+            )
+
+    # ----- G operators mapping to sheet current (JS) -----
+
+    @property
+    def G_m_imp_to_JS(self) -> np.ndarray:
+        """Operator mapping imposed potential coeffs to sheet current on grid."""
+        if self._G_m_imp_to_JS is None:
+            G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
+            self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
+                self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
+            )
+        return self._G_m_imp_to_JS
+
+    @property
+    def G_m_ind_to_JS(self) -> np.ndarray:
+        """Operator mapping induced potential coeffs to sheet current on grid."""
+        if self._G_m_ind_to_JS is None:
+            G = self.G_Ve_to_JS.copy()
+            if self.RM is not None:
+                br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
+                vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
+                den = 1.0 - br_shift * vi_shift
+                self.G_Br_to_JS = self.G_Ve_to_JS * (-br_shift / den / self.m_ind_to_Br)
+                G *= 1.0 + (br_shift * vi_shift / den)
+            self._G_m_ind_to_JS = G
+        return self._G_m_ind_to_JS
