@@ -48,16 +48,16 @@ Kp = 5
 d = dipole.Dipole(date.year)
 lon0 = d.mlt2mlon(12, date)  # noon longitude
 
-conductance_lat = dynamics.state.grid.lat
-conductance_lon = dynamics.state.grid.lon
+conductance_lat = dynamics.state.geometry.grid.lat
+conductance_lon = dynamics.state.geometry.grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
 dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
 # Get and set jr input.
-jr_lat = dynamics.state.grid.lat
-jr_lon = dynamics.state.grid.lon
+jr_lat = dynamics.state.geometry.grid.lat
+jr_lon = dynamics.state.geometry.grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
@@ -75,7 +75,7 @@ plt_grid = pynamit.Grid(lat=lat, lon=lon)
 plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
 
 G_Br = plt_state_evaluator.scaled_G(dynamics.state.m_ind_to_Br)
-Br = G_Br.dot(dynamics.state.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
+Br = G_Br.dot(dynamics.state.geometry.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
 
 
 if SIMULATE_DYNAMIC_RESPONSE:
@@ -142,16 +142,16 @@ if SIMULATE_DYNAMIC_RESPONSE:
             Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
 
             # paxn.contour(
-            #     dynamics.state.grid.lat.flatten()[nnn],
-            #     (dynamics.state.grid.lon.flatten() - lon0)[nnn] / 15,
+            #     dynamics.state.geometry.grid.lat.flatten()[nnn],
+            #     (dynamics.state.geometry.grid.lon.flatten() - lon0)[nnn] / 15,
             #     W[nnn],
             #     colors="black",
             #     levels=Wlevels,
             #     linewidths=0.5,
             # )
             # paxs.contour(
-            #     dynamics.state.grid.lat.flatten()[sss],
-            #     (dynamics.state.grid.lon.flatten() - lon0)[sss] / 15,
+            #     dynamics.state.geometry.grid.lat.flatten()[sss],
+            #     (dynamics.state.geometry.grid.lon.flatten() - lon0)[sss] / 15,
             #     W[sss],
             #     colors="black",
             #     levels=Wlevels,
@@ -184,7 +184,7 @@ if COMPARE_TO_SECS:
     )  # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
-    lat_secs, lon_secs = dynamics.state.grid.lat, dynamics.state.grid.lon
+    lat_secs, lon_secs = dynamics.state.geometry.grid.lat, dynamics.state.geometry.grid.lon
     b_evaluator = pynamit.FieldEvaluator(
         dynamics.state.mainfield, pynamit.Grid(lat=lat_secs, lon=lon_secs), RI
     )
