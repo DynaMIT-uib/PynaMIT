@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.patches import Circle, Wedge # Import Wedge
+from matplotlib.patches import Circle, Wedge  # Import Wedge
 
 RADIAL = False  # True for radial field lines, False for dipole
 
@@ -28,7 +28,12 @@ try:
     ss = np.interp(r, cond.index, cond["pedersen"]).reshape(xx.shape)
     # The contourf plot has zorder=0
     ccc = ax.contourf(
-        xx, yy, ss.reshape(xx.shape), cmap=plt.cm.Blues, levels=np.linspace(0, 1.5e-4, 100), zorder=0
+        xx,
+        yy,
+        ss.reshape(xx.shape),
+        cmap=plt.cm.Blues,
+        levels=np.linspace(0, 1.5e-4, 100),
+        zorder=0,
     )
 except FileNotFoundError:
     print("Warning: 'conductivity.csv' not found. Skipping contour plot.")
@@ -149,7 +154,7 @@ ax.text(
 
 # Calculate the radius of the magnetosphere boundary
 if highest_apex_t is not None:
-    req_highest_apex = 1 / np.sin(highest_apex_t)**2
+    req_highest_apex = 1 / np.sin(highest_apex_t) ** 2
     magnetosphere_radius = req_highest_apex * RE + 110
 
     # ==================== CORRECTED CODE BLOCK START ====================
@@ -159,26 +164,20 @@ if highest_apex_t is not None:
     # Add a light red background outside the inner magnetosphere boundary.
     outer_region = Wedge(
         center=(0, 0),
-        r=outer_radius, # <-- Use the larger radius to cover the corner
+        r=outer_radius,  # <-- Use the larger radius to cover the corner
         theta1=0,
         theta2=90,
-        width=outer_radius - magnetosphere_radius, # <-- Adjust width accordingly
-        color='red',
+        width=outer_radius - magnetosphere_radius,  # <-- Adjust width accordingly
+        color="red",
         alpha=0.2,
-        zorder=0.5
+        zorder=0.5,
     )
     ax.add_patch(outer_region)
     # ===================== CORRECTED CODE BLOCK END =====================
 
-
     # Create a solid Circle patch for the magnetosphere boundary
     magnetosphere_circle = Circle(
-        (0, 0),
-        magnetosphere_radius,
-        color='black',
-        fill=False,
-        linewidth=2,
-        linestyle='-'
+        (0, 0), magnetosphere_radius, color="black", fill=False, linewidth=2, linestyle="-"
     )
     ax.add_patch(magnetosphere_circle)
 
