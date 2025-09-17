@@ -2,6 +2,7 @@
 A helper class to represent a linear operator defined by a chain of
 tensor contractions (einsum).
 """
+
 from __future__ import annotations
 import math
 import numpy as np
@@ -19,6 +20,7 @@ class TensorChain:
     scipy LinearOperator, which is efficient for iterative solvers. It also
     handles caching of optimized einsum paths for performance.
     """
+
     component_tensors: List[np.ndarray]
     einsum_string_dense: str
     einsum_string_matvec: str
@@ -78,7 +80,10 @@ class TensorChain:
             # Create a dummy output gradient to find the optimal contraction path
             dummy_grad_output = np.empty(self.output_shape, dtype=self.dtype)
             self._einsum_path_rmatvec = np.einsum_path(
-                self.einsum_string_rmatvec, dummy_grad_output, *self.component_tensors, optimize="greedy"
+                self.einsum_string_rmatvec,
+                dummy_grad_output,
+                *self.component_tensors,
+                optimize="greedy",
             )[0]
 
         def _matvec(x_flat):

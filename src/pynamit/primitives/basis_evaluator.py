@@ -31,7 +31,7 @@ class BasisEvaluator(object):
         self.sqrt_weights = sqrt_weights
         self.reg_lambda = reg_lambda
         self.pinv_rtol = pinv_rtol
-        
+
         self._least_squares_problem = None
         self._least_squares_problem_helmholtz = None
 
@@ -127,12 +127,20 @@ class BasisEvaluator(object):
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
-                L_cf = np.stack([np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
-                                 np.zeros((self.basis.index_length, self.basis.index_length))],
-                                axis=1)
-                L_df = np.stack([np.zeros((self.basis.index_length, self.basis.index_length)),
-                                 np.diag((self.basis.n + 1) / 2)],
-                                axis=1)
+                L_cf = np.stack(
+                    [
+                        np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
+                        np.zeros((self.basis.index_length, self.basis.index_length)),
+                    ],
+                    axis=1,
+                )
+                L_df = np.stack(
+                    [
+                        np.zeros((self.basis.index_length, self.basis.index_length)),
+                        np.diag((self.basis.n + 1) / 2),
+                    ],
+                    axis=1,
+                )
                 self._L_helmholtz = np.array([L_cf, L_df])
         return self._L_helmholtz
 
@@ -166,13 +174,13 @@ class BasisEvaluator(object):
             )
         return self._least_squares_problem_helmholtz
 
-    def least_squares_solution(self, grid_values, solver_type='svd'):
+    def least_squares_solution(self, grid_values, solver_type="svd"):
         """Least squares decomposition of a scalar field."""
         solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
         problem = self.least_squares_problem
         return solver.solve(problem, grid_values)
 
-    def least_squares_solution_helmholtz(self, grid_values, solver_type='svd'):
+    def least_squares_solution_helmholtz(self, grid_values, solver_type="svd"):
         """Least squares decomposition of a horizontal vector field."""
         solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
         problem = self.least_squares_problem_helmholtz
