@@ -337,9 +337,12 @@ class LeastSquaresProblem:
         return op, rmatvec_block, matvec_block
 
     def get_dense_system_matrix(self) -> np.ndarray:
-        """Return G as a dense array (cached)."""
-        if "G_dense" in self._op_cache:
-            return self._op_cache["G_dense"]
+        """Return G as a dense array (cached). Version-aware: invalidates automatically when problem._version changes."""
+        cached = self._op_cache.get("G_dense")
+        cached_version = self._op_cache.get("G_dense_version")
+
+        if cached is not None and cached_version == getattr(self, "_version", None):
+            return cached
 
         lambdas = self.get_scaled_lambdas()
         all_A_weighted, all_L_weighted = [], []
@@ -361,7 +364,10 @@ class LeastSquaresProblem:
             if (all_A_weighted or all_L_weighted)
             else np.zeros((0, self.solution_size))
         )
+
+        # store matrix + version
         self._op_cache["G_dense"] = G_dense
+        self._op_cache["G_dense_version"] = getattr(self, "_version", None)
         return G_dense
 
     # ------------------------------------------------------------------
@@ -369,8 +375,11 @@ class LeastSquaresProblem:
     # ------------------------------------------------------------------
 
     def get_scaled_lambdas(self) -> List[float]:
-        if "scaled_lambdas" not in self._op_cache:
-            self._calculate_and_cache_scaled_lambdas()
+        cached = self._op_cache.get("scaled_lambdas")
+        cached_version = self._op_cache.get("scaled_lambdas_version")
+        if cached is not None and cached_version == getattr(self, "_version", None):
+            return cached
+        self._calculate_and_cache_scaled_lambdas()
         return self._op_cache["scaled_lambdas"]
 
     def _calculate_and_cache_scaled_lambdas(self) -> None:
@@ -436,6 +445,7 @@ class LeastSquaresProblem:
             scaled_lambdas.append(math.sqrt(raw_weight) * scale_factor)
 
         self._op_cache["scaled_lambdas"] = scaled_lambdas
+        self._op_cache["scaled_lambdas_version"] = getattr(self, "_version", None)
 
     # ------------------------------------------------------------------
     # Small helpers
