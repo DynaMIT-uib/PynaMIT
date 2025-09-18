@@ -40,16 +40,6 @@ class LeastSquaresSolver:
         if solver not in self.VALID_SOLVERS:
             raise ValueError(f"Solver must be one of {self.VALID_SOLVERS}")
         self.solver = solver
-
-        if isinstance(preconditioner, str):
-            if preconditioner not in self.VALID_PRECONDITIONERS:
-                raise ValueError(
-                    f"Preconditioner string must be one of {self.VALID_PRECONDITIONERS}"
-                )
-        elif preconditioner is not None and not isinstance(preconditioner, LinearOperator):
-            raise TypeError("Preconditioner must be a string, a LinearOperator, or None.")
-        self.preconditioner = preconditioner
-
         self.tolerance = tolerance
         self.use_scaled_lambdas = use_scaled_lambdas
 
@@ -63,11 +53,48 @@ class LeastSquaresSolver:
             "cg": self._solve_cg,
         }
 
+        # This will trigger the setter logic for validation
+        self.preconditioner = preconditioner
+
         if problem is not None:
             self.update_problem(problem)
 
+    @property
+    def preconditioner(self) -> Optional[Union[str, LinearOperator]]:
+        """The preconditioner to use. Can be a string or a LinearOperator."""
+        return self._preconditioner
+
+    @preconditioner.setter
+    def preconditioner(self, value: Optional[Union[str, LinearOperator]]) -> None:
+        """Sets the preconditioner and clears the cache."""
+        if isinstance(value, str):
+            if value not in self.VALID_PRECONDITIONERS:
+                raise ValueError(
+                    f"Preconditioner string must be one of {self.VALID_PRECONDITIONERS}"
+                )
+        elif value is not None and not isinstance(value, LinearOperator):
+            raise TypeError("Preconditioner must be a string, a LinearOperator, or None.")
+
+        if self.problem and isinstance(value, LinearOperator):
+            expected_shape = (self.problem.solution_size, self.problem.solution_size)
+            if value.shape != expected_shape:
+                raise ValueError(
+                    f"Preconditioner shape {value.shape} does not match problem "
+                    f"solution shape {expected_shape}."
+                )
+
+        self._preconditioner = value
+        self.clear_cache()
+
     def update_problem(self, problem: LeastSquaresProblem) -> None:
         """Binds the solver to a new problem and clears the cache."""
+        if isinstance(self.preconditioner, LinearOperator):
+            expected_shape = (problem.solution_size, problem.solution_size)
+            if self.preconditioner.shape != expected_shape:
+                raise ValueError(
+                    f"External preconditioner shape {self.preconditioner.shape} "
+                    f"does not match new problem's solution shape {expected_shape}."
+                )
         self.problem = problem
         self.clear_cache()
 
@@ -186,18 +213,23 @@ class LeastSquaresSolver:
 
     def _solve_adjoint(self, grad_x_block: np.ndarray, num_scenarios: int) -> np.ndarray:
         """Dispatches to the correct adjoint solver based on self.solver."""
+        lambdas = self._get_lambdas_for_problem()
+
         if self.solver == "svd":
-            u, s_inv, vt = self._get_svd_components()
+            u, s, vt = self.problem.get_svd_decomposition(lambdas)
+            s_inv = np.zeros_like(s)
+            cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
+            stable_s = s > cutoff
+            s_inv[stable_s] = 1.0 / s[stable_s]
             return u @ (s_inv[:, None] * (vt @ grad_x_block))
 
         if self.solver == "normal":
             G_H_G, _ = self._get_normal_components()
-            G_dense = self._get_dense_system_matrix()
+            G_dense = self.problem.get_dense_system_matrix(lambdas)
             y = np.linalg.solve(G_H_G, grad_x_block)
             return G_dense @ y
 
         if self.solver == "lsmr":
-            lambdas = self._get_lambdas_for_problem()
             base_op, _, _ = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
             adjoint_op = base_op.adjoint
             lsmr_kwargs = {"atol": self.tolerance, "btol": self.tolerance}
@@ -217,7 +249,6 @@ class LeastSquaresSolver:
                     f"Adjoint CG solve did not converge (exit_code={exit_code}).", RuntimeWarning
                 )
             y_block = y_flat.reshape(self.problem.solution_size, num_scenarios)
-            lambdas = self._get_lambdas_for_problem()
             _, _, matvec_block = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
             return matvec_block(y_block)
 
@@ -226,53 +257,25 @@ class LeastSquaresSolver:
     # ------------------- Component Getters with Caching -------------------
 
     def _get_lambdas_for_problem(self) -> List[float]:
-        if not self.use_scaled_lambdas:
+        """
+        Gets the appropriate regularization weights from the problem.
+        Delegates the calculation of scaled lambdas to the problem itself.
+        """
+        if self.problem is None:
+            # Should not happen if called from solve() but good practice
+            raise RuntimeError("Solver must be bound to a problem.")
+
+        if self.use_scaled_lambdas:
+            return self.problem.get_scaled_lambdas()
+        else:
             return self.problem.regularization_weights
-        key = ("scaled_lambdas",)
-
-        def compute():
-            data_op = self.problem.get_data_operator()
-            diag_A_T_A = self._compute_normal_matrix_diag(data_op)
-            data_scale = np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
-            scaled_lambdas = []
-            for i, L_item in enumerate(self.problem.regularization_matrices):
-                raw_weight = self.problem.regularization_weights[i]
-                if raw_weight == 0 or L_item is None:
-                    scaled_lambdas.append(0.0)
-                    continue
-                diag_L_T_L = self._compute_normal_matrix_diag(L_item.op)
-                reg_scale = (
-                    np.median(diag_L_T_L[diag_L_T_L > 0]) if np.any(diag_L_T_L > 0) else 1.0
-                )
-                scale_factor = math.sqrt(data_scale / reg_scale) if reg_scale > 1e-14 else 0.0
-                scaled_lambdas.append(math.sqrt(raw_weight) * scale_factor)
-            return scaled_lambdas
-
-        return self._get_or_compute(key, compute)
-
-    def _get_dense_system_matrix(self) -> np.ndarray:
-        key = ("G_dense",)
-
-        def compute():
-            lambdas = self._get_lambdas_for_problem()
-            return self.problem.get_dense_system_matrix(lambdas)
-
-        return self._get_or_compute(key, compute)
-
-    def _get_svd_decomposition(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        key = ("svd_decomposition",)
-
-        def compute():
-            G_dense = self._get_dense_system_matrix()
-            return np.linalg.svd(G_dense, full_matrices=False)
-
-        return self._get_or_compute(key, compute)
 
     def _get_svd_components(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         key = ("svd_components", self.tolerance)
 
         def compute():
-            u, s, vt = self._get_svd_decomposition()
+            lambdas = self._get_lambdas_for_problem()
+            u, s, vt = self.problem.get_svd_decomposition(lambdas)
             s_inv = np.zeros_like(s)
             cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
             stable_s = s > cutoff
@@ -285,7 +288,8 @@ class LeastSquaresSolver:
         key = ("pinv_preconditioner", self.tolerance)
 
         def compute():
-            _, s, vt = self._get_svd_decomposition()
+            lambdas = self._get_lambdas_for_problem()
+            _, s, vt = self.problem.get_svd_decomposition(lambdas)
             s_pinv = np.zeros_like(s)
             cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
             stable = s > cutoff
@@ -299,7 +303,8 @@ class LeastSquaresSolver:
         key = ("normal_components",)
 
         def compute():
-            G_dense = self._get_dense_system_matrix()
+            lambdas = self._get_lambdas_for_problem()
+            G_dense = self.problem.get_dense_system_matrix(lambdas)
             G_H = G_dense.T.conj()
             return G_H @ G_dense, G_H
 
@@ -311,7 +316,7 @@ class LeastSquaresSolver:
         def compute():
             lambdas = self._get_lambdas_for_problem()
             base_op, _, _ = self.problem.get_system_operator(lambdas=lambdas)
-            return self._compute_normal_matrix_diag(base_op)
+            return self.problem._compute_normal_matrix_diag(base_op)
 
         return self._get_or_compute(key, compute)
 
@@ -406,17 +411,3 @@ class LeastSquaresSolver:
             return cg_op, M, rmatvec_block
 
         return self._get_or_compute(key, compute)
-
-    @staticmethod
-    def _compute_normal_matrix_diag(op: Union[LinearOperator, np.ndarray]) -> np.ndarray:
-        if isinstance(op, np.ndarray):
-            return np.sum(np.abs(op) ** 2, axis=0)
-        n_cols = op.shape[1]
-        diag = np.zeros(n_cols, dtype=op.dtype)
-        e = np.zeros(n_cols, dtype=op.dtype)
-        for i in range(n_cols):
-            e[i] = 1.0
-            col = op.matvec(e)
-            diag[i] = np.dot(col.conj(), col).real
-            e[i] = 0.0
-        return diag

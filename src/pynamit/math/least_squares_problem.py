@@ -36,7 +36,8 @@ class LeastSquaresProblem:
 
     This class is responsible for managing the operators, weights, and
     regularization terms that constitute the problem. It provides methods
-    to assemble the system matrix in various forms (dense or matrix-free).
+    to assemble the system matrix in various forms (dense or matrix-free)
+    and caches expensive computations.
     """
 
     def __init__(
@@ -54,8 +55,44 @@ class LeastSquaresProblem:
             (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
         )
         self.solution_size = math.prod(self.solution_shape)
+        self._cache: dict = {}
 
-        self.update_matrices(A, sqrt_weights=sqrt_weights, data_shapes=data_shapes)
+        A_list = self._prepare_input_list(A, "A")
+        self.num_data_terms = len(A_list)
+        self.data_shapes = self._normalize_data_shapes(data_shapes, self.num_data_terms)
+        self.A = [
+            self._flatten(op, output_shape=self.data_shapes[i], input_shape=self.solution_shape)
+            for i, op in enumerate(A_list)
+        ]
+        sqrt_weights_list = self._prepare_input_list(
+            sqrt_weights, "sqrt_weights", count=self.num_data_terms
+        )
+        self.sqrt_weights = []
+        for i, w_val in enumerate(sqrt_weights_list):
+            if w_val is None:
+                self.sqrt_weights.append(None)
+                continue
+            flat_data_dim = math.prod(self.data_shapes[i])
+            asarr = np.ascontiguousarray(w_val)
+            is_diagonal = not isinstance(w_val, LinearOperator) and (
+                (asarr.ndim == 1 and asarr.size == flat_data_dim)
+                or (asarr.shape == self.data_shapes[i])
+            )
+            if is_diagonal:
+                self.sqrt_weights.append(
+                    ProcessedOperator(
+                        op=asarr.reshape(flat_data_dim, 1),
+                        output_shape=self.data_shapes[i],
+                        input_shape=self.data_shapes[i],
+                        is_diagonal=True,
+                    )
+                )
+            else:
+                self.sqrt_weights.append(
+                    self._flatten(
+                        w_val, output_shape=self.data_shapes[i], input_shape=self.data_shapes[i]
+                    )
+                )
 
         reg_L_list = self._prepare_input_list(
             regularization_matrices, "regularization_matrices", is_optional=True
@@ -72,59 +109,48 @@ class LeastSquaresProblem:
             default_val=0.0,
         )
 
+    def _get_or_compute(self, key: Any, compute_func: Callable[[], Any]) -> Any:
+        """Helper to cache results of expensive computations."""
+        if key not in self._cache:
+            self._cache[key] = compute_func()
+        return self._cache[key]
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def update_matrices(self, A, sqrt_weights=None, data_shapes=None) -> None:
-        """Update data operators A and optional per-term sqrt_weights."""
-        A_list = self._prepare_input_list(A, "A")
-        self.num_data_terms = len(A_list)
+    def get_scaled_lambdas(self) -> List[float]:
+        """
+        Calculates regularization weights scaled to be commensurate with the
+        data term operator. This improves numerical stability.
+        """
+        key = ("scaled_lambdas",)
 
-        if data_shapes is not None:
-            self.data_shapes = self._normalize_data_shapes(data_shapes, self.num_data_terms)
-        elif not hasattr(self, "data_shapes") or len(self.data_shapes) != self.num_data_terms:
-            raise ValueError(
-                "data_shapes must be provided when setting A for the first time or changing number of A operators."
-            )
+        def compute():
+            data_op = self.get_data_operator()
+            diag_A_T_A = self._compute_normal_matrix_diag(data_op)
 
-        self.A = [
-            self._flatten(op, output_shape=self.data_shapes[i], input_shape=self.solution_shape)
-            for i, op in enumerate(A_list)
-        ]
+            # Use a more descriptive name: this scale is based on the operator, not the RHS data.
+            data_term_scale = np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
 
-        sqrt_weights_list = self._prepare_input_list(
-            sqrt_weights, "sqrt_weights", count=self.num_data_terms
-        )
-        self.sqrt_weights = []
-        for i, w_val in enumerate(sqrt_weights_list):
-            if w_val is None:
-                self.sqrt_weights.append(None)
-                continue
+            scaled_lambdas = []
+            for i, L_item in enumerate(self.regularization_matrices):
+                raw_weight = self.regularization_weights[i]
+                if raw_weight == 0 or L_item is None:
+                    scaled_lambdas.append(0.0)
+                    continue
 
-            flat_data_dim = math.prod(self.data_shapes[i])
-            asarr = np.ascontiguousarray(w_val)
-
-            is_diagonal = not isinstance(w_val, LinearOperator) and (
-                (asarr.ndim == 1 and asarr.size == flat_data_dim)
-                or (asarr.shape == self.data_shapes[i])
-            )
-
-            if is_diagonal:
-                self.sqrt_weights.append(
-                    ProcessedOperator(
-                        op=asarr.reshape(flat_data_dim, 1),
-                        output_shape=self.data_shapes[i],
-                        input_shape=self.data_shapes[i],
-                        is_diagonal=True,
-                    )
+                diag_L_T_L = self._compute_normal_matrix_diag(L_item.op)
+                reg_term_scale = (
+                    np.median(diag_L_T_L[diag_L_T_L > 0]) if np.any(diag_L_T_L > 0) else 1.0
                 )
-            else:
-                self.sqrt_weights.append(
-                    self._flatten(
-                        w_val, output_shape=self.data_shapes[i], input_shape=self.data_shapes[i]
-                    )
-                )
+
+                scale_factor = math.sqrt(data_term_scale / reg_term_scale) if reg_term_scale > 1e-14 else 0.0
+                scaled_lambdas.append(math.sqrt(raw_weight) * scale_factor)
+
+            return scaled_lambdas
+
+        return self._get_or_compute(key, compute)
 
     def assemble_rhs_block(
         self, b: Union[Any, List[Any]], lambdas: Optional[List[float]] = None
@@ -256,25 +282,42 @@ class LeastSquaresProblem:
         return op, rmatvec_block, matvec_block
 
     def get_dense_system_matrix(self, lambdas: List[float]) -> np.ndarray:
-        """Assembles and returns the full system matrix G as a dense numpy array."""
-        all_rows = []
-        for i, a_item in enumerate(self.A):
-            op = self.densify_op(a_item)
-            w_item = self.sqrt_weights[i]
-            if w_item is not None:
-                w_op = self.densify_op(w_item)
-                op = w_op * op if w_item.is_diagonal else w_op @ op
-            all_rows.append(op)
+        """Assembles and returns the cached full system matrix G."""
+        key = ("dense_system_matrix", tuple(lambdas))
 
-        for i, L_item in enumerate(self.regularization_matrices):
-            if i < len(lambdas) and L_item and lambdas[i] > 1e-12:
-                all_rows.append(lambdas[i] * self.densify_op(L_item))
+        def compute():
+            all_rows = []
+            for i, a_item in enumerate(self.A):
+                op = self.densify_op(a_item)
+                w_item = self.sqrt_weights[i]
+                if w_item is not None:
+                    w_op = self.densify_op(w_item)
+                    op = w_op * op if w_item.is_diagonal else w_op @ op
+                all_rows.append(op)
 
-        dtype = self.A[0].op.dtype if self.A else np.float64
-        if not all_rows:
-            return np.zeros((0, self.solution_size), dtype=dtype)
+            for i, L_item in enumerate(self.regularization_matrices):
+                if i < len(lambdas) and L_item and lambdas[i] > 1e-12:
+                    all_rows.append(lambdas[i] * self.densify_op(L_item))
 
-        return np.vstack(all_rows)
+            dtype = self.A[0].op.dtype if self.A else np.float64
+            if not all_rows:
+                return np.zeros((0, self.solution_size), dtype=dtype)
+
+            return np.vstack(all_rows)
+
+        return self._get_or_compute(key, compute)
+
+    def get_svd_decomposition(
+        self, lambdas: List[float]
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Computes and returns the cached SVD of the dense system matrix."""
+        key = ("svd_decomposition", tuple(lambdas))
+
+        def compute():
+            G_dense = self.get_dense_system_matrix(lambdas)
+            return np.linalg.svd(G_dense, full_matrices=False)
+
+        return self._get_or_compute(key, compute)
 
     def get_data_operator(self) -> LinearOperator:
         """Returns a matrix-free LinearOperator for the data part of the problem."""
@@ -284,6 +327,23 @@ class LeastSquaresProblem:
     # ------------------------------------------------------------------
     # Public and Private Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_normal_matrix_diag(op: Union[LinearOperator, np.ndarray]) -> np.ndarray:
+        """Computes the diagonal of the normal matrix op.T @ op efficiently."""
+        if isinstance(op, np.ndarray):
+            return np.sum(np.abs(op) ** 2, axis=0)
+
+        n_cols = op.shape[1]
+        diag = np.zeros(n_cols, dtype=op.dtype)
+        e = np.zeros(n_cols, dtype=op.dtype)
+        for i in range(n_cols):
+            e[i] = 1.0
+            col = op.matvec(e)
+            diag[i] = np.dot(col.conj(), col).real
+            e[i] = 0.0
+        return diag
+
     def apply_op_to_block(
         self, op: Union[np.ndarray, LinearOperator], x_block: np.ndarray
     ) -> np.ndarray:
