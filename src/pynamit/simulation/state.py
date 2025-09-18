@@ -69,7 +69,7 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
+        self.solver_type = getattr(settings, "least_squares_solver", "cg")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)

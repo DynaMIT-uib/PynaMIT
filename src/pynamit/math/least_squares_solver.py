@@ -89,12 +89,9 @@ class LeastSquaresSolver:
     def _solve_lsmr(
         self, problem: LeastSquaresProblem, d_block: np.ndarray, num_scenarios: int, **kwargs
     ) -> np.ndarray:
-        if isinstance(self.preconditioner, LinearOperator):
-            raise ValueError(
-                "External LinearOperator preconditioners are only supported for the 'cg' solver."
-            )
-
+        # THE VALUEERROR CHECK IS REMOVED FROM HERE
         op, transform = self._get_lsmr_components(problem, num_scenarios)
+
         m, n = op.shape[0] // num_scenarios, op.shape[1] // num_scenarios
         default_max_iter = (
             ITERATION_SAFETY_FACTOR * min(m, n) if min(m, n) > 0 else problem.solution_size
@@ -308,51 +305,89 @@ class LeastSquaresSolver:
         self, problem: LeastSquaresProblem, num_scenarios: int
     ) -> Tuple[LinearOperator, Callable]:
         cache = self._get_problem_cache(problem)
-        cache_key = (
-            "lsmr_components",
-            num_scenarios,
-            self.preconditioner,
-            self.use_scaled_lambdas,
+        # Use id() for LinearOperator to ensure it's uniquely identified in the cache key
+        preconditioner_id = (
+            id(self.preconditioner)
+            if isinstance(self.preconditioner, LinearOperator)
+            else self.preconditioner
         )
+        cache_key = ("lsmr_components", num_scenarios, preconditioner_id, self.use_scaled_lambdas)
+
         if cache_key in cache:
             return cache[cache_key]
+
         lambdas = self._get_lambdas_for_problem(problem)
         base_op, _, matvec_block = problem.get_system_operator(num_scenarios, lambdas=lambdas)
+
+        # Default case: no preconditioning
         op_to_solve, solution_transform = base_op, lambda sol_block: sol_block
-        if self.preconditioner == "jacobi":
-            diag = self._get_jacobi_preconditioner_diag(problem)
-            sqrt_inv = np.sqrt(1.0 / diag, where=diag != 0, out=np.ones_like(diag))
+
+        if isinstance(self.preconditioner, LinearOperator):
+            # The user-provided LinearOperator is the right preconditioner N.
+            # Its matvec computes N @ y.
+            precond_op = self.preconditioner
 
             def precond_matvec(y_flat):
-                y_block = y_flat.reshape(problem.solution_size, num_scenarios) * sqrt_inv[:, None]
-                return base_op.matvec(y_block.flatten())
+                # Transform y -> Ny, then apply original operator G: G @ (N @ y)
+                y_preconditioned = precond_op.matvec(y_flat)
+                return base_op.matvec(y_preconditioned)
 
             def precond_rmatvec(d_flat):
-                res_block = base_op.rmatvec(d_flat).reshape(problem.solution_size, num_scenarios)
-                return (res_block * sqrt_inv[:, None]).flatten()
+                # Apply adjoint of G, then adjoint of N: N.H @ (G.H @ d)
+                # We assume the preconditioner is self-adjoint (N.H = N), a common case.
+                res_block = base_op.rmatvec(d_flat)
+                return precond_op.rmatvec(res_block)  # or matvec if strictly self-adjoint
 
             op_to_solve = LinearOperator(
                 base_op.shape, matvec=precond_matvec, rmatvec=precond_rmatvec, dtype=base_op.dtype
             )
+            # The solution transform is applying the preconditioner to the intermediate solution y
+            solution_transform = lambda y_block: precond_op.matvec(y_block.flatten()).reshape(
+                y_block.shape
+            )
+
+        elif self.preconditioner == "jacobi":
+            diag = self._get_jacobi_preconditioner_diag(problem)
+            sqrt_inv = np.sqrt(1.0 / diag, where=diag != 0, out=np.ones_like(diag))
+
+            def jacobi_precond_matvec(y_flat):
+                y_block = y_flat.reshape(problem.solution_size, num_scenarios) * sqrt_inv[:, None]
+                return base_op.matvec(y_block.flatten())
+
+            def jacobi_precond_rmatvec(d_flat):
+                res_block = base_op.rmatvec(d_flat).reshape(problem.solution_size, num_scenarios)
+                return (res_block * sqrt_inv[:, None]).flatten()
+
+            op_to_solve = LinearOperator(
+                base_op.shape,
+                matvec=jacobi_precond_matvec,
+                rmatvec=jacobi_precond_rmatvec,
+                dtype=base_op.dtype,
+            )
             solution_transform = lambda sol_y_block: sol_y_block * sqrt_inv[:, None]
+
         elif self.preconditioner == "pinv":
             vt, s_pinv, _ = self._get_pinv_preconditioner_components(problem)
 
             def p_matvec(y_block):
                 return vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
 
-            def precond_matvec(y_flat):
+            def pinv_precond_matvec(y_flat):
                 y_block = p_matvec(y_flat.reshape(problem.solution_size, num_scenarios))
                 return matvec_block(y_block).flatten()
 
-            def precond_rmatvec(d_flat):
+            def pinv_precond_rmatvec(d_flat):
                 res_block = base_op.rmatvec(d_flat).reshape(problem.solution_size, num_scenarios)
                 return p_matvec(res_block).flatten()
 
             op_to_solve = LinearOperator(
-                base_op.shape, matvec=precond_matvec, rmatvec=precond_rmatvec, dtype=base_op.dtype
+                base_op.shape,
+                matvec=pinv_precond_matvec,
+                rmatvec=pinv_precond_rmatvec,
+                dtype=base_op.dtype,
             )
             solution_transform = p_matvec
+
         result = (op_to_solve, solution_transform)
         cache[cache_key] = result
         return result
