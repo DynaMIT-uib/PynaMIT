@@ -6,30 +6,28 @@ for solving a LeastSquaresProblem.
 from __future__ import annotations
 import math
 import warnings
-from typing import Optional, Union, Any, List, Dict, Callable, Tuple
+from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
-from pynamit.math.least_squares_problem import LeastSquaresProblem
+from .least_squares_problem import LeastSquaresProblem
 
-# A reasonable heuristic for max iterations in iterative solvers
-ITERATION_SAFETY_FACTOR = 10
+
+ITERATION_SAFETY_FACTOR: Final = 10
 
 
 class LeastSquaresSolver:
-    """
-    A solver that computes and caches factorizations and preconditioners.
+    """A stateful solver that is bound to a specific LeastSquaresProblem.
 
-    This class holds the configuration for a solution method and is responsible
-    for generating and caching any expensive, solver-specific components
-    (e.g., SVD factorizations, preconditioners) for any problem it is asked
-    to solve. It manages an internal cache to avoid re-computation when
-    solving the same problem multiple times.
+    This solver computes and caches components for a single problem at a time.
+    To solve a different problem, or to solve the same problem after it has
+    been modified, you **must** first bind it to the solver using the
+    `update_problem` method, which clears any previous cache.
     """
 
-    VALID_SOLVERS = ["normal", "lsmr", "cg", "svd"]
-    VALID_PRECONDITIONERS = ["jacobi", "pinv"]
+    VALID_SOLVERS: Final[List[str]] = ["normal", "lsmr", "cg", "svd"]
+    VALID_PRECONDITIONERS: Final[List[str]] = ["jacobi", "pinv"]
 
     def __init__(
         self,
@@ -37,20 +35,26 @@ class LeastSquaresSolver:
         tolerance: float = 1e-13,
         preconditioner: Optional[Union[str, LinearOperator]] = None,
         use_scaled_lambdas: bool = True,
+        problem: Optional[LeastSquaresProblem] = None,
     ):
         if solver not in self.VALID_SOLVERS:
             raise ValueError(f"Solver must be one of {self.VALID_SOLVERS}")
         self.solver = solver
 
-        if isinstance(preconditioner, str) and preconditioner not in self.VALID_PRECONDITIONERS:
-            raise ValueError(f"Preconditioner string must be one of {self.VALID_PRECONDITIONERS}")
-        if not (preconditioner is None or isinstance(preconditioner, (str, LinearOperator))):
+        if isinstance(preconditioner, str):
+            if preconditioner not in self.VALID_PRECONDITIONERS:
+                raise ValueError(
+                    f"Preconditioner string must be one of {self.VALID_PRECONDITIONERS}"
+                )
+        elif preconditioner is not None and not isinstance(preconditioner, LinearOperator):
             raise TypeError("Preconditioner must be a string, a LinearOperator, or None.")
         self.preconditioner = preconditioner
 
         self.tolerance = tolerance
         self.use_scaled_lambdas = use_scaled_lambdas
-        self._cache: Dict[int, Dict[Any, Any]] = {}
+
+        self.problem: Optional[LeastSquaresProblem] = None
+        self._cache: Dict[Any, Any] = {}
 
         self._solve_methods: Dict[str, Callable] = {
             "svd": self._solve_svd,
@@ -59,390 +63,360 @@ class LeastSquaresSolver:
             "cg": self._solve_cg,
         }
 
-    def solve(
-        self, problem: LeastSquaresProblem, b: Union[np.ndarray, List[np.ndarray]], **kwargs
-    ) -> np.ndarray:
-        lambdas = self._get_lambdas_for_problem(problem)
-        d_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(b, lambdas=lambdas)
+        if problem is not None:
+            self.update_problem(problem)
 
-        if d_block is None:
-            dtype = problem.A[0].op.dtype if problem.A else np.float64
-            return np.zeros(problem.solution_shape, dtype=dtype)
+    def update_problem(self, problem: LeastSquaresProblem) -> None:
+        """Binds the solver to a new problem and clears the cache."""
+        self.problem = problem
+        self.clear_cache()
+
+    def clear_cache(self) -> None:
+        """Clears all cached components for the current problem."""
+        self._cache.clear()
+
+    def solve(self, rhs: Union[np.ndarray, List[np.ndarray]], **kwargs) -> np.ndarray:
+        """Solves the currently bound least-squares problem."""
+        if self.problem is None:
+            raise RuntimeError("Solver must be bound to a problem first. Call update_problem().")
+
+        lambdas = self._get_lambdas_for_problem()
+        rhs_block, scenario_shape, num_scenarios = self.problem.assemble_rhs_block(
+            rhs, lambdas=lambdas
+        )
+
+        if rhs_block is None:
+            dtype = self.problem.A[0].op.dtype if self.problem.A else np.float64
+            return np.zeros(self.problem.solution_shape, dtype=dtype)
 
         solver_func = self._solve_methods[self.solver]
-        sol_block = solver_func(problem, d_block, num_scenarios, **kwargs)
+        solution_block = solver_func(rhs_block, num_scenarios, **kwargs)
 
-        return sol_block.reshape(problem.solution_shape + scenario_shape)
+        return solution_block.reshape(self.problem.solution_shape + scenario_shape)
 
-    def _solve_svd(
-        self, problem: LeastSquaresProblem, d_block: np.ndarray, num_scenarios: int, **kwargs
-    ) -> np.ndarray:
-        u, s_inv, vt = self._get_svd_components(problem)
-        return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ d_block))
+    def solve_adjoint(self, grad_x: np.ndarray) -> List[np.ndarray]:
+        """Solves the adjoint problem.
 
-    def _solve_normal(
-        self, problem: LeastSquaresProblem, d_block: np.ndarray, num_scenarios: int, **kwargs
-    ) -> np.ndarray:
-        G_T_G, G_T = self._get_normal_components(problem)
-        return np.linalg.solve(G_T_G, G_T @ d_block)
+        Given the gradient with respect to the solution `x`, this computes the
+        gradient with respect to the right-hand side `rhs` terms.
 
-    def _solve_lsmr(
-        self, problem: LeastSquaresProblem, d_block: np.ndarray, num_scenarios: int, **kwargs
-    ) -> np.ndarray:
-        # THE VALUEERROR CHECK IS REMOVED FROM HERE
-        op, transform = self._get_lsmr_components(problem, num_scenarios)
+        Args:
+            grad_x: Gradient with respect to the solution, with a shape matching
+                    the problem's `solution_shape`.
 
-        m, n = op.shape[0] // num_scenarios, op.shape[1] // num_scenarios
-        default_max_iter = (
-            ITERATION_SAFETY_FACTOR * min(m, n) if min(m, n) > 0 else problem.solution_size
-        )
+        Returns:
+            A list of gradients, where each element corresponds to an `rhs`
+            term from the forward solve.
+        """
+        if self.problem is None:
+            raise RuntimeError("Solver must be bound to a problem first. Call update_problem().")
+
+        if grad_x.shape != self.problem.solution_shape:
+            raise ValueError(
+                f"Shape of grad_x {grad_x.shape} does not match solution_shape {self.problem.solution_shape}"
+            )
+
+        num_scenarios = 1
+        grad_x_block = grad_x.reshape(self.problem.solution_size, num_scenarios)
+
+        grad_d_block = self._solve_adjoint(grad_x_block, num_scenarios)
+
+        grad_b_list = []
+        row = 0
+        for A_item in self.problem.A:
+            num_rows = A_item.op.shape[0]
+            grad_b = grad_d_block[row : row + num_rows, :]
+            grad_b_list.append(grad_b.reshape(A_item.output_shape + (num_scenarios,)))
+            row += num_rows
+
+        return [gb.squeeze(axis=-1) if gb.shape[-1] == 1 else gb for gb in grad_b_list]
+
+    def _get_or_compute(self, key: Tuple, compute_func: Callable[[], Any]) -> Any:
+        """Manages cache access for the currently bound problem."""
+        if key in self._cache:
+            return self._cache[key]
+
+        result = compute_func()
+        self._cache[key] = result
+        return result
+
+    def _get_preconditioner_id(self) -> Union[str, int, None]:
+        """Returns a hashable identifier for the current preconditioner."""
+        if isinstance(self.preconditioner, LinearOperator):
+            return id(self.preconditioner)
+        return self.preconditioner
+
+    # ------------------- Forward and Adjoint Solver Implementations -------------------
+
+    def _solve_svd(self, rhs_block: np.ndarray, num_scenarios: int, **kwargs) -> np.ndarray:
+        u, s_inv, vt = self._get_svd_components()
+        return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ rhs_block))
+
+    def _solve_normal(self, rhs_block: np.ndarray, num_scenarios: int, **kwargs) -> np.ndarray:
+        G_H_G, G_H = self._get_normal_components()
+        return np.linalg.solve(G_H_G, G_H @ rhs_block)
+
+    def _solve_lsmr(self, rhs_block: np.ndarray, num_scenarios: int, **kwargs) -> np.ndarray:
+        op, transform = self._get_lsmr_components(num_scenarios)
+        m = op.shape[0] // num_scenarios
+        n = self.problem.solution_size
+        default_max_iter = ITERATION_SAFETY_FACTOR * min(m, n) if min(m, n) > 0 else n
         max_iter = kwargs.pop("maxiter", default_max_iter)
-
         lsmr_kwargs = {
             "atol": self.tolerance,
             "btol": self.tolerance,
             "maxiter": max_iter,
             **kwargs,
         }
-        sol_y_flat, istop, *_ = lsmr(op, d_block.flatten(), **lsmr_kwargs)
-
+        sol_y_flat, istop, *_ = lsmr(op, rhs_block.flatten(), **lsmr_kwargs)
         if istop not in [0, 1, 2]:
             warnings.warn(f"LSMR may not have fully converged (istop={istop}).", RuntimeWarning)
+        solution_y = sol_y_flat.reshape(self.problem.solution_size, num_scenarios)
+        return transform(solution_y)
 
-        return transform(sol_y_flat.reshape(problem.solution_size, num_scenarios))
-
-    def _solve_cg(
-        self, problem: LeastSquaresProblem, d_block: np.ndarray, num_scenarios: int, **kwargs
-    ) -> np.ndarray:
-        cg_op, M, rmatvec_block = self._get_cg_components(problem, num_scenarios)
-        rhs_flat = rmatvec_block(d_block).flatten()
-        max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
-
+    def _solve_cg(self, rhs_block: np.ndarray, num_scenarios: int, **kwargs) -> np.ndarray:
+        cg_op, M, rmatvec_block = self._get_cg_components(num_scenarios)
+        rhs_flat = rmatvec_block(rhs_block).flatten()
+        max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * self.problem.solution_size)
         cg_kwargs = {"rtol": self.tolerance, "M": M, "maxiter": max_iter, **kwargs}
         sol_flat, exit_code = cg(cg_op, rhs_flat, **cg_kwargs)
-
         if exit_code != 0:
             warnings.warn(f"CG solver did not converge (exit_code={exit_code}).", RuntimeWarning)
+        return sol_flat.reshape(self.problem.solution_size, num_scenarios)
 
-        return sol_flat.reshape(problem.solution_size, num_scenarios)
+    def _solve_adjoint(self, grad_x_block: np.ndarray, num_scenarios: int) -> np.ndarray:
+        """Dispatches to the correct adjoint solver based on self.solver."""
+        if self.solver == "svd":
+            u, s_inv, vt = self._get_svd_components()
+            return u @ (s_inv[:, None] * (vt @ grad_x_block))
 
-    def _get_problem_cache(self, problem: LeastSquaresProblem) -> Dict[Any, Any]:
-        problem_id = id(problem)
-        if (
-            problem_id not in self._cache
-            or self._cache[problem_id].get("version") != problem._version
-        ):
-            self._cache[problem_id] = {"version": problem._version}
-        return self._cache[problem_id]
+        if self.solver == "normal":
+            G_H_G, _ = self._get_normal_components()
+            G_dense = self._get_dense_system_matrix()
+            y = np.linalg.solve(G_H_G, grad_x_block)
+            return G_dense @ y
 
-    def clear_cache(self) -> None:
-        self._cache.clear()
+        if self.solver == "lsmr":
+            lambdas = self._get_lambdas_for_problem()
+            base_op, _, _ = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
+            adjoint_op = base_op.adjoint
+            lsmr_kwargs = {"atol": self.tolerance, "btol": self.tolerance}
+            grad_d_flat, istop, *_ = lsmr(adjoint_op, grad_x_block.flatten(), **lsmr_kwargs)
+            if istop not in [0, 1, 2]:
+                warnings.warn(
+                    f"Adjoint LSMR may not have fully converged (istop={istop}).", RuntimeWarning
+                )
+            return grad_d_flat.reshape(adjoint_op.shape[1], num_scenarios)
 
-    def clear_cache_for_problem(self, problem: LeastSquaresProblem) -> None:
-        self._cache.pop(id(problem), None)
+        if self.solver == "cg":
+            cg_op, M, _ = self._get_cg_components(num_scenarios)
+            cg_kwargs = {"rtol": self.tolerance, "M": M}
+            y_flat, exit_code = cg(cg_op, grad_x_block.flatten(), **cg_kwargs)
+            if exit_code != 0:
+                warnings.warn(
+                    f"Adjoint CG solve did not converge (exit_code={exit_code}).", RuntimeWarning
+                )
+            y_block = y_flat.reshape(self.problem.solution_size, num_scenarios)
+            lambdas = self._get_lambdas_for_problem()
+            _, _, matvec_block = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
+            return matvec_block(y_block)
 
-    def _compute_normal_matrix_diag(self, op: Union[LinearOperator, np.ndarray]) -> np.ndarray:
-        """
-        Computes the diagonal of op.H @ op efficiently for both LinearOperator
-        and ndarray types.
-        """
-        n_cols = op.shape[1]
-        diag = np.zeros(n_cols, dtype=op.dtype)
-        for i in range(n_cols):
-            e = np.zeros(n_cols)
-            e[i] = 1.0
+        raise RuntimeError(f"Adjoint solver for '{self.solver}' not implemented.")
 
-            # Check the type and use the appropriate matrix-vector product
-            if isinstance(op, LinearOperator):
-                col = op.matvec(e)
-            else:  # Assume it's an np.ndarray
-                col = op @ e
+    # ------------------- Component Getters with Caching -------------------
 
-            diag[i] = np.dot(col.conj(), col).real
-        return diag
-
-    def _get_lambdas_for_problem(self, problem: LeastSquaresProblem) -> List[float]:
+    def _get_lambdas_for_problem(self) -> List[float]:
         if not self.use_scaled_lambdas:
-            return problem.regularization_weights
+            return self.problem.regularization_weights
+        key = ("scaled_lambdas",)
 
-        cache = self._get_problem_cache(problem)
-        cache_key = "scaled_lambdas"
-        if cache_key in cache:
-            return cache[cache_key]
+        def compute():
+            data_op = self.problem.get_data_operator()
+            diag_A_T_A = self._compute_normal_matrix_diag(data_op)
+            data_scale = np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
+            scaled_lambdas = []
+            for i, L_item in enumerate(self.problem.regularization_matrices):
+                raw_weight = self.problem.regularization_weights[i]
+                if raw_weight == 0 or L_item is None:
+                    scaled_lambdas.append(0.0)
+                    continue
+                diag_L_T_L = self._compute_normal_matrix_diag(L_item.op)
+                reg_scale = (
+                    np.median(diag_L_T_L[diag_L_T_L > 0]) if np.any(diag_L_T_L > 0) else 1.0
+                )
+                scale_factor = math.sqrt(data_scale / reg_scale) if reg_scale > 1e-14 else 0.0
+                scaled_lambdas.append(math.sqrt(raw_weight) * scale_factor)
+            return scaled_lambdas
 
-        data_rows = sum(a.op.shape[0] for a in problem.A)
-        dtype = problem.A[0].op.dtype if problem.A else np.float64
+        return self._get_or_compute(key, compute)
 
-        def data_matvec(x_flat: np.ndarray) -> np.ndarray:
-            x_block = x_flat.reshape(problem.solution_size, 1)
-            output_blocks = []
-            for i, a_item in enumerate(problem.A):
-                res_block = problem.apply_op_to_block(a_item.op, x_block)
-                if (w_item := problem.sqrt_weights[i]) is not None:
-                    res_block = (
-                        problem.densify_op(w_item) * res_block
-                        if w_item.input_shape == (1,)
-                        else problem.apply_op_to_block(w_item.op, res_block)
+    def _get_dense_system_matrix(self) -> np.ndarray:
+        key = ("G_dense",)
+
+        def compute():
+            lambdas = self._get_lambdas_for_problem()
+            return self.problem.get_dense_system_matrix(lambdas)
+
+        return self._get_or_compute(key, compute)
+
+    def _get_svd_decomposition(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        key = ("svd_decomposition",)
+
+        def compute():
+            G_dense = self._get_dense_system_matrix()
+            return np.linalg.svd(G_dense, full_matrices=False)
+
+        return self._get_or_compute(key, compute)
+
+    def _get_svd_components(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        key = ("svd_components", self.tolerance)
+
+        def compute():
+            u, s, vt = self._get_svd_decomposition()
+            s_inv = np.zeros_like(s)
+            cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
+            stable_s = s > cutoff
+            s_inv[stable_s] = 1.0 / s[stable_s]
+            return u, s_inv, vt
+
+        return self._get_or_compute(key, compute)
+
+    def _get_pinv_preconditioner_components(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        key = ("pinv_preconditioner", self.tolerance)
+
+        def compute():
+            _, s, vt = self._get_svd_decomposition()
+            s_pinv = np.zeros_like(s)
+            cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
+            stable = s > cutoff
+            s_pinv[stable] = 1.0 / s[stable]
+            s_inv_sq = s_pinv**2
+            return vt, s_pinv, s_inv_sq
+
+        return self._get_or_compute(key, compute)
+
+    def _get_normal_components(self) -> Tuple[np.ndarray, np.ndarray]:
+        key = ("normal_components",)
+
+        def compute():
+            G_dense = self._get_dense_system_matrix()
+            G_H = G_dense.T.conj()
+            return G_H @ G_dense, G_H
+
+        return self._get_or_compute(key, compute)
+
+    def _get_jacobi_preconditioner_diag(self) -> np.ndarray:
+        key = ("jacobi_diag",)
+
+        def compute():
+            lambdas = self._get_lambdas_for_problem()
+            base_op, _, _ = self.problem.get_system_operator(lambdas=lambdas)
+            return self._compute_normal_matrix_diag(base_op)
+
+        return self._get_or_compute(key, compute)
+
+    def _get_lsmr_components(self, num_scenarios: int) -> Tuple[LinearOperator, Callable]:
+        key = ("lsmr_components", num_scenarios, self._get_preconditioner_id())
+
+        def compute():
+            lambdas = self._get_lambdas_for_problem()
+            base_op, _, _ = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
+            op_to_solve, solution_transform = base_op, lambda sol_block: sol_block
+            if isinstance(self.preconditioner, LinearOperator):
+                precond_op = self.preconditioner
+                op_to_solve = LinearOperator(
+                    base_op.shape,
+                    matvec=lambda y: base_op.matvec(precond_op.matvec(y)),
+                    rmatvec=lambda d: precond_op.rmatvec(base_op.rmatvec(d)),
+                    dtype=base_op.dtype,
+                )
+                solution_transform = lambda y_block: precond_op.matvec(y_block.flatten()).reshape(
+                    y_block.shape
+                )
+            elif self.preconditioner == "jacobi":
+                diag = self._get_jacobi_preconditioner_diag()
+                sqrt_inv = np.sqrt(1.0 / diag, where=diag != 0, out=np.ones_like(diag))
+
+                def matvec(y_flat):
+                    y_pre = (
+                        y_flat.reshape(self.problem.solution_size, num_scenarios)
+                        * sqrt_inv[:, None]
                     )
-                output_blocks.append(res_block)
-            return np.vstack(output_blocks).ravel() if output_blocks else np.array([], dtype=dtype)
+                    return base_op.matvec(y_pre.flatten())
 
-        data_op = LinearOperator(
-            (data_rows, problem.solution_size), matvec=data_matvec, dtype=dtype
-        )
-        diag_A_T_A = self._compute_normal_matrix_diag(data_op)
-        data_scale = np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
+                def rmatvec(d_flat):
+                    res = base_op.rmatvec(d_flat).reshape(
+                        self.problem.solution_size, num_scenarios
+                    )
+                    return (res * sqrt_inv[:, None]).flatten()
 
-        scaled_lambdas: List[float] = []
-        for i, L_item in enumerate(problem.regularization_matrices):
-            raw_weight = problem.regularization_weights[i]
-            if raw_weight == 0 or L_item is None:
-                scaled_lambdas.append(0.0)
-                continue
+                op_to_solve = LinearOperator(
+                    base_op.shape, matvec=matvec, rmatvec=rmatvec, dtype=base_op.dtype
+                )
+                solution_transform = lambda y_block: y_block * sqrt_inv[:, None]
+            elif self.preconditioner == "pinv":
+                vt, s_pinv, _ = self._get_pinv_preconditioner_components()
+                p_matvec = lambda y: vt.T.conj() @ (s_pinv[:, None] * (vt @ y))
+                op_to_solve = LinearOperator(
+                    base_op.shape,
+                    matvec=lambda y: base_op.matvec(
+                        p_matvec(y.reshape(self.problem.solution_size, num_scenarios)).flatten()
+                    ),
+                    rmatvec=lambda d: p_matvec(
+                        base_op.rmatvec(d).reshape(self.problem.solution_size, num_scenarios)
+                    ).flatten(),
+                    dtype=base_op.dtype,
+                )
+                solution_transform = p_matvec
+            return op_to_solve, solution_transform
 
-            diag_L_T_L = self._compute_normal_matrix_diag(L_item.op)
-            reg_scale = np.median(diag_L_T_L[diag_L_T_L > 0]) if np.any(diag_L_T_L > 0) else 1.0
-
-            scale_factor = math.sqrt(data_scale / reg_scale) if reg_scale > 1e-14 else 0.0
-            scaled_lambdas.append(math.sqrt(raw_weight) * scale_factor)
-
-        cache[cache_key] = scaled_lambdas
-        return scaled_lambdas
-
-    def _get_dense_system_matrix(self, problem: LeastSquaresProblem) -> np.ndarray:
-        cache = self._get_problem_cache(problem)
-        cache_key = ("G_dense", self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        lambdas = self._get_lambdas_for_problem(problem)
-        all_A_weighted, all_L_weighted = [], []
-        for i, a_item in enumerate(problem.A):
-            op = problem.densify_op(a_item)
-            if (w_item := problem.sqrt_weights[i]) is not None:
-                w_op = problem.densify_op(w_item)
-                op = w_op * op if w_item.input_shape == (1,) else w_op @ op
-            all_A_weighted.append(op)
-        for i, L_item in enumerate(problem.regularization_matrices):
-            if i < len(lambdas) and L_item and lambdas[i] > 1e-12:
-                all_L_weighted.append(lambdas[i] * problem.densify_op(L_item))
-        dtype = problem.A[0].op.dtype if problem.A else np.float64
-        rows = all_A_weighted + all_L_weighted
-        G_dense = np.vstack(rows) if rows else np.zeros((0, problem.solution_size), dtype=dtype)
-        cache[cache_key] = G_dense
-        return G_dense
-
-    def _get_svd_decomposition(
-        self, problem: LeastSquaresProblem
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        cache = self._get_problem_cache(problem)
-        cache_key = ("svd_decomposition", self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        G_dense = self._get_dense_system_matrix(problem)
-        u, s, vt = np.linalg.svd(G_dense, full_matrices=False)
-        result = (u, s, vt)
-        cache[cache_key] = result
-        return result
-
-    def _get_svd_components(
-        self, problem: LeastSquaresProblem
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        cache = self._get_problem_cache(problem)
-        cache_key = ("svd_components", self.tolerance, self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        u, s, vt = self._get_svd_decomposition(problem)
-        s_inv = np.zeros_like(s)
-        cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
-        stable_s = s > cutoff
-        s_inv[stable_s] = 1.0 / s[stable_s]
-        result = (u, s_inv, vt)
-        cache[cache_key] = result
-        return result
-
-    def _get_pinv_preconditioner_components(
-        self, problem: LeastSquaresProblem
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        cache = self._get_problem_cache(problem)
-        cache_key = ("pinv_preconditioner", self.tolerance, self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        _, s, vt = self._get_svd_decomposition(problem)
-        s_pinv = np.zeros_like(s)
-        cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
-        stable = s > cutoff
-        s_pinv[stable] = 1.0 / s[stable]
-        s_inv_sq = s_pinv**2
-        result = (vt, s_pinv, s_inv_sq)
-        cache[cache_key] = result
-        return result
-
-    def _get_normal_components(
-        self, problem: LeastSquaresProblem
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        cache = self._get_problem_cache(problem)
-        cache_key = ("normal_components", self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        G_dense = self._get_dense_system_matrix(problem)
-        G_H = G_dense.T.conj()
-        result = (G_H @ G_dense, G_H)
-        cache[cache_key] = result
-        return result
-
-    def _get_jacobi_preconditioner_diag(self, problem: LeastSquaresProblem) -> np.ndarray:
-        cache = self._get_problem_cache(problem)
-        cache_key = ("jacobi_diag", self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        lambdas = self._get_lambdas_for_problem(problem)
-        base_op, _, _ = problem.get_system_operator(lambdas=lambdas)
-        diag = self._compute_normal_matrix_diag(base_op)
-        cache[cache_key] = diag
-        return diag
-
-    def _get_lsmr_components(
-        self, problem: LeastSquaresProblem, num_scenarios: int
-    ) -> Tuple[LinearOperator, Callable]:
-        cache = self._get_problem_cache(problem)
-        # Use id() for LinearOperator to ensure it's uniquely identified in the cache key
-        preconditioner_id = (
-            id(self.preconditioner)
-            if isinstance(self.preconditioner, LinearOperator)
-            else self.preconditioner
-        )
-        cache_key = ("lsmr_components", num_scenarios, preconditioner_id, self.use_scaled_lambdas)
-
-        if cache_key in cache:
-            return cache[cache_key]
-
-        lambdas = self._get_lambdas_for_problem(problem)
-        base_op, _, matvec_block = problem.get_system_operator(num_scenarios, lambdas=lambdas)
-
-        # Default case: no preconditioning
-        op_to_solve, solution_transform = base_op, lambda sol_block: sol_block
-
-        if isinstance(self.preconditioner, LinearOperator):
-            # The user-provided LinearOperator is the right preconditioner N.
-            # Its matvec computes N @ y.
-            precond_op = self.preconditioner
-
-            def precond_matvec(y_flat):
-                # Transform y -> Ny, then apply original operator G: G @ (N @ y)
-                y_preconditioned = precond_op.matvec(y_flat)
-                return base_op.matvec(y_preconditioned)
-
-            def precond_rmatvec(d_flat):
-                # Apply adjoint of G, then adjoint of N: N.H @ (G.H @ d)
-                # We assume the preconditioner is self-adjoint (N.H = N), a common case.
-                res_block = base_op.rmatvec(d_flat)
-                return precond_op.rmatvec(res_block)  # or matvec if strictly self-adjoint
-
-            op_to_solve = LinearOperator(
-                base_op.shape, matvec=precond_matvec, rmatvec=precond_rmatvec, dtype=base_op.dtype
-            )
-            # The solution transform is applying the preconditioner to the intermediate solution y
-            solution_transform = lambda y_block: precond_op.matvec(y_block.flatten()).reshape(
-                y_block.shape
-            )
-
-        elif self.preconditioner == "jacobi":
-            diag = self._get_jacobi_preconditioner_diag(problem)
-            sqrt_inv = np.sqrt(1.0 / diag, where=diag != 0, out=np.ones_like(diag))
-
-            def jacobi_precond_matvec(y_flat):
-                y_block = y_flat.reshape(problem.solution_size, num_scenarios) * sqrt_inv[:, None]
-                return base_op.matvec(y_block.flatten())
-
-            def jacobi_precond_rmatvec(d_flat):
-                res_block = base_op.rmatvec(d_flat).reshape(problem.solution_size, num_scenarios)
-                return (res_block * sqrt_inv[:, None]).flatten()
-
-            op_to_solve = LinearOperator(
-                base_op.shape,
-                matvec=jacobi_precond_matvec,
-                rmatvec=jacobi_precond_rmatvec,
-                dtype=base_op.dtype,
-            )
-            solution_transform = lambda sol_y_block: sol_y_block * sqrt_inv[:, None]
-
-        elif self.preconditioner == "pinv":
-            vt, s_pinv, _ = self._get_pinv_preconditioner_components(problem)
-
-            def p_matvec(y_block):
-                return vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
-
-            def pinv_precond_matvec(y_flat):
-                y_block = p_matvec(y_flat.reshape(problem.solution_size, num_scenarios))
-                return matvec_block(y_block).flatten()
-
-            def pinv_precond_rmatvec(d_flat):
-                res_block = base_op.rmatvec(d_flat).reshape(problem.solution_size, num_scenarios)
-                return p_matvec(res_block).flatten()
-
-            op_to_solve = LinearOperator(
-                base_op.shape,
-                matvec=pinv_precond_matvec,
-                rmatvec=pinv_precond_rmatvec,
-                dtype=base_op.dtype,
-            )
-            solution_transform = p_matvec
-
-        result = (op_to_solve, solution_transform)
-        cache[cache_key] = result
-        return result
+        return self._get_or_compute(key, compute)
 
     def _get_cg_components(
-        self, problem: LeastSquaresProblem, num_scenarios: int
+        self, num_scenarios: int
     ) -> Tuple[LinearOperator, Optional[LinearOperator], Callable]:
-        cache = self._get_problem_cache(problem)
-        preconditioner_id = (
-            id(self.preconditioner)
-            if isinstance(self.preconditioner, LinearOperator)
-            else self.preconditioner
-        )
-        cache_key = ("cg_components", num_scenarios, preconditioner_id, self.use_scaled_lambdas)
-        if cache_key in cache:
-            return cache[cache_key]
-        lambdas = self._get_lambdas_for_problem(problem)
-        base_op, rmatvec_block, _ = problem.get_system_operator(num_scenarios, lambdas=lambdas)
+        key = ("cg_components", num_scenarios, self._get_preconditioner_id())
 
-        def normal_matvec(x_flat):
-            return base_op.rmatvec(base_op.matvec(x_flat))
-
-        cg_op = LinearOperator(
-            (base_op.shape[1], base_op.shape[1]),
-            matvec=normal_matvec,
-            rmatvec=normal_matvec,
-            dtype=base_op.dtype,
-        )
-        M = None
-        if isinstance(self.preconditioner, LinearOperator):
-            M = self.preconditioner
-        elif self.preconditioner == "jacobi":
-            diag = self._get_jacobi_preconditioner_diag(problem)
-            diag_inv = 1.0 / diag
-            diag_inv[np.isinf(diag_inv)] = 1.0
-            full_inv = np.tile(diag_inv, num_scenarios)
-
-            def precon_matvec(x_flat):
-                return x_flat * full_inv
-
-            M = LinearOperator(
-                cg_op.shape, matvec=precon_matvec, rmatvec=precon_matvec, dtype=diag.dtype
+        def compute():
+            lambdas = self._get_lambdas_for_problem()
+            base_op, rmatvec_block, _ = self.problem.get_system_operator(
+                num_scenarios, lambdas=lambdas
             )
-        elif self.preconditioner == "pinv":
-            vt, _, s_inv_sq = self._get_pinv_preconditioner_components(problem)
-
-            def precon_block(x_block):
-                return vt.T.conj() @ (s_inv_sq[:, None] * (vt @ x_block))
-
-            def precon_matvec(x_flat):
-                return precon_block(x_flat.reshape(problem.solution_size, num_scenarios)).flatten()
-
-            M = LinearOperator(
-                cg_op.shape, matvec=precon_matvec, rmatvec=precon_matvec, dtype=vt.dtype
+            normal_matvec = lambda x: base_op.rmatvec(base_op.matvec(x))
+            cg_op = LinearOperator(
+                (base_op.shape[1], base_op.shape[1]), matvec=normal_matvec, dtype=base_op.dtype
             )
-        result = (cg_op, M, rmatvec_block)
-        cache[cache_key] = result
-        return result
+            M = None
+            if isinstance(self.preconditioner, LinearOperator):
+                M = self.preconditioner
+            elif self.preconditioner == "jacobi":
+                diag = self._get_jacobi_preconditioner_diag()
+                full_inv = np.tile(1.0 / diag, num_scenarios)
+                full_inv[np.isinf(full_inv)] = 1.0
+                M = LinearOperator(cg_op.shape, matvec=lambda x: x * full_inv, dtype=diag.dtype)
+            elif self.preconditioner == "pinv":
+                vt, _, s_inv_sq = self._get_pinv_preconditioner_components()
+
+                def precon_matvec(x_flat):
+                    x_block = x_flat.reshape(self.problem.solution_size, num_scenarios)
+                    y_block = vt.T.conj() @ (s_inv_sq[:, None] * (vt @ x_block))
+                    return y_block.flatten()
+
+                M = LinearOperator(cg_op.shape, matvec=precon_matvec, dtype=vt.dtype)
+            return cg_op, M, rmatvec_block
+
+        return self._get_or_compute(key, compute)
+
+    @staticmethod
+    def _compute_normal_matrix_diag(op: Union[LinearOperator, np.ndarray]) -> np.ndarray:
+        if isinstance(op, np.ndarray):
+            return np.sum(np.abs(op) ** 2, axis=0)
+        n_cols = op.shape[1]
+        diag = np.zeros(n_cols, dtype=op.dtype)
+        e = np.zeros(n_cols, dtype=op.dtype)
+        for i in range(n_cols):
+            e[i] = 1.0
+            col = op.matvec(e)
+            diag[i] = np.dot(col.conj(), col).real
+            e[i] = 0.0
+        return diag

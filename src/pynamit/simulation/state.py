@@ -51,6 +51,7 @@ class State:
         # Operator for mapping velocity field `u` to E-field, independent of conductance
         self.u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
 
+        # The solver is now stateful and will be bound to a problem later.
         self.m_imp_solver = LeastSquaresSolver(
             solver=self.solver_type, preconditioner=self.preconditioner
         )
@@ -69,7 +70,7 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(settings, "least_squares_solver", "cg")
+        self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
@@ -168,6 +169,7 @@ class State:
     def m_imp_problem(self) -> LeastSquaresProblem:
         """The least-squares problem definition for the imposed potential `m_imp`."""
         if self._m_imp_problem is None:
+            logger.info("Defining new least-squares problem for m_imp.")
             operators, data_shapes = [], []
 
             # Constraint 1: Radial current (jr) must match imposed field.
@@ -189,52 +191,64 @@ class State:
                 reg_ops.append(identity_op)
                 reg_weights.append(self.m_imp_regularization_lambda)
 
-            self._m_imp_problem = LeastSquaresProblem(
+            # Create the new problem instance
+            new_problem = LeastSquaresProblem(
                 A=operators,
                 solution_shape=self.basis.index_length,
                 data_shapes=data_shapes,
                 regularization_matrices=reg_ops,
                 regularization_weights=reg_weights,
             )
+
+            # Bind the solver to this new problem definition.
+            self.m_imp_solver.update_problem(new_problem)
+            self._m_imp_problem = new_problem
+
         return self._m_imp_problem
 
     def _solve_for_m_imp(
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
     ) -> np.ndarray:
         """Solves for the imposed potential coefficients `m_imp`."""
-        rhs_list = []
+        # First, access the property to ensure the problem is defined and
+        # the solver is bound to it correctly.
+        _ = self.m_imp_problem
 
-        # RHS for radial current (jr) constraint.
+        # Build the right-hand side (RHS) list
+        rhs_list = []
         b_jr = (
             np.dot(self.geometry.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None
         )
         rhs_list.append(b_jr)
 
-        # RHS for interhemispheric E-field constraint.
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
             E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
             b_E = -np.einsum("cikl,kl->ci", E_map_op, E_direct_coeffs).flatten()
             rhs_list.append(b_E * self.ih_constraint_scaling)
 
-        solution = self.m_imp_solver.solve(self.m_imp_problem, rhs_list)
+        # Call solve. The API is simpler now, as the problem is already bound.
+        solution = self.m_imp_solver.solve(rhs_list)
         return solution if solution is not None else np.zeros(self.basis.index_length)
 
     def _solve_for_m_imp_adjoint(
         self, grad_m_imp: np.ndarray
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Performs the adjoint solve for `m_imp`."""
-        grad_b_list = self.m_imp_solver.solve_adjoint(self.m_imp_problem, grad_m_imp)
+        # First, ensure the problem is defined so the solver is ready
+        _ = self.m_imp_problem
+
+        grad_b_list = self.m_imp_solver.solve_adjoint(grad_m_imp)
 
         grad_jr, grad_E = None, None
 
-        # Gradient from jr constraint
+        # Gradient from jr constraint (first element of the list)
         grad_jr = np.dot(self.geometry.jr_coeffs_to_j_apex.T, grad_b_list[0])
 
-        # Gradient from E-field constraint
+        # Gradient from E-field constraint (second element of the list, if it exists)
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            # Reconstruct the shape of the E-field constraint's RHS
             # The problem object is the source of truth for shapes.
-            op_E = self.m_imp_problem.A[1]  # The unscaled TensorChain operator
+            # The second operator (index 1) in the problem is the E-field constraint.
+            op_E = self.m_imp_problem.A[1]
             shape_E = op_E.output_shape
             grad_b_E = grad_b_list[1].reshape(shape_E) / self.ih_constraint_scaling
 

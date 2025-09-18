@@ -6,10 +6,8 @@ expansions on a grid.
 
 import numpy as np
 
-# --- MODIFIED: Import the new, separated objects ---
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-# --- END MODIFICATION ---
 
 
 class BasisEvaluator(object):
@@ -18,10 +16,6 @@ class BasisEvaluator(object):
     This class provides methods for evaluating basis expansions on a
     grid and for constructing least-squares problems to find the basis
     expansion coefficients corresponding to given grid values.
-
-    The class can be used for both scalar and horizontal vector fields, where
-    the latter is represented by basis expansion coefficients of the
-    curl-free and divergence-free parts (Helmholtz decomposition).
     """
 
     def __init__(self, basis, grid, sqrt_weights=None, reg_lambda=None, pinv_rtol=1e-15):
@@ -34,6 +28,9 @@ class BasisEvaluator(object):
 
         self._least_squares_problem = None
         self._least_squares_problem_helmholtz = None
+
+        self._scalar_solvers = {}
+        self._helmholtz_solvers = {}
 
     @property
     def G(self):
@@ -144,8 +141,6 @@ class BasisEvaluator(object):
                 self._L_helmholtz = np.array([L_cf, L_df])
         return self._L_helmholtz
 
-    # --- MODIFIED SECTION ---
-
     @property
     def least_squares_problem(self) -> LeastSquaresProblem:
         """Least squares problem for scalar fields."""
@@ -176,17 +171,23 @@ class BasisEvaluator(object):
 
     def least_squares_solution(self, grid_values, solver_type="svd"):
         """Least squares decomposition of a scalar field."""
-        solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
-        problem = self.least_squares_problem
-        return solver.solve(problem, grid_values)
+        if solver_type not in self._scalar_solvers:
+            solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
+            solver.update_problem(self.least_squares_problem)
+            self._scalar_solvers[solver_type] = solver
+
+        solver = self._scalar_solvers[solver_type]
+        return solver.solve(grid_values)
 
     def least_squares_solution_helmholtz(self, grid_values, solver_type="svd"):
         """Least squares decomposition of a horizontal vector field."""
-        solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
-        problem = self.least_squares_problem_helmholtz
-        return solver.solve(problem, grid_values)
+        if solver_type not in self._helmholtz_solvers:
+            solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
+            solver.update_problem(self.least_squares_problem_helmholtz)
+            self._helmholtz_solvers[solver_type] = solver
 
-    # --- END MODIFIED SECTION ---
+        solver = self._helmholtz_solvers[solver_type]
+        return solver.solve(grid_values)
 
     def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""
@@ -195,7 +196,7 @@ class BasisEvaluator(object):
         elif derivative == "phi":
             return np.dot(self.G_ph, coeffs)
         elif helmholtz:
-            return np.tensordot(self.G_helmholtz, coeffs, 2)
+            return np.tensotensor(self.G_helmholtz, coeffs, 2)
         else:
             return np.dot(self.G, coeffs)
 
@@ -209,7 +210,7 @@ class BasisEvaluator(object):
     def regularization_term(self, coeffs, helmholtz=False):
         """Return the regularization term."""
         if helmholtz:
-            return np.tensordot(self.L_helmholtz, coeffs, 2)
+            return np.tensotensor(self.L_helmholtz, coeffs, 2)
         else:
             return np.dot(coeffs, np.dot(self.L, coeffs))
 
