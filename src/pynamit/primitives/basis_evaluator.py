@@ -29,6 +29,7 @@ class BasisEvaluator(object):
         self._least_squares_problem = None
         self._least_squares_problem_helmholtz = None
 
+        # Caches for configured, stateless solver instances.
         self._scalar_solvers = {}
         self._helmholtz_solvers = {}
 
@@ -172,22 +173,24 @@ class BasisEvaluator(object):
     def least_squares_solution(self, grid_values, solver_type="svd"):
         """Least squares decomposition of a scalar field."""
         if solver_type not in self._scalar_solvers:
+            # Create a stateless solver with the desired configuration
             solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
-            solver.update_problem(self.least_squares_problem)
             self._scalar_solvers[solver_type] = solver
 
         solver = self._scalar_solvers[solver_type]
-        return solver.solve(grid_values)
+        # Pass the problem definition and RHS to the stateless solve method
+        return solver.solve(problem=self.least_squares_problem, rhs=grid_values)
 
     def least_squares_solution_helmholtz(self, grid_values, solver_type="svd"):
         """Least squares decomposition of a horizontal vector field."""
         if solver_type not in self._helmholtz_solvers:
+            # Create a stateless solver with the desired configuration
             solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
-            solver.update_problem(self.least_squares_problem_helmholtz)
             self._helmholtz_solvers[solver_type] = solver
 
         solver = self._helmholtz_solvers[solver_type]
-        return solver.solve(grid_values)
+        # Pass the problem definition and RHS to the stateless solve method
+        return solver.solve(problem=self.least_squares_problem_helmholtz, rhs=grid_values)
 
     def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""

@@ -51,7 +51,7 @@ class State:
         # Operator for mapping velocity field `u` to E-field, independent of conductance
         self.u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
 
-        # The solver is now stateful and will be bound to a problem later.
+        # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
             solver=self.solver_type, preconditioner=self.preconditioner
         )
@@ -72,6 +72,7 @@ class State:
         """Extract and store configuration from the settings object."""
         self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
+        self.static_preconditioner = getattr(settings, "static_preconditioner", False)
         self.integrator = settings.integrator
         self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
         self.RI = settings.RI
@@ -98,6 +99,7 @@ class State:
         self._E_map_constraint_operator: Optional[TensorChain] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
+        self._m_imp_preconditioner: Optional[LinearOperator] = None
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -191,28 +193,34 @@ class State:
                 reg_ops.append(identity_op)
                 reg_weights.append(self.m_imp_regularization_lambda)
 
-            # Create the new problem instance
-            new_problem = LeastSquaresProblem(
+            self._m_imp_problem = LeastSquaresProblem(
                 A=operators,
                 solution_shape=self.basis.index_length,
                 data_shapes=data_shapes,
                 regularization_matrices=reg_ops,
                 regularization_weights=reg_weights,
             )
-
-            # Bind the solver to this new problem definition.
-            self.m_imp_solver.update_problem(new_problem)
-            self._m_imp_problem = new_problem
-
         return self._m_imp_problem
+
+    @property
+    def m_imp_preconditioner(self) -> Optional[LinearOperator]:
+        """The pre-computed preconditioner for the m_imp least-squares problem."""
+        if self._m_imp_preconditioner is None:
+            logger.info("Building new preconditioner for m_imp solver.")
+            # For m_imp, we are only solving for one scenario at a time.
+            self._m_imp_preconditioner = self.m_imp_solver.build_preconditioner(
+                problem=self.m_imp_problem, num_scenarios=1
+            )
+        return self._m_imp_preconditioner
 
     def _solve_for_m_imp(
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
     ) -> np.ndarray:
         """Solves for the imposed potential coefficients `m_imp`."""
-        # First, access the property to ensure the problem is defined and
-        # the solver is bound to it correctly.
-        _ = self.m_imp_problem
+        # Get the problem definition and the pre-computed preconditioner.
+        # Accessing these properties ensures they are built if not already cached.
+        problem = self.m_imp_problem
+        preconditioner = self.m_imp_preconditioner
 
         # Build the right-hand side (RHS) list
         rhs_list = []
@@ -226,18 +234,27 @@ class State:
             b_E = -np.einsum("cikl,kl->ci", E_map_op, E_direct_coeffs).flatten()
             rhs_list.append(b_E * self.ih_constraint_scaling)
 
-        # Call solve. The API is simpler now, as the problem is already bound.
-        solution = self.m_imp_solver.solve(rhs_list)
+        # Call the stateless solve method with the problem and preconditioner.
+        solution = self.m_imp_solver.solve(
+            problem=problem,
+            rhs=rhs_list,
+            preconditioner=preconditioner,
+        )
         return solution if solution is not None else np.zeros(self.basis.index_length)
 
     def _solve_for_m_imp_adjoint(
         self, grad_m_imp: np.ndarray
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Performs the adjoint solve for `m_imp`."""
-        # First, ensure the problem is defined so the solver is ready
-        _ = self.m_imp_problem
+        # Get the problem definition and the pre-computed preconditioner.
+        problem = self.m_imp_problem
+        preconditioner = self.m_imp_preconditioner
 
-        grad_b_list = self.m_imp_solver.solve_adjoint(grad_m_imp)
+        grad_b_list = self.m_imp_solver.solve_adjoint(
+            problem=problem,
+            grad_x=grad_m_imp,
+            preconditioner=preconditioner,
+        )
 
         grad_jr, grad_E = None, None
 
@@ -282,7 +299,18 @@ class State:
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
+
+            # If static_preconditioner is True, save the current one before invalidating.
+            preconditioner_to_keep = (
+                self._m_imp_preconditioner if self.static_preconditioner else None
+            )
+
             self._invalidate_caches()
+
+            # If we saved a preconditioner, restore it now.
+            if preconditioner_to_keep is not None:
+                logger.info("...retaining static preconditioner due to setting.")
+                self._m_imp_preconditioner = preconditioner_to_keep
 
     # ----- State Calculation -----
 
