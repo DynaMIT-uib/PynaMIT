@@ -236,9 +236,7 @@ class State:
 
         # Call the stateless solve method with the problem and preconditioner.
         solution = self.m_imp_solver.solve(
-            problem=problem,
-            rhs=rhs_list,
-            preconditioner=preconditioner,
+            problem=problem, rhs=rhs_list, preconditioner=preconditioner
         )
         return solution if solution is not None else np.zeros(self.basis.index_length)
 
@@ -251,9 +249,7 @@ class State:
         preconditioner = self.m_imp_preconditioner
 
         grad_b_list = self.m_imp_solver.solve_adjoint(
-            problem=problem,
-            grad_x=grad_m_imp,
-            preconditioner=preconditioner,
+            problem=problem, grad_x=grad_m_imp, preconditioner=preconditioner
         )
 
         grad_jr, grad_E = None, None
