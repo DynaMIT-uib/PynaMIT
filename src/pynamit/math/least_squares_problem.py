@@ -124,14 +124,15 @@ class LeastSquaresProblem:
         Calculates regularization weights scaled to be commensurate with the
         data term operator. This improves numerical stability.
         """
-        key = ("scaled_lambdas",)
+        key = "scaled_lambdas"
 
         def compute():
             data_op = self.get_data_operator()
             diag_A_T_A = self._compute_normal_matrix_diag(data_op)
 
-            # Use a more descriptive name: this scale is based on the operator, not the RHS data.
-            data_term_scale = np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
+            data_term_scale = (
+                np.median(diag_A_T_A[diag_A_T_A > 0]) if np.any(diag_A_T_A > 0) else 1.0
+            )
 
             scaled_lambdas = []
             for i, L_item in enumerate(self.regularization_matrices):
@@ -145,7 +146,9 @@ class LeastSquaresProblem:
                     np.median(diag_L_T_L[diag_L_T_L > 0]) if np.any(diag_L_T_L > 0) else 1.0
                 )
 
-                scale_factor = math.sqrt(data_term_scale / reg_term_scale) if reg_term_scale > 1e-14 else 0.0
+                scale_factor = (
+                    math.sqrt(data_term_scale / reg_term_scale) if reg_term_scale > 1e-14 else 0.0
+                )
                 scaled_lambdas.append(math.sqrt(raw_weight) * scale_factor)
 
             return scaled_lambdas
@@ -153,7 +156,7 @@ class LeastSquaresProblem:
         return self._get_or_compute(key, compute)
 
     def assemble_rhs_block(
-        self, b: Union[Any, List[Any]], lambdas: Optional[List[float]] = None
+        self, b: Union[Any, List[Any]]
     ) -> Tuple[Optional[np.ndarray], Tuple[int, ...], int]:
         """Assemble RHS block `d` from one or more `b` inputs."""
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
@@ -169,7 +172,7 @@ class LeastSquaresProblem:
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
 
         op_rows = sum(a.op.shape[0] for a in self.A)
-        active_lambdas = lambdas if lambdas is not None else self.regularization_weights
+        active_lambdas = self.get_scaled_lambdas()
         op_rows += sum(
             L.op.shape[0]
             for L, w in zip(self.regularization_matrices, active_lambdas)
@@ -201,13 +204,10 @@ class LeastSquaresProblem:
         return d_block, scenario_shape, num_scenarios
 
     def get_system_operator(
-        self,
-        num_scenarios: int = 1,
-        lambdas: Optional[List[float]] = None,
-        include_regularization: bool = True,
+        self, num_scenarios: int = 1, include_regularization: bool = True
     ) -> Tuple[LinearOperator, Callable, Callable]:
         """Return a matrix-free LinearOperator G and associated block operations."""
-        active_lambdas = lambdas if lambdas is not None else self.regularization_weights
+        active_lambdas = self.get_scaled_lambdas() if include_regularization else []
 
         num_features = self.solution_size
         op_rows_data = sum(a.op.shape[0] for a in self.A)
@@ -281,11 +281,12 @@ class LeastSquaresProblem:
         op = LinearOperator(shape, matvec=matvec_final, rmatvec=rmatvec_final, dtype=dtype)
         return op, rmatvec_block, matvec_block
 
-    def get_dense_system_matrix(self, lambdas: List[float]) -> np.ndarray:
+    def get_dense_system_matrix(self) -> np.ndarray:
         """Assembles and returns the cached full system matrix G."""
-        key = ("dense_system_matrix", tuple(lambdas))
+        key = "dense_system_matrix"
 
         def compute():
+            lambdas = self.get_scaled_lambdas()
             all_rows = []
             for i, a_item in enumerate(self.A):
                 op = self.densify_op(a_item)
@@ -307,26 +308,73 @@ class LeastSquaresProblem:
 
         return self._get_or_compute(key, compute)
 
-    def get_svd_decomposition(
-        self, lambdas: List[float]
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_svd_decomposition(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Computes and returns the cached SVD of the dense system matrix."""
-        key = ("svd_decomposition", tuple(lambdas))
+        key = "svd_decomposition"
 
         def compute():
-            G_dense = self.get_dense_system_matrix(lambdas)
+            G_dense = self.get_dense_system_matrix()
             return np.linalg.svd(G_dense, full_matrices=False)
 
         return self._get_or_compute(key, compute)
 
     def get_data_operator(self) -> LinearOperator:
-        """Returns a matrix-free LinearOperator for the data part of the problem."""
-        op, _, _ = self.get_system_operator(num_scenarios=1, include_regularization=False)
-        return op
+        """Returns a cached, matrix-free LinearOperator for the data part of the problem."""
+        key = "data_operator"
+        return self._get_or_compute(key, self._build_data_operator)
 
     # ------------------------------------------------------------------
     # Public and Private Helpers
     # ------------------------------------------------------------------
+
+    def _build_data_operator(self) -> LinearOperator:
+        """
+        Builds a LinearOperator for the data part of the problem only (A and W).
+        This is a private helper to avoid the recursion that arises when
+        get_data_operator calls get_system_operator.
+        """
+        num_features = self.solution_size
+        op_rows = sum(a.op.shape[0] for a in self.A)
+        dtype = self.A[0].op.dtype if self.A else np.float64
+
+        def matvec(x: np.ndarray) -> np.ndarray:
+            # Assumes a single vector (num_scenarios=1)
+            x_block = x[:, np.newaxis]
+            output_blocks: List[np.ndarray] = []
+            for i, a_item in enumerate(self.A):
+                res_block = self.apply_op_to_block(a_item.op, x_block)
+                w_item = self.sqrt_weights[i]
+                if w_item is not None:
+                    if w_item.is_diagonal:
+                        res_block = self.densify_op(w_item) * res_block
+                    else:
+                        res_block = self.apply_op_to_block(w_item.op, res_block)
+                output_blocks.append(res_block)
+
+            if not output_blocks:
+                return np.zeros(0, dtype=dtype)
+            return np.vstack(output_blocks).ravel()
+
+        def rmatvec(y: np.ndarray) -> np.ndarray:
+            # Assumes a single vector (num_scenarios=1)
+            y_block = y[:, np.newaxis]
+            x_block = np.zeros((num_features, 1), dtype=y.dtype)
+            row = 0
+            for i, a_item in enumerate(self.A):
+                num_a_rows = a_item.op.shape[0]
+                y_part = y_block[row : row + num_a_rows, :]
+                w_item = self.sqrt_weights[i]
+                if w_item is not None:
+                    if w_item.is_diagonal:
+                        y_part = self.densify_op(w_item).conj() * y_part
+                    else:
+                        y_part = self.apply_op_T_to_block(w_item.op, y_part)
+                x_block += self.apply_op_T_to_block(a_item.op, y_part)
+                row += num_a_rows
+            return x_block.ravel()
+
+        shape = (op_rows, num_features)
+        return LinearOperator(shape, matvec=matvec, rmatvec=rmatvec, dtype=dtype)
 
     @staticmethod
     def _compute_normal_matrix_diag(op: Union[LinearOperator, np.ndarray]) -> np.ndarray:

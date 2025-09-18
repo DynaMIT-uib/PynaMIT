@@ -34,14 +34,12 @@ class LeastSquaresSolver:
         solver: str = "lsmr",
         tolerance: float = 1e-13,
         preconditioner: Optional[Union[str, LinearOperator]] = None,
-        use_scaled_lambdas: bool = True,
         problem: Optional[LeastSquaresProblem] = None,
     ):
         if solver not in self.VALID_SOLVERS:
             raise ValueError(f"Solver must be one of {self.VALID_SOLVERS}")
         self.solver = solver
         self.tolerance = tolerance
-        self.use_scaled_lambdas = use_scaled_lambdas
 
         self.problem: Optional[LeastSquaresProblem] = None
         self._cache: Dict[Any, Any] = {}
@@ -107,10 +105,7 @@ class LeastSquaresSolver:
         if self.problem is None:
             raise RuntimeError("Solver must be bound to a problem first. Call update_problem().")
 
-        lambdas = self._get_lambdas_for_problem()
-        rhs_block, scenario_shape, num_scenarios = self.problem.assemble_rhs_block(
-            rhs, lambdas=lambdas
-        )
+        rhs_block, scenario_shape, num_scenarios = self.problem.assemble_rhs_block(rhs)
 
         if rhs_block is None:
             dtype = self.problem.A[0].op.dtype if self.problem.A else np.float64
@@ -213,10 +208,8 @@ class LeastSquaresSolver:
 
     def _solve_adjoint(self, grad_x_block: np.ndarray, num_scenarios: int) -> np.ndarray:
         """Dispatches to the correct adjoint solver based on self.solver."""
-        lambdas = self._get_lambdas_for_problem()
-
         if self.solver == "svd":
-            u, s, vt = self.problem.get_svd_decomposition(lambdas)
+            u, s, vt = self.problem.get_svd_decomposition()
             s_inv = np.zeros_like(s)
             cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
             stable_s = s > cutoff
@@ -225,12 +218,12 @@ class LeastSquaresSolver:
 
         if self.solver == "normal":
             G_H_G, _ = self._get_normal_components()
-            G_dense = self.problem.get_dense_system_matrix(lambdas)
+            G_dense = self.problem.get_dense_system_matrix()
             y = np.linalg.solve(G_H_G, grad_x_block)
             return G_dense @ y
 
         if self.solver == "lsmr":
-            base_op, _, _ = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
+            base_op, _, _ = self.problem.get_system_operator(num_scenarios)
             adjoint_op = base_op.adjoint
             lsmr_kwargs = {"atol": self.tolerance, "btol": self.tolerance}
             grad_d_flat, istop, *_ = lsmr(adjoint_op, grad_x_block.flatten(), **lsmr_kwargs)
@@ -249,33 +242,18 @@ class LeastSquaresSolver:
                     f"Adjoint CG solve did not converge (exit_code={exit_code}).", RuntimeWarning
                 )
             y_block = y_flat.reshape(self.problem.solution_size, num_scenarios)
-            _, _, matvec_block = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
+            _, _, matvec_block = self.problem.get_system_operator(num_scenarios)
             return matvec_block(y_block)
 
         raise RuntimeError(f"Adjoint solver for '{self.solver}' not implemented.")
 
     # ------------------- Component Getters with Caching -------------------
 
-    def _get_lambdas_for_problem(self) -> List[float]:
-        """
-        Gets the appropriate regularization weights from the problem.
-        Delegates the calculation of scaled lambdas to the problem itself.
-        """
-        if self.problem is None:
-            # Should not happen if called from solve() but good practice
-            raise RuntimeError("Solver must be bound to a problem.")
-
-        if self.use_scaled_lambdas:
-            return self.problem.get_scaled_lambdas()
-        else:
-            return self.problem.regularization_weights
-
     def _get_svd_components(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         key = ("svd_components", self.tolerance)
 
         def compute():
-            lambdas = self._get_lambdas_for_problem()
-            u, s, vt = self.problem.get_svd_decomposition(lambdas)
+            u, s, vt = self.problem.get_svd_decomposition()
             s_inv = np.zeros_like(s)
             cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
             stable_s = s > cutoff
@@ -288,8 +266,7 @@ class LeastSquaresSolver:
         key = ("pinv_preconditioner", self.tolerance)
 
         def compute():
-            lambdas = self._get_lambdas_for_problem()
-            _, s, vt = self.problem.get_svd_decomposition(lambdas)
+            _, s, vt = self.problem.get_svd_decomposition()
             s_pinv = np.zeros_like(s)
             cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
             stable = s > cutoff
@@ -303,8 +280,7 @@ class LeastSquaresSolver:
         key = ("normal_components",)
 
         def compute():
-            lambdas = self._get_lambdas_for_problem()
-            G_dense = self.problem.get_dense_system_matrix(lambdas)
+            G_dense = self.problem.get_dense_system_matrix()
             G_H = G_dense.T.conj()
             return G_H @ G_dense, G_H
 
@@ -314,8 +290,7 @@ class LeastSquaresSolver:
         key = ("jacobi_diag",)
 
         def compute():
-            lambdas = self._get_lambdas_for_problem()
-            base_op, _, _ = self.problem.get_system_operator(lambdas=lambdas)
+            base_op, _, _ = self.problem.get_system_operator()
             return self.problem._compute_normal_matrix_diag(base_op)
 
         return self._get_or_compute(key, compute)
@@ -324,8 +299,7 @@ class LeastSquaresSolver:
         key = ("lsmr_components", num_scenarios, self._get_preconditioner_id())
 
         def compute():
-            lambdas = self._get_lambdas_for_problem()
-            base_op, _, _ = self.problem.get_system_operator(num_scenarios, lambdas=lambdas)
+            base_op, _, _ = self.problem.get_system_operator(num_scenarios)
             op_to_solve, solution_transform = base_op, lambda sol_block: sol_block
             if isinstance(self.preconditioner, LinearOperator):
                 precond_op = self.preconditioner
@@ -383,10 +357,7 @@ class LeastSquaresSolver:
         key = ("cg_components", num_scenarios, self._get_preconditioner_id())
 
         def compute():
-            lambdas = self._get_lambdas_for_problem()
-            base_op, rmatvec_block, _ = self.problem.get_system_operator(
-                num_scenarios, lambdas=lambdas
-            )
+            base_op, rmatvec_block, _ = self.problem.get_system_operator(num_scenarios)
             normal_matvec = lambda x: base_op.rmatvec(base_op.matvec(x))
             cg_op = LinearOperator(
                 (base_op.shape[1], base_op.shape[1]), matvec=normal_matvec, dtype=base_op.dtype
