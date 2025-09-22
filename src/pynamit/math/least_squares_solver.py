@@ -3,9 +3,8 @@ Provides a stateless, configurable solver for LeastSquaresProblem objects.
 """
 
 from __future__ import annotations
-import math
 import warnings
-from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
+from typing import Callable, Dict, Final, List, Optional, Tuple, Union
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr

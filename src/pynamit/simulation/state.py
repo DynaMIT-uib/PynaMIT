@@ -326,9 +326,7 @@ class State:
         self._m_ind_to_E_df_matrix = np.array(E_df_columns).T
         logger.info("Dense induction operator built.")
 
-    def _calculate_d_m_ind_dt(
-        self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray
-    ) -> np.ndarray:
+    def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculates the time derivative of the induced potential.
 
         This is the right-hand side of the ODE: d(m_ind)/dt = f(m_ind).

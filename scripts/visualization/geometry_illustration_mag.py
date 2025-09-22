@@ -111,7 +111,7 @@ plt.tight_layout()
 ax.text(
     1.65 * RE,
     1.65 * RE,
-    "$\\Delta\\mathbf{B} =\\mathbf{B}_\mathrm{mag}$",
+    "$\\Delta\\mathbf{B} =\\mathbf{B}_\\mathrm{mag}$",
     ha="center",
     va="center",
     size=textsize,
@@ -121,7 +121,7 @@ ax.text(
 ax.text(
     1.05 * RE,
     1.05 * RE,
-    "$\\Delta\\mathbf{B} = \\mathbf{B}_\mathrm{ind} + \\mathbf{B}_\mathrm{imp}$",
+    "$\\Delta\\mathbf{B} = \\mathbf{B}_\\mathrm{ind} + \\mathbf{B}_\\mathrm{imp}$",
     ha="center",
     va="center",
     size=textsize,
@@ -130,7 +130,7 @@ ax.text(
 ax.text(
     0.375 * RE,
     0.375 * RE,
-    "$\\Delta\\mathbf{B} = \\mathbf{B}_\mathrm{ind}$",
+    "$\\Delta\\mathbf{B} = \\mathbf{B}_\\mathrm{ind}$",
     ha="center",
     va="center",
     size=textsize,
