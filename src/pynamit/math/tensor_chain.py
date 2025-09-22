@@ -1,0 +1,110 @@
+"""
+A helper class to represent a linear operator defined by a chain of
+tensor contractions (einsum).
+"""
+
+from __future__ import annotations
+import math
+import numpy as np
+from dataclasses import dataclass, field
+from typing import List, Optional
+from scipy.sparse.linalg import LinearOperator
+
+
+@dataclass
+class TensorChain:
+    """
+    Represents a linear operator formed by a tensor contraction (einsum).
+
+    This class can generate a dense matrix representation or a matrix-free
+    scipy LinearOperator, which is efficient for iterative solvers. It also
+    handles caching of optimized einsum paths for performance.
+    """
+
+    component_tensors: List[np.ndarray]
+    einsum_string_dense: str
+    einsum_string_matvec: str
+    einsum_string_rmatvec: str
+    output_shape: tuple
+    input_shape: tuple
+    scaling_factor: float = 1.0
+    _einsum_path_matvec: Optional[list] = field(default=None, repr=False)
+    _einsum_path_rmatvec: Optional[list] = field(default=None, repr=False)
+
+    @property
+    def dtype(self):
+        """The data type of the operator, determined by its component tensors."""
+        return np.result_type(*[t.dtype for t in self.component_tensors])
+
+    def with_scaling(self, factor: float) -> "TensorChain":
+        """Returns a new TensorChain instance with an updated scaling factor."""
+        return TensorChain(
+            component_tensors=self.component_tensors,
+            einsum_string_dense=self.einsum_string_dense,
+            einsum_string_matvec=self.einsum_string_matvec,
+            einsum_string_rmatvec=self.einsum_string_rmatvec,
+            output_shape=self.output_shape,
+            input_shape=self.input_shape,
+            scaling_factor=self.scaling_factor * factor,
+        )
+
+    def to_dense(self) -> np.ndarray:
+        """
+        Computes and returns the dense matrix representation of the operator.
+        """
+        dense_matrix = np.einsum(self.einsum_string_dense, *self.component_tensors, optimize=True)
+        return (dense_matrix * self.scaling_factor).reshape(
+            math.prod(self.output_shape), math.prod(self.input_shape)
+        )
+
+    def as_linear_operator(self) -> LinearOperator:
+        """
+        Returns a matrix-free scipy.sparse.linalg.LinearOperator representation.
+
+        This is highly efficient for iterative solvers as it avoids forming the
+        full dense matrix.
+        """
+        flat_out = math.prod(self.output_shape)
+        flat_in = math.prod(self.input_shape)
+
+        # Prepare and cache the optimized einsum path for matvec
+        if self._einsum_path_matvec is None:
+            # Create a dummy input array to find the optimal contraction path
+            dummy_input = np.empty(self.input_shape, dtype=self.dtype)
+            self._einsum_path_matvec = np.einsum_path(
+                self.einsum_string_matvec, *self.component_tensors, dummy_input, optimize="greedy"
+            )[0]
+
+        # Prepare and cache the optimized einsum path for rmatvec
+        if self._einsum_path_rmatvec is None:
+            # Create a dummy output gradient to find the optimal contraction path
+            dummy_grad_output = np.empty(self.output_shape, dtype=self.dtype)
+            self._einsum_path_rmatvec = np.einsum_path(
+                self.einsum_string_rmatvec,
+                dummy_grad_output,
+                *self.component_tensors,
+                optimize="greedy",
+            )[0]
+
+        def _matvec(x_flat):
+            """Defines the forward matrix-vector product."""
+            x_tensor = x_flat.reshape(self.input_shape)
+            all_tensors = self.component_tensors + [x_tensor]
+            res = np.einsum(
+                self.einsum_string_matvec, *all_tensors, optimize=self._einsum_path_matvec
+            )
+            return (res * self.scaling_factor).flatten()
+
+        def _rmatvec(y_flat):
+            """Defines the adjoint (or reverse) matrix-vector product."""
+            grad_tensor = y_flat.reshape(self.output_shape)
+            conj_tensors = [t.conj() for t in self.component_tensors]
+            all_adjoint_inputs = [grad_tensor] + conj_tensors
+            grad_x = np.einsum(
+                self.einsum_string_rmatvec, *all_adjoint_inputs, optimize=self._einsum_path_rmatvec
+            )
+            return (grad_x.conj() * self.scaling_factor).flatten()
+
+        return LinearOperator(
+            shape=(flat_out, flat_in), matvec=_matvec, rmatvec=_rmatvec, dtype=self.dtype
+        )

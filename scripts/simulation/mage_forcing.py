@@ -156,8 +156,8 @@ for step in range(0, nstep):
 
     dynamics.set_Br(
         Br_expansion.to_grid(dynamics.state.basis_evaluator),
-        theta=dynamics.state.grid.theta,
-        phi=dynamics.state.grid.phi,
+        theta=dynamics.state.geometry.grid.theta,
+        phi=dynamics.state.geometry.grid.phi,
         time=dt * step,
     )
 

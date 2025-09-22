@@ -53,6 +53,8 @@ class SHBasis(object):
         schmidt_normalization : bool, optional
             Whether to use Schmidt semi-normalization.
         """
+        self.Nmax = Nmax
+        self.Mmax = Mmax
         # Make a set of all spherical harmonic index pairs up to
         # (Nmax, Mmax).
         all_index_pairs = SHIndices(Nmax, Mmax)

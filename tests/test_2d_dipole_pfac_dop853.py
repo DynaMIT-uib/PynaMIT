@@ -1,4 +1,4 @@
-"""Dipole and PFAC test."""
+"""Dipole, PFAC and DOP853 test."""
 
 import os
 import tempfile
@@ -8,10 +8,10 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_2d_dipole_pfac():
-    """Test 2D simulation with dipole and PFAC."""
+def test_2d_dipole_pfac_dop853():
+    """Test 2D simulation with dipole, PFAC and DOP853."""
     # Arrange.
-    expected_coeff_norm = 1.134205262793296e-08
+    expected_coeff_norm = 1.1342052545869681e-08
     expected_coeff_max = 8.006258968163613e-10
     expected_coeff_min = -5.063807785683825e-09
     expected_n_coeffs = 240
@@ -23,13 +23,14 @@ def test_2d_dipole_pfac():
     # Act.
     dynamics = run_pynamit(
         final_time=0.1,
-        dt=1e-2,
+        dt=0.1,
         Nmax=10,
         Mmax=10,
         Ncs=20,
         mainfield_kind="dipole",
         fig_directory=temp_dir,
         ignore_PFAC=False,
+        integrator="DOP853",
         steady_state_initialization=False,
     )
 

@@ -222,7 +222,7 @@ class Dynamics(object):
             self.io.save_dataset(self.settings, "settings", print_info=True)
 
         if PFAC_matrix_on_file is None:
-            self.io.save_dataarray(self.state.T_to_Ve, "PFAC_matrix", print_info=True)
+            self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
 
     def evolve_to_time(
         self,

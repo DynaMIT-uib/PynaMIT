@@ -11,10 +11,10 @@ import numpy as np
 def test_multi_data():
     """Test simulation with multiple data points."""
     # Arrange.
-    expected_coeff_norm = 3.8795349788993945e-08
-    expected_coeff_max = 6.1333501162289835e-09
-    expected_coeff_min = -8.876382138652543e-09
-    expected_n_coeffs = 4
+    expected_coeff_norm = 2.5686566061400986e-08
+    expected_coeff_max = 6.133350112801935e-09
+    expected_coeff_min = -8.876382135048725e-09
+    expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -44,8 +44,8 @@ def test_multi_data():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

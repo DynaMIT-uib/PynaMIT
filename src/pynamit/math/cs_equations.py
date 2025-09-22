@@ -199,7 +199,7 @@ class CSEquations(object):
         # Extract relevant elements, rearrange matrix to map from
         # (theta, phi) and not (east, north). Also include Q matrix
         # normalization factors from Yin et al. (2017).
-        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state.grid.lat))
+        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state.geometry.grid.lat))
         Ps = sp.vstack(
             (
                 sp.hstack(

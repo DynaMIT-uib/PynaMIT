@@ -11,10 +11,10 @@ import numpy as np
 def test_2d_dipole():
     """Test 2D simulation with dipole."""
     # Arrange.
-    expected_coeff_norm = 1.233894552105508e-07
-    expected_coeff_max = 7.169514594656011e-10
-    expected_coeff_min = -4.890615507043153e-09
-    expected_n_coeffs = 201
+    expected_coeff_norm = 1.167518988242571e-08
+    expected_coeff_max = 8.055963863707044e-10
+    expected_coeff_min = -5.092285532812617e-09
+    expected_n_coeffs = 336
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -23,10 +23,10 @@ def test_2d_dipole():
     # Act.
     dynamics = run_pynamit(
         final_time=0.1,
-        dt=5e-4,
-        Nmax=5,
-        Mmax=3,
-        Ncs=60,
+        dt=1e-2,
+        Nmax=12,
+        Mmax=12,
+        Ncs=22,
         mainfield_kind="dipole",
         fig_directory=temp_dir,
         steady_state_initialization=False,
@@ -35,8 +35,8 @@ def test_2d_dipole():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

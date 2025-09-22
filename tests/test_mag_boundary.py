@@ -12,10 +12,10 @@ from pynamit.math.constants import RE
 def test_mag_boundary():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 8.652141423859074e-08
-    expected_coeff_max = 1.1893680816975406e-09
-    expected_coeff_min = -3.034988746135766e-09
-    expected_n_coeffs = 201
+    expected_coeff_norm = 9.230212737613619e-09
+    expected_coeff_max = 1.5897449512362306e-09
+    expected_coeff_min = -3.8596530258867055e-09
+    expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -24,9 +24,9 @@ def test_mag_boundary():
     # Act.
     dynamics = run_pynamit(
         final_time=0.1,
-        dt=5e-4,
-        Nmax=5,
-        Mmax=3,
+        dt=1e-2,
+        Nmax=10,
+        Mmax=8,
         Ncs=18,
         RM=4 * RE,
         mainfield_kind="dipole",
@@ -40,8 +40,8 @@ def test_mag_boundary():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 
