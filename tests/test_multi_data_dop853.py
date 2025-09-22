@@ -1,4 +1,4 @@
-"""Multi-data test module."""
+"""Multi-data DOP853 test module."""
 
 import os
 import tempfile
@@ -9,7 +9,7 @@ import numpy as np
 
 
 def test_multi_data():
-    """Test simulation with multiple data points."""
+    """Test simulation with multiple data points and DOP853."""
     # Arrange.
     expected_coeff_norm = 2.5686566061400986e-08
     expected_coeff_max = 6.133350112801935e-09
@@ -37,7 +37,7 @@ def test_multi_data():
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
-        integrator="RK45",
+        integrator="DOP853",
         multi_data=True,
     )
 
