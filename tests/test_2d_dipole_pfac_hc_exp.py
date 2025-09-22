@@ -23,7 +23,7 @@ def test_2d_dipole_pfac_hc_exp():
     # Act.
     dynamics = run_pynamit(
         final_time=0.1,
-        dt=5e-4,
+        dt=0.1,
         Nmax=5,
         Mmax=3,
         Ncs=18,
