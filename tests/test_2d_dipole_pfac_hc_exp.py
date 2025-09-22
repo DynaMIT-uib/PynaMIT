@@ -11,10 +11,10 @@ import numpy as np
 def test_2d_dipole_pfac_hc_exp():
     """Test 2D simulation with dipole, PFAC, HC and exponential."""
     # Arrange.
-    expected_coeff_norm = 6.200632470026957e-09
-    expected_coeff_max = 1.1825424212637911e-09
-    expected_coeff_min = -3.1251078615264594e-09
-    expected_n_coeffs = 58
+    expected_coeff_norm = 9.289094165656056e-09
+    expected_coeff_max = 1.5061102212509041e-09
+    expected_coeff_min = -3.9449152012536495e-09
+    expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -24,8 +24,8 @@ def test_2d_dipole_pfac_hc_exp():
     dynamics = run_pynamit(
         final_time=0.1,
         dt=0.1,
-        Nmax=5,
-        Mmax=3,
+        Nmax=10,
+        Mmax=8,
         Ncs=18,
         mainfield_kind="dipole",
         fig_directory=temp_dir,

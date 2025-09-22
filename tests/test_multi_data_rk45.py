@@ -1,4 +1,4 @@
-"""Steady state initialization test module."""
+"""Multi-data test module."""
 
 import os
 import tempfile
@@ -8,12 +8,12 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_steady_state_init():
-    """Test simulation with steady state initialization."""
+def test_multi_data():
+    """Test simulation with multiple data points."""
     # Arrange.
-    expected_coeff_norm = 1.3120048541771941e-08
-    expected_coeff_max = 1.7170964863338117e-09
-    expected_coeff_min = -4.858577603591746e-09
+    expected_coeff_norm = 2.5686566061400986e-08
+    expected_coeff_max = 6.133350112801935e-09
+    expected_coeff_min = -8.876382135048725e-09
     expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -22,12 +22,12 @@ def test_steady_state_init():
 
     # Act.
     dynamics = run_pynamit(
-        final_time=0.1,
-        dt=1e-2,
+        final_time=15,
+        dt=5,
         Nmax=10,
         Mmax=8,
-        Ncs=18,
-        mainfield_kind="dipole",
+        Ncs=20,
+        mainfield_kind="igrf",
         fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
@@ -37,6 +37,8 @@ def test_steady_state_init():
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
+        integrator="RK45",
+        multi_data=True,
     )
 
     # Assert.

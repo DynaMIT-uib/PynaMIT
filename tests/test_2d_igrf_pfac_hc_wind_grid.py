@@ -11,10 +11,10 @@ import numpy as np
 def test_2d_igrf_pfac_hc_wind_grid():
     """Test 2D grid-based simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
-    expected_coeff_norm = 7.324954150551006e-09
-    expected_coeff_max = 2.0102573650749452e-09
-    expected_coeff_min = -3.0668133500234013e-09
-    expected_n_coeffs = 58
+    expected_coeff_norm = 8.017966615753342e-09
+    expected_coeff_max = 2.371670930644875e-09
+    expected_coeff_min = -3.218941002096898e-09
+    expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -23,9 +23,9 @@ def test_2d_igrf_pfac_hc_wind_grid():
     # Act.
     dynamics = run_pynamit(
         final_time=0.1,
-        dt=5e-4,
-        Nmax=5,
-        Mmax=3,
+        dt=1e-2,
+        Nmax=10,
+        Mmax=8,
         Ncs=18,
         mainfield_kind="igrf",
         fig_directory=temp_dir,

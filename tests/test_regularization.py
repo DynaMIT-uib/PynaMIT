@@ -11,10 +11,10 @@ import numpy as np
 def test_regularization():
     """Test simulation with regularization."""
     # Arrange.
-    expected_coeff_norm = 9.538020657470538e-09
-    expected_coeff_max = 3.6017493154231333e-09
-    expected_coeff_min = -3.4138738038539808e-09
-    expected_n_coeffs = 58
+    expected_coeff_norm = 1.3111421667172157e-08
+    expected_coeff_max = 1.7160298767949959e-09
+    expected_coeff_min = -4.857200379874152e-09
+    expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -23,9 +23,9 @@ def test_regularization():
     # Act.
     dynamics = run_pynamit(
         final_time=0.1,
-        dt=5e-4,
-        Nmax=5,
-        Mmax=3,
+        dt=1e-2,
+        Nmax=10,
+        Mmax=8,
         Ncs=18,
         mainfield_kind="dipole",
         fig_directory=temp_dir,
