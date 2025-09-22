@@ -10,6 +10,7 @@ import logging
 from typing import Optional, Tuple, Any
 
 import numpy as np
+from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 from scipy.sparse.linalg import LinearOperator
 
@@ -325,6 +326,25 @@ class State:
         self._m_ind_to_E_df_matrix = np.array(E_df_columns).T
         logger.info("Dense induction operator built.")
 
+    def _calculate_d_m_ind_dt(
+        self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray
+    ) -> np.ndarray:
+        """Calculates the time derivative of the induced potential.
+
+        This is the right-hand side of the ODE: d(m_ind)/dt = f(m_ind).
+        The non-induced E-field is treated as a constant parameter for the ODE.
+        """
+        # Calculate the E-field contribution from the current induced potential.
+        E_ind_coeffs, _ = self.calculate_ind_coeffs(m_ind)
+        E_df_ind = E_ind_coeffs[1]
+
+        # Total divergence-free E-field is the sum of induced and non-induced parts.
+        E_df_total = E_df_ind + E_coeffs_noind[1]
+
+        # Calculate the time derivative using the geometry operator.
+        d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
+        return d_m_ind_dt
+
     def evolve_m_ind(
         self,
         m_ind: np.ndarray,
@@ -332,23 +352,17 @@ class State:
         E_coeffs_noind: np.ndarray,
         steady_state_m_ind: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Evolves the induced potential `m_ind` forward in time by `dt`."""
+        """Evolves the induced potential `m_ind` forward in time by `dt`.
+
+        Uses the integration scheme specified by `self.integrator`. Supports 'euler',
+        'exponential', and any method supported by `scipy.solve_ivp`.
+        """
         if self.integrator == "euler":
-            # For Euler, avoid densifying the operator. Use matvec operations directly.
-            # Calculate the E-field from the current induced potential.
-            E_ind_coeffs, _ = self.calculate_ind_coeffs(m_ind)
-            E_df_ind = E_ind_coeffs[1]
-
-            # Total divergence-free E-field is the sum of induced and non-induced parts.
-            E_df_total = E_df_ind + E_coeffs_noind[1]
-
-            # Calculate the time derivative and perform the Euler step.
-            d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
+            d_m_ind_dt = self._calculate_d_m_ind_dt(m_ind, E_coeffs_noind)
             return m_ind + dt * d_m_ind_dt
 
-        if self.integrator == "exponential":
+        elif self.integrator == "exponential":
             # The exponential integrator requires the dense operator matrix.
-            # Accessing self.m_ind_to_E_df_matrix will build it if not cached.
             op_A = self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix
 
             if steady_state_m_ind is None:
@@ -356,7 +370,32 @@ class State:
             diff = m_ind - steady_state_m_ind
             return expm(dt * op_A) @ diff + steady_state_m_ind
 
-        raise ValueError(f"Unknown integrator: {self.integrator}")
+        else:
+            # Fallback to scipy.solve_ivp for other specified integrators
+            logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
+
+            # Define the right-hand side of the ODE for the solver.
+            # The non-induced part is constant, so it's captured from the outer scope.
+            rhs = lambda t, y: self._calculate_d_m_ind_dt(y, E_coeffs_noind)
+
+            # Integrate from t=0 to t=dt. The ODE is autonomous (not t-dependent).
+            sol = solve_ivp(
+                fun=rhs,
+                t_span=(0, dt),
+                y0=m_ind,
+                method=self.integrator,
+                t_eval=[dt],  # We only need the final state
+                dense_output=False,
+            )
+
+            if not sol.success:
+                logger.warning(
+                    f"solve_ivp integrator '{self.integrator}' failed with "
+                    f"status {sol.status}: {sol.message}"
+                )
+
+            # The result shape is (n_vars, n_times), so we take the last time point.
+            return sol.y[:, -1]
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculates the steady-state induced potential."""

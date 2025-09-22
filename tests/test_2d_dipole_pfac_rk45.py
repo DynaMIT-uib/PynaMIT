@@ -1,4 +1,4 @@
-"""Dipole, PFAC and exponential test."""
+"""Dipole, PFAC and RK45 test."""
 
 import os
 import tempfile
@@ -8,8 +8,8 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_2d_dipole_pfac_exp():
-    """Test 2D simulation with dipole, PFAC and exponential."""
+def test_2d_dipole_pfac_rk45():
+    """Test 2D simulation with dipole, PFAC and RK45."""
     # Arrange.
     expected_coeff_norm = 8.702625451539586e-09
     expected_coeff_max = 7.07334709960782e-10
@@ -30,7 +30,7 @@ def test_2d_dipole_pfac_exp():
         mainfield_kind="dipole",
         fig_directory=temp_dir,
         ignore_PFAC=False,
-        integrator="exponential",
+        integrator="RK45",
         steady_state_initialization=False,
     )
 
