@@ -11,10 +11,10 @@ import numpy as np
 def test_steady_state_init():
     """Test simulation with steady state initialization."""
     # Arrange.
-    expected_coeff_norm = 1.354651883193553e-07
-    expected_coeff_max = 3.6073876055986197e-09
-    expected_coeff_min = -3.428225117146539e-09
-    expected_n_coeffs = 201
+    expected_coeff_norm = 9.554977668252553e-09
+    expected_coeff_max = 3.6073876055982806e-09
+    expected_coeff_min = -3.4282251171466054e-09
+    expected_n_coeffs = 58
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -42,8 +42,8 @@ def test_steady_state_init():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

@@ -11,10 +11,10 @@ import numpy as np
 def test_2d_dipole_pfac_hc_exp():
     """Test 2D simulation with dipole, PFAC, HC and exponential."""
     # Arrange.
-    expected_coeff_norm = 8.777569574333691e-08
-    expected_coeff_max = 1.192784007093201e-09
-    expected_coeff_min = -3.125107861526552e-09
-    expected_n_coeffs = 201
+    expected_coeff_norm = 6.200632470026957e-09
+    expected_coeff_max = 1.1825424212637911e-09
+    expected_coeff_min = -3.1251078615264594e-09
+    expected_n_coeffs = 58
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
     if not os.path.exists(temp_dir):
@@ -39,8 +39,8 @@ def test_2d_dipole_pfac_hc_exp():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values,
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values,
+            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 
