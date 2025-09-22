@@ -8,7 +8,7 @@ from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_multi_data():
+def test_multi_data_dop853():
     """Test simulation with multiple data points and DOP853."""
     # Arrange.
     expected_coeff_norm = 2.5686566061400986e-08
