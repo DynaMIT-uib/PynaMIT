@@ -189,7 +189,7 @@ class State:
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
-                identity_op = LinearOperator((n, n), matvec=lambda x: x, rmatvec=lambda x: x)
+                identity_op = LinearOperator((n, n), matvec=lambda x: x)
                 reg_ops.append(identity_op)
                 reg_weights.append(self.m_imp_regularization_lambda)
 
@@ -207,7 +207,6 @@ class State:
         """The pre-computed preconditioner for the m_imp least-squares problem."""
         if self._m_imp_preconditioner is None:
             logger.info("Building new preconditioner for m_imp solver.")
-            # For m_imp, we are only solving for one scenario at a time.
             self._m_imp_preconditioner = self.m_imp_solver.build_preconditioner(
                 problem=self.m_imp_problem, num_scenarios=1
             )
@@ -217,12 +216,9 @@ class State:
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
     ) -> np.ndarray:
         """Solves for the imposed potential coefficients `m_imp`."""
-        # Get the problem definition and the pre-computed preconditioner.
-        # Accessing these properties ensures they are built if not already cached.
         problem = self.m_imp_problem
         preconditioner = self.m_imp_preconditioner
 
-        # Build the right-hand side (RHS) list
         rhs_list = []
         b_jr = (
             np.dot(self.geometry.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None
@@ -234,41 +230,10 @@ class State:
             b_E = -np.einsum("cikl,kl->ci", E_map_op, E_direct_coeffs).flatten()
             rhs_list.append(b_E * self.ih_constraint_scaling)
 
-        # Call the stateless solve method with the problem and preconditioner.
         solution = self.m_imp_solver.solve(
             problem=problem, rhs=rhs_list, preconditioner=preconditioner
         )
         return solution if solution is not None else np.zeros(self.basis.index_length)
-
-    def _solve_for_m_imp_adjoint(
-        self, grad_m_imp: np.ndarray
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Performs the adjoint solve for `m_imp`."""
-        # Get the problem definition and the pre-computed preconditioner.
-        problem = self.m_imp_problem
-        preconditioner = self.m_imp_preconditioner
-
-        grad_b_list = self.m_imp_solver.solve_adjoint(
-            problem=problem, grad_x=grad_m_imp, preconditioner=preconditioner
-        )
-
-        grad_jr, grad_E = None, None
-
-        # Gradient from jr constraint (first element of the list)
-        grad_jr = np.dot(self.geometry.jr_coeffs_to_j_apex.T, grad_b_list[0])
-
-        # Gradient from E-field constraint (second element of the list, if it exists)
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            # The problem object is the source of truth for shapes.
-            # The second operator (index 1) in the problem is the E-field constraint.
-            op_E = self.m_imp_problem.A[1]
-            shape_E = op_E.output_shape
-            grad_b_E = grad_b_list[1].reshape(shape_E) / self.ih_constraint_scaling
-
-            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            grad_E = -np.einsum("ci,cikl->kl", grad_b_E.conj(), E_map_op.conj()).conj()
-
-        return grad_jr, grad_E
 
     # ----- State Update -----
 
@@ -295,15 +260,10 @@ class State:
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
-
-            # If static_preconditioner is True, save the current one before invalidating.
             preconditioner_to_keep = (
                 self._m_imp_preconditioner if self.static_preconditioner else None
             )
-
             self._invalidate_caches()
-
-            # If we saved a preconditioner, restore it now.
             if preconditioner_to_keep is not None:
                 logger.info("...retaining static preconditioner due to setting.")
                 self._m_imp_preconditioner = preconditioner_to_keep
@@ -349,14 +309,18 @@ class State:
 
     @property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
+        """The dense matrix mapping induced potential to divergence-free E-field."""
         if self._m_ind_to_E_df_matrix is None:
             self._build_m_ind_to_E_df_matrix()
         return self._m_ind_to_E_df_matrix
 
     def _build_m_ind_to_E_df_matrix(self) -> None:
+        """Constructs the dense matrix for the induction operator using matvec."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
         n = self.basis.index_length
         identity = np.eye(n)
+
+        # Apply forward operator to each column of identity matrix
         E_df_columns = [self.calculate_ind_coeffs(v)[0][1] for v in identity]
         self._m_ind_to_E_df_matrix = np.array(E_df_columns).T
         logger.info("Dense induction operator built.")
@@ -368,13 +332,25 @@ class State:
         E_coeffs_noind: np.ndarray,
         steady_state_m_ind: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        op_A = self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix
-        vec_b = self.geometry.E_df_to_d_m_ind_dt * E_coeffs_noind[1]
-
+        """Evolves the induced potential `m_ind` forward in time by `dt`."""
         if self.integrator == "euler":
-            return m_ind + dt * (op_A @ m_ind + vec_b)
+            # For Euler, avoid densifying the operator. Use matvec operations directly.
+            # Calculate the E-field from the current induced potential.
+            E_ind_coeffs, _ = self.calculate_ind_coeffs(m_ind)
+            E_df_ind = E_ind_coeffs[1]
+
+            # Total divergence-free E-field is the sum of induced and non-induced parts.
+            E_df_total = E_df_ind + E_coeffs_noind[1]
+
+            # Calculate the time derivative and perform the Euler step.
+            d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
+            return m_ind + dt * d_m_ind_dt
 
         if self.integrator == "exponential":
+            # The exponential integrator requires the dense operator matrix.
+            # Accessing self.m_ind_to_E_df_matrix will build it if not cached.
+            op_A = self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix
+
             if steady_state_m_ind is None:
                 steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
             diff = m_ind - steady_state_m_ind
@@ -383,6 +359,9 @@ class State:
         raise ValueError(f"Unknown integrator: {self.integrator}")
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
+        """Calculates the steady-state induced potential."""
+        # This operation requires solving a linear system, which is most
+        # robustly done with the dense matrix form of the operator.
         op_A = self.m_ind_to_E_df_matrix
         vec_b = -E_coeffs_noind[1]
         return np.linalg.solve(op_A, vec_b)
