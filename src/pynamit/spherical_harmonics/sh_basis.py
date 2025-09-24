@@ -144,18 +144,44 @@ class SHBasis(object):
             Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         elif derivative == "phi":
-            Gc = (
-                -P[:, self.cnm_filter]
-                * self.cnm.m
-                * np.sin(phi.reshape((-1, 1)) * self.cnm.m)
-                / np.sin(theta.reshape((-1, 1)))
-            )
-            Gs = (
-                P[:, self.snm_filter]
-                * self.snm.m
-                * np.cos(phi.reshape((-1, 1)) * self.snm.m)
-                / np.sin(theta.reshape((-1, 1)))
-            )
+            sin_theta = np.sin(theta).reshape(-1, 1)
+            phi_col = phi.reshape(-1, 1)
+            tol = 1e-12
+            is_pole = np.abs(sin_theta) <= tol
+
+            # Precompute m * phi terms (broadcasts over columns)
+            m_c = self.cnm.m
+            m_s = self.snm.m
+            mphi_c = m_c * phi_col
+            mphi_s = m_s * phi_col
+
+            # General off-pole division (m>1 at poles -> 0 by default)
+            num_Gc = -P[:, self.cnm_filter] * m_c * np.sin(mphi_c)
+            Gc = np.divide(num_Gc, sin_theta, out=np.zeros_like(num_Gc), where=~is_pole)
+
+            num_Gs = P[:, self.snm_filter] * m_s * np.cos(mphi_s)
+            Gs = np.divide(num_Gs, sin_theta, out=np.zeros_like(num_Gs), where=~is_pole)
+
+            # Special-case: finite m=1 pole limits inserted into polar rows
+            idx_poles = np.where(is_pole.flatten())[0]
+            if idx_poles.size:
+                cnm_is_m1 = (m_c == 1).flatten()
+                snm_is_m1 = (m_s == 1).flatten()
+                cnm_m1_cols = np.where(cnm_is_m1)[0]
+                snm_m1_cols = np.where(snm_is_m1)[0]
+
+                if cnm_m1_cols.size:
+                    dP_pole_cnm = dP[idx_poles][:, self.cnm_filter][:, cnm_is_m1]
+                    phi_poles = phi_col[idx_poles]
+                    Gc_pole_m1 = -dP_pole_cnm * np.sin(phi_poles)
+                    Gc[np.ix_(idx_poles, cnm_m1_cols)] = Gc_pole_m1
+
+                if snm_m1_cols.size:
+                    dP_pole_snm = dP[idx_poles][:, self.snm_filter][:, snm_is_m1]
+                    phi_poles = phi_col[idx_poles]
+                    Gs_pole_m1 = dP_pole_snm * np.cos(phi_poles)
+                    Gs[np.ix_(idx_poles, snm_m1_cols)] = Gs_pole_m1
+
         elif derivative == "theta":
             Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
