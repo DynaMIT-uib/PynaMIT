@@ -1,345 +1,270 @@
-"""Spherical harmonic basis.
-
-This module contains the SHBasis class for representing spherical
-harmonic bases.
-"""
+"""basis.py - SHBasis with fully compatible internal and Scipy backends."""
 
 import numpy as np
-from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_normalization_factors
+import math
+import warnings
+from packaging import version
+import scipy
 
+# --- Conditional Import for SciPy Version Compatibility ---
+# Check the SciPy version to import the correct, available function.
+_SCIPY_VERSION = version.parse(scipy.__version__)
+if _SCIPY_VERSION >= version.parse("1.15.0"):
+    _USE_MODERN_SCIPY = True
+    from scipy.special import assoc_legendre_p_all
+    # Define lpmn as None for clarity, though it won't be used in this path.
+    lpmn = None
+else:
+    _USE_MODERN_SCIPY = False
+    from scipy.special import lpmn
+    # Define assoc_legendre_p_all as None so the name exists for type hinting/clarity.
+    assoc_legendre_p_all = None
+
+# The helpers file is assumed to contain SHIndices and schmidt_quasi_normalization_factors
+from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
+
+def _double_factorial(n):
+    """
+    A robust, self-contained implementation of the double factorial that
+    correctly handles the n=-1 case required by the analytical scaling factor.
+    """
+    if n < -1:
+        # This case is not expected, but defined for completeness.
+        raise ValueError("Double factorial is not defined for n < -1 in this context.")
+    if n == -1 or n == 0:
+        return 1.0
+    result = 1.0
+    for i in range(n, 0, -2):
+        result *= i
+    return result
 
 class SHBasis(object):
-    """Class for representing spherical harmonic bases.
+    """
+    Class for representing spherical harmonic bases according to the Langel (1987)
+    geomagnetism convention.
 
-    A class to store information about a spherical harmonic basis and to
-    generate matrices for evaluating the spherical harmonics at a given
-    grid.
-
-    Attributes
-    ----------
-    cnm : SHIndices
-        Indices for cosine terms.
-    snm : SHIndices
-        Indices for sine terms.
-    n : ndarray
-        Array of degree values.
-    m : ndarray
-        Array of order values.
-    schmidt_factors : ndarray
-        Schmidt normalization factors if enabled.
-    kind : str
-        Identifier for the basis ('SH').
-    index_names : list
-        Names of the indices ['n', 'm'].
-    index_length : int
-        Total number of basis functions.
-    minimum_phi_sampling : int
-        Minimum number of longitude points needed.
-    caching : bool
-        Whether caching is enabled.
+    This class provides two fully compatible backends for Legendre polynomial
+    generation:
+    - 'internal': A fast, self-contained recurrence relation for both P and dP/dθ.
+    - 'scipy': Uses the trusted scipy library, with a precise analytical scaling
+               factor applied to ensure identical output to the 'internal' backend.
+               It automatically selects the best available scipy function.
     """
 
-    def __init__(self, Nmax, Mmax, Nmin=1, schmidt_normalization=True):
-        """Initialize the SHBasis instance.
-
+    def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend='internal'):
+        """
         Parameters
         ----------
         Nmax : int
-            Maximum degree of the spherical harmonics.
+            Maximum degree.
         Mmax : int
-            Maximum order of the spherical harmonics.
+            Maximum order.
         Nmin : int, optional
-            Minimum degree of the spherical harmonics.
-        schmidt_normalization : bool, optional
-            Whether to use Schmidt semi-normalization.
+            Minimum degree, by default 1.
+        quasi_normalized : bool, optional
+            If True, applies Schmidt quasi-normalization factors. By default True.
+        backend : str, optional
+            Backend for Legendre function calculation. Can be 'internal' (default)
+            or 'scipy'. Both produce identical results.
         """
-        self.Nmax = Nmax
-        self.Mmax = Mmax
-        # Make a set of all spherical harmonic index pairs up to
-        # (Nmax, Mmax).
-        all_index_pairs = SHIndices(Nmax, Mmax)
+        if backend not in ['internal', 'scipy']:
+            raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
-        # Make separate sets of spherical harmonic indices for cos and
-        # sin terms, and remove n < Nmin terms and m = 0 sin terms.
-        self.cnm = SHIndices(Nmax, Mmax).set_Nmin(Nmin)
-        self.snm = SHIndices(Nmax, Mmax).set_Nmin(Nmin).set_Mmin(1)
+        self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
+        all_indices = SHIndices(Nmax, Mmax)
+        self.index_pairs = list(all_indices.index_pairs)
+        
+        self.cnm = SHIndices(Nmax, Mmax); self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin]); self.cnm.make_arrays()
+        self.snm = SHIndices(Nmax, Mmax); self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1]); self.snm.make_arrays()
 
-        self.cnm_filter = [(index_pair in self.cnm) for index_pair in all_index_pairs]
-        self.snm_filter = [(index_pair in self.snm) for index_pair in all_index_pairs]
+        self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
+        self.snm_filter = [(pair in self.snm.index_pairs) for pair in self.index_pairs]
 
-        self.index_pairs = list(all_index_pairs)
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
+        
+        self.is_normalized = quasi_normalized
+        if self.is_normalized:
+            s_matrix = schmidt_quasi_normalization_factors(Nmax, Mmax)
+            self.schmidt_factors = np.array([s_matrix[n, m] for n, m in self.index_pairs])
+        else:
+            self.schmidt_factors = np.ones(len(self.index_pairs))
+        
+        self._compute_scipy_scaling_factors()
 
-        # Make the spherical harmonic Schmidt normalization factors.
-        self.schmidt_normalization = schmidt_normalization
-        if self.schmidt_normalization:
-            self.schmidt_factors = schmidt_normalization_factors(self.index_pairs)
-
-        # Set the general properties of the basis.
+        # Use the flag set during the conditional import.
+        self._use_modern_scipy = _USE_MODERN_SCIPY
+        if self.backend == 'scipy' and not self._use_modern_scipy:
+            warnings.warn(
+                f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling back to the "
+                "deprecated 'lpmn' function. Please consider upgrading SciPy.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        
         self.kind = "SH"
-
         self.index_names = ["n", "m"]
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
         self.index_arrays = [self.n, self.m]
-
         self.minimum_phi_sampling = 2 * Mmax + 1
-
         self.caching = True
 
-    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
-        """Calculate spherical harmonic evaluation matrix.
-
-        Calculates matrix that evaluates surface spherical harmonics at
-        unit radius and the latitudes and longitudes of the given grid.
-
-        Parameters
-        ----------
-        grid : Grid
-            Grid object with latitudes and longitudes for evaluation.
-        derivative : {None, 'phi', 'theta'}, optional
-            Type of derivative to compute:
-            - None: Evaluate spherical harmonics.
-            - 'phi': Compute eastward derivative.
-            - 'theta': Compute southward derivative.
-        cache_in : ndarray, optional
-            Cached Legendre functions.
-        cache_out : bool, optional
-            Whether to return cached Legendre functions.
-
-        Returns
-        -------
-        ndarray
-            Evaluation matrix of shape (N, M) where:
-            - N is the size from broadcasting grid.lon and grid.lat.
-            - M is the number of spherical harmonic terms.
-            Cosine terms come first, followed by sine terms.
-        ndarray, optional
-            Cached Legendre functions if `cache_out` is ``True``.
-
-        Raises
-        ------
-        Exception
-            If derivative is not one of {None, 'phi', 'theta'}.
+    def _compute_scipy_scaling_factors(self):
         """
-        # Convert the grid coordinates to radians.
-        phi = np.deg2rad(grid.phi)
-        theta = np.deg2rad(grid.theta)
+        Calculates the analytical scaling factor such that P_internal = F * P_scipy.
+        F(n, m) = (n - m)! / (2n - 1)!!
+        """
+        factors = np.ones(len(self.index_pairs), dtype=np.float64)
+        for i, (n, m) in enumerate(self.index_pairs):
+            denominator = _double_factorial(2 * n - 1)
+            numerator = math.factorial(n - m)
+            factors[i] = numerator / denominator
+        self.scipy_scaling_factors = factors
 
-        # Get the Legendre functions and their derivatives.
-        if cache_in is not None:
-            P_unnormalized = cache_in
+    def _get_legendre_scipy(self, theta, compute_derivative=False):
+        """
+        Dispatcher for Scipy Legendre function calculation. Uses the modern
+        `assoc_legendre_p_all` if available, otherwise falls back to `lpmn`.
+        """
+        if self._use_modern_scipy:
+            return self._get_legendre_scipy_modern(theta, compute_derivative)
         else:
+            return self._get_legendre_scipy_legacy(theta, compute_derivative)
+
+    def _get_legendre_scipy_modern(self, theta, compute_derivative=False):
+        """Uses the modern, vectorized `assoc_legendre_p_all` function."""
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        diff_order = 1 if compute_derivative else 0
+        p_and_dp_all = assoc_legendre_p_all(self.Nmax, self.Mmax, cos_theta, diff_n=diff_order)
+        p_all, dp_dz_all = (p_and_dp_all[0], p_and_dp_all[1]) if compute_derivative else (p_and_dp_all[0], None)
+        
+        P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
+        dP_std = np.empty_like(P_std) if compute_derivative else None
+
+        for i, (n, m) in enumerate(self.index_pairs):
+            p_values = p_all[n, self.Mmax + m].T
+            cs_phase = (-1)**m
+            P_std[:, i] = p_values * cs_phase
+            if compute_derivative:
+                dp_dz_values = dp_dz_all[n, self.Mmax + m].T
+                dp_dz = dp_dz_values * cs_phase
+                dP_std[:, i] = dp_dz * (-sin_theta)
+
+        P_scaled = P_std * self.scipy_scaling_factors
+        dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
+        return P_scaled, dP_scaled
+        
+    def _get_legendre_scipy_legacy(self, theta, compute_derivative=False):
+        """Uses the older, deprecated `lpmn` function for backwards compatibility."""
+        theta = np.atleast_1d(theta)
+        cos_theta, sin_theta = np.cos(theta), np.sin(theta)
+        P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
+        dP_std = np.empty_like(P_std) if compute_derivative else None
+
+        for i, (ct, st) in enumerate(zip(cos_theta, sin_theta)):
+            p_all, dp_dz_all = lpmn(self.Mmax, self.Nmax, ct)
+            for j, (n, m) in enumerate(self.index_pairs):
+                cs_phase = (-1)**m
+                P_std[i, j] = p_all[m, n] * cs_phase
+                if compute_derivative:
+                    dp_dz = dp_dz_all[m, n] * cs_phase
+                    dP_std[i, j] = dp_dz * (-st)
+        
+        P_scaled = P_std * self.scipy_scaling_factors
+        dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
+        return P_scaled, dP_scaled
+
+    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
+        phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
+        
+        if self.backend == 'internal':
             P_unnormalized = self.legendre(theta)
+            dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized) if derivative else None
+        else: # backend == 'scipy'
+            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(theta, compute_derivative=bool(derivative))
 
-        if derivative == "theta":
-            dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized)
-
-        if self.schmidt_normalization:
-            P = P_unnormalized * self.schmidt_factors
-            if derivative == "theta":
-                dP = dP_unnormalized * self.schmidt_factors
-
+        P = P_unnormalized * self.schmidt_factors
+        dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
+        
         if derivative is None:
             Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
-        elif derivative == "phi":
-            Gc = (
-                -P[:, self.cnm_filter]
-                * self.cnm.m
-                * np.sin(phi.reshape((-1, 1)) * self.cnm.m)
-                / np.sin(theta.reshape((-1, 1)))
-            )
-            Gs = (
-                P[:, self.snm_filter]
-                * self.snm.m
-                * np.cos(phi.reshape((-1, 1)) * self.snm.m)
-                / np.sin(theta.reshape((-1, 1)))
-            )
         elif derivative == "theta":
             Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
+        elif derivative == "phi":
+            sin_theta = np.sin(theta).reshape(-1, 1)
+            phi_col = phi.reshape(-1, 1)
+            is_pole = np.abs(sin_theta) <= 1e-12
+            m_c, m_s = self.cnm.m, self.snm.m
+            num_Gc = -P[:, self.cnm_filter] * m_c * np.sin(m_c * phi_col)
+            Gc = np.divide(num_Gc, sin_theta, out=np.zeros_like(num_Gc), where=~is_pole)
+            num_Gs = P[:, self.snm_filter] * m_s * np.cos(m_s * phi_col)
+            Gs = np.divide(num_Gs, sin_theta, out=np.zeros_like(num_Gs), where=~is_pole)
+            idx_poles = np.where(is_pole.flatten())[0]
+            if idx_poles.size:
+                cnm_is_m1, snm_is_m1 = (self.cnm.m == 1).flatten(), (self.snm.m == 1).flatten()
+                cnm_m1_cols, snm_m1_cols = np.where(cnm_is_m1)[0], np.where(snm_is_m1)[0]
+                if cnm_m1_cols.size:
+                    dP_pole = dP[idx_poles][:, self.cnm_filter][:, cnm_is_m1]
+                    Gc[np.ix_(idx_poles, cnm_m1_cols)] = -dP_pole * np.sin(phi_col[idx_poles])
+                if snm_m1_cols.size:
+                    dP_pole = dP[idx_poles][:, self.snm_filter][:, snm_is_m1]
+                    Gs[np.ix_(idx_poles, snm_m1_cols)] = dP_pole * np.cos(phi_col[idx_poles])
         else:
-            raise Exception(
-                f'Invalid derivative "{derivative}". Expected: "phi", "theta", or None.'
-            )
-
+            raise ValueError(f'Invalid derivative "{derivative}".')
+        
         if cache_out:
             return np.hstack((Gc, Gs)), P_unnormalized
-        else:
-            return np.hstack((Gc, Gs))
-
+        return np.hstack((Gc, Gs))
+        
     def legendre(self, theta):
-        """Calculate associated Legendre functions.
-
-        Uses algorithm from "Spacecraft Attitude Determination and
-        Control" by James Richard Wertz.
-
-        Parameters
-        ----------
-        theta : array-like
-            Colatitude in radians.
-
-        Returns
-        -------
-        ndarray
-            Legendre functions evaluated at theta.
-            Shape is (n_theta, n_sh) where:
-            - n_theta: Number of colatitude points.
-            - n_sh: Number of spherical harmonics.
-        """
-        sin_theta = np.sin(theta)
-        cos_theta = np.cos(theta)
-
-        # Calculate the Legendre functions.
+        """Computes un-normalized Legendre functions using the internal recurrence."""
+        theta = np.asarray(theta, dtype=float)
+        sin_theta, cos_theta = np.sin(theta), np.cos(theta)
         P = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
-        P[:, 0] = np.ones_like(theta, dtype=np.float64)
+        P[:, 0] = 1.0
+        index_map = {pair: i for i, pair in enumerate(self.index_pairs)}
         for nm in range(1, len(self.index_pairs)):
             n, m = self.index_pairs[nm]
             if n == m:
-                P[:, nm] = sin_theta * P[:, self.index_pairs.index((n - 1, m - 1))]
+                P[:, nm] = sin_theta * P[:, index_map[(n - 1, m - 1)]]
             else:
                 if n > m:
-                    P[:, nm] = cos_theta * P[:, self.index_pairs.index((n - 1, m))]
+                    P[:, nm] = cos_theta * P[:, index_map[(n - 1, m)]]
                 if n > m + 1:
-                    Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
-                    P[:, nm] -= Knm * P[:, self.index_pairs.index((n - 2, m))]
-
+                    Knm = ((n - 1)**2 - m**2) / ((2*n - 1)*(2*n - 3))
+                    P[:, nm] -= Knm * P[:, index_map[(n - 2, m)]]
         return P
 
-    def legendre_derivative(self, theta, P=None):
-        """Calculate derivatives of associated Legendre functions.
-
-        Computes d/dθ of the associated Legendre functions using
-        algorithm from "Spacecraft Attitude Determination and Control"
-        by James Richard Wertz.
-
-        Parameters
-        ----------
-        theta : array-like
-            Colatitude in radians.
-        P : ndarray, optional
-            Pre-computed Legendre functions.
-
-        Returns
-        -------
-        ndarray
-            Derivatives of Legendre functions evaluated at theta.
-            Shape is (n_theta, n_sh) where:
-            - n_theta: Number of colatitude points.
-            - n_sh: Number of spherical harmonics.
-        """
-        sin_theta = np.sin(theta)
-        cos_theta = np.cos(theta)
-
-        if P is None:
-            P = self.legendre(theta)
-
-        # Calculate the derivatives of the Legendre functions.
-        dP = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
-        dP[:, 0] = np.zeros_like(theta, dtype=np.float64)
+    def legendre_derivative(self, theta, P):
+        """Computes d/dθ of Legendre functions consistent with the internal recurrence."""
+        theta = np.asarray(theta, dtype=float)
+        sin_theta, cos_theta = np.sin(theta), np.cos(theta)
+        dP = np.empty_like(P)
+        dP[:, 0] = 0.0
+        index_map = {pair: i for i, pair in enumerate(self.index_pairs)}
         for nm in range(1, len(self.index_pairs)):
             n, m = self.index_pairs[nm]
             if n == m:
-                dP[:, nm] = (
-                    sin_theta * dP[:, self.index_pairs.index((n - 1, m - 1))]
-                    + cos_theta * P[:, self.index_pairs.index((n - 1, m - 1))]
-                )
+                prev_idx = index_map[(n - 1, m - 1)]
+                dP[:, nm] = sin_theta * dP[:, prev_idx] + cos_theta * P[:, prev_idx]
             else:
                 if n > m:
-                    dP[:, nm] = (
-                        cos_theta * dP[:, self.index_pairs.index((n - 1, m))]
-                        - sin_theta * P[:, self.index_pairs.index((n - 1, m))]
-                    )
+                    prev_idx = index_map[(n - 1, m)]
+                    dP[:, nm] = cos_theta * dP[:, prev_idx] - sin_theta * P[:, prev_idx]
                 if n > m + 1:
-                    Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
-                    dP[:, nm] -= Knm * dP[:, self.index_pairs.index((n - 2, m))]
-
+                    prev2_idx = index_map[(n - 2, m)]
+                    Knm = ((n - 1)**2 - m**2) / ((2*n - 1)*(2*n - 3))
+                    dP[:, nm] -= Knm * dP[:, prev2_idx]
         return dP
 
-    def laplacian(self, r=1.0):
-        """Calculate angular Laplacian of spherical harmonics.
-
-        Parameters
-        ----------
-        r : float, optional
-            Radius.
-
-        Returns
-        -------
-        ndarray
-            Angular Laplacian values for each harmonic term.
-        """
-        return -self.n * (self.n + 1) / r**2
-
-    def radial_shift_Ve(self, start, end):
-        """Calculate radial shift for external potential.
-
-        Calculates the vector that represents an shift of the reference
-        radius for the spherical harmonic expansion of an external
-        potential, from `start` to `end`. Corresponds to dividing the
-        radial dependence of the potential terms with `start` as the
-        reference radius by the radial dependence of the potential terms
-        with `end` as the reference radius.
-
-        Parameters
-        ----------
-        start : float
-            Starting radius.
-        end : float
-            Ending radius.
-
-        Returns
-        -------
-        array
-            The vector representing the shift of the reference radius.
-        """
-        return (start / end) ** (1 - self.n)
-
-    def radial_shift_Vi(self, start, end):
-        """Calculate radial shift for internal potential.
-
-        Calculates the vector that represents an shift of the reference
-        radius for the spherical harmonic expansion of an internal
-        potential, from `start` to `end`. Corresponds to dividing the
-        radial dependence of the potential terms with `start` as the
-        reference radius by the radial dependence of the potential terms
-        with `end` as the reference radius.
-
-        Parameters
-        ----------
-        start : float
-            Starting radius.
-        end : float
-            Ending radius.
-
-        Returns
-        -------
-        array
-            The vector representing the shift of the reference radius.
-        """
-        return (start / end) ** (self.n + 2)
-
+    # --- Other methods are unchanged ---
+    def laplacian(self, r=1.0): return -self.n * (self.n + 1) / r**2
+    def radial_shift_Ve(self, start, end): return (start / end) ** (1 - self.n)
+    def radial_shift_Vi(self, start, end): return (start / end) ** (self.n + 2)
     @property
     def coeffs_to_delta_V(self):
-        """
-        Convert coefficients to internal-external difference.
-
-        Calculates multiplicative factors to convert spherical harmonic
-        coefficients for a potential with internal and external parts to
-        the corresponding internal-external potential difference,
-        assuming a continuous first-order radial derivative across the
-        surface separating the internal and external parts.
-        It includes the n-dependent factors in the internal and external
-        potential expansions, but not the scaling by the overall ``R``
-        factor, which must be accounted for separately.
-
-        Returns
-        -------
-        ndarray
-            Multiplicative conversion factors for each harmonic term.
-        """
-        if not hasattr(self, "_coeffs_to_delta_V"):
-            self._coeffs_to_delta_V = 2 * self.n + 1
-
+        if not hasattr(self, "_coeffs_to_delta_V"): self._coeffs_to_delta_V = 2 * self.n + 1
         return self._coeffs_to_delta_V

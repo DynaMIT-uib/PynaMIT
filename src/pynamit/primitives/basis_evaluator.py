@@ -199,7 +199,7 @@ class BasisEvaluator(object):
         elif derivative == "phi":
             return np.dot(self.G_ph, coeffs)
         elif helmholtz:
-            return np.tensotensor(self.G_helmholtz, coeffs, 2)
+            return np.tensordot(self.G_helmholtz, coeffs, 2)
         else:
             return np.dot(self.G, coeffs)
 
@@ -213,7 +213,7 @@ class BasisEvaluator(object):
     def regularization_term(self, coeffs, helmholtz=False):
         """Return the regularization term."""
         if helmholtz:
-            return np.tensotensor(self.L_helmholtz, coeffs, 2)
+            return np.tensordot(self.L_helmholtz, coeffs, 2)
         else:
             return np.dot(coeffs, np.dot(self.L, coeffs))
 
