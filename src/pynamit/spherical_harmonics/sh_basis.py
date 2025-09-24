@@ -2,7 +2,24 @@
 
 import numpy as np
 import math
-from scipy.special import lpmv, lpmn
+import warnings
+from packaging import version
+import scipy
+
+# --- Conditional Import for SciPy Version Compatibility ---
+# Check the SciPy version to import the correct, available function.
+_SCIPY_VERSION = version.parse(scipy.__version__)
+if _SCIPY_VERSION >= version.parse("1.15.0"):
+    _USE_MODERN_SCIPY = True
+    from scipy.special import assoc_legendre_p_all
+    # Define lpmn as None for clarity, though it won't be used in this path.
+    lpmn = None
+else:
+    _USE_MODERN_SCIPY = False
+    from scipy.special import lpmn
+    # Define assoc_legendre_p_all as None so the name exists for type hinting/clarity.
+    assoc_legendre_p_all = None
+
 # The helpers file is assumed to contain SHIndices and schmidt_quasi_normalization_factors
 from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
 
@@ -12,6 +29,7 @@ def _double_factorial(n):
     correctly handles the n=-1 case required by the analytical scaling factor.
     """
     if n < -1:
+        # This case is not expected, but defined for completeness.
         raise ValueError("Double factorial is not defined for n < -1 in this context.")
     if n == -1 or n == 0:
         return 1.0
@@ -28,9 +46,9 @@ class SHBasis(object):
     This class provides two fully compatible backends for Legendre polynomial
     generation:
     - 'internal': A fast, self-contained recurrence relation for both P and dP/dθ.
-    - 'scipy': Uses the trusted scipy.special.lpmn library and standard
-               recurrence relations, with a precise analytical scaling factor
-               applied to ensure identical output to the 'internal' backend.
+    - 'scipy': Uses the trusted scipy library, with a precise analytical scaling
+               factor applied to ensure identical output to the 'internal' backend.
+               It automatically selects the best available scipy function.
     """
 
     def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend='internal'):
@@ -74,7 +92,16 @@ class SHBasis(object):
         
         self._compute_scipy_scaling_factors()
 
-        # --- Other properties from original code ---
+        # Use the flag set during the conditional import.
+        self._use_modern_scipy = _USE_MODERN_SCIPY
+        if self.backend == 'scipy' and not self._use_modern_scipy:
+            warnings.warn(
+                f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling back to the "
+                "deprecated 'lpmn' function. Please consider upgrading SciPy.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        
         self.kind = "SH"
         self.index_names = ["n", "m"]
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
@@ -84,11 +111,7 @@ class SHBasis(object):
 
     def _compute_scipy_scaling_factors(self):
         """
-        Calculates the analytical scaling factor needed to convert standard (Scipy)
-        un-normalized Legendre polynomials to the specific normalization used
-        by the internal recurrence relations.
-
-        The scaling factor F(n,m) such that P_internal = F * P_scipy is:
+        Calculates the analytical scaling factor such that P_internal = F * P_scipy.
         F(n, m) = (n - m)! / (2n - 1)!!
         """
         factors = np.ones(len(self.index_pairs), dtype=np.float64)
@@ -100,34 +123,54 @@ class SHBasis(object):
 
     def _get_legendre_scipy(self, theta, compute_derivative=False):
         """
-        Computes P and optionally dP/d(theta) using the Scipy/standard convention,
-        then scales them to match the internal convention. This version uses the
-        highly efficient `lpmn` function.
+        Dispatcher for Scipy Legendre function calculation. Uses the modern
+        `assoc_legendre_p_all` if available, otherwise falls back to `lpmn`.
         """
-        theta = np.atleast_1d(theta)
+        if self._use_modern_scipy:
+            return self._get_legendre_scipy_modern(theta, compute_derivative)
+        else:
+            return self._get_legendre_scipy_legacy(theta, compute_derivative)
+
+    def _get_legendre_scipy_modern(self, theta, compute_derivative=False):
+        """Uses the modern, vectorized `assoc_legendre_p_all` function."""
         cos_theta = np.cos(theta)
         sin_theta = np.sin(theta)
+        diff_order = 1 if compute_derivative else 0
+        p_and_dp_all = assoc_legendre_p_all(self.Nmax, self.Mmax, cos_theta, diff_n=diff_order)
+        p_all, dp_dz_all = (p_and_dp_all[0], p_and_dp_all[1]) if compute_derivative else (p_and_dp_all[0], None)
         
         P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         dP_std = np.empty_like(P_std) if compute_derivative else None
 
-        # lpmn is not vectorized over its third argument, so we loop over grid points.
-        for i, (ct, st) in enumerate(zip(cos_theta, sin_theta)):
-            # Calculate all Pnm and dPnm/dz for all n,m up to Nmax, Mmax
-            p_all, dp_dz_all = lpmn(self.Mmax, self.Nmax, ct)
+        for i, (n, m) in enumerate(self.index_pairs):
+            p_values = p_all[n, self.Mmax + m].T
+            cs_phase = (-1)**m
+            P_std[:, i] = p_values * cs_phase
+            if compute_derivative:
+                dp_dz_values = dp_dz_all[n, self.Mmax + m].T
+                dp_dz = dp_dz_values * cs_phase
+                dP_std[:, i] = dp_dz * (-sin_theta)
 
+        P_scaled = P_std * self.scipy_scaling_factors
+        dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
+        return P_scaled, dP_scaled
+        
+    def _get_legendre_scipy_legacy(self, theta, compute_derivative=False):
+        """Uses the older, deprecated `lpmn` function for backwards compatibility."""
+        theta = np.atleast_1d(theta)
+        cos_theta, sin_theta = np.cos(theta), np.sin(theta)
+        P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
+        dP_std = np.empty_like(P_std) if compute_derivative else None
+
+        for i, (ct, st) in enumerate(zip(cos_theta, sin_theta)):
+            p_all, dp_dz_all = lpmn(self.Mmax, self.Nmax, ct)
             for j, (n, m) in enumerate(self.index_pairs):
-                # Remove Condon-Shortley phase
                 cs_phase = (-1)**m
                 P_std[i, j] = p_all[m, n] * cs_phase
-                
                 if compute_derivative:
-                    # Get dP/dz from lpmn, remove C-S phase, and apply chain rule
                     dp_dz = dp_dz_all[m, n] * cs_phase
                     dP_std[i, j] = dp_dz * (-st)
-
-        # Apply the analytical scaling factor to both P and dP.
-        # Since dP/d(theta) is a linear operator, the same factor applies.
+        
         P_scaled = P_std * self.scipy_scaling_factors
         dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
         return P_scaled, dP_scaled
@@ -144,7 +187,6 @@ class SHBasis(object):
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
         
-        # --- G-matrix assembly is unchanged ---
         if derivative is None:
             Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
