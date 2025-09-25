@@ -4,6 +4,7 @@ import numpy as np
 import math
 from typing import Iterable, Tuple
 
+
 class SHIndices(object):
     """Container for (n,m) index pairs."""
 
