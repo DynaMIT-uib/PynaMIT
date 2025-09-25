@@ -12,16 +12,19 @@ _SCIPY_VERSION = version.parse(scipy.__version__)
 if _SCIPY_VERSION >= version.parse("1.15.0"):
     _USE_MODERN_SCIPY = True
     from scipy.special import assoc_legendre_p_all
+
     # Define lpmn as None for clarity, though it won't be used in this path.
     lpmn = None
 else:
     _USE_MODERN_SCIPY = False
     from scipy.special import lpmn
+
     # Define assoc_legendre_p_all as None so the name exists for type hinting/clarity.
     assoc_legendre_p_all = None
 
 # The helpers file is assumed to contain SHIndices and schmidt_quasi_normalization_factors
 from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
+
 
 def _double_factorial(n):
     """
@@ -38,6 +41,7 @@ def _double_factorial(n):
         result *= i
     return result
 
+
 class SHBasis(object):
     """
     Class for representing spherical harmonic bases according to the Langel (1987)
@@ -51,7 +55,7 @@ class SHBasis(object):
                It automatically selects the best available scipy function.
     """
 
-    def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend='internal'):
+    def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend="internal"):
         """
         Parameters
         ----------
@@ -67,41 +71,47 @@ class SHBasis(object):
             Backend for Legendre function calculation. Can be 'internal' (default)
             or 'scipy'. Both produce identical results.
         """
-        if backend not in ['internal', 'scipy']:
+        if backend not in ["internal", "scipy"]:
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
         self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
-        
-        self.cnm = SHIndices(Nmax, Mmax); self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin]); self.cnm.make_arrays()
-        self.snm = SHIndices(Nmax, Mmax); self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1]); self.snm.make_arrays()
+
+        self.cnm = SHIndices(Nmax, Mmax)
+        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin])
+        self.cnm.make_arrays()
+        self.snm = SHIndices(Nmax, Mmax)
+        self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1])
+        self.snm.make_arrays()
 
         self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
         self.snm_filter = [(pair in self.snm.index_pairs) for pair in self.index_pairs]
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
-        
+
         self.is_normalized = quasi_normalized
         if self.is_normalized:
             s_matrix = schmidt_quasi_normalization_factors(Nmax, Mmax)
             self.schmidt_factors = np.array([s_matrix[n, m] for n, m in self.index_pairs])
         else:
             self.schmidt_factors = np.ones(len(self.index_pairs))
-        
-        self._compute_scipy_scaling_factors()
 
         # Use the flag set during the conditional import.
         self._use_modern_scipy = _USE_MODERN_SCIPY
-        if self.backend == 'scipy' and not self._use_modern_scipy:
-            warnings.warn(
-                f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling back to the "
-                "deprecated 'lpmn' function. Please consider upgrading SciPy.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-        
+
+        if self.backend == "scipy":
+            self._compute_scipy_scaling_factors()
+
+            if not self._use_modern_scipy:
+                warnings.warn(
+                    f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling back to the "
+                    "deprecated 'lpmn' function. Please consider upgrading SciPy.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
         self.kind = "SH"
         self.index_names = ["n", "m"]
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
@@ -137,14 +147,16 @@ class SHBasis(object):
         sin_theta = np.sin(theta)
         diff_order = 1 if compute_derivative else 0
         p_and_dp_all = assoc_legendre_p_all(self.Nmax, self.Mmax, cos_theta, diff_n=diff_order)
-        p_all, dp_dz_all = (p_and_dp_all[0], p_and_dp_all[1]) if compute_derivative else (p_and_dp_all[0], None)
-        
+        p_all, dp_dz_all = (
+            (p_and_dp_all[0], p_and_dp_all[1]) if compute_derivative else (p_and_dp_all[0], None)
+        )
+
         P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         dP_std = np.empty_like(P_std) if compute_derivative else None
 
         for i, (n, m) in enumerate(self.index_pairs):
             p_values = p_all[n, self.Mmax + m].T
-            cs_phase = (-1)**m
+            cs_phase = (-1) ** m
             P_std[:, i] = p_values * cs_phase
             if compute_derivative:
                 dp_dz_values = dp_dz_all[n, self.Mmax + m].T
@@ -154,7 +166,7 @@ class SHBasis(object):
         P_scaled = P_std * self.scipy_scaling_factors
         dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
         return P_scaled, dP_scaled
-        
+
     def _get_legendre_scipy_legacy(self, theta, compute_derivative=False):
         """Uses the older, deprecated `lpmn` function for backwards compatibility."""
         theta = np.atleast_1d(theta)
@@ -165,28 +177,32 @@ class SHBasis(object):
         for i, (ct, st) in enumerate(zip(cos_theta, sin_theta)):
             p_all, dp_dz_all = lpmn(self.Mmax, self.Nmax, ct)
             for j, (n, m) in enumerate(self.index_pairs):
-                cs_phase = (-1)**m
+                cs_phase = (-1) ** m
                 P_std[i, j] = p_all[m, n] * cs_phase
                 if compute_derivative:
                     dp_dz = dp_dz_all[m, n] * cs_phase
                     dP_std[i, j] = dp_dz * (-st)
-        
+
         P_scaled = P_std * self.scipy_scaling_factors
         dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
         return P_scaled, dP_scaled
 
     def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
         phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
-        
-        if self.backend == 'internal':
+
+        if self.backend == "internal":
             P_unnormalized = self.legendre(theta)
-            dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized) if derivative else None
-        else: # backend == 'scipy'
-            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(theta, compute_derivative=bool(derivative))
+            dP_unnormalized = (
+                self.legendre_derivative(theta, P=P_unnormalized) if derivative else None
+            )
+        else:  # backend == 'scipy'
+            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
+                theta, compute_derivative=bool(derivative)
+            )
 
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
-        
+
         if derivative is None:
             Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = P[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
@@ -214,11 +230,11 @@ class SHBasis(object):
                     Gs[np.ix_(idx_poles, snm_m1_cols)] = dP_pole * np.cos(phi_col[idx_poles])
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
-        
+
         if cache_out:
             return np.hstack((Gc, Gs)), P_unnormalized
         return np.hstack((Gc, Gs))
-        
+
     def legendre(self, theta):
         """Computes un-normalized Legendre functions using the internal recurrence."""
         theta = np.asarray(theta, dtype=float)
@@ -234,7 +250,7 @@ class SHBasis(object):
                 if n > m:
                     P[:, nm] = cos_theta * P[:, index_map[(n - 1, m)]]
                 if n > m + 1:
-                    Knm = ((n - 1)**2 - m**2) / ((2*n - 1)*(2*n - 3))
+                    Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
                     P[:, nm] -= Knm * P[:, index_map[(n - 2, m)]]
         return P
 
@@ -256,15 +272,22 @@ class SHBasis(object):
                     dP[:, nm] = cos_theta * dP[:, prev_idx] - sin_theta * P[:, prev_idx]
                 if n > m + 1:
                     prev2_idx = index_map[(n - 2, m)]
-                    Knm = ((n - 1)**2 - m**2) / ((2*n - 1)*(2*n - 3))
+                    Knm = ((n - 1) ** 2 - m**2) / ((2 * n - 1) * (2 * n - 3))
                     dP[:, nm] -= Knm * dP[:, prev2_idx]
         return dP
 
     # --- Other methods are unchanged ---
-    def laplacian(self, r=1.0): return -self.n * (self.n + 1) / r**2
-    def radial_shift_Ve(self, start, end): return (start / end) ** (1 - self.n)
-    def radial_shift_Vi(self, start, end): return (start / end) ** (self.n + 2)
+    def laplacian(self, r=1.0):
+        return -self.n * (self.n + 1) / r**2
+
+    def radial_shift_Ve(self, start, end):
+        return (start / end) ** (1 - self.n)
+
+    def radial_shift_Vi(self, start, end):
+        return (start / end) ** (self.n + 2)
+
     @property
     def coeffs_to_delta_V(self):
-        if not hasattr(self, "_coeffs_to_delta_V"): self._coeffs_to_delta_V = 2 * self.n + 1
+        if not hasattr(self, "_coeffs_to_delta_V"):
+            self._coeffs_to_delta_V = 2 * self.n + 1
         return self._coeffs_to_delta_V
