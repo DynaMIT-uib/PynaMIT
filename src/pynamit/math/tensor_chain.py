@@ -7,8 +7,10 @@ from __future__ import annotations
 import math
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, List, Optional
 from scipy.sparse.linalg import LinearOperator
+
+from pynamit.utils import get_array_module, to_numpy
 
 
 @dataclass
@@ -21,7 +23,7 @@ class TensorChain:
     handles caching of optimized einsum paths for performance.
     """
 
-    component_tensors: List[np.ndarray]
+    component_tensors: List[Any]
     einsum_string_dense: str
     einsum_string_matvec: str
     einsum_string_rmatvec: str
@@ -34,7 +36,7 @@ class TensorChain:
     @property
     def dtype(self):
         """The data type of the operator, determined by its component tensors."""
-        return np.result_type(*[t.dtype for t in self.component_tensors])
+        return np.result_type(*[to_numpy(t).dtype for t in self.component_tensors])
 
     def with_scaling(self, factor: float) -> "TensorChain":
         """Returns a new TensorChain instance with an updated scaling factor."""
@@ -52,7 +54,9 @@ class TensorChain:
         """
         Computes and returns the dense matrix representation of the operator.
         """
-        dense_matrix = np.einsum(self.einsum_string_dense, *self.component_tensors, optimize=True)
+        xp = get_array_module(*self.component_tensors)
+        dense_matrix = xp.einsum(self.einsum_string_dense, *self.component_tensors, optimize=True)
+        dense_matrix = to_numpy(dense_matrix)
         return (dense_matrix * self.scaling_factor).reshape(
             math.prod(self.output_shape), math.prod(self.input_shape)
         )
@@ -66,13 +70,14 @@ class TensorChain:
         """
         flat_out = math.prod(self.output_shape)
         flat_in = math.prod(self.input_shape)
+        component_arrays = [to_numpy(t) for t in self.component_tensors]
 
         # Prepare and cache the optimized einsum path for matvec
         if self._einsum_path_matvec is None:
             # Create a dummy input array to find the optimal contraction path
             dummy_input = np.empty(self.input_shape, dtype=self.dtype)
             self._einsum_path_matvec = np.einsum_path(
-                self.einsum_string_matvec, *self.component_tensors, dummy_input, optimize="greedy"
+                self.einsum_string_matvec, *component_arrays, dummy_input, optimize="greedy"
             )[0]
 
         # Prepare and cache the optimized einsum path for rmatvec
@@ -82,14 +87,14 @@ class TensorChain:
             self._einsum_path_rmatvec = np.einsum_path(
                 self.einsum_string_rmatvec,
                 dummy_grad_output,
-                *self.component_tensors,
+                *component_arrays,
                 optimize="greedy",
             )[0]
 
         def _matvec(x_flat):
             """Defines the forward matrix-vector product."""
             x_tensor = x_flat.reshape(self.input_shape)
-            all_tensors = self.component_tensors + [x_tensor]
+            all_tensors = component_arrays + [x_tensor]
             res = np.einsum(
                 self.einsum_string_matvec, *all_tensors, optimize=self._einsum_path_matvec
             )
@@ -98,7 +103,7 @@ class TensorChain:
         def _rmatvec(y_flat):
             """Defines the adjoint (or reverse) matrix-vector product."""
             grad_tensor = y_flat.reshape(self.output_shape)
-            conj_tensors = [t.conj() for t in self.component_tensors]
+            conj_tensors = [arr.conj() for arr in component_arrays]
             all_adjoint_inputs = [grad_tensor] + conj_tensors
             grad_x = np.einsum(
                 self.einsum_string_rmatvec, *all_adjoint_inputs, optimize=self._einsum_path_rmatvec

@@ -20,6 +20,7 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.utils import to_numpy, to_jax, use_jax, xp
 
 logger = logging.getLogger(__name__)
 
@@ -83,13 +84,16 @@ class State:
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Create the operator mapping velocity coefficients to E-field coefficients."""
-        G_u_to_uxB_grid = np.einsum(
+        bu = xp.asarray(self.geometry.bu)
+        G_helmholtz = xp.asarray(self.geometry.basis_evaluator.G_helmholtz)
+        G_u_to_uxB_grid = xp.einsum(
             "ijk,jklm->iklm",
-            self.geometry.bu,
-            self.geometry.basis_evaluator.G_helmholtz,
+            bu,
+            G_helmholtz,
             optimize=True,
         )
-        return np.tensordot(self.geometry.G_helmholtz_pinv, G_u_to_uxB_grid, axes=2)
+        G_helmholtz_pinv = xp.asarray(self.geometry.G_helmholtz_pinv)
+        return xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2)
 
     def _invalidate_caches(self) -> None:
         """Invalidate all cached properties that depend on conductance."""
@@ -111,10 +115,14 @@ class State:
                 raise RuntimeError(
                     "Conductance must be set before accessing conductance-dependent properties."
                 )
-            eta_stacked = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
-            G_eta = self.geometry.basis_evaluator_zero_added.G
-            b_stacked = np.stack([self.geometry.bP, self.geometry.bH], axis=0)
-            self._M_total_on_grid = np.einsum(
+            eta_stacked = xp.stack(
+                [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
+            )
+            G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
+            b_stacked = xp.stack(
+                [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
+            )
+            self._M_total_on_grid = xp.einsum(
                 "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
             )
         return self._M_total_on_grid
@@ -122,8 +130,13 @@ class State:
     def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[TensorChain]:
         if G_X_to_JS is None:
             return None
+        tensors = [
+            xp.asarray(self.geometry.G_helmholtz_pinv),
+            xp.asarray(self.M_total_on_grid),
+            xp.asarray(G_X_to_JS),
+        ]
         return TensorChain(
-            component_tensors=[self.geometry.G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS],
+            component_tensors=tensors,
             einsum_string_dense="cmpg,pqg,qgl->cml",
             einsum_string_matvec="cmpg,pqg,qgl,l->cm",
             einsum_string_rmatvec="cm,cmpg,pqg,qgl->l",
@@ -222,19 +235,23 @@ class State:
 
         rhs_list = []
         b_jr = (
-            np.dot(self.geometry.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None
+            np.dot(self.geometry.jr_coeffs_to_j_apex, to_numpy(jr_coeffs))
+            if jr_coeffs is not None
+            else None
         )
         rhs_list.append(b_jr)
 
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
             E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            b_E = -np.einsum("cikl,kl->ci", E_map_op, E_direct_coeffs).flatten()
+            b_E = -np.einsum("cikl,kl->ci", E_map_op, to_numpy(E_direct_coeffs)).flatten()
             rhs_list.append(b_E * self.ih_constraint_scaling)
 
         solution = self.m_imp_solver.solve(
             problem=problem, rhs=rhs_list, preconditioner=preconditioner
         )
-        return solution if solution is not None else np.zeros(self.basis.index_length)
+        if solution is None:
+            solution = np.zeros(self.basis.index_length)
+        return to_jax(solution) if use_jax() else solution
 
     # ----- State Update -----
 
@@ -272,15 +289,24 @@ class State:
     # ----- State Calculation -----
 
     def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> np.ndarray:
-        if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
-            return np.zeros(output_shape)
+        if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
+            return xp.zeros(output_shape)
 
-        coeffs_arr = np.asarray(coeffs)
-        if isinstance(op, (TensorChain, LinearOperator)):
-            linop = op if isinstance(op, LinearOperator) else op.as_linear_operator()
-            return linop.matvec(coeffs_arr.flatten()).reshape(output_shape)
+        coeffs_np = to_numpy(coeffs)
+        if isinstance(op, TensorChain):
+            linop = op.as_linear_operator()
+            res_np = linop.matvec(coeffs_np.flatten()).reshape(output_shape)
+            return to_jax(res_np) if use_jax() else res_np
 
-        return np.tensordot(np.ascontiguousarray(op), coeffs_arr, axes=coeffs_arr.ndim)
+        if isinstance(op, LinearOperator):
+            res_np = op.matvec(coeffs_np.flatten()).reshape(output_shape)
+            return to_jax(res_np) if use_jax() else res_np
+
+        module = xp
+        op_arr = module.asarray(op)
+        coeffs_arr = module.asarray(coeffs)
+        res = module.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
+        return res.reshape(output_shape) if res.shape != output_shape else res
 
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
@@ -292,18 +318,17 @@ class State:
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         E_shape = (2, self.basis.index_length)
-        E_direct = self._apply_operator(
-            self.u_coeffs_to_E_coeffs, getattr(self.u, "coeffs", 0), E_shape
-        )
+        u_coeffs = 0 if self.u is None else xp.asarray(self.u.coeffs)
+        E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
-            E_direct += self._apply_operator(self.Br_to_E_coeffs, self.Br.coeffs, E_shape)
+            E_direct += self._apply_operator(self.Br_to_E_coeffs, xp.asarray(self.Br.coeffs), E_shape)
 
-        jr_coeffs = getattr(self.jr, "coeffs", None)
+        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.coeffs)
         return self._calculate_total_E_field(E_direct, jr_coeffs)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         E_shape = (2, self.basis.index_length)
-        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, m_ind, E_shape)
+        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, xp.asarray(m_ind), E_shape)
         return self._calculate_total_E_field(E_direct_ind, None)
 
     # ----- Time Evolution -----
@@ -322,8 +347,13 @@ class State:
         identity = np.eye(n)
 
         # Apply forward operator to each column of identity matrix
-        E_df_columns = [self.calculate_ind_coeffs(v)[0][1] for v in identity]
-        self._m_ind_to_E_df_matrix = np.array(E_df_columns).T
+        columns = []
+        for vec in identity:
+            backend_vec = to_jax(vec) if use_jax() else vec
+            E_ind_coeffs, _ = self.calculate_ind_coeffs(backend_vec)
+            columns.append(E_ind_coeffs[1])
+
+        self._m_ind_to_E_df_matrix = xp.stack(columns, axis=1)
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
@@ -355,18 +385,29 @@ class State:
         Uses the integration scheme specified by `self.integrator`. Supports 'euler',
         'exponential', and any method supported by `scipy.solve_ivp`.
         """
+        backend_m_ind = xp.asarray(m_ind)
+        backend_E_noind = xp.asarray(E_coeffs_noind)
+
         if self.integrator == "euler":
-            d_m_ind_dt = self._calculate_d_m_ind_dt(m_ind, E_coeffs_noind)
-            return m_ind + dt * d_m_ind_dt
+            d_m_ind_dt = self._calculate_d_m_ind_dt(backend_m_ind, backend_E_noind)
+            return backend_m_ind + dt * d_m_ind_dt
 
         elif self.integrator == "exponential":
             # The exponential integrator requires the dense operator matrix.
-            op_A = self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix
+            op_A = xp.asarray(self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix)
 
             if steady_state_m_ind is None:
-                steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
-            diff = m_ind - steady_state_m_ind
-            return expm(dt * op_A) @ diff + steady_state_m_ind
+                steady_state_m_ind = self.steady_state_m_ind(backend_E_noind)
+            diff = backend_m_ind - xp.asarray(steady_state_m_ind)
+
+            if use_jax():
+                from jax.scipy.linalg import expm as jax_expm
+
+                evolved = jax_expm(dt * op_A) @ diff + xp.asarray(steady_state_m_ind)
+                return evolved
+
+            evolved = expm(dt * to_numpy(op_A)) @ diff + xp.asarray(steady_state_m_ind)
+            return evolved
 
         else:
             # Fallback to scipy.solve_ivp for other specified integrators
@@ -374,13 +415,16 @@ class State:
 
             # Define the right-hand side of the ODE for the solver.
             # The non-induced part is constant, so it's captured from the outer scope.
-            rhs = lambda t, y: self._calculate_d_m_ind_dt(y, E_coeffs_noind)
+            def rhs(t, y):
+                y_backend = to_jax(y) if use_jax() else y
+                dy = self._calculate_d_m_ind_dt(y_backend, backend_E_noind)
+                return to_numpy(dy)
 
             # Integrate from t=0 to t=dt. The ODE is autonomous (not t-dependent).
             sol = solve_ivp(
                 fun=rhs,
                 t_span=(0, dt),
-                y0=m_ind,
+                y0=to_numpy(backend_m_ind),
                 method=self.integrator,
                 t_eval=[dt],  # We only need the final state
                 dense_output=False,
@@ -393,12 +437,13 @@ class State:
                 )
 
             # The result shape is (n_vars, n_times), so we take the last time point.
-            return sol.y[:, -1]
+            result = sol.y[:, -1]
+            return to_jax(result) if use_jax() else result
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculates the steady-state induced potential."""
         # This operation requires solving a linear system, which is most
         # robustly done with the dense matrix form of the operator.
-        op_A = self.m_ind_to_E_df_matrix
-        vec_b = -E_coeffs_noind[1]
-        return np.linalg.solve(op_A, vec_b)
+        op_A = xp.asarray(self.m_ind_to_E_df_matrix)
+        vec_b = -xp.asarray(E_coeffs_noind[1])
+        return xp.linalg.solve(op_A, vec_b)

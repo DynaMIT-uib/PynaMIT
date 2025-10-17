@@ -84,18 +84,16 @@ def run_pynamit(
         The dynamics object for performing the simulation and handling
         the simulation results.
     """
-    import os
-
     import datetime
     import numpy as np
 
-    from lompe import conductance
-    import dipole
-    import pyamps
-    import pyhwm2014  # https://github.com/rilma/pyHWM14
-
-    from pynamit.simulation.dynamics import Dynamics
     from pynamit.math.constants import RE
+    from pynamit.simulation.dynamics import Dynamics
+    from pynamit.external_inputs import (
+        get_conductance_inputs,
+        get_jr_inputs,
+        get_wind_inputs,
+    )
 
     # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
@@ -118,82 +116,45 @@ def run_pynamit(
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
+    time = np.linspace(0, final_time, 4) if multi_data else None
 
-    # Get and set conductance input.
     conductance_lat = dynamics.state.geometry.grid.lat
     conductance_lon = dynamics.state.geometry.grid.lon
-    Kp = 5
-    hall, pedersen = conductance.hardy_EUV(
-        conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
+
+    hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
+        date,
+        conductance_lat,
+        conductance_lon,
+        time,
     )
 
-    # Get and set jr input.
     jr_lat = dynamics.state.geometry.grid.lat
     jr_lon = dynamics.state.geometry.grid.lon
-    d = dipole.Dipole(date.year)
-    a = pyamps.AMPS(
-        300,
-        0,
-        -4,
-        20,
-        100,
-        minlat=50,
-        coeff_fn=os.path.join(
-            os.path.dirname(pyamps.__file__),
-            "coefficients",
-            "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt",
-        ),
-    )
-    jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
-    # Filter low latitude jr.
-    jr[np.abs(jr_lat) < 50] = 0
+    jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
 
-    # Get and set wind input.
-    if wind:
-        hwm14Obj = pyhwm2014.HWM142D(
-            alt=110.0,
-            ap=[35, 35],
-            glatlim=[-88.5, 88.5],
-            glatstp=1.5,
-            glonlim=[-180.0, 180.0],
-            glonstp=3.0,
-            option=6,
-            verbose=False,
-            ut=date.hour + date.minute / 60,
-            day=date.timetuple().tm_yday,
-        )
-        u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
-        u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
+    wind_inputs = get_wind_inputs(date, wind=wind, time=time)
 
-    if multi_data:
-        # Divide the simulation time into 0 to final_time in 4 steps.
-        time = np.linspace(0, final_time, 4)
-
-        # Creates 4 copies of data (as rows), and scale the rows with a
-        # factor increasing linearly from 1 to 2.
-        scaling_factor = np.linspace(1, 2, 4)[:, np.newaxis]
-    else:
-        time = None
-        scaling_factor = 1.0
+    if wind_inputs is not None:
+        u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
 
     dynamics.set_conductance(
-        hall * scaling_factor,
-        pedersen * scaling_factor,
+        hall,
+        pedersen,
         lat=conductance_lat,
         lon=conductance_lon,
         reg_lambda=conductance_lambda,
         time=time,
     )
 
-    dynamics.set_jr(jr * scaling_factor, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
+    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
 
-    if wind:
+    if wind_inputs is not None:
         dynamics.set_u(
-            u_theta=u_theta * scaling_factor,
-            u_phi=u_phi * scaling_factor,
+            u_theta=u_theta,
+            u_phi=u_phi,
             lat=u_lat,
             lon=u_lon,
-            sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+            sqrt_weights=weights,
             reg_lambda=u_lambda,
             time=time,
         )

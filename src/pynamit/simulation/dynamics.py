@@ -15,6 +15,7 @@ from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.utils import set_backend, to_jax, to_numpy, use_jax
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
@@ -62,6 +63,7 @@ class Dynamics(object):
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
         integrator="euler",
+        backend="auto",
     ):
         """Initialize the Dynamics class.
 
@@ -108,7 +110,13 @@ class Dynamics(object):
             Whether to calculate and save steady states.
         integrator : {'euler', 'exponential'}, optional
             Integrator type for time evolution.
+        backend : {'auto', 'numpy', 'jax', bool}, optional
+            Array backend to use. ``"auto"`` respects the current global setting
+            (environment variable or previous choice). ``"numpy"``/``False``
+            enforce NumPy arrays, while ``"jax"``/``True`` enables JAX.
         """
+        self.backend = set_backend(backend)
+
         # Store setting arguments in xarray dataset.
         self.settings = xr.Dataset(
             attrs={
@@ -255,6 +263,7 @@ class Dynamics(object):
             inductive_m_ind = self.output_timeseries.get_entry(
                 "state", self.current_time, interpolation=False
             )["m_ind"]
+            inductive_m_ind = to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
         else:
             if steady_state_initialization:
                 self.state.update(self.input_timeseries, self.current_time)
@@ -262,7 +271,8 @@ class Dynamics(object):
                 inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
                 self.current_time = np.float64(0)
-                inductive_m_ind = np.zeros(self.output_storage_bases["state"].index_length)
+                zeros = np.zeros(self.output_storage_bases["state"].index_length)
+                inductive_m_ind = to_jax(zeros) if use_jax() else zeros
 
         while True:
             self.state.update(self.input_timeseries, self.current_time)
@@ -345,7 +355,12 @@ class Dynamics(object):
         m_imp = m_imp_noind + m_imp_ind
 
         # Append current state to time series.
-        state_data = {"m_ind": m_ind, "m_imp": m_imp, "Phi": E_coeffs[0], "W": E_coeffs[1]}
+        state_data = {
+            "m_ind": to_numpy(m_ind),
+            "m_imp": to_numpy(m_imp),
+            "Phi": to_numpy(E_coeffs[0]),
+            "W": to_numpy(E_coeffs[1]),
+        }
 
         self.output_timeseries.add_entry(key, state_data, time=self.current_time)
 
