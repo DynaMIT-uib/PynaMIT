@@ -7,7 +7,7 @@ for simulating ionospheric electrodynamics.
 
 from __future__ import annotations
 import logging
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, List
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -234,21 +234,18 @@ class State:
         problem = self.m_imp_problem
         preconditioner = self.m_imp_preconditioner
 
-        rhs_list = []
-        b_jr = (
-            np.dot(self.geometry.jr_coeffs_to_j_apex, to_numpy(jr_coeffs))
-            if jr_coeffs is not None
-            else None
-        )
-        rhs_list.append(b_jr)
+        rhs_entries: List[Optional[Any]] = [None] * problem.num_data_terms
+        if jr_coeffs is not None:
+            jr_matrix = xp.asarray(self.geometry.jr_coeffs_to_j_apex)
+            rhs_entries[0] = jr_matrix @ xp.asarray(jr_coeffs).reshape(-1)
 
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            b_E = -np.einsum("cikl,kl->ci", E_map_op, to_numpy(E_direct_coeffs)).flatten()
-            rhs_list.append(b_E * self.ih_constraint_scaling)
+            E_map_op = xp.asarray(self.geometry.E_coeffs_to_E_apex_ll_diff)
+            b_E = -xp.einsum("cikl,kl->ci", E_map_op, xp.asarray(E_direct_coeffs))
+            rhs_entries[1] = self.ih_constraint_scaling * xp.reshape(b_E, (-1,))
 
         solution = self.m_imp_solver.solve(
-            problem=problem, rhs=rhs_list, preconditioner=preconditioner
+            problem=problem, rhs=rhs_entries, preconditioner=preconditioner
         )
         if solution is None:
             solution = np.zeros(self.basis.index_length)
@@ -294,15 +291,15 @@ class State:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return xp.zeros(output_shape)
 
-        coeffs_np = to_numpy(coeffs)
         if isinstance(op, TensorChain):
-            linop = op.as_linear_operator()
-            res_np = linop.matvec(coeffs_np.flatten()).reshape(output_shape)
-            return to_jax(res_np) if use_jax() else res_np
+            backend_coeffs = xp.asarray(coeffs).reshape(-1)
+            res_backend = op.matvec(backend_coeffs).reshape(output_shape)
+            return res_backend
 
         if isinstance(op, LinearOperator):
+            coeffs_np = to_numpy(coeffs)
             res_np = op.matvec(coeffs_np.flatten()).reshape(output_shape)
-            return to_jax(res_np) if use_jax() else res_np
+            return xp.asarray(res_np) if use_jax() else res_np
 
         module = xp
         op_arr = module.asarray(op)
@@ -350,16 +347,52 @@ class State:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
         n = self.basis.index_length
-        identity = np.eye(n)
+        if self.m_ind_to_E_coeffs is None:
+            self._m_ind_to_E_df_matrix = xp.zeros((n, n))
+            logger.info("Dense induction operator built (degenerate: no mapping available).")
+            return
 
-        # Apply forward operator to each column of identity matrix
-        columns = []
-        for vec in identity:
-            backend_vec = to_jax(vec) if use_jax() else vec
-            E_ind_coeffs, _ = self.calculate_ind_coeffs(backend_vec)
-            columns.append(E_ind_coeffs[1])
+        # Direct contribution from induced potential (without imposed solver feedback)
+        E_direct_dense = self.m_ind_to_E_coeffs.to_dense().reshape(2, n, n)
 
-        self._m_ind_to_E_df_matrix = xp.stack(columns, axis=1)
+        problem = self.m_imp_problem
+        rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
+
+        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+            E_map_op = to_numpy(self.geometry.E_coeffs_to_E_apex_ll_diff)
+            # Compute RHS blocks for all basis vectors simultaneously
+            b_E_block = -np.einsum("cikl,klj->cij", E_map_op, E_direct_dense, optimize=True)
+            if len(rhs_entries) > 1:
+                rhs_entries[1] = b_E_block * self.ih_constraint_scaling
+
+        rhs_block, _, _ = problem.assemble_rhs_block(rhs_entries)
+        if rhs_block is None:
+            op_rows = problem.get_system_operator().shape[0]
+            rhs_block = np.zeros((op_rows, n), dtype=E_direct_dense.dtype)
+
+        # Solve in batch using cached SVD decomposition
+        u, s, vt = problem.svd
+        if s.size == 0:
+            m_imp_block = np.zeros((problem.solution_size, n), dtype=E_direct_dense.dtype)
+        else:
+            tol = getattr(self.m_imp_solver, "tolerance", 0.0)
+            cutoff = tol * s[0] if tol > 0 else 0.0
+            s_inv = np.zeros_like(s)
+            mask = s > cutoff
+            s_inv[mask] = 1.0 / s[mask]
+            tmp = u.T.conj() @ rhs_block
+            tmp = s_inv[:, None] * tmp
+            m_imp_block = vt.T.conj() @ tmp
+
+        # Map imposed potential response back to E-field coefficients
+        if self.m_imp_to_E_coeffs is not None:
+            E_imp_dense = self.m_imp_to_E_coeffs.to_dense()
+            E_imp_block = (E_imp_dense @ m_imp_block).reshape(2, n, n)
+        else:
+            E_imp_block = np.zeros_like(E_direct_dense)
+
+        total_E = E_direct_dense + E_imp_block
+        self._m_ind_to_E_df_matrix = xp.asarray(total_E[1])
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:

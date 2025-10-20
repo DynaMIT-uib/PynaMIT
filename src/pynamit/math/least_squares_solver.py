@@ -8,7 +8,7 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
 from .least_squares_problem import LeastSquaresProblem
-
+from pynamit.utils import use_jax
 
 ITERATION_SAFETY_FACTOR: Final = 10
 
@@ -46,7 +46,10 @@ class LeastSquaresSolver:
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
-        rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
+        requires_numpy = not use_jax() or self.solver == "lsmr"
+        rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(
+            rhs, force_numpy=requires_numpy
+        )
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else np.float64
             return np.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
@@ -79,15 +82,35 @@ class LeastSquaresSolver:
     def _solve_svd(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
-        u, s, vt = problem.svd
-        s_inv = np.zeros_like(s)
+        if use_jax():
+            import jax.numpy as jnp
+
+            G = jnp.asarray(problem.dense_system_matrix)
+            b = jnp.asarray(rhs_block)
+            u, s, vt = jnp.linalg.svd(G, full_matrices=False)
+
+            cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
+            s_inv = jnp.where(s > cutoff, 1.0 / s, 0.0)
+            return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ b))
+
+        G = problem.dense_system_matrix
+        u, s, vt = np.linalg.svd(G, full_matrices=False)
         cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
+        s_inv = np.zeros_like(s)
         s_inv[s > cutoff] = 1.0 / s[s > cutoff]
         return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ rhs_block))
 
     def _solve_normal(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
+        if use_jax():
+            import jax.numpy as jnp
+
+            G = jnp.asarray(problem.dense_system_matrix)
+            b = jnp.asarray(rhs_block)
+            G_H = G.T.conj()
+            return jnp.linalg.solve(G_H @ G, G_H @ b)
+
         G = problem.dense_system_matrix
         G_H = G.T.conj()
         return np.linalg.solve(G_H @ G, G_H @ rhs_block)
@@ -136,6 +159,8 @@ class LeastSquaresSolver:
         M: Optional[LinearOperator],
         **kwargs,
     ) -> np.ndarray:
+        if use_jax():
+            return self._solve_cg_jax(problem, rhs_block, num_scenarios, M, **kwargs)
         G = problem.get_system_operator(num_scenarios)
         normal_op = LinearOperator(
             (G.shape[1], G.shape[1]), matvec=lambda x: G.rmatvec(G.matvec(x)), dtype=G.dtype
@@ -149,6 +174,86 @@ class LeastSquaresSolver:
         if exit_code != 0:
             warnings.warn(f"CG solver did not converge (exit_code={exit_code}).", RuntimeWarning)
         return sol_flat.reshape(problem.solution_size, num_scenarios)
+
+    def _solve_cg_jax(
+        self,
+        problem: LeastSquaresProblem,
+        rhs_block: np.ndarray,
+        num_scenarios: int,
+        M: Optional[LinearOperator],
+        **kwargs,
+    ) -> np.ndarray:
+        try:
+            import jax.numpy as jnp
+            from jax.scipy.sparse.linalg import cg as jax_cg
+        except Exception as exc:  # pragma: no cover - JAX unavailable
+            raise RuntimeError("JAX backend is required for the JAX CG solver.") from exc
+
+        max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
+        normal_mv = problem.jax_normal_matvec(include_regularization=True)
+        adjoint = problem.jax_system_rmatvec(include_regularization=True)
+
+        preconditioner_blocks = None
+        if M is not None:
+            preconditioner_blocks = self._prepare_jax_preconditioner_blocks(M, num_scenarios, problem.solution_size)
+            preconditioner_blocks = [jnp.asarray(block) for block in preconditioner_blocks]
+
+        solutions = []
+        for i in range(num_scenarios):
+            rhs_vec = jnp.asarray(rhs_block[:, i])
+            cg_rhs = adjoint(rhs_vec).reshape(-1)
+            x0_arg = kwargs.get("x0")
+            if x0_arg is not None:
+                x0_vec = jnp.asarray(x0_arg[:, i])
+            else:
+                x0_vec = jnp.zeros(problem.solution_size, dtype=rhs_vec.dtype)
+            M_func = None
+            if preconditioner_blocks is not None:
+                block = preconditioner_blocks[i]
+
+                def _make_precond(block_matrix):
+                    return lambda vec: block_matrix @ vec
+
+                M_func = _make_precond(block)
+
+            sol_vec, info = jax_cg(
+                normal_mv, cg_rhs, x0=x0_vec, tol=self.tolerance, maxiter=max_iter, M=M_func
+            )
+            if info != 0:
+                warnings.warn(
+                    f"JAX CG solver did not converge (info={int(info)}) for scenario {i}.",
+                    RuntimeWarning,
+                )
+            solutions.append(sol_vec)
+
+        return jnp.stack(solutions, axis=1)
+
+    @staticmethod
+    def _linear_operator_to_dense(op: LinearOperator) -> np.ndarray:
+        identity = np.eye(op.shape[1])
+        return np.asarray(op.matmat(identity))
+
+    def _prepare_jax_preconditioner_blocks(
+        self, M: LinearOperator, num_scenarios: int, block_size: int
+    ) -> List[np.ndarray]:
+        dense = self._linear_operator_to_dense(M)
+        if num_scenarios == 1:
+            return [dense]
+        blocks: List[np.ndarray] = []
+        tol = 1e-10
+        for i in range(num_scenarios):
+            start = i * block_size
+            stop = start + block_size
+            row = dense[start:stop, :]
+            if (
+                np.linalg.norm(row[:, :start], ord=np.inf) > tol
+                or np.linalg.norm(row[:, stop:], ord=np.inf) > tol
+            ):
+                raise NotImplementedError(
+                    "JAX CG preconditioner currently requires block-diagonal structure per scenario."
+                )
+            blocks.append(dense[start:stop, start:stop])
+        return blocks
 
     def _validate_preconditioner_shape(
         self, problem: LeastSquaresProblem, M: Optional[LinearOperator], num_scenarios: int
