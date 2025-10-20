@@ -1,0 +1,26 @@
+# toolchain
+c-compiler
+fortran-compiler
+git
+pip
+
+# scientific stack
+h5py
+numpy
+pandas
+ppigrf
+scipy
+xarray
+
+# plotting
+cartopy
+matplotlib
+mscorefonts
+
+# testing and documentation
+coveralls
+myst-parser
+pytest
+sphinx
+sphinx-rtd-theme
+ruff

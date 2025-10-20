@@ -16,6 +16,9 @@ from pynamit.external_inputs import (
 )
 
 
+pytestmark = pytest.mark.requires_native_inputs
+
+
 @pytest.fixture
 def force_fallback():
     previous = get_input_source()

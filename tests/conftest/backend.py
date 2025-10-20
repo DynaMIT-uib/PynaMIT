@@ -91,14 +91,22 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     backends: List[str] = getattr(metafunc.config, "_pynamit_backend_list", ["numpy"])
     sources: List[str] = getattr(metafunc.config, "_pynamit_data_sources", ["fallback"])
 
+    def _is_parametrized(arg: str) -> bool:
+        for marker in metafunc.definition.iter_markers("parametrize"):
+            params = [name.strip() for name in marker.args[0].split(",")]
+            if arg in params:
+                return True
+        return False
+
     if {"backend", "data_source"}.issubset(metafunc.fixturenames):
-        combos = _build_combinations(backends, sources)
-        ids = [f"backend={b},data={s}" for b, s in combos]
-        metafunc.parametrize(("backend", "data_source"), combos, ids=ids)
+        if not (_is_parametrized("backend") or _is_parametrized("data_source")):
+            combos = _build_combinations(backends, sources)
+            ids = [f"backend={b},data={s}" for b, s in combos]
+            metafunc.parametrize(("backend", "data_source"), combos, ids=ids)
     else:
-        if "backend" in metafunc.fixturenames:
+        if "backend" in metafunc.fixturenames and not _is_parametrized("backend"):
             metafunc.parametrize("backend", backends, ids=[f"backend={name}" for name in backends])
-        if "data_source" in metafunc.fixturenames:
+        if "data_source" in metafunc.fixturenames and not _is_parametrized("data_source"):
             metafunc.parametrize("data_source", sources, ids=[f"data={name}" for name in sources])
 
 

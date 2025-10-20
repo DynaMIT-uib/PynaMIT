@@ -2,10 +2,13 @@ import numpy as np
 import pytest
 
 from pynamit.math.tensor_operations import tensor_product
-from pynamit.utils import JAX_AVAILABLE, to_jax, to_numpy, use_jax
+from pynamit.utils import to_jax, to_numpy, use_jax
 
 
-def test_backend_toggle_round_trip():
+@pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_backend_toggle_round_trip(backend: str, data_source: str):
     """Verify that `use_jax` faithfully toggles the active backend."""
     previous = use_jax()
     try:
@@ -17,12 +20,11 @@ def test_backend_toggle_round_trip():
         use_jax(previous)
 
 
-@pytest.mark.skipif(not JAX_AVAILABLE, reason="Requires JAX runtime.")
-def test_tensor_product_backend_parity(backend: str):
+@pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_tensor_product_backend_parity(backend: str, data_source: str):
     """Ensure tensor_product produces identical results when JAX is active."""
-    if backend != "jax":
-        pytest.skip("Only meaningful when executed under the JAX backend.")
-
     rng = np.random.default_rng(0)
     A = rng.random((3, 4, 5))
     B = rng.random((5, 6, 2))
