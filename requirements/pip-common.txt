@@ -1,0 +1,4 @@
+apexpy
+dipole @ git+https://github.com/klaundal/dipole.git@main
+polplot @ git+https://github.com/klaundal/polplot.git@main
+secsy  @ git+https://github.com/klaundal/secsy.git@main

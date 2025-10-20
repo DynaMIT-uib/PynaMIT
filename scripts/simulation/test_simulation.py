@@ -138,22 +138,6 @@ while True:
         dynamics.state.update_E()
         Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
 
-        # paxn.contour(
-        #    dynamics.state.geometry.grid.lat.flatten()[nnn],
-        #    (dynamics.state.geometry.grid.lon.flatten() - lon0)[nnn] / 15,
-        #    W[nnn],
-        #    colors="black",
-        #    levels=Wlevels,
-        #    linewidths=0.5,
-        # )
-        # paxs.contour(
-        #    dynamics.state.geometry.grid.lat.flatten()[sss],
-        #    (dynamics.state.geometry.grid.lon.flatten() - lon0)[sss] / 15,
-        #    W[sss],
-        #    colors="black",
-        #    levels=Wlevels,
-        #    linewidths=0.5,
-        # )
         paxn.contour(
             plt_grid.lat.flatten()[nnn],
             (plt_grid.lon.flatten() - lon0)[nnn] / 15,

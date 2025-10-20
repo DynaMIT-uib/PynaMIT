@@ -20,7 +20,7 @@ xx, yy = np.meshgrid(x, y)
 r = np.sqrt(xx**2 + yy**2)
 r = r.flatten()
 
-# This assumes you have the 'conductivity.csv' file in the same directory
+# This assumes you have 'conductivity.csv' in the same directory
 try:
     cond = pd.read_csv("conductivity.csv")
     cond.index = cond[cond.columns[0]] + RE
@@ -148,20 +148,17 @@ ax.text(
     bbox=dict(facecolor="white", edgecolor="none", pad=0),
 )
 
-# ==============================================================================
-# START: Code to add the concentric magnetosphere boundary and label
-# ==============================================================================
+# Code to add the concentric magnetosphere boundary and label
 
 # Calculate the radius of the magnetosphere boundary
 if highest_apex_t is not None:
     req_highest_apex = 1 / np.sin(highest_apex_t) ** 2
     magnetosphere_radius = req_highest_apex * RE + 110
 
-    # ==================== CORRECTED CODE BLOCK START ====================
-    # Define an outer radius large enough to cover the corner of the plot
+    # Define an outer radius large covering the corner of the plot
     outer_radius = rh * np.sqrt(2)
 
-    # Add a light red background outside the inner magnetosphere boundary.
+    # Add light red background outside the inner magnetosphere boundary.
     outer_region = Wedge(
         center=(0, 0),
         r=outer_radius,  # <-- Use the larger radius to cover the corner
@@ -173,7 +170,6 @@ if highest_apex_t is not None:
         zorder=0.5,
     )
     ax.add_patch(outer_region)
-    # ===================== CORRECTED CODE BLOCK END =====================
 
     # Create a solid Circle patch for the magnetosphere boundary
     magnetosphere_circle = Circle(
@@ -181,7 +177,8 @@ if highest_apex_t is not None:
     )
     ax.add_patch(magnetosphere_circle)
 
-    # Add the "Inner magnetosphere" label at a 45-degree angle on the new circle
+    # Add the "Inner magnetosphere" label at a 45-degree angle on
+    # the new circle
     ax.text(
         magnetosphere_radius / np.sqrt(2),
         magnetosphere_radius / np.sqrt(2),
@@ -192,11 +189,6 @@ if highest_apex_t is not None:
         size=textsize,
         bbox=dict(facecolor="white", edgecolor="none", pad=0.1),
     )
-
-# ==============================================================================
-# END: Code for magnetosphere boundary
-# ==============================================================================
-
 
 plt.show()
 plt.close()

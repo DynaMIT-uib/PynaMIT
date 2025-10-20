@@ -1,8 +1,8 @@
 """State module for ionospheric electrodynamics.
 
 This module contains the State class, which manages the physical state
-variables (potentials, currents, etc.) and numerical operators required for
-simulating ionospheric electrodynamics.
+variables (potentials, currents, etc.) and numerical operators required
+for simulating ionospheric electrodynamics.
 """
 
 from __future__ import annotations
@@ -20,18 +20,19 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.utils import to_numpy, to_jax, use_jax, xp
 
 logger = logging.getLogger(__name__)
 
 
 class State:
-    """Manages the ionospheric electrodynamic state and associated operators.
+    """Manages the ionospheric electrodynamic state.
 
-    This class encapsulates the physical state (e.g., potentials, currents),
-    handles the construction of all necessary numerical operators based on the
-    provided geometry and settings, and orchestrates the time evolution of
-    the system. It uses a Geometry object to manage the underlying grid
-    and mappings.
+    This class encapsulates the physical state (e.g., potentials,
+    currents), handles the construction of all necessary numerical
+    operators based on the provided geometry and settings, and
+    orchestrates the time evolution of the system. It uses a Geometry
+    object to manage the underlying grid and mappings.
     """
 
     def __init__(
@@ -49,7 +50,8 @@ class State:
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(basis, cs_basis, mainfield, settings, PFAC_matrix)
 
-        # Operator for mapping velocity field `u` to E-field, independent of conductance
+        # Operator for mapping velocity field `u` to E-field
+        # (independent of conductance)
         self.u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
 
         # The solver is configured here but remains stateless.
@@ -82,17 +84,15 @@ class State:
         self.connect_hemispheres = bool(settings.connect_hemispheres)
 
     def _create_u_to_E_operator(self) -> np.ndarray:
-        """Create the operator mapping velocity coefficients to E-field coefficients."""
-        G_u_to_uxB_grid = np.einsum(
-            "ijk,jklm->iklm",
-            self.geometry.bu,
-            self.geometry.basis_evaluator.G_helmholtz,
-            optimize=True,
-        )
-        return np.tensordot(self.geometry.G_helmholtz_pinv, G_u_to_uxB_grid, axes=2)
+        """Operator mapping wind coefficients to E coefficients."""
+        bu = xp.asarray(self.geometry.bu)
+        G_helmholtz = xp.asarray(self.geometry.basis_evaluator.G_helmholtz)
+        G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
+        G_helmholtz_pinv = xp.asarray(self.geometry.G_helmholtz_pinv)
+        return xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2)
 
     def _invalidate_caches(self) -> None:
-        """Invalidate all cached properties that depend on conductance."""
+        """Invalidate all conductance-dependent cached properties."""
         self._M_total_on_grid: Optional[np.ndarray] = None
         self._m_ind_to_E_coeffs: Optional[TensorChain] = None
         self._m_imp_to_E_coeffs: Optional[TensorChain] = None
@@ -106,15 +106,20 @@ class State:
 
     @property
     def M_total_on_grid(self) -> np.ndarray:
+        """Resistance tensor on the spatial grid."""
         if self._M_total_on_grid is None:
             if self.etaP is None or self.etaH is None:
                 raise RuntimeError(
                     "Conductance must be set before accessing conductance-dependent properties."
                 )
-            eta_stacked = np.stack([self.etaP.coeffs, self.etaH.coeffs], axis=0)
-            G_eta = self.geometry.basis_evaluator_zero_added.G
-            b_stacked = np.stack([self.geometry.bP, self.geometry.bH], axis=0)
-            self._M_total_on_grid = np.einsum(
+            eta_stacked = xp.stack(
+                [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
+            )
+            G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
+            b_stacked = xp.stack(
+                [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
+            )
+            self._M_total_on_grid = xp.einsum(
                 "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
             )
         return self._M_total_on_grid
@@ -122,8 +127,13 @@ class State:
     def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[TensorChain]:
         if G_X_to_JS is None:
             return None
+        tensors = [
+            xp.asarray(self.geometry.G_helmholtz_pinv),
+            xp.asarray(self.M_total_on_grid),
+            xp.asarray(G_X_to_JS),
+        ]
         return TensorChain(
-            component_tensors=[self.geometry.G_helmholtz_pinv, self.M_total_on_grid, G_X_to_JS],
+            component_tensors=tensors,
             einsum_string_dense="cmpg,pqg,qgl->cml",
             einsum_string_matvec="cmpg,pqg,qgl,l->cm",
             einsum_string_rmatvec="cm,cmpg,pqg,qgl->l",
@@ -133,18 +143,21 @@ class State:
 
     @property
     def m_ind_to_E_coeffs(self) -> Optional[TensorChain]:
+        """Operator mapping m_ind coefficients to E coefficients."""
         if self._m_ind_to_E_coeffs is None:
             self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS)
         return self._m_ind_to_E_coeffs
 
     @property
     def m_imp_to_E_coeffs(self) -> Optional[TensorChain]:
+        """Operator mapping m_imp coefficients to E coefficients."""
         if self._m_imp_to_E_coeffs is None:
             self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS)
         return self._m_imp_to_E_coeffs
 
     @property
     def Br_to_E_coeffs(self) -> Optional[TensorChain]:
+        """Operator mapping Br coefficients to E coefficients."""
         if self._Br_to_E_coeffs is None:
             self._Br_to_E_coeffs = self._create_E_coeffs_operator(
                 getattr(self.geometry, "G_Br_to_JS", None)
@@ -153,6 +166,7 @@ class State:
 
     @property
     def E_map_constraint_operator(self) -> Optional[TensorChain]:
+        """Operator enforcing E-field mapping at low latitudes."""
         if self._E_map_constraint_operator is None:
             inner_chain = self.m_imp_to_E_coeffs
             outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
@@ -170,23 +184,23 @@ class State:
     # ----- Solver Setup and Execution -----
     @property
     def m_imp_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for the imposed potential `m_imp`."""
+        """The least-squares problem definition for `m_imp`."""
         if self._m_imp_problem is None:
             logger.info("Defining new least-squares problem for m_imp.")
             operators, data_shapes = [], []
 
-            # Constraint 1: Radial current (jr) must match imposed field.
+            # Radial current (jr) must match imposed field.
             op_jr = self.geometry.jr_coeffs_to_j_apex * self.geometry.m_imp_to_jr.reshape((1, -1))
             operators.append(op_jr)
             data_shapes.append(op_jr.shape[:-1])
 
-            # Constraint 2: E-fields in conjugate hemispheres must match at low latitudes.
+            # E-field must map at low latitudes.
             if self.connect_hemispheres and self.E_map_constraint_operator is not None:
                 op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
                 operators.append(op_E)
                 data_shapes.append(op_E.output_shape)
 
-            # Regularization: Add Tikhonov regularization if lambda is set.
+            # Add Tikhonov regularizationif lambda is set.
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
@@ -205,7 +219,7 @@ class State:
 
     @property
     def m_imp_preconditioner(self) -> Optional[LinearOperator]:
-        """The pre-computed preconditioner for the m_imp least-squares problem."""
+        """Preconditioner for the m_imp least-squares problem."""
         if self._m_imp_preconditioner is None:
             logger.info("Building new preconditioner for m_imp solver.")
             self._m_imp_preconditioner = self.m_imp_solver.build_preconditioner(
@@ -222,23 +236,28 @@ class State:
 
         rhs_list = []
         b_jr = (
-            np.dot(self.geometry.jr_coeffs_to_j_apex, jr_coeffs) if jr_coeffs is not None else None
+            np.dot(self.geometry.jr_coeffs_to_j_apex, to_numpy(jr_coeffs))
+            if jr_coeffs is not None
+            else None
         )
         rhs_list.append(b_jr)
 
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
             E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            b_E = -np.einsum("cikl,kl->ci", E_map_op, E_direct_coeffs).flatten()
+            b_E = -np.einsum("cikl,kl->ci", E_map_op, to_numpy(E_direct_coeffs)).flatten()
             rhs_list.append(b_E * self.ih_constraint_scaling)
 
         solution = self.m_imp_solver.solve(
             problem=problem, rhs=rhs_list, preconditioner=preconditioner
         )
-        return solution if solution is not None else np.zeros(self.basis.index_length)
+        if solution is None:
+            solution = np.zeros(self.basis.index_length)
+        return to_jax(solution) if use_jax() else solution
 
     # ----- State Update -----
 
     def update(self, input_timeseries: Any, time: float, interpolation: bool = False) -> None:
+        """Update the state variables based on the current input."""
         conductance_updated = False
         for key, dataset in input_timeseries.datasets.items():
             updated_input = input_timeseries.get_entry_if_changed(key, time, interpolation)
@@ -272,15 +291,24 @@ class State:
     # ----- State Calculation -----
 
     def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> np.ndarray:
-        if op is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
-            return np.zeros(output_shape)
+        if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
+            return xp.zeros(output_shape)
 
-        coeffs_arr = np.asarray(coeffs)
-        if isinstance(op, (TensorChain, LinearOperator)):
-            linop = op if isinstance(op, LinearOperator) else op.as_linear_operator()
-            return linop.matvec(coeffs_arr.flatten()).reshape(output_shape)
+        coeffs_np = to_numpy(coeffs)
+        if isinstance(op, TensorChain):
+            linop = op.as_linear_operator()
+            res_np = linop.matvec(coeffs_np.flatten()).reshape(output_shape)
+            return to_jax(res_np) if use_jax() else res_np
 
-        return np.tensordot(np.ascontiguousarray(op), coeffs_arr, axes=coeffs_arr.ndim)
+        if isinstance(op, LinearOperator):
+            res_np = op.matvec(coeffs_np.flatten()).reshape(output_shape)
+            return to_jax(res_np) if use_jax() else res_np
+
+        module = xp
+        op_arr = module.asarray(op)
+        coeffs_arr = module.asarray(coeffs)
+        res = module.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
+        return res.reshape(output_shape) if res.shape != output_shape else res
 
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
@@ -291,52 +319,63 @@ class State:
         return E_direct_coeffs + E_imp, m_imp
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate E-field coefficients without induction effects."""
         E_shape = (2, self.basis.index_length)
-        E_direct = self._apply_operator(
-            self.u_coeffs_to_E_coeffs, getattr(self.u, "coeffs", 0), E_shape
-        )
+        u_coeffs = 0 if self.u is None else xp.asarray(self.u.coeffs)
+        E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
-            E_direct += self._apply_operator(self.Br_to_E_coeffs, self.Br.coeffs, E_shape)
+            E_direct += self._apply_operator(
+                self.Br_to_E_coeffs, xp.asarray(self.Br.coeffs), E_shape
+            )
 
-        jr_coeffs = getattr(self.jr, "coeffs", None)
+        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.coeffs)
         return self._calculate_total_E_field(E_direct, jr_coeffs)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate total E-field coefficients."""
         E_shape = (2, self.basis.index_length)
-        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, m_ind, E_shape)
+        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, xp.asarray(m_ind), E_shape)
         return self._calculate_total_E_field(E_direct_ind, None)
 
     # ----- Time Evolution -----
 
     @property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
-        """The dense matrix mapping induced potential to divergence-free E-field."""
+        """Dense matrix mapping m_ind to div-free E-field."""
         if self._m_ind_to_E_df_matrix is None:
             self._build_m_ind_to_E_df_matrix()
         return self._m_ind_to_E_df_matrix
 
     def _build_m_ind_to_E_df_matrix(self) -> None:
-        """Constructs the dense matrix for the induction operator using matvec."""
+        """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
         n = self.basis.index_length
         identity = np.eye(n)
 
         # Apply forward operator to each column of identity matrix
-        E_df_columns = [self.calculate_ind_coeffs(v)[0][1] for v in identity]
-        self._m_ind_to_E_df_matrix = np.array(E_df_columns).T
+        columns = []
+        for vec in identity:
+            backend_vec = to_jax(vec) if use_jax() else vec
+            E_ind_coeffs, _ = self.calculate_ind_coeffs(backend_vec)
+            columns.append(E_ind_coeffs[1])
+
+        self._m_ind_to_E_df_matrix = xp.stack(columns, axis=1)
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculates the time derivative of the induced potential.
+        """Calculate the time derivative of the induced potential.
 
         This is the right-hand side of the ODE: d(m_ind)/dt = f(m_ind).
-        The non-induced E-field is treated as a constant parameter for the ODE.
+        The non-induced E-field is treated as a constant parameter for
+        the ODE.
         """
-        # Calculate the E-field contribution from the current induced potential.
+        # Calculate the E-field contribution from the current induced
+        # potential.
         E_ind_coeffs, _ = self.calculate_ind_coeffs(m_ind)
         E_df_ind = E_ind_coeffs[1]
 
-        # Total divergence-free E-field is the sum of induced and non-induced parts.
+        # Total divergence-free E-field is the sum of induced and
+        # non-induced parts.
         E_df_total = E_df_ind + E_coeffs_noind[1]
 
         # Calculate the time derivative using the geometry operator.
@@ -350,37 +389,55 @@ class State:
         E_coeffs_noind: np.ndarray,
         steady_state_m_ind: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Evolves the induced potential `m_ind` forward in time by `dt`.
+        """Evolves the induced potential `m_ind` forward in time.
 
-        Uses the integration scheme specified by `self.integrator`. Supports 'euler',
-        'exponential', and any method supported by `scipy.solve_ivp`.
+        Uses the integration scheme specified by `self.integrator`.
+        Supports 'euler', 'exponential', and any method supported by
+        `scipy.solve_ivp`.
         """
+        backend_m_ind = xp.asarray(m_ind)
+        backend_E_noind = xp.asarray(E_coeffs_noind)
+
         if self.integrator == "euler":
-            d_m_ind_dt = self._calculate_d_m_ind_dt(m_ind, E_coeffs_noind)
-            return m_ind + dt * d_m_ind_dt
+            d_m_ind_dt = self._calculate_d_m_ind_dt(backend_m_ind, backend_E_noind)
+            return backend_m_ind + dt * d_m_ind_dt
 
         elif self.integrator == "exponential":
-            # The exponential integrator requires the dense operator matrix.
-            op_A = self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix
+            # The exponential integrator requires the dense operator
+            # matrix.
+            op_A = xp.asarray(self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix)
 
             if steady_state_m_ind is None:
-                steady_state_m_ind = self.steady_state_m_ind(E_coeffs_noind)
-            diff = m_ind - steady_state_m_ind
-            return expm(dt * op_A) @ diff + steady_state_m_ind
+                steady_state_m_ind = self.steady_state_m_ind(backend_E_noind)
+            diff = backend_m_ind - xp.asarray(steady_state_m_ind)
+
+            if use_jax():
+                from jax.scipy.linalg import expm as jax_expm
+
+                evolved = jax_expm(dt * op_A) @ diff + xp.asarray(steady_state_m_ind)
+                return evolved
+
+            evolved = expm(dt * to_numpy(op_A)) @ diff + xp.asarray(steady_state_m_ind)
+            return evolved
 
         else:
-            # Fallback to scipy.solve_ivp for other specified integrators
+            # Fallback to scipy.solve_ivp for other integrators
             logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
 
             # Define the right-hand side of the ODE for the solver.
-            # The non-induced part is constant, so it's captured from the outer scope.
-            rhs = lambda t, y: self._calculate_d_m_ind_dt(y, E_coeffs_noind)
+            # The non-induced part is constant, so it's captured from
+            # the outer scope.
+            def rhs(t, y):
+                y_backend = to_jax(y) if use_jax() else y
+                dy = self._calculate_d_m_ind_dt(y_backend, backend_E_noind)
+                return to_numpy(dy)
 
-            # Integrate from t=0 to t=dt. The ODE is autonomous (not t-dependent).
+            # Integrate from t=0 to t=dt. The ODE is autonomous
+            # (not t-dependent).
             sol = solve_ivp(
                 fun=rhs,
                 t_span=(0, dt),
-                y0=m_ind,
+                y0=to_numpy(backend_m_ind),
                 method=self.integrator,
                 t_eval=[dt],  # We only need the final state
                 dense_output=False,
@@ -392,13 +449,15 @@ class State:
                     f"status {sol.status}: {sol.message}"
                 )
 
-            # The result shape is (n_vars, n_times), so we take the last time point.
-            return sol.y[:, -1]
+            # The result shape is (n_vars, n_times),
+            # so we take the last time point.
+            result = sol.y[:, -1]
+            return to_jax(result) if use_jax() else result
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculates the steady-state induced potential."""
+        """Calculate the steady-state induced potential."""
         # This operation requires solving a linear system, which is most
         # robustly done with the dense matrix form of the operator.
-        op_A = self.m_ind_to_E_df_matrix
-        vec_b = -E_coeffs_noind[1]
-        return np.linalg.solve(op_A, vec_b)
+        op_A = xp.asarray(self.m_ind_to_E_df_matrix)
+        vec_b = -xp.asarray(E_coeffs_noind[1])
+        return xp.linalg.solve(op_A, vec_b)

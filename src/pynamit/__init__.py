@@ -41,6 +41,8 @@ from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
 from .simulation.visualization import debugplot, globalplot
 from .spherical_harmonics.sh_basis import SHBasis
+from .utils import set_backend, use_jax
+from .external_inputs import set_input_source, get_input_source
 
 __all__ = [
     "BasisEvaluator",
@@ -55,4 +57,8 @@ __all__ = [
     "debugplot",
     "globalplot",
     "plot_input_vs_interpolated",
+    "set_backend",
+    "use_jax",
+    "set_input_source",
+    "get_input_source",
 ]

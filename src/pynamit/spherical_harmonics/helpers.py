@@ -1,8 +1,7 @@
-"""helpers.py - SHIndices and Schmidt quasi-normalization helpers."""
+"""SHIndices and Schmidt quasi-normalization helpers."""
 
 import numpy as np
 import math
-from typing import Iterable, Tuple
 
 
 class SHIndices(object):
@@ -17,6 +16,7 @@ class SHIndices(object):
         self.make_arrays()
 
     def __getitem__(self, position):
+        """Get item(s) from the SHIndices."""
         if position == "n":
             return [ip[0] for ip in self.index_pairs]
         if position == "m":
@@ -24,29 +24,36 @@ class SHIndices(object):
         return self.index_pairs[position]
 
     def __iter__(self):
+        """Iterate over the SHIndices."""
         for p in self.index_pairs:
             yield p
 
     def __len__(self):
+        """Return length of the SHIndices."""
         return len(self.index_pairs)
 
     def __repr__(self):
+        """Return string representation of the SHIndices."""
         return "".join(["n, m\n"] + [str(p)[1:-1] + "\n" for p in self.index_pairs])[:-1]
 
     def __str__(self):
+        """Return string representation of the SHIndices."""
         return self.__repr__()
 
     def set_Nmin(self, Nmin: int):
+        """Set minimum degree Nmin."""
         self.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin])
         self.make_arrays()
         return self
 
     def set_Mmin(self, Mmin: int):
+        """Set minimum absolute order Mmin."""
         self.index_pairs = tuple([p for p in self.index_pairs if abs(p[1]) >= Mmin])
         self.make_arrays()
         return self
 
     def make_arrays(self):
+        """Create n and m arrays from index pairs."""
         if len(self.index_pairs) > 0:
             arr = np.array(self.index_pairs, dtype=int)
             self.n = arr[:, 0].reshape(1, -1)
@@ -60,8 +67,7 @@ class SHIndices(object):
 
 def schmidt_quasi_normalization_factors(Nmax: int, Mmax: int):
     """
-    Return a matrix of Schmidt quasi-normalization factors using an efficient
-    O(n^2) recurrence relation.
+    Return a matrix of Schmidt quasi-normalization factors.
 
     The factors are computed according to the geomagnetism convention
     (e.g., Langel, 1987).
@@ -76,8 +82,8 @@ def schmidt_quasi_normalization_factors(Nmax: int, Mmax: int):
     Returns
     -------
     S_matrix : ndarray, shape (Nmax+1, Mmax+1)
-        Matrix of normalization factors where S_matrix[n, m] is the factor
-        for the (n, m) pair.
+        Matrix of normalization factors where S_matrix[n, m] is the
+        factor for the (n, m) pair.
     """
     S_matrix = np.zeros((Nmax + 1, Mmax + 1))
     S_matrix[0, 0] = 1.0

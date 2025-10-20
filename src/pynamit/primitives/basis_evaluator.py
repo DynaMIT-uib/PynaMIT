@@ -96,7 +96,7 @@ class BasisEvaluator(object):
 
     @property
     def G_rxgrad_pinv(self):
-        """Matrix evaluating r-hat x horizontal gradient pseudoinverse."""
+        """Matrix evaluating r-hat x horizontal gradient pinv."""
         if not hasattr(self, "_G_rxgrad_pinv"):
             self._G_rxgrad_pinv = np.linalg.pinv(self.G_rxgrad)
         return self._G_rxgrad_pinv
@@ -178,7 +178,7 @@ class BasisEvaluator(object):
             self._scalar_solvers[solver_type] = solver
 
         solver = self._scalar_solvers[solver_type]
-        # Pass the problem definition and RHS to the stateless solve method
+        # Pass the problem definition and RHS to the stateless solver
         return solver.solve(problem=self.least_squares_problem, rhs=grid_values)
 
     def least_squares_solution_helmholtz(self, grid_values, solver_type="svd"):
@@ -189,7 +189,7 @@ class BasisEvaluator(object):
             self._helmholtz_solvers[solver_type] = solver
 
         solver = self._helmholtz_solvers[solver_type]
-        # Pass the problem definition and RHS to the stateless solve method
+        # Pass the problem definition and RHS to the stateless solver
         return solver.solve(problem=self.least_squares_problem_helmholtz, rhs=grid_values)
 
     def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):

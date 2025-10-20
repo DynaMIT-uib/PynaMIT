@@ -1,4 +1,4 @@
-"""basis.py - SHBasis with fully compatible internal and Scipy backends."""
+"""Spherical Harmonic Basis Class."""
 
 import numpy as np
 import math
@@ -6,31 +6,28 @@ import warnings
 from packaging import version
 import scipy
 
-# --- Conditional Import for SciPy Version Compatibility ---
+from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
+
+# Conditional Import for SciPy Version Compatibility
 # Check the SciPy version to import the correct, available function.
 _SCIPY_VERSION = version.parse(scipy.__version__)
 if _SCIPY_VERSION >= version.parse("1.15.0"):
     _USE_MODERN_SCIPY = True
     from scipy.special import assoc_legendre_p_all
 
-    # Define lpmn as None for clarity, though it won't be used in this path.
+    # Define lpmn as None for clarity (not used in this path).
     lpmn = None
 else:
     _USE_MODERN_SCIPY = False
     from scipy.special import lpmn
 
-    # Define assoc_legendre_p_all as None so the name exists for type hinting/clarity.
+    # Define assoc_legendre_p_all as None so the name exists for type
+    # hinting/clarity.
     assoc_legendre_p_all = None
-
-# The helpers file is assumed to contain SHIndices and schmidt_quasi_normalization_factors
-from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
 
 
 def _double_factorial(n):
-    """
-    A robust, self-contained implementation of the double factorial that
-    correctly handles the n=-1 case required by the analytical scaling factor.
-    """
+    """Double factorial that correctly handles the n=-1 case."""
     if n < -1:
         # This case is not expected, but defined for completeness.
         raise ValueError("Double factorial is not defined for n < -1 in this context.")
@@ -44,19 +41,25 @@ def _double_factorial(n):
 
 class SHBasis(object):
     """
-    Class for representing spherical harmonic bases according to the Langel (1987)
-    geomagnetism convention.
+    Class for representing spherical harmonic bases.
 
-    This class provides two fully compatible backends for Legendre polynomial
-    generation:
-    - 'internal': A fast, self-contained recurrence relation for both P and dP/dθ.
-    - 'scipy': Uses the trusted scipy library, with a precise analytical scaling
-               factor applied to ensure identical output to the 'internal' backend.
-               It automatically selects the best available scipy function.
+    Uses the Langel (1987) geomagnetism convention.
+
+    This class provides two fully compatible backends for Legendre
+    polynomial generation:
+    - 'internal':
+        A fast, self-contained recurrence relation for both P and dP/dθ.
+    - 'scipy':
+        Uses the trusted scipy library, with a precise analytical
+        scaling factor applied to ensure identical output to the
+        'internal' backend. It automatically selects the best available
+        scipy function.
     """
 
     def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend="internal"):
         """
+        Initialize the SHBasis instance.
+
         Parameters
         ----------
         Nmax : int
@@ -66,10 +69,11 @@ class SHBasis(object):
         Nmin : int, optional
             Minimum degree, by default 1.
         quasi_normalized : bool, optional
-            If True, applies Schmidt quasi-normalization factors. By default True.
+            If True, applies Schmidt quasi-normalization factors. By
+            default True.
         backend : str, optional
-            Backend for Legendre function calculation. Can be 'internal' (default)
-            or 'scipy'. Both produce identical results.
+            Backend for Legendre function calculation. Can be 'internal'
+            (default) or 'scipy'. Both produce identical results.
         """
         if backend not in ["internal", "scipy"]:
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
@@ -106,8 +110,8 @@ class SHBasis(object):
 
             if not self._use_modern_scipy:
                 warnings.warn(
-                    f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling back to the "
-                    "deprecated 'lpmn' function. Please consider upgrading SciPy.",
+                    f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling "
+                    "back to the deprecated 'lpmn' function. Please consider upgrading SciPy.",
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -120,8 +124,9 @@ class SHBasis(object):
         self.caching = True
 
     def _compute_scipy_scaling_factors(self):
-        """
-        Calculates the analytical scaling factor such that P_internal = F * P_scipy.
+        """Calculate the analytical scaling factor.
+
+        Such that P_internal = F * P_scipy.
         F(n, m) = (n - m)! / (2n - 1)!!
         """
         factors = np.ones(len(self.index_pairs), dtype=np.float64)
@@ -132,17 +137,14 @@ class SHBasis(object):
         self.scipy_scaling_factors = factors
 
     def _get_legendre_scipy(self, theta, compute_derivative=False):
-        """
-        Dispatcher for Scipy Legendre function calculation. Uses the modern
-        `assoc_legendre_p_all` if available, otherwise falls back to `lpmn`.
-        """
+        """Dispatcher for Scipy Legendre function calculation."""
         if self._use_modern_scipy:
             return self._get_legendre_scipy_modern(theta, compute_derivative)
         else:
             return self._get_legendre_scipy_legacy(theta, compute_derivative)
 
     def _get_legendre_scipy_modern(self, theta, compute_derivative=False):
-        """Uses the modern, vectorized `assoc_legendre_p_all` function."""
+        """Legendre functions via `assoc_legendre_p_all` function."""
         cos_theta = np.cos(theta)
         sin_theta = np.sin(theta)
         diff_order = 1 if compute_derivative else 0
@@ -168,7 +170,7 @@ class SHBasis(object):
         return P_scaled, dP_scaled
 
     def _get_legendre_scipy_legacy(self, theta, compute_derivative=False):
-        """Uses the older, deprecated `lpmn` function for backwards compatibility."""
+        """Legendre functions via `lpmn` function (SciPy<1.15)."""
         theta = np.atleast_1d(theta)
         cos_theta, sin_theta = np.cos(theta), np.sin(theta)
         P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
@@ -188,6 +190,7 @@ class SHBasis(object):
         return P_scaled, dP_scaled
 
     def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
+        """Compute basis functions G on the provided grid."""
         phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
 
         if self.backend == "internal":
@@ -236,7 +239,7 @@ class SHBasis(object):
         return np.hstack((Gc, Gs))
 
     def legendre(self, theta):
-        """Computes un-normalized Legendre functions using the internal recurrence."""
+        """Compute un-normalized Legendre functions."""
         theta = np.asarray(theta, dtype=float)
         sin_theta, cos_theta = np.sin(theta), np.cos(theta)
         P = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
@@ -255,7 +258,7 @@ class SHBasis(object):
         return P
 
     def legendre_derivative(self, theta, P):
-        """Computes d/dθ of Legendre functions consistent with the internal recurrence."""
+        """Compute d/dθ of Legendre functions."""
         theta = np.asarray(theta, dtype=float)
         sin_theta, cos_theta = np.sin(theta), np.cos(theta)
         dP = np.empty_like(P)
@@ -278,16 +281,20 @@ class SHBasis(object):
 
     # --- Other methods are unchanged ---
     def laplacian(self, r=1.0):
+        """Factor to apply the spherical harmonic Laplacian operator."""
         return -self.n * (self.n + 1) / r**2
 
     def radial_shift_Ve(self, start, end):
+        """Factor to radially shift external potential coefficients."""
         return (start / end) ** (1 - self.n)
 
     def radial_shift_Vi(self, start, end):
+        """Factor to radially shift internal potential coefficients."""
         return (start / end) ** (self.n + 2)
 
     @property
     def coeffs_to_delta_V(self):
+        """Factor to convert coefficients to delta V at unit radius."""
         if not hasattr(self, "_coeffs_to_delta_V"):
             self._coeffs_to_delta_V = 2 * self.n + 1
         return self._coeffs_to_delta_V
