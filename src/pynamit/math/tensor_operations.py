@@ -182,9 +182,7 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
     if condition_number and filtered_eigenvalues.size:
         eig_np = to_numpy(filtered_eigenvalues)
         print(
-            "The condition number for the matrix is: {:.1f}".format(
-                float(eig_np[-1] / eig_np[0])
-            )
+            "The condition number for the matrix is: {:.1f}".format(float(eig_np[-1] / eig_np[0]))
         )
 
     return xp.einsum(

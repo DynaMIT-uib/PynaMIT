@@ -47,6 +47,7 @@ def _available_sources(requested: List[str] | None) -> List[str]:
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add CLI options for selecting backends and data sources."""
     parser.addoption(
         BACKEND_OPTION_NAME,
         action="append",
@@ -72,6 +73,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    """Store available backends and data sources in pytest config."""
     config._pynamit_backend_list = _available_backends(config.getoption("pynamit_backends"))  # type: ignore[attr-defined]
     config._pynamit_data_sources = _available_sources(config.getoption("pynamit_data_sources"))  # type: ignore[attr-defined]
 
@@ -88,6 +90,7 @@ def _build_combinations(backends: List[str], sources: List[str]) -> List[Tuple[s
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Parametrise tests from available backends and data sources."""
     backends: List[str] = getattr(metafunc.config, "_pynamit_backend_list", ["numpy"])
     sources: List[str] = getattr(metafunc.config, "_pynamit_data_sources", ["fallback"])
 
@@ -112,16 +115,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
 @pytest.fixture
 def backend(request: pytest.FixtureRequest) -> str:
+    """Fixture to provide the backend parameter."""
     return request.param  # type: ignore[attr-defined]
 
 
 @pytest.fixture
 def data_source(request: pytest.FixtureRequest) -> str:
+    """Fixture to provide the data source parameter."""
     return request.param  # type: ignore[attr-defined]
 
 
 @pytest.fixture(autouse=True)
 def configure_runtime(backend: str, data_source: str):
+    """Fixture to configure backend and data source for each test."""
     previous_backend = use_jax()
     previous_backend_env = os.environ.get("PYNAMIT_USE_JAX")
     previous_source = get_input_source()

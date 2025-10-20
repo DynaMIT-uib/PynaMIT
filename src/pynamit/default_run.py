@@ -89,11 +89,7 @@ def run_pynamit(
 
     from pynamit.math.constants import RE
     from pynamit.simulation.dynamics import Dynamics
-    from pynamit.external_inputs import (
-        get_conductance_inputs,
-        get_jr_inputs,
-        get_wind_inputs,
-    )
+    from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
     # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
@@ -122,10 +118,7 @@ def run_pynamit(
     conductance_lon = dynamics.state.geometry.grid.lon
 
     hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
-        date,
-        conductance_lat,
-        conductance_lon,
-        time,
+        date, conductance_lat, conductance_lon, time
     )
 
     jr_lat = dynamics.state.geometry.grid.lat

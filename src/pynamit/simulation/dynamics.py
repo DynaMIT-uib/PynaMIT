@@ -111,9 +111,10 @@ class Dynamics(object):
         integrator : {'euler', 'exponential'}, optional
             Integrator type for time evolution.
         backend : {'auto', 'numpy', 'jax', bool}, optional
-            Array backend to use. ``"auto"`` respects the current global setting
-            (environment variable or previous choice). ``"numpy"``/``False``
-            enforce NumPy arrays, while ``"jax"``/``True`` enables JAX.
+            Array backend to use. ``"auto"`` respects the current global
+            setting (environment variable or previous choice).
+            ``"numpy"``/``False`` enforce NumPy arrays, while
+            ``"jax"``/``True`` enables JAX.
         """
         self.backend = set_backend(backend)
 

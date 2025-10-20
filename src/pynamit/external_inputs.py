@@ -1,10 +1,11 @@
 """
-Helpers for loading external inputs such as conductance, currents, and winds.
+Helpers for loading conductance, currents, and winds.
 
-This module encapsulates optional dependencies (lompe, pyamps, pyhwm2014). When
-those libraries are not available, it falls back to bundled sample data stored
-under ``pynamit.data.fallback_inputs.json``. The fallback data represents a
-single snapshot that is sufficient for validation tests and simple examples.
+This module encapsulates optional dependencies (lompe, pyamps,
+pyhwm2014). When those libraries are not available, it falls back to
+bundled sample data stored under ``pynamit.data.fallback_inputs.json``.
+The fallback data represents a single snapshot that is sufficient for
+validation tests and simple examples.
 """
 
 from __future__ import annotations
@@ -22,15 +23,17 @@ _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "auto").lower()
 
 
 class OptionalLibs:
-    """Lightweight proxy that attempts to import optional dependencies lazily."""
+    """Proxy that attempts to import optional dependencies lazily."""
 
     def __init__(self) -> None:
         self._imports: Dict[str, Optional[Any]] = {}
 
     def clear(self) -> None:
+        """Clear cached imports."""
         self._imports.clear()
 
     def load(self, name: str, package: str) -> Optional[Any]:
+        """Attempt to import an optional dependency."""
         if _INPUT_SOURCE == "fallback":
             return None
 
@@ -75,6 +78,7 @@ def native_inputs_available() -> bool:
 
 
 def get_input_source() -> str:
+    """Return the preferred input source mode."""
     return _INPUT_SOURCE
 
 
@@ -201,6 +205,7 @@ def save_fallback_dataset(
     wind_lon: Optional[np.ndarray] = None,
     indent: Optional[int] = 2,
 ) -> Path:
+    """Save a fallback input dataset to a JSON file."""
     destination_path = Path(destination)
     destination_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -247,10 +252,7 @@ def save_fallback_dataset(
 
 
 def _select_fallback_entry(
-    entries: Dict[str, Dict[str, np.ndarray]],
-    lat: np.ndarray,
-    lon: np.ndarray,
-    quantity: str,
+    entries: Dict[str, Dict[str, np.ndarray]], lat: np.ndarray, lon: np.ndarray, quantity: str
 ) -> Dict[str, np.ndarray]:
     if not entries:
         raise ValueError(f"No fallback {quantity} data available.")
@@ -289,7 +291,7 @@ def get_conductance_inputs(
     time: Optional[np.ndarray],
     reg_lambda: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return Hall and Pedersen conductance maps for the requested grid."""
+    """Return Hall and Pedersen conductance on grid."""
     conductance = OPTIONAL.load("conductance", "lompe")
     if conductance is not None:
         hall, pedersen = conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
@@ -300,9 +302,7 @@ def get_conductance_inputs(
     if lat.size > 0 and lon.size > 0 and native_inputs_available():
         from lompe import conductance as native_conductance
 
-        hall, pedersen = native_conductance.hardy_EUV(
-            lon, lat, 5, date, starlight=1, dipole=True
-        )
+        hall, pedersen = native_conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
         hall = _expand_time_series(hall, time)
         pedersen = _expand_time_series(pedersen, time)
         return hall, pedersen, lat, lon
@@ -332,15 +332,7 @@ def get_jr_inputs(
             "coefficients",
             "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt",
         )
-        amps = pyamps.AMPS(
-            300,
-            0,
-            -4,
-            20,
-            100,
-            minlat=50,
-            coeff_fn=coeff_path,
-        )
+        amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50, coeff_fn=coeff_path)
         mlt = d.mlon2mlt(lon, date)
         jr = amps.get_upward_current(mlat=lat, mlt=mlt) * 1e-6
         jr[np.abs(lat) < 50] = 0
@@ -352,7 +344,11 @@ def get_jr_inputs(
         import pyamps
 
         d = Dipole(date.year)
-        coeff_path = Path(pyamps.__file__).resolve().parent / 'coefficients' / 'SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt'
+        coeff_path = (
+            Path(pyamps.__file__).resolve().parent
+            / "coefficients"
+            / "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt"
+        )
         amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50, coeff_fn=str(coeff_path))
         mlt = d.mlon2mlt(lon, date)
         jr_native = amps.get_upward_current(mlat=lat, mlt=mlt) * 1e-6
@@ -367,9 +363,7 @@ def get_jr_inputs(
 
 
 def get_wind_inputs(
-    date: Any,
-    wind: bool,
-    time: Optional[np.ndarray],
+    date: Any, wind: bool, time: Optional[np.ndarray]
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]]:
     """Return neutral wind components if requested."""
     if not wind:
@@ -399,7 +393,12 @@ def get_wind_inputs(
         weights = np.tile(weights, (2, 1))
         return u_theta, u_phi, lat_grid.reshape(-1), lon_grid.reshape(-1), weights
 
-    if source != "fallback" and time is not None and np.size(time) > 1 and native_inputs_available():
+    if (
+        source != "fallback"
+        and time is not None
+        and np.size(time) > 1
+        and native_inputs_available()
+    ):
         from pyhwm2014 import HWM142D
 
         model = HWM142D(
@@ -416,18 +415,12 @@ def get_wind_inputs(
         )
         u_theta_native = -model.Vwind.flatten()
         u_phi_native = model.Uwind.flatten()
-        lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins, indexing='ij')
+        lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins, indexing="ij")
         u_theta_native = _expand_time_series(u_theta_native, time)
         u_phi_native = _expand_time_series(u_phi_native, time)
         weights = np.sqrt(np.sin(np.deg2rad(90.0 - lat_grid.reshape(-1))))
         weights = np.tile(weights, (2, 1))
-        return (
-            u_theta_native,
-            u_phi_native,
-            lat_grid.reshape(-1),
-            lon_grid.reshape(-1),
-            weights,
-        )
+        return (u_theta_native, u_phi_native, lat_grid.reshape(-1), lon_grid.reshape(-1), weights)
 
     fallback = _load_fallback()
     wind_data = fallback["wind"]

@@ -1,7 +1,8 @@
 """Geometry module.
 
-This module contains the Geometry class, which encapsulates the spatial grid,
-basis evaluators, magnetic field properties, and interhemispheric mappings.
+This module contains the Geometry class, which encapsulates the spatial
+grid, basis evaluators, magnetic field properties, and interhemispheric
+mappings.
 """
 
 from __future__ import annotations
@@ -24,10 +25,10 @@ logger = logging.getLogger(__name__)
 class Geometry:
     """Encapsulates the geometric setup for the ionospheric simulation.
 
-    This class manages grids, basis and field evaluators, geometric factors
-    derived from the main magnetic field, and interhemispheric mappings. It
-    provides a clean interface for the main State class to access pre-computed
-    geometric quantities.
+    This class manages grids, basis and field evaluators, geometric
+    factors derived from the main magnetic field, and interhemispheric
+    mappings. It provides a clean interface for the main State class to
+    access pre-computed geometric quantities.
     """
 
     def __init__(
@@ -79,7 +80,7 @@ class Geometry:
         )
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
-        """Convert a tangential vector field on the grid to Helmholtz basis coeffs."""
+        """Convert tangential vector field to Helmholtz coeffs."""
         return np.tensordot(self.G_helmholtz_pinv, vec, 2)
 
     def _init_evaluators(self, cs_basis: SHBasis) -> None:
@@ -102,7 +103,7 @@ class Geometry:
             self.cp_b_evaluator = FieldEvaluator(self.mainfield, self.cp_grid, self.RI)
 
     def _init_constraint_mappings(self) -> None:
-        """Initializes geometric operators related to physical constraints."""
+        """Initialize geometric operators related to constraints."""
         kind = self.mainfield.kind
         if kind == "dipole":
             self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
@@ -171,13 +172,13 @@ class Geometry:
 
     @property
     def T_to_Ve(self) -> xr.DataArray:
-        """Operator mapping imposed potential (T) to electric potential (Ve)."""
+        """Mapping external toroidal (T) to poloidal (Ve) potential."""
         if self._T_to_Ve is None:
             self._build_T_to_Ve()
         return self._T_to_Ve
 
     def _build_T_to_Ve(self) -> None:
-        """Construct the T_to_Ve operator by integrating along field lines."""
+        """Construct the T_to_Ve operator by integrating radially."""
         n = self.basis.index_length
         self._T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
@@ -241,7 +242,7 @@ class Geometry:
 
     @property
     def G_m_imp_to_JS(self) -> np.ndarray:
-        """Operator mapping imposed potential coeffs to sheet current on grid."""
+        """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_imp_to_JS is None:
             G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
             self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
@@ -251,7 +252,7 @@ class Geometry:
 
     @property
     def G_m_ind_to_JS(self) -> np.ndarray:
-        """Operator mapping induced potential coeffs to sheet current on grid."""
+        """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_ind_to_JS is None:
             G = self.G_Ve_to_JS.copy()
             if self.RM is not None:

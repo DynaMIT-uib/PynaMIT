@@ -1,3 +1,5 @@
+"""Tests for JAX backend functionality."""
+
 import numpy as np
 import pytest
 
@@ -24,7 +26,7 @@ def test_backend_toggle_round_trip(backend: str, data_source: str):
 @pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
 def test_tensor_product_backend_parity(backend: str, data_source: str):
-    """Ensure tensor_product produces identical results when JAX is active."""
+    """Ensure tensor_product produces identical results with JAX."""
     rng = np.random.default_rng(0)
     A = rng.random((3, 4, 5))
     B = rng.random((5, 6, 2))

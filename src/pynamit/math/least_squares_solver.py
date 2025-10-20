@@ -1,6 +1,4 @@
-"""
-Provides a stateless, configurable solver for LeastSquaresProblem objects.
-"""
+"""Provides a configurable solver for LeastSquaresProblem objects."""
 
 from __future__ import annotations
 import warnings
@@ -47,6 +45,7 @@ class LeastSquaresSolver:
         preconditioner: Optional[LinearOperator] = None,
         **kwargs,
     ) -> np.ndarray:
+        """Solve least-squares problem for given right-hand side(s)."""
         rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else np.float64
@@ -63,6 +62,7 @@ class LeastSquaresSolver:
         preconditioner_type: Optional[str] = None,
         num_scenarios: int = 1,
     ) -> Optional[LinearOperator]:
+        """Build preconditioner for the specified solver and problem."""
         p_type = (
             preconditioner_type if preconditioner_type is not None else self.preconditioner_type
         )
@@ -109,7 +109,9 @@ class LeastSquaresSolver:
                 rmatvec=lambda d: M.rmatvec(G.rmatvec(d)),
                 dtype=G.dtype,
             )
-            sol_transform = lambda y_block: M.matvec(y_block.flatten()).reshape(y_block.shape)
+
+            def sol_transform(y_block):
+                return M.matvec(y_block.flatten()).reshape(y_block.shape)
 
         m, n = G.shape[0] // num_scenarios, problem.solution_size
         max_iter = kwargs.pop(

@@ -1,6 +1,4 @@
-"""
-Least-squares problem definition.
-"""
+"""Least-squares problem definition."""
 
 from __future__ import annotations
 import functools
@@ -19,11 +17,14 @@ NumericInputList: TypeAlias = Union[float, List[float]]
 
 
 def cached_property(func: Callable):
+    """Cache a propertu."""
     return property(functools.lru_cache(maxsize=None)(func))
 
 
 @dataclass
 class ProcessedOperator:
+    """A processed operator with associated shape information."""
+
     op: Union[np.ndarray, LinearOperator]
     output_shape: Tuple[int, ...]
     input_shape: Tuple[int, ...]
@@ -31,15 +32,17 @@ class ProcessedOperator:
 
     @property
     def num_rows(self) -> int:
+        """Number of rows in the operator."""
         return self.op.shape[0]
 
     @property
     def dtype(self) -> np.dtype:
+        """Data type of the operator."""
         return self.op.dtype
 
 
 class LeastSquaresProblem:
-    """Defines and manages the mathematical structure of a least-squares problem."""
+    """Defines the mathematical structure of a least-squares problem."""
 
     def __init__(
         self,
@@ -110,6 +113,7 @@ class LeastSquaresProblem:
 
     @cached_property
     def scaled_lambdas(self) -> List[float]:
+        """Compute scaled regularization weights."""
         diag_A_T_A = self._compute_normal_matrix_diag(self.data_operator.op)
         active_diag_A = diag_A_T_A[diag_A_T_A > 0]
         data_term_scale = np.median(active_diag_A) if active_diag_A.size > 0 else 1.0
@@ -130,12 +134,14 @@ class LeastSquaresProblem:
 
     @cached_property
     def data_operator(self) -> ProcessedOperator:
+        """Assemble the data operator without regularization."""
         op = self._build_system_operator(include_regularization=False)
         shape = (op.shape[0],)
         return ProcessedOperator(op, output_shape=shape, input_shape=self.solution_shape)
 
     @cached_property
     def dense_system_matrix(self) -> np.ndarray:
+        """Assemble the dense system matrix including regularization."""
         all_rows = []
         for i, a_item in enumerate(self.A):
             op = self.densify_op(a_item)
@@ -155,11 +161,13 @@ class LeastSquaresProblem:
 
     @cached_property
     def svd(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute the SVD of the dense system matrix."""
         return np.linalg.svd(self.dense_system_matrix, full_matrices=False)
 
     def assemble_rhs_block(
         self, b: Union[Any, List[Any]]
     ) -> Tuple[Optional[np.ndarray], Tuple[int, ...], int]:
+        """Assemble right-hand side block for all scenarios."""
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
         processed = [
             self._process_b_vector(b_val, self.data_shapes[i]) for i, b_val in enumerate(b_list)
@@ -191,14 +199,19 @@ class LeastSquaresProblem:
     def get_system_operator(
         self, num_scenarios: int = 1, include_regularization: bool = True
     ) -> LinearOperator:
+        """Get system operator for specified number of scenarios."""
         op_block = self._build_system_operator(include_regularization)
         if num_scenarios == 1:
             return op_block
         op_rows, num_features = op_block.shape
         shape = (op_rows * num_scenarios, num_features * num_scenarios)
         dtype = op_block.dtype
-        matvec_block = lambda x_block: self.apply_op_to_block(op_block, x_block)
-        rmatvec_block = lambda y_block: self.apply_op_T_to_block(op_block, y_block)
+
+        def matvec_block(x_block):
+            return self.apply_op_to_block(op_block, x_block)
+
+        def rmatvec_block(y_block):
+            return self.apply_op_T_to_block(op_block, y_block)
 
         def matvec_final(x_flat: np.ndarray) -> np.ndarray:
             x_block = x_flat.reshape(num_features, num_scenarios)
@@ -287,6 +300,7 @@ class LeastSquaresProblem:
     def apply_op_to_block(
         self, op: Union[np.ndarray, LinearOperator], x_block: np.ndarray
     ) -> np.ndarray:
+        """Apply operator to a block of vectors."""
         if isinstance(op, LinearOperator):
             return op.matmat(x_block)
         return op @ x_block
@@ -294,11 +308,13 @@ class LeastSquaresProblem:
     def apply_op_T_to_block(
         self, op: Union[np.ndarray, LinearOperator], y_block: np.ndarray
     ) -> np.ndarray:
+        """Apply adjoint to a block of vectors."""
         if isinstance(op, LinearOperator):
             return op.rmatmat(y_block)
         return op.T.conj() @ y_block
 
     def densify_op(self, item: Optional[ProcessedOperator]) -> Optional[np.ndarray]:
+        """Convert operator to dense numpy array, if not None."""
         if item is None:
             return None
         op = item.op

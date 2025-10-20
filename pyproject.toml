@@ -17,7 +17,7 @@ where = ["src"]
 
 [tool.ruff]
 src = ["src", "tests", "scripts"]
-extend-exclude = ["__init__.py"]
+extend-exclude = ["__init__.py", "notebooks/"]
 line-length = 99
 
 [tool.ruff.lint]

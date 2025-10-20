@@ -1,8 +1,9 @@
+"""Tests for external input handling with fallback datasets."""
+
 import datetime
 
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pynamit.external_inputs import (
     _load_fallback,
@@ -21,6 +22,7 @@ pytestmark = pytest.mark.requires_native_inputs
 
 @pytest.fixture
 def force_fallback():
+    """Fixture to force the use of fallback external inputs."""
     previous = get_input_source()
     set_input_source("fallback")
     yield
@@ -28,6 +30,7 @@ def force_fallback():
 
 
 def test_fallback_conductance(force_fallback):
+    """Test that cond. inputs are correctly loaded from fallback."""
     fallback = _load_fallback()
     key, entry = next(iter(fallback["conductance"].items()))
     lat = entry["lat"]
@@ -43,6 +46,7 @@ def test_fallback_conductance(force_fallback):
 
 
 def test_fallback_multi_time_scaling(force_fallback):
+    """Test that time-dependent scaling is applied correctly."""
     time = np.array([0.0, 10.0, 20.0])
     fallback = _load_fallback()
     key, entry = next(iter(fallback["conductance"].items()))
@@ -54,17 +58,17 @@ def test_fallback_multi_time_scaling(force_fallback):
 
 
 def test_fallback_currents(force_fallback):
+    """Test that jr inputs are correctly loaded from fallback."""
     fallback = _load_fallback()
     key, entry = next(iter(fallback["jr"].items()))
-    jr, lat, lon = get_jr_inputs(
-        datetime.datetime.utcnow(), entry["lat"], entry["lon"], None
-    )
+    jr, lat, lon = get_jr_inputs(datetime.datetime.utcnow(), entry["lat"], entry["lon"], None)
     np.testing.assert_allclose(lat, entry["lat"])
     np.testing.assert_allclose(lon, entry["lon"])
     assert jr.shape == (entry["jr"].size,)
 
 
 def test_fallback_wind(force_fallback):
+    """Test that wind inputs are correctly loaded from fallback."""
     result = get_wind_inputs(datetime.datetime.utcnow(), wind=True, time=None)
     assert result is not None
     u_theta, u_phi, lat, lon, weights = result
@@ -77,10 +81,12 @@ def test_fallback_wind(force_fallback):
 
 
 def test_wind_disabled(force_fallback):
+    """Test that wind inputs are disabled when requested."""
     assert get_wind_inputs(datetime.datetime.utcnow(), wind=False, time=None) is None
 
 
 def test_fallback_roundtrip(tmp_path):
+    """Test saving and loading a custom fallback dataset."""
     lat = np.array([-60.0, 0.0, 60.0])
     lon = np.array([0.0, 90.0])
     grid_shape = (lat.size, lon.size)
@@ -131,6 +137,7 @@ def test_fallback_roundtrip(tmp_path):
 
 
 def test_expand_time_series_repeats_values():
+    """Test that _expand_time_series correctly repeats values."""
     data = np.array([1.0, 2.0, 3.0])
     time = np.array([0.0, 1.0, 2.0])
     expanded = _expand_time_series(data, time)
