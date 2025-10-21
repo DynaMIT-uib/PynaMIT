@@ -46,17 +46,27 @@ class LeastSquaresSolver:
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
-        requires_numpy = not use_jax() or self.solver == "lsmr"
-        rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(
-            rhs, force_numpy=requires_numpy
-        )
+        rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else np.float64
             return np.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
+        if use_jax():
+            import jax.numpy as jnp
+
+            rhs_block = jnp.asarray(rhs_block)
+        else:
+            rhs_block = np.asarray(rhs_block)
+
         self._validate_preconditioner_shape(problem, preconditioner, num_scenarios)
         solver_func = self._solve_methods[self.solver]
         solution_block = solver_func(problem, rhs_block, num_scenarios, preconditioner, **kwargs)
+        if use_jax():
+            import jax.numpy as jnp
+
+            solution_block = jnp.asarray(solution_block)
+        else:
+            solution_block = np.asarray(solution_block)
         return solution_block.reshape(problem.solution_shape + scenario_shape)
 
     def build_preconditioner(
@@ -123,6 +133,32 @@ class LeastSquaresSolver:
         M: Optional[LinearOperator],
         **kwargs,
     ) -> np.ndarray:
+        if use_jax():
+            if M is not None:
+                raise NotImplementedError("Preconditioners are not supported for JAX LSMR fallback.")
+            G_dense = np.asarray(problem.dense_system_matrix)
+            m, n = G_dense.shape
+            max_iter = kwargs.pop(
+                "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
+            )
+            lsmr_kwargs = {
+                "atol": self.tolerance,
+                "btol": self.tolerance,
+                "maxiter": max_iter,
+                **kwargs,
+            }
+            solutions = np.zeros((problem.solution_size, num_scenarios), dtype=G_dense.dtype)
+            for i in range(num_scenarios):
+                rhs_np = np.asarray(rhs_block[:, i])
+                sol_vec, istop, *_ = lsmr(G_dense, rhs_np, **lsmr_kwargs)
+                if istop not in [0, 1, 2]:
+                    warnings.warn(
+                        f"LSMR may not have converged (istop={istop}) for scenario {i}.",
+                        RuntimeWarning,
+                    )
+                solutions[:, i] = sol_vec
+            return solutions
+
         G = problem.get_system_operator(num_scenarios)
         op_to_solve, sol_transform = G, lambda sol: sol
         if M is not None:
@@ -189,39 +225,50 @@ class LeastSquaresSolver:
         except Exception as exc:  # pragma: no cover - JAX unavailable
             raise RuntimeError("JAX backend is required for the JAX CG solver.") from exc
 
-        max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         normal_mv = problem.jax_normal_matvec(include_regularization=True)
         adjoint = problem.jax_system_rmatvec(include_regularization=True)
 
-        preconditioner_blocks = None
         if M is not None:
-            preconditioner_blocks = self._prepare_jax_preconditioner_blocks(M, num_scenarios, problem.solution_size)
-            preconditioner_blocks = [jnp.asarray(block) for block in preconditioner_blocks]
+            preconditioner_blocks = [
+                jnp.asarray(block)
+                for block in self._prepare_jax_preconditioner_blocks(
+                    M, num_scenarios, problem.solution_size
+                )
+            ]
+        else:
+            preconditioner_blocks = [None] * num_scenarios
 
+        max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         solutions = []
         for i in range(num_scenarios):
             rhs_vec = jnp.asarray(rhs_block[:, i])
-            cg_rhs = adjoint(rhs_vec).reshape(-1)
+            normal_rhs = adjoint(rhs_vec)
             x0_arg = kwargs.get("x0")
             if x0_arg is not None:
                 x0_vec = jnp.asarray(x0_arg[:, i])
             else:
                 x0_vec = jnp.zeros(problem.solution_size, dtype=rhs_vec.dtype)
+
             M_func = None
-            if preconditioner_blocks is not None:
-                block = preconditioner_blocks[i]
+            block = preconditioner_blocks[i]
+            if block is not None:
 
-                def _make_precond(block_matrix):
-                    return lambda vec: block_matrix @ vec
+                def precondition(vec, block_matrix=block):
+                    return block_matrix @ vec
 
-                M_func = _make_precond(block)
+                M_func = precondition
 
             sol_vec, info = jax_cg(
-                normal_mv, cg_rhs, x0=x0_vec, tol=self.tolerance, maxiter=max_iter, M=M_func
+                normal_mv,
+                normal_rhs,
+                x0=x0_vec,
+                tol=self.tolerance,
+                maxiter=max_iter,
+                M=M_func,
             )
-            if info != 0:
+            if info is not None and info != 0:
                 warnings.warn(
-                    f"JAX CG solver did not converge (info={int(info)}) for scenario {i}.",
+                    f"JAX CG solver may not have converged (info={int(info)}) for scenario {i}.",
                     RuntimeWarning,
                 )
             solutions.append(sol_vec)

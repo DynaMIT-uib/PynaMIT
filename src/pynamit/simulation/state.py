@@ -73,7 +73,7 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
+        self.solver_type = getattr(settings, "least_squares_solver", "cg")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.static_preconditioner = getattr(settings, "static_preconditioner", False)
         self.integrator = settings.integrator
@@ -244,12 +244,11 @@ class State:
             b_E = -xp.einsum("cikl,kl->ci", E_map_op, xp.asarray(E_direct_coeffs))
             rhs_entries[1] = self.ih_constraint_scaling * xp.reshape(b_E, (-1,))
 
-        solution = self.m_imp_solver.solve(
-            problem=problem, rhs=rhs_entries, preconditioner=preconditioner
-        )
+        solver = self.m_imp_solver
+        solution = solver.solve(problem=problem, rhs=rhs_entries, preconditioner=preconditioner)
         if solution is None:
             solution = np.zeros(self.basis.index_length)
-        return to_jax(solution) if use_jax() else solution
+        return xp.asarray(solution)
 
     # ----- State Update -----
 
@@ -450,29 +449,26 @@ class State:
                 evolved = jax_expm(dt * op_A) @ diff + xp.asarray(steady_state_m_ind)
                 return evolved
 
-            evolved = expm(dt * to_numpy(op_A)) @ diff + xp.asarray(steady_state_m_ind)
-            return evolved
+            from scipy.linalg import expm
+
+            evolved = expm(dt * to_numpy(op_A)) @ to_numpy(diff)
+            return xp.asarray(evolved) + xp.asarray(steady_state_m_ind)
 
         else:
             # Fallback to scipy.solve_ivp for other integrators
             logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
 
-            # Define the right-hand side of the ODE for the solver.
-            # The non-induced part is constant, so it's captured from
-            # the outer scope.
-            def rhs(t, y):
+            def rhs_numpy(t, y):
                 y_backend = to_jax(y) if use_jax() else y
                 dy = self._calculate_d_m_ind_dt(y_backend, backend_E_noind)
                 return to_numpy(dy)
 
-            # Integrate from t=0 to t=dt. The ODE is autonomous
-            # (not t-dependent).
             sol = solve_ivp(
-                fun=rhs,
+                fun=rhs_numpy,
                 t_span=(0, dt),
                 y0=to_numpy(backend_m_ind),
                 method=self.integrator,
-                t_eval=[dt],  # We only need the final state
+                t_eval=[dt],
                 dense_output=False,
             )
 
@@ -482,10 +478,8 @@ class State:
                     f"status {sol.status}: {sol.message}"
                 )
 
-            # The result shape is (n_vars, n_times),
-            # so we take the last time point.
             result = sol.y[:, -1]
-            return to_jax(result) if use_jax() else result
+            return xp.asarray(result)
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the steady-state induced potential."""

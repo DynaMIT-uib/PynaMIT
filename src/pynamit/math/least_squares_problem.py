@@ -67,6 +67,15 @@ class LeastSquaresProblem:
         self._process_data_terms(A, data_shapes, sqrt_weights)
         self._process_regularization_terms(regularization_matrices, regularization_weights)
 
+    @staticmethod
+    def _backend_module():
+        """Return the active array module (NumPy or JAX NumPy)."""
+        if use_jax():
+            import jax.numpy as jnp  # Lazy import to avoid hard dependency
+
+            return jnp
+        return np
+
     def _process_data_terms(self, A_in, data_shapes_in, sqrt_weights_in):
         A_list = self._prepare_input_list(A_in, "A")
         self.num_data_terms = len(A_list)
@@ -170,16 +179,12 @@ class LeastSquaresProblem:
         return np.linalg.svd(self.dense_system_matrix, full_matrices=False)
 
     def assemble_rhs_block(
-        self, b: Union[Any, List[Any]], force_numpy: bool = False
+        self, b: Union[Any, List[Any]]
     ) -> Tuple[Optional[Any], Tuple[int, ...], int]:
         """Assemble right-hand side block for all scenarios."""
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
         processed = [
-            self._process_b_vector(
-                b_val,
-                self.data_shapes[i],
-                force_numpy=force_numpy or not use_jax(),
-            )
+            self._process_b_vector(b_val, self.data_shapes[i])
             for i, b_val in enumerate(b_list)
         ]
         valid_b = [p for p in processed if p[0] is not None]
@@ -189,48 +194,39 @@ class LeastSquaresProblem:
         if not all(p[1] == scenario_shape for p in valid_b):
             raise ValueError("Inconsistent scenario shapes in b terms.")
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
-        if force_numpy or not use_jax():
-            op_rows = self.get_system_operator(include_regularization=True).shape[0]
-            dtype = self.A[0].dtype if self.A else np.float64
-            d_block = np.zeros((op_rows, num_scenarios), dtype=dtype)
-            row = 0
-            for i, (b_col_block, _) in enumerate(processed):
-                num_a_rows = self.A[i].num_rows
-                if b_col_block is not None:
-                    w_item = self.sqrt_weights[i]
-                    if w_item:
-                        if w_item.is_diagonal:
-                            b_col_block = self.densify_op(w_item) * b_col_block
-                        else:
-                            b_col_block = self.apply_op_to_block(w_item.op, b_col_block)
-                    d_block[row : row + num_a_rows, :] = b_col_block
-                row += num_a_rows
-            return d_block, scenario_shape, num_scenarios
-
-        import jax.numpy as jnp
-
-        dtype = self.A[0].dtype if self.A else jnp.float64
+        backend = self._backend_module()
+        op_rows = self._jax_operator_row_count(include_regularization=True)
+        dtype = self.A[0].dtype if self.A else backend.float64
         blocks = []
-        data_rows = 0
+        filled_rows = 0
         for i, (b_col_block, _) in enumerate(processed):
             num_a_rows = self.A[i].num_rows
-            data_rows += num_a_rows
             if b_col_block is None:
-                blocks.append(jnp.zeros((num_a_rows, num_scenarios), dtype=dtype))
-                continue
-            block = jnp.asarray(b_col_block)
-            w_item = self.sqrt_weights[i]
-            if w_item:
-                block = self._jax_apply_weight(w_item, block)
+                block = backend.zeros((num_a_rows, num_scenarios), dtype=dtype)
+            else:
+                block = backend.asarray(b_col_block)
+                w_item = self.sqrt_weights[i]
+                if w_item:
+                    if use_jax():
+                        block = self._jax_apply_weight(w_item, block)
+                    else:
+                        block_np = np.asarray(block)
+                        if w_item.is_diagonal:
+                            diag = self.densify_op(w_item).reshape(-1, 1)
+                            block_np = diag * block_np
+                        else:
+                            block_np = self.apply_op_to_block(w_item.op, block_np)
+                        block = backend.asarray(block_np)
             blocks.append(block)
-        total_rows = self._jax_operator_row_count(include_regularization=True)
-        reg_rows = total_rows - data_rows
-        if reg_rows > 0:
-            blocks.append(jnp.zeros((reg_rows, num_scenarios), dtype=dtype))
+            filled_rows += num_a_rows
+
+        if filled_rows < op_rows:
+            blocks.append(backend.zeros((op_rows - filled_rows, num_scenarios), dtype=dtype))
+
         if not blocks:
-            d_block = jnp.zeros((0, num_scenarios), dtype=dtype)
+            d_block = backend.zeros((0, num_scenarios), dtype=dtype)
         else:
-            d_block = jnp.concatenate(blocks, axis=0)
+            d_block = backend.concatenate(blocks, axis=0)
         return d_block, scenario_shape, num_scenarios
 
     def get_system_operator(
@@ -450,18 +446,12 @@ class LeastSquaresProblem:
         )
 
     def _process_b_vector(
-        self, b_val: Any, data_shape: Tuple[int, ...], force_numpy: bool
+        self, b_val: Any, data_shape: Tuple[int, ...]
     ) -> Tuple[Optional[Any], Optional[Tuple[int, ...]]]:
         if b_val is None:
             return None, None
-        if force_numpy:
-            b = np.ascontiguousarray(b_val)
-            module = np
-        else:
-            import jax.numpy as jnp
-
-            b = jnp.asarray(b_val)
-            module = jnp
+        module = self._backend_module()
+        b = module.asarray(b_val)
         num_data_dims = len(data_shape)
         is_exact = b.shape == data_shape
         is_multi = b.ndim > num_data_dims and b.shape[:num_data_dims] == data_shape
