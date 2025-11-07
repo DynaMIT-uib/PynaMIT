@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 from scipy.sparse.linalg import LinearOperator
 
-from pynamit.utils import get_array_module, to_numpy, use_jax, vmap
+from pynamit.utils import get_array_module, use_jax, vmap
 
 try:  # pragma: no cover - optional optimisation dependency
     from opt_einsum import contract_expression
@@ -64,9 +64,10 @@ class TensorChain:
 
     def to_dense(self) -> np.ndarray:
         """Return dense matrix representation of the operator."""
-        xp = get_array_module(*self.component_tensors)
-        dense_matrix = xp.einsum(self.einsum_string_dense, *self.component_tensors, optimize=True)
-        dense_matrix = to_numpy(dense_matrix)
+        component_arrays = self._get_component_arrays_numpy()
+        dense_matrix = np.einsum(
+            self.einsum_string_dense, *component_arrays, optimize=True
+        )
         return (dense_matrix * self.scaling_factor).reshape(
             math.prod(self.output_shape), math.prod(self.input_shape)
         )
@@ -127,7 +128,7 @@ class TensorChain:
     def _get_component_arrays_numpy(self) -> List[np.ndarray]:
         """Return cached numpy copies of the component tensors."""
         if self._component_arrays is None:
-            self._component_arrays = [to_numpy(t) for t in self.component_tensors]
+            self._component_arrays = [np.asarray(t) for t in self.component_tensors]
         return self._component_arrays
 
     def matvec(self, x_flat: Any) -> Any:

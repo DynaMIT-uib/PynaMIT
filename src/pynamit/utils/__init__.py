@@ -163,9 +163,23 @@ def to_numpy(array: Any) -> Any:
 
 
 def asarray(array: Any, dtype: Any = None) -> Any:
-    """Backend-aware ``asarray`` helper."""
-    module = get_array_module(array)
-    return module.asarray(array, dtype=dtype) if dtype is not None else module.asarray(array)
+    """Backend-aware ``asarray`` helper that avoids redundant conversions."""
+    if use_jax():
+        if JAX_AVAILABLE and isinstance(array, _jax_array_type):
+            if dtype is None or getattr(array, "dtype", None) == dtype:
+                return array
+            return _jax_namespace.asarray(array, dtype=dtype)  # type: ignore[call-arg]
+        module = _jax_namespace or _np
+    else:
+        if isinstance(array, _np.ndarray):
+            if dtype is None or array.dtype == dtype:
+                return array
+            return _np.asarray(array, dtype=dtype)
+        module = _np
+
+    if dtype is not None:
+        return module.asarray(array, dtype=dtype)  # type: ignore[return-value]
+    return module.asarray(array)  # type: ignore[return-value]
 
 
 def _identity_decorator(func):

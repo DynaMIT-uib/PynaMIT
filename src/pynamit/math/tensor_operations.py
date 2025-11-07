@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from pynamit.utils import get_array_module, to_numpy
+from pynamit.utils import get_array_module
 
 
 def tensor_product(A, B, n_contracted):
@@ -151,10 +151,13 @@ def tensor_svd(
     )
 
     first_zero = S.shape[0]
-    if rtol:
-        mask_np = to_numpy(S <= rtol * S[0])
-        if mask_np.any():
-            first_zero = int(mask_np.argmax())
+    if rtol and S.size:
+        threshold = rtol * S[0]
+        mask = S <= threshold
+        xp_mask = get_array_module(mask)
+        indices = xp_mask.nonzero(mask)[0]
+        if indices.shape[0]:
+            first_zero = int(indices[0])
 
     filtered_S = S[:first_zero]
     filtered_U = U[:, :first_zero].reshape(first_dims + (first_zero,))
@@ -171,19 +174,20 @@ def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
     eigenvalues, eigenvectors = xp.linalg.eigh(A_arr)
 
     first_nonzero = eigenvalues.shape[0]
-    if rtol:
-        mask_np = to_numpy(eigenvalues > rtol * eigenvalues[-1])
-        if mask_np.any():
-            first_nonzero = int(mask_np.argmax())
+    if rtol and eigenvalues.size:
+        threshold = rtol * eigenvalues[-1]
+        mask = eigenvalues > threshold
+        xp_mask = get_array_module(mask)
+        indices = xp_mask.nonzero(mask)[0]
+        if indices.shape[0]:
+            first_nonzero = int(indices[0])
 
     filtered_eigenvalues = eigenvalues[first_nonzero:]
     filtered_eigenvectors = eigenvectors[:, first_nonzero:]
 
     if condition_number and filtered_eigenvalues.size:
-        eig_np = to_numpy(filtered_eigenvalues)
-        print(
-            "The condition number for the matrix is: {:.1f}".format(float(eig_np[-1] / eig_np[0]))
-        )
+        cond = float(filtered_eigenvalues[-1] / filtered_eigenvalues[0])
+        print("The condition number for the matrix is: {:.1f}".format(cond))
 
     return xp.einsum(
         "ij,j,jk->ik",
