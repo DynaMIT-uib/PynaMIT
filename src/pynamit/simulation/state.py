@@ -363,16 +363,17 @@ class State:
             if len(rhs_entries) > 1:
                 rhs_entries[1] = self.ih_constraint_scaling * b_E_block
 
-        rhs_block, _, _ = problem.assemble_rhs_block(rhs_entries)
+        rhs_block, _, num_scenarios = problem.assemble_rhs_block(rhs_entries)
         if rhs_block is None:
             op_rows = problem.get_system_operator().shape[0]
             rhs_block = np.zeros((op_rows, n), dtype=E_direct_dense_np.dtype)
+            num_scenarios = n
         rhs_block = np.asarray(rhs_block)
 
         # Solve in batch using cached SVD decomposition
         u, s, vt = problem.svd
         if s.size == 0:
-            m_imp_block = np.zeros((problem.solution_size, n), dtype=rhs_block.dtype)
+            m_imp_block = np.zeros((problem.solution_size, num_scenarios), dtype=rhs_block.dtype)
         else:
             tol = getattr(self.m_imp_solver, "tolerance", 0.0)
             cutoff = tol * s[0] if tol > 0 else 0.0
@@ -383,12 +384,18 @@ class State:
             tmp = s_inv[:, None] * tmp
             m_imp_block = vt.T.conj() @ tmp
 
+        if num_scenarios != n:
+            raise RuntimeError(
+                f"Expected {n} scenarios when building induction operator, got {num_scenarios}."
+            )
+
         # Map imposed potential response back to E-field coefficients
         if self.m_imp_to_E_coeffs is not None:
-            E_imp_dense = self.m_imp_to_E_coeffs.to_dense()
-            E_imp_block = (E_imp_dense @ m_imp_block).reshape(2, n, n)
+            m_imp_flat = xp.asarray(m_imp_block)
+            E_imp_flat = self.m_imp_to_E_coeffs.matmat(m_imp_flat)
+            E_imp_block = xp.asarray(E_imp_flat).reshape(2, n, n)
         else:
-            E_imp_block = np.zeros_like(E_direct_dense_np)
+            E_imp_block = xp.zeros_like(E_direct_dense)
 
         total_E = E_direct_dense_np + np.asarray(E_imp_block)
         self._m_ind_to_E_df_matrix = asarray(total_E[1])

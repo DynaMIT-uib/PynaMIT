@@ -66,6 +66,8 @@ class LeastSquaresProblem:
         self.solution_size = math.prod(self.solution_shape)
         self._process_data_terms(A, data_shapes, sqrt_weights)
         self._process_regularization_terms(regularization_matrices, regularization_weights)
+        self._system_operator_cache: dict[bool, LinearOperator] = {}
+        self._scenario_operator_cache: dict[Tuple[bool, int], LinearOperator] = {}
 
     @staticmethod
     def _backend_module():
@@ -93,6 +95,7 @@ class LeastSquaresProblem:
             self._create_weight_operator(w, self.data_shapes[i])
             for i, w in enumerate(sqrt_weights_list)
         ]
+        self._sqrt_weight_dense_cache: List[Optional[np.ndarray]] = [None] * self.num_data_terms
 
     def _process_regularization_terms(self, reg_matrices_in, reg_weights_in):
         reg_L_list = self._prepare_input_list(
@@ -211,11 +214,7 @@ class LeastSquaresProblem:
                         block = self._jax_apply_weight(w_item, block)
                     else:
                         block_np = np.asarray(block)
-                        if w_item.is_diagonal:
-                            diag = self.densify_op(w_item).reshape(-1, 1)
-                            block_np = diag * block_np
-                        else:
-                            block_np = self.apply_op_to_block(w_item.op, block_np)
+                        block_np = self._apply_weight_numpy(i, block_np)
                         block = backend.asarray(block_np)
             blocks.append(block)
             filled_rows += num_a_rows
@@ -233,9 +232,12 @@ class LeastSquaresProblem:
         self, num_scenarios: int = 1, include_regularization: bool = True
     ) -> LinearOperator:
         """Get system operator for specified number of scenarios."""
-        op_block = self._build_system_operator(include_regularization)
+        op_block = self._get_base_system_operator(include_regularization)
         if num_scenarios == 1:
             return op_block
+        cache_key = (include_regularization, num_scenarios)
+        if cache_key in self._scenario_operator_cache:
+            return self._scenario_operator_cache[cache_key]
         op_rows, num_features = op_block.shape
         shape = (op_rows * num_scenarios, num_features * num_scenarios)
         dtype = op_block.dtype
@@ -254,7 +256,9 @@ class LeastSquaresProblem:
             y_block = y_flat.reshape(op_rows, num_scenarios)
             return rmatvec_block(y_block).ravel()
 
-        return LinearOperator(shape, matvec=matvec_final, rmatvec=rmatvec_final, dtype=dtype)
+        lifted = LinearOperator(shape, matvec=matvec_final, rmatvec=rmatvec_final, dtype=dtype)
+        self._scenario_operator_cache[cache_key] = lifted
+        return lifted
 
     def _build_system_operator(self, include_regularization: bool) -> LinearOperator:
         num_features = self.solution_size
@@ -277,10 +281,7 @@ class LeastSquaresProblem:
                 res_block = self.apply_op_to_block(a_item.op, x_block)
                 w_item = self.sqrt_weights[i]
                 if w_item:
-                    if w_item.is_diagonal:
-                        res_block = self.densify_op(w_item) * res_block
-                    else:
-                        res_block = self.apply_op_to_block(w_item.op, res_block)
+                    res_block = self._apply_weight_numpy(i, res_block)
                 output_blocks.append(res_block)
             if include_regularization:
                 for i, L_item in enumerate(self.regularization_matrices):
@@ -300,10 +301,7 @@ class LeastSquaresProblem:
                 y_part = y_block[row : row + a_item.num_rows, :]
                 w_item = self.sqrt_weights[i]
                 if w_item:
-                    if w_item.is_diagonal:
-                        y_part = self.densify_op(w_item).conj() * y_part
-                    else:
-                        y_part = self.apply_op_T_to_block(w_item.op, y_part)
+                    y_part = self._apply_weight_T_numpy(i, y_part)
                 x_block += self.apply_op_T_to_block(a_item.op, y_part)
                 row += a_item.num_rows
             if include_regularization:
@@ -315,6 +313,13 @@ class LeastSquaresProblem:
             return x_block.ravel()
 
         return LinearOperator((op_rows, num_features), matvec=matvec, rmatvec=rmatvec, dtype=dtype)
+
+    def _get_base_system_operator(self, include_regularization: bool) -> LinearOperator:
+        if include_regularization in self._system_operator_cache:
+            return self._system_operator_cache[include_regularization]
+        op = self._build_system_operator(include_regularization)
+        self._system_operator_cache[include_regularization] = op
+        return op
 
     @staticmethod
     def _compute_normal_matrix_diag(op: Union[LinearOperator, np.ndarray]) -> np.ndarray:
@@ -365,6 +370,39 @@ class LeastSquaresProblem:
             eye = np.eye(op.shape[1], dtype=op.dtype)
             return op.matmat(eye)
         return op
+
+    def _get_weight_dense(self, idx: int) -> Optional[np.ndarray]:
+        cached = self._sqrt_weight_dense_cache[idx]
+        if cached is not None:
+            return cached
+        item = self.sqrt_weights[idx]
+        if not item:
+            return None
+        dense = self.densify_op(item)
+        if dense is None:
+            return None
+        if item.is_diagonal:
+            dense = dense.reshape(-1, 1)
+        self._sqrt_weight_dense_cache[idx] = dense
+        return dense
+
+    def _apply_weight_numpy(self, idx: int, block: np.ndarray) -> np.ndarray:
+        dense = self._get_weight_dense(idx)
+        item = self.sqrt_weights[idx]
+        if dense is None or not item:
+            return block
+        if item.is_diagonal:
+            return dense * block
+        return dense @ block
+
+    def _apply_weight_T_numpy(self, idx: int, block: np.ndarray) -> np.ndarray:
+        dense = self._get_weight_dense(idx)
+        item = self.sqrt_weights[idx]
+        if dense is None or not item:
+            return block
+        if item.is_diagonal:
+            return dense.conj() * block
+        return dense.T.conj() @ block
 
     @staticmethod
     def _prepare_input_list(
