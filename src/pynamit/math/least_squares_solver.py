@@ -133,32 +133,17 @@ class LeastSquaresSolver:
         M: Optional[LinearOperator],
         **kwargs,
     ) -> np.ndarray:
-        if use_jax():
-            if M is not None:
-                raise NotImplementedError("Preconditioners are not supported for JAX LSMR fallback.")
-            G_dense = np.asarray(problem.dense_system_matrix)
-            m, n = G_dense.shape
-            max_iter = kwargs.pop(
-                "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
-            )
-            lsmr_kwargs = {
-                "atol": self.tolerance,
-                "btol": self.tolerance,
-                "maxiter": max_iter,
-                **kwargs,
-            }
-            solutions = np.zeros((problem.solution_size, num_scenarios), dtype=G_dense.dtype)
-            for i in range(num_scenarios):
-                rhs_np = np.asarray(rhs_block[:, i])
-                sol_vec, istop, *_ = lsmr(G_dense, rhs_np, **lsmr_kwargs)
-                if istop not in [0, 1, 2]:
-                    warnings.warn(
-                        f"LSMR may not have converged (istop={istop}) for scenario {i}.",
-                        RuntimeWarning,
-                    )
-                solutions[:, i] = sol_vec
-            return solutions
+        rhs_np = np.asarray(rhs_block)
+        return self._solve_lsmr_numpy_backend(problem, rhs_np, num_scenarios, M, **kwargs)
 
+    def _solve_lsmr_numpy_backend(
+        self,
+        problem: LeastSquaresProblem,
+        rhs_block: np.ndarray,
+        num_scenarios: int,
+        M: Optional[LinearOperator],
+        **kwargs,
+    ) -> np.ndarray:
         G = problem.get_system_operator(num_scenarios)
         op_to_solve, sol_transform = G, lambda sol: sol
         if M is not None:
