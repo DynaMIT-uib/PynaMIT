@@ -18,6 +18,7 @@ from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.tensor_chain import TensorChain
+from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, use_jax, xp
@@ -288,21 +289,12 @@ class State:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return xp.zeros(output_shape)
 
-        if isinstance(op, TensorChain):
-            backend_coeffs = asarray(coeffs).reshape(-1)
-            res_backend = op.matvec(backend_coeffs).reshape(output_shape)
-            return res_backend
-
-        if isinstance(op, LinearOperator):
-            coeffs_np = np.asarray(coeffs).reshape(-1)
-            res_np = op.matvec(coeffs_np).reshape(output_shape)
-            return asarray(res_np)
-
-        module = xp
-        op_arr = module.asarray(op)
-        coeffs_arr = module.asarray(coeffs)
-        res = module.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
-        return res.reshape(output_shape) if res.shape != output_shape else res
+        linear_map = as_linear_map(op)
+        flat_in = linear_map.shape[1]
+        backend_coeffs = asarray(coeffs).reshape(flat_in)
+        res_flat = linear_map.matvec(backend_coeffs)
+        res_backend = asarray(res_flat).reshape(output_shape)
+        return res_backend
 
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]

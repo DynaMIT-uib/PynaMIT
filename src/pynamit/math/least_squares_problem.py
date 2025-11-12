@@ -10,6 +10,7 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator
 
 from pynamit.math.tensor_chain import TensorChain
+from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.utils import use_jax
 
 OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain]
@@ -26,24 +27,22 @@ def cached_property(func: Callable):
 class ProcessedOperator:
     """A processed operator with associated shape information."""
 
-    op: Union[np.ndarray, LinearOperator]
+    linear_map: LinearMap
     output_shape: Tuple[int, ...]
     input_shape: Tuple[int, ...]
     is_diagonal: bool = False
-    tensor_chain: Optional[TensorChain] = None
+    diag_data: Optional[np.ndarray] = None
     jax_dense: Optional[Any] = None
 
     @property
     def num_rows(self) -> int:
         """Number of rows in the operator."""
-        return self.op.shape[0]
+        return self.linear_map.shape[0]
 
     @property
     def dtype(self) -> np.dtype:
         """Data type of the operator."""
-        if self.tensor_chain is not None:
-            return self.tensor_chain.dtype
-        return self.op.dtype
+        return self.linear_map.dtype
 
 
 class LeastSquaresProblem:
@@ -120,18 +119,22 @@ class LeastSquaresProblem:
             arr = np.ascontiguousarray(w_val)
             is_diagonal = (arr.ndim == 1 and arr.size == flat_dim) or (arr.shape == shape)
             if is_diagonal:
+                diag_data = arr.reshape(flat_dim)
+                linear_map = diagonal_linear_map(diag_data)
                 return ProcessedOperator(
-                    op=arr.reshape(flat_dim, 1),
+                    linear_map=linear_map,
                     output_shape=shape,
                     input_shape=shape,
                     is_diagonal=True,
+                    diag_data=np.asarray(diag_data),
                 )
-        return self._flatten_operator(w_val, output_shape=shape, input_shape=shape)
+        flattened = self._flatten_operator(w_val, output_shape=shape, input_shape=shape)
+        return flattened
 
     @cached_property
     def scaled_lambdas(self) -> List[float]:
         """Compute scaled regularization weights."""
-        diag_A_T_A = self._compute_normal_matrix_diag(self.data_operator.op)
+        diag_A_T_A = self._compute_normal_matrix_diag(self.data_operator)
         active_diag_A = diag_A_T_A[diag_A_T_A > 0]
         data_term_scale = np.median(active_diag_A) if active_diag_A.size > 0 else 1.0
         scaled_lambdas = []
@@ -140,7 +143,7 @@ class LeastSquaresProblem:
             if raw_weight == 0 or L_item is None:
                 scaled_lambdas.append(0.0)
                 continue
-            diag_L_T_L = self._compute_normal_matrix_diag(L_item.op)
+            diag_L_T_L = self._compute_normal_matrix_diag(L_item)
             active_diag_L = diag_L_T_L[diag_L_T_L > 0]
             reg_term_scale = np.median(active_diag_L) if active_diag_L.size > 0 else 1.0
             scale_factor = (
@@ -154,7 +157,8 @@ class LeastSquaresProblem:
         """Assemble the data operator without regularization."""
         op = self._build_system_operator(include_regularization=False)
         shape = (op.shape[0],)
-        return ProcessedOperator(op, output_shape=shape, input_shape=self.solution_shape)
+        linear_map = as_linear_map(op)
+        return ProcessedOperator(linear_map, output_shape=shape, input_shape=self.solution_shape)
 
     @cached_property
     def dense_system_matrix(self) -> np.ndarray:
@@ -278,7 +282,7 @@ class LeastSquaresProblem:
             x_block = x.reshape(-1, 1)
             output_blocks: List[np.ndarray] = []
             for i, a_item in enumerate(self.A):
-                res_block = self.apply_op_to_block(a_item.op, x_block)
+                res_block = self.apply_linear_map_to_block(a_item.linear_map, x_block)
                 w_item = self.sqrt_weights[i]
                 if w_item:
                     res_block = self._apply_weight_numpy(i, res_block)
@@ -287,7 +291,8 @@ class LeastSquaresProblem:
                 for i, L_item in enumerate(self.regularization_matrices):
                     if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
                         output_blocks.append(
-                            active_lambdas[i] * self.apply_op_to_block(L_item.op, x_block)
+                            active_lambdas[i]
+                            * self.apply_linear_map_to_block(L_item.linear_map, x_block)
                         )
             if not output_blocks:
                 return np.zeros((op_rows,), dtype=dtype)
@@ -302,13 +307,15 @@ class LeastSquaresProblem:
                 w_item = self.sqrt_weights[i]
                 if w_item:
                     y_part = self._apply_weight_T_numpy(i, y_part)
-                x_block += self.apply_op_T_to_block(a_item.op, y_part)
+                x_block += self.apply_linear_map_T_to_block(a_item.linear_map, y_part)
                 row += a_item.num_rows
             if include_regularization:
                 for i, L_item in enumerate(self.regularization_matrices):
                     if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
                         y_part = y_block[row : row + L_item.num_rows, :]
-                        x_block += active_lambdas[i] * self.apply_op_T_to_block(L_item.op, y_part)
+                        x_block += active_lambdas[i] * self.apply_linear_map_T_to_block(
+                            L_item.linear_map, y_part
+                        )
                         row += L_item.num_rows
             return x_block.ravel()
 
@@ -322,54 +329,50 @@ class LeastSquaresProblem:
         return op
 
     @staticmethod
-    def _compute_normal_matrix_diag(op: Union[LinearOperator, np.ndarray]) -> np.ndarray:
-        if isinstance(op, np.ndarray):
-            return np.sum(np.abs(op) ** 2, axis=0)
-        tensor_chain = getattr(op, "_tensor_chain", None)
-        if tensor_chain is not None:
-            dense = tensor_chain.to_dense()
+    def _compute_normal_matrix_diag(item: ProcessedOperator) -> np.ndarray:
+        if item.is_diagonal and item.diag_data is not None:
+            return np.abs(item.diag_data.reshape(-1)) ** 2
+        map_obj = item.linear_map
+        try:
+            dense = map_obj.to_dense()
             return np.sum(np.abs(dense) ** 2, axis=0)
-        n_cols = op.shape[1]
-        dtype = np.result_type(op.dtype, np.float64)
-        diag = np.zeros(n_cols, dtype=dtype)
-        block_size = 32 if n_cols >= 32 else max(1, n_cols)
-        block = np.zeros((n_cols, block_size), dtype=op.dtype)
-        for start in range(0, n_cols, block_size):
-            stop = min(n_cols, start + block_size)
-            cols = stop - start
-            block[:, :cols] = 0
-            block[start:stop, :cols] = np.eye(cols, dtype=op.dtype)
-            res = op.matmat(block[:, :cols])
-            diag[start:stop] = np.sum(np.abs(res) ** 2, axis=0).real
-        return diag
+        except ValueError:
+            n_cols = map_obj.shape[1]
+            dtype = np.result_type(map_obj.dtype, np.float64)
+            diag = np.zeros(n_cols, dtype=dtype)
+            block_size = 32 if n_cols >= 32 else max(1, n_cols)
+            block = np.zeros((n_cols, block_size), dtype=dtype)
+            for start in range(0, n_cols, block_size):
+                stop = min(n_cols, start + block_size)
+                cols = stop - start
+                block[:, :cols] = 0
+                block[start:stop, :cols] = np.eye(cols, dtype=dtype)
+                res = map_obj.matmat(block[:, :cols])
+                res_np = np.asarray(res)
+                diag[start:stop] = np.sum(np.abs(res_np) ** 2, axis=0).real
+            return diag
 
-    def apply_op_to_block(
-        self, op: Union[np.ndarray, LinearOperator], x_block: np.ndarray
-    ) -> np.ndarray:
-        """Apply operator to a block of vectors."""
-        if isinstance(op, LinearOperator):
-            return op.matmat(x_block)
-        return op @ x_block
+    def apply_linear_map_to_block(self, map_obj: LinearMap, x_block: np.ndarray) -> np.ndarray:
+        """Apply a LinearMap to a block of vectors and return numpy output."""
+        return np.asarray(map_obj.matmat(x_block))
 
-    def apply_op_T_to_block(
-        self, op: Union[np.ndarray, LinearOperator], y_block: np.ndarray
-    ) -> np.ndarray:
-        """Apply adjoint to a block of vectors."""
-        if isinstance(op, LinearOperator):
-            return op.rmatmat(y_block)
-        return op.T.conj() @ y_block
+    def apply_linear_map_T_to_block(self, map_obj: LinearMap, y_block: np.ndarray) -> np.ndarray:
+        """Apply adjoint of a LinearMap to a block of vectors."""
+        return np.asarray(map_obj.rmatmat(y_block))
 
     def densify_op(self, item: Optional[ProcessedOperator]) -> Optional[np.ndarray]:
         """Convert operator to dense numpy array, if not None."""
         if item is None:
             return None
-        if item.tensor_chain is not None and not isinstance(item.op, np.ndarray):
-            return item.tensor_chain.to_dense()
-        op = item.op
-        if isinstance(op, LinearOperator):
-            eye = np.eye(op.shape[1], dtype=op.dtype)
-            return op.matmat(eye)
-        return op
+        if item.is_diagonal and item.diag_data is not None:
+            return item.diag_data
+        try:
+            return item.linear_map.to_dense()
+        except ValueError:
+            map_obj = item.linear_map
+            dtype = np.result_type(map_obj.dtype, np.float64)
+            eye = np.eye(map_obj.shape[1], dtype=dtype)
+            return np.asarray(map_obj.matmat(eye))
 
     def _get_weight_dense(self, idx: int) -> Optional[np.ndarray]:
         cached = self._sqrt_weight_dense_cache[idx]
@@ -440,44 +443,58 @@ class LeastSquaresProblem:
         output_shape: Tuple[int, ...] = None,
         input_shape: Tuple[int, ...] = None,
     ) -> ProcessedOperator:
-        if isinstance(op, TensorChain):
-            if self.matrix_free:
-                lin_op = op.as_linear_operator()
-                return ProcessedOperator(
-                    op=lin_op,
-                    output_shape=op.output_shape,
-                    input_shape=op.input_shape,
-                    tensor_chain=op,
-                )
-            dense_op = op.to_dense()
-            return ProcessedOperator(
-                op=dense_op, output_shape=op.output_shape, input_shape=op.input_shape
-            )
-        if isinstance(op, LinearOperator):
-            return ProcessedOperator(
-                op=op, output_shape=(op.shape[0],), input_shape=(op.shape[1],)
-            )
-        if isinstance(op, np.ndarray):
-            array = np.ascontiguousarray(op)
+        def ensure_shapes(arr):
+            nonlocal input_shape, output_shape
             if input_shape is None and output_shape is None:
                 raise ValueError("At least one shape must be provided for numpy arrays.")
             if input_shape is None:
                 flat_out = math.prod(output_shape)
-                if array.size % flat_out != 0:
+                if arr.size % flat_out != 0:
                     raise ValueError("Array size is incompatible with provided output_shape.")
-                input_shape = (array.size // flat_out,)
+                input_shape = (arr.size // flat_out,)
             elif output_shape is None:
                 flat_in = math.prod(input_shape)
-                if array.size % flat_in != 0:
+                if arr.size % flat_in != 0:
                     raise ValueError("Array size is incompatible with provided input_shape.")
-                output_shape = (array.size // flat_in,)
+                output_shape = (arr.size // flat_in,)
             flat_in_size, flat_out_size = math.prod(input_shape), math.prod(output_shape)
-            if array.size != flat_in_size * flat_out_size:
+            if arr.size != flat_in_size * flat_out_size:
                 raise ValueError(
-                    f"Array size ({array.size}) is incompatible with specified shapes."
+                    f"Array size ({arr.size}) is incompatible with specified shapes."
                 )
+            return flat_out_size, flat_in_size
+
+        if isinstance(op, TensorChain):
+            if self.matrix_free:
+                linear_map = as_linear_map(op)
+                return ProcessedOperator(
+                    linear_map=linear_map,
+                    output_shape=op.output_shape,
+                    input_shape=op.input_shape,
+                )
+            dense_op = op.to_dense()
+            flat_out_size, flat_in_size = ensure_shapes(dense_op)
+            dense_matrix = dense_op.reshape(flat_out_size, flat_in_size)
+            linear_map = as_linear_map(dense_matrix)
             return ProcessedOperator(
-                array.reshape(flat_out_size, flat_in_size), output_shape, input_shape
+                linear_map=linear_map,
+                output_shape=op.output_shape,
+                input_shape=op.input_shape,
+            )
+        if isinstance(op, LinearOperator):
+            linear_map = as_linear_map(op)
+            return ProcessedOperator(
+                linear_map=linear_map,
+                output_shape=(op.shape[0],),
+                input_shape=(op.shape[1],),
+            )
+        if isinstance(op, np.ndarray):
+            array = np.ascontiguousarray(op)
+            flat_out_size, flat_in_size = ensure_shapes(array)
+            reshaped = array.reshape(flat_out_size, flat_in_size)
+            linear_map = as_linear_map(reshaped)
+            return ProcessedOperator(
+                linear_map=linear_map, output_shape=output_shape, input_shape=input_shape
             )
         raise TypeError(
             f"Input must be a numpy array, TensorChain, or LinearOperator, got {type(op)}"
@@ -520,9 +537,6 @@ class LeastSquaresProblem:
 
         if item.jax_dense is not None:
             return item.jax_dense
-        if isinstance(item.op, np.ndarray):
-            item.jax_dense = jnp.asarray(item.op)
-            return item.jax_dense
         dense_np = self.densify_op(item)
         item.jax_dense = jnp.asarray(dense_np)
         return item.jax_dense
@@ -532,8 +546,14 @@ class LeastSquaresProblem:
     ):
         import jax.numpy as jnp
 
-        if item.tensor_chain is not None:
-            return item.tensor_chain.matmat(x_block)
+        source = item.linear_map.source
+        if isinstance(source, TensorChain):
+            return source.matmat(x_block)
+        if item.is_diagonal and item.diag_data is not None:
+            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
+            if x_block.ndim == 1:
+                return diag.ravel() * x_block
+            return diag * x_block
         dense = self._jax_ensure_dense(item)
         return dense @ x_block
 
@@ -542,8 +562,14 @@ class LeastSquaresProblem:
     ):
         import jax.numpy as jnp
 
-        if item.tensor_chain is not None:
-            return item.tensor_chain.rmatmat(y_block)
+        source = item.linear_map.source
+        if isinstance(source, TensorChain):
+            return source.rmatmat(y_block)
+        if item.is_diagonal and item.diag_data is not None:
+            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
+            if y_block.ndim == 1:
+                return diag.conj().ravel() * y_block
+            return diag.conj() * y_block
         dense = self._jax_ensure_dense(item)
         return dense.T.conj() @ y_block
 
@@ -553,7 +579,7 @@ class LeastSquaresProblem:
         import jax.numpy as jnp
 
         if item.is_diagonal:
-            diag = jnp.asarray(item.op).reshape(-1, 1)
+            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
             return diag * block
         return self._jax_apply_processed_operator(item, block)
 
@@ -563,7 +589,7 @@ class LeastSquaresProblem:
         import jax.numpy as jnp
 
         if item.is_diagonal:
-            diag = jnp.asarray(item.op).reshape(-1, 1)
+            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
             return diag.conj() * block
         return self._jax_apply_processed_operator_T(item, block)
 
