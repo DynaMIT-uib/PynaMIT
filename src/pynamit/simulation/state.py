@@ -7,7 +7,7 @@ for simulating ionospheric electrodynamics.
 
 from __future__ import annotations
 import logging
-from typing import Optional, Tuple, Any, List
+from typing import Optional, Tuple, Any, List, Dict
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -18,7 +18,7 @@ from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.math.linear_map import as_linear_map
+from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, use_jax, xp
@@ -102,6 +102,19 @@ class State:
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
         self._m_imp_preconditioner: Optional[LinearOperator] = None
+        self._operator_linear_map_cache: Dict[Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any] = {}
+
+    def _get_linear_map(
+        self, op: Any, input_shape: Tuple[int, ...], output_shape: Tuple[int, ...]
+    ) -> LinearMap:
+        if isinstance(op, LinearMap):
+            return op
+        cache_key = (id(op), input_shape, output_shape)
+        cached = self._operator_linear_map_cache.get(cache_key)
+        if cached is None:
+            cached = as_linear_map(op, input_shape=input_shape, output_shape=output_shape)
+            self._operator_linear_map_cache[cache_key] = cached
+        return cached
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -289,7 +302,8 @@ class State:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return xp.zeros(output_shape)
 
-        linear_map = as_linear_map(op)
+        coeffs_shape = tuple(int(dim) for dim in asarray(coeffs).shape)
+        linear_map = self._get_linear_map(op, coeffs_shape, output_shape)
         flat_in = linear_map.shape[1]
         backend_coeffs = asarray(coeffs).reshape(flat_in)
         res_flat = linear_map.matvec(backend_coeffs)

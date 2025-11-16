@@ -65,8 +65,9 @@ class LeastSquaresProblem:
         self.solution_size = math.prod(self.solution_shape)
         self._process_data_terms(A, data_shapes, sqrt_weights)
         self._process_regularization_terms(regularization_matrices, regularization_weights)
-        self._system_operator_cache: dict[bool, LinearOperator] = {}
         self._scenario_operator_cache: dict[Tuple[bool, int], LinearOperator] = {}
+        self._system_linear_map_cache: dict[bool, LinearMap] = {}
+        self._scenario_linear_map_cache: dict[Tuple[bool, int], LinearMap] = {}
 
     @staticmethod
     def _backend_module():
@@ -155,10 +156,11 @@ class LeastSquaresProblem:
     @cached_property
     def data_operator(self) -> ProcessedOperator:
         """Assemble the data operator without regularization."""
-        op = self._build_system_operator(include_regularization=False)
-        shape = (op.shape[0],)
-        linear_map = as_linear_map(op)
-        return ProcessedOperator(linear_map, output_shape=shape, input_shape=self.solution_shape)
+        linear_map = self._build_system_linear_map(include_regularization=False)
+        shape = (linear_map.shape[0],)
+        return ProcessedOperator(
+            linear_map, output_shape=shape, input_shape=self.solution_shape
+        )
 
     @cached_property
     def dense_system_matrix(self) -> np.ndarray:
@@ -169,7 +171,10 @@ class LeastSquaresProblem:
             w_item = self.sqrt_weights[i]
             if w_item:
                 w_op = self.densify_op(w_item)
-                op = w_op * op if w_item.is_diagonal else w_op @ op
+                if w_item.is_diagonal:
+                    op = w_op.reshape(-1, 1) * op
+                else:
+                    op = w_op @ op
             all_rows.append(op)
         lambdas = self.scaled_lambdas
         for i, L_item in enumerate(self.regularization_matrices):
@@ -236,35 +241,30 @@ class LeastSquaresProblem:
         self, num_scenarios: int = 1, include_regularization: bool = True
     ) -> LinearOperator:
         """Get system operator for specified number of scenarios."""
-        op_block = self._get_base_system_operator(include_regularization)
-        if num_scenarios == 1:
-            return op_block
         cache_key = (include_regularization, num_scenarios)
         if cache_key in self._scenario_operator_cache:
             return self._scenario_operator_cache[cache_key]
-        op_rows, num_features = op_block.shape
-        shape = (op_rows * num_scenarios, num_features * num_scenarios)
-        dtype = op_block.dtype
+        linear_map = self.get_system_linear_map(
+            num_scenarios=num_scenarios, include_regularization=include_regularization
+        )
+        lin_op = linear_map.as_linear_operator()
+        self._scenario_operator_cache[cache_key] = lin_op
+        return lin_op
 
-        def matvec_block(x_block):
-            return self.apply_op_to_block(op_block, x_block)
-
-        def rmatvec_block(y_block):
-            return self.apply_op_T_to_block(op_block, y_block)
-
-        def matvec_final(x_flat: np.ndarray) -> np.ndarray:
-            x_block = x_flat.reshape(num_features, num_scenarios)
-            return matvec_block(x_block).ravel()
-
-        def rmatvec_final(y_flat: np.ndarray) -> np.ndarray:
-            y_block = y_flat.reshape(op_rows, num_scenarios)
-            return rmatvec_block(y_block).ravel()
-
-        lifted = LinearOperator(shape, matvec=matvec_final, rmatvec=rmatvec_final, dtype=dtype)
-        self._scenario_operator_cache[cache_key] = lifted
+    def get_system_linear_map(
+        self, num_scenarios: int = 1, include_regularization: bool = True
+    ) -> LinearMap:
+        if num_scenarios == 1:
+            return self._get_base_system_linear_map(include_regularization)
+        cache_key = (include_regularization, num_scenarios)
+        if cache_key in self._scenario_linear_map_cache:
+            return self._scenario_linear_map_cache[cache_key]
+        base_map = self._get_base_system_linear_map(include_regularization)
+        lifted = self._lift_linear_map_to_scenarios(base_map, num_scenarios)
+        self._scenario_linear_map_cache[cache_key] = lifted
         return lifted
 
-    def _build_system_operator(self, include_regularization: bool) -> LinearOperator:
+    def _build_system_linear_map(self, include_regularization: bool) -> LinearMap:
         num_features = self.solution_size
         active_lambdas = self.scaled_lambdas if include_regularization else []
         op_rows_data = sum(a.num_rows for a in self.A)
@@ -278,55 +278,87 @@ class LeastSquaresProblem:
         op_rows = op_rows_data + op_rows_reg
         dtype = self.A[0].dtype if self.A else np.float64
 
-        def matvec(x: np.ndarray) -> np.ndarray:
-            x_block = x.reshape(-1, 1)
-            output_blocks: List[np.ndarray] = []
-            for i, a_item in enumerate(self.A):
-                res_block = self.apply_linear_map_to_block(a_item.linear_map, x_block)
-                w_item = self.sqrt_weights[i]
-                if w_item:
-                    res_block = self._apply_weight_numpy(i, res_block)
-                output_blocks.append(res_block)
-            if include_regularization:
-                for i, L_item in enumerate(self.regularization_matrices):
-                    if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
-                        output_blocks.append(
-                            active_lambdas[i]
-                            * self.apply_linear_map_to_block(L_item.linear_map, x_block)
-                        )
-            if not output_blocks:
-                return np.zeros((op_rows,), dtype=dtype)
-            return np.vstack(output_blocks).ravel()
+        def matmat(block: np.ndarray) -> np.ndarray:
+            x_block = np.asarray(block).reshape(num_features, -1)
+            return self._apply_system_block_numpy(x_block, include_regularization)
 
-        def rmatvec(y: np.ndarray) -> np.ndarray:
-            y_block = y.reshape(-1, 1)
-            x_block = np.zeros((num_features, 1), dtype=y.dtype)
-            row = 0
-            for i, a_item in enumerate(self.A):
-                y_part = y_block[row : row + a_item.num_rows, :]
-                w_item = self.sqrt_weights[i]
-                if w_item:
-                    y_part = self._apply_weight_T_numpy(i, y_part)
-                x_block += self.apply_linear_map_T_to_block(a_item.linear_map, y_part)
-                row += a_item.num_rows
-            if include_regularization:
-                for i, L_item in enumerate(self.regularization_matrices):
-                    if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
-                        y_part = y_block[row : row + L_item.num_rows, :]
-                        x_block += active_lambdas[i] * self.apply_linear_map_T_to_block(
-                            L_item.linear_map, y_part
-                        )
-                        row += L_item.num_rows
-            return x_block.ravel()
+        def rmatmat(block: np.ndarray) -> np.ndarray:
+            y_block = np.asarray(block).reshape(op_rows, -1)
+            return self._apply_system_T_block_numpy(y_block, include_regularization)
 
-        return LinearOperator((op_rows, num_features), matvec=matvec, rmatvec=rmatvec, dtype=dtype)
+        def matvec(vec: np.ndarray) -> np.ndarray:
+            return matmat(np.asarray(vec).reshape(num_features, 1)).ravel()
 
-    def _get_base_system_operator(self, include_regularization: bool) -> LinearOperator:
-        if include_regularization in self._system_operator_cache:
-            return self._system_operator_cache[include_regularization]
-        op = self._build_system_operator(include_regularization)
-        self._system_operator_cache[include_regularization] = op
-        return op
+        def rmatvec(vec: np.ndarray) -> np.ndarray:
+            return rmatmat(np.asarray(vec).reshape(op_rows, 1)).ravel()
+
+        return LinearMap(
+            shape=(op_rows, num_features),
+            dtype=dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _to_dense=None,
+            source=None,
+        )
+
+    def _get_base_system_linear_map(self, include_regularization: bool) -> LinearMap:
+        if include_regularization in self._system_linear_map_cache:
+            return self._system_linear_map_cache[include_regularization]
+        linear_map = self._build_system_linear_map(include_regularization)
+        self._system_linear_map_cache[include_regularization] = linear_map
+        return linear_map
+
+    def _lift_linear_map_to_scenarios(self, base_map: LinearMap, num_scenarios: int) -> LinearMap:
+        base_in = base_map.shape[1]
+        base_out = base_map.shape[0]
+        dtype = base_map.dtype
+
+        def _apply(block: np.ndarray) -> np.ndarray:
+            cols = block.shape[1]
+            result = np.zeros((base_out * num_scenarios, cols), dtype=block.dtype)
+            for j in range(cols):
+                vec = block[:, j]
+                scenario_block = vec.reshape(base_in, num_scenarios)
+                res = base_map.matmat(scenario_block)
+                result[:, j] = np.asarray(res).reshape(-1)
+            return result
+
+        def _apply_T(block: np.ndarray) -> np.ndarray:
+            cols = block.shape[1]
+            result = np.zeros((base_in * num_scenarios, cols), dtype=block.dtype)
+            for j in range(cols):
+                vec = block[:, j]
+                scenario_block = vec.reshape(base_out, num_scenarios)
+                res = base_map.rmatmat(scenario_block)
+                result[:, j] = np.asarray(res).reshape(-1)
+            return result
+
+        def matmat(block: np.ndarray) -> np.ndarray:
+            block_np = np.asarray(block).reshape(base_in * num_scenarios, -1)
+            return _apply(block_np)
+
+        def rmatmat(block: np.ndarray) -> np.ndarray:
+            block_np = np.asarray(block).reshape(base_out * num_scenarios, -1)
+            return _apply_T(block_np)
+
+        def matvec(vec: np.ndarray) -> np.ndarray:
+            return matmat(np.asarray(vec).reshape(base_in * num_scenarios, 1)).ravel()
+
+        def rmatvec(vec: np.ndarray) -> np.ndarray:
+            return rmatmat(np.asarray(vec).reshape(base_out * num_scenarios, 1)).ravel()
+
+        return LinearMap(
+            shape=(base_out * num_scenarios, base_in * num_scenarios),
+            dtype=dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _to_dense=None,
+            source=None,
+        )
 
     @staticmethod
     def _compute_normal_matrix_diag(item: ProcessedOperator) -> np.ndarray:
@@ -359,6 +391,67 @@ class LeastSquaresProblem:
     def apply_linear_map_T_to_block(self, map_obj: LinearMap, y_block: np.ndarray) -> np.ndarray:
         """Apply adjoint of a LinearMap to a block of vectors."""
         return np.asarray(map_obj.rmatmat(y_block))
+
+    def _apply_system_block_numpy(
+        self, block: np.ndarray, include_regularization: bool
+    ) -> np.ndarray:
+        num_cols = block.shape[1]
+        dtype = block.dtype
+        op_rows_data = sum(a.num_rows for a in self.A)
+        op_rows = op_rows_data
+        if include_regularization:
+            active_lambdas = self.scaled_lambdas
+            op_rows += sum(
+                L.num_rows
+                for i, L in enumerate(self.regularization_matrices)
+                if i < len(active_lambdas) and L and active_lambdas[i] > 0
+            )
+        else:
+            active_lambdas = []
+        if op_rows == 0:
+            return np.zeros((0, num_cols), dtype=dtype)
+        output_blocks: List[np.ndarray] = []
+        for i, a_item in enumerate(self.A):
+            res_block = self.apply_linear_map_to_block(a_item.linear_map, block)
+            w_item = self.sqrt_weights[i]
+            if w_item:
+                res_block = self._apply_weight_numpy(i, res_block)
+            output_blocks.append(res_block)
+        if include_regularization and active_lambdas:
+            for i, L_item in enumerate(self.regularization_matrices):
+                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
+                    res_block = self.apply_linear_map_to_block(L_item.linear_map, block)
+                    output_blocks.append(active_lambdas[i] * res_block)
+        if not output_blocks:
+            return np.zeros((op_rows, num_cols), dtype=dtype)
+        return np.vstack(output_blocks)
+
+    def _apply_system_T_block_numpy(
+        self, block: np.ndarray, include_regularization: bool
+    ) -> np.ndarray:
+        num_cols = block.shape[1]
+        dtype = block.dtype
+        accum = np.zeros((self.solution_size, num_cols), dtype=dtype)
+        row = 0
+        for i, a_item in enumerate(self.A):
+            num_rows = a_item.num_rows
+            part = block[row : row + num_rows, :]
+            w_item = self.sqrt_weights[i]
+            if w_item:
+                part = self._apply_weight_T_numpy(i, part)
+            accum += self.apply_linear_map_T_to_block(a_item.linear_map, part)
+            row += num_rows
+        if include_regularization:
+            active_lambdas = self.scaled_lambdas
+            for i, L_item in enumerate(self.regularization_matrices):
+                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
+                    num_rows = L_item.num_rows
+                    part = block[row : row + num_rows, :]
+                    accum += active_lambdas[i] * self.apply_linear_map_T_to_block(
+                        L_item.linear_map, part
+                    )
+                    row += num_rows
+        return accum
 
     def densify_op(self, item: Optional[ProcessedOperator]) -> Optional[np.ndarray]:
         """Convert operator to dense numpy array, if not None."""
