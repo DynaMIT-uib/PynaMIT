@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import types
+import math
 from functools import wraps
 from typing import Any, Iterable, Optional, Union
 
@@ -235,6 +236,22 @@ class _ArrayModuleProxy(types.SimpleNamespace):
 
 xp = _ArrayModuleProxy()
 
+
+def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
+    """Moore-Penrose pseudoinverse of a tensor."""
+    A_arr = asarray(A)
+
+    first_dims = A_arr.shape[:n_leading_flattened]
+    last_dims = A_arr.shape[n_leading_flattened:]
+
+    flat_first = math.prod(first_dims)
+    flat_last = math.prod(last_dims)
+
+    A_flat = A_arr.reshape((flat_first, flat_last))
+    pinv_kwargs = {"hermitian": hermitian, "rtol": rtol}
+    A_pinv = xp.linalg.pinv(A_flat, **pinv_kwargs)
+    return A_pinv.reshape(last_dims + first_dims)
+
 __all__ = [
     "JAX_AVAILABLE",
     "xp",
@@ -246,4 +263,5 @@ __all__ = [
     "asarray",
     "jit",
     "vmap",
+    "tensor_pinv",
 ]

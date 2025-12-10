@@ -16,7 +16,7 @@ from pynamit.math.constants import mu0
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.math.tensor_operations import tensor_pinv
+from pynamit.utils import tensor_pinv
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 logger = logging.getLogger(__name__)

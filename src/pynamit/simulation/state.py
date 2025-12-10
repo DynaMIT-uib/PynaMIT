@@ -18,10 +18,10 @@ from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.math.linear_map import as_linear_map, LinearMap
+from pynamit.math.linear_map import as_linear_map, LinearMap, diagonal_linear_map
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.utils import asarray, use_jax, xp
+from pynamit.utils import asarray, use_jax, xp, to_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,8 @@ class State:
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
-                identity_op = LinearOperator((n, n), matvec=lambda x: x)
+                # Use diagonal map for backend-agnostic identity
+                identity_op = diagonal_linear_map(xp.ones(n))
                 reg_ops.append(identity_op)
                 reg_weights.append(self.m_imp_regularization_lambda)
 
@@ -259,7 +260,7 @@ class State:
         solver = self.m_imp_solver
         solution = solver.solve(problem=problem, rhs=rhs_entries, preconditioner=preconditioner)
         if solution is None:
-            solution = np.zeros(self.basis.index_length)
+            solution = xp.zeros(self.basis.index_length)
         return asarray(solution)
 
     # ----- State Update -----
@@ -357,7 +358,6 @@ class State:
 
         # Direct contribution from induced potential (without imposed solver feedback)
         E_direct_dense = asarray(self.m_ind_to_E_coeffs.to_dense()).reshape(2, n, n)
-        E_direct_dense_np = np.asarray(E_direct_dense)
 
         problem = self.m_imp_problem
         rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
@@ -372,20 +372,18 @@ class State:
         rhs_block, _, num_scenarios = problem.assemble_rhs_block(rhs_entries)
         if rhs_block is None:
             op_rows = problem.get_system_operator().shape[0]
-            rhs_block = np.zeros((op_rows, n), dtype=E_direct_dense_np.dtype)
+            rhs_block = xp.zeros((op_rows, n), dtype=E_direct_dense.dtype)
             num_scenarios = n
-        rhs_block = np.asarray(rhs_block)
+        rhs_block = asarray(rhs_block)
 
         # Solve in batch using cached SVD decomposition
         u, s, vt = problem.svd
         if s.size == 0:
-            m_imp_block = np.zeros((problem.solution_size, num_scenarios), dtype=rhs_block.dtype)
+            m_imp_block = xp.zeros((problem.solution_size, num_scenarios), dtype=rhs_block.dtype)
         else:
             tol = getattr(self.m_imp_solver, "tolerance", 0.0)
             cutoff = tol * s[0] if tol > 0 else 0.0
-            s_inv = np.zeros_like(s)
-            mask = s > cutoff
-            s_inv[mask] = 1.0 / s[mask]
+            s_inv = xp.where(s > cutoff, 1.0 / s, 0.0)
             tmp = u.T.conj() @ rhs_block
             tmp = s_inv[:, None] * tmp
             m_imp_block = vt.T.conj() @ tmp
@@ -397,13 +395,13 @@ class State:
 
         # Map imposed potential response back to E-field coefficients
         if self.m_imp_to_E_coeffs is not None:
-            m_imp_flat = xp.asarray(m_imp_block)
+            m_imp_flat = asarray(m_imp_block)
             E_imp_flat = self.m_imp_to_E_coeffs.matmat(m_imp_flat)
-            E_imp_block = xp.asarray(E_imp_flat).reshape(2, n, n)
+            E_imp_block = asarray(E_imp_flat).reshape(2, n, n)
         else:
             E_imp_block = xp.zeros_like(E_direct_dense)
 
-        total_E = E_direct_dense_np + np.asarray(E_imp_block)
+        total_E = E_direct_dense + E_imp_block
         self._m_ind_to_E_df_matrix = asarray(total_E[1])
         logger.info("Dense induction operator built.")
 
@@ -461,25 +459,29 @@ class State:
 
                 evolved = jax_expm(dt * op_A) @ diff + asarray(steady_state_m_ind)
                 return evolved
+            
+            # Use scipy.linalg.expm for NumPy
+            op_A_np = to_numpy(op_A)
+            diff_np = to_numpy(diff)
+            steady_state_m_ind_np = to_numpy(steady_state_m_ind)
 
-            from scipy.linalg import expm
-
-            evolved = expm(dt * np.asarray(op_A)) @ np.asarray(diff)
-            return asarray(evolved) + asarray(steady_state_m_ind)
+            evolved = expm(dt * op_A_np) @ diff_np
+            return asarray(evolved) + asarray(steady_state_m_ind_np)
 
         else:
             # Fallback to scipy.solve_ivp for other integrators
             logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
 
             def rhs_numpy(t, y):
+                # Ensure input is backed by numpy if using scipy.solve_ivp
                 y_backend = asarray(y)
                 dy = self._calculate_d_m_ind_dt(y_backend, backend_E_noind)
-                return np.asarray(dy)
+                return to_numpy(dy)
 
             sol = solve_ivp(
                 fun=rhs_numpy,
                 t_span=(0, dt),
-                y0=np.asarray(backend_m_ind),
+                y0=to_numpy(backend_m_ind),
                 method=self.integrator,
                 t_eval=[dt],
                 dense_output=False,

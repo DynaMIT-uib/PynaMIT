@@ -7,8 +7,9 @@ from typing import Callable, Dict, Final, List, Optional, Tuple, Union
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
+
 from .least_squares_problem import LeastSquaresProblem
-from pynamit.utils import use_jax
+from pynamit.utils import xp, asarray, use_jax
 
 ITERATION_SAFETY_FACTOR: Final = 10
 
@@ -48,25 +49,16 @@ class LeastSquaresSolver:
         """Solve least-squares problem for given right-hand side(s)."""
         rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
-            dtype = problem.A[0].dtype if problem.A else np.float64
-            return np.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
+            dtype = problem.A[0].dtype if problem.A else xp.float64
+            return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
-        if use_jax():
-            import jax.numpy as jnp
-
-            rhs_block = jnp.asarray(rhs_block)
-        else:
-            rhs_block = np.asarray(rhs_block)
-
+        rhs_block = asarray(rhs_block)
+        
         self._validate_preconditioner_shape(problem, preconditioner, num_scenarios)
         solver_func = self._solve_methods[self.solver]
         solution_block = solver_func(problem, rhs_block, num_scenarios, preconditioner, **kwargs)
-        if use_jax():
-            import jax.numpy as jnp
-
-            solution_block = jnp.asarray(solution_block)
-        else:
-            solution_block = np.asarray(solution_block)
+        
+        solution_block = asarray(solution_block)
         return solution_block.reshape(problem.solution_shape + scenario_shape)
 
     def build_preconditioner(
@@ -92,38 +84,22 @@ class LeastSquaresSolver:
     def _solve_svd(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
-        if use_jax():
-            import jax.numpy as jnp
+        G = asarray(problem.dense_system_matrix)
+        b = asarray(rhs_block)
+        u, s, vt = xp.linalg.svd(G, full_matrices=False)
 
-            G = jnp.asarray(problem.dense_system_matrix)
-            b = jnp.asarray(rhs_block)
-            u, s, vt = jnp.linalg.svd(G, full_matrices=False)
-
-            cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
-            s_inv = jnp.where(s > cutoff, 1.0 / s, 0.0)
-            return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ b))
-
-        G = problem.dense_system_matrix
-        u, s, vt = np.linalg.svd(G, full_matrices=False)
         cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
-        s_inv = np.zeros_like(s)
-        s_inv[s > cutoff] = 1.0 / s[s > cutoff]
-        return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ rhs_block))
+        s_inv = xp.where(s > cutoff, 1.0 / s, 0.0)
+        # s_inv[:, None] broadcasting works for both xp
+        return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ b))
 
     def _solve_normal(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
-        if use_jax():
-            import jax.numpy as jnp
-
-            G = jnp.asarray(problem.dense_system_matrix)
-            b = jnp.asarray(rhs_block)
-            G_H = G.T.conj()
-            return jnp.linalg.solve(G_H @ G, G_H @ b)
-
-        G = problem.dense_system_matrix
+        G = asarray(problem.dense_system_matrix)
+        b = asarray(rhs_block)
         G_H = G.T.conj()
-        return np.linalg.solve(G_H @ G, G_H @ rhs_block)
+        return xp.linalg.solve(G_H @ G, G_H @ b)
 
     def _solve_lsmr(
         self,
@@ -133,6 +109,7 @@ class LeastSquaresSolver:
         M: Optional[LinearOperator],
         **kwargs,
     ) -> np.ndarray:
+        # LSMR is not available in JAX, so we force NumPy backend for this solver
         rhs_np = np.asarray(rhs_block)
         return self._solve_lsmr_numpy_backend(problem, rhs_np, num_scenarios, M, **kwargs)
 
@@ -182,6 +159,7 @@ class LeastSquaresSolver:
     ) -> np.ndarray:
         if use_jax():
             return self._solve_cg_jax(problem, rhs_block, num_scenarios, M, **kwargs)
+        
         G = problem.get_system_operator(num_scenarios)
         normal_op = LinearOperator(
             (G.shape[1], G.shape[1]), matvec=lambda x: G.rmatvec(G.matvec(x)), dtype=G.dtype
@@ -210,12 +188,21 @@ class LeastSquaresSolver:
         except Exception as exc:  # pragma: no cover - JAX unavailable
             raise RuntimeError("JAX backend is required for the JAX CG solver.") from exc
 
-        normal_mv = problem.jax_normal_matvec(include_regularization=True)
-        adjoint = problem.jax_system_rmatvec(include_regularization=True)
+        # Use the unified LinearMap from generic implementation
+        linear_map = problem.get_system_linear_map(num_scenarios=num_scenarios, include_regularization=True)
+        
+        def normal_mv(x):
+             # Forward then adjoint
+             return linear_map.rmatvec(linear_map.matvec(x))
+             
+        # JAX CG requires a function for A and M, or arrays.
+        # We wrap our LinearMap.
+        
+        adjoint = linear_map.rmatvec
 
         if M is not None:
             preconditioner_blocks = [
-                jnp.asarray(block)
+                asarray(block)
                 for block in self._prepare_jax_preconditioner_blocks(
                     M, num_scenarios, problem.solution_size
                 )
@@ -226,13 +213,13 @@ class LeastSquaresSolver:
         max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         solutions = []
         for i in range(num_scenarios):
-            rhs_vec = jnp.asarray(rhs_block[:, i])
+            rhs_vec = asarray(rhs_block[:, i])
             normal_rhs = adjoint(rhs_vec)
             x0_arg = kwargs.get("x0")
             if x0_arg is not None:
-                x0_vec = jnp.asarray(x0_arg[:, i])
+                x0_vec = asarray(x0_arg[:, i])
             else:
-                x0_vec = jnp.zeros(problem.solution_size, dtype=rhs_vec.dtype)
+                x0_vec = xp.zeros(problem.solution_size, dtype=rhs_vec.dtype)
 
             M_func = None
             block = preconditioner_blocks[i]
@@ -258,7 +245,7 @@ class LeastSquaresSolver:
                 )
             solutions.append(sol_vec)
 
-        return jnp.stack(solutions, axis=1)
+        return xp.stack(solutions, axis=1)
 
     @staticmethod
     def _linear_operator_to_dense(op: LinearOperator) -> np.ndarray:
@@ -355,7 +342,7 @@ class LeastSquaresSolver:
         self, problem: LeastSquaresProblem, tol: float
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         _, s, vt = problem.svd
-        s_pinv = np.zeros_like(s)
+        s_pinv = xp.zeros_like(s)
         cutoff = tol * (s[0] if s.size > 0 else 0)
-        s_pinv[s > cutoff] = 1.0 / s[s > cutoff]
+        s_pinv = xp.where(s > cutoff, 1.0 / s, s_pinv) # Safe generic assignment
         return vt, s_pinv, s_pinv**2

@@ -9,9 +9,10 @@ from typing import Any, Callable, List, Optional, Tuple, Union, TypeAlias
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
 
+
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
-from pynamit.utils import use_jax
+from pynamit.utils import xp, asarray, use_jax
 
 OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain]
 OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]
@@ -31,8 +32,7 @@ class ProcessedOperator:
     output_shape: Tuple[int, ...]
     input_shape: Tuple[int, ...]
     is_diagonal: bool = False
-    diag_data: Optional[np.ndarray] = None
-    jax_dense: Optional[Any] = None
+    diag_data: Optional[Any] = None
 
     @property
     def num_rows(self) -> int:
@@ -69,14 +69,11 @@ class LeastSquaresProblem:
         self._system_linear_map_cache: dict[bool, LinearMap] = {}
         self._scenario_linear_map_cache: dict[Tuple[bool, int], LinearMap] = {}
 
+
     @staticmethod
     def _backend_module():
         """Return the active array module (NumPy or JAX NumPy)."""
-        if use_jax():
-            import jax.numpy as jnp  # Lazy import to avoid hard dependency
-
-            return jnp
-        return np
+        return xp
 
     def _process_data_terms(self, A_in, data_shapes_in, sqrt_weights_in):
         A_list = self._prepare_input_list(A_in, "A")
@@ -127,7 +124,7 @@ class LeastSquaresProblem:
                     output_shape=shape,
                     input_shape=shape,
                     is_diagonal=True,
-                    diag_data=np.asarray(diag_data),
+                    diag_data=asarray(diag_data),
                 )
         flattened = self._flatten_operator(w_val, output_shape=shape, input_shape=shape)
         return flattened
@@ -182,13 +179,13 @@ class LeastSquaresProblem:
                 all_rows.append(lambdas[i] * self.densify_op(L_item))
         dtype = self.A[0].dtype if self.A else np.float64
         if not all_rows:
-            return np.zeros((0, self.solution_size), dtype=dtype)
-        return np.vstack(all_rows)
+            return xp.zeros((0, self.solution_size), dtype=dtype)
+        return xp.vstack(all_rows)
 
     @cached_property
     def svd(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute the SVD of the dense system matrix."""
-        return np.linalg.svd(self.dense_system_matrix, full_matrices=False)
+        return xp.linalg.svd(self.dense_system_matrix, full_matrices=False)
 
     def assemble_rhs_block(
         self, b: Union[Any, List[Any]]
@@ -206,35 +203,39 @@ class LeastSquaresProblem:
         if not all(p[1] == scenario_shape for p in valid_b):
             raise ValueError("Inconsistent scenario shapes in b terms.")
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
-        backend = self._backend_module()
-        op_rows = self._jax_operator_row_count(include_regularization=True)
-        dtype = self.A[0].dtype if self.A else backend.float64
+        
+        # Calculate expected number of rows
+        op_rows_data = sum(a.num_rows for a in self.A)
+        active_lambdas = self.scaled_lambdas
+        op_rows_reg = sum(
+            L.num_rows
+            for i, L in enumerate(self.regularization_matrices)
+            if i < len(active_lambdas) and L and active_lambdas[i] > 0
+        )
+        op_rows = op_rows_data + op_rows_reg
+        
+        dtype = self.A[0].dtype if self.A else xp.float64
         blocks = []
         filled_rows = 0
         for i, (b_col_block, _) in enumerate(processed):
             num_a_rows = self.A[i].num_rows
             if b_col_block is None:
-                block = backend.zeros((num_a_rows, num_scenarios), dtype=dtype)
+                block = xp.zeros((num_a_rows, num_scenarios), dtype=dtype)
             else:
-                block = backend.asarray(b_col_block)
+                block = asarray(b_col_block)
                 w_item = self.sqrt_weights[i]
                 if w_item:
-                    if use_jax():
-                        block = self._jax_apply_weight(w_item, block)
-                    else:
-                        block_np = np.asarray(block)
-                        block_np = self._apply_weight_numpy(i, block_np)
-                        block = backend.asarray(block_np)
+                    block = self._apply_weight(w_item, block)
             blocks.append(block)
             filled_rows += num_a_rows
 
         if filled_rows < op_rows:
-            blocks.append(backend.zeros((op_rows - filled_rows, num_scenarios), dtype=dtype))
+            blocks.append(xp.zeros((op_rows - filled_rows, num_scenarios), dtype=dtype))
 
         if not blocks:
-            d_block = backend.zeros((0, num_scenarios), dtype=dtype)
+            d_block = xp.zeros((0, num_scenarios), dtype=dtype)
         else:
-            d_block = backend.concatenate(blocks, axis=0)
+            d_block = xp.concatenate(blocks, axis=0)
         return d_block, scenario_shape, num_scenarios
 
     def get_system_operator(
@@ -278,19 +279,19 @@ class LeastSquaresProblem:
         op_rows = op_rows_data + op_rows_reg
         dtype = self.A[0].dtype if self.A else np.float64
 
-        def matmat(block: np.ndarray) -> np.ndarray:
-            x_block = np.asarray(block).reshape(num_features, -1)
-            return self._apply_system_block_numpy(x_block, include_regularization)
+        def matmat(block: Any) -> Any:
+            x_block = asarray(block).reshape(num_features, -1)
+            return self._apply_system_block(x_block, include_regularization)
 
-        def rmatmat(block: np.ndarray) -> np.ndarray:
-            y_block = np.asarray(block).reshape(op_rows, -1)
-            return self._apply_system_T_block_numpy(y_block, include_regularization)
+        def rmatmat(block: Any) -> Any:
+            y_block = asarray(block).reshape(op_rows, -1)
+            return self._apply_system_T_block(y_block, include_regularization)
 
-        def matvec(vec: np.ndarray) -> np.ndarray:
-            return matmat(np.asarray(vec).reshape(num_features, 1)).ravel()
+        def matvec(vec: Any) -> Any:
+            return matmat(asarray(vec).reshape(num_features, 1)).ravel()
 
-        def rmatvec(vec: np.ndarray) -> np.ndarray:
-            return rmatmat(np.asarray(vec).reshape(op_rows, 1)).ravel()
+        def rmatvec(vec: Any) -> Any:
+            return rmatmat(asarray(vec).reshape(op_rows, 1)).ravel()
 
         return LinearMap(
             shape=(op_rows, num_features),
@@ -335,19 +336,19 @@ class LeastSquaresProblem:
                 result[:, j] = np.asarray(res).reshape(-1)
             return result
 
-        def matmat(block: np.ndarray) -> np.ndarray:
-            block_np = np.asarray(block).reshape(base_in * num_scenarios, -1)
-            return _apply(block_np)
+        def matmat(block: Any) -> Any:
+            block_arr = asarray(block).reshape(base_in * num_scenarios, -1)
+            return _apply(block_arr)
 
-        def rmatmat(block: np.ndarray) -> np.ndarray:
-            block_np = np.asarray(block).reshape(base_out * num_scenarios, -1)
-            return _apply_T(block_np)
+        def rmatmat(block: Any) -> Any:
+            block_arr = asarray(block).reshape(base_out * num_scenarios, -1)
+            return _apply_T(block_arr)
 
-        def matvec(vec: np.ndarray) -> np.ndarray:
-            return matmat(np.asarray(vec).reshape(base_in * num_scenarios, 1)).ravel()
+        def matvec(vec: Any) -> Any:
+            return matmat(asarray(vec).reshape(base_in * num_scenarios, 1)).ravel()
 
-        def rmatvec(vec: np.ndarray) -> np.ndarray:
-            return rmatmat(np.asarray(vec).reshape(base_out * num_scenarios, 1)).ravel()
+        def rmatvec(vec: Any) -> Any:
+            return rmatmat(asarray(vec).reshape(base_out * num_scenarios, 1)).ravel()
 
         return LinearMap(
             shape=(base_out * num_scenarios, base_in * num_scenarios),
@@ -380,8 +381,8 @@ class LeastSquaresProblem:
                 block[:, :cols] = 0
                 block[start:stop, :cols] = np.eye(cols, dtype=dtype)
                 res = map_obj.matmat(block[:, :cols])
-                res_np = np.asarray(res)
-                diag[start:stop] = np.sum(np.abs(res_np) ** 2, axis=0).real
+                res_arr = asarray(res)
+                diag[start:stop] = xp.sum(xp.abs(res_arr) ** 2, axis=0).real
             return diag
 
     def apply_linear_map_to_block(self, map_obj: LinearMap, x_block: np.ndarray) -> np.ndarray:
@@ -447,14 +448,14 @@ class LeastSquaresProblem:
                 if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
                     num_rows = L_item.num_rows
                     part = block[row : row + num_rows, :]
-                    accum += active_lambdas[i] * self.apply_linear_map_T_to_block(
+                    accum = accum + active_lambdas[i] * self.apply_linear_map_T_to_block(
                         L_item.linear_map, part
                     )
                     row += num_rows
         return accum
 
     def densify_op(self, item: Optional[ProcessedOperator]) -> Optional[np.ndarray]:
-        """Convert operator to dense numpy array, if not None."""
+        """Convert operator to dense array, if not None."""
         if item is None:
             return None
         if item.is_diagonal and item.diag_data is not None:
@@ -464,8 +465,8 @@ class LeastSquaresProblem:
         except ValueError:
             map_obj = item.linear_map
             dtype = np.result_type(map_obj.dtype, np.float64)
-            eye = np.eye(map_obj.shape[1], dtype=dtype)
-            return np.asarray(map_obj.matmat(eye))
+            eye = xp.eye(map_obj.shape[1], dtype=dtype)
+            return asarray(map_obj.matmat(eye))
 
     def _get_weight_dense(self, idx: int) -> Optional[np.ndarray]:
         cached = self._sqrt_weight_dense_cache[idx]
@@ -482,23 +483,98 @@ class LeastSquaresProblem:
         self._sqrt_weight_dense_cache[idx] = dense
         return dense
 
-    def _apply_weight_numpy(self, idx: int, block: np.ndarray) -> np.ndarray:
-        dense = self._get_weight_dense(idx)
-        item = self.sqrt_weights[idx]
-        if dense is None or not item:
-            return block
-        if item.is_diagonal:
-            return dense * block
+    def _apply_weight(self, item: Optional[ProcessedOperator], block: Any) -> Any:
+        if item is None:
+             return block
+        if item.is_diagonal and item.diag_data is not None:
+            diag = asarray(item.diag_data).reshape(-1, 1)
+            return diag * block
+        
+        # Check if we should use dense version
+        dense = self.densify_op(item)
         return dense @ block
 
-    def _apply_weight_T_numpy(self, idx: int, block: np.ndarray) -> np.ndarray:
-        dense = self._get_weight_dense(idx)
-        item = self.sqrt_weights[idx]
-        if dense is None or not item:
+    def _apply_weight_T(self, item: Optional[ProcessedOperator], block: Any) -> Any:
+        if item is None:
             return block
-        if item.is_diagonal:
-            return dense.conj() * block
-        return dense.T.conj() @ block
+        if item.is_diagonal and item.diag_data is not None:
+            diag = asarray(item.diag_data).reshape(-1, 1)
+            return xp.conjugate(diag) * block
+            
+        dense = self.densify_op(item)
+        return xp.conjugate(dense).T @ block
+
+    def apply_linear_map_to_block(self, map_obj: LinearMap, x_block: Any) -> Any:
+        """Apply a LinearMap to a block of vectors."""
+        return map_obj.matmat(x_block)
+
+    def apply_linear_map_T_to_block(self, map_obj: LinearMap, y_block: Any) -> Any:
+        """Apply adjoint of a LinearMap to a block of vectors."""
+        return map_obj.rmatmat(y_block)
+
+    def _apply_system_block(
+        self, block: Any, include_regularization: bool
+    ) -> Any:
+        num_cols = block.shape[1]
+        dtype = block.dtype
+        op_rows_data = sum(a.num_rows for a in self.A)
+        op_rows = op_rows_data
+        if include_regularization:
+            active_lambdas = self.scaled_lambdas
+            op_rows += sum(
+                L.num_rows
+                for i, L in enumerate(self.regularization_matrices)
+                if i < len(active_lambdas) and L and active_lambdas[i] > 0
+            )
+        else:
+            active_lambdas = []
+        if op_rows == 0:
+            return xp.zeros((0, num_cols), dtype=dtype)
+        output_blocks = []
+        for i, a_item in enumerate(self.A):
+            res_block = self.apply_linear_map_to_block(a_item.linear_map, block)
+            w_item = self.sqrt_weights[i]
+            if w_item:
+                res_block = self._apply_weight(w_item, res_block)
+            output_blocks.append(res_block)
+        if include_regularization and active_lambdas:
+            for i, L_item in enumerate(self.regularization_matrices):
+                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
+                    res_block = self.apply_linear_map_to_block(L_item.linear_map, block)
+                    output_blocks.append(active_lambdas[i] * res_block)
+        if not output_blocks:
+            return xp.zeros((op_rows, num_cols), dtype=dtype)
+        return xp.vstack(output_blocks)
+
+    def _apply_system_T_block(
+        self, block: Any, include_regularization: bool
+    ) -> Any:
+        num_cols = block.shape[1]
+        dtype = block.dtype
+        accum = xp.zeros((self.solution_size, num_cols), dtype=dtype)
+        row = 0
+        for i, a_item in enumerate(self.A):
+            num_rows = a_item.num_rows
+            part = block[row : row + num_rows, :]
+            w_item = self.sqrt_weights[i]
+            if w_item:
+                part = self._apply_weight_T(w_item, part)
+            accum = accum + self.apply_linear_map_T_to_block(a_item.linear_map, part)
+            row += num_rows
+
+        if include_regularization:
+            active_lambdas = self.scaled_lambdas
+            for i, L_item in enumerate(self.regularization_matrices):
+                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
+                    num_rows = L_item.num_rows
+                    part = block[row : row + num_rows, :]
+                    accum = accum + active_lambdas[i] * self.apply_linear_map_T_to_block(
+                        L_item.linear_map, part
+                    )
+                    row += num_rows
+        return accum
+
+
 
     @staticmethod
     def _prepare_input_list(
@@ -598,8 +674,7 @@ class LeastSquaresProblem:
     ) -> Tuple[Optional[Any], Optional[Tuple[int, ...]]]:
         if b_val is None:
             return None, None
-        module = self._backend_module()
-        b = module.asarray(b_val)
+        b = asarray(b_val)
         num_data_dims = len(data_shape)
         is_exact = b.shape == data_shape
         is_multi = b.ndim > num_data_dims and b.shape[:num_data_dims] == data_shape
@@ -608,171 +683,7 @@ class LeastSquaresProblem:
             raise ValueError(f"Shape {b.shape} incompatible with data_shape {data_shape}.")
         scenario_shape = b.shape[num_data_dims:] if is_multi else ()
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
-        b_col_block = module.reshape(b, (math.prod(data_shape), num_scenarios))
+        b_col_block = xp.reshape(b, (math.prod(data_shape), num_scenarios))
         return b_col_block, scenario_shape
 
-    # ----- JAX Helpers -----
-
-    def _jax_operator_row_count(self, include_regularization: bool) -> int:
-        op_rows_data = sum(a.num_rows for a in self.A)
-        if not include_regularization:
-            return op_rows_data
-        active_lambdas = self.scaled_lambdas
-        op_rows_reg = sum(
-            L.num_rows
-            for i, L in enumerate(self.regularization_matrices)
-            if i < len(active_lambdas) and L and active_lambdas[i] > 0
-        )
-        return op_rows_data + op_rows_reg
-
-    def _jax_ensure_dense(self, item: ProcessedOperator):
-        import jax.numpy as jnp
-
-        if item.jax_dense is not None:
-            return item.jax_dense
-        dense_np = self.densify_op(item)
-        item.jax_dense = jnp.asarray(dense_np)
-        return item.jax_dense
-
-    def _jax_apply_processed_operator(
-        self, item: ProcessedOperator, x_block: "jax.numpy.ndarray"
-    ):
-        import jax.numpy as jnp
-
-        source = item.linear_map.source
-        if isinstance(source, TensorChain):
-            return source.matmat(x_block)
-        if item.is_diagonal and item.diag_data is not None:
-            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
-            if x_block.ndim == 1:
-                return diag.ravel() * x_block
-            return diag * x_block
-        dense = self._jax_ensure_dense(item)
-        return dense @ x_block
-
-    def _jax_apply_processed_operator_T(
-        self, item: ProcessedOperator, y_block: "jax.numpy.ndarray"
-    ):
-        import jax.numpy as jnp
-
-        source = item.linear_map.source
-        if isinstance(source, TensorChain):
-            return source.rmatmat(y_block)
-        if item.is_diagonal and item.diag_data is not None:
-            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
-            if y_block.ndim == 1:
-                return diag.conj().ravel() * y_block
-            return diag.conj() * y_block
-        dense = self._jax_ensure_dense(item)
-        return dense.T.conj() @ y_block
-
-    def _jax_apply_weight(
-        self, item: ProcessedOperator, block: "jax.numpy.ndarray"
-    ) -> "jax.numpy.ndarray":
-        import jax.numpy as jnp
-
-        if item.is_diagonal:
-            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
-            return diag * block
-        return self._jax_apply_processed_operator(item, block)
-
-    def _jax_apply_weight_T(
-        self, item: ProcessedOperator, block: "jax.numpy.ndarray"
-    ) -> "jax.numpy.ndarray":
-        import jax.numpy as jnp
-
-        if item.is_diagonal:
-            diag = jnp.asarray(item.diag_data).reshape(-1, 1)
-            return diag.conj() * block
-        return self._jax_apply_processed_operator_T(item, block)
-
-    def _jax_apply_system(
-        self, x_block: "jax.numpy.ndarray", include_regularization: bool
-    ) -> "jax.numpy.ndarray":
-        import jax.numpy as jnp
-
-        outputs = []
-        for i, a_item in enumerate(self.A):
-            res_block = self._jax_apply_processed_operator(a_item, x_block)
-            w_item = self.sqrt_weights[i]
-            if w_item:
-                res_block = self._jax_apply_weight(w_item, res_block)
-            outputs.append(res_block)
-        if include_regularization:
-            active_lambdas = self.scaled_lambdas
-            for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
-                    res_block = active_lambdas[i] * self._jax_apply_processed_operator(
-                        L_item, x_block
-                    )
-                    outputs.append(res_block)
-        if not outputs:
-            return jnp.zeros((0, x_block.shape[1]), dtype=x_block.dtype)
-        return jnp.concatenate(outputs, axis=0)
-
-    def _jax_apply_system_T(
-        self, y_block: "jax.numpy.ndarray", include_regularization: bool
-    ) -> "jax.numpy.ndarray":
-        import jax.numpy as jnp
-
-        num_features = self.solution_size
-        accum = jnp.zeros((num_features, y_block.shape[1]), dtype=y_block.dtype)
-        row = 0
-        for i, a_item in enumerate(self.A):
-            num_rows = a_item.num_rows
-            part = y_block[row : row + num_rows, :]
-            w_item = self.sqrt_weights[i]
-            if w_item:
-                part = self._jax_apply_weight_T(w_item, part)
-            accum = accum + self._jax_apply_processed_operator_T(a_item, part)
-            row += num_rows
-        if include_regularization:
-            active_lambdas = self.scaled_lambdas
-            for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
-                    num_rows = L_item.num_rows
-                    part = y_block[row : row + num_rows, :]
-                    accum = accum + active_lambdas[i] * self._jax_apply_processed_operator_T(
-                        L_item, part
-                    )
-                    row += num_rows
-        return accum
-
-    def jax_system_matvec(self, include_regularization: bool = True):
-        if not use_jax():
-            raise RuntimeError("JAX backend is not enabled.")
-        import jax.numpy as jnp
-
-        def matvec(x_flat):
-            x_block = jnp.reshape(x_flat, (self.solution_size, -1))
-            out_block = self._jax_apply_system(x_block, include_regularization)
-            return jnp.reshape(out_block, (-1,))
-
-        return matvec
-
-    def jax_system_rmatvec(self, include_regularization: bool = True):
-        if not use_jax():
-            raise RuntimeError("JAX backend is not enabled.")
-        import jax.numpy as jnp
-
-        num_rows = self._jax_operator_row_count(include_regularization)
-
-        def rmatvec(y_flat):
-            y_block = jnp.reshape(y_flat, (num_rows, -1))
-            out_block = self._jax_apply_system_T(y_block, include_regularization)
-            return jnp.reshape(out_block, (-1,))
-
-        return rmatvec
-
-    def jax_normal_matvec(self, include_regularization: bool = True):
-        if not use_jax():
-            raise RuntimeError("JAX backend is not enabled.")
-        import jax.numpy as jnp
-
-        def normal_matvec(x_flat):
-            x_block = jnp.reshape(x_flat, (self.solution_size, -1))
-            forward = self._jax_apply_system(x_block, include_regularization)
-            adjoint = self._jax_apply_system_T(forward, include_regularization)
-            return jnp.reshape(adjoint, (-1,))
-
-        return normal_matvec
+        return None, None
