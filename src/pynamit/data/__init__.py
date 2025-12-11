@@ -6,6 +6,7 @@ from .loaders import (
     get_wind_inputs,
     get_input_source,
     set_input_source,
+    save_fallback_dataset,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "get_wind_inputs",
     "get_input_source",
     "set_input_source",
+    "save_fallback_dataset",
 ]
