@@ -2,6 +2,7 @@
 
 import numpy as np
 import math
+from functools import cached_property
 import warnings
 from packaging import version
 import scipy
@@ -39,7 +40,7 @@ def _double_factorial(n):
     return result
 
 
-class SHBasis(object):
+class SHBasis:
     """
     Class for representing spherical harmonic bases.
 
@@ -56,7 +57,14 @@ class SHBasis(object):
         scipy function.
     """
 
-    def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend="internal"):
+    def __init__(
+        self,
+        Nmax: int,
+        Mmax: int,
+        Nmin: int = 1,
+        quasi_normalized: bool = True,
+        backend: str = "internal",
+    ):
         """
         Initialize the SHBasis instance.
 
@@ -79,6 +87,14 @@ class SHBasis(object):
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
         self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
+        self.is_normalized = quasi_normalized
+        self._use_modern_scipy = _USE_MODERN_SCIPY
+
+        self.kind = "SH"
+        self.index_names = ["n", "m"]
+        self.minimum_phi_sampling = 2 * Mmax + 1
+        self.caching = True
+
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
 
@@ -89,42 +105,34 @@ class SHBasis(object):
         self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1])
         self.snm.make_arrays()
 
-        self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
-        self.snm_filter = [(pair in self.snm.index_pairs) for pair in self.index_pairs]
+        self.cnm_filter = [pair in self.cnm.index_pairs for pair in self.index_pairs]
+        self.snm_filter = [pair in self.snm.index_pairs for pair in self.index_pairs]
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
-
-        self.is_normalized = quasi_normalized
-        if self.is_normalized:
-            s_matrix = schmidt_quasi_normalization_factors(Nmax, Mmax)
-            self.schmidt_factors = np.array([s_matrix[n, m] for n, m in self.index_pairs])
-        else:
-            self.schmidt_factors = np.ones(len(self.index_pairs))
-
-        # Use the flag set during the conditional import.
-        self._use_modern_scipy = _USE_MODERN_SCIPY
-
-        if self.backend == "scipy":
-            self._compute_scipy_scaling_factors()
-
-            if not self._use_modern_scipy:
-                warnings.warn(
-                    f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling "
-                    "back to the deprecated 'lpmn' function. Please consider upgrading SciPy.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
-        self.kind = "SH"
-        self.index_names = ["n", "m"]
-        self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
         self.index_arrays = [self.n, self.m]
-        self.minimum_phi_sampling = 2 * Mmax + 1
-        self.caching = True
+        self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
 
-    def _compute_scipy_scaling_factors(self):
-        """Calculate the analytical scaling factor.
+        if self.backend == "scipy" and not self._use_modern_scipy:
+            warnings.warn(
+                f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling "
+                "back to the deprecated 'lpmn' function. Please consider upgrading SciPy.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+    @cached_property
+    def schmidt_factors(self) -> np.ndarray:
+        """Return Schmidt quasi-normalization factors."""
+        if not self.is_normalized:
+            return np.ones(len(self.index_pairs))
+        s_matrix = schmidt_quasi_normalization_factors(self.Nmax, self.Mmax)
+        return np.array([s_matrix[n, m] for n, m in self.index_pairs])
+
+    @cached_property
+    def scipy_scaling_factors(self) -> np.ndarray:
+        """
+        Calculate the analytical scaling factor.
 
         Such that P_internal = F * P_scipy.
         F(n, m) = (n - m)! / (2n - 1)!!
@@ -134,9 +142,9 @@ class SHBasis(object):
             denominator = _double_factorial(2 * n - 1)
             numerator = math.factorial(n - m)
             factors[i] = numerator / denominator
-        self.scipy_scaling_factors = factors
+        return factors
 
-    def _get_legendre_scipy(self, theta, compute_derivative=False):
+    def _get_legendre_scipy(self, theta: np.ndarray, compute_derivative: bool = False):
         """Dispatcher for Scipy Legendre function calculation."""
         if self._use_modern_scipy:
             return self._get_legendre_scipy_modern(theta, compute_derivative)
@@ -292,9 +300,7 @@ class SHBasis(object):
         """Factor to radially shift internal potential coefficients."""
         return (start / end) ** (self.n + 2)
 
-    @property
+    @cached_property
     def coeffs_to_delta_V(self):
         """Factor to convert coefficients to delta V at unit radius."""
-        if not hasattr(self, "_coeffs_to_delta_V"):
-            self._coeffs_to_delta_V = 2 * self.n + 1
-        return self._coeffs_to_delta_V
+        return 2 * self.n + 1

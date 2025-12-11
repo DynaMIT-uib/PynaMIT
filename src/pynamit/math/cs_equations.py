@@ -4,10 +4,14 @@ This module contains the CSEquations class for representing cubed sphere
 related equations.
 """
 
+from __future__ import annotations
+from functools import cached_property
+from typing import Any, Tuple
+
 import numpy as np
 
 
-class CSEquations(object):
+class CSEquations:
     """Class for representing cubed sphere related equations.
 
     This class provides equations for computing quantities on cubed
@@ -33,7 +37,7 @@ class CSEquations(object):
         (2017).
     """
 
-    def __init__(self, cs_basis, RI):
+    def __init__(self, cs_basis: Any, RI: float) -> None:
         """Initialize the CSEquations object.
 
         Parameters
@@ -46,8 +50,8 @@ class CSEquations(object):
         self.cs_basis = cs_basis
         self.RI = RI
 
-    @property
-    def D(self):
+    @cached_property
+    def D(self) -> np.ndarray:
         """Differential operator matrix.
 
         Returns
@@ -56,12 +60,10 @@ class CSEquations(object):
             Differential operator matrix, where the first index is the
             direction (0 for xi, 1 for eta).
         """
-        if not hasattr(self, "_D"):
-            self._D = self.cs_basis.get_Diff(self.cs_basis.Ncs, coordinate="both")
-        return self._D
+        return self.cs_basis.get_Diff(self.cs_basis.Ncs, coordinate="both")
 
-    @property
-    def Ps(self):
+    @cached_property
+    def Ps(self) -> np.ndarray:
         """Ps matrix.
 
         Returns
@@ -71,14 +73,12 @@ class CSEquations(object):
             (u^1, u^2, u^3), as defined in equation A1 in Yin et al.
             (2017).
         """
-        if not hasattr(self, "_Ps"):
-            self._Ps = self.cs_basis.get_Ps(
-                self.cs_basis.arr_xi, self.cs_basis.arr_eta, 1, self.cs_basis.arr_block
-            )
-        return self._Ps
+        return self.cs_basis.get_Ps(
+            self.cs_basis.arr_xi, self.cs_basis.arr_eta, 1, self.cs_basis.arr_block
+        )
 
-    @property
-    def Qi(self):
+    @cached_property
+    def Qi(self) -> np.ndarray:
         """Qi matrix.
 
         Returns
@@ -88,11 +88,9 @@ class CSEquations(object):
             (u^east, u^north, u^up), as defined in equation A1 in Yin et
             al. (2017).
         """
-        if not hasattr(self, "_Qi"):
-            self._Qi = self.cs_basis.get_Q(90 - self.cs_basis.arr_theta, self.RI, inverse=True)
-        return self._Qi
+        return self.cs_basis.get_Q(90 - self.cs_basis.arr_theta, self.RI, inverse=True)
 
-    def curlr(self, u1, u2):
+    def curlr(self, u1: np.ndarray, u2: np.ndarray) -> np.ndarray:
         """Calculate radial curl of vector field.
 
         Calculates the radial curl of a vector field in cubed sphere
@@ -121,7 +119,9 @@ class CSEquations(object):
             )
         )
 
-    def sph_to_contravariant_cs(self, Ar, Atheta, Aphi):
+    def sph_to_contravariant_cs(
+        self, Ar: np.ndarray, Atheta: np.ndarray, Aphi: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Convert from spherical to contravariant cubed sphere.
 
         Converts from ``(east, north, up)`` to ``(u^1, u^2, u^3)`` (ref.
@@ -147,15 +147,15 @@ class CSEquations(object):
         north = -Atheta
         up = Ar
 
-        # print('TODO: Add checks that input matches grid etc.')
-
         v = np.vstack((east, north, up))
         v_components = np.einsum("nij, jn -> in", self.Qi, v)
         u1, u2, u3 = np.einsum("nij, jn -> in", self.Ps, v_components)
 
         return u1, u2, u3
 
-    def calculate_fd_curl_matrix(self, stencil_size=1, interpolation_points=4):
+    def calculate_fd_curl_matrix(
+        self, stencil_size: int = 1, interpolation_points: int = 4
+    ) -> Any:
         """Calculate matrix that returns the radial curl.
 
         Calculate matrix that maps column vector of (theta, phi) vector
@@ -199,7 +199,9 @@ class CSEquations(object):
         # Extract relevant elements, rearrange matrix to map from
         # (theta, phi) and not (east, north). Also include Q matrix
         # normalization factors from Yin et al. (2017).
-        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state.geometry.grid.lat))
+        # Note: self.state is not typed here as it's likely a circular import/runtime link
+        # Assuming self.state.geometry.grid.lat exists
+        RI_cos_lat = self.RI * np.cos(np.deg2rad(self.state.geometry.grid.lat))  # type: ignore
         Ps = sp.vstack(
             (
                 sp.hstack(
@@ -219,26 +221,22 @@ class CSEquations(object):
 
         return D_curlr_u1u2.dot(Ps)
 
-    @property
-    def fd_curl_matrix(self):
+    @cached_property
+    def fd_curl_matrix(self) -> Any:
         """Matrix for finite difference curl calculation."""
-        if not hasattr(self, "_fd_curl_matrix"):
-            self._fd_curl_matrix = self.calculate_fd_curl_matrix()
-        return self._fd_curl_matrix
+        return self.calculate_fd_curl_matrix()
 
-    @property
-    def sh_curl_matrix(self):
+    @cached_property
+    def sh_curl_matrix(self) -> Any:
         """Matrix for spherical harmonic curl calculation.
 
         Matrix that gets divergence-free SH coefficients from vectors of
         (theta, phi)-components, constructed from Laplacian matrix and
         (inverse) evaluation matrices.
         """
-        if not hasattr(self, "_sh_curl_matrix"):
-            G_df_pinv = self.state.basis_evaluator.least_squares_helmholtz.ATWA_plus_R_pinv[
-                self.state.basis.index_length :, :
-            ]
-            self._sh_curl_matrix = self.state.basis_evaluator.G.dot(
-                self.state.basis.laplacian().reshape((-1, 1)) * G_df_pinv
-            )
-        return self._sh_curl_matrix
+        G_df_pinv = self.state.basis_evaluator.least_squares_problem_helmholtz_operator_matrix[
+            self.state.basis.index_length :, :
+        ]
+        return self.state.basis_evaluator.G.dot(
+            self.state.basis.laplacian().reshape((-1, 1)) * G_df_pinv
+        )

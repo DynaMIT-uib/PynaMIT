@@ -7,7 +7,7 @@ coordinate grids.
 import numpy as np
 
 
-class Grid(object):
+class Grid:
     """Class for representing two-dimensional coordinate grids.
 
     Attributes

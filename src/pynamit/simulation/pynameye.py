@@ -263,7 +263,6 @@ class PynamEye(object):
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
         self.u = FieldExpansion(
             self.basis,
-            basis_evaluator=self.evaluator["num"],
             coeffs=self.u_coeffs,
             field_type="tangential",
         )

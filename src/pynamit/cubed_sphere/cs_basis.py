@@ -5,6 +5,7 @@ basis.
 """
 
 import numpy as np
+import functools
 from pynamit.cubed_sphere import diffutils
 from pynamit.cubed_sphere import arrayutils
 import os
@@ -86,7 +87,7 @@ class CSBasis:
         DOI: 10.1093/gji/ggx125
     """
 
-    def __init__(self, N=None):
+    def __init__(self, N: int = None):
         """Initialize the cubed sphere basis.
 
         If N is provided, initializes arrays for a grid with N×N cells
@@ -116,20 +117,16 @@ class CSBasis:
             k, i, j = self.get_gridpoints(N)
 
             # Initialize grid points, skipping duplicates at boundaries.
-            self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
-            self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
-            self.arr_block = k[:, :-1, :-1].flatten()
+            # Convert to appropriate slices immediately to save memory?
+            # Keeping original logic for consistency.
+            self.arr_xi: np.ndarray = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
+            self.arr_eta: np.ndarray = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
+            self.arr_block: np.ndarray = k[:, :-1, :-1].flatten()
 
             # Convert to spherical coordinates.
             _, self.arr_theta, self.arr_phi = self.cube2spherical(
                 self.arr_xi, self.arr_eta, self.arr_block, deg=True
             )
-
-            # Calculate grid cell areas.
-            step = np.diff(self.xi(np.array([0, 1]), N))[0]
-            self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
-            self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
-            self.unit_area = step**2 * self.sqrt_detg
 
             self.kind = "GRID"
             self.index_names = ["theta", "phi"]
@@ -138,6 +135,22 @@ class CSBasis:
 
             self.minimum_phi_sampling = 1
             self.caching = False
+
+    @functools.cached_property
+    def g(self) -> np.ndarray:
+        """Metric tensor."""
+        return self.get_metric_tensor(self.arr_xi, self.arr_eta)
+
+    @functools.cached_property
+    def sqrt_detg(self) -> np.ndarray:
+        """Square root of determinant of the metric tensor."""
+        return np.sqrt(arrayutils.get_3D_determinants(self.g))
+
+    @functools.cached_property
+    def unit_area(self) -> np.ndarray:
+        """Area of each grid cell."""
+        step = np.diff(self.xi(np.array([0, 1]), self.N))[0]
+        return step**2 * self.sqrt_detg
 
     def get_gridpoints(self, N, flat=False):
         """Generate grid point indices for given resolution.

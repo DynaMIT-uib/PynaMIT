@@ -18,11 +18,11 @@ class Basis(ABC):
     ----------
     kind : str
         Short identifier for the basis.
-    index_names : list of str
+    index_names : list[str]
         Names of the indices used in the basis representation.
     index_length : int
         Total number of basis functions.
-    index_arrays : list of array-like
+    index_arrays : list
         Arrays containing the indices used in the basis.
     minimum_phi_sampling : float
         Minimum required sampling points in phi direction.
@@ -36,36 +36,36 @@ class Basis(ABC):
 
     @property
     @abstractmethod
-    def kind(self):
+    def kind(self) -> str:
         """Short identifier for the basis."""
         pass
 
     @property
     @abstractmethod
-    def index_names(self):
+    def index_names(self) -> list[str]:
         """Names of indices used in the basis."""
         pass
 
     @property
     @abstractmethod
-    def index_length(self):
+    def index_length(self) -> int:
         """Total number of basis functions."""
         pass
 
     @property
     @abstractmethod
-    def index_arrays(self):
+    def index_arrays(self) -> list:
         """Arrays of indices used in the basis."""
         pass
 
     @property
     @abstractmethod
-    def minimum_phi_sampling(self):
+    def minimum_phi_sampling(self) -> float:
         """Minimum required sampling in phi direction."""
         pass
 
     @property
     @abstractmethod
-    def caching(self):
+    def caching(self) -> bool:
         """Whether basis evaluations can be cached."""
         pass

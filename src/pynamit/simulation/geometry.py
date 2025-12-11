@@ -11,6 +11,7 @@ from typing import Optional, Any
 
 import numpy as np
 import xarray as xr
+from functools import cached_property
 
 from pynamit.math.constants import mu0
 from pynamit.primitives.grid import Grid
@@ -42,6 +43,12 @@ class Geometry:
         """Initialize the geometric context."""
         self.basis = basis
         self.mainfield = mainfield
+        
+        # Allow pre-computed PFAC matrix (must override cached_property if provided)
+        if PFAC_matrix is not None:
+            self.T_to_Ve = PFAC_matrix
+
+        # Store relevant settings
 
         # Store relevant settings
         self.RI = settings.RI
@@ -55,19 +62,7 @@ class Geometry:
         self._init_evaluators(cs_basis)
         self._init_constraint_mappings()
 
-        # Caches for expensive properties
-        self._bP: Optional[np.ndarray] = None
-        self._bH: Optional[np.ndarray] = None
-        self._bu: Optional[np.ndarray] = None
 
-        # Allow pre-computed PFAC matrix
-        if PFAC_matrix is not None:
-            self._T_to_Ve = PFAC_matrix
-        else:
-            self._T_to_Ve: Optional[xr.DataArray] = None
-
-        self._G_m_ind_to_JS = None
-        self._G_m_imp_to_JS = None
 
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
@@ -144,45 +139,37 @@ class Geometry:
                 (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
             )
 
-    @property
+    @cached_property
     def bP(self) -> np.ndarray:
         """Pedersen geometric factor for conductance tensor."""
-        if self._bP is None:
-            b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
-            self._bP = np.array(
-                [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
-            )
-        return self._bP
+        b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
+        return np.array(
+            [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
+        )
 
-    @property
+    @cached_property
     def bH(self) -> np.ndarray:
         """Hall geometric factor for conductance tensor."""
-        if self._bH is None:
-            br = self.b_evaluator.br
-            self._bH = np.array([[np.zeros_like(br), br], [-br, np.zeros_like(br)]])
-        return self._bH
+        br = self.b_evaluator.br
+        return np.array([[np.zeros_like(br), br], [-br, np.zeros_like(br)]])
 
-    @property
+    @cached_property
     def bu(self) -> np.ndarray:
         """Geometric factor for u x B electric field."""
-        if self._bu is None:
-            Br = self.b_evaluator.Br
-            self._bu = -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
-        return self._bu
+        Br = self.b_evaluator.Br
+        return -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
 
-    @property
+    @cached_property
     def T_to_Ve(self) -> xr.DataArray:
         """Mapping external toroidal (T) to poloidal (Ve) potential."""
-        if self._T_to_Ve is None:
-            self._build_T_to_Ve()
-        return self._T_to_Ve
+        return self._build_T_to_Ve()
 
-    def _build_T_to_Ve(self) -> None:
+    def _build_T_to_Ve(self) -> xr.DataArray:
         """Construct the T_to_Ve operator by integrating radially."""
         n = self.basis.index_length
-        self._T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
+        T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
-            return
+            return T_to_Ve
 
         rk_steps = np.asarray(self.FAC_integration_steps)
         Delta_k = np.diff(rk_steps)
@@ -234,32 +221,29 @@ class Geometry:
                 factor = -1.0
 
             JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
-            self._T_to_Ve += (
+            T_to_Ve += (
                 Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
             )
+        return T_to_Ve
 
     # ----- G operators mapping to sheet current (JS) -----
 
-    @property
+    @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
-        if self._G_m_imp_to_JS is None:
-            G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
-            self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
-                self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
-            )
-        return self._G_m_imp_to_JS
+        G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
+        return G_T_to_JS + np.tensordot(
+            self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
+        )
 
-    @property
+    @cached_property
     def G_m_ind_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
-        if self._G_m_ind_to_JS is None:
-            G = self.G_Ve_to_JS.copy()
-            if self.RM is not None:
-                br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
-                vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
-                den = 1.0 - br_shift * vi_shift
-                self.G_Br_to_JS = self.G_Ve_to_JS * (-br_shift / den / self.m_ind_to_Br)
-                G *= 1.0 + (br_shift * vi_shift / den)
-            self._G_m_ind_to_JS = G
-        return self._G_m_ind_to_JS
+        G = self.G_Ve_to_JS.copy()
+        if self.RM is not None:
+            br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
+            vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
+            den = 1.0 - br_shift * vi_shift
+            self.G_Br_to_JS = self.G_Ve_to_JS * (-br_shift / den / self.m_ind_to_Br)
+            G *= 1.0 + (br_shift * vi_shift / den)
+        return G

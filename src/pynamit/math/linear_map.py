@@ -264,8 +264,13 @@ def as_linear_map(
         if isinstance(chain, TensorChain):
             return _linear_map_from_tensor_chain(chain)
         return _linear_map_from_linear_operator(op)
-    if hasattr(op, "ndim") and getattr(op, "ndim") >= 2:
+    # Attempt to treat as a dense array/matrix
+    try:
         arr = asarray(op)
+    except Exception:
+        arr = None
+
+    if arr is not None and arr.ndim >= 2:
         if arr.ndim == 2 and input_shape is None and output_shape is None:
             return _linear_map_from_dense(arr)
         inferred_input = input_shape

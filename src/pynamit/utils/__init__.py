@@ -237,7 +237,9 @@ class _ArrayModuleProxy(types.SimpleNamespace):
 xp = _ArrayModuleProxy()
 
 
-def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
+def tensor_pinv(
+    A: Any, n_leading_flattened: int = 2, rtol: float = 1e-15, hermitian: bool = False
+) -> Any:
     """Moore-Penrose pseudoinverse of a tensor."""
     A_arr = asarray(A)
 

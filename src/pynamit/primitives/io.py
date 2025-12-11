@@ -27,15 +27,7 @@ class IO:
         """
         self.filename_prefix = filename_prefix
 
-    def update_filename_prefix(self, filename_prefix):
-        """Update the prefix for the filenames.
 
-        Parameters
-        ----------
-        filename_prefix : str
-            Prefix for the filenames.
-        """
-        self.filename_prefix = filename_prefix
 
     def save_dataset(self, dataset, name, print_info=False):
         """Save a Dataset to NetCDF file.

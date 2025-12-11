@@ -2,25 +2,24 @@
 
 from __future__ import annotations
 import warnings
-from typing import Callable, Dict, Final, List, Optional, Tuple, Union, TypeAlias
+from typing import Callable, Final, Optional, TypeAlias
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
-
 
 from .least_squares_problem import LeastSquaresProblem
 from .linear_map import LinearMap
 from pynamit.utils import xp, asarray, use_jax
 
 ITERATION_SAFETY_FACTOR: Final = 10
-RHSInput: TypeAlias = Union[np.ndarray, List[np.ndarray]]
+RHSInput: TypeAlias = np.ndarray | list[np.ndarray]
 
 
 class LeastSquaresSolver:
     """A collection of algorithms for solving least-squares problems."""
 
-    VALID_SOLVERS: Final[List[str]] = ["normal", "lsmr", "cg", "svd"]
-    VALID_PRECONDITIONERS: Final[List[str]] = ["jacobi", "pinv"]
+    VALID_SOLVERS: Final[list[str]] = ["normal", "lsmr", "cg", "svd"]
+    VALID_PRECONDITIONERS: Final[list[str]] = ["jacobi", "pinv"]
 
     def __init__(
         self, solver: str = "lsmr", tolerance: float = 1e-13, preconditioner: Optional[str] = None
@@ -34,7 +33,7 @@ class LeastSquaresSolver:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
         self.preconditioner_type = preconditioner
 
-        self._solve_methods: Dict[str, Callable] = {
+        self._solve_methods: dict[str, Callable] = {
             "svd": self._solve_svd,
             "normal": self._solve_normal,
             "lsmr": self._solve_lsmr,
@@ -45,13 +44,15 @@ class LeastSquaresSolver:
         self,
         problem: LeastSquaresProblem,
         rhs: RHSInput,
-        preconditioner: Optional[Union[LinearOperator, LinearMap]] = None,
+        preconditioner: Optional[LinearOperator | LinearMap] = None,
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
         rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else xp.float64
+            # return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
+            # Fix: shape concatenation
             return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
         rhs_block = asarray(rhs_block)
@@ -108,7 +109,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
         num_scenarios: int,
-        M: Optional[Union[LinearOperator, LinearMap]],
+        M: Optional[LinearOperator | LinearMap],
         **kwargs,
     ) -> np.ndarray:
         # LSMR is not available in JAX, so we force NumPy backend for this solver
@@ -120,7 +121,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
         num_scenarios: int,
-        M: Optional[Union[LinearOperator, LinearMap]],
+        M: Optional[LinearOperator | LinearMap],
         **kwargs,
     ) -> np.ndarray:
         G = problem.get_system_operator(num_scenarios)
@@ -219,7 +220,7 @@ class LeastSquaresSolver:
         return sol_flat.reshape(problem.solution_size, num_scenarios)
 
     def _validate_preconditioner_shape(
-        self, problem: LeastSquaresProblem, M: Optional[Union[LinearOperator, LinearMap]], num_scenarios: int
+        self, problem: LeastSquaresProblem, M: Optional[LinearOperator | LinearMap], num_scenarios: int
     ):
         if M is None:
             return
@@ -310,7 +311,7 @@ class LeastSquaresSolver:
 
     def _get_pinv_components(
         self, problem: LeastSquaresProblem, tol: float
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         _, s, vt = problem.svd
         s_pinv = xp.zeros_like(s)
         cutoff = tol * (s[0] if s.size > 0 else 0)

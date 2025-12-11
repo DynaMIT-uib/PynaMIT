@@ -4,13 +4,19 @@ This module contains the BasisEvaluator class for evaluating basis
 expansions on a grid.
 """
 
+from __future__ import annotations
+from functools import cached_property
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import numpy as np
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.primitives.grid import Grid
 
 
-class BasisEvaluator(object):
+class BasisEvaluator:
     """Object for evaluating basis expansions on a grid.
 
     This class provides methods for evaluating basis expansions on a
@@ -18,7 +24,14 @@ class BasisEvaluator(object):
     expansion coefficients corresponding to given grid values.
     """
 
-    def __init__(self, basis, grid, sqrt_weights=None, reg_lambda=None, pinv_rtol=1e-15):
+    def __init__(
+        self,
+        basis: SHBasis,
+        grid: Grid,
+        sqrt_weights: Optional[np.ndarray] = None,
+        reg_lambda: Optional[float] = None,
+        pinv_rtol: float = 1e-15,
+    ) -> None:
         """Initialize the BasisEvaluator object."""
         self.basis = basis
         self.grid = grid
@@ -26,179 +39,168 @@ class BasisEvaluator(object):
         self.reg_lambda = reg_lambda
         self.pinv_rtol = pinv_rtol
 
-        self._least_squares_problem = None
-        self._least_squares_problem_helmholtz = None
-
         # Caches for configured, stateless solver instances.
-        self._scalar_solvers = {}
-        self._helmholtz_solvers = {}
+        self._scalar_solvers: Dict[str, LeastSquaresSolver] = {}
+        self._helmholtz_solvers: Dict[str, LeastSquaresSolver] = {}
+        
+        # Internal cache for basis generation (e.g. Legendre polynomials)
+        self._cache: Optional[Any] = None
 
-    @property
-    def G(self):
+    @cached_property
+    def G(self) -> np.ndarray:
         """Evaluation matrix."""
-        if not hasattr(self, "_G"):
-            if self.basis.caching:
-                if not hasattr(self, "_cache"):
-                    self._G, self._cache = self.basis.get_G(self.grid, cache_out=True)
-                else:
-                    self._G = self.basis.get_G(self.grid, cache_in=self._cache)
+        if self.basis.caching:
+            if self._cache is None:
+                G, self._cache = self.basis.get_G(self.grid, cache_out=True)
+                return G
             else:
-                self._G = self.basis.get_G(self.grid)
-        return self._G
+                return self.basis.get_G(self.grid, cache_in=self._cache)
+        else:
+            return self.basis.get_G(self.grid)
 
-    @property
-    def G_th(self):
+    @cached_property
+    def G_th(self) -> np.ndarray:
         """Matrix evaluating the theta derivative."""
-        if not hasattr(self, "_G_th"):
-            if self.basis.caching:
-                if not hasattr(self, "_cache"):
-                    self._G_th, self._cache = self.basis.get_G(
-                        self.grid, derivative="theta", cache_out=True
-                    )
-                else:
-                    self._G_th = self.basis.get_G(
-                        self.grid, derivative="theta", cache_in=self._cache
-                    )
+        if self.basis.caching:
+            if self._cache is None:
+                G_th, self._cache = self.basis.get_G(
+                    self.grid, derivative="theta", cache_out=True
+                )
+                return G_th
             else:
-                self._G_th = self.basis.get_G(self.grid, derivative="theta")
-        return self._G_th
+                return self.basis.get_G(self.grid, derivative="theta", cache_in=self._cache)
+        else:
+            return self.basis.get_G(self.grid, derivative="theta")
 
-    @property
-    def G_ph(self):
+    @cached_property
+    def G_ph(self) -> np.ndarray:
         """Matrix evaluating the phi derivative."""
-        if not hasattr(self, "_G_ph"):
-            if self.basis.caching:
-                if not hasattr(self, "_cache"):
-                    self._G_ph, self._cache = self.basis.get_G(
-                        self.grid, derivative="phi", cache_out=True
-                    )
-                else:
-                    self._G_ph = self.basis.get_G(
-                        self.grid, derivative="phi", cache_in=self._cache
-                    )
+        if self.basis.caching:
+            if self._cache is None:
+                G_ph, self._cache = self.basis.get_G(
+                    self.grid, derivative="phi", cache_out=True
+                )
+                return G_ph
             else:
-                self._G_ph = self.basis.get_G(self.grid, derivative="phi")
-        return self._G_ph
+                return self.basis.get_G(self.grid, derivative="phi", cache_in=self._cache)
+        else:
+            return self.basis.get_G(self.grid, derivative="phi")
 
-    @property
-    def G_grad(self):
+    @cached_property
+    def G_grad(self) -> np.ndarray:
         """Matrix evaluating the horizontal gradient."""
-        if not hasattr(self, "_G_grad"):
-            self._G_grad = np.array([self.G_th, self.G_ph])
-        return self._G_grad
+        return np.array([self.G_th, self.G_ph])
 
-    @property
-    def G_rxgrad(self):
+    @cached_property
+    def G_rxgrad(self) -> np.ndarray:
         """Matrix evaluating r-hat x horizontal gradient."""
-        if not hasattr(self, "_G_rxgrad"):
-            self._G_rxgrad = np.array([-self.G_ph, self.G_th])
-        return self._G_rxgrad
+        return np.array([-self.G_ph, self.G_th])
 
-    @property
-    def G_rxgrad_pinv(self):
+    @cached_property
+    def G_rxgrad_pinv(self) -> np.ndarray:
         """Matrix evaluating r-hat x horizontal gradient pinv."""
-        if not hasattr(self, "_G_rxgrad_pinv"):
-            self._G_rxgrad_pinv = np.linalg.pinv(self.G_rxgrad)
-        return self._G_rxgrad_pinv
+        return np.linalg.pinv(self.G_rxgrad)
 
-    @property
-    def G_helmholtz(self):
+    @cached_property
+    def G_helmholtz(self) -> np.ndarray:
         """Matrix evaluating horizontal vector field expansions."""
-        if not hasattr(self, "_G_helmholtz"):
-            self._G_helmholtz = np.stack([-self.G_grad, self.G_rxgrad], axis=2)
-        return self._G_helmholtz
+        return np.stack([-self.G_grad, self.G_rxgrad], axis=2)
 
-    @property
-    def L(self):
+    @cached_property
+    def L(self) -> Optional[np.ndarray]:
         """Regularization matrix for scalar fields."""
-        if not hasattr(self, "_L"):
-            if self.reg_lambda is None:
-                self._L = None
-            else:
-                self._L = np.diag(self.basis.n)
-        return self._L
+        if self.reg_lambda is None:
+            return None
+        return np.diag(self.basis.n)
 
-    @property
-    def L_helmholtz(self):
+    @cached_property
+    def L_helmholtz(self) -> Optional[np.ndarray]:
         """Regularization matrix for horizontal vector fields."""
-        if not hasattr(self, "_L_helmholtz"):
-            if self.reg_lambda is None:
-                self._L_helmholtz = None
-            else:
-                L_cf = np.stack(
-                    [
-                        np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
-                        np.zeros((self.basis.index_length, self.basis.index_length)),
-                    ],
-                    axis=1,
-                )
-                L_df = np.stack(
-                    [
-                        np.zeros((self.basis.index_length, self.basis.index_length)),
-                        np.diag((self.basis.n + 1) / 2),
-                    ],
-                    axis=1,
-                )
-                self._L_helmholtz = np.array([L_cf, L_df])
-        return self._L_helmholtz
+        if self.reg_lambda is None:
+            return None
+            
+        L_cf = np.stack(
+            [
+                np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
+                np.zeros((self.basis.index_length, self.basis.index_length)),
+            ],
+            axis=1,
+        )
+        L_df = np.stack(
+            [
+                np.zeros((self.basis.index_length, self.basis.index_length)),
+                np.diag((self.basis.n + 1) / 2),
+            ],
+            axis=1,
+        )
+        return np.array([L_cf, L_df])
 
-    @property
+    @cached_property
     def least_squares_problem(self) -> LeastSquaresProblem:
         """Least squares problem for scalar fields."""
-        if self._least_squares_problem is None:
-            reg_matrices = [self.L] if self.reg_lambda is not None else []
-            reg_weights = [self.reg_lambda] if self.reg_lambda is not None else []
+        # Note: cached_property handles the single initialization
+        reg_matrices = [self.L] if self.L is not None else []
+        reg_weights = [self.reg_lambda] if self.reg_lambda is not None else []
 
-            self._least_squares_problem = LeastSquaresProblem(
-                A=[self.G],
-                solution_shape=self.basis.index_length,
-                data_shapes=[self.grid.size],
-                sqrt_weights=[self.sqrt_weights],
-                regularization_weights=reg_weights,
-                regularization_matrices=reg_matrices,
-            )
-        return self._least_squares_problem
+        # Assuming grid.size is int, data_shapes needs a list of tuples or ints
+        return LeastSquaresProblem(
+            A=[self.G],
+            solution_shape=self.basis.index_length,
+            data_shapes=[self.grid.size],
+            sqrt_weights=[self.sqrt_weights],
+            regularization_weights=reg_weights,
+            regularization_matrices=reg_matrices,
+        )
 
-    @property
+    @cached_property
     def least_squares_problem_helmholtz(self) -> LeastSquaresProblem:
         """Least squares problem for horizontal vector fields."""
-        if self._least_squares_problem_helmholtz is None:
-            reg_matrices = [self.L_helmholtz] if self.reg_lambda is not None else []
-            reg_weights = [self.reg_lambda] if self.reg_lambda is not None else []
+        reg_matrices = [self.L_helmholtz] if self.L_helmholtz is not None else []
+        reg_weights = [self.reg_lambda] if self.reg_lambda is not None else []
 
-            self._least_squares_problem_helmholtz = LeastSquaresProblem(
-                A=[self.G_helmholtz],
-                solution_shape=(2, self.basis.index_length),
-                data_shapes=[(2, self.grid.size)],
-                sqrt_weights=[self.sqrt_weights],
-                regularization_weights=reg_weights,
-                regularization_matrices=reg_matrices,
-            )
-        return self._least_squares_problem_helmholtz
+        return LeastSquaresProblem(
+            A=[self.G_helmholtz],
+            solution_shape=(2, self.basis.index_length),
+            data_shapes=[(2, self.grid.size)],
+            sqrt_weights=[self.sqrt_weights],
+            regularization_weights=reg_weights,
+            regularization_matrices=reg_matrices,
+        )
 
-    def least_squares_solution(self, grid_values, solver_type="svd"):
+    def least_squares_solution(
+        self, grid_values: np.ndarray, solver_type: str = "svd"
+    ) -> np.ndarray:
         """Least squares decomposition of a scalar field."""
         if solver_type not in self._scalar_solvers:
-            # Create a stateless solver with the desired configuration
-            solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
-            self._scalar_solvers[solver_type] = solver
-
+            self._scalar_solvers[solver_type] = LeastSquaresSolver(
+                solver=solver_type, tolerance=self.pinv_rtol
+            )
+        
         solver = self._scalar_solvers[solver_type]
-        # Pass the problem definition and RHS to the stateless solver
-        return solver.solve(problem=self.least_squares_problem, rhs=grid_values)
+        # RHS must be a list of inputs matching data terms in problem
+        # Assuming single data term based on original code usage
+        rhs = [grid_values]
+        return solver.solve(problem=self.least_squares_problem, rhs=rhs)
 
-    def least_squares_solution_helmholtz(self, grid_values, solver_type="svd"):
+    def least_squares_solution_helmholtz(
+        self, grid_values: np.ndarray, solver_type: str = "svd"
+    ) -> np.ndarray:
         """Least squares decomposition of a horizontal vector field."""
         if solver_type not in self._helmholtz_solvers:
-            # Create a stateless solver with the desired configuration
-            solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
-            self._helmholtz_solvers[solver_type] = solver
+            self._helmholtz_solvers[solver_type] = LeastSquaresSolver(
+                solver=solver_type, tolerance=self.pinv_rtol
+            )
 
         solver = self._helmholtz_solvers[solver_type]
-        # Pass the problem definition and RHS to the stateless solver
-        return solver.solve(problem=self.least_squares_problem_helmholtz, rhs=grid_values)
+        rhs = [grid_values]
+        return solver.solve(problem=self.least_squares_problem_helmholtz, rhs=rhs)
 
-    def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):
+    def basis_to_grid(
+        self,
+        coeffs: np.ndarray,
+        derivative: Union[None, str] = None,
+        helmholtz: bool = False,
+    ) -> np.ndarray:
         """Transform basis coefficients to grid values."""
         if derivative == "theta":
             return np.dot(self.G_th, coeffs)
@@ -209,20 +211,26 @@ class BasisEvaluator(object):
         else:
             return np.dot(self.G, coeffs)
 
-    def grid_to_basis(self, grid_values, helmholtz=False):
+    def grid_to_basis(
+        self, grid_values: np.ndarray, helmholtz: bool = False
+    ) -> np.ndarray:
         """Transform grid values to basis coefficients."""
         if helmholtz:
             return self.least_squares_solution_helmholtz(grid_values)
         else:
             return self.least_squares_solution(grid_values)
 
-    def regularization_term(self, coeffs, helmholtz=False):
+    def regularization_term(self, coeffs: np.ndarray, helmholtz: bool = False) -> np.ndarray:
         """Return the regularization term."""
         if helmholtz:
+            if self.L_helmholtz is None:
+                raise ValueError("Regularization not enabled (L_helmholtz is None)")
             return np.tensordot(self.L_helmholtz, coeffs, 2)
         else:
+            if self.L is None:
+                raise ValueError("Regularization not enabled (L is None)")
             return np.dot(coeffs, np.dot(self.L, coeffs))
 
-    def scaled_G(self, factor):
+    def scaled_G(self, factor: float) -> np.ndarray:
         """Return the scaled G matrix."""
         return factor * self.G

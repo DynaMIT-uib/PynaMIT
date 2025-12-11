@@ -4,7 +4,7 @@ import numpy as np
 import math
 
 
-class SHIndices(object):
+class SHIndices:
     """Container for (n,m) index pairs."""
 
     def __init__(self, Nmax: int, Mmax: int):
@@ -28,25 +28,25 @@ class SHIndices(object):
         for p in self.index_pairs:
             yield p
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return length of the SHIndices."""
         return len(self.index_pairs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return string representation of the SHIndices."""
         return "".join(["n, m\n"] + [str(p)[1:-1] + "\n" for p in self.index_pairs])[:-1]
 
-    def __str__(self):
+    def __str__(self) -> str:
         """Return string representation of the SHIndices."""
         return self.__repr__()
 
-    def set_Nmin(self, Nmin: int):
+    def set_Nmin(self, Nmin: int) -> "SHIndices":
         """Set minimum degree Nmin."""
         self.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin])
         self.make_arrays()
         return self
 
-    def set_Mmin(self, Mmin: int):
+    def set_Mmin(self, Mmin: int) -> "SHIndices":
         """Set minimum absolute order Mmin."""
         self.index_pairs = tuple([p for p in self.index_pairs if abs(p[1]) >= Mmin])
         self.make_arrays()
@@ -65,7 +65,7 @@ class SHIndices(object):
         self._index_map = {pair: i for i, pair in enumerate(self.index_pairs)}
 
 
-def schmidt_quasi_normalization_factors(Nmax: int, Mmax: int):
+def schmidt_quasi_normalization_factors(Nmax: int, Mmax: int) -> np.ndarray:
     """
     Return a matrix of Schmidt quasi-normalization factors.
 

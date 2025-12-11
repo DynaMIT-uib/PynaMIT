@@ -48,6 +48,7 @@ class Timeseries:
         cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
         self.storage_basis_evaluators = {}
+        self.input_basis_evaluators = {}
         for key in self.storage_bases.keys():
             self.storage_basis_evaluators[key] = BasisEvaluator(self.storage_bases[key], cs_grid)
 
@@ -180,8 +181,7 @@ class Timeseries:
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
 
-        if not hasattr(self, "input_basis_evaluators"):
-            self.input_basis_evaluators = {}
+
 
         if not (
             key in self.input_basis_evaluators.keys()
@@ -243,7 +243,7 @@ class Timeseries:
 
                     basis_evaluator = self.storage_basis_evaluators[key]
 
-                vector = FieldExpansion(
+                vector = FieldExpansion.from_grid_values(
                     basis_evaluator.basis,
                     basis_evaluator=basis_evaluator,
                     grid_values=grid_values,

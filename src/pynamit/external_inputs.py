@@ -327,10 +327,10 @@ def get_jr_inputs(
 
     if dipole is not None and pyamps is not None:
         d = dipole.Dipole(date.year)
-        coeff_path = os.path.join(
-            os.path.dirname(pyamps.__file__),
-            "coefficients",
-            "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt",
+        coeff_path = (
+            Path(pyamps.__file__).resolve().parent
+            / "coefficients"
+            / "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt"
         )
         amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50, coeff_fn=coeff_path)
         mlt = d.mlon2mlt(lon, date)

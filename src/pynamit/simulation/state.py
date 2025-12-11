@@ -12,6 +12,7 @@ from typing import Optional, Tuple, Any, List, Dict
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
+from functools import cached_property
 
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.least_squares_problem import LeastSquaresProblem
@@ -93,14 +94,20 @@ class State:
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
-        self._M_total_on_grid: Optional[np.ndarray] = None
-        self._m_ind_to_E_coeffs: Optional[TensorChain] = None
-        self._m_imp_to_E_coeffs: Optional[TensorChain] = None
-        self._Br_to_E_coeffs: Optional[TensorChain] = None
-        self._E_map_constraint_operator: Optional[TensorChain] = None
-        self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
-        self._m_imp_problem: Optional[LeastSquaresProblem] = None
-        self._m_imp_preconditioner: Optional[LinearMap] = None
+        for attr in [
+            "M_total_on_grid",
+            "m_ind_to_E_coeffs",
+            "m_imp_to_E_coeffs",
+            "Br_to_E_coeffs",
+            "E_map_constraint_operator",
+            "m_ind_to_E_df_matrix",
+            "m_imp_problem",
+            "m_imp_preconditioner",
+        ]:
+            try:
+                delattr(self, attr)
+            except AttributeError:
+                pass
         self._operator_linear_map_cache: Dict[
             Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
         ] = {}
@@ -119,21 +126,19 @@ class State:
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
-    @property
+    @cached_property
     def M_total_on_grid(self) -> np.ndarray:
         """Resistance tensor on the spatial grid."""
-        if self._M_total_on_grid is None:
-            if self.etaP is None or self.etaH is None:
-                raise RuntimeError(
-                    "Conductance must be set before accessing conductance-dependent properties."
-                )
-            eta_stacked = xp.stack([asarray(self.etaP.coeffs), asarray(self.etaH.coeffs)], axis=0)
-            G_eta = asarray(self.geometry.basis_evaluator_zero_added.G)
-            b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
-            self._M_total_on_grid = xp.einsum(
-                "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
+        if self.etaP is None or self.etaH is None:
+            raise RuntimeError(
+                "Conductance must be set before accessing conductance-dependent properties."
             )
-        return self._M_total_on_grid
+        eta_stacked = xp.stack([asarray(self.etaP.coeffs), asarray(self.etaH.coeffs)], axis=0)
+        G_eta = asarray(self.geometry.basis_evaluator_zero_added.G)
+        b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
+        return xp.einsum(
+            "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
+        )
 
     def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[TensorChain]:
         if G_X_to_JS is None:
@@ -152,92 +157,81 @@ class State:
             input_shape=G_X_to_JS.shape[2:],
         )
 
-    @property
+    @cached_property
     def m_ind_to_E_coeffs(self) -> Optional[TensorChain]:
         """Operator mapping m_ind coefficients to E coefficients."""
-        if self._m_ind_to_E_coeffs is None:
-            self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS)
-        return self._m_ind_to_E_coeffs
+        return self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS)
 
-    @property
+    @cached_property
     def m_imp_to_E_coeffs(self) -> Optional[TensorChain]:
         """Operator mapping m_imp coefficients to E coefficients."""
-        if self._m_imp_to_E_coeffs is None:
-            self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS)
-        return self._m_imp_to_E_coeffs
+        return self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS)
 
-    @property
+    @cached_property
     def Br_to_E_coeffs(self) -> Optional[TensorChain]:
         """Operator mapping Br coefficients to E coefficients."""
-        if self._Br_to_E_coeffs is None:
-            self._Br_to_E_coeffs = self._create_E_coeffs_operator(
-                getattr(self.geometry, "G_Br_to_JS", None)
-            )
-        return self._Br_to_E_coeffs
+        return self._create_E_coeffs_operator(
+            getattr(self.geometry, "G_Br_to_JS", None)
+        )
 
-    @property
+    @cached_property
     def E_map_constraint_operator(self) -> Optional[TensorChain]:
         """Operator enforcing E-field mapping at low latitudes."""
-        if self._E_map_constraint_operator is None:
-            inner_chain = self.m_imp_to_E_coeffs
-            outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
-            if inner_chain is not None and outer_tensor is not None:
-                self._E_map_constraint_operator = TensorChain(
-                    component_tensors=[outer_tensor] + inner_chain.component_tensors,
-                    einsum_string_dense="ticm,cmpg,pqg,qgl->til",
-                    einsum_string_matvec="ticm,cmpg,pqg,qgl,l->ti",
-                    einsum_string_rmatvec="ti,ticm,cmpg,pqg,qgl->l",
-                    output_shape=(2, int(np.sum(self.geometry.ll_mask))),
-                    input_shape=inner_chain.input_shape,
-                )
-        return self._E_map_constraint_operator
+        inner_chain = self.m_imp_to_E_coeffs
+        outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
+        if inner_chain is not None and outer_tensor is not None:
+            return TensorChain(
+                component_tensors=[outer_tensor] + inner_chain.component_tensors,
+                einsum_string_dense="ticm,cmpg,pqg,qgl->til",
+                einsum_string_matvec="ticm,cmpg,pqg,qgl,l->ti",
+                einsum_string_rmatvec="ti,ticm,cmpg,pqg,qgl->l",
+                output_shape=(2, int(np.sum(self.geometry.ll_mask))),
+                input_shape=inner_chain.input_shape,
+            )
+        return None
 
     # ----- Solver Setup and Execution -----
-    @property
+    @cached_property
     def m_imp_problem(self) -> LeastSquaresProblem:
         """The least-squares problem definition for `m_imp`."""
-        if self._m_imp_problem is None:
-            logger.info("Defining new least-squares problem for m_imp.")
-            operators, data_shapes = [], []
+        logger.info("Defining new least-squares problem for m_imp.")
+        operators, data_shapes = [], []
 
-            # Radial current (jr) must match imposed field.
-            op_jr = self.geometry.jr_coeffs_to_j_apex * self.geometry.m_imp_to_jr.reshape((1, -1))
-            operators.append(op_jr)
-            data_shapes.append(op_jr.shape[:-1])
+        # Radial current (jr) must match imposed field.
+        op_jr = self.geometry.jr_coeffs_to_j_apex * self.geometry.m_imp_to_jr.reshape((1, -1))
+        operators.append(op_jr)
+        data_shapes.append(op_jr.shape[:-1])
 
-            # E-field must map at low latitudes.
-            if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-                op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
-                operators.append(op_E)
-                data_shapes.append(op_E.output_shape)
+        # E-field must map at low latitudes.
+        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+            op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
+            operators.append(op_E)
+            data_shapes.append(op_E.output_shape)
 
-            # Add Tikhonov regularizationif lambda is set.
-            reg_ops, reg_weights = [], []
-            if self.m_imp_regularization_lambda > 0:
-                n = self.basis.index_length
-                # Use diagonal map for backend-agnostic identity
-                identity_op = diagonal_linear_map(xp.ones(n))
-                reg_ops.append(identity_op)
-                reg_weights.append(self.m_imp_regularization_lambda)
+        # Add Tikhonov regularizationif lambda is set.
+        reg_ops, reg_weights = [], []
+        if self.m_imp_regularization_lambda > 0:
+            n = self.basis.index_length
+            # Use diagonal map for backend-agnostic identity
+            identity_op = diagonal_linear_map(xp.ones(n))
+            reg_ops.append(identity_op)
+            reg_weights.append(self.m_imp_regularization_lambda)
 
-            self._m_imp_problem = LeastSquaresProblem(
-                A=operators,
-                solution_shape=self.basis.index_length,
-                data_shapes=data_shapes,
-                regularization_matrices=reg_ops,
-                regularization_weights=reg_weights,
-            )
-        return self._m_imp_problem
+        return LeastSquaresProblem(
+            A=operators,
+            solution_shape=self.basis.index_length,
+            data_shapes=data_shapes,
+            regularization_matrices=reg_ops,
+            regularization_weights=reg_weights,
+        )
 
-    @property
+    @cached_property
     def m_imp_preconditioner(self) -> Optional[LinearMap]:
         """Preconditioner for the m_imp least-squares problem."""
-        if self._m_imp_preconditioner is None:
-            logger.info("Building new preconditioner for m_imp solver.")
-            self._m_imp_preconditioner = self.m_imp_solver.build_preconditioner(
-                problem=self.m_imp_problem, num_scenarios=1
-            )
-        return self._m_imp_preconditioner
+        logger.info("Building new preconditioner for m_imp solver.")
+        return self.m_imp_solver.build_preconditioner(
+            problem=self.m_imp_problem, num_scenarios=1
+        )
 
     def _solve_for_m_imp(
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
@@ -288,13 +282,18 @@ class State:
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
+            # Cache the preconditioner if it is static and not to be invalidated
             preconditioner_to_keep = (
-                self._m_imp_preconditioner if self.static_preconditioner else None
+                self.m_imp_preconditioner if self.static_preconditioner and hasattr(self, "m_imp_preconditioner") else None
             )
+            
             self._invalidate_caches()
+            
+            # If we kept a static preconditioner, manually inject it back into the cached_proprety cache
+            # The way to do this with cached_property is to set the attribute on the instance
             if preconditioner_to_keep is not None:
                 logger.info("...retaining static preconditioner due to setting.")
-                self._m_imp_preconditioner = preconditioner_to_keep
+                self.m_imp_preconditioner = preconditioner_to_keep
 
     # ----- State Calculation -----
 
@@ -337,21 +336,18 @@ class State:
 
     # ----- Time Evolution -----
 
-    @property
+    @cached_property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
         """Dense matrix mapping m_ind to div-free E-field."""
-        if self._m_ind_to_E_df_matrix is None:
-            self._build_m_ind_to_E_df_matrix()
-        return self._m_ind_to_E_df_matrix
+        return self._build_m_ind_to_E_df_matrix()
 
-    def _build_m_ind_to_E_df_matrix(self) -> None:
+    def _build_m_ind_to_E_df_matrix(self) -> np.ndarray:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
         n = self.basis.index_length
         if self.m_ind_to_E_coeffs is None:
-            self._m_ind_to_E_df_matrix = xp.zeros((n, n))
             logger.info("Dense induction operator built (degenerate: no mapping available).")
-            return
+            return xp.zeros((n, n))
 
         # Direct contribution from induced potential (without imposed solver feedback)
         E_direct_dense = asarray(self.m_ind_to_E_coeffs.to_dense()).reshape(2, n, n)
@@ -399,8 +395,9 @@ class State:
             E_imp_block = xp.zeros_like(E_direct_dense)
 
         total_E = E_direct_dense + E_imp_block
-        self._m_ind_to_E_df_matrix = asarray(total_E[1])
+        total_E = E_direct_dense + E_imp_block
         logger.info("Dense induction operator built.")
+        return asarray(total_E[1])
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the time derivative of the induced potential.

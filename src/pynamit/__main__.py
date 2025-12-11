@@ -6,4 +6,5 @@ module.
 
 from .default_run import run_pynamit
 
-run_pynamit()
+if __name__ == "__main__":
+    run_pynamit()

@@ -4,6 +4,11 @@ This module contains the Dynamics class for simulating dynamic MIT
 coupling.
 """
 
+from __future__ import annotations
+import functools
+from dataclasses import dataclass, field, asdict
+from typing import Any, List, Optional, Union, Literal
+
 import numpy as np
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
@@ -20,7 +25,94 @@ from pynamit.utils import asarray, set_backend, xp
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
-class Dynamics(object):
+@dataclass
+class DynamicsSettings:
+    """Settings for the Dynamics simulation."""
+
+    Nmax: int = 20
+    Mmax: int = 20
+    Ncs: int = 30
+    RI: float = RE + 110.0e3
+    RM: Optional[float] = None
+    mainfield_kind: Literal["dipole", "igrf", "radial"] = "dipole"
+    mainfield_epoch: int = 2020
+    mainfield_B0: Optional[float] = None
+    FAC_integration_steps: Union[np.ndarray, List[float]] = field(
+        default_factory=lambda: np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
+    )
+    ignore_PFAC: bool = False
+    connect_hemispheres: bool = False
+    latitude_boundary: float = 50.0
+    ih_constraint_scaling: float = 1e-5
+    vector_jr: bool = True
+    vector_Br: bool = True
+    vector_conductance: bool = True
+    vector_u: bool = True
+    t0: str = "2020-01-01 00:00:00"
+    save_steady_states: bool = True
+    integrator: Literal["euler", "exponential"] = "euler"
+    backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
+    filename_prefix: str = "simulation"
+
+    def to_dataset(self) -> xr.Dataset:
+        """Convert settings to an xarray Dataset for storage."""
+        attrs = asdict(self)
+        # Handle types that might not serialize well or need specific handling
+        attrs["RM"] = 0 if self.RM is None else self.RM
+        attrs["mainfield_B0"] = 0 if self.mainfield_B0 is None else self.mainfield_B0
+        attrs["ignore_PFAC"] = int(self.ignore_PFAC)
+        attrs["connect_hemispheres"] = int(self.connect_hemispheres)
+        attrs["vector_jr"] = int(self.vector_jr)
+        attrs["vector_Br"] = int(self.vector_Br)
+        attrs["vector_conductance"] = int(self.vector_conductance)
+        attrs["vector_u"] = int(self.vector_u)
+        attrs["save_steady_states"] = int(self.save_steady_states)
+        
+        # Remove backend as it is runtime configuration
+        if "backend" in attrs:
+            del attrs["backend"]
+        if "filename_prefix" in attrs:
+            del attrs["filename_prefix"]
+
+        return xr.Dataset(attrs=attrs)
+
+    @staticmethod
+    def from_dataset(ds: xr.Dataset, defaults: DynamicsSettings) -> DynamicsSettings:
+        """Create settings from a dataset, using defaults as a base."""
+        attrs = ds.attrs
+        
+        # Helper to safely get and convert
+        def get(key, default, converter=lambda x: x):
+            return converter(attrs.get(key, default))
+        
+        return DynamicsSettings(
+            Nmax=get("Nmax", defaults.Nmax),
+            Mmax=get("Mmax", defaults.Mmax),
+            Ncs=get("Ncs", defaults.Ncs),
+            RI=get("RI", defaults.RI),
+            RM=get("RM", defaults.RM, lambda x: None if x == 0 else x),
+            mainfield_kind=get("mainfield_kind", defaults.mainfield_kind),
+            mainfield_epoch=get("mainfield_epoch", defaults.mainfield_epoch),
+            mainfield_B0=get("mainfield_B0", defaults.mainfield_B0, lambda x: None if x == 0 else x),
+            FAC_integration_steps=get("FAC_integration_steps", defaults.FAC_integration_steps),
+            ignore_PFAC=bool(get("ignore_PFAC", defaults.ignore_PFAC)),
+            connect_hemispheres=bool(get("connect_hemispheres", defaults.connect_hemispheres)),
+            latitude_boundary=get("latitude_boundary", defaults.latitude_boundary),
+            ih_constraint_scaling=get("ih_constraint_scaling", defaults.ih_constraint_scaling),
+            vector_jr=bool(get("vector_jr", defaults.vector_jr)),
+            vector_Br=bool(get("vector_Br", defaults.vector_Br)),
+            vector_conductance=bool(get("vector_conductance", defaults.vector_conductance)),
+            vector_u=bool(get("vector_u", defaults.vector_u)),
+            t0=get("t0", defaults.t0),
+            save_steady_states=bool(get("save_steady_states", defaults.save_steady_states)),
+            integrator=get("integrator", defaults.integrator),
+            # Runtime fields not in file
+            backend=defaults.backend,
+            filename_prefix=defaults.filename_prefix,
+        )
+
+
+class Dynamics:
     """Class for simulating dynamic MIT coupling.
 
     Manages the temporal evolution of the state of the ionosphere in
@@ -42,107 +134,59 @@ class Dynamics(object):
 
     def __init__(
         self,
-        filename_prefix="simulation",
-        Nmax=20,
-        Mmax=20,
-        Ncs=30,
-        RI=RE + 110.0e3,
-        RM=None,
-        mainfield_kind="dipole",
-        mainfield_epoch=2020,
-        mainfield_B0=None,
-        FAC_integration_steps=np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11),
-        ignore_PFAC=False,
-        connect_hemispheres=False,
-        latitude_boundary=50,
-        ih_constraint_scaling=1e-5,
-        vector_jr=True,
-        vector_Br=True,
-        vector_conductance=True,
-        vector_u=True,
-        t0="2020-01-01 00:00:00",
-        save_steady_states=True,
-        integrator="euler",
-        backend="auto",
+        filename_prefix: str = "simulation",
+        Nmax: int = 20,
+        Mmax: int = 20,
+        Ncs: int = 30,
+        RI: float = RE + 110.0e3,
+        RM: Optional[float] = None,
+        mainfield_kind: Literal["dipole", "igrf", "radial"] = "dipole",
+        mainfield_epoch: int = 2020,
+        mainfield_B0: Optional[float] = None,
+        FAC_integration_steps: Union[np.ndarray, List[float]] = None,
+        ignore_PFAC: bool = False,
+        connect_hemispheres: bool = False,
+        latitude_boundary: float = 50.0,
+        ih_constraint_scaling: float = 1e-5,
+        vector_jr: bool = True,
+        vector_Br: bool = True,
+        vector_conductance: bool = True,
+        vector_u: bool = True,
+        t0: str = "2020-01-01 00:00:00",
+        save_steady_states: bool = True,
+        integrator: Literal["euler", "exponential"] = "euler",
+        backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
     ):
-        """Initialize the Dynamics class.
+        """Initialize the Dynamics class."""
+        if FAC_integration_steps is None:
+            FAC_integration_steps = np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
 
-        Parameters
-        ----------
-        filename_prefix : str, optional
-            Prefix for saving dataset files.
-        Nmax : int, optional
-            Maximum spherical harmonic degree.
-        Mmax : int, optional
-            Maximum spherical harmonic order.
-        Ncs : int, optional
-            Number of cubed sphere grid points per edge.
-        RI : float, optional
-            Ionospheric radius in meters.
-        mainfield_kind : {'dipole', 'igrf',  'radial'}, optional
-            Type of main magnetic field model.
-        mainfield_epoch : int, optional
-            Epoch year for main field model.
-        mainfield_B0 : float, optional
-            Main field strength.
-        FAC_integration_steps : array-like, optional
-            Integration radii for FAC poloidal field calculation.
-        ignore_PFAC : bool, optional
-            Whether to ignore FAC poloidal fields.
-        connect_hemispheres : bool, optional
-            Whether hemispheres are electrically connected.
-        latitude_boundary : float, optional
-            Simulation boundary latitude in degrees.
-        ih_constraint_scaling : float, optional
-            Scaling for interhemispheric coupling constraint.
-        vector_jr : bool, optional
-            Use vector representation for radial current.
-        vector_Br : bool, optional
-            Use vector representation for radial magnetic field
-            component.
-        vector_conductance : bool, optional
-            Use vector representation for conductances.
-        vector_u : bool, optional
-            Use vector representation for neutral wind.
-        t0 : str, optional
-            Start time in UTC format.
-        save_steady_states : bool, optional
-            Whether to calculate and save steady states.
-        integrator : {'euler', 'exponential'}, optional
-            Integrator type for time evolution.
-        backend : {'auto', 'numpy', 'jax', bool}, optional
-            Array backend to use. ``"auto"`` respects the current global
-            setting (environment variable or previous choice).
-            ``"numpy"``/``False`` enforce NumPy arrays, while
-            ``"jax"``/``True`` enables JAX.
-        """
-        self.backend = set_backend(backend)
-
-        # Store setting arguments in xarray dataset.
-        self.settings = xr.Dataset(
-            attrs={
-                "Nmax": Nmax,
-                "Mmax": Mmax,
-                "Ncs": Ncs,
-                "RI": RI,
-                "RM": 0 if RM is None else RM,
-                "latitude_boundary": latitude_boundary,
-                "ignore_PFAC": int(ignore_PFAC),
-                "connect_hemispheres": int(connect_hemispheres),
-                "FAC_integration_steps": FAC_integration_steps,
-                "ih_constraint_scaling": ih_constraint_scaling,
-                "mainfield_kind": mainfield_kind,
-                "mainfield_epoch": mainfield_epoch,
-                "mainfield_B0": 0 if mainfield_B0 is None else mainfield_B0,
-                "vector_jr": int(vector_jr),
-                "vector_Br": int(vector_Br),
-                "vector_conductance": int(vector_conductance),
-                "vector_u": int(vector_u),
-                "t0": t0,
-                "save_steady_states": int(save_steady_states),
-                "integrator": integrator,
-            }
+        initial_settings = DynamicsSettings(
+            filename_prefix=filename_prefix,
+            Nmax=Nmax,
+            Mmax=Mmax,
+            Ncs=Ncs,
+            RI=RI,
+            RM=RM,
+            mainfield_kind=mainfield_kind,
+            mainfield_epoch=mainfield_epoch,
+            mainfield_B0=mainfield_B0,
+            FAC_integration_steps=FAC_integration_steps,
+            ignore_PFAC=ignore_PFAC,
+            connect_hemispheres=connect_hemispheres,
+            latitude_boundary=latitude_boundary,
+            ih_constraint_scaling=ih_constraint_scaling,
+            vector_jr=vector_jr,
+            vector_Br=vector_Br,
+            vector_conductance=vector_conductance,
+            vector_u=vector_u,
+            t0=t0,
+            save_steady_states=save_steady_states,
+            integrator=integrator,
+            backend=backend,
         )
+        self.settings = initial_settings
+        self.backend = set_backend(backend)
 
         self.io = IO(filename_prefix)
 
@@ -150,7 +194,7 @@ class Dynamics(object):
         settings_on_file = self.io.load_dataset("settings", print_info=True)
 
         if settings_on_file is not None:
-            if not self.settings.identical(settings_on_file):
+            if not self.settings.to_dataset().identical(settings_on_file):
                 raise ValueError(
                     "Mismatch between Dynamics object arguments and settings on file."
                 )
@@ -225,10 +269,10 @@ class Dynamics(object):
 
         # Store settings and PFAC matrix on file.
         if filename_prefix is None:
-            self.io.update_filename_prefix("simulation")
+            self.io.filename_prefix = "simulation"
 
         if settings_on_file is None:
-            self.io.save_dataset(self.settings, "settings", print_info=True)
+            self.io.save_dataset(self.settings.to_dataset(), "settings", print_info=True)
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)

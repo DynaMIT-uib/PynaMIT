@@ -1,7 +1,7 @@
 """Least-squares problem definition."""
 
 from __future__ import annotations
-import functools
+from functools import cached_property
 import math
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Tuple, Union, TypeAlias
@@ -18,9 +18,6 @@ OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain]
 Shape: TypeAlias = Union[int, Tuple[int, ...]]
 
 
-def cached_property(func: Callable):
-    """Cache a propertu."""
-    return property(functools.lru_cache(maxsize=None)(func))
 
 
 @dataclass

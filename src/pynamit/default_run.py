@@ -5,32 +5,36 @@ default PynaMIT simulation. It is primarily used for testing purposes
 and as a starting point for simulation scripts.
 """
 
+from __future__ import annotations
+
+from typing import Any, Optional
+
 
 def run_pynamit(
-    final_time=100,
-    plotsteps=200,
-    dt=5e-4,
-    Nmax=20,
-    Mmax=20,
-    Ncs=30,
-    RM=None,
-    mainfield_kind="dipole",
-    fig_directory="./figs",
-    ignore_PFAC=True,
-    connect_hemispheres=False,
-    latitude_boundary=50,
-    wind=False,
-    steady_state_initialization=True,
-    vector_jr=True,
-    vector_Br=True,
-    vector_conductance=True,
-    vector_u=True,
-    integrator="euler",
-    jr_lambda=None,
-    conductance_lambda=None,
-    u_lambda=None,
-    multi_data=False,
-):
+    final_time: float = 100.0,
+    plotsteps: int = 200,
+    dt: float = 5e-4,
+    Nmax: int = 20,
+    Mmax: int = 20,
+    Ncs: int = 30,
+    RM: Optional[float] = None,
+    mainfield_kind: str = "dipole",
+    fig_directory: str = "./figs",
+    ignore_PFAC: bool = True,
+    connect_hemispheres: bool = False,
+    latitude_boundary: float = 50.0,
+    wind: bool = False,
+    steady_state_initialization: bool = True,
+    vector_jr: bool = True,
+    vector_Br: bool = True,
+    vector_conductance: bool = True,
+    vector_u: bool = True,
+    integrator: str = "euler",
+    jr_lambda: Optional[float] = None,
+    conductance_lambda: Optional[float] = None,
+    u_lambda: Optional[float] = None,
+    multi_data: bool = False,
+) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
     Parameters

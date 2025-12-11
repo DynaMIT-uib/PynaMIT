@@ -1,5 +1,9 @@
 """Plot input vs interpolated data from HDF5 file."""
 
+from __future__ import annotations
+
+from typing import Any, List, Optional, Tuple, Union
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -19,7 +23,12 @@ from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
 
-def _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, plot_evaluator, target_shape):
+def _evaluate_scalar_coeffs_to_grid(
+    coeffs: Optional[np.ndarray],
+    storage_basis: Any,
+    plot_evaluator: BasisEvaluator,
+    target_shape: Tuple[int, ...],
+) -> np.ndarray:
     """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
         return np.full(target_shape, np.nan)
@@ -28,8 +37,11 @@ def _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, plot_evaluator, targe
 
 
 def _evaluate_tangential_coeffs_to_grid_components(
-    coeffs, storage_basis, plot_evaluator, target_shape
-):
+    coeffs: Optional[np.ndarray],
+    storage_basis: Any,
+    plot_evaluator: BasisEvaluator,
+    target_shape: Tuple[int, ...],
+) -> Tuple[np.ndarray, np.ndarray]:
     """Evaluate tangential coefficients to grid components."""
     if coeffs is None:
         return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
@@ -43,8 +55,14 @@ def _evaluate_tangential_coeffs_to_grid_components(
 
 
 def plot_scalar_map_on_ax(
-    ax, lon_coords_2d, lat_coords_2d, data_2d_arr, title="", cmap="viridis", norm=None
-):
+    ax: plt.Axes,
+    lon_coords_2d: np.ndarray,
+    lat_coords_2d: np.ndarray,
+    data_2d_arr: np.ndarray,
+    title: str = "",
+    cmap: str = "viridis",
+    norm: Optional[mcolors.Normalize] = None,
+) -> Any:
     """Plot a scalar map with specified coordinates and data."""
     if norm is None:
         raise ValueError("Norm object must be provided to plot_scalar_map_on_ax.")
@@ -65,19 +83,19 @@ def plot_scalar_map_on_ax(
 
 
 def plot_input_vs_interpolated(
-    h5_filepath,
-    interpolated_filename_prefix,
-    timesteps_to_plot,
-    input_dt,
-    data_types_to_plot,
-    noon_longitude=0,
-    output_filename=None,
-    vmin_percentile=0.2,
-    vmax_percentile=99.8,
-    strictly_positive_scale_type="linear",
-    time_row_h_frac_user=0.015,
-    cbars_labels_col_w_frac_user=0.11,
-):
+    h5_filepath: str,
+    interpolated_filename_prefix: str,
+    timesteps_to_plot: List[int],
+    input_dt: float,
+    data_types_to_plot: List[str],
+    noon_longitude: float = 0,
+    output_filename: Optional[str] = None,
+    vmin_percentile: float = 0.2,
+    vmax_percentile: float = 99.8,
+    strictly_positive_scale_type: str = "linear",
+    time_row_h_frac_user: float = 0.015,
+    cbars_labels_col_w_frac_user: float = 0.11,
+) -> None:
     """Plot input vs interpolated data from HDF5 file."""
     try:
         h5file = h5.File(h5_filepath, "r")

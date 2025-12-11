@@ -5,18 +5,33 @@ simulation results, including global maps, diagnostic plots, and time
 series visualizations.
 """
 
-import numpy as np
+from __future__ import annotations
+
+import os
+from typing import Any, Optional, Tuple
+
 import matplotlib.pyplot as plt
+import numpy as np
 import cartopy.crs as ccrs
 import polplot
 from scipy.interpolate import griddata
 from polplot import Polarplot
+
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.simulation.dynamics import Dynamics
 
 
-def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
+def cs_interpolate(
+    projection: Any,
+    inlat: np.ndarray,
+    inlon: np.ndarray,
+    values: np.ndarray,
+    outlat: np.ndarray,
+    outlon: np.ndarray,
+    **kwargs: Any,
+) -> np.ndarray:
     """Interpolate data from cubed sphere to regular grid.
 
     Parameters
@@ -70,7 +85,14 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     return result.reshape(shape)
 
 
-def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
+def globalplot(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    data: np.ndarray,
+    noon_longitude: float = 0,
+    scatter: bool = False,
+    **kwargs: Any,
+) -> Optional[Tuple[plt.Figure, Polarplot, Polarplot, plt.Axes]]:
     """Create global map visualization of field data.
 
     Parameters
@@ -153,7 +175,12 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     plt.close()
 
 
-def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
+def debugplot(
+    dynamics: Dynamics,
+    title: Optional[str] = None,
+    filename: Optional[str] = None,
+    noon_longitude: float = 0,
+) -> None:
     """Generate diagnostic plots of simulation state.
 
     Creates visualizations of radial magnetic field, field-aligned
@@ -368,7 +395,9 @@ if __name__ == "__main__":
     globalplot(lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100))
 
 
-def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
+def compare_AMPS_jr_and_CF_currents(
+    dynamics: Dynamics, a: Any, d: Any, date: Any, lon0: float
+) -> None:
     """Compare AMPS jr and curl-free currents.
 
     Parameters
@@ -478,7 +507,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     )
 
 
-def plot_AMPS_Br(a):
+def plot_AMPS_Br(a: Any) -> None:
     """Plot AMPS Br.
 
     Parameters
@@ -507,7 +536,13 @@ def plot_AMPS_Br(a):
     plt.close()
 
 
-def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
+def show_jr_and_conductance(
+    dynamics: Dynamics,
+    conductance_grid: Grid,
+    hall: np.ndarray,
+    pedersen: np.ndarray,
+    lon0: float,
+) -> None:
     """Show jr and conductance.
 
     Parameters
@@ -570,7 +605,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
     )
 
 
-def make_colorbars():
+def make_colorbars() -> None:
     """Create colorbars for the plots."""
     levels = np.linspace(-0.9, 0.9, 22)  # Color levels for jr (muA/m^2)
     c_levels = np.linspace(0, 20, 100)  # Color levels for conductance
@@ -623,8 +658,14 @@ def make_colorbars():
 
 
 def time_dependent_plot(
-    dynamics, fig_directory, filecount, lon0, plt_grid, pltshape, plt_state_evaluator
-):
+    dynamics: Dynamics,
+    fig_directory: str,
+    filecount: int,
+    lon0: float,
+    plt_grid: Grid,
+    pltshape: Tuple[int, ...],
+    plt_state_evaluator: BasisEvaluator,
+) -> None:
     """Create time series visualization frame.
 
     Generates and saves a single frame for time-dependent visualization
