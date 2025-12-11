@@ -1,6 +1,7 @@
 """Snapshot plotting."""
 
 import pynamit
+import pynamit.visualization
 import polplot
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,7 +20,7 @@ path = (
 #        "simulation/data/steady_state"
 # )
 
-a = pynamit.PynamEye(path)
+a = pynamit.visualization.PynamEye(path)
 
 GLOBAL_TIMESERIES = True
 POLAR_TIMESERIES = True

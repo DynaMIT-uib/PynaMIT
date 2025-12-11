@@ -7,7 +7,8 @@ from typing import List, Tuple
 
 import pytest
 
-from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
+from pynamit.data import get_input_source, set_input_source
+from pynamit.data.loaders import native_inputs_available
 from pynamit.utils import JAX_AVAILABLE, set_backend, use_jax
 
 BACKEND_OPTION_NAME = "--backend"

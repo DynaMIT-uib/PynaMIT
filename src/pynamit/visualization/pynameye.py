@@ -18,7 +18,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.primitives.mainfield import Mainfield
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.math.constants import RE, mu0

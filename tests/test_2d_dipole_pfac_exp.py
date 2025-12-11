@@ -4,7 +4,7 @@ import os
 import tempfile
 import pytest
 
-from pynamit.default_run import run_pynamit
+from pynamit.simulation.runner import run_pynamit
 import numpy as np
 
 

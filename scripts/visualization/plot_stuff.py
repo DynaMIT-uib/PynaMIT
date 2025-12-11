@@ -1,12 +1,12 @@
 """Make (among other things) figures for graphical abstract."""
 
-import pynamit
+import pynamit.visualization
 import polplot
 import numpy as np
 import matplotlib.pyplot as plt
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
-a = pynamit.PynamEye(path)
+a = pynamit.visualization.PynamEye(path)
 
 
 TIMESERIES = False

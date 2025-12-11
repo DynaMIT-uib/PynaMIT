@@ -6,11 +6,11 @@ field quantities on spatial grids.
 
 from __future__ import annotations
 from functools import cached_property
-from typing import Any, Tuple
+from typing import TYPE_CHECKING, Any, Tuple
 
 import numpy as np
-from pynamit.simulation.mainfield import Mainfield
 from pynamit.primitives.grid import Grid
+from .mainfield import Mainfield
 
 
 class FieldEvaluator:

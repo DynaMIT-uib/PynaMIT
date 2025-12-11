@@ -4,7 +4,7 @@ This script runs the `run_pynamit` function from the `default_run`
 module.
 """
 
-from .default_run import run_pynamit
+from .simulation.runner import run_pynamit
 
 if __name__ == "__main__":
     run_pynamit()

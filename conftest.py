@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pynamit.external_inputs import native_inputs_available
+from pynamit.data.loaders import native_inputs_available
 from pynamit.utils import JAX_AVAILABLE
 
 pytest_plugins = ("tests.conftest.backend",)

@@ -16,7 +16,7 @@ from pynamit.math.constants import RE
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.primitives.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis

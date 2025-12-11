@@ -19,7 +19,7 @@ from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.primitives.mainfield import Mainfield
 from pynamit.math.constants import RE
 
 

@@ -2,6 +2,7 @@
 
 import numpy as np
 import pynamit
+import pynamit.visualization
 import matplotlib.pyplot as plt
 import datetime
 from polplot import Polarplot
@@ -10,7 +11,7 @@ from string import ascii_lowercase as abc
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 
 print(datetime.datetime.now(), "making PynamEye object")
-a = pynamit.PynamEye(path, steady_state=True)
+a = pynamit.visualization.PynamEye(path, steady_state=True)
 
 for plot_num, simulation_time in enumerate([0, 480]):
     a.set_time(simulation_time, steady_state=True)

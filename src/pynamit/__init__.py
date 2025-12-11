@@ -20,45 +20,47 @@ Mainfield : class
     Class for main field evaluation.
 PynamEye : class
     Class for visualization.
-SHBasis : class
-    Class for spherical harmonics basis functions.
-FieldExpansion : class
-    Class for storing vector data and defining vector operations.
 debugplot : function
     Function for debug plotting.
 globalplot : function
     Function for global plotting.
+SHBasis : class
+    Class for spherical harmonics basis functions.
+FieldExpansion : class
+    Class for storing vector data and defining vector operations.
 """
 
-from .cubed_sphere.cs_basis import CSBasis
-from .primitives.basis_evaluator import BasisEvaluator
-from .primitives.field_evaluator import FieldEvaluator
-from .primitives.field_expansion import FieldExpansion
-from .primitives.grid import Grid
-from .simulation.dynamics import Dynamics
-from .simulation.input_vs_interpolated import plot_input_vs_interpolated
-from .simulation.mainfield import Mainfield
-from .simulation.pynameye import PynamEye
-from .simulation.visualization import debugplot, globalplot
-from .spherical_harmonics.sh_basis import SHBasis
-from .utils import set_backend, use_jax
-from .external_inputs import set_input_source, get_input_source
+from .cubed_sphere import CSBasis
+from .primitives import (
+    BasisEvaluator,
+    FieldEvaluator,
+    FieldExpansion,
+    Grid,
+    IO,
+    Mainfield,
+    Timeseries,
+)
+from .simulation import Dynamics, State, run_pynamit
+from .visualization import PynamEye, debugplot, globalplot
+from .spherical_harmonics import SHBasis
+from .utils import set_backend
 
 __all__ = [
+    "Basis",
     "BasisEvaluator",
     "CSBasis",
     "Dynamics",
     "FieldEvaluator",
     "FieldExpansion",
     "Grid",
+    "IO",
     "Mainfield",
     "PynamEye",
-    "SHBasis",
     "debugplot",
     "globalplot",
-    "plot_input_vs_interpolated",
+    "SHBasis",
+    "State",
+    "Timeseries",
+    "run_pynamit",
     "set_backend",
-    "use_jax",
-    "set_input_source",
-    "get_input_source",
 ]

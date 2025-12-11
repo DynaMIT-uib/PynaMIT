@@ -5,9 +5,11 @@ import datetime
 import numpy as np
 import pytest
 
-from pynamit.external_inputs import (
+from pynamit.data.loaders import (
     _load_fallback,
     _expand_time_series,
+)
+from pynamit.data import (
     get_conductance_inputs,
     get_jr_inputs,
     get_wind_inputs,

@@ -93,7 +93,7 @@ def run_pynamit(
 
     from pynamit.math.constants import RE
     from pynamit.simulation.dynamics import Dynamics
-    from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
+    from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
     # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
