@@ -146,13 +146,16 @@ class BasisEvaluator(object):
     def least_squares_problem(self) -> LeastSquaresProblem:
         """Least squares problem for scalar fields."""
         if self._least_squares_problem is None:
+            reg_matrices = [self.L] if self.reg_lambda is not None else []
+            reg_weights = [self.reg_lambda] if self.reg_lambda is not None else []
+
             self._least_squares_problem = LeastSquaresProblem(
-                A=self.G,
+                A=[self.G],
                 solution_shape=self.basis.index_length,
-                data_shapes=self.grid.size,
-                sqrt_weights=self.sqrt_weights,
-                regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L,
+                data_shapes=[self.grid.size],
+                sqrt_weights=[self.sqrt_weights],
+                regularization_weights=reg_weights,
+                regularization_matrices=reg_matrices,
             )
         return self._least_squares_problem
 
@@ -160,13 +163,16 @@ class BasisEvaluator(object):
     def least_squares_problem_helmholtz(self) -> LeastSquaresProblem:
         """Least squares problem for horizontal vector fields."""
         if self._least_squares_problem_helmholtz is None:
+            reg_matrices = [self.L_helmholtz] if self.reg_lambda is not None else []
+            reg_weights = [self.reg_lambda] if self.reg_lambda is not None else []
+
             self._least_squares_problem_helmholtz = LeastSquaresProblem(
-                A=self.G_helmholtz,
+                A=[self.G_helmholtz],
                 solution_shape=(2, self.basis.index_length),
-                data_shapes=(2, self.grid.size),
-                sqrt_weights=self.sqrt_weights,
-                regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L_helmholtz,
+                data_shapes=[(2, self.grid.size)],
+                sqrt_weights=[self.sqrt_weights],
+                regularization_weights=reg_weights,
+                regularization_matrices=reg_matrices,
             )
         return self._least_squares_problem_helmholtz
 

@@ -12,7 +12,6 @@ from typing import Optional, Tuple, Any, List, Dict
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
-from scipy.sparse.linalg import LinearOperator
 
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.least_squares_problem import LeastSquaresProblem
@@ -101,8 +100,10 @@ class State:
         self._E_map_constraint_operator: Optional[TensorChain] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
-        self._m_imp_preconditioner: Optional[LinearOperator] = None
-        self._operator_linear_map_cache: Dict[Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any] = {}
+        self._m_imp_preconditioner: Optional[LinearMap] = None
+        self._operator_linear_map_cache: Dict[
+            Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
+        ] = {}
 
     def _get_linear_map(
         self, op: Any, input_shape: Tuple[int, ...], output_shape: Tuple[int, ...]
@@ -128,9 +129,7 @@ class State:
                 )
             eta_stacked = xp.stack([asarray(self.etaP.coeffs), asarray(self.etaH.coeffs)], axis=0)
             G_eta = asarray(self.geometry.basis_evaluator_zero_added.G)
-            b_stacked = xp.stack(
-                [asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0
-            )
+            b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
             self._M_total_on_grid = xp.einsum(
                 "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
             )
@@ -231,7 +230,7 @@ class State:
         return self._m_imp_problem
 
     @property
-    def m_imp_preconditioner(self) -> Optional[LinearOperator]:
+    def m_imp_preconditioner(self) -> Optional[LinearMap]:
         """Preconditioner for the m_imp least-squares problem."""
         if self._m_imp_preconditioner is None:
             logger.info("Building new preconditioner for m_imp solver.")
@@ -325,9 +324,7 @@ class State:
         u_coeffs = 0 if self.u is None else asarray(self.u.coeffs)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
-            E_direct += self._apply_operator(
-                self.Br_to_E_coeffs, asarray(self.Br.coeffs), E_shape
-            )
+            E_direct += self._apply_operator(self.Br_to_E_coeffs, asarray(self.Br.coeffs), E_shape)
 
         jr_coeffs = None if self.jr is None else asarray(self.jr.coeffs)
         return self._calculate_total_E_field(E_direct, jr_coeffs)
@@ -459,7 +456,7 @@ class State:
 
                 evolved = jax_expm(dt * op_A) @ diff + asarray(steady_state_m_ind)
                 return evolved
-            
+
             # Use scipy.linalg.expm for NumPy
             op_A_np = to_numpy(op_A)
             diff_np = to_numpy(diff)

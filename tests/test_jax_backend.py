@@ -1,9 +1,8 @@
 """Tests for JAX backend functionality."""
 
-import numpy as np
 import pytest
 
-from pynamit.utils import use_jax, xp
+from pynamit.utils import use_jax
 
 
 @pytest.mark.requires_jax

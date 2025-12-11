@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple, TypeAlias
 from scipy.sparse.linalg import LinearOperator
 
 from pynamit.utils import get_array_module, use_jax, vmap
@@ -18,6 +18,9 @@ try:  # pragma: no cover - optional optimisation dependency
     from opt_einsum import contract_expression
 except Exception:  # pragma: no cover - gracefully degrade if absent
     contract_expression = None
+
+
+Shape: TypeAlias = Tuple[int, ...]
 
 
 @dataclass
@@ -35,8 +38,8 @@ class TensorChain:
     einsum_string_dense: str
     einsum_string_matvec: str
     einsum_string_rmatvec: str
-    output_shape: tuple
-    input_shape: tuple
+    output_shape: Shape
+    input_shape: Shape
     scaling_factor: float = 1.0
     _einsum_path_matvec: Optional[list] = field(default=None, repr=False)
     _einsum_path_rmatvec: Optional[list] = field(default=None, repr=False)
@@ -50,7 +53,7 @@ class TensorChain:
         """Data type of the operator, given by its component tensors."""
         return np.result_type(*[arr.dtype for arr in self._get_component_arrays_numpy()])
 
-    def with_scaling(self, factor: float) -> "TensorChain":
+    def with_scaling(self, factor: float) -> TensorChain:
         """Return a scaled TensorChain instance."""
         return TensorChain(
             component_tensors=self.component_tensors,
@@ -65,9 +68,7 @@ class TensorChain:
     def to_dense(self) -> np.ndarray:
         """Return dense matrix representation of the operator."""
         component_arrays = self._get_component_arrays_numpy()
-        dense_matrix = np.einsum(
-            self.einsum_string_dense, *component_arrays, optimize=True
-        )
+        dense_matrix = np.einsum(self.einsum_string_dense, *component_arrays, optimize=True)
         return (dense_matrix * self.scaling_factor).reshape(
             math.prod(self.output_shape), math.prod(self.input_shape)
         )

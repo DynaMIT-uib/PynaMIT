@@ -12,11 +12,10 @@ from scipy.sparse.linalg import LinearOperator
 
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
-from pynamit.utils import xp, asarray, use_jax
+from pynamit.utils import xp, asarray
 
 OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain]
-OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]
-NumericInputList: TypeAlias = Union[float, List[float]]
+Shape: TypeAlias = Union[int, Tuple[int, ...]]
 
 
 def cached_property(func: Callable):
@@ -50,12 +49,12 @@ class LeastSquaresProblem:
 
     def __init__(
         self,
-        A: OperatorInputList,
-        solution_shape: Union[int, Tuple[int, ...]],
-        data_shapes: Union[Any, List[Any]],
-        sqrt_weights: Optional[Union[Any, List[Any]]] = None,
-        regularization_weights: Optional[NumericInputList] = None,
-        regularization_matrices: Optional[OperatorInputList] = None,
+        A: List[OperatorInput],
+        solution_shape: Shape,
+        data_shapes: List[Shape],
+        sqrt_weights: Optional[List[Any]] = None,
+        regularization_weights: Optional[List[float]] = None,
+        regularization_matrices: Optional[List[Optional[OperatorInput]]] = None,
         matrix_free: bool = True,
     ):
         self.matrix_free = matrix_free
@@ -63,49 +62,53 @@ class LeastSquaresProblem:
             (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
         )
         self.solution_size = math.prod(self.solution_shape)
-        self._process_data_terms(A, data_shapes, sqrt_weights)
-        self._process_regularization_terms(regularization_matrices, regularization_weights)
+        self.num_data_terms = len(A)
+        self.data_shapes = [(s,) if isinstance(s, int) else tuple(s) for s in data_shapes]
+        if len(self.data_shapes) != self.num_data_terms:
+            raise ValueError("Number of data_shapes does not match number of A operators.")
+
+        self.A = [
+            self._flatten_operator(
+                op, output_shape=self.data_shapes[i], input_shape=self.solution_shape
+            )
+            for i, op in enumerate(A)
+        ]
+
+        # Weights
+        weights_in = sqrt_weights if sqrt_weights is not None else [None] * self.num_data_terms
+        if len(weights_in) != self.num_data_terms:
+            raise ValueError("Number of sqrt_weights does not match number of A operators.")
+
+        self.sqrt_weights = [
+            self._create_weight_operator(w, self.data_shapes[i]) for i, w in enumerate(weights_in)
+        ]
+        self._sqrt_weight_dense_cache: List[Optional[np.ndarray]] = [None] * self.num_data_terms
+
+        # Regularization
+        self.regularization_matrices = []
+        self.regularization_weights = []
+        if regularization_matrices is not None:
+            self.regularization_matrices = [
+                self._flatten_operator(L, input_shape=self.solution_shape)
+                if L is not None
+                else None
+                for L in regularization_matrices
+            ]
+            self.regularization_weights = (
+                regularization_weights
+                if regularization_weights is not None
+                else [0.0] * len(regularization_matrices)
+            )
+        self.num_reg_terms = len(self.regularization_matrices)
+
         self._scenario_operator_cache: dict[Tuple[bool, int], LinearOperator] = {}
         self._system_linear_map_cache: dict[bool, LinearMap] = {}
         self._scenario_linear_map_cache: dict[Tuple[bool, int], LinearMap] = {}
-
 
     @staticmethod
     def _backend_module():
         """Return the active array module (NumPy or JAX NumPy)."""
         return xp
-
-    def _process_data_terms(self, A_in, data_shapes_in, sqrt_weights_in):
-        A_list = self._prepare_input_list(A_in, "A")
-        self.num_data_terms = len(A_list)
-        self.data_shapes = self._normalize_data_shapes(data_shapes_in, self.num_data_terms)
-        self.A = [
-            self._flatten_operator(
-                op, output_shape=self.data_shapes[i], input_shape=self.solution_shape
-            )
-            for i, op in enumerate(A_list)
-        ]
-        sqrt_weights_list = self._prepare_input_list(
-            sqrt_weights_in, "sqrt_weights", count=self.num_data_terms
-        )
-        self.sqrt_weights = [
-            self._create_weight_operator(w, self.data_shapes[i])
-            for i, w in enumerate(sqrt_weights_list)
-        ]
-        self._sqrt_weight_dense_cache: List[Optional[np.ndarray]] = [None] * self.num_data_terms
-
-    def _process_regularization_terms(self, reg_matrices_in, reg_weights_in):
-        reg_L_list = self._prepare_input_list(
-            reg_matrices_in, "regularization_matrices", is_optional=True
-        )
-        self.num_reg_terms = len(reg_L_list)
-        self.regularization_matrices = [
-            self._flatten_operator(L, input_shape=self.solution_shape) if L is not None else None
-            for L in reg_L_list
-        ]
-        self.regularization_weights = self._prepare_input_list(
-            reg_weights_in, "regularization_weights", count=self.num_reg_terms, default_val=0.0
-        )
 
     def _create_weight_operator(
         self, w_val: Any, shape: Tuple[int, ...]
@@ -113,7 +116,7 @@ class LeastSquaresProblem:
         if w_val is None:
             return None
         flat_dim = math.prod(shape)
-        if not isinstance(w_val, LinearOperator):
+        if not isinstance(w_val, LinearOperator) and not isinstance(w_val, TensorChain):
             arr = np.ascontiguousarray(w_val)
             is_diagonal = (arr.ndim == 1 and arr.size == flat_dim) or (arr.shape == shape)
             if is_diagonal:
@@ -155,9 +158,7 @@ class LeastSquaresProblem:
         """Assemble the data operator without regularization."""
         linear_map = self._build_system_linear_map(include_regularization=False)
         shape = (linear_map.shape[0],)
-        return ProcessedOperator(
-            linear_map, output_shape=shape, input_shape=self.solution_shape
-        )
+        return ProcessedOperator(linear_map, output_shape=shape, input_shape=self.solution_shape)
 
     @cached_property
     def dense_system_matrix(self) -> np.ndarray:
@@ -191,19 +192,27 @@ class LeastSquaresProblem:
         self, b: Union[Any, List[Any]]
     ) -> Tuple[Optional[Any], Tuple[int, ...], int]:
         """Assemble right-hand side block for all scenarios."""
-        b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
+        b_list = b if isinstance(b, list) else [b]
+        if len(b_list) != self.num_data_terms:
+            raise ValueError(
+                f"Number of RHS terms ({len(b_list)}) does not match number of data terms ({self.num_data_terms})."
+            )
+
         processed = [
-            self._process_b_vector(b_val, self.data_shapes[i])
-            for i, b_val in enumerate(b_list)
+            self._process_b_vector(b_val, self.data_shapes[i]) for i, b_val in enumerate(b_list)
         ]
         valid_b = [p for p in processed if p[0] is not None]
         if not valid_b:
             return None, (), 0
         scenario_shape = valid_b[0][1]
-        if not all(p[1] == scenario_shape for p in valid_b):
-            raise ValueError("Inconsistent scenario shapes in b terms.")
+
+        # Check scenario consistency
+        for _, s_shape in valid_b:
+            if s_shape != scenario_shape:
+                raise ValueError("Inconsistent scenario shapes in b terms.")
+
         num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
-        
+
         # Calculate expected number of rows
         op_rows_data = sum(a.num_rows for a in self.A)
         active_lambdas = self.scaled_lambdas
@@ -213,7 +222,7 @@ class LeastSquaresProblem:
             if i < len(active_lambdas) and L and active_lambdas[i] > 0
         )
         op_rows = op_rows_data + op_rows_reg
-        
+
         dtype = self.A[0].dtype if self.A else xp.float64
         blocks = []
         filled_rows = 0
@@ -393,66 +402,6 @@ class LeastSquaresProblem:
         """Apply adjoint of a LinearMap to a block of vectors."""
         return np.asarray(map_obj.rmatmat(y_block))
 
-    def _apply_system_block_numpy(
-        self, block: np.ndarray, include_regularization: bool
-    ) -> np.ndarray:
-        num_cols = block.shape[1]
-        dtype = block.dtype
-        op_rows_data = sum(a.num_rows for a in self.A)
-        op_rows = op_rows_data
-        if include_regularization:
-            active_lambdas = self.scaled_lambdas
-            op_rows += sum(
-                L.num_rows
-                for i, L in enumerate(self.regularization_matrices)
-                if i < len(active_lambdas) and L and active_lambdas[i] > 0
-            )
-        else:
-            active_lambdas = []
-        if op_rows == 0:
-            return np.zeros((0, num_cols), dtype=dtype)
-        output_blocks: List[np.ndarray] = []
-        for i, a_item in enumerate(self.A):
-            res_block = self.apply_linear_map_to_block(a_item.linear_map, block)
-            w_item = self.sqrt_weights[i]
-            if w_item:
-                res_block = self._apply_weight_numpy(i, res_block)
-            output_blocks.append(res_block)
-        if include_regularization and active_lambdas:
-            for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
-                    res_block = self.apply_linear_map_to_block(L_item.linear_map, block)
-                    output_blocks.append(active_lambdas[i] * res_block)
-        if not output_blocks:
-            return np.zeros((op_rows, num_cols), dtype=dtype)
-        return np.vstack(output_blocks)
-
-    def _apply_system_T_block_numpy(
-        self, block: np.ndarray, include_regularization: bool
-    ) -> np.ndarray:
-        num_cols = block.shape[1]
-        dtype = block.dtype
-        accum = np.zeros((self.solution_size, num_cols), dtype=dtype)
-        row = 0
-        for i, a_item in enumerate(self.A):
-            num_rows = a_item.num_rows
-            part = block[row : row + num_rows, :]
-            w_item = self.sqrt_weights[i]
-            if w_item:
-                part = self._apply_weight_T_numpy(i, part)
-            accum += self.apply_linear_map_T_to_block(a_item.linear_map, part)
-            row += num_rows
-        if include_regularization:
-            active_lambdas = self.scaled_lambdas
-            for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
-                    num_rows = L_item.num_rows
-                    part = block[row : row + num_rows, :]
-                    accum = accum + active_lambdas[i] * self.apply_linear_map_T_to_block(
-                        L_item.linear_map, part
-                    )
-                    row += num_rows
-        return accum
 
     def densify_op(self, item: Optional[ProcessedOperator]) -> Optional[np.ndarray]:
         """Convert operator to dense array, if not None."""
@@ -485,11 +434,11 @@ class LeastSquaresProblem:
 
     def _apply_weight(self, item: Optional[ProcessedOperator], block: Any) -> Any:
         if item is None:
-             return block
+            return block
         if item.is_diagonal and item.diag_data is not None:
             diag = asarray(item.diag_data).reshape(-1, 1)
             return diag * block
-        
+
         # Check if we should use dense version
         dense = self.densify_op(item)
         return dense @ block
@@ -500,7 +449,7 @@ class LeastSquaresProblem:
         if item.is_diagonal and item.diag_data is not None:
             diag = asarray(item.diag_data).reshape(-1, 1)
             return xp.conjugate(diag) * block
-            
+
         dense = self.densify_op(item)
         return xp.conjugate(dense).T @ block
 
@@ -512,9 +461,7 @@ class LeastSquaresProblem:
         """Apply adjoint of a LinearMap to a block of vectors."""
         return map_obj.rmatmat(y_block)
 
-    def _apply_system_block(
-        self, block: Any, include_regularization: bool
-    ) -> Any:
+    def _apply_system_block(self, block: Any, include_regularization: bool) -> Any:
         num_cols = block.shape[1]
         dtype = block.dtype
         op_rows_data = sum(a.num_rows for a in self.A)
@@ -546,9 +493,7 @@ class LeastSquaresProblem:
             return xp.zeros((op_rows, num_cols), dtype=dtype)
         return xp.vstack(output_blocks)
 
-    def _apply_system_T_block(
-        self, block: Any, include_regularization: bool
-    ) -> Any:
+    def _apply_system_T_block(self, block: Any, include_regularization: bool) -> Any:
         num_cols = block.shape[1]
         dtype = block.dtype
         accum = xp.zeros((self.solution_size, num_cols), dtype=dtype)
@@ -574,93 +519,66 @@ class LeastSquaresProblem:
                     row += num_rows
         return accum
 
-
-
-    @staticmethod
-    def _prepare_input_list(
-        item: Optional[Any],
-        name: str,
-        count: Optional[int] = None,
-        is_optional: bool = False,
-        default_val: Any = None,
-    ) -> list:
-        if item is None:
-            if is_optional:
-                return []
-            if count is None:
-                raise ValueError(f"Input '{name}' cannot be None.")
-            return [default_val] * count
-        lst = item if isinstance(item, list) else [item]
-        if count is not None and len(lst) != count:
-            raise ValueError(f"Input '{name}' has {len(lst)} items, but expected {count}.")
-        return lst
-
-    def _normalize_data_shapes(
-        self, data_shapes: Any, expected_count: int
-    ) -> List[Tuple[int, ...]]:
-        if not isinstance(data_shapes, list):
-            data_shapes = [data_shapes]
-        if len(data_shapes) == 1 and expected_count > 1:
-            data_shapes = data_shapes * expected_count
-        if len(data_shapes) != expected_count:
-            raise ValueError("Number of data_shapes does not match number of A operators.")
-        return [(s,) if isinstance(s, int) else tuple(s) for s in data_shapes]
-
     def _flatten_operator(
         self,
         op: OperatorInput,
         output_shape: Tuple[int, ...] = None,
         input_shape: Tuple[int, ...] = None,
     ) -> ProcessedOperator:
-        def ensure_shapes(arr):
-            nonlocal input_shape, output_shape
-            if input_shape is None and output_shape is None:
-                raise ValueError("At least one shape must be provided for numpy arrays.")
-            if input_shape is None:
-                flat_out = math.prod(output_shape)
-                if arr.size % flat_out != 0:
-                    raise ValueError("Array size is incompatible with provided output_shape.")
-                input_shape = (arr.size // flat_out,)
-            elif output_shape is None:
-                flat_in = math.prod(input_shape)
-                if arr.size % flat_in != 0:
-                    raise ValueError("Array size is incompatible with provided input_shape.")
-                output_shape = (arr.size // flat_in,)
-            flat_in_size, flat_out_size = math.prod(input_shape), math.prod(output_shape)
-            if arr.size != flat_in_size * flat_out_size:
-                raise ValueError(
-                    f"Array size ({arr.size}) is incompatible with specified shapes."
-                )
-            return flat_out_size, flat_in_size
-
         if isinstance(op, TensorChain):
             if self.matrix_free:
                 linear_map = as_linear_map(op)
                 return ProcessedOperator(
-                    linear_map=linear_map,
-                    output_shape=op.output_shape,
-                    input_shape=op.input_shape,
+                    linear_map=linear_map, output_shape=op.output_shape, input_shape=op.input_shape
                 )
+            # For dense, we trust TensorChain.to_dense matches shapes
             dense_op = op.to_dense()
-            flat_out_size, flat_in_size = ensure_shapes(dense_op)
-            dense_matrix = dense_op.reshape(flat_out_size, flat_in_size)
+            flat_out = math.prod(op.output_shape)
+            flat_in = math.prod(op.input_shape)
+            dense_matrix = dense_op.reshape(flat_out, flat_in)
             linear_map = as_linear_map(dense_matrix)
             return ProcessedOperator(
-                linear_map=linear_map,
-                output_shape=op.output_shape,
-                input_shape=op.input_shape,
+                linear_map=linear_map, output_shape=op.output_shape, input_shape=op.input_shape
             )
+
         if isinstance(op, LinearOperator):
             linear_map = as_linear_map(op)
             return ProcessedOperator(
-                linear_map=linear_map,
-                output_shape=(op.shape[0],),
-                input_shape=(op.shape[1],),
+                linear_map=linear_map, output_shape=(op.shape[0],), input_shape=(op.shape[1],)
             )
+
         if isinstance(op, np.ndarray):
             array = np.ascontiguousarray(op)
-            flat_out_size, flat_in_size = ensure_shapes(array)
-            reshaped = array.reshape(flat_out_size, flat_in_size)
+
+            # Infer missing shapes if possible
+            if output_shape is None and input_shape is not None:
+                flat_in = math.prod(input_shape)
+                if array.size % flat_in == 0:
+                    flat_out = array.size // flat_in
+                    # If square scaling (scalar/diagonal), output_shape == input_shape logic
+                    # But here we just need a valid shape tuple.
+                    # For regularization matrices (usually square), we might assume output=input if size matches
+                    if flat_out == flat_in:
+                        output_shape = input_shape
+                    else:
+                        output_shape = (flat_out,)
+            elif input_shape is None and output_shape is not None:
+                flat_out = math.prod(output_shape)
+                if array.size % flat_out == 0:
+                    flat_in = array.size // flat_out
+                    input_shape = (flat_in,)
+
+            if output_shape is None or input_shape is None:
+                raise ValueError(f"Could not infer shapes for array of size {array.size}.")
+
+            flat_out = math.prod(output_shape)
+            flat_in = math.prod(input_shape)
+            if array.size != flat_out * flat_in:
+                raise ValueError(
+                    f"Array size {array.size} mismatch with shapes {output_shape}->{input_shape} (prod={flat_out * flat_in})"
+                )
+
+            reshaped = array.reshape(flat_out, flat_in)
             linear_map = as_linear_map(reshaped)
             return ProcessedOperator(
                 linear_map=linear_map, output_shape=output_shape, input_shape=input_shape
@@ -675,15 +593,16 @@ class LeastSquaresProblem:
         if b_val is None:
             return None, None
         b = asarray(b_val)
-        num_data_dims = len(data_shape)
-        is_exact = b.shape == data_shape
-        is_multi = b.ndim > num_data_dims and b.shape[:num_data_dims] == data_shape
-        is_flat = b.ndim == 1 and b.size == math.prod(data_shape)
-        if not (is_exact or is_multi or is_flat):
-            raise ValueError(f"Shape {b.shape} incompatible with data_shape {data_shape}.")
-        scenario_shape = b.shape[num_data_dims:] if is_multi else ()
-        num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
-        b_col_block = xp.reshape(b, (math.prod(data_shape), num_scenarios))
-        return b_col_block, scenario_shape
+        flat_data_size = math.prod(data_shape)
 
-        return None, None
+        # Determine scenarios
+        total_size = b.size
+        if total_size % flat_data_size != 0:
+            raise ValueError(f"b size {total_size} not divisible by data size {flat_data_size}.")
+
+        num_scenarios = total_size // flat_data_size
+        b_col_block = xp.reshape(b, (flat_data_size, num_scenarios))
+
+        # Infer scenario shape if possible, otherwise flat
+        scenario_shape = (num_scenarios,) if num_scenarios > 1 else ()
+        return b_col_block, scenario_shape

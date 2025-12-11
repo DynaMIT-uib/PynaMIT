@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-import math
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, TypeAlias
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
@@ -14,16 +13,20 @@ from pynamit.utils import asarray, get_array_module
 from pynamit.math.tensor_chain import TensorChain
 
 
+Shape: TypeAlias = Tuple[int, int]
+MapFunc: TypeAlias = Callable[[Any], Any]
+
+
 @dataclass(frozen=True)
 class LinearMap:
     """Backend-agnostic linear map on flattened vectors."""
 
-    shape: Tuple[int, int]
+    shape: Shape
     dtype: Any
-    _matvec: Callable[[Any], Any]
-    _rmatvec: Callable[[Any], Any]
-    _matmat: Optional[Callable[[Any], Any]] = None
-    _rmatmat: Optional[Callable[[Any], Any]] = None
+    _matvec: MapFunc
+    _rmatvec: MapFunc
+    _matmat: Optional[MapFunc] = None
+    _rmatmat: Optional[MapFunc] = None
     _to_dense: Optional[Callable[[], np.ndarray]] = None
     source: Any = None
 
@@ -72,11 +75,7 @@ class LinearMap:
             return np.asarray(self.matmat(block))
 
         return ScipyLinearOperator(
-            self.shape,
-            matvec=matvec_np,
-            rmatvec=rmatvec_np,
-            matmat=matmat_np,
-            dtype=self.dtype,
+            self.shape, matvec=matvec_np, rmatvec=rmatvec_np, matmat=matmat_np, dtype=self.dtype
         )
 
 
@@ -256,7 +255,6 @@ def as_linear_map(
     output_shape: Optional[Tuple[int, ...]] = None,
 ) -> LinearMap:
     """Convert supported operator types into a LinearMap."""
-
     if isinstance(op, LinearMap):
         return op
     if isinstance(op, TensorChain):
