@@ -29,52 +29,12 @@ class FieldExpansion:
         field_type: Literal["scalar", "tangential"] = "scalar"
     ) -> FieldExpansion:
         """Create a FieldExpansion from grid values."""
-        coeffs = cls._calculate_coeffs_from_grid(basis, basis_evaluator, grid_values, field_type)
+        coeffs = basis.from_grid_values(grid_values, basis_evaluator, field_type)
         return cls(basis, coeffs, field_type)
 
-    @staticmethod
-    def _calculate_coeffs_from_grid(basis, basis_evaluator, grid_values, field_type):
-        """Helper to compute basis coefficients from grid values."""
-        if basis.kind == "GRID":
-            return grid_values
-        else:
-            if field_type == "scalar":
-                return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
-            elif field_type == "tangential":
-                return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
-            else:
-                raise ValueError(f"Unknown field_type: {field_type}")
-
-
-
-    def to_grid(self, basis_evaluator):
-        """Evaluate field on grid points.
-
-        Parameters
-        ----------
-        basis_evaluator : BasisEvaluator
-            Evaluator for coefficient-grid conversions.
-
-        Returns
-        -------
-        ndarray
-            Field values on grid points.
-
-        Notes
-        -----
-        For tangential fields, reconstructs vector components from
-        Helmholtz decomposition terms evaluated on the grid. For scalar
-        fields, directly evaluates basis functions on the grid.
-        """
-        if self.basis.kind == "GRID":
-            # If the basis is a grid, return the grid values as
-            # coefficients.
-            return self.coeffs
-        else:
-            if self.field_type == "scalar":
-                return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=False)
-            elif self.field_type == "tangential":
-                return basis_evaluator.basis_to_grid(self.coeffs, helmholtz=True)
+    def to_grid_values(self, basis_evaluator):
+        """Evaluate the field expansion on a grid."""
+        return self.basis.to_grid_values(self.coeffs, basis_evaluator, self.field_type)
 
     def regularization_term(self, basis_evaluator):
         """Compute regularization penalty term.
@@ -95,12 +55,4 @@ class FieldExpansion:
         - scalar: Single penalty on scalar field
         - tangential: Separate penalties on Helmholtz components
         """
-        if self.basis.kind == "GRID":
-            # If the basis is a grid, return the grid values as
-            # coefficients.
-            return None
-        else:
-            if self.field_type == "scalar":
-                return basis_evaluator.regularization_term(self.coeffs, helmholtz=False)
-            elif self.field_type == "tangential":
-                return basis_evaluator.regularization_term(self.coeffs, helmholtz=True)
+        return self.basis.regularization_term(self.coeffs, basis_evaluator, self.field_type)

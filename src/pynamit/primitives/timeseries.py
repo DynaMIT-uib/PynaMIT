@@ -12,7 +12,6 @@ import pandas as pd
 import xarray as xr
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.field_expansion import FieldExpansion
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
@@ -182,75 +181,57 @@ class Timeseries:
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
 
 
-
-        if not (
-            key in self.input_basis_evaluators.keys()
-            and input_grid.theta.shape == self.input_basis_evaluators[key].grid.theta.shape
-            and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
-            and np.allclose(
-                input_grid.theta,
-                self.input_basis_evaluators[key].grid.theta,
-                rtol=0.0,
-                atol=FLOAT_ERROR_MARGIN,
-            )
-            and np.allclose(
-                input_grid.phi,
-                self.input_basis_evaluators[key].grid.phi,
-                rtol=0.0,
-                atol=FLOAT_ERROR_MARGIN,
-            )
-        ):
-            self.input_basis_evaluators[key] = BasisEvaluator(
-                interpolation_basis,
-                input_grid,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol,
-            )
-
         for time_index in range(time.size):
             interpolated_data = {}
 
             for var in self.vars[key]:
-                if interpolation_basis.kind == "SH":
-                    grid_values = input_data[var][time_index]
-                    basis_evaluator = self.input_basis_evaluators[key]
-                else:
-                    # Interpolate to state_grid
-                    if self.vars[key][var] == "scalar":
-                        grid_values = self.cs_basis.interpolate_scalar(
-                            input_data[var][time_index],
+                # Use the grid from the storage evaluator as the target grid
+                target_grid = self.storage_basis_evaluators[key].grid
+                target_basis = self.storage_bases[key]
+
+                def get_storage_evaluator():
+                   return self.storage_basis_evaluators[key]
+
+                def get_input_evaluator():
+                    if not (
+                        key in self.input_basis_evaluators.keys()
+                        and input_grid.theta.shape
+                        == self.input_basis_evaluators[key].grid.theta.shape
+                        and input_grid.phi.shape
+                        == self.input_basis_evaluators[key].grid.phi.shape
+                        and np.allclose(
                             input_grid.theta,
+                            self.input_basis_evaluators[key].grid.theta,
+                            rtol=0.0,
+                            atol=FLOAT_ERROR_MARGIN,
+                        )
+                        and np.allclose(
                             input_grid.phi,
-                            self.cs_basis.arr_theta,
-                            self.cs_basis.arr_phi,
+                            self.input_basis_evaluators[key].grid.phi,
+                            rtol=0.0,
+                            atol=FLOAT_ERROR_MARGIN,
                         )
-                    elif self.vars[key][var] == "tangential":
-                        interpolated_east, interpolated_north, _ = (
-                            self.cs_basis.interpolate_vector_components(
-                                input_data[var][time_index, 1],
-                                -input_data[var][time_index, 0],
-                                np.zeros_like(input_data[var][time_index, 0]),
-                                input_grid.theta,
-                                input_grid.phi,
-                                self.cs_basis.arr_theta,
-                                self.cs_basis.arr_phi,
-                            )
+                    ):
+                        self.input_basis_evaluators[key] = BasisEvaluator(
+                            interpolation_basis,
+                            input_grid,
+                            sqrt_weights=sqrt_weights,
+                            reg_lambda=reg_lambda,
+                            pinv_rtol=pinv_rtol,
                         )
-                        grid_values = np.hstack(
-                            (-interpolated_north, interpolated_east)
-                        )  # convert to theta, phi
+                    return self.input_basis_evaluators[key]
 
-                    basis_evaluator = self.storage_basis_evaluators[key]
-
-                vector = FieldExpansion.from_grid_values(
-                    basis_evaluator.basis,
-                    basis_evaluator=basis_evaluator,
-                    grid_values=grid_values,
-                    field_type=self.vars[key][var],
+                coeffs = interpolation_basis.project_to_basis(
+                    input_data[var][time_index],
+                    input_grid,
+                    vector_type=self.vars[key][var],
+                    target_grid=target_grid,
+                    target_basis=target_basis,
+                    on_storage_grid=get_storage_evaluator,
+                    on_input_grid=get_input_evaluator,
                 )
 
-                interpolated_data[var] = vector.coeffs
+                interpolated_data[var] = coeffs
 
             self.add_entry(key, interpolated_data, time[time_index])
 

@@ -287,7 +287,6 @@ class SHBasis:
                     dP[:, nm] -= Knm * dP[:, prev2_idx]
         return dP
 
-    # --- Other methods are unchanged ---
     def laplacian(self, r=1.0):
         """Factor to apply the spherical harmonic Laplacian operator."""
         return -self.n * (self.n + 1) / r**2
@@ -304,3 +303,102 @@ class SHBasis:
     def coeffs_to_delta_V(self):
         """Factor to convert coefficients to delta V at unit radius."""
         return 2 * self.n + 1
+
+    def to_grid_values(self, coeffs, evaluator, vector_type):
+        """Convert coefficients to grid values."""
+        if vector_type == "scalar":
+            return evaluator.basis_to_grid(coeffs)
+        elif vector_type == "tangential":
+             return evaluator.basis_to_grid(coeffs, helmholtz=True)
+        else:
+            raise ValueError(f"Unknown vector_type: {vector_type}")
+
+    def regularization_term(self, coeffs, evaluator, vector_type):
+        """Compute regularization penalty term.
+
+        Parameters
+        ----------
+        coeffs : ndarray
+            SH Coefficients.
+        evaluator : BasisEvaluator
+            Evaluator to use.
+        vector_type : str
+             "scalar" or "tangential".
+
+        Returns
+        -------
+        term : float
+            Regularization term.
+        """
+        if vector_type == "scalar":
+            return evaluator.regularization_term(coeffs, helmholtz=False)
+        elif vector_type == "tangential":
+            return evaluator.regularization_term(coeffs, helmholtz=True)
+        else:
+            raise ValueError(f"Unknown vector_type: {vector_type}")
+
+    def from_grid_values(self, values, evaluator, vector_type):
+        """Convert grid values to coefficients.
+
+        For SHBasis, this involves fitting via the evaluator.
+
+        Parameters
+        ----------
+        values : array-like
+            Values on the grid.
+        evaluator : BasisEvaluator
+            Evaluator to use for fitting.
+        vector_type : str
+             "scalar" or "tangential".
+
+        Returns
+        -------
+        coeffs : ndarray
+            Fitted SH coefficients.
+        """
+        if vector_type == "scalar":
+            return evaluator.grid_to_basis(values, helmholtz=False)
+        elif vector_type == "tangential":
+            return evaluator.grid_to_basis(values, helmholtz=True)
+        else:
+            raise ValueError(f"Unknown vector_type: {vector_type}")
+
+    def project_to_basis(
+        self,
+        input_values,
+        input_grid,
+        vector_type,
+        target_grid,
+        target_basis,
+        on_storage_grid,
+        on_input_grid,
+    ):
+        """Project input data onto the target basis.
+
+        For SHBasis, we fit directly to the input grid, effectively projecting
+        onto itself, ignoring the target basis.
+
+        Parameters
+        ----------
+        input_values : array-like
+            Raw input values.
+        input_grid : Grid
+            Grid object defining where input_values are located.
+        vector_type : str
+            "scalar" or "tangential".
+        target_grid : Grid
+            Unused here.
+        target_basis : object
+            Unused here.
+        on_storage_grid : callable
+            Unused.
+        on_input_grid : callable
+            Callback returning the evaluator for the input grid.
+
+        Returns
+        -------
+        coeffs : ndarray
+            The fitted SH coefficients.
+        """
+        coeffs = self.from_grid_values(input_values, on_input_grid(), vector_type)
+        return coeffs

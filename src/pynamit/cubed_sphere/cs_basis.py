@@ -1355,3 +1355,166 @@ class CSBasis:
             )
 
         return interpolated_scalar
+
+    def interpolate_to_self(self, values, theta, phi, vector_type="scalar"):
+        """Interpolate values to this basis's grid.
+
+        Parameters
+        ----------
+        values : array-like
+            Input values. If vector_type is 'scalar', shape is (N,).
+            If vector_type is 'tangential', shape is (N, 2) [u_north, u_east].
+        theta : array-like
+            Colatitude of input points.
+        phi : array-like
+            Longitude of input points.
+        vector_type : str
+            Type of field: "scalar" or "tangential".
+
+        Returns
+        -------
+        interpolated_values : ndarray
+            Interpolated values on this basis's grid.
+        """
+        if vector_type == "scalar":
+            return self.interpolate_scalar(
+                values,
+                theta,
+                phi,
+                self.arr_theta,
+                self.arr_phi,
+            )
+        elif vector_type == "tangential":
+            u_east = values[1]
+            u_north = -values[0]
+            u_r = np.zeros_like(u_north)
+
+            interpolated_east, interpolated_north, _ = self.interpolate_vector_components(
+                u_east,
+                u_north,
+                u_r,
+                theta,
+                phi,
+                self.arr_theta,
+                self.arr_phi,
+            )
+            return np.hstack((-interpolated_north, interpolated_east))
+        else:
+            raise ValueError(f"Unknown vector_type: {vector_type}")
+
+    def to_grid_values(self, coeffs, evaluator, vector_type):
+        """Convert coefficients to grid values."""
+        return coeffs
+
+    def regularization_term(self, coeffs, evaluator, vector_type):
+        """Compute regularization penalty term.
+
+        For CSBasis (GRID), typically no regularization term is defined in this context.
+
+        Parameters
+        ----------
+        coeffs : ndarray
+            Coefficients.
+        evaluator : Any
+            Unused.
+        vector_type : str
+            Unused.
+
+        Returns
+        -------
+        term : None
+            None.
+        """
+        return None
+
+    def from_grid_values(self, values, evaluator, vector_type):
+        """Convert grid values to coefficients.
+
+        For CSBasis (GRID), coefficients are the grid values themselves.
+
+        Parameters
+        ----------
+        values : array-like
+            Values on the grid.
+        evaluator : Any
+            Unused for GRID basis.
+        vector_type : str
+            Unused for GRID basis.
+
+        Returns
+        -------
+        coeffs : ndarray
+            The grid values.
+        """
+        return values
+
+    def project_to_basis(
+        self,
+        input_values,
+        input_grid,
+        vector_type,
+        target_grid,
+        target_basis,
+        on_storage_grid,
+        on_input_grid=None,
+    ):
+        """Project input data onto the target basis.
+
+        Interpolates input data to the target grid and then converts to
+        coefficients using the target basis.
+
+        Parameters
+        ----------
+        input_values : array-like
+            Raw input values.
+        input_grid : Grid
+            Grid object defining where input_values are located.
+        vector_type : str
+            "scalar" or "tangential".
+        target_grid : Grid
+            The grid to interpolate TO.
+        target_basis : object
+            The basis to project onto (storage basis).
+        on_storage_grid : callable
+            Callback returning the evaluator for the storage grid.
+        on_input_grid : callable, optional
+            Callback returning the evaluator for the input grid (unused).
+
+        Returns
+        -------
+        coeffs : ndarray
+            The expansion coefficients on the target basis.
+        """
+        if target_grid is None:
+             raise ValueError("target_grid must be provided for CSBasis interpolation.")
+
+        if vector_type == "scalar":
+            grid_values = self.interpolate_scalar(
+                input_values,
+                input_grid.theta,
+                input_grid.phi,
+                target_grid.theta,
+                target_grid.phi,
+            )
+        elif vector_type == "tangential":
+            u_east = input_values[1]
+            u_north = -input_values[0]
+            u_r = np.zeros_like(u_north)
+
+            interpolated_east, interpolated_north, _ = self.interpolate_vector_components(
+                u_east,
+                u_north,
+                u_r,
+                input_grid.theta,
+                input_grid.phi,
+                target_grid.theta,
+                target_grid.phi,
+            )
+            grid_values = np.hstack((-interpolated_north, interpolated_east))
+        else:
+            raise ValueError(f"Unknown vector_type: {vector_type}")
+
+        coeffs = target_basis.from_grid_values(
+            grid_values, on_storage_grid(), vector_type
+        )
+        return coeffs

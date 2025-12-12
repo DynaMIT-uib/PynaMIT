@@ -33,7 +33,7 @@ def _evaluate_scalar_coeffs_to_grid(
     if coeffs is None:
         return np.full(target_shape, np.nan)
     field_exp = FieldExpansion(storage_basis, coeffs=coeffs, field_type="scalar")
-    return field_exp.to_grid(plot_evaluator).reshape(target_shape)
+    return field_exp.to_grid_values(plot_evaluator).reshape(target_shape)
 
 
 def _evaluate_tangential_coeffs_to_grid_components(
@@ -48,7 +48,7 @@ def _evaluate_tangential_coeffs_to_grid_components(
     field_exp = FieldExpansion(
         storage_basis, coeffs=coeffs.reshape((2, -1)), field_type="tangential"
     )
-    field_grid_components = field_exp.to_grid(plot_evaluator)
+    field_grid_components = field_exp.to_grid_values(plot_evaluator)
     field_t_2d = field_grid_components[0].reshape(target_shape)
     field_p_2d = field_grid_components[1].reshape(target_shape)
     return field_t_2d, field_p_2d
