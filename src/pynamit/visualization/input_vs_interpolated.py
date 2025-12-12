@@ -211,7 +211,7 @@ def plot_input_vs_interpolated(
         },
     }
 
-    input_timeseries = Timeseries(cs_basis, input_storage_bases, input_vars_pynamit)
+    input_timeseries = Timeseries(input_storage_bases, input_vars_pynamit)
     input_timeseries.load_all(io)
 
     ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]

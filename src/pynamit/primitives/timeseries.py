@@ -10,8 +10,6 @@ the simulation.
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.grid import Grid
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
@@ -25,31 +23,22 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, cs_basis, storage_bases, vars):
-        """Initialize the Timeseries class.
+    def __init__(self, storage_bases, vars):
+        """Initialize the TimeSeries class.
 
         Parameters
         ----------
-        state_grid : Grid
-            Grid object representing the state grid.
-        cs_basis : object
-            Object representing the coordinate system basis.
+        storage_bases : dict
+            Dictionary of basis objects for storage.
+        vars : dict
+            Dictionary defining the variable structure.
         """
-        self.cs_basis = cs_basis
         self.storage_bases = storage_bases
 
         # Initialize variables and timeseries storage
         self.vars = vars
 
         self.datasets = {}
-        self.previous_data = {}
-
-        cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
-
-        self.storage_basis_evaluators = {}
-        self.input_basis_evaluators = {}
-        for key in self.storage_bases.keys():
-            self.storage_basis_evaluators[key] = BasisEvaluator(self.storage_bases[key], cs_grid)
 
         self.basis_multiindices = {}
         for key in self.vars.keys():
@@ -137,147 +126,7 @@ class Timeseries:
                 dim="time",
             ).sortby("time")
 
-    def interpolate_and_add_entry(
-        self,
-        key,
-        input_data,
-        time,
-        interpolation_basis,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Interpolate data and add it to the timeseries.
 
-        Parameters
-        ----------
-        key : str
-            The type of data ('jr', 'conductance', or 'u').
-        input_data : dict
-            Dictionary containing the input data arrays.
-        lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
-        theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
-        time : array-like, optional
-            Time points for the input data.
-        sqrt_weights : array-like, optional
-            sqrt_weights for the input data points.
-        reg_lambda : float, optional
-            Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for pseudo-inverse.
-
-        Raises
-        ------
-        ValueError
-            If neither (lat, lon) nor (theta, phi) coordinates are
-            provided.
-        """
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-
-
-        for time_index in range(time.size):
-            interpolated_data = {}
-
-            for var in self.vars[key]:
-                # Use the grid from the storage evaluator as the target grid
-                target_grid = self.storage_basis_evaluators[key].grid
-                target_basis = self.storage_bases[key]
-
-                def get_storage_evaluator():
-                   return self.storage_basis_evaluators[key]
-
-                def get_input_evaluator():
-                    if not (
-                        key in self.input_basis_evaluators.keys()
-                        and input_grid.theta.shape
-                        == self.input_basis_evaluators[key].grid.theta.shape
-                        and input_grid.phi.shape
-                        == self.input_basis_evaluators[key].grid.phi.shape
-                        and np.allclose(
-                            input_grid.theta,
-                            self.input_basis_evaluators[key].grid.theta,
-                            rtol=0.0,
-                            atol=FLOAT_ERROR_MARGIN,
-                        )
-                        and np.allclose(
-                            input_grid.phi,
-                            self.input_basis_evaluators[key].grid.phi,
-                            rtol=0.0,
-                            atol=FLOAT_ERROR_MARGIN,
-                        )
-                    ):
-                        self.input_basis_evaluators[key] = BasisEvaluator(
-                            interpolation_basis,
-                            input_grid,
-                            sqrt_weights=sqrt_weights,
-                            reg_lambda=reg_lambda,
-                            pinv_rtol=pinv_rtol,
-                        )
-                    return self.input_basis_evaluators[key]
-
-                coeffs = interpolation_basis.project_to_basis(
-                    input_data[var][time_index],
-                    input_grid,
-                    vector_type=self.vars[key][var],
-                    target_grid=target_grid,
-                    target_basis=target_basis,
-                    on_storage_grid=get_storage_evaluator,
-                    on_input_grid=get_input_evaluator,
-                )
-
-                interpolated_data[var] = coeffs
-
-            self.add_entry(key, interpolated_data, time[time_index])
-
-    def get_entry_if_changed(self, key, time, interpolation=False):
-        """Select time series data corresponding to the specified time.
-
-        Parameters
-        ----------
-        key : str
-            Key for the time series.
-        time : float
-            Current time for which to select data.
-        interpolation : bool, optional
-            Whether to use linear interpolation.
-
-        Returns
-        -------
-        dict or None
-            Dictionary containing the latest data for the specified
-            key, or None if no new data is available.
-        """
-        current_data = self.get_entry(key, time, interpolation=interpolation)
-
-        if current_data is not None:
-            # Check if the data has changed since the last time.
-            if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
-                not all(
-                    [
-                        np.allclose(
-                            current_data[var],
-                            self.previous_data[var],
-                            rtol=FLOAT_ERROR_MARGIN,
-                            atol=0.0,
-                        )
-                        for var in self.vars[key]
-                    ]
-                )
-            ):
-                # Update the previous data with the current data.
-                for var in self.vars[key]:
-                    self.previous_data[var] = current_data[var]
-
-                return current_data
-
-        # No new data available.
-        return None
 
     def get_entry(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.

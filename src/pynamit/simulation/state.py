@@ -66,6 +66,9 @@ class State:
         self.jr: Optional[FieldExpansion] = None
         self.etaP: Optional[FieldExpansion] = None
         self.etaH: Optional[FieldExpansion] = None
+        
+        # State tracking
+        self.previous_input_data = {}
 
         # Invalidate all caches
         self._invalidate_caches()
@@ -258,15 +261,41 @@ class State:
 
     # ----- State Update -----
 
-    def update(self, input_timeseries: Any, time: float, interpolation: bool = False) -> None:
+    def _has_input_changed(self, key: str, current_data: dict, vars_for_key: list) -> bool:
+        """Check if the input data has changed since the last update."""
+        FLOAT_ERROR_MARGIN = 1e-6
+        
+        if key not in self.previous_input_data:
+            return True
+            
+        prev_data = self.previous_input_data[key]
+        for var in vars_for_key:
+            if var not in prev_data or not np.allclose(
+                current_data[var], 
+                prev_data[var], 
+                rtol=FLOAT_ERROR_MARGIN, 
+                atol=0.0
+            ):
+                return True
+        return False
+
+    def update(self, input_manager: Any, time: float, interpolation: bool = False) -> None:
         """Update the state variables based on the current input."""
         conductance_updated = False
-        for key, dataset in input_timeseries.datasets.items():
-            updated_input = input_timeseries.get_entry_if_changed(key, time, interpolation)
-            if updated_input is None:
+        for key in input_manager.input_keys:
+            current_data = input_manager.get_entry(key, time, interpolation)
+            if current_data is None:
                 continue
 
-            storage_base = input_timeseries.storage_bases.get(key)
+            # Check if the data has changed since the last time.
+            if not self._has_input_changed(key, current_data, input_manager.vars[key]):
+                continue
+
+            # Update cache and proceed
+            self.previous_input_data[key] = current_data
+            updated_input = current_data
+
+            storage_base = input_manager.get_storage_basis(key)
             if key == "conductance":
                 conductance_updated = True
                 self.etaP = FieldExpansion(storage_base, coeffs=updated_input["etaP"])

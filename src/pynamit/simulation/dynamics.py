@@ -19,6 +19,7 @@ from pynamit.primitives.io import IO
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.timeseries import Timeseries
+from pynamit.primitives.input_manager import InputManager
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, set_backend, xp
 
@@ -221,7 +222,8 @@ class Dynamics:
             "u": sh_basis_zero_removed,
         }
 
-        self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
+        self.input_timeseries = Timeseries(self.input_storage_bases, self.input_vars)
+        self.input_manager = InputManager(self.input_timeseries, cs_basis, self.input_vars)
         self.input_timeseries.load_all(self.io)
 
         # Specify output format and load output data.
@@ -235,7 +237,7 @@ class Dynamics:
             "steady_state": sh_basis_zero_removed,
         }
 
-        self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
+        self.output_timeseries = Timeseries(self.output_storage_bases, self.output_vars)
         self.output_timeseries.load_all(self.io)
 
         self.interpolation_bases = {
@@ -311,7 +313,9 @@ class Dynamics:
             inductive_m_ind = asarray(inductive_m_ind)
         else:
             if steady_state_initialization:
-                self.state.update(self.input_timeseries, self.current_time)
+                self.state.update(
+                    self.input_manager, self.current_time, interpolation=True
+                )
                 E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
                 inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
@@ -320,7 +324,9 @@ class Dynamics:
                 inductive_m_ind = zeros
 
         while True:
-            self.state.update(self.input_timeseries, self.current_time)
+            self.state.update(
+                self.input_manager, self.current_time, interpolation=True
+            )
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
@@ -493,7 +499,7 @@ class Dynamics:
         """
         input_data = {"jr": np.atleast_2d(jr)}
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self.input_manager.interpolate_and_add_entry(
             "jr",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -545,7 +551,7 @@ class Dynamics:
 
         input_data = {"Br": np.atleast_2d(Br)}
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self.input_manager.interpolate_and_add_entry(
             "Br",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -607,7 +613,7 @@ class Dynamics:
         for i in range(max(input_data["etaH"].shape[0], 1)):
             input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self.input_manager.interpolate_and_add_entry(
             "conductance",
             input_data,
             self.adapt_input_time(time, input_data),
@@ -660,7 +666,7 @@ class Dynamics:
         # Reorder time to first dimension and component to second.
         input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self.input_manager.interpolate_and_add_entry(
             "u",
             input_data,
             self.adapt_input_time(time, input_data),
