@@ -15,11 +15,7 @@ from dipole import Dipole
 from polplot import Polarplot
 import datetime
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.field_expansion import FieldExpansion
-from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.mainfield import Mainfield
-from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field import Field
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.math.constants import RE, mu0
 
@@ -224,14 +220,20 @@ class PynamEye(object):
             )
 
             # Evaluate elelctric field on that grid.
-            self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
-            self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
-            self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-            self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-            self.bP_11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
+            self.b_field = self.mainfield.discretize(self.state_grid, self.RI)
 
-            self.bH_01 = self.b_evaluator.br
-            self.bH_10 = -self.b_evaluator.br
+            self.mag = self.b_field.magnitude
+            self.br = self.b_field.vec.r / self.mag
+            self.btheta = self.b_field.vec.theta / self.mag
+            self.bphi = self.b_field.vec.phi / self.mag
+
+            self.bP_00 = self.bphi**2 + self.br**2
+            self.bP_01 = -self.btheta * self.bphi
+            self.bP_10 = -self.btheta * self.bphi
+            self.bP_11 = self.btheta**2 + self.br**2
+
+            self.bH_01 = self.br
+            self.bH_10 = -self.br
 
             self.G_B_pol_to_JS = (
                 -self.evaluator["num"].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
@@ -261,7 +263,7 @@ class PynamEye(object):
         )
 
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
-        self.u = FieldExpansion(
+        self.u = Field.from_coefficients(
             self.basis,
             coeffs=self.u_coeffs,
             field_type="tangential",
@@ -532,7 +534,7 @@ class PynamEye(object):
                 kwargs[key] = self.joule_defaults[key]
 
         # Calculate electric field.
-        e_coeffs = FieldExpansion(
+        e_coeffs = Field.from_coefficients(
             self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
         )
         field = e_coeffs.to_grid_values(self.evaluator[region]) / self.RI

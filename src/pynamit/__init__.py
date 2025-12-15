@@ -12,8 +12,8 @@ CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
     Class for simulating ionospheric dynamics.
-FieldEvaluator : class
-    Class for evaluating fields.
+DiscreteField : class
+    Class for evaluating fields on a grid.
 Grid : class
     Class for grid management.
 Mainfield : class
@@ -33,8 +33,7 @@ FieldExpansion : class
 from .cubed_sphere import CSBasis
 from .primitives import (
     BasisEvaluator,
-    FieldEvaluator,
-    FieldExpansion,
+    Field,
     Grid,
     IO,
     Mainfield,
@@ -46,12 +45,10 @@ from .spherical_harmonics import SHBasis
 from .utils import set_backend
 
 __all__ = [
-    "Basis",
     "BasisEvaluator",
     "CSBasis",
     "Dynamics",
-    "FieldEvaluator",
-    "FieldExpansion",
+    "Field",
     "Grid",
     "IO",
     "Mainfield",

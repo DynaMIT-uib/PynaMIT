@@ -14,7 +14,7 @@ from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 from functools import cached_property
 
-from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.primitives.field import Field
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.tensor_chain import TensorChain
@@ -61,11 +61,11 @@ class State:
         )
 
         # Initialize state variables
-        self.u: Optional[FieldExpansion] = None
-        self.Br: Optional[FieldExpansion] = None
-        self.jr: Optional[FieldExpansion] = None
-        self.etaP: Optional[FieldExpansion] = None
-        self.etaH: Optional[FieldExpansion] = None
+        self.u: Optional[Field] = None
+        self.Br: Optional[Field] = None
+        self.jr: Optional[Field] = None
+        self.etaP: Optional[Field] = None
+        self.etaH: Optional[Field] = None
         
         # State tracking
         self.previous_input_data = {}
@@ -298,16 +298,16 @@ class State:
             storage_base = input_manager.get_storage_basis(key)
             if key == "conductance":
                 conductance_updated = True
-                self.etaP = FieldExpansion(storage_base, coeffs=updated_input["etaP"])
-                self.etaH = FieldExpansion(storage_base, coeffs=updated_input["etaH"])
+                self.etaP = Field.from_coefficients(storage_base, coeffs=updated_input["etaP"])
+                self.etaH = Field.from_coefficients(storage_base, coeffs=updated_input["etaH"])
             elif key == "jr":
-                self.jr = FieldExpansion(storage_base, coeffs=updated_input["jr"])
+                self.jr = Field.from_coefficients(storage_base, coeffs=updated_input["jr"])
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                self.Br = FieldExpansion(storage_base, coeffs=updated_input["Br"])
+                self.Br = Field.from_coefficients(storage_base, coeffs=updated_input["Br"])
             elif key == "u":
-                self.u = FieldExpansion(storage_base, coeffs=updated_input["u"].reshape((2, -1)))
+                self.u = Field.from_coefficients(storage_base, coeffs=updated_input["u"].reshape((2, -1)), field_type="tangential")
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")

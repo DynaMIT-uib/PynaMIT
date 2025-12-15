@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
-from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field import Field
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
 from pynamit.primitives.mainfield import Mainfield
@@ -450,12 +450,12 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        FAC_b_evaluator = FieldEvaluator(
-            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.settings.RI
+        FAC_b_field = self.mainfield.discretize(
+            Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.settings.RI
         )
 
         self.set_jr(
-            FAC * FAC_b_evaluator.br,
+            FAC * FAC_b_field.vec.r / FAC_b_field.magnitude,
             lat=lat,
             lon=lon,
             theta=theta,

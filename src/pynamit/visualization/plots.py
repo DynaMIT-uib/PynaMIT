@@ -19,7 +19,7 @@ from polplot import Polarplot
 
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field import Field
 from pynamit.simulation.dynamics import Dynamics
 
 
@@ -238,13 +238,13 @@ def debugplot(
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
     plt_state_evaluator = BasisEvaluator(dynamics.state.basis, plt_grid)
-    plt_b_evaluator = FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
+    plt_b_field = dynamics.state.mainfield.discretize(plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (
         plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
-        / plt_b_evaluator.br
+        / (plt_b_field.vec.r / plt_b_field.magnitude)
     )
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 

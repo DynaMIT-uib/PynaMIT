@@ -11,11 +11,14 @@ import dipole
 from pynamit.math.constants import RE
 
 
+# New import
+from pynamit.primitives.field import Field
+
 class MainfieldImplementation(ABC):
     """Abstract base class for main field model implementations."""
 
     @abstractmethod
-    def get_B(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def evaluate(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Calculate magnetic field components."""
         pass
 
@@ -48,7 +51,7 @@ class DipoleImplementation(MainfieldImplementation):
     def __init__(self, epoch: int):
         self.dpl = dipole.Dipole(epoch)
 
-    def get_B(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def evaluate(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         Bn, Br = self.dpl.B(90 - theta, r * 1e-3)
         return (Br * 1e-9, -Bn * 1e-9, np.zeros_like(Br))
 
@@ -104,7 +107,7 @@ class IGRFImplementation(MainfieldImplementation):
         self.apx = apexpy.Apex(epoch, refh=hI)
         self.epoch_dt = datetime(epoch, 1, 1, 0, 0)
 
-    def get_B(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def evaluate(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, self.epoch_dt)
         return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
 
@@ -145,7 +148,7 @@ class RadialImplementation(MainfieldImplementation):
     def __init__(self, epoch: int, B0: Optional[float]):
         self.B0 = dipole.Dipole(epoch).B0 if B0 is None else B0
 
-    def get_B(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def evaluate(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
         return ((RE / r) ** 2 * self.B0, r * 0, r * 0)
 
@@ -165,9 +168,9 @@ class RadialImplementation(MainfieldImplementation):
         n = np.vstack((np.zeros(size), np.ones(size), np.zeros(size)))
         u = np.vstack((np.zeros(size), np.zeros(size), np.ones(size)))
         
-        # Calculate sign from get_B
-        # We need a dummy call to get_B at RE
-        b_at_re = self.get_B(np.array([RE]), np.array([0]), np.array([0]))[0][0]
+        # Calculate sign from evaluate
+        # We need a dummy call to evaluate at RE
+        b_at_re = self.evaluate(np.array([RE]), np.array([0]), np.array([0]))[0][0]
         sign = np.sign(b_at_re)
         
         d1, e1 = e
@@ -181,13 +184,14 @@ class RadialImplementation(MainfieldImplementation):
         return np.full_like(phi, np.nan)
 
 
-class Mainfield:
+class Mainfield(Field):
     """Class for representing the main magnetic field.
 
     Delegates to concrete implementations for Dipole, IGRF, or Radial fields.
     """
 
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):
+        super().__init__()
         self.kind = kind.lower()
         if self.kind == "dipole":
             self._impl = DipoleImplementation(epoch)
@@ -208,13 +212,13 @@ class Mainfield:
         """Apex instance if active."""
         return getattr(self._impl, "apx", None)
 
-    def get_B(self, r, theta, phi):
+    def evaluate(self, r, theta, phi):
         """Calculate magnetic field components."""
-        return self._impl.get_B(r, theta, phi)
+        return self._impl.evaluate(r, theta, phi)
 
     def get_sinI(self, r, theta, phi):
         """Calculate sine of the inclination angle."""
-        B = np.vstack(self.get_B(r, theta, phi))
+        B = np.vstack(self.evaluate(r, theta, phi))
         return -B[0] / np.linalg.norm(B, axis=0)
 
     def map_coords(self, r_dest, r, theta, phi):

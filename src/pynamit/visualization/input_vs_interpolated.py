@@ -13,15 +13,9 @@ import cartopy.crs as ccrs
 
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_expansion import FieldExpansion
-from pynamit.primitives.io import IO
-from pynamit.primitives.timeseries import Timeseries
-from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.primitives.mainfield import Mainfield
-from pynamit.math.constants import RE
+from pynamit.primitives.field import Field
 
+# ... (rest of imports)
 
 def _evaluate_scalar_coeffs_to_grid(
     coeffs: Optional[np.ndarray],
@@ -32,7 +26,7 @@ def _evaluate_scalar_coeffs_to_grid(
     """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
         return np.full(target_shape, np.nan)
-    field_exp = FieldExpansion(storage_basis, coeffs=coeffs, field_type="scalar")
+    field_exp = Field.from_coefficients(storage_basis, coeffs=coeffs, field_type="scalar")
     return field_exp.to_grid_values(plot_evaluator).reshape(target_shape)
 
 
@@ -45,7 +39,7 @@ def _evaluate_tangential_coeffs_to_grid_components(
     """Evaluate tangential coefficients to grid components."""
     if coeffs is None:
         return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
-    field_exp = FieldExpansion(
+    field_exp = Field.from_coefficients(
         storage_basis, coeffs=coeffs.reshape((2, -1)), field_type="tangential"
     )
     field_grid_components = field_exp.to_grid_values(plot_evaluator)
@@ -217,8 +211,9 @@ def plot_input_vs_interpolated(
     ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]
     magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
-    ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
-    ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionosphere_lat.shape)
+    ionosphere_b_field = mainfield.discretize(ionosphere_grid, ri_value)
+    
+    ionosphere_br = ionosphere_b_field.vec.r / ionosphere_b_field.magnitude
 
     print("Starting Pass 1: Collecting and Caching data for global vmin/vmax...")
     all_data_for_scaling = {
