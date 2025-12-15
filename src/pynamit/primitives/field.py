@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 
+from pynamit.primitives.grid_basis import GridBasis
+
 class _FieldImpl(ABC):
     """Internal implementation interface for Field strategies."""
     @abstractmethod
@@ -27,49 +29,45 @@ class _FieldImpl(ABC):
     def basis_vectors(self, r, theta, phi):
         raise NotImplementedError
 
-class _DiscreteImpl(_FieldImpl):
-    """Implementation for discrete grid-based fields."""
-    def __init__(self, grid, v1, v2, v3, r_loc, source_field):
-        self.grid = grid
-        self._v1 = v1
-        self._v2 = v2
-        self._v3 = v3
-        self.r_loc = r_loc
-        self.source_field = source_field
-
-    @property
-    def v1(self): return self._v1
-    @property
-    def v2(self): return self._v2
-    @property
-    def v3(self): return self._v3
-    
-    def evaluate(self, r, theta, phi):
-        # Simplified: Return stored values (assumes grid match)
-        return self._v1, self._v2, self._v3
-    
-    def basis_vectors(self, r, theta, phi):
-        if self.source_field: 
-            return self.source_field.basis_vectors(r, theta, phi)
-        raise NotImplementedError
-
 class _ExpansionImpl(_FieldImpl):
-    """Implementation for basis expansion fields."""
+    """Implementation for basis expansion fields (including GridBasis)."""
     def __init__(self, basis, coeffs, field_type):
         self.basis = basis
         self.coeffs = coeffs
         self.field_type = field_type
+    
+    # --- Property Accessors for seamless integration ---
+    @property
+    def v1(self):
+        if self.field_type == "vector": return self.coeffs[0]
+        if self.field_type == "scalar": return self.coeffs
+        return None
+    @property
+    def v2(self):
+        if self.field_type == "vector": return self.coeffs[1]
+        return None
+    @property
+    def v3(self):
+        if self.field_type == "vector": return self.coeffs[2]
+        return None
 
     def evaluate(self, r, theta, phi):
         from pynamit.primitives.basis_evaluator import BasisEvaluator
         g = Grid(theta=theta, phi=phi)
         evaluator = BasisEvaluator(self.basis, g)
+        
+        # Basis handles interpolation/evaluation
         values = self.basis.to_grid_values(self.coeffs, evaluator, self.field_type)
         
         if self.field_type == "scalar":
             return values, np.zeros_like(values), np.zeros_like(values)
         elif self.field_type == "tangential":
+            # Tangential -> (v2, v3)
             return np.zeros_like(values[0]), values[0], values[1]
+        elif self.field_type == "vector":
+            # Vector -> (v1, v2, v3)
+            return values[0], values[1], values[2]
+            
         raise ValueError(f"Unknown field_type: {self.field_type}")
 
 class _ComponentImpl(_FieldImpl):
@@ -103,13 +101,30 @@ class Field(ABC):
     ):
         self._impl: Optional[_FieldImpl] = None
         
+        # Metadata storage (exposed by properties)
+        self._r_loc = r_loc
+        self._source_field = source_field
+        
         # Determine strategy
-        if v1 is not None:
-            self._impl = _DiscreteImpl(grid, v1, v2, v3, r_loc, source_field)
-        elif coeffs is not None:
+        if v1 is not None and grid is not None:
+            # Discrete case -> Coerce to GridBasis Expansion
+            basis = GridBasis(grid)
+            # Ensure coeffs shape matches expectation for 'vector' (3, N) or 'scalar'
+            if v2 is not None and v3 is not None:
+                coeffs = np.stack([v1, v2, v3])
+                field_type = "vector"
+            else:
+                 coeffs = v1
+                 field_type = "scalar"
             self._impl = _ExpansionImpl(basis, coeffs, field_type)
+            
+        elif coeffs is not None and basis is not None:
+             # Standard Expansion
+             self._impl = _ExpansionImpl(basis, coeffs, field_type)
+             
         elif parent_field is not None:
-            self._impl = _ComponentImpl(parent_field, component_index)
+             # Component
+             self._impl = _ComponentImpl(parent_field, component_index)
 
     @property
     def vec(self) -> 'VectorAccessor':
@@ -120,9 +135,8 @@ class Field(ABC):
         return self.vec.v1
 
     # --- Property Delegation ---
-    # Access implementation attributes safely (returns None if attr missing)
     @property
-    def grid(self): return getattr(self._impl, 'grid', None)
+    def grid(self): return getattr(getattr(self._impl, 'basis', None), 'grid', None)
     @property
     def v1(self): return getattr(self._impl, 'v1', None)
     @property
@@ -138,9 +152,9 @@ class Field(ABC):
     @property
     def component_index(self): return getattr(self._impl, 'component_index', None)
     @property
-    def r_loc(self): return getattr(self._impl, 'r_loc', None)
+    def r_loc(self): return self._r_loc
     @property
-    def source_field(self): return getattr(self._impl, 'source_field', None)
+    def source_field(self): return self._source_field
 
     @property
     def magnitude(self) -> Optional[np.ndarray]:
@@ -170,6 +184,8 @@ class Field(ABC):
         raise NotImplementedError("evaluate() called on Field with no implementation.")
 
     def basis_vectors(self, r: Any, theta: Any, phi: Any):
+        if self.source_field:
+            return self.source_field.basis_vectors(r, theta, phi)
         if self._impl:
             return self._impl.basis_vectors(r, theta, phi)
         raise NotImplementedError("basis_vectors() called on Field with no implementation.")

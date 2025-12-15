@@ -12,8 +12,8 @@ CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
     Class for simulating ionospheric dynamics.
-DiscreteField : class
-    Class for evaluating fields on a grid.
+Field : class
+    Unified class for scalar/vector fields.
 Grid : class
     Class for grid management.
 Mainfield : class
@@ -26,8 +26,6 @@ globalplot : function
     Function for global plotting.
 SHBasis : class
     Class for spherical harmonics basis functions.
-FieldExpansion : class
-    Class for storing vector data and defining vector operations.
 """
 
 from .cubed_sphere import CSBasis
