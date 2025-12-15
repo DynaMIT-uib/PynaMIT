@@ -55,6 +55,18 @@ class CSBasis(GridBasis):
 
             self.minimum_phi_sampling = 1
             self.caching = False
+            
+            # Initialize optimized interpolator
+            from pynamit.interpolation import CSInterpolator
+            self._interpolator = CSInterpolator(N)
+
+    @property
+    def theta(self):
+        return self.arr_theta
+
+    @property
+    def phi(self):
+        return self.arr_phi
 
     @functools.cached_property
     def g(self) -> np.ndarray:
