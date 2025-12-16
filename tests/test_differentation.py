@@ -6,26 +6,31 @@ import numpy as np
 from ppigrf.ppigrf import igrf_gc, igrf_V
 import datetime
 from pynamit.cubed_sphere import cs_basis, diffutils
+from pynamit.math import cs_math
 from functools import reduce
 import pytest
 
 
-@pytest.mark.skip(reason="Differentiation must be re-implemented now that grid is cell centered")
+#@pytest.mark.skip(reason="Differentiation must be re-implemented now that grid is cell centered")
 def test_differentiation():
     """Test cubed sphere differentiation."""
     # Set up projection and make a grid (not using the grid class).
     R = 6371.2e3
     p = cs_basis.CSBasis()
     N = 40  # Number of grid points in each direction per block
-    dxi = np.pi / 2 / (N - 1)
-    # deta = np.pi / 2 / (N - 1)
+    dxi = np.pi / 2 / N
+    # deta = np.pi / 2 / N
+    # Cell centered grid: -pi/4 + (i+0.5)*dxi
+    # interval is [-pi/4 + dxi/2, pi/4 - dxi/2]
+    start = -np.pi / 4 + dxi / 2
+    end = np.pi / 4 - dxi / 2
     block, xi, eta = np.meshgrid(
         np.arange(6),
-        np.linspace(-np.pi / 4, np.pi / 4, N),
-        np.linspace(-np.pi / 4, np.pi / 4, N),
+        np.linspace(start, end, N),
+        np.linspace(start, end, N),
         indexing="ij",
     )
-    r, theta, phi = p.cube2spherical(xi, eta, r=R, block=block, deg=True)
+    r, theta, phi = cs_math.cube2spherical(xi, eta, r=R, block=block, deg=True)
 
     # Calculate IGRF potential and spherical vector components on grid.
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
@@ -91,7 +96,7 @@ def test_differentiation():
     )
 
     # Calculate the contravariant components of the gradient.
-    gc = p.get_metric_tensor(xi[0, 2:-2, 2:-2], eta[0, 2:-2, 2:-2], r=R, covariant=False)
+    gc = cs_math.get_metric_tensor(xi[0, 2:-2, 2:-2], eta[0, 2:-2, 2:-2], r=R, covariant=False)
     u1 = (
         gc[:, 0, 0].reshape((1, N - 4, N - 4)) * dV_dxi
         + gc[:, 0, 1].reshape((1, N - 4, N - 4)) * dV_det
@@ -103,10 +108,10 @@ def test_differentiation():
     u3 = gc[:, 2, 2].reshape((1, N - 4, N - 4)) * Br_num[:, 2:-2, 2:-2]
     u = np.vstack((u1.flatten(), u2.flatten(), u3.flatten()))
 
-    Ps_inv = p.get_Ps(
+    Ps_inv = cs_math.get_Ps(
         xi[:, 2:-2, 2:-2], eta[:, 2:-2, 2:-2], r=R, block=block[:, 2:-2, 2:-2], inverse=True
     )
-    Q = p.get_Q(90 - theta[:, 2:-2, 2:-2], R)
+    Q = cs_math.get_Q(90 - theta[:, 2:-2, 2:-2], R)
     Ps_normalized = np.einsum("nij, njk -> nik", Q, Ps_inv)
     u_east, u_north, u_r = -np.einsum("nij, nj -> ni", Ps_normalized, u.T).T
 
@@ -262,8 +267,8 @@ def test_differentiation():
     Deta2 = coo_matrix((weights2, (rows, cols_eta)), shape=(size, size))
 
     # For testing, recalculate IGRF values on the differentiation grid.
-    xi, eta = p.xi(i, N), p.eta(j, N)
-    r, theta, phi = p.cube2spherical(xi, eta, r=R, block=k, deg=True)
+    xi, eta = p.xi(i + 0.5, N), p.eta(j + 0.5, N)
+    r, theta, phi = cs_math.cube2spherical(xi, eta, r=R, block=k, deg=True)
     V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).flatten()
     Br, Btheta, Bphi = map(np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
 
@@ -272,14 +277,14 @@ def test_differentiation():
     # dV2dxi2  = Dxi2 .dot(V)
     # dV2deta2 = Deta2.dot(V)
 
-    gc = p.get_metric_tensor(xi, eta, r=R, covariant=False)
+    gc = cs_math.get_metric_tensor(xi, eta, r=R, covariant=False)
     u1 = gc[:, 0, 0].flatten() * dVdxi + gc[:, 0, 1].flatten() * dVdeta
     u2 = gc[:, 0, 1].flatten() * dVdxi + gc[:, 1, 1].flatten() * dVdeta
     u3 = np.ones(size)
     u = np.vstack((u1.flatten(), u2.flatten(), u3.flatten()))
 
-    Ps_inv = p.get_Ps(xi, eta, r=R, block=k, inverse=True)
-    Q = p.get_Q(90 - theta, R)
+    Ps_inv = cs_math.get_Ps(xi, eta, r=R, block=k, inverse=True)
+    Q = cs_math.get_Q(90 - theta, R)
     Ps_normalized = np.einsum("nij, njk -> nik", Q, Ps_inv)
     u_east, u_north, u_r = -np.einsum("nij, nj -> ni", Ps_normalized, u.T).T
 
@@ -311,28 +316,41 @@ def test_differentiation():
     shape = (6, N, N)
     size = 6 * N * N
 
-    k, i, j = p.get_gridpoints(N)
-    kk, ii, jj = p.get_gridpoints(N, flat=True)
+    # k, i, j = p.get_gridpoints(N)  # This returns nodes (N+1), we want centers (N)
+    
+    # We can create a new basis instance to get the grid easily
+    p_grid = cs_basis.CSBasis(N)
+    # They are flat, reshape to logical grid
+    xi = p_grid.arr_xi.reshape(shape)
+    eta = p_grid.arr_eta.reshape(shape)
+    kk = p_grid.arr_block.reshape(shape)
 
     # Get differentiation matrices.
     Dxi, Deta = p.get_Diff(N, coordinate="both", Ns=Ns, Ni=Ni, order=1)
 
-    xi, eta = p.xi(ii, N), p.eta(jj, N)
-    r, theta, phi = p.cube2spherical(xi, eta, r=R, block=kk, deg=True)
-    V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).squeeze()
-    Br, Btheta, Bphi = map(np.squeeze, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
+    r, theta, phi = cs_math.cube2spherical(xi, eta, r=R, block=kk, deg=True)
+    V = igrf_V(r, theta, phi, datetime.datetime(2020, 1, 1)).flatten()
+    # Matrix vector product expects flattened V
+    
+    Br, Btheta, Bphi = map(np.ravel, igrf_gc(r, theta, phi, datetime.datetime(2020, 1, 1)))
+    
+    # Need flattened result for matrix mult, then reshape for components
+    dVdxi = Dxi.dot(V).reshape(shape)
+    dVdeta = Deta.dot(V).reshape(shape)
+    
+    # Flatten everything for component logic
+    gc = cs_math.get_metric_tensor(xi, eta, r=R, covariant=False)
+    dVdxi = dVdxi.flatten()
+    dVdeta = dVdeta.flatten()
 
-    dVdxi = Dxi.dot(V)
-    dVdeta = Deta.dot(V)
-
-    gc = p.get_metric_tensor(xi, eta, r=R, covariant=False)
+    gc = cs_math.get_metric_tensor(xi, eta, r=R, covariant=False)
     u1 = gc[:, 0, 0] * dVdxi + gc[:, 0, 1] * dVdeta
     u2 = gc[:, 0, 1] * dVdxi + gc[:, 1, 1] * dVdeta
     u3 = np.ones(size)
     u = np.vstack((u1, u2, u3))
 
-    Ps_inv = p.get_Ps(xi, eta, r=R, block=kk, inverse=True)
-    Q = p.get_Q(90 - theta, R)
+    Ps_inv = cs_math.get_Ps(xi, eta, r=R, block=kk, inverse=True)
+    Q = cs_math.get_Q(90 - theta, R)
     Ps_normalized = np.einsum("nij, njk -> nik", Q, Ps_inv)
     u_east, u_north, u_r = -np.einsum("nij, nj -> ni", Ps_normalized, u.T).T
 
@@ -353,6 +371,10 @@ def test_differentiation():
     Nsp = len(stencil_points)
 
     h = p.xi(1, N) - p.xi(0, N)  # Step size between each grid cell
+
+    # Define indices for matrix construction (N grid centers)
+    k, i, j = np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij")
+    k, i, j = k.flatten(), i.flatten(), j.flatten()
 
     # Make a stencil that has a cross + first diagonal points
     # (not sure what is a good idea here).
@@ -388,8 +410,13 @@ def test_differentiation():
     ii, jj = np.meshgrid(np.arange(N + 10), np.arange(N + 10), indexing="ij")
     fig, axes = plt.subplots(ncols=3, nrows=2)
     cc = 0
+    
+    # Generate plot indices
+    i_plot, j_plot = np.meshgrid(np.arange(N), np.arange(N), indexing="ij")
+    i_plot, j_plot = i_plot.flatten(), j_plot.flatten()
+    
     for ax, mm in zip(axes.flatten(), mismatches):
-        ax.scatter(i[0], j[0], c=mm, cmap=plt.cm.bwr, vmin=-10, vmax=10)
+        ax.scatter(i_plot, j_plot, c=mm, cmap=plt.cm.bwr, vmin=-10, vmax=10)
         ax.set_aspect("equal")
         ax.set_title(str(cc))
         cc += 1

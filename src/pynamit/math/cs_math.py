@@ -282,3 +282,26 @@ def get_Q(lat, r, inverse=False):
     if inverse:
         return arrayutils.invert_3D_matrices(Q)
     return Q
+
+
+def get_metric_tensor(xi, eta, r=1, block=0, covariant=True):
+    """Calculate the metric tensor of the cubed sphere system."""
+    if covariant:
+        # Calculate at r=1 to ensure stable inversion
+        Pc = get_Pc(xi, eta, r=1.0, block=block)
+        # g^ij = sum_k (dxi^i/dX^k) (dxi^j/dX^k)
+        g_inv_1 = np.einsum("nik, njk -> nij", Pc, Pc)
+        g_cov_1 = arrayutils.invert_3D_matrices(g_inv_1)
+        
+        # Scale by r^2
+        r = np.array(r)
+        if r.size == 1:
+            return g_cov_1 * r**2
+        else:
+            flat_r = r.flatten() if r.size == g_cov_1.shape[0] else np.broadcast_to(r, (g_cov_1.shape[0],))
+            return g_cov_1 * (flat_r.reshape(-1, 1, 1) ** 2)
+    else:
+        # Contravariant (Inverse Metric)
+        Pc = get_Pc(xi, eta, r=r, block=block)
+        g_inv = np.einsum("nik, njk -> nij", Pc, Pc)
+        return g_inv

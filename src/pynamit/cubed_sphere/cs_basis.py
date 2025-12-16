@@ -73,7 +73,7 @@ class CSBasis(GridBasis):
     @functools.cached_property
     def g(self) -> np.ndarray:
         """Metric tensor."""
-        return self.get_metric_tensor(self.arr_xi, self.arr_eta)
+        return cs_math.get_metric_tensor(self.arr_xi, self.arr_eta)
 
     @functools.cached_property
     def sqrt_detg(self) -> np.ndarray:
@@ -120,8 +120,8 @@ class CSBasis(GridBasis):
             )
         if Ns < order:
             raise ValueError("Ns must be >= order. You gave {} and {}".format(Ns, order))
-        if order != 1:
-            raise NotImplementedError("Only first order differentiation is supported.")
+        # if order != 1:
+        #    raise NotImplementedError("Only first order differentiation is supported.")
 
         shape = (6, N, N)
         size = 6 * N * N
@@ -132,7 +132,7 @@ class CSBasis(GridBasis):
 
         stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
         Nsp = len(stencil_points)
-        stencil_weight = diffutils.stencil(stencil_points, order=1, h=h)
+        stencil_weight = diffutils.stencil(stencil_points, order=order, h=h)
 
         i_diff = np.hstack([i + _ for _ in stencil_points])
         j_diff = np.hstack([j + _ for _ in stencil_points])
@@ -170,7 +170,7 @@ class CSBasis(GridBasis):
         h = self.xi(1, N) - self.xi(0, N)
         cols = np.full(k.size, -1, dtype=np.int64)
 
-        xi, eta = self.xi(i, N), self.eta(j, N)
+        xi, eta = self.xi(i + 0.5, N), self.eta(j + 0.5, N)
         r, theta, phi = cs_math.cube2spherical(xi, eta, k, r=1.0, deg=True)
         new_xi, new_eta, new_k = cs_math.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
