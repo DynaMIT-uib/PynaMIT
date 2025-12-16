@@ -11,9 +11,10 @@ from pynamit.primitives.timeseries import Timeseries
 
 FLOAT_ERROR_MARGIN = 1e-6
 
+
 class InputManager:
     """Class for managing simulation inputs.
-    
+
     Handles the interpolation of input data to the simulation grid/basis
     and tracks changes in input data to optimize updates.
     """
@@ -33,13 +34,12 @@ class InputManager:
         self.timeseries = timeseries
         self.cs_basis = cs_basis
         self.vars = vars_dict
-        
-        
+
         # Evaluators
         self.cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         self.storage_basis_evaluators = {}
         self.input_basis_evaluators = {}
-        
+
         # Initialize storage evaluators
         # Note: We access storage_bases from the timeseries object
         for key in self.timeseries.storage_bases.keys():
@@ -93,15 +93,14 @@ class InputManager:
                 target_basis = self.timeseries.storage_bases[key]
 
                 def get_storage_evaluator():
-                   return self.storage_basis_evaluators[key]
+                    return self.storage_basis_evaluators[key]
 
                 def get_input_evaluator():
                     if not (
                         key in self.input_basis_evaluators.keys()
                         and input_grid.theta.shape
                         == self.input_basis_evaluators[key].grid.theta.shape
-                        and input_grid.phi.shape
-                        == self.input_basis_evaluators[key].grid.phi.shape
+                        and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
                         and np.allclose(
                             input_grid.theta,
                             self.input_basis_evaluators[key].grid.theta,

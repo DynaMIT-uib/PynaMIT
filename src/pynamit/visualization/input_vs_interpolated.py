@@ -17,6 +17,7 @@ from pynamit.primitives.field import Field
 
 # ... (rest of imports)
 
+
 def _evaluate_scalar_coeffs_to_grid(
     coeffs: Optional[np.ndarray],
     storage_basis: Any,
@@ -212,7 +213,7 @@ def plot_input_vs_interpolated(
     magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_field = mainfield.discretize(ionosphere_grid, ri_value)
-    
+
     ionosphere_br = ionosphere_b_field.vec.r / ionosphere_b_field.magnitude
 
     print("Starting Pass 1: Collecting and Caching data for global vmin/vmax...")

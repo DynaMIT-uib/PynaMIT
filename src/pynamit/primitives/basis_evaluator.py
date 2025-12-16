@@ -42,7 +42,7 @@ class BasisEvaluator:
         # Caches for configured, stateless solver instances.
         self._scalar_solvers: Dict[str, LeastSquaresSolver] = {}
         self._helmholtz_solvers: Dict[str, LeastSquaresSolver] = {}
-        
+
         # Internal cache for basis generation (e.g. Legendre polynomials)
         self._cache: Optional[Any] = None
 
@@ -63,9 +63,7 @@ class BasisEvaluator:
         """Matrix evaluating the theta derivative."""
         if self.basis.caching:
             if self._cache is None:
-                G_th, self._cache = self.basis.get_G(
-                    self.grid, derivative="theta", cache_out=True
-                )
+                G_th, self._cache = self.basis.get_G(self.grid, derivative="theta", cache_out=True)
                 return G_th
             else:
                 return self.basis.get_G(self.grid, derivative="theta", cache_in=self._cache)
@@ -77,9 +75,7 @@ class BasisEvaluator:
         """Matrix evaluating the phi derivative."""
         if self.basis.caching:
             if self._cache is None:
-                G_ph, self._cache = self.basis.get_G(
-                    self.grid, derivative="phi", cache_out=True
-                )
+                G_ph, self._cache = self.basis.get_G(self.grid, derivative="phi", cache_out=True)
                 return G_ph
             else:
                 return self.basis.get_G(self.grid, derivative="phi", cache_in=self._cache)
@@ -118,7 +114,7 @@ class BasisEvaluator:
         """Regularization matrix for horizontal vector fields."""
         if self.reg_lambda is None:
             return None
-            
+
         L_cf = np.stack(
             [
                 np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
@@ -175,7 +171,7 @@ class BasisEvaluator:
             self._scalar_solvers[solver_type] = LeastSquaresSolver(
                 solver=solver_type, tolerance=self.pinv_rtol
             )
-        
+
         solver = self._scalar_solvers[solver_type]
         # RHS must be a list of inputs matching data terms in problem
         # Assuming single data term based on original code usage
@@ -196,10 +192,7 @@ class BasisEvaluator:
         return solver.solve(problem=self.least_squares_problem_helmholtz, rhs=rhs)
 
     def basis_to_grid(
-        self,
-        coeffs: np.ndarray,
-        derivative: Union[None, str] = None,
-        helmholtz: bool = False,
+        self, coeffs: np.ndarray, derivative: Union[None, str] = None, helmholtz: bool = False
     ) -> np.ndarray:
         """Transform basis coefficients to grid values."""
         if derivative == "theta":
@@ -211,9 +204,7 @@ class BasisEvaluator:
         else:
             return np.dot(self.G, coeffs)
 
-    def grid_to_basis(
-        self, grid_values: np.ndarray, helmholtz: bool = False
-    ) -> np.ndarray:
+    def grid_to_basis(self, grid_values: np.ndarray, helmholtz: bool = False) -> np.ndarray:
         """Transform grid values to basis coefficients."""
         if helmholtz:
             return self.least_squares_solution_helmholtz(grid_values)

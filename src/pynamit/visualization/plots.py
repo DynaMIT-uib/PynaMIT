@@ -242,9 +242,8 @@ def debugplot(
 
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = (
-        plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
-        / (plt_b_field.vec.r / plt_b_field.magnitude)
+    FAC = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr) / (
+        plt_b_field.vec.r / plt_b_field.magnitude
     )
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
@@ -537,11 +536,7 @@ def plot_AMPS_Br(a: Any) -> None:
 
 
 def show_jr_and_conductance(
-    dynamics: Dynamics,
-    conductance_grid: Grid,
-    hall: np.ndarray,
-    pedersen: np.ndarray,
-    lon0: float,
+    dynamics: Dynamics, conductance_grid: Grid, hall: np.ndarray, pedersen: np.ndarray, lon0: float
 ) -> None:
     """Show jr and conductance.
 

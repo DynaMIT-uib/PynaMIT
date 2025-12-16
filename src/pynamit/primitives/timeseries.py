@@ -126,8 +126,6 @@ class Timeseries:
                 dim="time",
             ).sortby("time")
 
-
-
     def get_entry(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.
 

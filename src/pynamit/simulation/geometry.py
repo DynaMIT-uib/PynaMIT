@@ -43,7 +43,7 @@ class Geometry:
         """Initialize the geometric context."""
         self.basis = basis
         self.mainfield = mainfield
-        
+
         # Allow pre-computed PFAC matrix (must override cached_property if provided)
         if PFAC_matrix is not None:
             self.T_to_Ve = PFAC_matrix
@@ -61,8 +61,6 @@ class Geometry:
         # Initialize core geometric objects
         self._init_evaluators(cs_basis)
         self._init_constraint_mappings()
-
-
 
         self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
@@ -111,7 +109,7 @@ class Geometry:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
         radial_to_apex, horizontal_to_apex = self._get_transformation_matrices(self.b_field)
-        
+
         self.jr_coeffs_to_j_apex = (
             radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
         ).copy()
@@ -119,11 +117,11 @@ class Geometry:
 
         if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
-            radial_to_apex_cp, horizontal_to_apex_cp = self._get_transformation_matrices(self.cp_b_field)
-            
-            jr_coeffs_to_j_apex_cp = (
-                radial_to_apex_cp.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            radial_to_apex_cp, horizontal_to_apex_cp = self._get_transformation_matrices(
+                self.cp_b_field
             )
+
+            jr_coeffs_to_j_apex_cp = radial_to_apex_cp.reshape((-1, 1)) * self.cp_basis_evaluator.G
             self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
 
             # Create E-field mapping difference operator for constraint
@@ -147,10 +145,12 @@ class Geometry:
     def bP(self) -> np.ndarray:
         """Pedersen geometric factor for conductance tensor."""
         mag = self.b_field.magnitude
-        b_th, b_ph, b_r = self.b_field.vec.theta / mag, self.b_field.vec.phi / mag, self.b_field.vec.r / mag
-        return np.array(
-            [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
+        b_th, b_ph, b_r = (
+            self.b_field.vec.theta / mag,
+            self.b_field.vec.phi / mag,
+            self.b_field.vec.r / mag,
         )
+        return np.array([[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]])
 
     @cached_property
     def bH(self) -> np.ndarray:
@@ -227,9 +227,7 @@ class Geometry:
                 factor = -1.0
 
             JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
-            T_to_Ve += (
-                Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
-            )
+            T_to_Ve += Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
         return T_to_Ve
 
     # ----- G operators mapping to sheet current (JS) -----
@@ -238,9 +236,7 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
-        return G_T_to_JS + np.tensordot(
-            self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
-        )
+        return G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))
 
     def _get_transformation_matrices(self, dfield: Field):
         """Compute transformation matrices for Apex coordinates."""
@@ -251,16 +247,16 @@ class Geometry:
         d3 = bv[2]
         e1 = bv[3]
         e2 = bv[4]
-        
+
         # Get unit vector components
         mag = dfield.magnitude
         br = dfield.vec.r / mag
         btheta = dfield.vec.theta / mag
         bphi = dfield.vec.phi / mag
-        
+
         # d3 components (field parallel)
         d3r, d3theta, d3phi = d3[0], d3[1], d3[2]
-        
+
         # e1, e2 components (field orthogonal)
         e1r, e1theta, e1phi = e1[0], e1[1], e1[2]
         e2r, e2theta, e2phi = e2[0], e2[1], e2[2]
@@ -270,38 +266,38 @@ class Geometry:
         # [[1], [btheta/br], [bphi/br]]
         # field_parallel_to_apex
         # [[d3r, d3theta, d3phi]]
-        
-        # Result is scalar product for each grid point? 
+
+        # Result is scalar product for each grid point?
         # No, matrix mult.
         # r_to_fp: (3, 1, N) ?
         # Actually, let's look at previous implementation:
         # radial_to_field_parallel was (3, 1, N) implicitly? No.
         # It returned (3, 1) of arrays?
         # np.array([[ones], [btheta/br], [bphi/br]]) -> shape (3, 1, N)
-        
+
         # 1. Radial to Apex
         # radial_to_field_parallel
         # We need shape (3, 1, N) for matrix multiplication radial -> parallel
         # The matrix is [[1], [btheta/br], [bphi/br]]
-        
+
         # Ensure we are working with flattened arrays (N,)
         ones = np.ones(self.grid.size)
         ratio_theta = (btheta / br).flatten()
         ratio_phi = (bphi / br).flatten()
-        
+
         # Stack to shape (3, N) then reshape to (3, 1, N)
-        radial_to_field_parallel = np.stack([ones, ratio_theta, ratio_phi], axis=0) # (3, N)
-        radial_to_field_parallel = radial_to_field_parallel[:, np.newaxis, :] # (3, 1, N)
-        
+        radial_to_field_parallel = np.stack([ones, ratio_theta, ratio_phi], axis=0)  # (3, N)
+        radial_to_field_parallel = radial_to_field_parallel[:, np.newaxis, :]  # (3, 1, N)
+
         # field_parallel_to_apex
         # Matrix is [[d3r, d3theta, d3phi]] -> shape (1, 3, N)
-        field_parallel_to_apex = np.stack([d3r, d3theta, d3phi], axis=0) # (3, N)
-        field_parallel_to_apex = field_parallel_to_apex[np.newaxis, :, :] # (1, 3, N)
-        
+        field_parallel_to_apex = np.stack([d3r, d3theta, d3phi], axis=0)  # (3, N)
+        field_parallel_to_apex = field_parallel_to_apex[np.newaxis, :, :]  # (1, 3, N)
+
         # einsum ij k, jl k -> il k
         # (1, 3, N) x (3, 1, N) -> (1, 1, N) in matrix mult sense for each k?
         # NO. We map radial component (1D vector at each point) to Apex vector (3D)?
-        
+
         # Wait, radial_to_apex converts a radial current/field to an apex vector.
         # Radial vector is v = v_r * r_hat.
         # r_hat = 1 * d3_parallel + (bth/br) * ...?
@@ -318,19 +314,19 @@ class Geometry:
         # Looking at subsequent code:
         # jr_coeffs_to_j_apex = radial_to_apex.reshape((-1, 1)) * G
         # If radial_to_apex is (3, N) or similar?
-        
+
         # Recalculating:
         # field_parallel_to_apex is d3 vector. Shape (3, N) effectively if we just take d3.
         # It maps a magnitude along field line to vector components.
         # radial_to_field_parallel maps radial component to magnitude along field line?
         # If J = Jr r_hat. J = Jpar d3 + ...
-        # Jpar = Jr / (d3 . r_hat) ? 
+        # Jpar = Jr / (d3 . r_hat) ?
         # Here we have [1, btheta/br, bphi/br].
         # d3 = d3r r_hat + d3th th_hat + d3ph ph_hat.
         # Dot product: d3 . r_hat = d3r.
         # If B is parallel to d3?
         # This math seems to assume B is proportional to d3?
-        
+
         # For now, preserving the logic structure but fixing shapes.
         # Previously:
         # radial_to_field_parallel shape was (3, 1, N).
@@ -341,48 +337,41 @@ class Geometry:
         # If it's (N,), then reshape works.
         # But wait, self.basis_evaluator.G is often (N, n_coeffs).
         # So we need (N, 1) broadcast.
-        
+
         # Wait, if radial_to_apex is a vector, it should be (3, N).
         # (1, 3, N) x (3, 1, N) -> scalar (1, 1, N).
         # This means the result is a scalar at each point.
         # But jr_coeffs_to_j_apex name suggests generic Apex vector?
         # Ah, jr is Field Aligned Current? No, radial current.
         # The variable name creates confusion.
-        
+
         # Let's fix the array creation first.
         radial_to_apex = np.einsum(
-            "ijk,jlk->ilk",
-            field_parallel_to_apex,
-            radial_to_field_parallel,
-            optimize=True,
-        ) # Result (1, 1, N) -> Squeeze to (N,) afterwards?
-        
+            "ijk,jlk->ilk", field_parallel_to_apex, radial_to_field_parallel, optimize=True
+        )  # Result (1, 1, N) -> Squeeze to (N,) afterwards?
+
         # Remove singleton dimensions for simpler handling if needed
-        radial_to_apex = radial_to_apex.squeeze() # (N,)
-        
-        
+        radial_to_apex = radial_to_apex.squeeze()  # (N,)
+
         # 2. Horizontal to Apex
         # horizontal_to_field_orthogonal
         # [[-btheta/br, -bphi/br], [1, 0], [0, 1]] -> (3, 2, N)
-        r1 = np.stack([-(btheta/br).flatten(), -(bphi/br).flatten()], axis=0) # (2, N)
-        r2 = np.stack([np.ones(self.grid.size), np.zeros(self.grid.size)], axis=0) # (2, N)
-        r3 = np.stack([np.zeros(self.grid.size), np.ones(self.grid.size)], axis=0) # (2, N)
-        
-        horizontal_to_field_orthogonal = np.stack([r1, r2, r3], axis=0) # (3, 2, N)
-        
+        r1 = np.stack([-(btheta / br).flatten(), -(bphi / br).flatten()], axis=0)  # (2, N)
+        r2 = np.stack([np.ones(self.grid.size), np.zeros(self.grid.size)], axis=0)  # (2, N)
+        r3 = np.stack([np.zeros(self.grid.size), np.ones(self.grid.size)], axis=0)  # (2, N)
+
+        horizontal_to_field_orthogonal = np.stack([r1, r2, r3], axis=0)  # (3, 2, N)
+
         # field_orthogonal_to_apex
         # [[e1r, e1th, e1ph], [e2r, ...]] -> (2, 3, N)
-        e1_vec = np.stack([e1r, e1theta, e1phi], axis=0) # (3, N)
-        e2_vec = np.stack([e2r, e2theta, e2phi], axis=0) # (3, N)
-        field_orthogonal_to_apex = np.stack([e1_vec, e2_vec], axis=0) # (2, 3, N)
-        
+        e1_vec = np.stack([e1r, e1theta, e1phi], axis=0)  # (3, N)
+        e2_vec = np.stack([e2r, e2theta, e2phi], axis=0)  # (3, N)
+        field_orthogonal_to_apex = np.stack([e1_vec, e2_vec], axis=0)  # (2, 3, N)
+
         horizontal_to_apex = np.einsum(
-            "ijk,jlk->ilk",
-            field_orthogonal_to_apex,
-            horizontal_to_field_orthogonal,
-            optimize=True,
-        ) # (2, 2, N)
-        
+            "ijk,jlk->ilk", field_orthogonal_to_apex, horizontal_to_field_orthogonal, optimize=True
+        )  # (2, 2, N)
+
         return radial_to_apex, horizontal_to_apex
 
     @cached_property

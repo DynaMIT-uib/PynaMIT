@@ -12,6 +12,7 @@ from scipy.sparse import coo_matrix
 
 from pynamit.cubed_sphere import diffutils
 from pynamit.math import arrayutils
+from pynamit.math import cs_math
 from pynamit.primitives.grid_basis import GridBasis
 
 d2r = np.pi / 180
@@ -28,7 +29,7 @@ class CSBasis(GridBasis):
     def __init__(self, N: int = None):
         """Initialize the cubed sphere basis."""
         super().__init__(grid=None)
-        
+
         if N is not None:
             if not isinstance(N, (int, np.integer)):
                 raise TypeError("N must be an integer")
@@ -44,7 +45,7 @@ class CSBasis(GridBasis):
             self.arr_block: np.ndarray = k[:, :-1, :-1].flatten()
 
             # Convert to spherical coordinates using inherited method
-            _, self.arr_theta, self.arr_phi = self.cube2spherical(
+            _, self.arr_theta, self.arr_phi = cs_math.cube2spherical(
                 self.arr_xi, self.arr_eta, self.arr_block, deg=True
             )
 
@@ -55,9 +56,10 @@ class CSBasis(GridBasis):
 
             self.minimum_phi_sampling = 1
             self.caching = False
-            
+
             # Initialize optimized interpolator
             from pynamit.interpolation import CSInterpolator
+
             self._interpolator = CSInterpolator(N)
 
     @property
@@ -113,7 +115,9 @@ class CSBasis(GridBasis):
     def get_Diff(self, N, coordinate="xi", Ns=1, Ni=4, order=1):
         """Get scalar field differentiation matrix."""
         if coordinate not in ["xi", "eta", "both"]:
-            raise ValueError(f'coordinate must be either "xi", "eta", or "both". Not {coordinate}.')
+            raise ValueError(
+                f'coordinate must be either "xi", "eta", or "both". Not {coordinate}.'
+            )
         if Ns < order:
             raise ValueError("Ns must be >= order. You gave {} and {}".format(Ns, order))
         if order != 1:
@@ -122,7 +126,9 @@ class CSBasis(GridBasis):
         shape = (6, N, N)
         size = 6 * N * N
         h = self.xi(1, N) - self.xi(0, N)
-        k, i, j = map(np.ravel, np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij"))
+        k, i, j = map(
+            np.ravel, np.meshgrid(np.arange(6), np.arange(N), np.arange(N), indexing="ij")
+        )
 
         stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
         Nsp = len(stencil_points)
@@ -135,9 +141,13 @@ class CSBasis(GridBasis):
 
         rows = np.tile(np.ravel_multi_index((k, i, j), shape), Nsp)
         if coordinate in ["xi", "both"]:
-            Dxi = self.get_interpolation_matrix(k_const, i_diff, j_const, N, Ni, rows=rows, weights=weights)
+            Dxi = self.get_interpolation_matrix(
+                k_const, i_diff, j_const, N, Ni, rows=rows, weights=weights
+            )
         if coordinate in ["eta", "both"]:
-            Deta = self.get_interpolation_matrix(k_const, i_const, j_diff, N, Ni, rows=rows, weights=weights)
+            Deta = self.get_interpolation_matrix(
+                k_const, i_const, j_diff, N, Ni, rows=rows, weights=weights
+            )
 
         if coordinate == "both":
             return (Dxi, Deta)
@@ -148,24 +158,33 @@ class CSBasis(GridBasis):
 
     def get_interpolation_matrix(self, k, i, j, N, Ni, weights=None, rows=None):
         """Get matrix for grid to cubed sphere interpolation."""
-        if Ni > N: raise ValueError("Ni must be <= N")
+        if Ni > N:
+            raise ValueError("Ni must be <= N")
         k, i, j = map(np.ravel, [k, i, j])
         shape, size = (6, N, N), 6 * N**2
-        if rows is None: rows = np.arange(k.size)
-        if weights is None: weights = np.ones(k.size)
+        if rows is None:
+            rows = np.arange(k.size)
+        if weights is None:
+            weights = np.ones(k.size)
         weights = weights / Ni
         h = self.xi(1, N) - self.xi(0, N)
         cols = np.full(k.size, -1, dtype=np.int64)
 
         xi, eta = self.xi(i, N), self.eta(j, N)
-        r, theta, phi = self.cube2spherical(xi, eta, k, r=1.0, deg=True)
-        new_xi, new_eta, new_k = self.geo2cube(phi, 90 - theta)
+        r, theta, phi = cs_math.cube2spherical(xi, eta, k, r=1.0, deg=True)
+        new_xi, new_eta, new_k = cs_math.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
 
-        assert np.all((np.isclose(new_i - np.rint(new_i), 0) | np.isclose(new_j - np.rint(new_j), 0)))
+        assert np.all(
+            (np.isclose(new_i - np.rint(new_i), 0) | np.isclose(new_j - np.rint(new_j), 0))
+        )
         ii_integers = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(new_j - np.rint(new_j), 0)
         cols[ii_integers] = np.ravel_multi_index(
-            (new_k[ii_integers], np.rint(new_i[ii_integers]).astype(np.int64), np.rint(new_j[ii_integers]).astype(np.int64)),
+            (
+                new_k[ii_integers],
+                np.rint(new_i[ii_integers]).astype(np.int64),
+                np.rint(new_j[ii_integers]).astype(np.int64),
+            ),
             shape,
         )
 
@@ -176,8 +195,12 @@ class CSBasis(GridBasis):
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
         interpolation_points = np.arange(Ni).reshape((1, -1))
-        j_interpolation_points = arrayutils.constrain_values(interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis=1)
-        i_interpolation_points = arrayutils.constrain_values(interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis=1)
+        j_interpolation_points = arrayutils.constrain_values(
+            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
+        )
+        i_interpolation_points = arrayutils.constrain_values(
+            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
+        )
 
         j_distances = j_floats - j_interpolation_points
         i_distances = i_floats - i_interpolation_points
@@ -189,12 +212,29 @@ class CSBasis(GridBasis):
         stacked_cols = np.tile(cols, (Ni, 1)).T
         stacked_rows = np.tile(rows, (Ni, 1)).T
 
-        stacked_cols[i_is_float] = np.ravel_multi_index((np.tile(new_k[i_is_float], (Ni, 1)).T, i_interpolation_points, np.rint(np.tile(new_j[i_is_float], (Ni, 1))).astype(np.int64).T), shape)
-        stacked_cols[j_is_float] = np.ravel_multi_index((np.tile(new_k[j_is_float], (Ni, 1)).T, np.rint(np.tile(new_i[j_is_float], (Ni, 1))).astype(np.int64).T, j_interpolation_points), shape)
+        stacked_cols[i_is_float] = np.ravel_multi_index(
+            (
+                np.tile(new_k[i_is_float], (Ni, 1)).T,
+                i_interpolation_points,
+                np.rint(np.tile(new_j[i_is_float], (Ni, 1))).astype(np.int64).T,
+            ),
+            shape,
+        )
+        stacked_cols[j_is_float] = np.ravel_multi_index(
+            (
+                np.tile(new_k[j_is_float], (Ni, 1)).T,
+                np.rint(np.tile(new_i[j_is_float], (Ni, 1))).astype(np.int64).T,
+                j_interpolation_points,
+            ),
+            shape,
+        )
         stacked_weights[i_is_float] = stacked_weights[i_is_float] * w_i * Ni
         stacked_weights[j_is_float] = stacked_weights[j_is_float] * w_j * Ni
 
-        D = coo_matrix((stacked_weights.flatten(), (stacked_rows.flatten(), stacked_cols.flatten())), shape=(rows.max() + 1, size))
+        D = coo_matrix(
+            (stacked_weights.flatten(), (stacked_rows.flatten(), stacked_cols.flatten())),
+            shape=(rows.max() + 1, size),
+        )
         D.count_nonzero()
         return D
 
@@ -205,33 +245,54 @@ class CSBasis(GridBasis):
         coastlines = np.load(datapath + "coastlines_" + resolution + ".npz")
         for key in coastlines:
             lat, lon = coastlines[key]
-            yield self.geo2cube(lon, lat)
+            yield cs_math.geo2cube(lon, lat)
 
     def interpolate_to_self(self, values, theta, phi, vector_type="scalar"):
         """Interpolate values to this basis's grid."""
         if vector_type == "scalar":
             return self.interpolate_scalar(values, theta, phi, self.arr_theta, self.arr_phi)
         elif vector_type == "tangential":
-             u_east = values[1]
-             u_north = -values[0]
-             u_r = np.zeros_like(u_north)
-             u_e, u_n, _ = self.interpolate_vector_components(u_east, u_north, u_r, theta, phi, self.arr_theta, self.arr_phi)
-             return np.hstack((-u_n, u_e))
+            u_east = values[1]
+            u_north = -values[0]
+            u_r = np.zeros_like(u_north)
+            u_e, u_n, _ = self.interpolate_vector_components(
+                u_east, u_north, u_r, theta, phi, self.arr_theta, self.arr_phi
+            )
+            return np.hstack((-u_n, u_e))
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
-    def project_to_basis(self, input_values, input_grid, vector_type, target_grid, target_basis, on_storage_grid, on_input_grid=None):
+    def project_to_basis(
+        self,
+        input_values,
+        input_grid,
+        vector_type,
+        target_grid,
+        target_basis,
+        on_storage_grid,
+        on_input_grid=None,
+    ):
         """Project input data onto the target basis."""
         if target_grid is None:
-             raise ValueError("target_grid must be provided")
+            raise ValueError("target_grid must be provided")
 
         if vector_type == "scalar":
-            grid_values = self.interpolate_scalar(input_values, input_grid.theta, input_grid.phi, target_grid.theta, target_grid.phi)
+            grid_values = self.interpolate_scalar(
+                input_values, input_grid.theta, input_grid.phi, target_grid.theta, target_grid.phi
+            )
         elif vector_type == "tangential":
             u_east = input_values[1]
             u_north = -input_values[0]
             u_r = np.zeros_like(u_north)
-            u_east_int, u_north_int, _ = self.interpolate_vector_components(u_east, u_north, u_r, input_grid.theta, input_grid.phi, target_grid.theta, target_grid.phi)
+            u_east_int, u_north_int, _ = self.interpolate_vector_components(
+                u_east,
+                u_north,
+                u_r,
+                input_grid.theta,
+                input_grid.phi,
+                target_grid.theta,
+                target_grid.phi,
+            )
             grid_values = np.hstack((-u_north_int, u_east_int))
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")

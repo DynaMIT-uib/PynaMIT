@@ -62,9 +62,7 @@ class TensorChain:
 
     def to_dense(self) -> np.ndarray:
         """Return dense matrix representation of the operator."""
-        dense_matrix = np.einsum(
-            self.einsum_string_dense, *self.component_arrays, optimize=True
-        )
+        dense_matrix = np.einsum(self.einsum_string_dense, *self.component_arrays, optimize=True)
         return (dense_matrix * self.scaling_factor).reshape(
             math.prod(self.output_shape), math.prod(self.input_shape)
         )
@@ -183,7 +181,10 @@ class TensorChain:
         """Return cached optimized einsum path for rmatvec."""
         dummy_grad_output = np.empty(self.output_shape, dtype=self.dtype)
         return np.einsum_path(
-            self.einsum_string_rmatvec, dummy_grad_output, *self.component_arrays, optimize="greedy"
+            self.einsum_string_rmatvec,
+            dummy_grad_output,
+            *self.component_arrays,
+            optimize="greedy",
         )[0]
 
     @functools.cached_property
@@ -192,9 +193,7 @@ class TensorChain:
         if contract_expression is None or use_jax():
             return None
         shapes = [tuple(t.shape) for t in self.component_tensors] + [tuple(self.input_shape)]
-        return contract_expression(
-            self.einsum_string_matvec, *shapes, optimize="greedy"
-        )
+        return contract_expression(self.einsum_string_matvec, *shapes, optimize="greedy")
 
     @functools.cached_property
     def contract_rmatvec(self):
@@ -202,6 +201,4 @@ class TensorChain:
         if contract_expression is None or use_jax():
             return None
         shapes = [tuple(self.output_shape)] + [tuple(t.shape) for t in self.component_tensors]
-        return contract_expression(
-            self.einsum_string_rmatvec, *shapes, optimize="greedy"
-        )
+        return contract_expression(self.einsum_string_rmatvec, *shapes, optimize="greedy")

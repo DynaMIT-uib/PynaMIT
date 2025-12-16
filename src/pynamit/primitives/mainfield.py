@@ -14,6 +14,7 @@ from pynamit.math.constants import RE
 # New import
 from pynamit.primitives.field import Field
 
+
 class MainfieldImplementation(ABC):
     """Abstract base class for main field model implementations."""
 
@@ -167,16 +168,16 @@ class RadialImplementation(MainfieldImplementation):
         e = np.vstack((np.ones(size), np.zeros(size), np.zeros(size)))
         n = np.vstack((np.zeros(size), np.ones(size), np.zeros(size)))
         u = np.vstack((np.zeros(size), np.zeros(size), np.ones(size)))
-        
+
         # Calculate sign from evaluate
         # We need a dummy call to evaluate at RE
         b_at_re = self.evaluate(np.array([RE]), np.array([0]), np.array([0]))[0][0]
         sign = np.sign(b_at_re)
-        
+
         d1, e1 = e
         d2, e2 = n * sign * (-1)
         d3, e3 = u * sign
-        
+
         return d1, d2, d3, e1, e2, e3
 
     def dip_equator(self, phi, theta) -> np.ndarray:

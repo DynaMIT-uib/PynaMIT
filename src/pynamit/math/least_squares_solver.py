@@ -215,12 +215,17 @@ class LeastSquaresSolver:
             cg_kwargs = {"rtol": tol, "M": M, "maxiter": max_iter, **kwargs}
             sol_flat, exit_code = cg(normal_op, normal_rhs, x0=x0_flat, **cg_kwargs)
             if exit_code != 0:
-                warnings.warn(f"CG solver did not converge (exit_code={exit_code}).", RuntimeWarning)
+                warnings.warn(
+                    f"CG solver did not converge (exit_code={exit_code}).", RuntimeWarning
+                )
 
         return sol_flat.reshape(problem.solution_size, num_scenarios)
 
     def _validate_preconditioner_shape(
-        self, problem: LeastSquaresProblem, M: Optional[LinearOperator | LinearMap], num_scenarios: int
+        self,
+        problem: LeastSquaresProblem,
+        M: Optional[LinearOperator | LinearMap],
+        num_scenarios: int,
     ):
         if M is None:
             return
@@ -240,19 +245,14 @@ class LeastSquaresSolver:
             G = problem.get_system_operator(num_scenarios=1)
             # Use data_operator (LinearMap) to compute diagonal for robustness
             diag = LeastSquaresProblem._compute_normal_matrix_diag(problem.data_operator)
-            
+
             full_inv_diag = xp.tile(1.0 / diag, num_scenarios)
             full_inv_diag = xp.where(xp.isinf(full_inv_diag), 1.0, full_inv_diag)
-            
+
             def matvec(x):
                 return x * full_inv_diag
-                
-            return LinearMap(
-                shape=shape,
-                dtype=dtype,
-                _matvec=matvec,
-                _rmatvec=matvec,
-            )
+
+            return LinearMap(shape=shape, dtype=dtype, _matvec=matvec, _rmatvec=matvec)
 
         if p_type == "pinv":
             vt, s_pinv, s_inv_sq = self._get_pinv_components(problem, self.tolerance)
@@ -262,12 +262,7 @@ class LeastSquaresSolver:
                 y_block = vt.T.conj() @ (s_inv_sq[:, None] * (vt @ x_block))
                 return y_block.flatten()
 
-            return LinearMap(
-                shape=shape,
-                dtype=vt.dtype,
-                _matvec=matvec,
-                _rmatvec=matvec,
-            )
+            return LinearMap(shape=shape, dtype=vt.dtype, _matvec=matvec, _rmatvec=matvec)
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for CG solver.")
 
     def _build_lsmr_preconditioner(
@@ -276,21 +271,16 @@ class LeastSquaresSolver:
         size = problem.solution_size * num_scenarios
         shape = (size, size)
         dtype = problem.A[0].dtype if problem.A else xp.float64
-        
+
         if p_type == "jacobi":
             diag = LeastSquaresProblem._compute_normal_matrix_diag(problem.data_operator)
             sqrt_inv = xp.sqrt(1.0 / diag, where=diag != 0, out=xp.ones_like(diag))
             full_sqrt_inv = xp.tile(sqrt_inv, num_scenarios)
-            
+
             def matvec(v):
                 return v * full_sqrt_inv
 
-            return LinearMap(
-                shape=shape,
-                dtype=dtype,
-                _matvec=matvec,
-                _rmatvec=matvec,
-            )
+            return LinearMap(shape=shape, dtype=dtype, _matvec=matvec, _rmatvec=matvec)
 
         if p_type == "pinv":
             vt, s_pinv, _ = self._get_pinv_components(problem, self.tolerance)
@@ -300,12 +290,7 @@ class LeastSquaresSolver:
                 x_block = vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
                 return x_block.flatten()
 
-            return LinearMap(
-                shape=shape,
-                dtype=vt.dtype,
-                _matvec=matvec,
-                _rmatvec=matvec,
-            )
+            return LinearMap(shape=shape, dtype=vt.dtype, _matvec=matvec, _rmatvec=matvec)
 
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for LSMR solver.")
 

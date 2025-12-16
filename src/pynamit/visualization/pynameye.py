@@ -263,11 +263,7 @@ class PynamEye(object):
         )
 
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
-        self.u = Field.from_coefficients(
-            self.basis,
-            coeffs=self.u_coeffs,
-            field_type="tangential",
-        )
+        self.u = Field.from_coefficients(self.basis, coeffs=self.u_coeffs, field_type="tangential")
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(
             self.u.to_grid_values(basis_evaluator=self.evaluator["num"]), 2
         )

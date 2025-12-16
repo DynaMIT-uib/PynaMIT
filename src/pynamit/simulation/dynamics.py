@@ -68,7 +68,7 @@ class DynamicsSettings:
         attrs["vector_conductance"] = int(self.vector_conductance)
         attrs["vector_u"] = int(self.vector_u)
         attrs["save_steady_states"] = int(self.save_steady_states)
-        
+
         # Remove backend as it is runtime configuration
         if "backend" in attrs:
             del attrs["backend"]
@@ -81,11 +81,11 @@ class DynamicsSettings:
     def from_dataset(ds: xr.Dataset, defaults: DynamicsSettings) -> DynamicsSettings:
         """Create settings from a dataset, using defaults as a base."""
         attrs = ds.attrs
-        
+
         # Helper to safely get and convert
         def get(key, default, converter=lambda x: x):
             return converter(attrs.get(key, default))
-        
+
         return DynamicsSettings(
             Nmax=get("Nmax", defaults.Nmax),
             Mmax=get("Mmax", defaults.Mmax),
@@ -94,7 +94,9 @@ class DynamicsSettings:
             RM=get("RM", defaults.RM, lambda x: None if x == 0 else x),
             mainfield_kind=get("mainfield_kind", defaults.mainfield_kind),
             mainfield_epoch=get("mainfield_epoch", defaults.mainfield_epoch),
-            mainfield_B0=get("mainfield_B0", defaults.mainfield_B0, lambda x: None if x == 0 else x),
+            mainfield_B0=get(
+                "mainfield_B0", defaults.mainfield_B0, lambda x: None if x == 0 else x
+            ),
             FAC_integration_steps=get("FAC_integration_steps", defaults.FAC_integration_steps),
             ignore_PFAC=bool(get("ignore_PFAC", defaults.ignore_PFAC)),
             connect_hemispheres=bool(get("connect_hemispheres", defaults.connect_hemispheres)),
@@ -313,9 +315,7 @@ class Dynamics:
             inductive_m_ind = asarray(inductive_m_ind)
         else:
             if steady_state_initialization:
-                self.state.update(
-                    self.input_manager, self.current_time, interpolation=True
-                )
+                self.state.update(self.input_manager, self.current_time, interpolation=True)
                 E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
                 inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
@@ -324,9 +324,7 @@ class Dynamics:
                 inductive_m_ind = zeros
 
         while True:
-            self.state.update(
-                self.input_manager, self.current_time, interpolation=True
-            )
+            self.state.update(self.input_manager, self.current_time, interpolation=True)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 

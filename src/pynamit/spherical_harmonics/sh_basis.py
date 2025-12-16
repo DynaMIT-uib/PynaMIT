@@ -309,7 +309,7 @@ class SHBasis:
         if vector_type == "scalar":
             return evaluator.basis_to_grid(coeffs)
         elif vector_type == "tangential":
-             return evaluator.basis_to_grid(coeffs, helmholtz=True)
+            return evaluator.basis_to_grid(coeffs, helmholtz=True)
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 

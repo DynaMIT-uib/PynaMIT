@@ -27,8 +27,6 @@ class IO:
         """
         self.filename_prefix = filename_prefix
 
-
-
     def save_dataset(self, dataset, name, print_info=False):
         """Save a Dataset to NetCDF file.
 

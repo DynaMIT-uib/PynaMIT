@@ -66,7 +66,7 @@ class State:
         self.jr: Optional[Field] = None
         self.etaP: Optional[Field] = None
         self.etaH: Optional[Field] = None
-        
+
         # State tracking
         self.previous_input_data = {}
 
@@ -139,9 +139,7 @@ class State:
         eta_stacked = xp.stack([asarray(self.etaP.coeffs), asarray(self.etaH.coeffs)], axis=0)
         G_eta = asarray(self.geometry.basis_evaluator_zero_added.G)
         b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
-        return xp.einsum(
-            "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
-        )
+        return xp.einsum("sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True)
 
     def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[TensorChain]:
         if G_X_to_JS is None:
@@ -173,9 +171,7 @@ class State:
     @cached_property
     def Br_to_E_coeffs(self) -> Optional[TensorChain]:
         """Operator mapping Br coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(
-            getattr(self.geometry, "G_Br_to_JS", None)
-        )
+        return self._create_E_coeffs_operator(getattr(self.geometry, "G_Br_to_JS", None))
 
     @cached_property
     def E_map_constraint_operator(self) -> Optional[TensorChain]:
@@ -232,9 +228,7 @@ class State:
     def m_imp_preconditioner(self) -> Optional[LinearMap]:
         """Preconditioner for the m_imp least-squares problem."""
         logger.info("Building new preconditioner for m_imp solver.")
-        return self.m_imp_solver.build_preconditioner(
-            problem=self.m_imp_problem, num_scenarios=1
-        )
+        return self.m_imp_solver.build_preconditioner(problem=self.m_imp_problem, num_scenarios=1)
 
     def _solve_for_m_imp(
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
@@ -264,17 +258,14 @@ class State:
     def _has_input_changed(self, key: str, current_data: dict, vars_for_key: list) -> bool:
         """Check if the input data has changed since the last update."""
         FLOAT_ERROR_MARGIN = 1e-6
-        
+
         if key not in self.previous_input_data:
             return True
-            
+
         prev_data = self.previous_input_data[key]
         for var in vars_for_key:
             if var not in prev_data or not np.allclose(
-                current_data[var], 
-                prev_data[var], 
-                rtol=FLOAT_ERROR_MARGIN, 
-                atol=0.0
+                current_data[var], prev_data[var], rtol=FLOAT_ERROR_MARGIN, atol=0.0
             ):
                 return True
         return False
@@ -307,17 +298,23 @@ class State:
                     raise ValueError("Br input can only be set if RM is not None.")
                 self.Br = Field.from_coefficients(storage_base, coeffs=updated_input["Br"])
             elif key == "u":
-                self.u = Field.from_coefficients(storage_base, coeffs=updated_input["u"].reshape((2, -1)), field_type="tangential")
+                self.u = Field.from_coefficients(
+                    storage_base,
+                    coeffs=updated_input["u"].reshape((2, -1)),
+                    field_type="tangential",
+                )
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
             # Cache the preconditioner if it is static and not to be invalidated
             preconditioner_to_keep = (
-                self.m_imp_preconditioner if self.static_preconditioner and hasattr(self, "m_imp_preconditioner") else None
+                self.m_imp_preconditioner
+                if self.static_preconditioner and hasattr(self, "m_imp_preconditioner")
+                else None
             )
-            
+
             self._invalidate_caches()
-            
+
             # If we kept a static preconditioner, manually inject it back into the cached_proprety cache
             # The way to do this with cached_property is to set the attribute on the instance
             if preconditioner_to_keep is not None:

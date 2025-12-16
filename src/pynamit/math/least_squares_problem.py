@@ -18,8 +18,6 @@ OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain]
 Shape: TypeAlias = Union[int, Tuple[int, ...]]
 
 
-
-
 @dataclass
 class ProcessedOperator:
     """A processed operator with associated shape information."""
@@ -398,7 +396,6 @@ class LeastSquaresProblem:
     def apply_linear_map_T_to_block(self, map_obj: LinearMap, y_block: np.ndarray) -> np.ndarray:
         """Apply adjoint of a LinearMap to a block of vectors."""
         return np.asarray(map_obj.rmatmat(y_block))
-
 
     def densify_op(self, item: Optional[ProcessedOperator]) -> Optional[np.ndarray]:
         """Convert operator to dense array, if not None."""
