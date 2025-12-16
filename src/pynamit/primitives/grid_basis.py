@@ -133,9 +133,15 @@ class GridBasis:
             if expected_size is None or scalar.size == expected_size:
                  return self._interpolator.interpolate_scalar(scalar, theta_target, phi_target, **kwargs)
             
-        # Fallback to direct UnstructuredInterpolator usage (avoids circular dep on Unstructured in __init__ defaults)
-        from pynamit.interpolation import UnstructuredInterpolator
-        interp = UnstructuredInterpolator(theta, phi)
+        if self.grid and (theta is self.grid.theta) and (phi is self.grid.phi):
+             if not hasattr(self, '_cached_generic_interpolator'):
+                 from pynamit.interpolation import create_interpolator
+                 self._cached_generic_interpolator = create_interpolator(theta, phi)
+             return self._cached_generic_interpolator.interpolate_scalar(scalar, theta_target, phi_target, **kwargs)
+
+        # Fallback using factory (non-cached for arbitrary grids)
+        from pynamit.interpolation import create_interpolator
+        interp = create_interpolator(theta, phi)
         return interp.interpolate_scalar(scalar, theta_target, phi_target, **kwargs)
 
     def interpolate_vector_components(self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs):
@@ -148,7 +154,13 @@ class GridBasis:
                   
              if expected_size is None or u_east.size == expected_size:
                   return self._interpolator.interpolate_vector(u_east, u_north, u_r, theta_target, phi_target, **kwargs)
-
-        from pynamit.interpolation import UnstructuredInterpolator
-        interp = UnstructuredInterpolator(theta, phi)
+        
+        if self.grid and (theta is self.grid.theta) and (phi is self.grid.phi):
+             if not hasattr(self, '_cached_generic_interpolator'):
+                 from pynamit.interpolation import create_interpolator
+                 self._cached_generic_interpolator = create_interpolator(theta, phi)
+             return self._cached_generic_interpolator.interpolate_vector(u_east, u_north, u_r, theta_target, phi_target, **kwargs)
+ 
+        from pynamit.interpolation import create_interpolator
+        interp = create_interpolator(theta, phi)
         return interp.interpolate_vector(u_east, u_north, u_r, theta_target, phi_target, **kwargs)
