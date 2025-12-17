@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple, TypeAlias
 
 import numpy as np
+import scipy
+import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
+from scipy.sparse.linalg import aslinearoperator
 
 from pynamit.utils import asarray, get_array_module
 from pynamit.math.tensor_chain import TensorChain
@@ -234,6 +237,9 @@ def _linear_map_from_linear_operator(op: ScipyLinearOperator) -> LinearMap:
             return np.stack(res, axis=1)
 
     def to_dense() -> np.ndarray:
+        # Check if source is sparse matrix
+        if scipy.sparse.issparse(op):
+            return op.toarray()
         eye = np.eye(shape[1], dtype=dtype)
         return np.asarray(op.matmat(eye))
 
@@ -264,6 +270,9 @@ def as_linear_map(
         if isinstance(chain, TensorChain):
             return _linear_map_from_tensor_chain(chain)
         return _linear_map_from_linear_operator(op)
+    if scipy.sparse.issparse(op):
+         lin_op = aslinearoperator(op)
+         return _linear_map_from_linear_operator(lin_op)
     # Attempt to treat as a dense array/matrix
     try:
         arr = asarray(op)

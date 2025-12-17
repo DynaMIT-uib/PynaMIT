@@ -107,6 +107,8 @@ class BasisEvaluator:
         """Regularization matrix for scalar fields."""
         if self.reg_lambda is None:
             return None
+        if not hasattr(self.basis, "n"):
+             raise ValueError("Basis does not support regularization (missing 'n' attribute).")
         return np.diag(self.basis.n)
 
     @cached_property
@@ -114,6 +116,8 @@ class BasisEvaluator:
         """Regularization matrix for horizontal vector fields."""
         if self.reg_lambda is None:
             return None
+        if not hasattr(self.basis, "n"):
+             raise ValueError("Basis does not support regularization (missing 'n' attribute).")
 
         L_cf = np.stack(
             [
@@ -196,13 +200,13 @@ class BasisEvaluator:
     ) -> np.ndarray:
         """Transform basis coefficients to grid values."""
         if derivative == "theta":
-            return np.dot(self.G_th, coeffs)
+            return self.G_th.dot(coeffs)
         elif derivative == "phi":
-            return np.dot(self.G_ph, coeffs)
+            return self.G_ph.dot(coeffs)
         elif helmholtz:
             return np.tensordot(self.G_helmholtz, coeffs, 2)
         else:
-            return np.dot(self.G, coeffs)
+            return self.G.dot(coeffs)
 
     def grid_to_basis(self, grid_values: np.ndarray, helmholtz: bool = False) -> np.ndarray:
         """Transform grid values to basis coefficients."""

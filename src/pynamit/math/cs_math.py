@@ -305,3 +305,55 @@ def get_metric_tensor(xi, eta, r=1, block=0, covariant=True):
         Pc = get_Pc(xi, eta, r=r, block=block)
         g_inv = np.einsum("nik, njk -> nij", Pc, Pc)
         return g_inv
+
+
+def get_coordinate_derivatives(xi, eta, r=1, block=0):
+    """Calculate derivatives of xi, eta with respect to theta, phi.
+
+    Returns
+    -------
+    d_matrix : ndarray
+        Shape (4, N).
+        Rows are: [dxi_dtheta, dxi_dphi, deta_dtheta, deta_dphi]
+    """
+    xi, eta, r, block = np.broadcast_arrays(xi, eta, r, block)
+    shape = xi.shape
+    xi, eta, r, block = map(np.ravel, [xi, eta, r, block])
+
+    # 1. Get Gradient of xi, eta wrt Cartesian (Pc)
+    # Pc[i, j] = d(u_i)/d(x_j) where u = {xi, eta, r}
+    # Row 0: grad(xi), Row 1: grad(eta)
+    Pc = get_Pc(xi, eta, r=r, block=block)
+
+    # 2. Get Jacobian of Cartesian wrt Spherical
+    # x = r sin(th) cos(ph)
+    # y = r sin(th) sin(ph)
+    # z = r cos(th)
+    #
+    # dx/dth = r cos(th) cos(ph)     dx/dph = -r sin(th) sin(ph)
+    # dy/dth = r cos(th) sin(ph)     dy/dph = r sin(th) cos(ph)
+    # dz/dth = -r sin(th)            dz/dph = 0
+
+    _, theta, phi = cube2spherical(xi, eta, block, r=r)
+    # theta, phi are in radians from cube2spherical
+
+    sth, cth = np.sin(theta), np.cos(theta)
+    sph, cph = np.sin(phi), np.cos(phi)
+
+    dx_dth = r * cth * cph
+    dy_dth = r * cth * sph
+    dz_dth = -r * sth
+
+    dx_dph = -r * sth * sph
+    dy_dph = r * sth * cph
+    dz_dph = np.zeros_like(r)
+
+    # 3. Chain Rule
+    # dxi_dth = (dxi/dx)*dx_dth + (dxi/dy)*dy_dth + (dxi/dz)*dz_dth
+    dxi_dth = Pc[:, 0, 0] * dx_dth + Pc[:, 0, 1] * dy_dth + Pc[:, 0, 2] * dz_dth
+    dxi_dph = Pc[:, 0, 0] * dx_dph + Pc[:, 0, 1] * dy_dph + Pc[:, 0, 2] * dz_dph
+
+    deta_dth = Pc[:, 1, 0] * dx_dth + Pc[:, 1, 1] * dy_dth + Pc[:, 1, 2] * dz_dth
+    deta_dph = Pc[:, 1, 0] * dx_dph + Pc[:, 1, 1] * dy_dph + Pc[:, 1, 2] * dz_dph
+
+    return np.vstack((dxi_dth, dxi_dph, deta_dth, deta_dph)).reshape((4,) + shape)

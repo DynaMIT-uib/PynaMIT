@@ -8,6 +8,7 @@ from typing import Any, Callable, List, Optional, Tuple, Union, TypeAlias
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
+import scipy.sparse
 
 
 from pynamit.math.tensor_chain import TensorChain
@@ -577,8 +578,14 @@ class LeastSquaresProblem:
             return ProcessedOperator(
                 linear_map=linear_map, output_shape=output_shape, input_shape=input_shape
             )
+        if scipy.sparse.issparse(op):
+            linear_map = as_linear_map(op)
+            return ProcessedOperator(
+                linear_map=linear_map, output_shape=(op.shape[0],), input_shape=(op.shape[1],)
+            )
+
         raise TypeError(
-            f"Input must be a numpy array, TensorChain, or LinearOperator, got {type(op)}"
+            f"Input must be a numpy array, TensorChain, LinearOperator, or sparse matrix, got {type(op)}"
         )
 
     def _process_b_vector(

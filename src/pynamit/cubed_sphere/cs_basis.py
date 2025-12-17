@@ -50,9 +50,9 @@ class CSBasis(GridBasis):
             )
 
             self.kind = "GRID"
-            self.index_names = ["theta", "phi"]
-            self.index_length = self.arr_theta.size + self.arr_phi.size
-            self.index_arrays = [self.arr_theta, self.arr_phi]
+            self.index_names = ["point_index"] # Simplified
+            self.index_length = self.arr_xi.size # Match total grid points
+            self.index_arrays = [np.arange(self.index_length)]
 
             self.minimum_phi_sampling = 1
             self.caching = False
@@ -61,6 +61,11 @@ class CSBasis(GridBasis):
             from pynamit.interpolation import CSInterpolator
 
             self._interpolator = CSInterpolator(N)
+
+    @property
+    def size(self):
+        """Number of grid points."""
+        return self.index_length
 
     @property
     def theta(self):
@@ -237,6 +242,62 @@ class CSBasis(GridBasis):
         )
         D.count_nonzero()
         return D
+
+    def get_G(self, grid, derivative=None):
+        """Get evaluation or differentiation matrix on the grid.
+
+        Parameters
+        ----------
+        grid : object
+            Grid object. Must match this basis's grid.
+        derivative : str, optional
+            'theta', 'phi', or None.
+
+        Returns
+        -------
+        G : sparse matrix
+            Evaluation or differentiation matrix.
+        """
+        # Relaxed check: if grid is self (BasisEvaluator(basis, basis)), it's CSBasis.
+        # Or if it has 'kind' == 'CS' and same N.
+        is_compatible = (
+            (grid is self) or 
+            (hasattr(grid, "kind") and grid.kind == "CS" and getattr(grid, "N", -1) == self.N)
+        )
+        
+        if grid is not None and not is_compatible:
+             # For now, only support evaluating on self (which is what BasisEvaluator expects for projections)
+             raise NotImplementedError("CSBasis currently only supports get_G on its own grid.")
+
+        N = self.N
+        if derivative is None:
+             from scipy.sparse import identity
+             return identity(6 * N * N, format="csr")
+
+        elif derivative in ["theta", "phi"]:
+             # Get derivatives wrt logical coordinates
+             Dxi, Deta = self.get_Diff(N, coordinate="both", Ns=1, Ni=4, order=1)
+             
+             # Calculate chain rule factors
+             # d/dth = (dxi/dth) d/dxi + (deta/dth) d/deta
+             # These are diagonal multiplication matrices
+             coord_derivs = cs_math.get_coordinate_derivatives(
+                 self.arr_xi, self.arr_eta, r=1.0, block=self.arr_block
+             )
+             dxi_dth, dxi_dph, deta_dth, deta_dph = coord_derivs
+
+             from scipy.sparse import diags
+             if derivative == "theta":
+                 M_dxi_dth = diags(dxi_dth.flatten())
+                 M_deta_dth = diags(deta_dth.flatten())
+                 return M_dxi_dth.dot(Dxi) + M_deta_dth.dot(Deta)
+             elif derivative == "phi":
+                 M_dxi_dph = diags(dxi_dph.flatten())
+                 M_deta_dph = diags(deta_dph.flatten())
+                 return M_dxi_dph.dot(Dxi) + M_deta_dph.dot(Deta)
+        
+        else:
+             raise ValueError(f"Unknown derivative: {derivative}")
 
     # Methods block, geo2cube, interpolate_scalar, interpolate_vector_components inherited
 
