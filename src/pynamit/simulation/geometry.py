@@ -12,6 +12,7 @@ from typing import Optional, Any
 import numpy as np
 import xarray as xr
 from functools import cached_property
+import scipy.sparse
 
 from pynamit.math.constants import mu0
 from pynamit.primitives.grid import Grid
@@ -19,6 +20,7 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,20 +37,36 @@ class Geometry:
     def __init__(
         self,
         basis: SHBasis,
-        cs_basis: SHBasis,
+        grid_basis: Any,
         mainfield: Any,
         settings: Any,
         PFAC_matrix: Optional[xr.DataArray] = None,
+        solution_basis: Optional[Any] = None,
     ) -> None:
-        """Initialize the geometric context."""
+        """Initialize the geometric context.
+        
+        Parameters
+        ----------
+        basis : SHBasis
+            The spectral basis used for spherical harmonic operations.
+        grid_basis : Any
+            The basis defining the spatial grid (e.g., CSBasis).
+        mainfield : Mainfield
+            The main magnetic field model.
+        settings : Any
+            Simulation settings.
+        PFAC_matrix : xr.DataArray, optional
+            Pre-computed PFAC matrix.
+        solution_basis : Any, optional
+            The basis used for the solution state variables.
+        """
         self.basis = basis
+        self.solution_basis = solution_basis if solution_basis is not None else basis
         self.mainfield = mainfield
 
         # Allow pre-computed PFAC matrix (must override cached_property if provided)
         if PFAC_matrix is not None:
             self.T_to_Ve = PFAC_matrix
-
-        # Store relevant settings
 
         # Store relevant settings
         self.RI = settings.RI
@@ -59,30 +77,64 @@ class Geometry:
         self.FAC_integration_steps = settings.FAC_integration_steps
 
         # Initialize core geometric objects
-        self._init_evaluators(cs_basis)
+        self._init_evaluators(grid_basis)
+        
+        self.input_adapter = None
+        if self.solution_basis is not self.basis:
+             try:
+                 # Check if adapter is needed specifically for Grid->SH
+                 # Generic check for "different basis types implies adapter needed"
+                 if getattr(self.solution_basis, "kind", "") != getattr(self.basis, "kind", ""):
+                      logger.info("Basis mismatch detected: initializing hybrid adapter.")
+                      G_dense = self.basis_evaluator.G
+
+                      if scipy.sparse.issparse(G_dense):
+                           G_dense = G_dense.toarray()
+                      self.input_adapter = tensor_pinv(G_dense, n_leading_flattened=1)
+             except Exception:
+                  logger.warning("Failed to initialize basis adapter. Proceeding without one.")
+
         self._init_constraint_mappings()
 
-        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        # Use solution basis for the Laplacian operator (m_imp -> jr)
+        self.m_imp_to_jr = self.RI / mu0 * self.solution_basis.laplacian(self.RI)
+        
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
+        # Always use spectral laplacian for induction scaling factors
         self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
-        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
-        self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
 
-        self.G_helmholtz_pinv = tensor_pinv(
-            self.basis_evaluator.G_helmholtz, n_leading_flattened=2
-        )
+        # Induction operators: specialized logic removed.
+        # Use simple attribute check.
+        basis_for_induction = self.solution_basis if hasattr(self.solution_basis, "coeffs_to_delta_V") else self.basis
+        
+        if hasattr(basis_for_induction, "coeffs_to_delta_V"):
+             Ve_to_J_df_coeffs = -self.RI / mu0 * basis_for_induction.coeffs_to_delta_V
+             self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+        else:
+             self.G_Ve_to_JS = None
 
-    def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
-        """Convert tangential vector field to Helmholtz coeffs."""
-        return np.tensordot(self.G_helmholtz_pinv, vec, 2)
 
-    def _init_evaluators(self, cs_basis: SHBasis) -> None:
+
+
+
+    @cached_property
+    def projection_matrix(self) -> np.ndarray:
+        """Projection matrix (Grid Vector -> Basis Coefficients)."""
+        return self.solution_basis.construct_projection_matrix(self.basis_evaluator)
+
+        
+    def _init_evaluators(self, grid_basis: Any) -> None:
         """Set up grid, basis evaluators, and field evaluators."""
-        self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+        self.grid = Grid(theta=grid_basis.arr_theta, phi=grid_basis.arr_phi)
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
-        self.basis_evaluator_zero_added = BasisEvaluator(
-            SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin=0), self.grid
-        )
+        
+        # Use polymorphic method to get zero-added basis (for Monopole support in SH)
+        if hasattr(self.basis, "get_extended_basis"):
+            zero_added_basis = self.basis.get_extended_basis()
+            self.basis_evaluator_zero_added = BasisEvaluator(zero_added_basis, self.grid)
+        else:
+            self.basis_evaluator_zero_added = self.basis_evaluator
+             
         self.b_field = self.mainfield.discretize(self.grid, self.RI)
 
         # Optional evaluators for the conjugate hemisphere
@@ -94,6 +146,22 @@ class Geometry:
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
             self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_field = self.mainfield.discretize(self.cp_grid, self.RI)
+
+    def _create_apex_operators(self, field: Field, evaluator: BasisEvaluator) -> tuple[np.ndarray, np.ndarray]:
+        """Create current and field mapping operators for a given field/basis pair."""
+        radial_to_apex, horizontal_to_apex = self._get_transformation_matrices(field)
+
+        # jr_coeffs_to_j_apex
+        jr_op = evaluator.scaled_G(radial_to_apex)
+
+        # E_coeffs_to_E_apex
+        E_op = np.einsum(
+            "ijk,jklm->iklm",
+            horizontal_to_apex,
+            evaluator.G_helmholtz,
+            optimize=True,
+        )
+        return jr_op, E_op
 
     def _init_constraint_mappings(self) -> None:
         """Initialize geometric operators related to constraints."""
@@ -108,38 +176,61 @@ class Geometry:
         else:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
-        radial_to_apex, horizontal_to_apex = self._get_transformation_matrices(self.b_field)
-
-        self.jr_coeffs_to_j_apex = (
-            radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
-        ).copy()
+        # Main Hemisphere Operators
+        self.jr_map_spectral, E_coeffs_to_E_apex = self._create_apex_operators(
+            self.b_field, self.basis_evaluator
+        )
+        
         self.E_coeffs_to_E_apex_ll_diff = None
 
         if self.connect_hemispheres:
-            # Modify jr constraint for interhemispheric connection
-            radial_to_apex_cp, horizontal_to_apex_cp = self._get_transformation_matrices(
-                self.cp_b_field
+            # Conjugate Hemisphere Operators
+            jr_coeffs_to_j_apex_cp, E_coeffs_to_E_apex_cp = self._create_apex_operators(
+                self.cp_b_field, self.cp_basis_evaluator
             )
 
-            jr_coeffs_to_j_apex_cp = radial_to_apex_cp.reshape((-1, 1)) * self.cp_basis_evaluator.G
-            self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
-
+            # Apply correction in SPECTRAL domain
+            self.jr_map_spectral[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
+            
             # Create E-field mapping difference operator for constraint
-            E_coeffs_to_E_apex = np.einsum(
-                "ijk,jklm->iklm",
-                horizontal_to_apex,
-                self.basis_evaluator.G_helmholtz,
-                optimize=True,
-            )
-            E_coeffs_to_E_apex_cp = np.einsum(
-                "ijk,jklm->iklm",
-                horizontal_to_apex_cp,
-                self.cp_basis_evaluator.G_helmholtz,
-                optimize=True,
-            )
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
-                (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
+                 (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
             )
+
+            if self.input_adapter is not None:
+                 # Pre-compose with analysis matrix (SH->Grid)
+                 logger.info("Pre-composing hybrid constraint operator (SH->Grid)...")
+                 self.E_coeffs_to_E_apex_ll_diff = np.tensordot(
+                     self.E_coeffs_to_E_apex_ll_diff, 
+                     self.input_adapter, 
+                     axes=([-1], [0])
+                 )
+                 # Result: (2, Mask, 2, N_grid)
+
+
+        if self.input_adapter is not None:
+             # Chain analysis to get Simulation operator (Grid inputs) for LHS
+             self.jr_map_sim = self.jr_map_spectral @ self.input_adapter
+        else:
+             self.jr_map_sim = self.jr_map_spectral
+             
+
+    def get_jr_operator(self, input_basis: Any = None) -> np.ndarray:
+        """Get the operator mapping jr to J_apex suitable for the input basis.
+        
+        If input basis kind matches the Physics basis kind (e.g. SH), use the Physics/Spectral operator.
+        Otherwise (e.g. input is Grid but simulation is hybrid), use the 
+        Simulation operator (which includes adapter).
+        """
+        physics_kind = getattr(self.basis, "kind", None)
+        input_kind = getattr(input_basis, "kind", None)
+        
+        # Default to physics operator if no input specified (theoretical)
+        # Or if kinds match.
+        if input_basis is None or input_kind == physics_kind:
+             return self.jr_map_spectral
+        
+        return self.jr_map_sim
 
     @cached_property
     def bP(self) -> np.ndarray:
@@ -198,7 +289,6 @@ class Geometry:
                 self.RI, rk, self.grid.theta, self.grid.phi
             )
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
-            mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_field = self.mainfield.discretize(self.grid, rk)
             mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
@@ -236,152 +326,85 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
-        return G_T_to_JS + np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))
+        
+        if self.G_Ve_to_JS is not None:
+             term = np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))
+             G_T_to_JS += term
+             
+        if self.input_adapter is not None:
+             G_T_to_JS = np.tensordot(G_T_to_JS, self.input_adapter, axes=([2], [0]))
+        
+        return G_T_to_JS
 
     def _get_transformation_matrices(self, dfield: Field):
         """Compute transformation matrices for Apex coordinates."""
         # Get basis vectors
-        # d1, d2, d3, e1, e2, e3
         r_eval = dfield.r_loc if dfield.r_loc is not None else self.RI
         bv = dfield.basis_vectors(r_eval, dfield.grid.theta, dfield.grid.phi)
-        d3 = bv[2]
+        d3 = bv[2] # (3, N) e.g. [d3r, d3th, d3ph]
         e1 = bv[3]
         e2 = bv[4]
 
         # Get unit vector components
         mag = dfield.magnitude
-        br = dfield.vec.r / mag
-        btheta = dfield.vec.theta / mag
-        bphi = dfield.vec.phi / mag
+        br, btheta, bphi = (
+            dfield.vec.r / mag,
+            dfield.vec.theta / mag,
+            dfield.vec.phi / mag,
+        )
+        
+        # Ensure flattened simple vectors
+        br, btheta, bphi = br.flatten(), btheta.flatten(), bphi.flatten()
+        ones = np.ones_like(br)
+        zeros = np.zeros_like(br)
 
-        # d3 components (field parallel)
-        d3r, d3theta, d3phi = d3[0], d3[1], d3[2]
-
-        # e1, e2 components (field orthogonal)
-        e1r, e1theta, e1phi = e1[0], e1[1], e1[2]
-        e2r, e2theta, e2phi = e2[0], e2[1], e2[2]
-
-        # 1. Radial to Apex
-        # radial_to_field_parallel
-        # [[1], [btheta/br], [bphi/br]]
-        # field_parallel_to_apex
-        # [[d3r, d3theta, d3phi]]
-
-        # Result is scalar product for each grid point?
-        # No, matrix mult.
-        # r_to_fp: (3, 1, N) ?
-        # Actually, let's look at previous implementation:
-        # radial_to_field_parallel was (3, 1, N) implicitly? No.
-        # It returned (3, 1) of arrays?
-        # np.array([[ones], [btheta/br], [bphi/br]]) -> shape (3, 1, N)
-
-        # 1. Radial to Apex
-        # radial_to_field_parallel
-        # We need shape (3, 1, N) for matrix multiplication radial -> parallel
-        # The matrix is [[1], [btheta/br], [bphi/br]]
-
-        # Ensure we are working with flattened arrays (N,)
-        ones = np.ones(self.grid.size)
-        ratio_theta = (btheta / br).flatten()
-        ratio_phi = (bphi / br).flatten()
-
-        # Stack to shape (3, N) then reshape to (3, 1, N)
-        radial_to_field_parallel = np.stack([ones, ratio_theta, ratio_phi], axis=0)  # (3, N)
-        radial_to_field_parallel = radial_to_field_parallel[:, np.newaxis, :]  # (3, 1, N)
-
-        # field_parallel_to_apex
-        # Matrix is [[d3r, d3theta, d3phi]] -> shape (1, 3, N)
-        field_parallel_to_apex = np.stack([d3r, d3theta, d3phi], axis=0)  # (3, N)
-        field_parallel_to_apex = field_parallel_to_apex[np.newaxis, :, :]  # (1, 3, N)
-
-        # einsum ij k, jl k -> il k
-        # (1, 3, N) x (3, 1, N) -> (1, 1, N) in matrix mult sense for each k?
-        # NO. We map radial component (1D vector at each point) to Apex vector (3D)?
-
-        # Wait, radial_to_apex converts a radial current/field to an apex vector.
-        # Radial vector is v = v_r * r_hat.
-        # r_hat = 1 * d3_parallel + (bth/br) * ...?
-        # The logic is likely: r_hat decomposed into field-parallel and perp?
-        # Re-check einsum indices.
-        # ijk (1,3,N) , jlk (3,1,N) -> ilk (1,1,N).
-        # This results in a scalar field?
-        # self.jr_coeffs_to_j_apex shape usage: (radial_to_apex * G).
-        # jr_coeffs_to_j_apex should map scalar coeff to... vector J?
-        # G is scalar basis eval.
-        # If radial_to_apex is (1,1,N), it's a scalar factor.
-        # But j_apex is a vector?
-        # self.jr_coeffs_to_j_apex shape should be compatible with J (3 components?).
-        # Looking at subsequent code:
-        # jr_coeffs_to_j_apex = radial_to_apex.reshape((-1, 1)) * G
-        # If radial_to_apex is (3, N) or similar?
-
-        # Recalculating:
-        # field_parallel_to_apex is d3 vector. Shape (3, N) effectively if we just take d3.
-        # It maps a magnitude along field line to vector components.
-        # radial_to_field_parallel maps radial component to magnitude along field line?
-        # If J = Jr r_hat. J = Jpar d3 + ...
-        # Jpar = Jr / (d3 . r_hat) ?
-        # Here we have [1, btheta/br, bphi/br].
-        # d3 = d3r r_hat + d3th th_hat + d3ph ph_hat.
-        # Dot product: d3 . r_hat = d3r.
-        # If B is parallel to d3?
-        # This math seems to assume B is proportional to d3?
-
-        # For now, preserving the logic structure but fixing shapes.
-        # Previously:
-        # radial_to_field_parallel shape was (3, 1, N).
-        # field_parallel_to_apex shape was (1, 3, N).
-        # tensordot/einsum produced (1, 1, N)?
-        # Let's check: i=1, j=3, k=N. l=1. -> (1, 1, N).
-        # Reshape((-1, 1)) -> (N, 1)?
-        # If it's (N,), then reshape works.
-        # But wait, self.basis_evaluator.G is often (N, n_coeffs).
-        # So we need (N, 1) broadcast.
-
-        # Wait, if radial_to_apex is a vector, it should be (3, N).
-        # (1, 3, N) x (3, 1, N) -> scalar (1, 1, N).
-        # This means the result is a scalar at each point.
-        # But jr_coeffs_to_j_apex name suggests generic Apex vector?
-        # Ah, jr is Field Aligned Current? No, radial current.
-        # The variable name creates confusion.
-
-        # Let's fix the array creation first.
-        radial_to_apex = np.einsum(
-            "ijk,jlk->ilk", field_parallel_to_apex, radial_to_field_parallel, optimize=True
-        )  # Result (1, 1, N) -> Squeeze to (N,) afterwards?
-
-        # Remove singleton dimensions for simpler handling if needed
-        radial_to_apex = radial_to_apex.squeeze()  # (N,)
-
-        # 2. Horizontal to Apex
-        # horizontal_to_field_orthogonal
-        # [[-btheta/br, -bphi/br], [1, 0], [0, 1]] -> (3, 2, N)
-        r1 = np.stack([-(btheta / br).flatten(), -(bphi / br).flatten()], axis=0)  # (2, N)
-        r2 = np.stack([np.ones(self.grid.size), np.zeros(self.grid.size)], axis=0)  # (2, N)
-        r3 = np.stack([np.zeros(self.grid.size), np.ones(self.grid.size)], axis=0)  # (2, N)
-
-        horizontal_to_field_orthogonal = np.stack([r1, r2, r3], axis=0)  # (3, 2, N)
-
-        # field_orthogonal_to_apex
-        # [[e1r, e1th, e1ph], [e2r, ...]] -> (2, 3, N)
-        e1_vec = np.stack([e1r, e1theta, e1phi], axis=0)  # (3, N)
-        e2_vec = np.stack([e2r, e2theta, e2phi], axis=0)  # (3, N)
-        field_orthogonal_to_apex = np.stack([e1_vec, e2_vec], axis=0)  # (2, 3, N)
-
-        horizontal_to_apex = np.einsum(
-            "ijk,jlk->ilk", field_orthogonal_to_apex, horizontal_to_field_orthogonal, optimize=True
-        )  # (2, 2, N)
-
+        # 1. Radial to Apex: Map radial vector (0, 0, 1)_sph -> Apex
+        ratio_theta = btheta / br
+        ratio_phi = bphi / br
+        
+        # Transformation: proj_radial = d3 . r_hat_sph
+        rad_to_fp = np.stack([ones, ratio_theta, ratio_phi], axis=0)
+        fp_to_apex = np.array(d3)
+        radial_to_apex = np.sum(fp_to_apex * rad_to_fp, axis=0) # (N,)
+        
+        # 2. Horizontal to Apex: Map horizontal vectors (th, ph) -> Apex
+        # Transformation: [e1, e2] @ [th_comp; ph_comp]
+        
+        # Horizontal components in field-orthogonal basis
+        c1 = np.stack([-ratio_theta, ones, zeros], axis=0)
+        c2 = np.stack([-ratio_phi, zeros, ones], axis=0)
+        horiz_to_fo = np.stack([c1, c2], axis=1) # (3, 2, N)
+        
+        # Field-orthogonal basis to Apex
+        fo_to_apex = np.stack([e1, e2], axis=0) # (2, 3, N)
+        
+        # Compose mapping: (2, 3, N) @ (3, 2, N) -> (2, 2, N)
+        horizontal_to_apex = np.einsum("ikn,kjn->ijn", fo_to_apex, horiz_to_fo, optimize=True)
+        
         return radial_to_apex, horizontal_to_apex
 
     @cached_property
     def G_m_ind_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         G = self.G_Ve_to_JS.copy()
+        # Use spectral physics (basis) for scaling
+        m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+
+        # Scale spectral operator first
         if self.RM is not None:
             br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
             vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
             den = 1.0 - br_shift * vi_shift
-            self.G_Br_to_JS = self.G_Ve_to_JS * (-br_shift / den / self.m_ind_to_Br)
+            
+            # Note: G_Ve_to_JS is already spectral if initialized with basis
+            G_Br_to_JS_spectral = self.G_Ve_to_JS * (-br_shift / den / m_ind_to_Br)
             G *= 1.0 + (br_shift * vi_shift / den)
+            
+            # G_Br_to_JS should match Br input basis (SH)
+            self.G_Br_to_JS = G_Br_to_JS_spectral
+
+        # Map complete operator to grid if hybrid to match m_ind input (Grid)
+        if self.input_adapter is not None:
+             G = np.tensordot(G, self.input_adapter, axes=([2], [0]))
+        
         return G

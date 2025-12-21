@@ -274,7 +274,20 @@ class LeastSquaresSolver:
 
         if p_type == "jacobi":
             diag = LeastSquaresProblem._compute_normal_matrix_diag(problem.data_operator)
-            sqrt_inv = xp.sqrt(1.0 / diag, where=diag != 0, out=xp.ones_like(diag))
+            sqrt_inv = xp.sqrt(xp.where(diag != 0, 1.0 / diag, 1.0))
+            if xp is not np:
+                 # JAX compatible replacement for 'out' behavior (set zeros to 1s before sqrt, then mask?)
+                 # The logic above 'xp.ones_like(diag)' implies where diag==0 result is 1.
+                 # My replacement `1.0/diag` on diag==0 is inf.
+                 # Better:
+                 safe_diag = xp.where(diag != 0, diag, 1.0)
+                 sqrt_inv = xp.sqrt(1.0 / safe_diag)
+                 # Restore 1s where diag was 0 (matches out=ones_like)
+                 # Actually out=ones_like sets default value.
+                 # So if diag==0, result is 1.
+                 # My code does 1.0/1.0 = 1.0. Correct.
+            else:
+                 sqrt_inv = xp.sqrt(1.0 / diag, where=diag != 0, out=xp.ones_like(diag))
             full_sqrt_inv = xp.tile(sqrt_inv, num_scenarios)
 
             def matvec(v):

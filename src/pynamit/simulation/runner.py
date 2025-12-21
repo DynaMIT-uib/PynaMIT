@@ -34,6 +34,7 @@ def run_pynamit(
     conductance_lambda: Optional[float] = None,
     u_lambda: Optional[float] = None,
     multi_data: bool = False,
+    solution_basis_kind: str = "SH",
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -81,6 +82,10 @@ def run_pynamit(
         Regularization parameter for the conductance.
     u_lambda : float, optional
         Regularization parameter for the wind.
+    solution_basis_kind : {'SH', 'CS'}, optional
+        Basis to use for the solution state variables. 
+        "SH" uses Spherical Harmonics (default).
+        "CS" uses Cubed Sphere Grid values.
 
     Returns
     -------
@@ -113,6 +118,7 @@ def run_pynamit(
         vector_conductance=vector_conductance,
         vector_u=vector_u,
         integrator=integrator,
+        solution_basis_kind=solution_basis_kind,
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)

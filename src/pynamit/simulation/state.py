@@ -17,13 +17,70 @@ from functools import cached_property
 from pynamit.primitives.field import Field
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.tensor_chain import TensorChain
+
 from pynamit.math.linear_map import as_linear_map, LinearMap, diagonal_linear_map
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, use_jax, xp, to_numpy
 
 logger = logging.getLogger(__name__)
+
+
+class _ResistanceOperator:
+    """Helper for block-diagonal resistance operator application.
+    
+    Wraps M_total_on_grid (2, 2, N) and behaves as a linear operator
+    on flattened vectors (2*N).
+    """
+    def __init__(self, M: np.ndarray):
+        self.M = asarray(M)
+        self.n = M.shape[2]
+        self.shape = (2 * self.n, 2 * self.n)
+        self.dtype = M.dtype
+
+    def matvec(self, x: Any) -> Any:
+        # x is flat (2*N). Reshape to (2, N)
+        x_reshaped = asarray(x).reshape(2, self.n)
+        # M is (2, 2, N). x is (2, N).
+        # y_0 = M_00 * x_0 + M_01 * x_1
+        # y_1 = M_10 * x_0 + M_11 * x_1
+        # Einsum: ijk, jk -> ik
+        y = xp.einsum("ijk,jk->ik", self.M, x_reshaped)
+        return y.reshape(-1)
+
+    def rmatvec(self, y: Any) -> Any:
+        y_reshaped = asarray(y).reshape(2, self.n)
+        # Transpose M in first two dims for adjoint
+        # MT_ijk = M_jik
+        # Einsum: jik, jk -> ik
+        res = xp.einsum("jik,jk->ik", self.M, y_reshaped)
+        return res.reshape(-1)
+        
+    def matmat(self, X: Any) -> Any:
+        # X is (2*N, Cols)
+        cols = X.shape[1]
+        X_reshaped = asarray(X).reshape(2, self.n, cols)
+        # Einsum: ijk, jkl -> ikl
+        res = xp.einsum("ijk,jkl->ikl", self.M, X_reshaped)
+        return res.reshape(2 * self.n, cols)
+
+    def rmatmat(self, Y: Any) -> Any:
+        cols = Y.shape[1]
+        Y_reshaped = asarray(Y).reshape(2, self.n, cols)
+        res = xp.einsum("jik,jkl->ikl", self.M, Y_reshaped)
+        return res.reshape(2 * self.n, cols)
+        
+    def to_dense(self) -> np.ndarray:
+        # M is (2, 2, N). We construct the (2N, 2N) block matrix.
+        # Structure:
+        # [ diag(M_00)  diag(M_01) ]
+        # [ diag(M_10)  diag(M_11) ]
+        M_np = to_numpy(self.M)
+        d00 = np.diag(M_np[0, 0])
+        d01 = np.diag(M_np[0, 1])
+        d10 = np.diag(M_np[1, 0])
+        d11 = np.diag(M_np[1, 1])
+        return np.block([[d00, d01], [d10, d11]])
 
 
 class State:
@@ -40,16 +97,36 @@ class State:
         self,
         basis: SHBasis,
         mainfield: Any,
-        cs_basis: SHBasis,
+        grid_basis: Any,
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
+        solution_basis: Optional[Any] = None,
     ) -> None:
-        """Initialize the State object."""
+        """Initialize the State object.
+        
+        Parameters
+        ----------
+        basis : SHBasis
+            The spectral basis.
+        mainfield : Mainfield
+            The main magnetic field.
+        grid_basis : Any
+            The basis defining the spatial grid (e.g., CSBasis).
+        settings : Any
+            Simulation settings.
+        PFAC_matrix : np.ndarray, optional
+            Pre-computed PFAC.
+        solution_basis : Any, optional
+            The basis for solution variables.
+        """
         self.basis = basis
+        self.solution_basis = solution_basis if solution_basis is not None else basis
         self._init_settings(settings)
 
         # Encapsulate all geometry, mappings, and evaluators
-        self.geometry = Geometry(basis, cs_basis, mainfield, settings, PFAC_matrix)
+        self.geometry = Geometry(
+            basis, grid_basis, mainfield, settings, PFAC_matrix, solution_basis=self.solution_basis
+        )
 
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
@@ -92,8 +169,24 @@ class State:
         bu = asarray(self.geometry.bu)
         G_helmholtz = asarray(self.geometry.basis_evaluator.G_helmholtz)
         G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
-        G_helmholtz_pinv = asarray(self.geometry.G_helmholtz_pinv)
-        return xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2)
+        
+        # Flatten operator to (Output Grid Dims, Input Coeff Dims)
+        # G shape is (2, N_grid, L...)
+        # We want to combine (2, N_grid) into rows.
+        grid_dim_prod = G_u_to_uxB_grid.shape[0] * G_u_to_uxB_grid.shape[1]
+        G_u_to_uxB_flat = G_u_to_uxB_grid.reshape(grid_dim_prod, -1)
+
+        # Projection Operator P
+        P_matrix = self.geometry.projection_matrix
+        
+        # Apply projection: P @ G
+        # Handles both Spectral (Pinv) and Grid (Identity) cases via polymorphism.
+        if hasattr(P_matrix, "dot"):
+            res_flat = P_matrix.dot(G_u_to_uxB_flat)
+        else:
+            res_flat = asarray(P_matrix) @ G_u_to_uxB_flat
+            
+        return res_flat.reshape(2, -1, G_u_to_uxB_grid.shape[-1])
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
@@ -114,6 +207,9 @@ class State:
         self._operator_linear_map_cache: Dict[
             Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
         ] = {}
+
+
+
 
     def _get_linear_map(
         self, op: Any, input_shape: Tuple[int, ...], output_shape: Tuple[int, ...]
@@ -136,58 +232,91 @@ class State:
             raise RuntimeError(
                 "Conductance must be set before accessing conductance-dependent properties."
             )
-        eta_stacked = xp.stack([asarray(self.etaP.coeffs), asarray(self.etaH.coeffs)], axis=0)
-        G_eta = asarray(self.geometry.basis_evaluator_zero_added.G)
+        
+        # Evaluate conductance fields on the simulation grid
+        # This works regardless of the storage basis (SH, CS, etc.)
+        theta = self.geometry.grid.theta
+        phi = self.geometry.grid.phi
+        r_dummy = self.geometry.RI
+        
+        etaP_val, _, _ = self.etaP.evaluate(r_dummy, theta, phi)
+        etaH_val, _, _ = self.etaH.evaluate(r_dummy, theta, phi)
+        
+        eta_stacked = xp.stack([asarray(etaP_val), asarray(etaH_val)], axis=0)
         b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
-        return xp.einsum("sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True)
+        
+        # Contract species (s) and grid points (k)
+        # b_stacked: (s, i, j, k)
+        # eta_stacked: (s, k)
+        # output: (i, j, k)
+        return xp.einsum("sijk,sk->ijk", b_stacked, eta_stacked, optimize=True)
 
-    def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[TensorChain]:
+    def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[LinearMap]:
         if G_X_to_JS is None:
             return None
-        tensors = [
-            asarray(self.geometry.G_helmholtz_pinv),
-            asarray(self.M_total_on_grid),
-            asarray(G_X_to_JS),
-        ]
-        return TensorChain(
-            component_tensors=tensors,
-            einsum_string_dense="cmpg,pqg,qgl->cml",
-            einsum_string_matvec="cmpg,pqg,qgl,l->cm",
-            einsum_string_rmatvec="cm,cmpg,pqg,qgl->l",
-            output_shape=(2, self.basis.index_length),
-            input_shape=G_X_to_JS.shape[2:],
+        
+        # Geometry (G): Coeffs -> Grid Vector
+        G_backend = asarray(G_X_to_JS)
+        op_G = as_linear_map(G_backend.reshape(-1, G_backend.shape[-1]))
+        
+        # Resistance (M): Grid Vector -> Grid Vector (Block Diagonal)
+        res_op = _ResistanceOperator(self.M_total_on_grid)
+        op_M = LinearMap(
+            shape=res_op.shape,
+            dtype=res_op.dtype,
+            _matvec=res_op.matvec,
+            _rmatvec=res_op.rmatvec,
+            _matmat=res_op.matmat,
+            _rmatmat=res_op.rmatmat,
+            _to_dense=res_op.to_dense,
+            source=res_op
         )
+        
+        # Projection (P): Grid Vector -> Solution Basis
+        # Returns Dense (SH) or Sparse (CS/Grid)
+        P_matrix = self.geometry.projection_matrix
+        op_P = as_linear_map(asarray(P_matrix) if not hasattr(P_matrix, "toarray") else P_matrix)
+        
+        return op_P @ op_M @ op_G
 
     @cached_property
-    def m_ind_to_E_coeffs(self) -> Optional[TensorChain]:
+    def m_ind_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_ind coefficients to E coefficients."""
         return self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS)
 
     @cached_property
-    def m_imp_to_E_coeffs(self) -> Optional[TensorChain]:
+    def m_imp_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_imp coefficients to E coefficients."""
         return self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS)
 
     @cached_property
-    def Br_to_E_coeffs(self) -> Optional[TensorChain]:
+    def Br_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping Br coefficients to E coefficients."""
         return self._create_E_coeffs_operator(getattr(self.geometry, "G_Br_to_JS", None))
 
     @cached_property
-    def E_map_constraint_operator(self) -> Optional[TensorChain]:
+    def E_map_constraint_operator(self) -> Optional[LinearMap]:
         """Operator enforcing E-field mapping at low latitudes."""
-        inner_chain = self.m_imp_to_E_coeffs
+        # This tensor maps E-field coefficients (or grid values) to
+        # the difference in E_apex at conjugate points.
+        # Shape: (2, Mask, 2, L)
         outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
-        if inner_chain is not None and outer_tensor is not None:
-            return TensorChain(
-                component_tensors=[outer_tensor] + inner_chain.component_tensors,
-                einsum_string_dense="ticm,cmpg,pqg,qgl->til",
-                einsum_string_matvec="ticm,cmpg,pqg,qgl,l->ti",
-                einsum_string_rmatvec="ti,ticm,cmpg,pqg,qgl->l",
-                output_shape=(2, int(np.sum(self.geometry.ll_mask))),
-                input_shape=inner_chain.input_shape,
-            )
-        return None
+        
+        if outer_tensor is None:
+            return None
+
+        # Outer: Violation Check (E_apex difference). Flatten to (2*Mask, 2*L).
+        outer_t = asarray(outer_tensor)
+        n_mask, n_in = outer_t.shape[1], outer_t.shape[3]
+        op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in))
+
+        # Inner: m_imp -> E-field
+        op_inner = self.m_imp_to_E_coeffs
+        if op_inner is None:
+            return None
+
+        # Composition: Constraint @ (m_imp -> E)
+        return op_outer @ op_inner
 
     # ----- Solver Setup and Execution -----
     @cached_property
@@ -197,20 +326,32 @@ class State:
         operators, data_shapes = [], []
 
         # Radial current (jr) must match imposed field.
-        op_jr = self.geometry.jr_coeffs_to_j_apex * self.geometry.m_imp_to_jr.reshape((1, -1))
+        # Generalize m_imp_to_jr application:
+        # If it's a matrix (Grid basis), use matrix multiplication.
+        # If it's a vector (SH basis diagonal), use broadcasting.
+        m_imp_to_jr = self.geometry.m_imp_to_jr
+        jr_coeffs_to_j_apex = self.geometry.jr_map_sim
+        
+        op_apex = as_linear_map(jr_coeffs_to_j_apex)
+        
+        # Handle m_imp_to_jr (Matrix or Diagonal Scaling)
+        # 1D or 2D handled automatically by as_linear_map
+        op_m_to_jr = as_linear_map(m_imp_to_jr)
+             
+        op_jr = op_apex @ op_m_to_jr
         operators.append(op_jr)
-        data_shapes.append(op_jr.shape[:-1])
+        data_shapes.append((op_jr.shape[0],))
 
         # E-field must map at low latitudes.
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
             op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
             operators.append(op_E)
-            data_shapes.append(op_E.output_shape)
+            data_shapes.append((op_E.shape[0],))
 
-        # Add Tikhonov regularizationif lambda is set.
+        # Add Tikhonov regularization if lambda is set.
         reg_ops, reg_weights = [], []
         if self.m_imp_regularization_lambda > 0:
-            n = self.basis.index_length
+            n = self.solution_basis.index_length
             # Use diagonal map for backend-agnostic identity
             identity_op = diagonal_linear_map(xp.ones(n))
             reg_ops.append(identity_op)
@@ -218,7 +359,7 @@ class State:
 
         return LeastSquaresProblem(
             A=operators,
-            solution_shape=self.basis.index_length,
+            solution_shape=self.solution_basis.index_length,
             data_shapes=data_shapes,
             regularization_matrices=reg_ops,
             regularization_weights=reg_weights,
@@ -239,18 +380,30 @@ class State:
 
         rhs_entries: List[Optional[Any]] = [None] * problem.num_data_terms
         if jr_coeffs is not None:
-            jr_matrix = asarray(self.geometry.jr_coeffs_to_j_apex)
-            rhs_entries[0] = jr_matrix @ asarray(jr_coeffs).reshape(-1)
+
+            # Select operator based on input basis
+            op_rhs = self.geometry.get_jr_operator(self.jr.basis if self.jr else None)
+
+            # Compute RHS: op @ jr_coeffs
+            rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
 
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+            # Op is now basis-consistent (SH or Grid) thanks to Geometry.
             E_map_op = asarray(self.geometry.E_coeffs_to_E_apex_ll_diff)
-            b_E = -xp.einsum("cikl,kl->ci", E_map_op, asarray(E_direct_coeffs))
+            E_direct_input = asarray(E_direct_coeffs)
+
+            # E_map_op: (2, Mask, 2, L)
+            # E_direct_input: (2, L)
+            # Contract Component(2) and Basis(L) dimensions.
+            # Axes: Op dim 2,3 against Input dim 0,1.
+            b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2, 3], [0, 1]))
+            
             rhs_entries[1] = self.ih_constraint_scaling * xp.reshape(b_E, (-1,))
 
         solver = self.m_imp_solver
         solution = solver.solve(problem=problem, rhs=rhs_entries, preconditioner=preconditioner)
         if solution is None:
-            solution = xp.zeros(self.basis.index_length)
+            solution = xp.zeros(self.solution_basis.index_length)
         return asarray(solution)
 
     # ----- State Update -----
@@ -338,14 +491,15 @@ class State:
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        E_shape = (2, self.basis.index_length)
+        E_shape = (2, self.solution_basis.index_length)
         m_imp = self._solve_for_m_imp(jr_coeffs, E_direct_coeffs)
         E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
         return E_direct_coeffs + E_imp, m_imp
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
-        E_shape = (2, self.basis.index_length)
+
+        E_shape = (2, self.solution_basis.index_length)
         u_coeffs = 0 if self.u is None else asarray(self.u.coeffs)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
@@ -356,7 +510,7 @@ class State:
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
-        E_shape = (2, self.basis.index_length)
+        E_shape = (2, self.solution_basis.index_length)
         E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, asarray(m_ind), E_shape)
         return self._calculate_total_E_field(E_direct_ind, None)
 
@@ -370,7 +524,7 @@ class State:
     def _build_m_ind_to_E_df_matrix(self) -> np.ndarray:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        n = self.basis.index_length
+        n = self.solution_basis.index_length
         if self.m_ind_to_E_coeffs is None:
             logger.info("Dense induction operator built (degenerate: no mapping available).")
             return xp.zeros((n, n))
@@ -383,8 +537,14 @@ class State:
 
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
             E_map_op = asarray(self.geometry.E_coeffs_to_E_apex_ll_diff)
-            # Compute RHS blocks for all basis vectors simultaneously
-            b_E_block = -xp.einsum("cikl,klj->cij", E_map_op, E_direct_dense)
+            
+            # Map div-free E-field coefficients to constraint violations at magnetic equator
+            # E_map_op: (2, Mask, 2, L) (or L_grid if hybrid)
+            # E_direct_dense: (2, L, N) (L is basis length)
+            # Contract: Component(0) vs Component(2), Basis(1) vs Basis(3)
+            term = xp.tensordot(E_map_op, E_direct_dense, axes=([2, 3], [0, 1])) 
+            
+            b_E_block = -term
             if len(rhs_entries) > 1:
                 rhs_entries[1] = self.ih_constraint_scaling * b_E_block
 
@@ -420,7 +580,6 @@ class State:
         else:
             E_imp_block = xp.zeros_like(E_direct_dense)
 
-        total_E = E_direct_dense + E_imp_block
         total_E = E_direct_dense + E_imp_block
         logger.info("Dense induction operator built.")
         return asarray(total_E[1])

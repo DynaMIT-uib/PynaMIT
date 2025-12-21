@@ -54,6 +54,7 @@ class DynamicsSettings:
     integrator: Literal["euler", "exponential"] = "euler"
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     filename_prefix: str = "simulation"
+    solution_basis_kind: Literal["SH", "CS"] = "SH"
 
     def to_dataset(self) -> xr.Dataset:
         """Convert settings to an xarray Dataset for storage."""
@@ -112,6 +113,7 @@ class DynamicsSettings:
             # Runtime fields not in file
             backend=defaults.backend,
             filename_prefix=defaults.filename_prefix,
+            solution_basis_kind=get("solution_basis_kind", defaults.solution_basis_kind),
         )
 
 
@@ -159,6 +161,7 @@ class Dynamics:
         save_steady_states: bool = True,
         integrator: Literal["euler", "exponential"] = "euler",
         backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
+        solution_basis_kind: Literal["SH", "CS"] = "SH",
     ):
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
@@ -187,6 +190,7 @@ class Dynamics:
             save_steady_states=save_steady_states,
             integrator=integrator,
             backend=backend,
+            solution_basis_kind=solution_basis_kind,
         )
         self.settings = initial_settings
         self.backend = set_backend(backend)
@@ -234,9 +238,17 @@ class Dynamics:
             "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
         }
 
+        # Select solution basis
+        if self.settings.solution_basis_kind == "CS":
+            solution_basis = cs_basis
+            state_output_basis = cs_basis
+        else:
+            solution_basis = sh_basis_zero_removed
+            state_output_basis = sh_basis_zero_removed
+
         self.output_storage_bases = {
-            "state": sh_basis_zero_removed,
-            "steady_state": sh_basis_zero_removed,
+            "state": state_output_basis,
+            "steady_state": state_output_basis,
         }
 
         self.output_timeseries = Timeseries(self.output_storage_bases, self.output_vars)
@@ -259,11 +271,12 @@ class Dynamics:
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            sh_basis_zero_removed,
-            self.mainfield,
-            cs_basis,
-            self.settings,
+            basis=sh_basis_zero_removed,
+            mainfield=self.mainfield,
+            grid_basis=cs_basis,
+            settings=self.settings,
             PFAC_matrix=PFAC_matrix_on_file,
+            solution_basis=solution_basis,
         )
 
         if "state" in self.output_timeseries.datasets.keys():

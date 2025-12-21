@@ -584,6 +584,13 @@ class LeastSquaresProblem:
                 linear_map=linear_map, output_shape=(op.shape[0],), input_shape=(op.shape[1],)
             )
 
+        if isinstance(op, LinearMap):
+            out_shape = output_shape if output_shape is not None else (op.shape[0],)
+            in_shape = input_shape if input_shape is not None else (op.shape[1],)
+            return ProcessedOperator(
+                linear_map=op, output_shape=out_shape, input_shape=in_shape
+            )
+
         raise TypeError(
             f"Input must be a numpy array, TensorChain, LinearOperator, or sparse matrix, got {type(op)}"
         )

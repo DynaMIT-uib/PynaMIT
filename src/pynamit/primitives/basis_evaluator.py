@@ -85,12 +85,20 @@ class BasisEvaluator:
     @cached_property
     def G_grad(self) -> np.ndarray:
         """Matrix evaluating the horizontal gradient."""
-        return np.array([self.G_th, self.G_ph])
+        # Ensure dense for tensor construction
+        import scipy.sparse
+        G_th = self.G_th.toarray() if scipy.sparse.issparse(self.G_th) else self.G_th
+        G_ph = self.G_ph.toarray() if scipy.sparse.issparse(self.G_ph) else self.G_ph
+        return np.array([G_th, G_ph])
 
     @cached_property
     def G_rxgrad(self) -> np.ndarray:
         """Matrix evaluating r-hat x horizontal gradient."""
-        return np.array([-self.G_ph, self.G_th])
+        # Ensure dense usage via G_grad or G_th/G_ph
+        # Access G_grad to ensure consistent dense conversion
+        # G_grad is [G_th, G_ph]
+        G_th, G_ph = self.G_grad[0], self.G_grad[1]
+        return np.array([-G_ph, G_th])
 
     @cached_property
     def G_rxgrad_pinv(self) -> np.ndarray:
@@ -226,6 +234,49 @@ class BasisEvaluator:
                 raise ValueError("Regularization not enabled (L is None)")
             return np.dot(coeffs, np.dot(self.L, coeffs))
 
-    def scaled_G(self, factor: float) -> np.ndarray:
-        """Return the scaled G matrix."""
-        return factor * self.G
+    def scaled_G(self, factor: Union[float, np.ndarray]) -> np.ndarray:
+        """Return the G matrix scaled by a factor.
+        
+        Handles:
+        - Scalar scaling
+        - Row scaling (factor matches grid points)
+        - Column scaling (factor matches basis coefficients)
+        """
+        import scipy.sparse
+        if np.isscalar(factor):
+            return factor * self.G
+        
+        factor_arr = np.asarray(factor).ravel()
+        rows, cols = self.G.shape
+        
+        is_sparse = scipy.sparse.issparse(self.G)
+        
+        # Check alignment
+        matches_rows = factor_arr.size == rows
+        matches_cols = factor_arr.size == cols
+        
+        if matches_rows and matches_cols and rows != cols:
+             # This can't happen if rows != cols.
+             pass
+        elif matches_rows and matches_cols:
+
+             # Square matrix ambiguity. PynaMIT context implies geometric row scaling.
+             pass
+
+        if matches_rows:
+            # Row scaling
+            if is_sparse:
+                return scipy.sparse.diags(factor_arr) @ self.G
+            else:
+                return self.G * factor_arr.reshape(-1, 1)
+        elif matches_cols:
+            # Column scaling
+            if is_sparse:
+                 return self.G @ scipy.sparse.diags(factor_arr)
+            else:
+                 return self.G * factor_arr
+        else:
+             raise ValueError(
+                 f"Factor size {factor_arr.size} does not match G shape {self.G.shape} "
+                 "for either row or column scaling."
+             )

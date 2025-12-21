@@ -64,6 +64,103 @@ class LinearMap:
             raise ValueError("Dense representation not available for this LinearMap.")
         return self._to_dense()
 
+    def __matmul__(self, other: Any) -> LinearMap:
+        """Compose this linear map with another operator."""
+        other_map = as_linear_map(other)
+        if self.shape[1] != other_map.shape[0]:
+            raise ValueError(
+                f"Dimension mismatch for composition: {self.shape} @ {other_map.shape}"
+            )
+        
+        flat_out = self.shape[0]
+        flat_in = other_map.shape[1]
+        dtype = np.promote_types(self.dtype, other_map.dtype)
+        
+        def matvec(x): return self.matvec(other_map.matvec(x))
+        def rmatvec(y): return other_map.rmatvec(self.rmatvec(y))
+        
+        def matmat(x): return self.matvec(other_map.matmat(x)) if other_map._matmat else self.matmat(other_map.matvec(x))
+        def rmatmat(y): return other_map.rmatvec(self.rmatmat(y)) if self._matmat else other_map.rmatmat(self.rmatvec(y))
+
+        # Better matmat: use optimized matmats if available
+        def matmat_opt(x):
+            return self.matmat(other_map.matmat(x))
+        def rmatmat_opt(y):
+            return other_map.rmatmat(self.rmatmat(y))
+
+        def to_dense():
+             # Dense composition: A @ B
+             # If B is dense available, compute A.matmat(B.to_dense())
+             # If A is dense available, compute rmatmat on A.T... wait.
+             # Easiest: A.matmat(B_dense)
+             if other_map._to_dense is not None:
+                 return self.matmat(other_map.to_dense())
+             raise ValueError("Cannot densify composition without dense right-hand side.")
+        
+        return LinearMap(
+            shape=(flat_out, flat_in),
+            dtype=dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat_opt,
+            _rmatmat=rmatmat_opt,
+            _to_dense=to_dense,
+            source=(self, other_map)
+        )
+
+    def __add__(self, other: Any) -> LinearMap:
+        """Add two linear maps."""
+        other_map = as_linear_map(other)
+        if self.shape != other_map.shape:
+             raise ValueError(f"Shape mismatch for addition: {self.shape} + {other_map.shape}")
+        
+        def matvec(x): return self.matvec(x) + other_map.matvec(x)
+        def rmatvec(y): return self.rmatvec(y) + other_map.rmatvec(y)
+        def matmat(x): return self.matmat(x) + other_map.matmat(x)
+        def rmatmat(y): return self.rmatmat(y) + other_map.rmatmat(y)
+        def to_dense(): return self.to_dense() + other_map.to_dense()
+
+        return LinearMap(
+            shape=self.shape,
+            dtype=self.dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _to_dense=to_dense if self._to_dense and other_map._to_dense else None,
+            source=(self, other_map)
+        )
+
+    def __mul__(self, other: Any) -> LinearMap:
+        """Scalar multiplication."""
+        if not np.isscalar(other):
+             return NotImplemented
+        scalar = other
+        
+        def matvec(x): return self.matvec(x) * scalar
+        def rmatvec(y): return self.rmatvec(y) * np.conj(scalar)
+        def matmat(x): return self.matmat(x) * scalar
+        def rmatmat(y): return self.rmatmat(y) * np.conj(scalar)
+        def to_dense(): return self.to_dense() * scalar
+
+        return LinearMap(
+            shape=self.shape,
+            dtype=self.dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _to_dense=to_dense if self._to_dense else None,
+            source=(self, scalar)
+        )
+        
+    def __rmul__(self, other: Any) -> LinearMap:
+        return self.__mul__(other)
+    
+    def with_scaling(self, scalar: float) -> LinearMap:
+        """Alias for scalar multiplication to maintain API compatibility."""
+        return self * scalar
+
     def as_linear_operator(self) -> ScipyLinearOperator:
         if isinstance(self.source, ScipyLinearOperator) and self.source.shape == self.shape:
             return self.source
@@ -255,6 +352,43 @@ def _linear_map_from_linear_operator(op: ScipyLinearOperator) -> LinearMap:
     )
 
 
+def _linear_map_from_jax_sparse(op: Any) -> LinearMap:
+    shape = op.shape
+    dtype = op.dtype
+
+    def matvec(vec: Any) -> Any:
+        # BCOO @ vec (dense 1D) -> dense 1D
+        # Explicit reshape to ensure compatibility
+        vec_arr = asarray(vec).reshape(shape[1])
+        return op @ vec_arr
+
+    def rmatvec(vec: Any) -> Any:
+        vec_arr = asarray(vec).reshape(shape[0])
+        return op.T @ vec_arr
+
+    def matmat(block: Any) -> Any:
+        block_arr = asarray(block).reshape(shape[1], -1)
+        return op @ block_arr
+
+    def rmatmat(block: Any) -> Any:
+        block_arr = asarray(block).reshape(shape[0], -1)
+        return op.T @ block_arr
+
+    def to_dense() -> np.ndarray:
+        return op.todense()
+
+    return LinearMap(
+        shape=shape,
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _to_dense=to_dense,
+        source=op,
+    )
+
+
 def as_linear_map(
     op: Any,
     input_shape: Optional[Tuple[int, ...]] = None,
@@ -265,12 +399,30 @@ def as_linear_map(
         return op
     if isinstance(op, TensorChain):
         return _linear_map_from_tensor_chain(op)
+    
+    # Check for JAX sparse matrix (BCOO/BCSR)
+    # Generic check to avoid importing jax if not present
+    op_type = str(type(op))
+    if "jax.experimental.sparse" in op_type or ("jax" in op_type and hasattr(op, "todense") and hasattr(op, "indices")):
+         return _linear_map_from_jax_sparse(op)
+
     if isinstance(op, ScipyLinearOperator):
         chain = getattr(op, "_tensor_chain", None)
         if isinstance(chain, TensorChain):
             return _linear_map_from_tensor_chain(chain)
         return _linear_map_from_linear_operator(op)
     if scipy.sparse.issparse(op):
+         # If using JAX, convert Scipy sparse to BCOO automatically
+         from pynamit.utils import use_jax
+         if use_jax():
+             try:
+                 from jax.experimental.sparse import BCOO
+                 if hasattr(op, "tocoo"):
+                     # Convert to COO first (efficient for BCOO conversion)
+                     return _linear_map_from_jax_sparse(BCOO.from_scipy_sparse(op))
+             except ImportError:
+                 pass
+         
          lin_op = aslinearoperator(op)
          return _linear_map_from_linear_operator(lin_op)
     # Attempt to treat as a dense array/matrix
@@ -279,9 +431,22 @@ def as_linear_map(
     except Exception:
         arr = None
 
-    if arr is not None and arr.ndim >= 2:
-        if arr.ndim == 2 and input_shape is None and output_shape is None:
-            return _linear_map_from_dense(arr)
+    if arr is not None:
+        if arr.ndim == 1:
+            size = arr.size
+            if input_shape is not None:
+                flat_in = math.prod(input_shape)
+                if flat_in != size:
+                    raise ValueError(f"1D Operator size {size} mismatch with input {input_shape}")
+            if output_shape is not None:
+                flat_out = math.prod(output_shape)
+                if flat_out != size:
+                    raise ValueError(f"1D Operator size {size} mismatch with output {output_shape}")
+            return diagonal_linear_map(arr)
+            
+        if arr.ndim >= 2:
+            if arr.ndim == 2 and input_shape is None and output_shape is None:
+                return _linear_map_from_dense(arr)
         inferred_input = input_shape
         if inferred_input is None:
             inferred_input = (arr.shape[-1],)

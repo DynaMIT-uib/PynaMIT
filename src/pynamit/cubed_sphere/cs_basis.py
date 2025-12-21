@@ -1,11 +1,15 @@
+
 """Cubed sphere basis module.
 
 This module contains the CSBasis class for representing the cubed sphere
 basis.
 """
 
-import numpy as np
+from __future__ import annotations
+from typing import Any, Tuple, Optional, Callable, Dict, TYPE_CHECKING
 import functools
+import importlib
+import numpy as np
 import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix
@@ -14,6 +18,10 @@ from pynamit.cubed_sphere import diffutils
 from pynamit.math import arrayutils
 from pynamit.math import cs_math
 from pynamit.primitives.grid_basis import GridBasis
+
+if TYPE_CHECKING:
+    from pynamit.cubed_sphere.grid import CubedSphereGrid
+    from pynamit.simulation.geometry import Geometry
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
@@ -48,6 +56,10 @@ class CSBasis(GridBasis):
             _, self.arr_theta, self.arr_phi = cs_math.cube2spherical(
                 self.arr_xi, self.arr_eta, self.arr_block, deg=True
             )
+            
+            # Initialize Grid object (Essential for GridBasis compatibility)
+            from pynamit.primitives.grid import Grid
+            self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
 
             self.kind = "GRID"
             self.index_names = ["point_index"] # Simplified
@@ -264,6 +276,12 @@ class CSBasis(GridBasis):
             (grid is self) or 
             (hasattr(grid, "kind") and grid.kind == "CS" and getattr(grid, "N", -1) == self.N)
         )
+        if not is_compatible and hasattr(grid, "theta") and hasattr(grid, "phi"):
+             # Check if coordinates match
+             if (grid.theta.shape == self.arr_theta.shape and 
+                 grid.phi.shape == self.arr_phi.shape):
+                  if np.allclose(grid.theta, self.arr_theta) and np.allclose(grid.phi, self.arr_phi):
+                       is_compatible = True
         
         if grid is not None and not is_compatible:
              # For now, only support evaluating on self (which is what BasisEvaluator expects for projections)
@@ -298,6 +316,52 @@ class CSBasis(GridBasis):
         
         else:
              raise ValueError(f"Unknown derivative: {derivative}")
+
+    def laplacian(self, r=1.0):
+        """Compute the Laplacian operator matrix on the sphere.
+
+        Approximated using the strong form:
+        nabla^2 V = (1/r^2 sin(theta)) * d/dtheta (sin(theta) dV/dtheta)
+                  + (1/r^2 sin^2(theta)) * d^2V/dphi^2
+
+        Returns
+        -------
+        L : scipy.sparse.spmatrix
+            Sparse matrix representing the Laplacian operator.
+        """
+        import scipy.sparse
+        G_th = self.get_G(self, derivative="theta")
+        G_ph = self.get_G(self, derivative="phi")
+
+        theta_rad = np.deg2rad(self.arr_theta)
+        sin_th = np.sin(theta_rad)
+        sin_sq_th = sin_th**2
+
+        # Avoid division by zero at poles
+        # For CS grid, valid points are usually away from poles, but handle safely
+        epsilon = 1e-10
+        sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+        sin_sq_th_safe = np.where(np.abs(sin_sq_th) < epsilon**2, epsilon**2, sin_sq_th)
+
+        # Diagonal matrices for metric terms
+        # 1/sin(theta)
+        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
+        # sin(theta)
+        sin_th_mat = scipy.sparse.diags(sin_th)
+        # 1/sin^2(theta)
+        inv_sin_sq_th = scipy.sparse.diags(1.0 / sin_sq_th_safe)
+
+        # Term 1: (1/sin(theta)) * d/dtheta (sin(theta) d/dtheta)
+        # = inv_sin_th @ G_th @ sin_th_mat @ G_th
+        term1 = inv_sin_th @ G_th @ sin_th_mat @ G_th
+
+        # Term 2: (1/sin^2(theta)) * d^2/dphi^2
+        # = inv_sin_sq_th @ G_ph @ G_ph
+        term2 = inv_sin_sq_th @ G_ph @ G_ph
+
+        # Combine
+        L = (term1 + term2) / (r**2)
+        return L
 
     # Methods block, geo2cube, interpolate_scalar, interpolate_vector_components inherited
 
@@ -360,3 +424,21 @@ class CSBasis(GridBasis):
 
         coeffs = target_basis.from_grid_values(grid_values, on_storage_grid(), vector_type)
         return coeffs
+
+
+
+    def construct_projection_matrix(self, evaluator) -> Any:
+        """Construct the projection matrix mapping Grid Vector -> Grid Values.
+        
+        For CSBasis, this is Identity (mapped to flat vector).
+        """
+        from scipy import sparse
+        n = 2 * self.index_length
+        return sparse.eye(n, format="csr")
+
+    def get_extended_basis(self) -> "CSBasis":
+        """Return a basis extended to include the monopole term.
+        
+        For CSBasis, the basis already includes all grid points.
+        """
+        return self

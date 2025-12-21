@@ -144,6 +144,12 @@ class SHBasis:
             factors[i] = numerator / denominator
         return factors
 
+    def get_extended_basis(self) -> "SHBasis":
+        """Return a basis extended to include the monopole term (Nmin=0)."""
+        if self.cnm.index_pairs[0][0] == 0:
+             return self
+        return SHBasis(self.Nmax, self.Mmax, Nmin=0, quasi_normalized=self.is_normalized, backend=self.backend)
+
     def _get_legendre_scipy(self, theta: np.ndarray, compute_derivative: bool = False):
         """Dispatcher for Scipy Legendre function calculation."""
         if self._use_modern_scipy:
@@ -165,11 +171,18 @@ class SHBasis:
         dP_std = np.empty_like(P_std) if compute_derivative else None
 
         for i, (n, m) in enumerate(self.index_pairs):
-            p_values = p_all[n, self.Mmax + m].T
+            # Scipy 1.15+ assoc_legendre_p_all returns orders in [0, 1, ..., M, -M, ..., -1] layout
+            # NOT sorted [-M...M] as one might assume.
+            if m >= 0:
+                idx_m = m
+            else:
+                idx_m = 2 * self.Mmax + 1 + m # e.g. for M=2, m=-2 -> 5-2=3
+
+            p_values = p_all[n, idx_m].T
             cs_phase = (-1) ** m
             P_std[:, i] = p_values * cs_phase
             if compute_derivative:
-                dp_dz_values = dp_dz_all[n, self.Mmax + m].T
+                dp_dz_values = dp_dz_all[n, idx_m].T
                 dp_dz = dp_dz_values * cs_phase
                 dP_std[:, i] = dp_dz * (-sin_theta)
 
@@ -402,3 +415,21 @@ class SHBasis:
         """
         coeffs = self.from_grid_values(input_values, on_input_grid(), vector_type)
         return coeffs
+
+
+
+    def construct_projection_matrix(self, evaluator) -> np.ndarray:
+        """Construct the projection matrix mapping Grid Vector -> SH Coefficients.
+        
+        Requires an evaluator that can compute G_helmholtz (vector basis).
+        """
+        from pynamit.utils import tensor_pinv
+        
+        # Calculate pseudo-inverse of the Helmholtz matrix: (2, N_grid, 2, N_sh)
+        # Flatten input dims (2, N_grid) -> leading dim
+        pinv = tensor_pinv(evaluator.G_helmholtz, n_leading_flattened=2)
+        
+        # Reshape to 2D matrix: (2*N_sh, 2*N_grid)
+        # pinv shape: (comp_out, N_out, comp_in, N_in) = (2, N_sh, 2, N_grid)
+        shape = pinv.shape
+        return pinv.reshape(shape[0] * shape[1], shape[2] * shape[3])
