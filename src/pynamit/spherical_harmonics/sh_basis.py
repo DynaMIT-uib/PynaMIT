@@ -94,7 +94,7 @@ class SHBasis(Basis):
         self._kind = "SH"
         self._index_names = ["n", "m"]
         self._minimum_phi_sampling = 2 * Mmax + 1
-        self._caching = True
+        self._cache = {}
 
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
@@ -154,13 +154,7 @@ class SHBasis(Basis):
     def minimum_phi_sampling(self, value):
         self._minimum_phi_sampling = value
 
-    @property
-    def caching(self) -> bool:
-        return self._caching
-    
-    @caching.setter
-    def caching(self, value):
-        self._caching = value
+
 
         if self.backend == "scipy" and not self._use_modern_scipy:
             warnings.warn(
@@ -259,19 +253,42 @@ class SHBasis(Basis):
         dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
         return P_scaled, dP_scaled
 
-    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def get_G(self, grid, derivative=None):
         """Compute basis functions G on the provided grid."""
         phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
-
-        if self.backend == "internal":
-            P_unnormalized = self.legendre(theta)
-            dP_unnormalized = (
-                self.legendre_derivative(theta, P=P_unnormalized) if derivative else None
-            )
-        else:  # backend == 'scipy'
-            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
-                theta, compute_derivative=bool(derivative)
-            )
+        
+        # Check internal cache
+        grid_key = grid.hash
+        cache_entry = self._cache.get(grid_key)
+        
+        if cache_entry:
+            P_unnormalized, dP_unnormalized = cache_entry
+            # If we need derivative but only cached P, we must compute dP
+            if derivative and dP_unnormalized is None:
+                 if self.backend == "internal":
+                     dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized)
+                 else:
+                     # Scipy computes both, so if we missed it, we effectively recompute?
+                     # Or we assume we always compute both for caching?
+                     # Let's simple: compute missing dP
+                     _, dP_unnormalized = self._get_legendre_scipy(theta, compute_derivative=True)
+                 
+                 # Update cache
+                 self._cache[grid_key] = (P_unnormalized, dP_unnormalized)
+        else:
+            # Not in cache, compute
+            if self.backend == "internal":
+                P_unnormalized = self.legendre(theta)
+                dP_unnormalized = None
+                if derivative:
+                    dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized)
+            else:  # backend == 'scipy'
+                P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
+                    theta, compute_derivative=bool(derivative)
+                )
+                
+            # Store in cache
+            self._cache[grid_key] = (P_unnormalized, dP_unnormalized)
 
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
@@ -304,8 +321,6 @@ class SHBasis(Basis):
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 
-        if cache_out:
-            return np.hstack((Gc, Gs)), P_unnormalized
         return np.hstack((Gc, Gs))
 
     def legendre(self, theta):

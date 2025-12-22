@@ -70,10 +70,7 @@ class Basis(ABC):
         """Minimum required sampling in phi direction."""
         pass
 
-    @property
-    def caching(self) -> bool:
-        """Whether basis evaluations can be cached."""
-        return False
+
 
     @abstractmethod
     def to_grid_values(

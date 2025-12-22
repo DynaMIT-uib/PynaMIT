@@ -43,44 +43,22 @@ class BasisEvaluator:
         self._scalar_solvers: Dict[str, LeastSquaresSolver] = {}
         self._helmholtz_solvers: Dict[str, LeastSquaresSolver] = {}
 
-        # Internal cache for basis generation (e.g. Legendre polynomials)
-        self._cache: Optional[Any] = None
+
 
     @cached_property
     def G(self) -> np.ndarray:
         """Evaluation matrix."""
-        if self.basis.caching:
-            if self._cache is None:
-                G, self._cache = self.basis.get_G(self.grid, cache_out=True)
-                return G
-            else:
-                return self.basis.get_G(self.grid, cache_in=self._cache)
-        else:
-            return self.basis.get_G(self.grid)
+        return self.basis.get_G(self.grid)
 
     @cached_property
     def G_th(self) -> np.ndarray:
         """Matrix evaluating the theta derivative."""
-        if self.basis.caching:
-            if self._cache is None:
-                G_th, self._cache = self.basis.get_G(self.grid, derivative="theta", cache_out=True)
-                return G_th
-            else:
-                return self.basis.get_G(self.grid, derivative="theta", cache_in=self._cache)
-        else:
-            return self.basis.get_G(self.grid, derivative="theta")
+        return self.basis.get_G(self.grid, derivative="theta")
 
     @cached_property
     def G_ph(self) -> np.ndarray:
         """Matrix evaluating the phi derivative."""
-        if self.basis.caching:
-            if self._cache is None:
-                G_ph, self._cache = self.basis.get_G(self.grid, derivative="phi", cache_out=True)
-                return G_ph
-            else:
-                return self.basis.get_G(self.grid, derivative="phi", cache_in=self._cache)
-        else:
-            return self.basis.get_G(self.grid, derivative="phi")
+        return self.basis.get_G(self.grid, derivative="phi")
 
     @cached_property
     def G_grad(self) -> np.ndarray:
