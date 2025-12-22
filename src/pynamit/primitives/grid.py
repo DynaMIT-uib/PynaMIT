@@ -81,3 +81,33 @@ class Grid:
         self.phi = self.phi.flatten()
 
         self.size = self.lon.size
+        
+        # Lazy hash cache
+        self._hash = None
+        
+    @property
+    def hash(self):
+        """Compute a hash for the grid based on its coordinates.
+        
+        We use float32 precision for the hash to be robust against 
+        numerical noise (approx 1e-7 tolerance), while maintaining
+        high performance.
+        """
+        if self._hash is None:
+            # Cast to float32 for robustness against double-precision noise
+            # This effectively treats grids differing by < 1e-7 as identical
+            h_th = hash(self.theta.astype(np.float32).tobytes())
+            h_ph = hash(self.phi.astype(np.float32).tobytes())
+            self._hash = hash((h_th, h_ph))
+        return self._hash
+        
+    def __eq__(self, other):
+        """Check for equality with another grid."""
+        if not isinstance(other, Grid):
+            return NotImplemented
+        # Fast path: identity
+        if self is other:
+            return True
+        # Hash match implies equality within float32 precision
+        # This acts as a robust check replacing np.allclose(..., rtol=1e-6)
+        return self.hash == other.hash

@@ -97,21 +97,7 @@ class InputManager:
                 def get_input_evaluator():
                     if not (
                         key in self.input_basis_evaluators.keys()
-                        and input_grid.theta.shape
-                        == self.input_basis_evaluators[key].grid.theta.shape
-                        and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
-                        and np.allclose(
-                            input_grid.theta,
-                            self.input_basis_evaluators[key].grid.theta,
-                            rtol=0.0,
-                            atol=FLOAT_ERROR_MARGIN,
-                        )
-                        and np.allclose(
-                            input_grid.phi,
-                            self.input_basis_evaluators[key].grid.phi,
-                            rtol=0.0,
-                            atol=FLOAT_ERROR_MARGIN,
-                        )
+                        and input_grid == self.input_basis_evaluators[key].grid
                     ):
                         self.input_basis_evaluators[key] = BasisEvaluator(
                             interpolation_basis,

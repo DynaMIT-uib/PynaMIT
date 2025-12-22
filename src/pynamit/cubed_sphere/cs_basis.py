@@ -18,6 +18,7 @@ from pynamit.cubed_sphere import diffutils
 from pynamit.math import arrayutils
 from pynamit.math import cs_math
 from pynamit.primitives.grid_basis import GridBasis
+from pynamit.primitives.grid import Grid
 from pynamit.interpolation import create_interpolator
 
 if TYPE_CHECKING:
@@ -57,7 +58,6 @@ class CSBasis(GridBasis):
         )
         
         # Initialize Grid object (Essential for GridBasis compatibility)
-        from pynamit.primitives.grid import Grid
         self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
 
         # Initialize optimized interpolator
@@ -273,10 +273,8 @@ class CSBasis(GridBasis):
         )
         if not is_compatible and hasattr(grid, "theta") and hasattr(grid, "phi"):
              # Check if coordinates match
-             if (grid.theta.shape == self.arr_theta.shape and 
-                 grid.phi.shape == self.arr_phi.shape):
-                  if np.allclose(grid.theta, self.arr_theta) and np.allclose(grid.phi, self.arr_phi):
-                       is_compatible = True
+             if grid == self.grid:
+                   is_compatible = True
         
         if grid is not None and not is_compatible:
              # For now, only support evaluating on self (which is what BasisEvaluator expects for projections)
@@ -385,11 +383,9 @@ class CSBasis(GridBasis):
     def interpolate_scalar(self, val, th_src, ph_src, th_tgt, ph_tgt):
         """Spherical interpolation for scalars."""
         # Use optimized interpolator if source matches this basis
-        if (
-            th_src.size == self.size
-            and np.allclose(th_src, self.arr_theta)
-            and np.allclose(ph_src, self.arr_phi)
-        ):
+        # Wrap inputs in Grid for comparison logic (leveraging fast caching)
+        src_grid = Grid(theta=th_src, phi=ph_src)
+        if src_grid == self.grid:
             return self._interpolator.interpolate_scalar(val, th_tgt, ph_tgt)
             
         # Fallback to generic interpolation
@@ -401,13 +397,10 @@ class CSBasis(GridBasis):
     ):
         """Interpolate vector components."""
         # Use optimized interpolator if source matches this basis
-        if (
-            th_src.size == self.size
-            and np.allclose(th_src, self.arr_theta)
-            and np.allclose(ph_src, self.arr_phi)
-        ):
+        src_grid = Grid(theta=th_src, phi=ph_src)
+        if src_grid == self.grid:
             return self._interpolator.interpolate_vector(
-                u_east, u_north, u_r, th_tgt, ph_tgt
+                 u_east, u_north, u_r, th_tgt, ph_tgt
             )
             
         # Fallback to generic interpolation

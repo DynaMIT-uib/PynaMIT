@@ -17,6 +17,7 @@ from importlib import import_module, resources
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+from pynamit.primitives.grid import Grid
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "auto").lower()
@@ -266,16 +267,23 @@ def _select_fallback_entry(
     if lat.size == 0 or lon.size == 0:
         key = sorted(entries.keys(), key=_entry_sort_key)[0]
         return entries[key]
+    
+    # Wrap input in Grid
+    input_grid = Grid(lat=lat, lon=lon)
 
     for key, entry in entries.items():
         entry_lat = np.asarray(entry["lat"])
         entry_lon = np.asarray(entry["lon"])
+        
         if entry_lat.size != lat.size or entry_lon.size != lon.size:
             continue
-        if np.allclose(entry_lat, lat, atol=GRID_MATCH_ABS_TOL, rtol=0.0) and np.allclose(
-            entry_lon, lon, atol=GRID_MATCH_ABS_TOL, rtol=0.0
-        ):
+
+        # Fast strict check via Grid
+        entry_grid = Grid(lat=entry_lat, lon=entry_lon)
+        if entry_grid == input_grid:
             return entry
+
+
 
     available = ", ".join(sorted(entries.keys()))
     raise ValueError(

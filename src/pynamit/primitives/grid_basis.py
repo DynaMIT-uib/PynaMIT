@@ -87,11 +87,7 @@ class GridBasis(Basis, ABC):
         # 1. Identity check
         if self.grid and target_grid is self.grid:
             return coeffs
-        if self.grid and (
-            target_grid.size == self.grid.size
-            and np.allclose(target_grid.theta, self.grid.theta)
-            and np.allclose(target_grid.phi, self.grid.phi)
-        ):
+        if self.grid and target_grid == self.grid:
             return coeffs
 
         # 2. Generic interpolation
@@ -151,11 +147,7 @@ class GridBasis(Basis, ABC):
             return values
             
         # If sizes match and coords close, assume same grid
-        if self.grid and (
-            evaluator.grid.size == self.grid.size 
-            and np.allclose(evaluator.grid.theta, self.grid.theta)
-            and np.allclose(evaluator.grid.phi, self.grid.phi)
-        ):
+        if self.grid and evaluator.grid == self.grid:
              return values
              
         # Otherwise, we need to map values FROM the evaluator grid TO our storage grid.
