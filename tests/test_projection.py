@@ -17,7 +17,7 @@ from pynamit.math import cs_math
 
 reload(cs_basis)
 
-p = cs_basis.CSBasis()
+p = cs_basis.CSBasis(N=16)
 
 
 def test_projection():

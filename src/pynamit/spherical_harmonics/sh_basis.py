@@ -8,6 +8,7 @@ from packaging import version
 import scipy
 
 from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
+from pynamit.primitives.basis import Basis
 
 # Conditional Import for SciPy Version Compatibility
 # Check the SciPy version to import the correct, available function.
@@ -40,7 +41,7 @@ def _double_factorial(n):
     return result
 
 
-class SHBasis:
+class SHBasis(Basis):
     """
     Class for representing spherical harmonic bases.
 
@@ -90,10 +91,10 @@ class SHBasis:
         self.is_normalized = quasi_normalized
         self._use_modern_scipy = _USE_MODERN_SCIPY
 
-        self.kind = "SH"
-        self.index_names = ["n", "m"]
-        self.minimum_phi_sampling = 2 * Mmax + 1
-        self.caching = True
+        self._kind = "SH"
+        self._index_names = ["n", "m"]
+        self._minimum_phi_sampling = 2 * Mmax + 1
+        self._caching = True
 
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
@@ -110,8 +111,56 @@ class SHBasis:
 
         self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
         self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
-        self.index_arrays = [self.n, self.m]
-        self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
+        self._index_arrays = [self.n, self.m]
+        self._index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
+
+    @property
+    def kind(self) -> str:
+        return self._kind
+    
+    @kind.setter
+    def kind(self, value):
+        self._kind = value
+
+    @property
+    def index_names(self) -> list[str]:
+        return self._index_names
+
+    @index_names.setter
+    def index_names(self, value):
+        self._index_names = value
+
+    @property
+    def index_length(self) -> int:
+        return self._index_length
+    
+    @index_length.setter
+    def index_length(self, value):
+        self._index_length = value
+
+    @property
+    def index_arrays(self) -> list:
+        return self._index_arrays
+    
+    @index_arrays.setter
+    def index_arrays(self, value):
+        self._index_arrays = value
+
+    @property
+    def minimum_phi_sampling(self) -> float:
+        return self._minimum_phi_sampling
+    
+    @minimum_phi_sampling.setter
+    def minimum_phi_sampling(self, value):
+        self._minimum_phi_sampling = value
+
+    @property
+    def caching(self) -> bool:
+        return self._caching
+    
+    @caching.setter
+    def caching(self, value):
+        self._caching = value
 
         if self.backend == "scipy" and not self._use_modern_scipy:
             warnings.warn(

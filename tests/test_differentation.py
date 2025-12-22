@@ -16,8 +16,8 @@ def test_differentiation():
     """Test cubed sphere differentiation."""
     # Set up projection and make a grid (not using the grid class).
     R = 6371.2e3
-    p = cs_basis.CSBasis()
     N = 40  # Number of grid points in each direction per block
+    p = cs_basis.CSBasis(N=N)
     dxi = np.pi / 2 / N
     # deta = np.pi / 2 / N
     # Cell centered grid: -pi/4 + (i+0.5)*dxi
@@ -207,7 +207,7 @@ def test_differentiation():
     shape = (6, N, N)
     size = np.prod(shape)
 
-    p = cs_basis.CSBasis()
+    p = cs_basis.CSBasis(N=N)
     h = p.xi(1, N) - p.xi(0, N)  # Step size between each grid cell
 
     # For ij indexing, (i, xi) vary along the first (numpy vertical)

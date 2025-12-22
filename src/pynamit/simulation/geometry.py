@@ -20,6 +20,10 @@ from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pynamit.primitives.grid_basis import GridBasis
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +41,7 @@ class Geometry:
     def __init__(
         self,
         basis: SHBasis,
-        grid_basis: Any,
+        grid_basis: "GridBasis",
         mainfield: Any,
         settings: Any,
         PFAC_matrix: Optional[xr.DataArray] = None,
@@ -49,7 +53,7 @@ class Geometry:
         ----------
         basis : SHBasis
             The spectral basis used for spherical harmonic operations.
-        grid_basis : Any
+        grid_basis : GridBasis
             The basis defining the spatial grid (e.g., CSBasis).
         mainfield : Mainfield
             The main magnetic field model.
@@ -123,9 +127,9 @@ class Geometry:
         return self.solution_basis.construct_projection_matrix(self.basis_evaluator)
 
         
-    def _init_evaluators(self, grid_basis: Any) -> None:
+    def _init_evaluators(self, grid_basis: "GridBasis") -> None:
         """Set up grid, basis evaluators, and field evaluators."""
-        self.grid = Grid(theta=grid_basis.arr_theta, phi=grid_basis.arr_phi)
+        self.grid = grid_basis.grid
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         
         # Use polymorphic method to get zero-added basis (for Monopole support in SH)

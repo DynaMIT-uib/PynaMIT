@@ -1,19 +1,20 @@
 """Grid Basis module."""
 
 from __future__ import annotations
-from typing import Any, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Tuple, TYPE_CHECKING, Optional
 import numpy as np
 from scipy.interpolate import griddata
 from scipy.spatial import QhullError
 from pynamit.math import arrayutils
 from pynamit.math import cs_math
+from pynamit.primitives.basis import Basis
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import Grid
     from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 
-class GridBasis:
+class GridBasis(Basis):
     """Basis representing values defined on a grid, utilizing generic spherical interpolation.
 
     This class serves as the fundamental object for grid-based fields, providing
@@ -22,18 +23,84 @@ class GridBasis:
     """
 
     def __init__(self, grid: Optional[Grid] = None):
-        self.grid = grid
+        self._grid = grid
         self.index_length = grid.size if grid else 0
-        self.caching = False
-        self.kind = "GRID"
+        self._caching = False
+        self._kind = "GRID"
+        self._index_names = ["point_index"]
+        self._index_arrays = []
+        self._minimum_phi_sampling = 1.0
+
+    @property
+    def kind(self) -> str:
+        return self._kind
+    
+    @kind.setter
+    def kind(self, value):
+        self._kind = value
+
+    @property
+    def index_names(self) -> list[str]:
+        return self._index_names
+
+    @index_names.setter
+    def index_names(self, value):
+        self._index_names = value
+
+    @property
+    def index_length(self) -> int:
+        return self._grid.size if self._grid else 0
+    
+    @index_length.setter
+    def index_length(self, value):
+        # Allow setting for legacy compatibility or manual override
+        pass 
+
+    @property
+    def index_arrays(self) -> list:
+        return self._index_arrays
+    
+    @index_arrays.setter
+    def index_arrays(self, value):
+        self._index_arrays = value
+
+    @property
+    def minimum_phi_sampling(self) -> float:
+        return self._minimum_phi_sampling
+    
+    @minimum_phi_sampling.setter
+    def minimum_phi_sampling(self, value):
+        self._minimum_phi_sampling = value
+
+    @property
+    def caching(self) -> bool:
+        return self._caching
+    
+    @caching.setter
+    def caching(self, value):
+        self._caching = value
+
+    @property
+    def grid(self) -> "Grid":
+        """Get the grid, ensuring it is valid."""
+        if self._grid is None:
+            raise ValueError(f"{self.__class__.__name__} must have a defined grid.")
+        return self._grid
+
+    @grid.setter
+    def grid(self, value: "Grid"):
+        """Set the grid."""
+        self._grid = value
+        if value is not None:
+             self.index_length = value.size
 
     @property
     def theta(self):
-        return self.grid.theta if self.grid else None
+        return self.grid.theta
 
     @property
     def phi(self):
-        return self.grid.phi if self.grid else None
+        return self.grid.phi
 
     def to_grid_values(
         self, coeffs: np.ndarray, evaluator: BasisEvaluator, field_type: str = "scalar"

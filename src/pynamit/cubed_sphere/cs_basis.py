@@ -34,45 +34,38 @@ class CSBasis(GridBasis):
     system following methods from Yin et al. (2017).
     """
 
-    def __init__(self, N: int = None):
+    def __init__(self, N: int):
         """Initialize the cubed sphere basis."""
-        super().__init__(grid=None)
+        super().__init__()
 
-        if N is not None:
-            if not isinstance(N, (int, np.integer)):
-                raise TypeError("N must be an integer")
-            if N % 2 != 0:
-                raise ValueError("Cubed sphere grid dimension must be even")
+        if not isinstance(N, (int, np.integer)):
+            raise TypeError("N must be an integer")
+        if N % 2 != 0:
+            raise ValueError("Cubed sphere grid dimension must be even")
 
-            self.N = N
-            k, i, j = self.get_gridpoints(N)
+        self.N = N
+        k, i, j = self.get_gridpoints(N)
 
-            # Initialize grid points (flattened)
-            self.arr_xi: np.ndarray = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
-            self.arr_eta: np.ndarray = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
-            self.arr_block: np.ndarray = k[:, :-1, :-1].flatten()
+        # Initialize grid points (flattened)
+        self.arr_xi: np.ndarray = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
+        self.arr_eta: np.ndarray = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
+        self.arr_block: np.ndarray = k[:, :-1, :-1].flatten()
 
-            # Convert to spherical coordinates using inherited method
-            _, self.arr_theta, self.arr_phi = cs_math.cube2spherical(
-                self.arr_xi, self.arr_eta, self.arr_block, deg=True
-            )
-            
-            # Initialize Grid object (Essential for GridBasis compatibility)
-            from pynamit.primitives.grid import Grid
-            self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
+        # Convert to spherical coordinates using inherited method
+        _, self.arr_theta, self.arr_phi = cs_math.cube2spherical(
+            self.arr_xi, self.arr_eta, self.arr_block, deg=True
+        )
+        
+        # Initialize Grid object (Essential for GridBasis compatibility)
+        from pynamit.primitives.grid import Grid
+        self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
 
-            self.kind = "GRID"
-            self.index_names = ["point_index"] # Simplified
-            self.index_length = self.arr_xi.size # Match total grid points
-            self.index_arrays = [np.arange(self.index_length)]
+        self.index_arrays = [np.arange(self.arr_xi.size)]
 
-            self.minimum_phi_sampling = 1
-            self.caching = False
+        # Initialize optimized interpolator
+        from pynamit.interpolation import CSInterpolator
 
-            # Initialize optimized interpolator
-            from pynamit.interpolation import CSInterpolator
-
-            self._interpolator = CSInterpolator(N)
+        self._interpolator = CSInterpolator(N)
 
     @property
     def size(self):

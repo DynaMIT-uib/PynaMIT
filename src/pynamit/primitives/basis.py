@@ -5,6 +5,12 @@ of fields.
 """
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 
 class Basis(ABC):
@@ -69,3 +75,25 @@ class Basis(ABC):
     def caching(self) -> bool:
         """Whether basis evaluations can be cached."""
         pass
+
+    @abstractmethod
+    def to_grid_values(
+        self, coeffs: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
+    ) -> np.ndarray:
+        """Evaluate basis on a grid (interpolate coeffs)."""
+        pass
+
+    @abstractmethod
+    def from_grid_values(
+        self, values: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
+    ) -> np.ndarray:
+        """Convert grid values to coefficients."""
+        pass
+
+    @abstractmethod
+    def regularization_term(
+        self, coeffs: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
+    ) -> float:
+        """Compute regularization penalty term."""
+        pass
+

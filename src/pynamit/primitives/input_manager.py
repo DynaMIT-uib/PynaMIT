@@ -19,24 +19,23 @@ class InputManager:
     and tracks changes in input data to optimize updates.
     """
 
-    def __init__(self, timeseries: Timeseries, cs_basis, vars_dict):
+    def __init__(self, timeseries: Timeseries, grid_basis, vars_dict):
         """Initialize the InputManager.
 
         Parameters
         ----------
         timeseries : TimeSeries
             The storage object for the time series data.
-        cs_basis : CSBasis
-            The Cubed Sphere basis defining the simulation grid.
+        grid_basis : Basis
+            The basis defining the simulation grid (e.g. Cubed Sphere).
         vars_dict : dict
             Dictionary defining the variable stucture (e.g. scalar/tangential).
         """
         self.timeseries = timeseries
-        self.cs_basis = cs_basis
+        self.grid_basis = grid_basis
         self.vars = vars_dict
 
         # Evaluators
-        self.cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         self.storage_basis_evaluators = {}
         self.input_basis_evaluators = {}
 
@@ -44,7 +43,7 @@ class InputManager:
         # Note: We access storage_bases from the timeseries object
         for key in self.timeseries.storage_bases.keys():
             self.storage_basis_evaluators[key] = BasisEvaluator(
-                self.timeseries.storage_bases[key], self.cs_grid
+                self.timeseries.storage_bases[key], grid_basis.grid
             )
 
     def interpolate_and_add_entry(
