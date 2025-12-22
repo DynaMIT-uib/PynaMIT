@@ -36,7 +36,6 @@ class CSBasis(GridBasis):
 
     def __init__(self, N: int):
         """Initialize the cubed sphere basis."""
-        super().__init__()
 
         if not isinstance(N, (int, np.integer)):
             raise TypeError("N must be an integer")
@@ -60,12 +59,14 @@ class CSBasis(GridBasis):
         from pynamit.primitives.grid import Grid
         self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
 
-        self.index_arrays = [np.arange(self.arr_xi.size)]
-
         # Initialize optimized interpolator
         from pynamit.interpolation import CSInterpolator
 
         self._interpolator = CSInterpolator(N)
+
+    @property
+    def kind(self) -> str:
+        return "CS"
 
     @property
     def size(self):
@@ -379,6 +380,36 @@ class CSBasis(GridBasis):
             return np.hstack((-u_n, u_e))
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
+
+    def interpolate_scalar(self, val, th_src, ph_src, th_tgt, ph_tgt):
+        """Spherical interpolation for scalars."""
+        # Use optimized interpolator if source matches this basis
+        if (
+            th_src.size == self.size
+            and np.allclose(th_src, self.arr_theta)
+            and np.allclose(ph_src, self.arr_phi)
+        ):
+            return self._interpolator.interpolate_scalar(val, th_tgt, ph_tgt)
+            
+        return super().interpolate_scalar(val, th_src, ph_src, th_tgt, ph_tgt)
+
+    def interpolate_vector_components(
+        self, u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
+    ):
+        """Interpolate vector components."""
+        # Use optimized interpolator if source matches this basis
+        if (
+            th_src.size == self.size
+            and np.allclose(th_src, self.arr_theta)
+            and np.allclose(ph_src, self.arr_phi)
+        ):
+            return self._interpolator.interpolate_vector(
+                u_east, u_north, u_r, th_tgt, ph_tgt
+            )
+            
+        return super().interpolate_vector_components(
+            u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
+        )
 
     def project_to_basis(
         self,

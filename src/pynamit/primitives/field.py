@@ -81,6 +81,61 @@ class _ExpansionImpl(_FieldImpl):
         raise ValueError(f"Unknown field_type: {self.field_type}")
 
 
+class _DiscreteImpl(_FieldImpl):
+    """Implementation for discrete grid fields."""
+    
+    def __init__(self, grid, v1, v2=None, v3=None):
+        self.grid = grid
+        self._v1 = v1
+        self._v2 = v2
+        self._v3 = v3
+        
+    @property
+    def v1(self): return self._v1
+    @property
+    def v2(self): return self._v2
+    @property
+    def v3(self): return self._v3
+    
+    def evaluate(self, r, theta, phi):
+        # Generic interpolation from source grid to target points
+        # Using PynaMIT built-in spherical interpolator
+        from pynamit.interpolation import create_interpolator
+        
+        interp = create_interpolator(self.grid.theta, self.grid.phi)
+        
+        # Check if vector field
+        if self._v1 is not None and self._v2 is not None and self._v3 is not None:
+             # Map Field components to spherical vector components
+             # v1 = u_r
+             # v2 = u_theta = -u_north
+             # v3 = u_phi = u_east
+             u_r = self._v1
+             u_north = -self._v2
+             u_east = self._v3
+             
+             u_east_int, u_north_int, u_r_int = interp.interpolate_vector(
+                 u_east, u_north, u_r, theta, phi
+             )
+             
+             # Map back to Field components
+             v1_int = u_r_int
+             v2_int = -u_north_int
+             v3_int = u_east_int
+             return v1_int, v2_int, v3_int
+        
+        vals = []
+        for v in [self._v1, self._v2, self._v3]:
+            if v is None:
+                vals.append(np.zeros_like(theta))
+                continue
+                
+            res = interp.interpolate_scalar(v, theta, phi)
+            vals.append(res)
+            
+        return tuple(vals)
+
+
 class _ComponentImpl(_FieldImpl):
     """Implementation for single component fields."""
 
@@ -130,17 +185,10 @@ class Field(ABC):
         self._source_field = source_field
 
         # Determine strategy
+        # Determine strategy
         if v1 is not None and grid is not None:
-            # Discrete case -> Coerce to GridBasis Expansion
-            basis = GridBasis(grid)
-            # Ensure coeffs shape matches expectation for 'vector' (3, N) or 'scalar'
-            if v2 is not None and v3 is not None:
-                coeffs = np.stack([v1, v2, v3])
-                field_type = "vector"
-            else:
-                coeffs = v1
-                field_type = "scalar"
-            self._impl = _ExpansionImpl(basis, coeffs, field_type)
+            # Discrete case
+            self._impl = _DiscreteImpl(grid, v1, v2, v3)
 
         elif coeffs is not None and basis is not None:
             # Standard Expansion
@@ -161,6 +209,10 @@ class Field(ABC):
     # --- Property Delegation ---
     @property
     def grid(self):
+        # Check if impl has direct grid (Discrete)
+        if hasattr(self._impl, "grid"):
+            return self._impl.grid
+        # Check if impl has basis with grid (Expansion)
         return getattr(getattr(self._impl, "basis", None), "grid", None)
 
     @property

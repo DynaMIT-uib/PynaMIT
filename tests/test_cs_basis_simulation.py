@@ -58,8 +58,8 @@ def test_cs_basis_simulation_dop853():
     # N=6 -> 6*6^2 = 216 points.
     expected_size = 6 * 6 * 6
     
-    m_ind_final = dynamics.output_timeseries.datasets["state"]["GRID_m_ind"].values[-1]
-    m_imp_final = dynamics.output_timeseries.datasets["state"]["GRID_m_imp"].values[-1]
+    m_ind_final = dynamics.output_timeseries.datasets["state"]["CS_m_ind"].values[-1]
+    m_imp_final = dynamics.output_timeseries.datasets["state"]["CS_m_imp"].values[-1]
     
     # The output dataset stores "m_ind" with shape matching the solution basis.
     assert m_ind_final.shape == (expected_size,)
@@ -71,7 +71,7 @@ def test_cs_basis_simulation_dop853():
     
     # Check E-field outputs (Phi, W)
     # Phi/W might also be GRID_Phi?
-    phi_final = dynamics.output_timeseries.datasets["state"]["GRID_Phi"].values[-1]
+    phi_final = dynamics.output_timeseries.datasets["state"]["CS_Phi"].values[-1]
     assert phi_final.shape == (expected_size,)
     
     print(f"CSBasis Simulation Successful.")
@@ -86,8 +86,8 @@ def test_cs_basis_simulation_dop853():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["GRID_m_ind"].values[-1],
-            dynamics.output_timeseries.datasets["state"]["GRID_m_imp"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["CS_m_ind"].values[-1],
+            dynamics.output_timeseries.datasets["state"]["CS_m_imp"].values[-1],
         )
     )
 

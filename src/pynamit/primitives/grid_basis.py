@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 from typing import Any, Tuple, TYPE_CHECKING, Optional
+from abc import ABC
 import numpy as np
-from scipy.interpolate import griddata
-from scipy.spatial import QhullError
 from pynamit.math import arrayutils
 from pynamit.math import cs_math
 from pynamit.primitives.basis import Basis
@@ -14,71 +13,15 @@ if TYPE_CHECKING:
     from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 
-class GridBasis(Basis):
-    """Basis representing values defined on a grid, utilizing generic spherical interpolation.
-
+class GridBasis(Basis, ABC):
+    """Abstract Basis representing values defined on a grid.
+    
     This class serves as the fundamental object for grid-based fields, providing
-    robust spherical interpolation capabilities via projection to cubed sphere faces.
-    Other specific grid bases (e.g. CSBasis) can inherit from this.
+    common functionality for grid management and spherical interpolation.
     """
 
-    def __init__(self, grid: Optional[Grid] = None):
-        self._grid = grid
-        self.index_length = grid.size if grid else 0
-        self._caching = False
-        self._kind = "GRID"
-        self._index_names = ["point_index"]
-        self._index_arrays = []
-        self._minimum_phi_sampling = 1.0
-
-    @property
-    def kind(self) -> str:
-        return self._kind
-    
-    @kind.setter
-    def kind(self, value):
-        self._kind = value
-
-    @property
-    def index_names(self) -> list[str]:
-        return self._index_names
-
-    @index_names.setter
-    def index_names(self, value):
-        self._index_names = value
-
-    @property
-    def index_length(self) -> int:
-        return self._grid.size if self._grid else 0
-    
-    @index_length.setter
-    def index_length(self, value):
-        # Allow setting for legacy compatibility or manual override
-        pass 
-
-    @property
-    def index_arrays(self) -> list:
-        return self._index_arrays
-    
-    @index_arrays.setter
-    def index_arrays(self, value):
-        self._index_arrays = value
-
-    @property
-    def minimum_phi_sampling(self) -> float:
-        return self._minimum_phi_sampling
-    
-    @minimum_phi_sampling.setter
-    def minimum_phi_sampling(self, value):
-        self._minimum_phi_sampling = value
-
-    @property
-    def caching(self) -> bool:
-        return self._caching
-    
-    @caching.setter
-    def caching(self, value):
-        self._caching = value
+    # Storage for the grid
+    _grid: Optional[Grid] = None
 
     @property
     def grid(self) -> "Grid":
@@ -91,19 +34,52 @@ class GridBasis(Basis):
     def grid(self, value: "Grid"):
         """Set the grid."""
         self._grid = value
-        if value is not None:
-             self.index_length = value.size
+
+    @property
+    def kind(self) -> str:
+        """Default kind for grid bases."""
+        return "GRID"
+
+    @property
+    def caching(self) -> bool:
+        """Grid bases typically do not cache basis functions."""
+        return False
+
+    @property
+    def index_names(self) -> list[str]:
+        """Default index name."""
+        return ["point_index"]
+
+    @property
+    def index_length(self) -> int:
+        """Index length matches storage grid size."""
+        return self.grid.size
+
+    @property
+    def index_arrays(self) -> list:
+        """Index arrays match flattened grid."""
+        return [np.arange(self.grid.size)]
+
+    @property
+    def minimum_phi_sampling(self) -> float:
+        """Default sampling requirement."""
+        return 1.0
 
     @property
     def theta(self):
+        """Get theta coordinates of grid points."""
         return self.grid.theta
 
     @property
     def phi(self):
+        """Get phi coordinates of grid points."""
         return self.grid.phi
 
     def to_grid_values(
-        self, coeffs: np.ndarray, evaluator: BasisEvaluator, field_type: str = "scalar"
+        self,
+        coeffs: np.ndarray,
+        evaluator: "BasisEvaluator",
+        field_type: str = "scalar",
     ) -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""
         target_grid = evaluator.grid
@@ -157,72 +133,79 @@ class GridBasis(Basis):
             return np.vstack([u_r_int, -u_north_int, u_east_int])
 
         else:
-            raise ValueError(f"Unknown field_type: {field_type}")
-
-    def regularization_term(self, coeffs, evaluator, field_type):
-        return None
+            raise ValueError(f"Unknown field type: {field_type}")
 
     def from_grid_values(
-        self, values: np.ndarray, evaluator: Any, field_type: str = "scalar"
+        self, values: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
     ) -> np.ndarray:
-        input_grid = evaluator.grid
-        if self.grid and input_grid is self.grid:
+        """Convert grid values to coefficients.
+        
+        For GridBasis, the coefficients ARE the grid values (potentially interpolated).
+        """
+        # If the evaluator grid matches our storage grid, return values directly
+        if self.grid and evaluator.grid is self.grid:
             return values
+            
+        # If sizes match and coords close, assume same grid
+        if self.grid and (
+            evaluator.grid.size == self.grid.size 
+            and np.allclose(evaluator.grid.theta, self.grid.theta)
+            and np.allclose(evaluator.grid.phi, self.grid.phi)
+        ):
+             return values
+             
+        # Otherwise, we need to map values FROM the evaluator grid TO our storage grid.
+        # This is the inverse of to_grid_values. 
+        # For now, we reuse the interpolation logic if supported, or raise error if ambiguous
+        
+        # NOTE: In many cases for GridBasis, "coeffs" are just values on self.grid.
+        # So "from_grid_values" means taking values defined on `evaluator.grid` and 
+        # resampling them to `self.grid`.
+        
         if not self.grid:
-            return values
+             raise ValueError("Cannot convert to GridBasis coefficients without a defined storage grid.")
 
+        th_src = evaluator.grid.theta
+        ph_src = evaluator.grid.phi
+        th_tgt = self.grid.theta
+        ph_tgt = self.grid.phi
+        
+        # Reuse robust interpolation logic mapping src -> tgt
         if field_type == "scalar":
-            return self.interpolate_scalar(
-                values.flatten(), input_grid.theta, input_grid.phi, self.grid.theta, self.grid.phi
-            )
-        raise NotImplementedError("from_grid_values (interpolation to basis) only impl for scalar")
+             return self._robust_interpolation(values, th_src, ph_src, th_tgt, ph_tgt)
+        else:
+            # Handle vector types if needed (simplification for now)
+            # Typically this method is used for Least Squares fitting where we might want exact
+            # inversion, but for GridBasis it's usually just resampling.
+            return self._robust_interpolation(values, th_src, ph_src, th_tgt, ph_tgt)
 
-    def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
-        """Interpolate scalar values."""
-        # Use configured interpolator if available AND compatible with input data
-        if hasattr(self, "_interpolator") and self._interpolator:
-            # Check compatibility using the interpolator's own logic
-            if self._interpolator.is_compatible(scalar):
-                return self._interpolator.interpolate_scalar(
-                    scalar, theta_target, phi_target, **kwargs
-                )
+    def regularization_term(
+        self, coeffs: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
+    ) -> float:
+        """Compute regularization penalty term.
+        
+        For GridBasis, regularization is typically not applied (or handled externally).
+        Returns 0.0.
+        """
+        return 0.0
 
-        if self.grid and (theta is self.grid.theta) and (phi is self.grid.phi):
-            if not hasattr(self, "_cached_generic_interpolator"):
-                from pynamit.interpolation import create_interpolator
+    def interpolate_scalar(self, val, th_src, ph_src, th_tgt, ph_tgt):
+        """Spherical interpolation for scalars."""
+        xi, eta, block = cs_math.geo2cube(ph_src, 90 - th_src)
+        target_xi, target_eta, target_block = cs_math.geo2cube(ph_tgt, 90 - th_tgt)
 
-                self._cached_generic_interpolator = create_interpolator(theta, phi)
-            return self._cached_generic_interpolator.interpolate_scalar(
-                scalar, theta_target, phi_target, **kwargs
-            )
-
-        # Fallback using factory (non-cached for arbitrary grids)
+        # Use PynaMIT built-in spherical interpolator
         from pynamit.interpolation import create_interpolator
-
-        interp = create_interpolator(theta, phi)
-        return interp.interpolate_scalar(scalar, theta_target, phi_target, **kwargs)
+        
+        interp = create_interpolator(th_src, ph_src)
+        return interp.interpolate_scalar(val, th_tgt, ph_tgt)
 
     def interpolate_vector_components(
-        self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
+        self, u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
     ):
-        """Interpolate vector components."""
-        if hasattr(self, "_interpolator") and self._interpolator:
-            # Check compatibility
-            if self._interpolator.is_compatible(u_east):
-                return self._interpolator.interpolate_vector(
-                    u_east, u_north, u_r, theta_target, phi_target, **kwargs
-                )
-
-        if self.grid and (theta is self.grid.theta) and (phi is self.grid.phi):
-            if not hasattr(self, "_cached_generic_interpolator"):
-                from pynamit.interpolation import create_interpolator
-
-                self._cached_generic_interpolator = create_interpolator(theta, phi)
-            return self._cached_generic_interpolator.interpolate_vector(
-                u_east, u_north, u_r, theta_target, phi_target, **kwargs
-            )
-
+        """Spherical interpolation for vector components."""
+        # Use PynaMIT built-in spherical interpolator
         from pynamit.interpolation import create_interpolator
-
-        interp = create_interpolator(theta, phi)
-        return interp.interpolate_vector(u_east, u_north, u_r, theta_target, phi_target, **kwargs)
+        
+        interp = create_interpolator(th_src, ph_src)
+        return interp.interpolate_vector(u_east, u_north, u_r, th_tgt, ph_tgt)
