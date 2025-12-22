@@ -71,10 +71,9 @@ class Basis(ABC):
         pass
 
     @property
-    @abstractmethod
     def caching(self) -> bool:
         """Whether basis evaluations can be cached."""
-        pass
+        return False
 
     @abstractmethod
     def to_grid_values(

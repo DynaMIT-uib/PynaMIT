@@ -23,6 +23,7 @@ class GridBasis(Basis, ABC):
 
     # Storage for the grid
     _grid: Optional[Grid] = None
+    _cached_interpolator = None
 
     @property
     def grid(self) -> "Grid":
@@ -35,16 +36,14 @@ class GridBasis(Basis, ABC):
     def grid(self, value: "Grid"):
         """Set the grid."""
         self._grid = value
+        self._cached_interpolator = None
 
     @property
     def kind(self) -> str:
         """Default kind for grid bases."""
         return "GRID"
 
-    @property
-    def caching(self) -> bool:
-        """Grid bases typically do not cache basis functions."""
-        return False
+
 
     @property
     def index_names(self) -> list[str]:
@@ -106,7 +105,9 @@ class GridBasis(Basis, ABC):
         th_tgt = target_grid.theta
         ph_tgt = target_grid.phi
         
-        interp = create_interpolator(th_src, ph_src)
+        if self._cached_interpolator is None:
+            self._cached_interpolator = create_interpolator(th_src, ph_src)
+        interp = self._cached_interpolator
 
         if field_type == "scalar":
             return interp.interpolate_scalar(coeffs, th_tgt, ph_tgt)

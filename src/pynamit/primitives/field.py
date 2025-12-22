@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 
-from pynamit.primitives.grid_basis import GridBasis
 from pynamit.interpolation import create_interpolator
 
 
