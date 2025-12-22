@@ -18,6 +18,7 @@ from pynamit.cubed_sphere import diffutils
 from pynamit.math import arrayutils
 from pynamit.math import cs_math
 from pynamit.primitives.grid_basis import GridBasis
+from pynamit.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.cubed_sphere.grid import CubedSphereGrid
@@ -391,7 +392,9 @@ class CSBasis(GridBasis):
         ):
             return self._interpolator.interpolate_scalar(val, th_tgt, ph_tgt)
             
-        return super().interpolate_scalar(val, th_src, ph_src, th_tgt, ph_tgt)
+        # Fallback to generic interpolation
+        interp = create_interpolator(th_src, ph_src)
+        return interp.interpolate_scalar(val, th_tgt, ph_tgt)
 
     def interpolate_vector_components(
         self, u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
@@ -407,9 +410,9 @@ class CSBasis(GridBasis):
                 u_east, u_north, u_r, th_tgt, ph_tgt
             )
             
-        return super().interpolate_vector_components(
-            u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
-        )
+        # Fallback to generic interpolation
+        interp = create_interpolator(th_src, ph_src)
+        return interp.interpolate_vector(u_east, u_north, u_r, th_tgt, ph_tgt)
 
     def project_to_basis(
         self,

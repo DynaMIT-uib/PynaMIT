@@ -7,6 +7,7 @@ import numpy as np
 from pynamit.math import arrayutils
 from pynamit.math import cs_math
 from pynamit.primitives.basis import Basis
+from pynamit.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import Grid
@@ -94,7 +95,7 @@ class GridBasis(Basis, ABC):
         ):
             return coeffs
 
-        # 2. Interpolate using robust spherical logic
+        # 2. Generic interpolation
         if not self.grid:
             # If grid is None (e.g. incomplete CSBasis subclassing), cannot interpolate FROM it.
             # However, CSBasis usually has grid points defined.
@@ -104,9 +105,11 @@ class GridBasis(Basis, ABC):
         ph_src = self.grid.phi
         th_tgt = target_grid.theta
         ph_tgt = target_grid.phi
+        
+        interp = create_interpolator(th_src, ph_src)
 
         if field_type == "scalar":
-            return self.interpolate_scalar(coeffs, th_src, ph_src, th_tgt, ph_tgt)
+            return interp.interpolate_scalar(coeffs, th_tgt, ph_tgt)
 
         elif field_type == "tangential":
             vals = coeffs.reshape(2, -1)
@@ -116,8 +119,8 @@ class GridBasis(Basis, ABC):
             u_east = v3
             u_r = np.zeros_like(v2)
 
-            u_east_int, u_north_int, _ = self.interpolate_vector_components(
-                u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
+            u_east_int, u_north_int, _ = interp.interpolate_vector(
+                u_east, u_north, u_r, th_tgt, ph_tgt
             )
             return np.vstack([-u_north_int, u_east_int])
 
@@ -127,8 +130,8 @@ class GridBasis(Basis, ABC):
             u_r = v1
             u_north = -v2
             u_east = v3
-            u_east_int, u_north_int, u_r_int = self.interpolate_vector_components(
-                u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
+            u_east_int, u_north_int, u_r_int = interp.interpolate_vector(
+                u_east, u_north, u_r, th_tgt, ph_tgt
             )
             return np.vstack([u_r_int, -u_north_int, u_east_int])
 
@@ -170,14 +173,39 @@ class GridBasis(Basis, ABC):
         th_tgt = self.grid.theta
         ph_tgt = self.grid.phi
         
-        # Reuse robust interpolation logic mapping src -> tgt
+        interp = create_interpolator(th_src, ph_src)
+        
+        # Generic interpolation mapping src -> tgt
         if field_type == "scalar":
-             return self._robust_interpolation(values, th_src, ph_src, th_tgt, ph_tgt)
+             return interp.interpolate_scalar(values, th_tgt, ph_tgt)
+        
+        elif field_type == "tangential":
+            vals = values.reshape(2, -1)
+            v2, v3 = vals[0], vals[1]
+            u_north = -v2
+            u_east = v3
+            u_r = np.zeros_like(v2)
+            
+            u_east_int, u_north_int, _ = interp.interpolate_vector(
+                u_east, u_north, u_r, th_tgt, ph_tgt
+            )
+            return np.vstack([-u_north_int, u_east_int])
+            
+        elif field_type == "vector":
+            vals = values.reshape(3, -1)
+            v1, v2, v3 = vals[0], vals[1], vals[2]
+            u_r = v1
+            u_north = -v2
+            u_east = v3
+            
+            u_east_int, u_north_int, u_r_int = interp.interpolate_vector(
+                u_east, u_north, u_r, th_tgt, ph_tgt
+            )
+            return np.vstack([u_r_int, -u_north_int, u_east_int])
+            
         else:
-            # Handle vector types if needed (simplification for now)
-            # Typically this method is used for Least Squares fitting where we might want exact
-            # inversion, but for GridBasis it's usually just resampling.
-            return self._robust_interpolation(values, th_src, ph_src, th_tgt, ph_tgt)
+             # Fallback (legacy or unknown)
+             return interp.interpolate_scalar(values, th_tgt, ph_tgt)
 
     def regularization_term(
         self, coeffs: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
@@ -188,24 +216,3 @@ class GridBasis(Basis, ABC):
         Returns 0.0.
         """
         return 0.0
-
-    def interpolate_scalar(self, val, th_src, ph_src, th_tgt, ph_tgt):
-        """Spherical interpolation for scalars."""
-        xi, eta, block = cs_math.geo2cube(ph_src, 90 - th_src)
-        target_xi, target_eta, target_block = cs_math.geo2cube(ph_tgt, 90 - th_tgt)
-
-        # Use PynaMIT built-in spherical interpolator
-        from pynamit.interpolation import create_interpolator
-        
-        interp = create_interpolator(th_src, ph_src)
-        return interp.interpolate_scalar(val, th_tgt, ph_tgt)
-
-    def interpolate_vector_components(
-        self, u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
-    ):
-        """Spherical interpolation for vector components."""
-        # Use PynaMIT built-in spherical interpolator
-        from pynamit.interpolation import create_interpolator
-        
-        interp = create_interpolator(th_src, ph_src)
-        return interp.interpolate_vector(u_east, u_north, u_r, th_tgt, ph_tgt)

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 from pynamit.primitives.grid_basis import GridBasis
+from pynamit.interpolation import create_interpolator
 
 
 class _FieldImpl(ABC):
@@ -100,8 +101,6 @@ class _DiscreteImpl(_FieldImpl):
     def evaluate(self, r, theta, phi):
         # Generic interpolation from source grid to target points
         # Using PynaMIT built-in spherical interpolator
-        from pynamit.interpolation import create_interpolator
-        
         interp = create_interpolator(self.grid.theta, self.grid.phi)
         
         # Check if vector field
