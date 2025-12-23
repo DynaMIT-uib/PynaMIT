@@ -16,7 +16,6 @@ import scipy.sparse
 
 from pynamit.math.constants import mu0
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
 from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -90,13 +89,13 @@ class Geometry:
                  # Generic check for "different basis types implies adapter needed"
                  if getattr(self.solution_basis, "kind", "") != getattr(self.basis, "kind", ""):
                       logger.info("Basis mismatch detected: initializing hybrid adapter.")
-                      G_dense = self.basis_evaluator.G
+                      G_dense = self.basis.get_evaluation_matrix(self.grid)
 
                       if scipy.sparse.issparse(G_dense):
                            G_dense = G_dense.toarray()
                       self.input_adapter = tensor_pinv(G_dense, n_leading_flattened=1)
              except Exception:
-                  logger.warning("Failed to initialize basis adapter. Proceeding without one.")
+                  logger.warning("Failed to initialize basis adapter. Proceeding without one.", exc_info=True)
 
         self._init_constraint_mappings()
 
@@ -113,7 +112,7 @@ class Geometry:
         
         if hasattr(basis_for_induction, "coeffs_to_delta_V"):
              Ve_to_J_df_coeffs = -self.RI / mu0 * basis_for_induction.coeffs_to_delta_V
-             self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+             self.G_Ve_to_JS = (1.0 / self.RI) * self.basis.get_curl_matrix(self.grid) * Ve_to_J_df_coeffs
         else:
              self.G_Ve_to_JS = None
 
@@ -124,45 +123,48 @@ class Geometry:
     @cached_property
     def projection_matrix(self) -> np.ndarray:
         """Projection matrix (Grid Vector -> Basis Coefficients)."""
-        return self.solution_basis.construct_projection_matrix(self.basis_evaluator)
+        return self.solution_basis.construct_projection_matrix(self.grid)
 
         
     def _init_evaluators(self, grid_basis: "GridBasis") -> None:
         """Set up grid, basis evaluators, and field evaluators."""
         self.grid = grid_basis.grid
-        self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
+        self.grid = grid_basis.grid
+        # BasisEvaluator removed
         
         # Use polymorphic method to get zero-added basis (for Monopole support in SH)
         if hasattr(self.basis, "get_extended_basis"):
-            zero_added_basis = self.basis.get_extended_basis()
-            self.basis_evaluator_zero_added = BasisEvaluator(zero_added_basis, self.grid)
+            self.basis_zero_added = self.basis.get_extended_basis()
         else:
-            self.basis_evaluator_zero_added = self.basis_evaluator
+            self.basis_zero_added = self.basis
              
         self.b_field = self.mainfield.discretize(self.grid, self.RI)
 
         # Optional evaluators for the conjugate hemisphere
-        self.cp_grid = self.cp_basis_evaluator = self.cp_b_field = None
+        self.cp_grid = self.cp_b_field = None
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
                 self.RI, self.grid.theta, self.grid.phi
             )
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
-            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
             self.cp_b_field = self.mainfield.discretize(self.cp_grid, self.RI)
 
-    def _create_apex_operators(self, field: Field, evaluator: BasisEvaluator) -> tuple[np.ndarray, np.ndarray]:
-        """Create current and field mapping operators for a given field/basis pair."""
+    # --- Geometric Helper Methods replacing BasisEvaluator ---
+
+    # BasisEvaluator helpers removed. Using self.basis methods directly.
+
+    def _create_apex_operators(self, field: Field, grid: Grid) -> tuple[np.ndarray, np.ndarray]:
+        """Create current and field mapping operators for a given field/grid pair."""
         radial_to_apex, horizontal_to_apex = self._get_transformation_matrices(field)
 
         # jr_coeffs_to_j_apex
-        jr_op = evaluator.scaled_G(radial_to_apex)
+        jr_op = self.basis.get_scaled_matrix(grid, radial_to_apex)
 
         # E_coeffs_to_E_apex
         E_op = np.einsum(
             "ijk,jklm->iklm",
             horizontal_to_apex,
-            evaluator.G_helmholtz,
+            self.basis.get_vector_basis_matrix(grid),
             optimize=True,
         )
         return jr_op, E_op
@@ -182,7 +184,7 @@ class Geometry:
 
         # Main Hemisphere Operators
         self.jr_map_spectral, E_coeffs_to_E_apex = self._create_apex_operators(
-            self.b_field, self.basis_evaluator
+            self.b_field, self.grid
         )
         
         self.E_coeffs_to_E_apex_ll_diff = None
@@ -190,7 +192,7 @@ class Geometry:
         if self.connect_hemispheres:
             # Conjugate Hemisphere Operators
             jr_coeffs_to_j_apex_cp, E_coeffs_to_E_apex_cp = self._create_apex_operators(
-                self.cp_b_field, self.cp_basis_evaluator
+                self.cp_b_field, self.cp_grid
             )
 
             # Apply correction in SPECTRAL domain
@@ -295,9 +297,12 @@ class Geometry:
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_field = self.mainfield.discretize(self.grid, rk)
             mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
-            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
-
-            m_imp_to_jr_grid = mapped_basis_evaluator.scaled_G(m_imp_to_jr_coeffs)
+            mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
+            # Mapped evaluator logic replaced by inline logic
+            # mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid) 
+            
+            # Using self.basis.get_scaled_matrix
+            m_imp_to_jr_grid = self.basis.get_scaled_matrix(mapped_grid, m_imp_to_jr_coeffs)
             jr_to_JS_rk = np.array(
                 [
                     rk_b_field.vec.theta / mapped_b_field.vec.r,
@@ -329,7 +334,7 @@ class Geometry:
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
-        G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
+        G_T_to_JS = -1.0 / self.RI * self.basis.get_gradient_matrix(self.grid) * (self.RI / mu0)
         
         if self.G_Ve_to_JS is not None:
              term = np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))

@@ -75,14 +75,11 @@ class GridBasis(Basis, ABC):
         """Get phi coordinates of grid points."""
         return self.grid.phi
 
-    def to_grid_values(
-        self,
-        coeffs: np.ndarray,
-        evaluator: "BasisEvaluator",
-        field_type: str = "scalar",
+    def evaluate(
+        self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar"
     ) -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""
-        target_grid = evaluator.grid
+        target_grid = grid
 
         # 1. Identity check
         if self.grid and target_grid is self.grid:
@@ -92,8 +89,6 @@ class GridBasis(Basis, ABC):
 
         # 2. Generic interpolation
         if not self.grid:
-            # If grid is None (e.g. incomplete CSBasis subclassing), cannot interpolate FROM it.
-            # However, CSBasis usually has grid points defined.
             raise ValueError("Cannot interpolate from GridBasis without a source grid.")
 
         th_src = self.grid.theta
@@ -105,13 +100,12 @@ class GridBasis(Basis, ABC):
             self._cached_interpolator = create_interpolator(th_src, ph_src)
         interp = self._cached_interpolator
 
-        if field_type == "scalar":
+        if vector_type == "scalar":
             return interp.interpolate_scalar(coeffs, th_tgt, ph_tgt)
 
-        elif field_type == "tangential":
+        elif vector_type == "tangential":
             vals = coeffs.reshape(2, -1)
             v2, v3 = vals[0], vals[1]
-            # Map PynaMIT (South, East) to CS (East, North)
             u_north = -v2
             u_east = v3
             u_r = np.zeros_like(v2)
@@ -121,7 +115,7 @@ class GridBasis(Basis, ABC):
             )
             return np.vstack([-u_north_int, u_east_int])
 
-        elif field_type == "vector":
+        elif vector_type == "vector":
             vals = coeffs.reshape(3, -1)
             v1, v2, v3 = vals[0], vals[1], vals[2]
             u_r = v1
@@ -133,46 +127,54 @@ class GridBasis(Basis, ABC):
             return np.vstack([u_r_int, -u_north_int, u_east_int])
 
         else:
-            raise ValueError(f"Unknown field type: {field_type}")
+            raise ValueError(f"Unknown field type: {vector_type}")
+
+    def to_grid_values(
+        self,
+        coeffs: np.ndarray,
+        evaluator: "BasisEvaluator",
+        field_type: str = "scalar",
+    ) -> np.ndarray:
+        """Deprecated compatibility wrapper."""
+        return self.evaluate(coeffs, evaluator.grid, field_type)
 
     def from_grid_values(
-        self, values: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
+        self,
+        values: np.ndarray,
+        grid: Any,
+        vector_type: str,
+        weights: Any = None,
+        reg_lambda: Any = None,
+        pinv_rtol: float = 1e-15,
     ) -> np.ndarray:
         """Convert grid values to coefficients.
         
-        For GridBasis, the coefficients ARE the grid values (potentially interpolated).
+        For GridBasis, the coefficients ARE the grid values (resampled to storage grid).
         """
-        # If the evaluator grid matches our storage grid, return values directly
-        if self.grid and evaluator.grid is self.grid:
+        evaluator_grid = grid
+        # If the input grid matches our storage grid, return values directly
+        if self.grid and evaluator_grid is self.grid:
             return values
             
         # If sizes match and coords close, assume same grid
-        if self.grid and evaluator.grid == self.grid:
+        if self.grid and evaluator_grid == self.grid:
              return values
              
-        # Otherwise, we need to map values FROM the evaluator grid TO our storage grid.
-        # This is the inverse of to_grid_values. 
-        # For now, we reuse the interpolation logic if supported, or raise error if ambiguous
-        
-        # NOTE: In many cases for GridBasis, "coeffs" are just values on self.grid.
-        # So "from_grid_values" means taking values defined on `evaluator.grid` and 
-        # resampling them to `self.grid`.
-        
+        # Otherwise, we need to map values FROM the input grid TO our storage grid.
         if not self.grid:
              raise ValueError("Cannot convert to GridBasis coefficients without a defined storage grid.")
 
-        th_src = evaluator.grid.theta
-        ph_src = evaluator.grid.phi
+        th_src = evaluator_grid.theta
+        ph_src = evaluator_grid.phi
         th_tgt = self.grid.theta
         ph_tgt = self.grid.phi
         
         interp = create_interpolator(th_src, ph_src)
         
-        # Generic interpolation mapping src -> tgt
-        if field_type == "scalar":
+        if vector_type == "scalar":
              return interp.interpolate_scalar(values, th_tgt, ph_tgt)
         
-        elif field_type == "tangential":
+        elif vector_type == "tangential":
             vals = values.reshape(2, -1)
             v2, v3 = vals[0], vals[1]
             u_north = -v2
@@ -184,7 +186,7 @@ class GridBasis(Basis, ABC):
             )
             return np.vstack([-u_north_int, u_east_int])
             
-        elif field_type == "vector":
+        elif vector_type == "vector":
             vals = values.reshape(3, -1)
             v1, v2, v3 = vals[0], vals[1], vals[2]
             u_r = v1
@@ -197,15 +199,10 @@ class GridBasis(Basis, ABC):
             return np.vstack([u_r_int, -u_north_int, u_east_int])
             
         else:
-             # Fallback (legacy or unknown)
              return interp.interpolate_scalar(values, th_tgt, ph_tgt)
 
     def regularization_term(
         self, coeffs: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
     ) -> float:
-        """Compute regularization penalty term.
-        
-        For GridBasis, regularization is typically not applied (or handled externally).
-        Returns 0.0.
-        """
+        """Compute regularization penalty term."""
         return 0.0

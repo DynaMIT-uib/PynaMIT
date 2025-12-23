@@ -1,6 +1,7 @@
 """Spherical Harmonic Basis Class."""
 
 import numpy as np
+from typing import Any
 import math
 from functools import cached_property
 import warnings
@@ -259,36 +260,63 @@ class SHBasis(Basis):
         
         # Check internal cache
         grid_key = grid.hash
-        cache_entry = self._cache.get(grid_key)
         
-        if cache_entry:
-            P_unnormalized, dP_unnormalized = cache_entry
-            # If we need derivative but only cached P, we must compute dP
-            if derivative and dP_unnormalized is None:
-                 if self.backend == "internal":
-                     dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized)
-                 else:
-                     # Scipy computes both, so if we missed it, we effectively recompute?
-                     # Or we assume we always compute both for caching?
-                     # Let's simple: compute missing dP
-                     _, dP_unnormalized = self._get_legendre_scipy(theta, compute_derivative=True)
-                 
-                 # Update cache
-                 self._cache[grid_key] = (P_unnormalized, dP_unnormalized)
-        else:
-            # Not in cache, compute
+        # Ensure sub-dictionary exists for this grid
+        if grid_key not in self._cache:
+            self._cache[grid_key] = {"P": None, "dP": None, "G": {}}
+        
+        # Handle legacy tuple structure if present (though unlikely in fresh run)
+        if isinstance(self._cache[grid_key], tuple):
+             # Upgrade to dict
+             P_old, dP_old = self._cache[grid_key]
+             self._cache[grid_key] = {"P": P_old, "dP": dP_old, "G": {}}
+        
+        cache_entry = self._cache[grid_key]
+        
+        # Check if G is already cached for this derivative
+        if derivative in cache_entry["G"]:
+            return cache_entry["G"][derivative]
+
+        P_unnormalized = cache_entry["P"]
+        dP_unnormalized = cache_entry["dP"]
+
+        # If P is missing, or derivative is needed but dP is missing, compute Legendre
+        need_P = P_unnormalized is None
+        need_dP = derivative and dP_unnormalized is None
+
+        if need_P or need_dP:
             if self.backend == "internal":
-                P_unnormalized = self.legendre(theta)
-                dP_unnormalized = None
-                if derivative:
+                if need_P:
+                    P_unnormalized = self.legendre(theta)
+                    cache_entry["P"] = P_unnormalized
+                if need_dP:
                     dP_unnormalized = self.legendre_derivative(theta, P=P_unnormalized)
-            else:  # backend == 'scipy'
-                P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
-                    theta, compute_derivative=bool(derivative)
-                )
+                    cache_entry["dP"] = dP_unnormalized
                 
-            # Store in cache
-            self._cache[grid_key] = (P_unnormalized, dP_unnormalized)
+                # Retrieve from cache if we didn't just compute it
+                if not need_dP and derivative: 
+                    dP_unnormalized = cache_entry["dP"]
+
+            else:  # backend == 'scipy'
+                compute_dP = bool(derivative) or need_dP
+                
+                if need_P or need_dP:
+                    P_new, dP_new = self._get_legendre_scipy(
+                        theta, compute_derivative=compute_dP
+                    )
+                    if need_P:
+                        cache_entry["P"] = P_new
+                        P_unnormalized = P_new
+                    if compute_dP:
+                        cache_entry["dP"] = dP_new
+                        dP_unnormalized = dP_new
+                else:
+                    P_unnormalized = cache_entry["P"]
+                    dP_unnormalized = cache_entry["dP"]
+
+        # Ensure we have what we need for the G calculation
+        P_unnormalized = cache_entry["P"]
+        dP_unnormalized = cache_entry["dP"]
 
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
@@ -321,7 +349,12 @@ class SHBasis(Basis):
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 
-        return np.hstack((Gc, Gs))
+        G = np.hstack((Gc, Gs))
+        
+        # Cache the result
+        cache_entry["G"][derivative] = G
+        
+        return G
 
     def legendre(self, theta):
         """Compute un-normalized Legendre functions."""
@@ -381,62 +414,56 @@ class SHBasis(Basis):
         """Factor to convert coefficients to delta V at unit radius."""
         return 2 * self.n + 1
 
-    def to_grid_values(self, coeffs, evaluator, vector_type):
-        """Convert coefficients to grid values."""
+    def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
+        """Evaluate basis on a grid (interpolate coeffs)."""
+        from pynamit.primitives.basis_evaluator import BasisEvaluator
+
+        evaluator = BasisEvaluator(self, grid)
         if vector_type == "scalar":
-            return evaluator.basis_to_grid(coeffs)
+            return evaluator.basis_to_grid(coeffs, helmholtz=False)
         elif vector_type == "tangential":
             return evaluator.basis_to_grid(coeffs, helmholtz=True)
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
-    def regularization_term(self, coeffs, evaluator, vector_type):
-        """Compute regularization penalty term.
+    def from_grid_values(
+        self,
+        values: np.ndarray,
+        grid: Any,
+        vector_type: str,
+        weights: Any = None,
+        reg_lambda: Any = None,
+        pinv_rtol: float = 1e-15,
+    ) -> np.ndarray:
+        """Convert grid values to coefficients."""
+        from pynamit.primitives.basis_evaluator import BasisEvaluator
 
-        Parameters
-        ----------
-        coeffs : ndarray
-            SH Coefficients.
-        evaluator : BasisEvaluator
-            Evaluator to use.
-        vector_type : str
-             "scalar" or "tangential".
-
-        Returns
-        -------
-        term : float
-            Regularization term.
-        """
-        if vector_type == "scalar":
-            return evaluator.regularization_term(coeffs, helmholtz=False)
-        elif vector_type == "tangential":
-            return evaluator.regularization_term(coeffs, helmholtz=True)
-        else:
-            raise ValueError(f"Unknown vector_type: {vector_type}")
-
-    def from_grid_values(self, values, evaluator, vector_type):
-        """Convert grid values to coefficients.
-
-        For SHBasis, this involves fitting via the evaluator.
-
-        Parameters
-        ----------
-        values : array-like
-            Values on the grid.
-        evaluator : BasisEvaluator
-            Evaluator to use for fitting.
-        vector_type : str
-             "scalar" or "tangential".
-
-        Returns
-        -------
-        coeffs : ndarray
-            Fitted SH coefficients.
-        """
+        evaluator = BasisEvaluator(
+            self,
+            grid,
+            sqrt_weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
         if vector_type == "scalar":
             return evaluator.grid_to_basis(values, helmholtz=False)
         elif vector_type == "tangential":
             return evaluator.grid_to_basis(values, helmholtz=True)
+        else:
+            raise ValueError(f"Unknown vector_type: {vector_type}")
+
+    def to_grid_values(self, coeffs, evaluator, vector_type):
+        """Deprecated compatibility wrapper."""
+        # This wrapper calls the new evaluate method for consistency
+        return self.evaluate(coeffs, evaluator.grid, vector_type)
+
+    def regularization_term(self, coeffs, evaluator, vector_type):
+        """Compute regularization penalty term."""
+        # Kept for compatibility with Geometry
+        if vector_type == "scalar":
+            return evaluator.regularization_term(coeffs, helmholtz=False)
+        elif vector_type == "tangential":
+            return evaluator.regularization_term(coeffs, helmholtz=True)
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
@@ -447,42 +474,39 @@ class SHBasis(Basis):
         vector_type,
         target_grid,
         target_basis,
-        on_storage_grid,
-        on_input_grid,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
     ):
         """Project input data onto the target basis.
 
         For SHBasis, we fit directly to the input grid, effectively projecting
         onto itself, ignoring the target basis.
-
-        Parameters
-        ----------
-        input_values : array-like
-            Raw input values.
-        input_grid : Grid
-            Grid object defining where input_values are located.
-        vector_type : str
-            "scalar" or "tangential".
-        target_grid : Grid
-            Unused here.
-        target_basis : object
-            Unused here.
-        on_storage_grid : callable
-            Unused.
-        on_input_grid : callable
-            Callback returning the evaluator for the input grid.
-
-        Returns
-        -------
-        coeffs : ndarray
-            The fitted SH coefficients.
         """
-        coeffs = self.from_grid_values(input_values, on_input_grid(), vector_type)
+        # We can ignore on_input_grid/on_storage_grid args if passed by legacy callers?
+        # But this signature change breaks legacy callers (InputManager).
+        # We are updating InputManager, so that's fine.
+        # But wait, CSBasis.project_to_basis might accept unrelated args.
+        coeffs = self.from_grid_values(
+            input_values,
+            input_grid,
+            vector_type,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
         return coeffs
 
+    def get_evaluation_matrix(self, grid: Any, derivative: str = None) -> np.ndarray:
+        """Get matrix evaluating basis (or derivatives) on a grid. Alias for get_G."""
+        return self.get_G(grid, derivative=derivative)
+
+    # Note: get_gradient_matrix, get_curl_matrix, get_vector_basis_matrix 
+    # inherited from Basis are sufficient as they use get_evaluation_matrix (via get_G).
 
 
-    def construct_projection_matrix(self, evaluator) -> np.ndarray:
+
+    def construct_projection_matrix(self, grid) -> np.ndarray:
         """Construct the projection matrix mapping Grid Vector -> SH Coefficients.
         
         Requires an evaluator that can compute G_helmholtz (vector basis).
@@ -491,7 +515,24 @@ class SHBasis(Basis):
         
         # Calculate pseudo-inverse of the Helmholtz matrix: (2, N_grid, 2, N_sh)
         # Flatten input dims (2, N_grid) -> leading dim
-        pinv = tensor_pinv(evaluator.G_helmholtz, n_leading_flattened=2)
+
+        # Re-calc G_helmholtz locally to avoid dependency on BasisEvaluator
+        # G_helmholtz = [-G_grad, G_rxgrad]
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
+        
+        # Ensure dense for tensor construction
+        import scipy.sparse
+        G_th = G_th.toarray() if scipy.sparse.issparse(G_th) else G_th
+        G_ph = G_ph.toarray() if scipy.sparse.issparse(G_ph) else G_ph
+        G_grad = np.array([G_th, G_ph])
+        
+        # G_rxgrad = [-G_ph, G_th]
+        G_rxgrad = np.array([-G_ph, G_th])
+        
+        G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
+
+        pinv = tensor_pinv(G_helmholtz, n_leading_flattened=2)
         
         # Reshape to 2D matrix: (2*N_sh, 2*N_grid)
         # pinv shape: (comp_out, N_out, comp_in, N_in) = (2, N_sh, 2, N_grid)

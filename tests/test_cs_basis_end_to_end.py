@@ -30,7 +30,7 @@ class MockInputManager:
     """Mock input manager."""
     def __init__(self, basis):
         self.input_keys = ["conductance", "jr"]
-        self.vars = {"jr": ["jr"], "conductance": ["etaP", "etaH"]}
+        self.variables = {"jr": ["jr"], "conductance": ["etaP", "etaH"]}
         self.basis = basis
         
     def get_entry(self, key, time, interpolation):

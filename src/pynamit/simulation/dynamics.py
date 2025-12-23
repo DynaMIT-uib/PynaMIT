@@ -214,7 +214,7 @@ class Dynamics:
         cs_basis = CSBasis(self.settings.Ncs)
 
         # Specify input format and load input data.
-        self.input_vars = {
+        self.input_variables = {
             "jr": {"jr": "scalar"},
             "Br": {"Br": "scalar"},
             "conductance": {"etaP": "scalar", "etaH": "scalar"},
@@ -228,12 +228,12 @@ class Dynamics:
             "u": sh_basis_zero_removed,
         }
 
-        self.input_timeseries = Timeseries(self.input_storage_bases, self.input_vars)
-        self.input_manager = InputManager(self.input_timeseries, cs_basis, self.input_vars)
+        self.input_timeseries = Timeseries(self.input_storage_bases, self.input_variables)
+        self.input_manager = InputManager(self.input_timeseries, cs_basis, self.input_variables)
         self.input_timeseries.load_all(self.io)
 
         # Specify output format and load output data.
-        self.output_vars = {
+        self.output_variables = {
             "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
             "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
         }
@@ -251,7 +251,7 @@ class Dynamics:
             "steady_state": state_output_basis,
         }
 
-        self.output_timeseries = Timeseries(self.output_storage_bases, self.output_vars)
+        self.output_timeseries = Timeseries(self.output_storage_bases, self.output_variables)
         self.output_timeseries.load_all(self.io)
 
         self.interpolation_bases = {

@@ -5,7 +5,7 @@ and state tracking of input data for the simulation.
 """
 
 import numpy as np
-from pynamit.primitives.basis_evaluator import BasisEvaluator
+
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.timeseries import Timeseries
 
@@ -19,39 +19,28 @@ class InputManager:
     and tracks changes in input data to optimize updates.
     """
 
-    def __init__(self, timeseries: Timeseries, grid_basis, vars_dict):
+    def __init__(self, timeseries: Timeseries, simulation_basis, variables_dict):
         """Initialize the InputManager.
 
         Parameters
         ----------
         timeseries : TimeSeries
             The storage object for the time series data.
-        grid_basis : Basis
+        simulation_basis : Basis
             The basis defining the simulation grid (e.g. Cubed Sphere).
-        vars_dict : dict
+        variables_dict : dict
             Dictionary defining the variable stucture (e.g. scalar/tangential).
         """
         self.timeseries = timeseries
-        self.grid_basis = grid_basis
-        self.vars = vars_dict
-
-        # Evaluators
-        self.storage_basis_evaluators = {}
-        self.input_basis_evaluators = {}
-
-        # Initialize storage evaluators
-        # Note: We access storage_bases from the timeseries object
-        for key in self.timeseries.storage_bases.keys():
-            self.storage_basis_evaluators[key] = BasisEvaluator(
-                self.timeseries.storage_bases[key], grid_basis.grid
-            )
+        self.simulation_basis = simulation_basis
+        self.variables = variables_dict
 
     def interpolate_and_add_entry(
         self,
         key,
         input_data,
         time,
-        interpolation_basis,
+        projection_basis,
         lat=None,
         lon=None,
         theta=None,
@@ -74,6 +63,8 @@ class InputManager:
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
             Time points for the input data.
+        projection_basis : Basis
+            The basis used to project/interpret the input data.
         sqrt_weights : array-like, optional
             sqrt_weights for the input data points.
         reg_lambda : float, optional
@@ -86,36 +77,20 @@ class InputManager:
         for time_index in range(time.size):
             interpolated_data = {}
 
-            for var in self.vars[key]:
-                # Use the grid from the storage evaluator as the target grid
-                target_grid = self.storage_basis_evaluators[key].grid
+            for var in self.variables[key]:
+
+                target_grid = self.simulation_basis.grid
                 target_basis = self.timeseries.storage_bases[key]
 
-                def get_storage_evaluator():
-                    return self.storage_basis_evaluators[key]
-
-                def get_input_evaluator():
-                    if not (
-                        key in self.input_basis_evaluators.keys()
-                        and input_grid == self.input_basis_evaluators[key].grid
-                    ):
-                        self.input_basis_evaluators[key] = BasisEvaluator(
-                            interpolation_basis,
-                            input_grid,
-                            sqrt_weights=sqrt_weights,
-                            reg_lambda=reg_lambda,
-                            pinv_rtol=pinv_rtol,
-                        )
-                    return self.input_basis_evaluators[key]
-
-                coeffs = interpolation_basis.project_to_basis(
+                coeffs = projection_basis.project_to_basis(
                     input_data[var][time_index],
                     input_grid,
-                    vector_type=self.vars[key][var],
+                    vector_type=self.variables[key][var],
                     target_grid=target_grid,
                     target_basis=target_basis,
-                    on_storage_grid=get_storage_evaluator,
-                    on_input_grid=get_input_evaluator,
+                    weights=sqrt_weights,
+                    reg_lambda=reg_lambda,
+                    pinv_rtol=pinv_rtol,
                 )
 
                 interpolated_data[var] = coeffs

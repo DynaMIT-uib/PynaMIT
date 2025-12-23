@@ -414,8 +414,9 @@ class CSBasis(GridBasis):
         vector_type,
         target_grid,
         target_basis,
-        on_storage_grid,
-        on_input_grid=None,
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
     ):
         """Project input data onto the target basis."""
         if target_grid is None:
@@ -442,12 +443,19 @@ class CSBasis(GridBasis):
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
-        coeffs = target_basis.from_grid_values(grid_values, on_storage_grid(), vector_type)
+        coeffs = target_basis.from_grid_values(
+            grid_values,
+            target_grid,
+            vector_type,
+            weights=None,  # Input weights invalid after interpolation
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
         return coeffs
 
 
 
-    def construct_projection_matrix(self, evaluator) -> Any:
+    def construct_projection_matrix(self, grid) -> Any:
         """Construct the projection matrix mapping Grid Vector -> Grid Values.
         
         For CSBasis, this is Identity (mapped to flat vector).
@@ -462,3 +470,38 @@ class CSBasis(GridBasis):
         For CSBasis, the basis already includes all grid points.
         """
         return self
+
+    def get_evaluation_matrix(self, grid: Any, derivative: str = None) -> Any:
+        """Get matrix evaluating basis (or derivatives) on a grid. Alias for get_G."""
+        return self.get_G(grid, derivative=derivative)
+
+    def get_vector_basis_matrix(self, grid: Any) -> Any:
+        """Get vector basis evaluation matrix.
+        
+        For CSBasis, vector coefficients are simply components [u_th; u_ph].
+        Maps [u_th; u_ph] -> [u_th_grid; u_ph_grid].
+        Returns Identity-like block matrix (interpolation if grid differs).
+        """
+        G_scalar = self.get_evaluation_matrix(grid) # (N_g_out, N_g_in)
+        import scipy.sparse
+        
+        # We need to construct (2, N_g_out, 2 * N_g_in)
+        # Result[:, :, 0:N] maps first component.
+        # Result[:, :, N:2N] maps second component.
+        # M_00 = G_scalar. M_01 = 0
+        # M_10 = 0. M_11 = G_scalar.
+        
+        # Dense approach for now (to support tensor contraction downstream)
+        # As Geometry.create_apex_operators uses einsum which might expect dense.
+        is_sparse = scipy.sparse.issparse(G_scalar)
+        if is_sparse:
+             G_scalar = G_scalar.toarray()
+            
+        N_in = self.index_length
+        N_out = G_scalar.shape[0]
+        
+        res = np.zeros((2, N_out, 2 * N_in))
+        res[0, :, 0:N_in] = G_scalar
+        res[1, :, N_in:] = G_scalar
+        
+        return res

@@ -167,7 +167,7 @@ class State:
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients."""
         bu = asarray(self.geometry.bu)
-        G_helmholtz = asarray(self.geometry.basis_evaluator.G_helmholtz)
+        G_helmholtz = asarray(self.geometry.basis.get_vector_basis_matrix(self.geometry.grid))
         G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
         
         # Flatten operator to (Output Grid Dims, Input Coeff Dims)
@@ -432,7 +432,7 @@ class State:
                 continue
 
             # Check if the data has changed since the last time.
-            if not self._has_input_changed(key, current_data, input_manager.vars[key]):
+            if not self._has_input_changed(key, current_data, input_manager.variables[key]):
                 continue
 
             # Update cache and proceed

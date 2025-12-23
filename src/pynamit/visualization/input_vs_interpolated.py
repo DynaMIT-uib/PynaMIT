@@ -12,7 +12,7 @@ import h5py as h5
 import cartopy.crs as ccrs
 
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.basis_evaluator import BasisEvaluator
+
 from pynamit.primitives.field import Field
 
 # ... (rest of imports)
@@ -21,20 +21,21 @@ from pynamit.primitives.field import Field
 def _evaluate_scalar_coeffs_to_grid(
     coeffs: Optional[np.ndarray],
     storage_basis: Any,
-    plot_evaluator: BasisEvaluator,
+    grid: Grid,
     target_shape: Tuple[int, ...],
 ) -> np.ndarray:
     """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
         return np.full(target_shape, np.nan)
     field_exp = Field.from_coefficients(storage_basis, coeffs=coeffs, field_type="scalar")
-    return field_exp.to_grid_values(plot_evaluator).reshape(target_shape)
+    v, _, _ = field_exp.evaluate(r=None, theta=grid.theta, phi=grid.phi)
+    return v.reshape(target_shape)
 
 
 def _evaluate_tangential_coeffs_to_grid_components(
     coeffs: Optional[np.ndarray],
     storage_basis: Any,
-    plot_evaluator: BasisEvaluator,
+    grid: Grid,
     target_shape: Tuple[int, ...],
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Evaluate tangential coefficients to grid components."""
@@ -43,9 +44,9 @@ def _evaluate_tangential_coeffs_to_grid_components(
     field_exp = Field.from_coefficients(
         storage_basis, coeffs=coeffs.reshape((2, -1)), field_type="tangential"
     )
-    field_grid_components = field_exp.to_grid_values(plot_evaluator)
-    field_t_2d = field_grid_components[0].reshape(target_shape)
-    field_p_2d = field_grid_components[1].reshape(target_shape)
+    _, v_theta, v_phi = field_exp.evaluate(r=None, theta=grid.theta, phi=grid.phi)
+    field_t_2d = v_theta.reshape(target_shape)
+    field_p_2d = v_phi.reshape(target_shape)
     return field_t_2d, field_p_2d
 
 
@@ -221,7 +222,7 @@ def plot_input_vs_interpolated(
         dt_str: {"input": [], "interpolated": []} for dt_str in data_types_to_plot
     }
     cached_plot_data = {}
-    plot_evaluators = {}
+    plot_grids = {}
 
     for timestep in timesteps_to_plot:
         time_val = timestep * input_dt
@@ -262,21 +263,20 @@ def plot_input_vs_interpolated(
             )
             if timeseries_entry:
                 storage_basis = input_timeseries.storage_bases[pynamit_ts_key]
-                if pynamit_ts_key not in plot_evaluators:
-                    plot_evaluators[pynamit_ts_key] = BasisEvaluator(
-                        storage_basis,
-                        Grid(lat=current_lat_coords_pass1, lon=current_lon_coords_pass1),
+                if pynamit_ts_key not in plot_grids:
+                    plot_grids[pynamit_ts_key] = Grid(
+                        lat=current_lat_coords_pass1, lon=current_lon_coords_pass1
                     )
-                current_plot_evaluator = plot_evaluators[pynamit_ts_key]
+                current_grid = plot_grids[pynamit_ts_key]
                 if pynamit_ts_key == "Br":
                     coeffs = timeseries_entry.get("Br")
                     calculated_interpolated_data_2d = _evaluate_scalar_coeffs_to_grid(
-                        coeffs, storage_basis, current_plot_evaluator, target_shape_pass1
+                        coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                 elif pynamit_ts_key == "jr":
                     coeffs = timeseries_entry.get("jr")
                     calculated_interpolated_data_2d = _evaluate_scalar_coeffs_to_grid(
-                        coeffs, storage_basis, current_plot_evaluator, target_shape_pass1
+                        coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                 elif pynamit_ts_key == "conductance":
                     etaP_coeffs, etaH_coeffs = (
@@ -284,10 +284,10 @@ def plot_input_vs_interpolated(
                         timeseries_entry.get("etaH"),
                     )
                     etaP_f = _evaluate_scalar_coeffs_to_grid(
-                        etaP_coeffs, storage_basis, current_plot_evaluator, target_shape_pass1
+                        etaP_coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                     etaH_f = _evaluate_scalar_coeffs_to_grid(
-                        etaH_coeffs, storage_basis, current_plot_evaluator, target_shape_pass1
+                        etaH_coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                     den = etaP_f**2 + etaH_f**2
                     sH_f, sP_f = np.full_like(etaH_f, np.nan), np.full_like(etaP_f, np.nan)
@@ -304,7 +304,7 @@ def plot_input_vs_interpolated(
                 elif pynamit_ts_key == "u":
                     coeffs = timeseries_entry.get("u")
                     u_t_2d, u_p_2d = _evaluate_tangential_coeffs_to_grid_components(
-                        coeffs, storage_basis, current_plot_evaluator, target_shape_pass1
+                        coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                     if data_type_str == "u_mag":
                         calculated_interpolated_data_2d = np.sqrt(u_t_2d**2 + u_p_2d**2)

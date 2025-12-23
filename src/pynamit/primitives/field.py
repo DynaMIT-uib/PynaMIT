@@ -60,14 +60,12 @@ class _ExpansionImpl(_FieldImpl):
             return self.coeffs[2]
         return None
 
+
     def evaluate(self, r, theta, phi):
-        from pynamit.primitives.basis_evaluator import BasisEvaluator
-
         g = Grid(theta=theta, phi=phi)
-        evaluator = BasisEvaluator(self.basis, g)
-
-        # Basis handles interpolation/evaluation
-        values = self.basis.to_grid_values(self.coeffs, evaluator, self.field_type)
+        
+        # Basis handles internal delegation (e.g. to BasisEvaluator if needed)
+        values = self.basis.evaluate(self.coeffs, g, self.field_type)
 
         if self.field_type == "scalar":
             return values, np.zeros_like(values), np.zeros_like(values)
@@ -277,9 +275,9 @@ class Field(ABC):
 
     @classmethod
     def from_grid_values_expansion(
-        cls, basis: Any, basis_evaluator: Any, grid_values: np.ndarray, field_type: str = "scalar"
+        cls, basis: Any, grid_values: np.ndarray, grid: Grid, field_type: str = "scalar", **kwargs
     ) -> "Field":
-        coeffs = basis.from_grid_values(grid_values, basis_evaluator, field_type)
+        coeffs = basis.from_grid_values(grid_values, grid, field_type, **kwargs)
         return cls(basis=basis, coeffs=coeffs, field_type=field_type)
 
     # --- Core Methods ---

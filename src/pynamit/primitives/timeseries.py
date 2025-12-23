@@ -23,30 +23,30 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, storage_bases, vars):
+    def __init__(self, storage_bases, variables):
         """Initialize the TimeSeries class.
 
         Parameters
         ----------
         storage_bases : dict
             Dictionary of basis objects for storage.
-        vars : dict
+        variables : dict
             Dictionary defining the variable structure.
         """
         self.storage_bases = storage_bases
 
         # Initialize variables and timeseries storage
-        self.vars = vars
+        self.variables = variables
 
         self.datasets = {}
 
         self.basis_multiindices = {}
-        for key in self.vars.keys():
-            if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
+        for key in self.variables.keys():
+            if all(self.variables[key][var] == "scalar" for var in self.variables[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     self.storage_bases[key].index_arrays, names=self.storage_bases[key].index_names
                 )
-            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
+            elif all(self.variables[key][var] == "tangential" for var in self.variables[key]):
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                     [
                         np.tile(self.storage_bases[key].index_arrays[i], 2)
@@ -61,7 +61,7 @@ class Timeseries:
 
     def load_all(self, io):
         """Load all timeseries from NetCDF files."""
-        for key in self.vars.keys():
+        for key in self.variables.keys():
             self.load(key, io)
 
     def load(self, key, io):
@@ -152,7 +152,7 @@ class Timeseries:
                 time=[time + FLOAT_ERROR_MARGIN], method="ffill"
             )
 
-            for var in self.vars[key]:
+            for var in self.variables[key]:
                 current_data[var] = dataset_before[
                     self.storage_bases[key].kind + "_" + var
                 ].values.flatten()
@@ -164,7 +164,7 @@ class Timeseries:
                 dataset_after = self.datasets[key].sel(
                     time=[time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
-                for var in self.vars[key]:
+                for var in self.variables[key]:
                     current_data[var] += (
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
