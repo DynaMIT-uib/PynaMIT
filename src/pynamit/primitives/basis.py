@@ -5,12 +5,14 @@ of fields.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from pynamit.primitives.basis_evaluator import BasisEvaluator
+    from pynamit.math.least_squares_problem import LeastSquaresProblem
+
+from pynamit.math.least_squares_solver import LeastSquaresSolver
 
 
 class Basis(ABC):
@@ -34,11 +36,13 @@ class Basis(ABC):
         Minimum required sampling points in phi direction.
     caching : bool
         Whether basis evaluations can be cached.
-
-    Notes
-    -----
-    Subclasses must implement all abstract methods and properties.
     """
+
+    def __init__(self):
+        """Initialize the Basis object."""
+        self._scalar_solvers: dict[str, LeastSquaresSolver] = {}
+        self._helmholtz_solvers: dict[str, LeastSquaresSolver] = {}
+        self._cache: dict[Any, Any] = {}
 
     @property
     @abstractmethod
@@ -85,9 +89,7 @@ class Basis(ABC):
         values: np.ndarray,
         grid: Any,
         vector_type: str,
-        weights: Any = None,
-        reg_lambda: Any = None,
-        pinv_rtol: float = 1e-15,
+        **kwargs,
     ) -> np.ndarray:
         """Convert grid values to coefficients."""
         pass
@@ -206,3 +208,111 @@ class Basis(ABC):
                  f"Factor size {factor_arr.size} does not match G shape {G.shape} "
                  "for either row or column scaling."
              )
+    def get_least_squares_problem(
+        self,
+        grid: Any,
+        sqrt_weights: Optional[np.ndarray] = None,
+        reg_lambda: Optional[float] = None,
+    ) -> "LeastSquaresProblem":
+        """Get a least squares problem for scalar projection."""
+        from pynamit.math.least_squares_problem import LeastSquaresProblem
+        G = self.get_evaluation_matrix(grid)
+        L = self.get_regularization_matrix(scalar=True, reg_lambda=reg_lambda)
+        
+        reg_matrices = [L] if L is not None else []
+        reg_weights = [reg_lambda] if reg_lambda is not None else []
+        
+        return LeastSquaresProblem(
+            A=[G],
+            solution_shape=self.index_length,
+            data_shapes=[grid.size],
+            sqrt_weights=[sqrt_weights],
+            regularization_weights=reg_weights,
+            regularization_matrices=reg_matrices,
+        )
+
+    def get_least_squares_problem_helmholtz(
+        self,
+        grid: Any,
+        sqrt_weights: Optional[np.ndarray] = None,
+        reg_lambda: Optional[float] = None,
+    ) -> "LeastSquaresProblem":
+        """Get a least squares problem for vector projection."""
+        from pynamit.math.least_squares_problem import LeastSquaresProblem
+        G_h = self.get_vector_basis_matrix(grid)
+        L_h = self.get_regularization_matrix(scalar=False, reg_lambda=reg_lambda)
+        
+        reg_matrices = [L_h] if L_h is not None else []
+        reg_weights = [reg_lambda] if reg_lambda is not None else []
+        
+        return LeastSquaresProblem(
+            A=[G_h],
+            solution_shape=(2, self.index_length),
+            data_shapes=[(2, grid.size)],
+            sqrt_weights=[sqrt_weights],
+            regularization_weights=reg_weights,
+            regularization_matrices=reg_matrices,
+        )
+
+    def get_regularization_matrix(self, scalar: bool = True, reg_lambda: Optional[float] = None) -> Optional[np.ndarray]:
+        """Get the regularization matrix for this basis. Default is None."""
+        return None
+
+    def grid_to_basis(
+        self,
+        values: np.ndarray,
+        grid: Any,
+        helmholtz: bool = False,
+        weights: Optional[np.ndarray] = None,
+        reg_lambda: Optional[float] = None,
+        pinv_rtol: float = 1e-15,
+        solver_type: str = "svd",
+    ) -> np.ndarray:
+        """Project grid values to basis coefficients."""
+        if helmholtz:
+            if solver_type not in self._helmholtz_solvers:
+                self._helmholtz_solvers[solver_type] = LeastSquaresSolver(
+                    solver=solver_type, tolerance=pinv_rtol
+                )
+            solver = self._helmholtz_solvers[solver_type]
+            problem = self.get_least_squares_problem_helmholtz(grid, weights, reg_lambda)
+        else:
+            if solver_type not in self._scalar_solvers:
+                self._scalar_solvers[solver_type] = LeastSquaresSolver(
+                    solver=solver_type, tolerance=pinv_rtol
+                )
+            solver = self._scalar_solvers[solver_type]
+            problem = self.get_least_squares_problem(grid, weights, reg_lambda)
+            
+        return solver.solve(problem=problem, rhs=[values])
+
+    def basis_to_grid(
+        self, coeffs: np.ndarray, grid: Any, derivative: Optional[str] = None, helmholtz: bool = False
+    ) -> np.ndarray:
+        """Interpolate coefficients to a grid."""
+        if derivative:
+            G = self.get_evaluation_matrix(grid, derivative=derivative)
+            return G.dot(coeffs)
+        elif helmholtz:
+            G_h = self.get_vector_basis_matrix(grid)
+            return np.tensordot(G_h, coeffs, 2)
+        else:
+            G = self.get_evaluation_matrix(grid)
+            return G.dot(coeffs)
+
+    def regularization_term(
+        self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar", reg_lambda: Optional[float] = None
+    ) -> float:
+        """Compute the regularization penalty term."""
+        if reg_lambda is None or reg_lambda == 0:
+            return 0.0
+            
+        is_scalar = vector_type == "scalar"
+        L = self.get_regularization_matrix(scalar=is_scalar, reg_lambda=reg_lambda)
+        if L is None:
+            return 0.0
+            
+        if not is_scalar:
+             return np.tensordot(L, coeffs, 2)
+        else:
+             return np.dot(coeffs, np.dot(L, coeffs))

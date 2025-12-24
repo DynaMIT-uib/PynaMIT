@@ -14,7 +14,7 @@ import numpy as np
 from pynamit.primitives.grid import Grid
 
 if TYPE_CHECKING:
-    from pynamit.primitives.basis_evaluator import BasisEvaluator
+    from pynamit.math.least_squares_problem import LeastSquaresProblem
 
 
 from pynamit.interpolation import create_interpolator
@@ -34,10 +34,16 @@ class _FieldImpl(ABC):
 class _ExpansionImpl(_FieldImpl):
     """Implementation for basis expansion fields (including GridBasis)."""
 
-    def __init__(self, basis, coeffs, field_type):
+    def __init__(self, basis, coeffs, field_type, weights=None, reg_lambda=None, pinv_rtol=1e-15):
         self.basis = basis
         self.coeffs = coeffs
         self.field_type = field_type
+        self.weights = weights
+        self.reg_lambda = reg_lambda
+        self.pinv_rtol = pinv_rtol
+        
+        # Cache for LeastSquaresProblem (mapping this field's config to grid hashes)
+        self._problem_cache: dict[Any, "LeastSquaresProblem"] = {}
 
     # --- Property Accessors for seamless integration ---
     @property
@@ -64,7 +70,7 @@ class _ExpansionImpl(_FieldImpl):
     def evaluate(self, r, theta, phi):
         g = Grid(theta=theta, phi=phi)
         
-        # Basis handles internal delegation (e.g. to BasisEvaluator if needed)
+        # Basis handles internal delegation
         values = self.basis.evaluate(self.coeffs, g, self.field_type)
 
         if self.field_type == "scalar":
@@ -172,6 +178,10 @@ class Field(ABC):
         # Component args
         parent_field=None,
         component_index=None,
+        # Solve params
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
         **kwargs,
     ):
         self._impl: Optional[_FieldImpl] = None
@@ -179,8 +189,10 @@ class Field(ABC):
         # Metadata storage (exposed by properties)
         self._r_loc = r_loc
         self._source_field = source_field
+        self._weights = weights
+        self._reg_lambda = reg_lambda
+        self._pinv_rtol = pinv_rtol
 
-        # Determine strategy
         # Determine strategy
         if v1 is not None and grid is not None:
             # Discrete case
@@ -188,7 +200,10 @@ class Field(ABC):
 
         elif coeffs is not None and basis is not None:
             # Standard Expansion
-            self._impl = _ExpansionImpl(basis, coeffs, field_type)
+            self._impl = _ExpansionImpl(
+                basis, coeffs, field_type, 
+                weights=weights, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
+            )
 
         elif parent_field is not None:
             # Component
@@ -248,6 +263,18 @@ class Field(ABC):
         return self._source_field
 
     @property
+    def weights(self):
+        return self._weights
+
+    @property
+    def reg_lambda(self):
+        return self._reg_lambda
+
+    @property
+    def pinv_rtol(self):
+        return self._pinv_rtol
+
+    @property
     def magnitude(self) -> Optional[np.ndarray]:
         v1 = self.v1
         if v1 is not None and self.v2 is not None and self.v3 is not None:
@@ -269,16 +296,34 @@ class Field(ABC):
 
     @classmethod
     def from_coefficients(
-        cls, basis: Any, coeffs: np.ndarray, field_type: str = "scalar"
+        cls, 
+        basis: Any, 
+        coeffs: np.ndarray, 
+        field_type: str = "scalar",
+        weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
     ) -> "Field":
-        return cls(basis=basis, coeffs=coeffs, field_type=field_type)
+        return cls(
+            basis=basis, coeffs=coeffs, field_type=field_type,
+            weights=weights, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
+        )
 
     @classmethod
     def from_grid_values_expansion(
-        cls, basis: Any, grid_values: np.ndarray, grid: Grid, field_type: str = "scalar", **kwargs
+        cls, basis: Any, grid_values: np.ndarray, grid: Grid, field_type: str = "scalar", 
+        weights=None, reg_lambda=None, pinv_rtol=1e-15,
+        **kwargs
     ) -> "Field":
-        coeffs = basis.from_grid_values(grid_values, grid, field_type, **kwargs)
-        return cls(basis=basis, coeffs=coeffs, field_type=field_type)
+        coeffs = basis.from_grid_values(
+            grid_values, grid, field_type, 
+            weights=weights, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol,
+            **kwargs
+        )
+        return cls(
+            basis=basis, coeffs=coeffs, field_type=field_type,
+            weights=weights, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
+        )
 
     # --- Core Methods ---
     def evaluate(self, r: Any, theta: Any, phi: Any) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -304,18 +349,24 @@ class Field(ABC):
             source_field=self,
         )
 
-    def to_grid_values(self, basis_evaluator: "BasisEvaluator"):
-        # Only for Expansion impl; others will raise/fail naturally calls to basis
+    def to_grid_values(self, grid: Grid):
+        """Evaluate the field on a grid."""
         if hasattr(self._impl, "basis") and self._impl.basis:
-            return self._impl.basis.to_grid_values(
-                self._impl.coeffs, basis_evaluator, self._impl.field_type
+            return self._impl.basis.evaluate(
+                self._impl.coeffs, 
+                grid, 
+                self._impl.field_type,
             )
         raise NotImplementedError("to_grid_values valid only for Expansion fields.")
 
-    def regularization_term(self, basis_evaluator: "BasisEvaluator"):
+    def regularization_term(self, grid: Grid):
+        """Compute the regularization penalty term."""
         if hasattr(self._impl, "basis") and self._impl.basis:
             return self._impl.basis.regularization_term(
-                self._impl.coeffs, basis_evaluator, self._impl.field_type
+                self._impl.coeffs, 
+                grid, 
+                self._impl.field_type,
+                reg_lambda=self.reg_lambda,
             )
         raise NotImplementedError("regularization_term valid only for Expansion fields.")
 

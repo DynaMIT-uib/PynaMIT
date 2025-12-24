@@ -170,22 +170,14 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         Nmax_values.append(Nmax)
 
         sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
-        input_basis_evaluator = pynamit.BasisEvaluator(
-            sh_basis, input_grid, sqrt_weights=input_weights, reg_lambda=reg_lambda, pinv_rtol=rtol
-        )
-        output_basis_evaluator = pynamit.BasisEvaluator(
+        input_sh = pynamit.Field.from_grid_values_expansion(
             sh_basis,
-            output_grid,
-            sqrt_weights=output_weights,
+            grid_values=input_grid_values,
+            grid=input_grid,
+            vector_type=field_type,
+            sqrt_weights=input_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=rtol,
-        )
-
-        input_sh = pynamit.FieldExpansion(
-            sh_basis,
-            basis_evaluator=input_basis_evaluator,
-            grid_values=input_grid_values,
-            field_type=field_type,
         )
 
         print(
@@ -195,8 +187,8 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.coeffs))
-            sh_norms.append(np.linalg.norm(input_sh.regularization_term(input_basis_evaluator)))
-            input_sh_on_input_grid = input_sh.to_grid(input_basis_evaluator)
+            sh_norms.append(np.linalg.norm(input_sh.regularization_term()))
+            input_sh_on_input_grid = input_sh.to_grid_values(input_grid)
             sh_resiudal_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
                 / np.linalg.norm(input_grid_values)
@@ -204,7 +196,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if GRID_COMPARISON:
             cs_interpolated_output = interpolated_data
-            sh_interpolated_output = input_sh.to_grid(output_basis_evaluator)
+            sh_interpolated_output = input_sh.to_grid_values(output_grid)
             relative_grid_errors.append(
                 np.linalg.norm(cs_interpolated_output - sh_interpolated_output)
                 / np.linalg.norm(cs_interpolated_output)
@@ -212,11 +204,14 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
         if SH_COMPARISON:
-            cs_interpolated_output_sh = pynamit.FieldExpansion(
+            cs_interpolated_output_sh = pynamit.Field.from_grid_values_expansion(
                 sh_basis,
-                basis_evaluator=output_basis_evaluator,
                 grid_values=interpolated_data,
-                field_type=field_type,
+                grid=output_grid,
+                vector_type=field_type,
+                sqrt_weights=output_weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=rtol,
             )
             relative_coeff_errors.append(
                 np.linalg.norm(cs_interpolated_output_sh.coeffs - input_sh.coeffs)

@@ -246,10 +246,7 @@ if EQUATORIAL_EFIELD:
         glat, glon, error = a.apx.apex2geo(mlat, mlon, 110)
 
         grid = pynamit.Grid(lat=glat, lon=glon)
-
-        evaluator = pynamit.BasisEvaluator(a.basis, grid)
-
-        phi = evaluator.basis_to_grid(a.m_Phi)
+        phi = a.basis.basis_to_grid(a.m_Phi, grid=grid)
 
         Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
         Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()

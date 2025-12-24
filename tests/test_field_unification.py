@@ -3,7 +3,6 @@ import numpy as np
 from pynamit.primitives.field import Field
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 
 def test_field_expansion_as_field():

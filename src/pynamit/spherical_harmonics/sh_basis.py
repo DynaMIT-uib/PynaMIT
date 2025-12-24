@@ -1,7 +1,7 @@
 """Spherical Harmonic Basis Class."""
 
 import numpy as np
-from typing import Any
+from typing import Any, Optional, Union
 import math
 from functools import cached_property
 import warnings
@@ -95,7 +95,7 @@ class SHBasis(Basis):
         self._kind = "SH"
         self._index_names = ["n", "m"]
         self._minimum_phi_sampling = 2 * Mmax + 1
-        self._cache = {}
+        super().__init__() # Initialize _cache, solvers
 
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
@@ -416,13 +416,10 @@ class SHBasis(Basis):
 
     def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""
-        from pynamit.primitives.basis_evaluator import BasisEvaluator
-
-        evaluator = BasisEvaluator(self, grid)
         if vector_type == "scalar":
-            return evaluator.basis_to_grid(coeffs, helmholtz=False)
+            return self.basis_to_grid(coeffs, grid, helmholtz=False)
         elif vector_type == "tangential":
-            return evaluator.basis_to_grid(coeffs, helmholtz=True)
+            return self.basis_to_grid(coeffs, grid, helmholtz=True)
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
@@ -431,24 +428,25 @@ class SHBasis(Basis):
         values: np.ndarray,
         grid: Any,
         vector_type: str,
-        weights: Any = None,
-        reg_lambda: Any = None,
-        pinv_rtol: float = 1e-15,
+        **kwargs,
     ) -> np.ndarray:
         """Convert grid values to coefficients."""
-        from pynamit.primitives.basis_evaluator import BasisEvaluator
+        # Extract solve parameters from kwargs
+        weights = kwargs.get("weights")
+        reg_lambda = kwargs.get("reg_lambda")
+        pinv_rtol = kwargs.get("pinv_rtol", 1e-15)
+        solver_type = kwargs.get("solver_type", "svd")
 
-        evaluator = BasisEvaluator(
-            self,
-            grid,
-            sqrt_weights=weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        )
         if vector_type == "scalar":
-            return evaluator.grid_to_basis(values, helmholtz=False)
+            return self.grid_to_basis(
+                values, grid, helmholtz=False, weights=weights, reg_lambda=reg_lambda, 
+                pinv_rtol=pinv_rtol, solver_type=solver_type
+            )
         elif vector_type == "tangential":
-            return evaluator.grid_to_basis(values, helmholtz=True)
+            return self.grid_to_basis(
+                values, grid, helmholtz=True, weights=weights, reg_lambda=reg_lambda, 
+                pinv_rtol=pinv_rtol, solver_type=solver_type
+            )
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
@@ -457,15 +455,34 @@ class SHBasis(Basis):
         # This wrapper calls the new evaluate method for consistency
         return self.evaluate(coeffs, evaluator.grid, vector_type)
 
-    def regularization_term(self, coeffs, evaluator, vector_type):
+    def regularization_term(self, coeffs, grid, vector_type, reg_lambda=None):
         """Compute regularization penalty term."""
-        # Kept for compatibility with Geometry
-        if vector_type == "scalar":
-            return evaluator.regularization_term(coeffs, helmholtz=False)
-        elif vector_type == "tangential":
-            return evaluator.regularization_term(coeffs, helmholtz=True)
+        return super().regularization_term(coeffs, grid, vector_type, reg_lambda=reg_lambda)
+
+    def get_regularization_matrix(self, scalar: bool = True, reg_lambda: Optional[float] = None) -> Optional[np.ndarray]:
+        """Get the regularization matrix for SHBasis."""
+        if reg_lambda is None:
+            return None
+            
+        if scalar:
+            return np.diag(self.n)
         else:
-            raise ValueError(f"Unknown vector_type: {vector_type}")
+            # Helmholtz/Vector regularization
+            L_cf = np.stack(
+                [
+                    np.diag(self.n * (self.n + 1) / (2 * self.n + 1)),
+                    np.zeros((self.index_length, self.index_length)),
+                ],
+                axis=1,
+            )
+            L_df = np.stack(
+                [
+                    np.zeros((self.index_length, self.index_length)),
+                    np.diag((self.n + 1) / 2),
+                ],
+                axis=1,
+            )
+            return np.array([L_cf, L_df])
 
     def project_to_basis(
         self,
@@ -474,26 +491,18 @@ class SHBasis(Basis):
         vector_type,
         target_grid,
         target_basis,
-        weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
+        **kwargs,
     ):
         """Project input data onto the target basis.
 
         For SHBasis, we fit directly to the input grid, effectively projecting
         onto itself, ignoring the target basis.
         """
-        # We can ignore on_input_grid/on_storage_grid args if passed by legacy callers?
-        # But this signature change breaks legacy callers (InputManager).
-        # We are updating InputManager, so that's fine.
-        # But wait, CSBasis.project_to_basis might accept unrelated args.
         coeffs = self.from_grid_values(
             input_values,
             input_grid,
             vector_type,
-            weights=weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            **kwargs,
         )
         return coeffs
 
@@ -516,7 +525,7 @@ class SHBasis(Basis):
         # Calculate pseudo-inverse of the Helmholtz matrix: (2, N_grid, 2, N_sh)
         # Flatten input dims (2, N_grid) -> leading dim
 
-        # Re-calc G_helmholtz locally to avoid dependency on BasisEvaluator
+        # Re-calc G_helmholtz locally to avoid legacy dependencies.
         # G_helmholtz = [-G_grad, G_rxgrad]
         G_th = self.get_G(grid, derivative="theta")
         G_ph = self.get_G(grid, derivative="phi")

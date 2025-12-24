@@ -32,10 +32,10 @@ class PynamEye(object):
         field model in use.
     global_grid : Grid
         Global grid used for evaluations.
-    evaluator : dict
-        Dictionary of BasisEvaluator instances for different regions.
-    conductance_evaluator : dict
-        Dictionary of BasisEvaluator instances for conductance
+    grids : dict
+        Dictionary of Grid instances for different regions.
+    conductance_grids : dict
+        Dictionary of Grid instances for conductance
         evaluations across regions.
     ...additional attributes as needed...
     """
@@ -120,25 +120,14 @@ class PynamEye(object):
         cMmax = int(self.datasets["conductance"].m.max())
         self.conductance_basis = SHBasis(cNmax, cMmax, Nmin=0)
 
-        # Set up basis evaluator for wind.
-        self.u_basis_evaluator = BasisEvaluator(self.basis, self.global_vector_grid)
-
-        # Set up global grid and basis evaluators.
-        self.evaluator = {}
-        self.conductance_evaluator = {}
+        # Set up grids.
+        self.grids = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
-        self.global_grid = Grid(lat=self.lat, lon=self.lon)
-        self.evaluator["global"] = BasisEvaluator(self.basis, self.global_grid)
-        self.conductance_evaluator["global"] = BasisEvaluator(
-            self.conductance_basis, self.global_grid
-        )
-        self.evaluator["global_vector"] = BasisEvaluator(self.basis, self.global_vector_grid)
-        self.conductance_evaluator["global_vector"] = BasisEvaluator(
-            self.conductance_basis, self.global_vector_grid
-        )
+        self.grids["global"] = Grid(lat=self.lat, lon=self.lon)
+        self.grids["global_vector"] = self.global_vector_grid
 
-        # Set up polar grids and basis evaluators.
+        # Set up polar grids.
         self.mlat, self.mlon = np.meshgrid(
             np.linspace(mlatlim, 89.9, Nlat // 2), np.linspace(-180, 180, Nlon)
         )
@@ -151,25 +140,13 @@ class PynamEye(object):
             self.lat_s, self.lon_s, _ = self.apx.apex2geo(
                 -self.mlat, self.mlon, (settings.RI - RE) * 1e-3
             )
-            self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
-            self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
-            self.evaluator["north"] = BasisEvaluator(self.basis, self.polar_grid_n)
-            self.evaluator["south"] = BasisEvaluator(self.basis, self.polar_grid_s)
-            self.conductance_evaluator["north"] = BasisEvaluator(
-                self.conductance_basis, self.polar_grid_n
-            )
-            self.conductance_evaluator["south"] = BasisEvaluator(
-                self.conductance_basis, self.polar_grid_s
-            )
+            self.grids["north"] = Grid(lat=self.lat_n, lon=self.lon_n)
+            self.grids["south"] = Grid(lat=self.lat_s, lon=self.lon_s)
         else:
             # Assume simulations are done in magnetic coordinates.
-            self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
-            self.evaluator["north"] = BasisEvaluator(self.basis, self.polar_grid)
-            self.evaluator["south"] = self.evaluator["north"]
-            self.conductance_evaluator["north"] = BasisEvaluator(
-                self.conductance_basis, self.polar_grid
-            )
-            self.conductance_evaluator["south"] = self.conductance_evaluator["north"]
+            grid_polar = Grid(lat=self.mlat, lon=self.mlon)
+            self.grids["north"] = grid_polar
+            self.grids["south"] = grid_polar
 
         self.B_parameters_calculated = False
 
@@ -185,10 +162,14 @@ class PynamEye(object):
         self.G_m_ind_to_JS = {}
         self.G_m_imp_to_JS = {}
         for region in ["global", "north", "south"]:
+            grid = self.grids[region]
+            G_rxgrad = self.basis.get_evaluation_matrix(grid, derivative="rxgrad")
+            G_grad = self.basis.get_evaluation_matrix(grid, derivative="grad")
+            
             self.G_B_pol_to_JS[region] = (
-                -self.evaluator[region].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
+                -G_rxgrad * self.basis.coeffs_to_delta_V / mu0
             )
-            self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
+            self.G_B_tor_to_JS[region] = -G_grad / mu0
             self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
             self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[region] + np.tensordot(
                 self.G_B_pol_to_JS[region], self.T_to_Ve, 1
@@ -212,12 +193,9 @@ class PynamEye(object):
 
             # Reproduce numerical grid used in the simulation.
             self.cs_basis = CSBasis(self.datasets["settings"].Ncs)
-            self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
-
-            self.evaluator["num"] = BasisEvaluator(self.basis, self.state_grid)
-            self.conductance_evaluator["num"] = BasisEvaluator(
-                self.conductance_basis, self.state_grid
-            )
+            self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi) # Removed BasisEvaluator. Use grids for evaluation.
+            self.grids["num"] = self.state_grid
+            self.conductance_grids["num"] = self.state_grid
 
             # Evaluate elelctric field on that grid.
             self.b_field = self.mainfield.discretize(self.state_grid, self.RI)
@@ -235,10 +213,14 @@ class PynamEye(object):
             self.bH_01 = self.br
             self.bH_10 = -self.br
 
+            self.num_grid = self.state_grid
+            G_rxgrad = self.basis.get_evaluation_matrix(self.num_grid, derivative="rxgrad")
+            G_grad = self.basis.get_evaluation_matrix(self.num_grid, derivative="grad")
+
             self.G_B_pol_to_JS = (
-                -self.evaluator["num"].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
+                -G_rxgrad * self.basis.coeffs_to_delta_V / mu0
             )
-            self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
+            self.G_B_tor_to_JS = -G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
             self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.T_to_Ve)
 
@@ -250,10 +232,7 @@ class PynamEye(object):
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
-        etaP_on_grid = self.conductance_evaluator["num"].basis_to_grid(self.m_etaP)
-        # etaH_on_grid =self.conductance_evaluator['num'].basis_to_grid(
-        #    self.m_etaH
-        # )
+        etaP_on_grid = self.conductance_basis.evaluate(self.m_etaP, self.num_grid)
 
         Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (
             self.bH_01 * Jph
@@ -265,7 +244,7 @@ class PynamEye(object):
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
         self.u = Field.from_coefficients(self.basis, coeffs=self.u_coeffs, field_type="tangential")
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(
-            self.u.to_grid_values(basis_evaluator=self.evaluator["num"]), 2
+            self.u.to_grid_values(self.num_grid), 2
         )
 
         uxB_theta = self.u_phi_on_grid * self.b_evaluator.Br
@@ -275,7 +254,7 @@ class PynamEye(object):
         Eph -= uxB_phi
 
         self.m_Phi, self.m_W = np.split(
-            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True), 2
+            self.basis.grid_to_basis(np.array([Eth, Eph]), self.num_grid, helmholtz=True), 2
         )
         self.m_Phi = self.m_Phi * self.RI
         self.m_W = self.m_W * self.RI
@@ -533,7 +512,7 @@ class PynamEye(object):
         e_coeffs = Field.from_coefficients(
             self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
         )
-        field = e_coeffs.to_grid_values(self.evaluator[region]) / self.RI
+        field = e_coeffs.to_grid_values(self.grids[region]) / self.RI
         print("todo: is the scaling as expected?")
 
         # Calculate current.
@@ -570,8 +549,9 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.conductance_defaults[key]
 
-        etaP_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaP)
-        etaH_on_grid = self.conductance_evaluator[region].basis_to_grid(self.m_etaH)
+        grid = self.grids[region]
+        etaP_on_grid = self.conductance_basis.evaluate(self.m_etaP, grid)
+        etaH_on_grid = self.conductance_basis.evaluate(self.m_etaH, grid)
 
         if hp == "h":
             Sigma = etaH_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
@@ -600,7 +580,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.wind_defaults[key]
 
-        utheta, uphi = self.u_basis_evaluator.basis_to_grid(self.m_u, helmholtz=True)
+        utheta, uphi = self.basis.evaluate(self.m_u, self.grids[region], vector_type="tangential")
 
         return self._quiver(uphi, -utheta, ax, region, **kwargs)
 
@@ -622,7 +602,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
-        Br = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Br)
+        Br = self.basis.evaluate(self.m_ind * self.m_ind_to_Br, self.grids[region])
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -644,7 +624,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.eqJ_defaults[key]
 
-        Jeq = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Jeq)
+        Jeq = self.basis.evaluate(self.m_ind * self.m_ind_to_Jeq, self.grids[region])
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
 
@@ -666,7 +646,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.jr_defaults[key]
 
-        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
+        jr = self.basis.evaluate(self.m_imp * self.m_imp_to_jr, self.grids[region])
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
@@ -690,7 +670,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Phi_defaults[key]
 
-        Phi = self.evaluator[region].basis_to_grid(self.m_Phi)
+        Phi = self.basis.evaluate(self.m_Phi, self.grids[region])
 
         return self._plot_contour(Phi, ax, region, **kwargs)
 
@@ -712,7 +692,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.W_defaults[key]
 
-        W = self.evaluator[region].basis_to_grid(self.m_W)
+        W = self.basis.evaluate(self.m_W, self.grids[region])
 
         return self._plot_contour(W, ax, region, **kwargs)
 

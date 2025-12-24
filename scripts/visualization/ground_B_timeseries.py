@@ -45,7 +45,7 @@ m_ind_to_Jeq = -RI / mu0 * sh_basis.Ve_to_delta_V
 
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
-ground_evaluator = pynamit.BasisEvaluator(sh_basis, ground_grid)
+# Removed BasisEvaluator. Logic will use basis and grid directly.
 
 m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n
 m_ind_to_Br_ground = sh_basis.n * (sh_basis.n + 1) * (RE / RI) ** (sh_basis.n - 1)
@@ -57,8 +57,8 @@ for state_data in state_data_list:
     # Calculate the time series.
     m_ind = state_data.SH_m_ind.values.T
 
-    Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
-    Bh = (-ground_evaluator.G_grad * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
+    Br = (sh_basis.get_evaluation_matrix(ground_grid) * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    Bh = (-sh_basis.get_gradient_matrix(ground_grid) * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
     Btheta, Bphi = np.split(Bh, 2, axis=0)
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
@@ -117,7 +117,7 @@ for p, state_data in zip(periods, state_data_list):
     ).T
 
     m_ind = sd.SH_m_ind.values.T
-    Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    Br = (sh_basis.get_evaluation_matrix(ground_grid) * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
 
     # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]

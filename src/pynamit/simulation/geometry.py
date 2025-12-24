@@ -85,7 +85,6 @@ class Geometry:
         self.input_adapter = None
         if self.solution_basis is not self.basis:
              try:
-                 # Check if adapter is needed specifically for Grid->SH
                  # Generic check for "different basis types implies adapter needed"
                  if getattr(self.solution_basis, "kind", "") != getattr(self.basis, "kind", ""):
                       logger.info("Basis mismatch detected: initializing hybrid adapter.")
@@ -129,8 +128,6 @@ class Geometry:
     def _init_evaluators(self, grid_basis: "GridBasis") -> None:
         """Set up grid, basis evaluators, and field evaluators."""
         self.grid = grid_basis.grid
-        self.grid = grid_basis.grid
-        # BasisEvaluator removed
         
         # Use polymorphic method to get zero-added basis (for Monopole support in SH)
         if hasattr(self.basis, "get_extended_basis"):
@@ -149,9 +146,8 @@ class Geometry:
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
             self.cp_b_field = self.mainfield.discretize(self.cp_grid, self.RI)
 
-    # --- Geometric Helper Methods replacing BasisEvaluator ---
-
-    # BasisEvaluator helpers removed. Using self.basis methods directly.
+    # --- Geometric Helper Methods ---
+    # Methods to replicate prior logic using basis/field API directly.
 
     def _create_apex_operators(self, field: Field, grid: Grid) -> tuple[np.ndarray, np.ndarray]:
         """Create current and field mapping operators for a given field/grid pair."""
@@ -297,10 +293,7 @@ class Geometry:
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_field = self.mainfield.discretize(self.grid, rk)
             mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
-            mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
-            # Mapped evaluator logic replaced by inline logic
-            # mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid) 
-            
+
             # Using self.basis.get_scaled_matrix
             m_imp_to_jr_grid = self.basis.get_scaled_matrix(mapped_grid, m_imp_to_jr_coeffs)
             jr_to_JS_rk = np.array(

@@ -11,7 +11,6 @@ from pynamit.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import Grid
-    from pynamit.primitives.basis_evaluator import BasisEvaluator
 
 
 class GridBasis(Basis, ABC):
@@ -37,6 +36,11 @@ class GridBasis(Basis, ABC):
         """Set the grid."""
         self._grid = value
         self._cached_interpolator = None
+
+    def __init__(self, **kwargs):
+        """Initialize GridBasis."""
+        super().__init__()
+        # grid and _cached_interpolator are handled by properties or subclasses
 
     @property
     def kind(self) -> str:
@@ -132,20 +136,18 @@ class GridBasis(Basis, ABC):
     def to_grid_values(
         self,
         coeffs: np.ndarray,
-        evaluator: "BasisEvaluator",
-        field_type: str = "scalar",
+        grid: Any,
+        vector_type: str = "scalar",
     ) -> np.ndarray:
         """Deprecated compatibility wrapper."""
-        return self.evaluate(coeffs, evaluator.grid, field_type)
+        return self.evaluate(coeffs, grid, vector_type)
 
     def from_grid_values(
         self,
         values: np.ndarray,
         grid: Any,
         vector_type: str,
-        weights: Any = None,
-        reg_lambda: Any = None,
-        pinv_rtol: float = 1e-15,
+        **kwargs,
     ) -> np.ndarray:
         """Convert grid values to coefficients.
         
@@ -202,7 +204,7 @@ class GridBasis(Basis, ABC):
              return interp.interpolate_scalar(values, th_tgt, ph_tgt)
 
     def regularization_term(
-        self, coeffs: np.ndarray, evaluator: "BasisEvaluator", field_type: str = "scalar"
+        self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar", reg_lambda: Optional[float] = None
     ) -> float:
         """Compute regularization penalty term."""
         return 0.0

@@ -132,17 +132,16 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = pynamit.Grid(lat=lat, lon=lon)
-    plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
+    # Removed BasisEvaluator. Logic will use basis and grid directly.
     plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
-    Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = (plt_state_evaluator.scaled_G(1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(
+    Br = dynamics.state.get_Br(plt_grid)
+    FAC = (dynamics.state_basis.get_scaled_matrix(plt_grid, 1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
     )
-    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
-    eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
+    jr_mod = dynamics.state_basis.get_evaluation_matrix(plt_grid).dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
+    eq_current_function = dynamics.state.get_Jeq(plt_grid)
 
     # Make global plots.
     gax_B.contourf(

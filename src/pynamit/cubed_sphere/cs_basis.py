@@ -38,6 +38,7 @@ class CSBasis(GridBasis):
 
     def __init__(self, N: int):
         """Initialize the cubed sphere basis."""
+        super().__init__()
 
         if not isinstance(N, (int, np.integer)):
             raise TypeError("N must be an integer")
@@ -265,7 +266,7 @@ class CSBasis(GridBasis):
         G : sparse matrix
             Evaluation or differentiation matrix.
         """
-        # Relaxed check: if grid is self (BasisEvaluator(basis, basis)), it's CSBasis.
+        # Relaxed check: if grid is self (evaluating basis on itself), it's CSBasis.
         # Or if it has 'kind' == 'CS' and same N.
         is_compatible = (
             (grid is self) or 
@@ -277,38 +278,61 @@ class CSBasis(GridBasis):
                    is_compatible = True
         
         if grid is not None and not is_compatible:
-             # For now, only support evaluating on self (which is what BasisEvaluator expects for projections)
+             # For now, only support evaluating on self (which is what projection expects for self-evaluation)
              raise NotImplementedError("CSBasis currently only supports get_G on its own grid.")
 
+        # 1. Check final operator cache
+        if hasattr(grid, "hash"):
+            grid_key = grid.hash
+            if grid_key in self._cache:
+                if derivative in self._cache[grid_key]:
+                    return self._cache[grid_key][derivative]
+            else:
+                self._cache[grid_key] = {}
+        
         N = self.N
         if derivative is None:
              from scipy.sparse import identity
-             return identity(6 * N * N, format="csr")
+             res = identity(6 * N * N, format="csr")
 
         elif derivative in ["theta", "phi"]:
-             # Get derivatives wrt logical coordinates
-             Dxi, Deta = self.get_Diff(N, coordinate="both", Ns=1, Ni=4, order=1)
+             # 2. Get/Cache Logical Differentiation Operators (Depends only on Resolution N)
+             if "_Dxi" not in self._cache:
+                 Dxi, Deta = self.get_Diff(N, coordinate="both", Ns=1, Ni=4, order=1)
+                 self._cache["_Dxi"] = Dxi
+                 self._cache["_Deta"] = Deta
              
-             # Calculate chain rule factors
-             # d/dth = (dxi/dth) d/dxi + (deta/dth) d/deta
-             # These are diagonal multiplication matrices
-             coord_derivs = cs_math.get_coordinate_derivatives(
-                 self.arr_xi, self.arr_eta, r=1.0, block=self.arr_block
-             )
-             dxi_dth, dxi_dph, deta_dth, deta_dph = coord_derivs
+             Dxi, Deta = self._cache["_Dxi"], self._cache["_Deta"]
+
+             # 3. Get/Cache Chain Rule Factors (Depends on Grid Coordinates)
+             # Note: These are specific to the grid/resolution mapping. 
+             # In CSBasis, coordinates are typically native, but we follow the per-grid pattern.
+             cache_entry = self._cache[grid.hash] if hasattr(grid, "hash") else {}
+             if "coord_derivs" not in cache_entry:
+                  cache_entry["coord_derivs"] = cs_math.get_coordinate_derivatives(
+                      self.arr_xi, self.arr_eta, r=1.0, block=self.arr_block
+                  )
+             
+             dxi_dth, dxi_dph, deta_dth, deta_dph = cache_entry["coord_derivs"]
 
              from scipy.sparse import diags
              if derivative == "theta":
                  M_dxi_dth = diags(dxi_dth.flatten())
                  M_deta_dth = diags(deta_dth.flatten())
-                 return M_dxi_dth.dot(Dxi) + M_deta_dth.dot(Deta)
+                 res = M_dxi_dth.dot(Dxi) + M_deta_dth.dot(Deta)
              elif derivative == "phi":
                  M_dxi_dph = diags(dxi_dph.flatten())
                  M_deta_dph = diags(deta_dph.flatten())
-                 return M_dxi_dph.dot(Dxi) + M_deta_dph.dot(Deta)
+                 res = M_dxi_dph.dot(Dxi) + M_deta_dph.dot(Deta)
         
         else:
              raise ValueError(f"Unknown derivative: {derivative}")
+
+        # 4. Store final operator in cache
+        if hasattr(grid, "hash"):
+            self._cache[grid.hash][derivative] = res
+            
+        return res
 
     def laplacian(self, r=1.0):
         """Compute the Laplacian operator matrix on the sphere.
@@ -414,9 +438,7 @@ class CSBasis(GridBasis):
         vector_type,
         target_grid,
         target_basis,
-        weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
+        **kwargs,
     ):
         """Project input data onto the target basis."""
         if target_grid is None:
@@ -443,13 +465,16 @@ class CSBasis(GridBasis):
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
+        # Extract solve parameters from kwargs for the fit
+        # We override weights to None because input weights are not valid on the interpolated grid
+        fit_kwargs = kwargs.copy()
+        fit_kwargs["weights"] = None
+
         coeffs = target_basis.from_grid_values(
             grid_values,
             target_grid,
             vector_type,
-            weights=None,  # Input weights invalid after interpolation
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            **fit_kwargs,
         )
         return coeffs
 

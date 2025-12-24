@@ -6,8 +6,6 @@ utilities.
 
 Attributes
 ----------
-BasisEvaluator : class
-    Class for evaluating basis functions.
 CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
@@ -30,7 +28,6 @@ SHBasis : class
 
 from .cubed_sphere import CSBasis
 from .primitives import (
-    BasisEvaluator,
     Field,
     Grid,
     IO,
@@ -43,7 +40,6 @@ from .spherical_harmonics import SHBasis
 from .utils import set_backend
 
 __all__ = [
-    "BasisEvaluator",
     "CSBasis",
     "Dynamics",
     "Field",

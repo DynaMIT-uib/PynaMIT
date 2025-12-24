@@ -94,7 +94,8 @@ dynamics.state.update_E()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
-plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
+# Removed BasisEvaluator. Logic will use grid directly.
+plt_state_basis = dynamics.state_basis
 nnn = plt_grid.lat.flatten() > 50
 sss = plt_grid.lat.flatten() < -50
 
@@ -120,7 +121,7 @@ while True:
         fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
         filecount += 1
         title = "t = {:.3} s".format(time)
-        Br = dynamics.state.get_Br(plt_state_evaluator)
+        Br = dynamics.state.get_Br(plt_grid)
         fig, paxn, paxs, axg = pynamit.globalplot(
             plt_grid.lon,
             plt_grid.lat,
@@ -133,10 +134,10 @@ while True:
             extend="both",
         )
 
-        W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
+        W = dynamics.state.get_W(plt_grid) * 1e-3
 
         dynamics.state.update_E()
-        Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
+        Phi = dynamics.state.get_Phi(plt_grid) * 1e-3
 
         paxn.contour(
             plt_grid.lat.flatten()[nnn],

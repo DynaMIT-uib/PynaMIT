@@ -18,7 +18,6 @@ from scipy.interpolate import griddata
 from polplot import Polarplot
 
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field import Field
 from pynamit.simulation.dynamics import Dynamics
 
@@ -235,20 +234,18 @@ def debugplot(
     # Set up plotting grid and evaluators.
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
-    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
-    plt_state_evaluator = BasisEvaluator(dynamics.state.basis, plt_grid)
     plt_b_field = dynamics.state.mainfield.discretize(plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
-    Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr) / (
-        plt_b_field.vec.r / plt_b_field.magnitude
-    )
-    eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
+    Br = dynamics.state.get_Br(plt_grid)
+    FAC = dynamics.state.basis.evaluate(
+        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr, plt_grid
+    ) / (plt_b_field.vec.r / plt_b_field.magnitude)
+    eq_current_function = dynamics.state.get_Jeq(plt_grid)
 
-    jr_mod = dynamics.state_basis_evaluator.G.dot(
-        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
+    jr_mod = dynamics.state.basis.evaluate(
+        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr, dynamics.state.geometry.grid
     )
 
     # Make global plots.
@@ -462,11 +459,11 @@ def compare_AMPS_jr_and_CF_currents(
         color="black",
     )
 
-    m_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlat, lon=lon))
-    jr = dynamics.get_jr(m_state_evaluator) * 1e6
+    plt_grid_sc = Grid(lat=mlat, lon=lon)
+    jr = dynamics.get_jr(plt_grid_sc) * 1e6
 
-    mv_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlatv, lon=lonv))
-    js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
+    plt_grid_v = Grid(lat=mlatv, lon=lonv)
+    js, je = dynamics.state.get_JS(plt_grid_v) * 1e3
     jn = -js
 
     jrn, jrs = np.split(jr, 2)
@@ -493,8 +490,7 @@ def compare_AMPS_jr_and_CF_currents(
     plt.close()
 
     plt_grid = Grid(lat=lat, lon=lon)
-    plt_state_evaluator = BasisEvaluator(dynamics.state_basis, plt_grid)
-    jr = dynamics.get_jr(plt_state_evaluator)
+    jr = dynamics.get_jr(plt_grid)
 
     globalplot(
         plt_grid.lon.reshape(pltshape),
@@ -587,8 +583,8 @@ def show_jr_and_conductance(
         save="pede.png",
     )
 
-    plt_state_evaluator = BasisEvaluator(dynamics.state_basis, plt_grid)
-    jr = dynamics.state.get_jr(plt_state_evaluator)
+    plt_grid = Grid(lat=lat, lon=lon)
+    jr = dynamics.state.get_jr(plt_grid)
     globalplot(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
@@ -659,7 +655,7 @@ def time_dependent_plot(
     lon0: float,
     plt_grid: Grid,
     pltshape: Tuple[int, ...],
-    plt_state_evaluator: BasisEvaluator,
+    plt_state_grid: Grid,
 ) -> None:
     """Create time series visualization frame.
 
@@ -680,8 +676,8 @@ def time_dependent_plot(
         Grid for visualization interpolation.
     pltshape : tuple
         Shape of plotting grid (nlat, nlon).
-    plt_state_evaluator : BasisEvaluator
-        Evaluator for computing fields on plot grid.
+    plt_state_basis : Basis
+        Basis for computing fields on plot grid.
 
     Notes
     -----
@@ -696,7 +692,7 @@ def time_dependent_plot(
     fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
     title = "t = {:.3} s".format(dynamics.current_time)
 
-    Br = dynamics.state.get_Br(plt_state_evaluator)
+    Br = dynamics.state.get_Br(plt_state_grid)
 
     _, paxn, paxs, _ = globalplot(
         plt_grid.lon.reshape(pltshape),
@@ -710,7 +706,7 @@ def time_dependent_plot(
         extend="both",
     )
 
-    Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
+    Phi = dynamics.state.get_Phi(plt_state_grid) * 1e-3
 
     # W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
     nnn = plt_grid.lat.flatten() > 50
