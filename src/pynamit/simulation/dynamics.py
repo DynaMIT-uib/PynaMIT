@@ -27,6 +27,38 @@ from pynamit.utils import asarray, set_backend, xp
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
+from enum import Enum
+
+class SimulationMode(str, Enum):
+    """
+    Defines the operational mode of the simulation.
+    
+    Attributes
+    ----------
+    PURE_SPECTRAL : str
+        "pure_spectral" - Fully analytical spectral method.
+        Solver, differentiation, and products happen in spectral coefficients.
+        Physics: Exact (subject to truncation), Ground Truth.
+        Cost: O(N^4).
+        
+    SPECTRAL_TRANSFORM : str
+        "spectral_transform" - Standard Pseudo-Spectral method.
+        Solver is spectral. Nonlinear products happen on grid.
+        differentiation is analytical (recurrence) but evaluated on grid.
+        Physics: Fast, includes aliasing.
+        Cost: O(N^3).
+        
+    CS_DOMINANT : str
+        "cs_dominant" - Cubed-Sphere Hybrid method.
+        Solver is spectral (Laplacian inverse).
+        differentiation and products happen via Finite Differences on Cubed Sphere.
+        Physics: Local, fast parallel, numerical dissipation.
+    """
+    PURE_SPECTRAL = "pure_spectral"
+    SPECTRAL_TRANSFORM = "spectral_transform"
+    CS_DOMINANT = "cs_dominant"
+
+
 @dataclass
 class DynamicsSettings:
     """Settings for the Dynamics simulation."""
@@ -55,6 +87,9 @@ class DynamicsSettings:
     integrator: Literal["euler", "exponential"] = "euler"
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     filename_prefix: str = "simulation"
+    simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM
+    
+    # Deprecated / Computed fields
     solution_basis_kind: Literal["SH", "CS"] = "SH"
     pure_spectral: bool = False
 
@@ -71,6 +106,11 @@ class DynamicsSettings:
         attrs["vector_conductance"] = int(self.vector_conductance)
         attrs["vector_u"] = int(self.vector_u)
         attrs["save_steady_states"] = int(self.save_steady_states)
+        
+        # Serialize Simulation Mode
+        attrs["simulation_mode"] = self.simulation_mode.value
+        
+        # Deprecated Serialization (for consistency)
         attrs["pure_spectral"] = int(self.pure_spectral)
 
         # Remove backend as it is runtime configuration
@@ -89,8 +129,20 @@ class DynamicsSettings:
         # Helper to safely get and convert
         def get(key, default, converter=lambda x: x):
             return converter(attrs.get(key, default))
+        # Handle Enum deserialization
+        mode_str = get("simulation_mode", defaults.simulation_mode.value)
+        try:
+             sim_mode = SimulationMode(mode_str)
+        except ValueError:
+             sim_mode = defaults.simulation_mode
+
+        # Handle legacy pure_spectral override if present and mode not explicitly set
+        if "pure_spectral" in attrs and "simulation_mode" not in attrs:
+             if bool(attrs["pure_spectral"]):
+                 sim_mode = SimulationMode.PURE_SPECTRAL
 
         return DynamicsSettings(
+            simulation_mode=sim_mode,
             Nmax=get("Nmax", defaults.Nmax),
             Mmax=get("Mmax", defaults.Mmax),
             Ncs=get("Ncs", defaults.Ncs),
@@ -169,10 +221,17 @@ class Dynamics:
         backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
         solution_basis_kind: Literal["SH", "CS"] = "SH",
         pure_spectral: bool = False,
+        simulation_mode: Optional[SimulationMode] = None,
     ):
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
             FAC_integration_steps = np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
+            
+        if simulation_mode is None:
+             # Default fallback handled by Settings if pure_spectral is passed
+             pass
+        elif simulation_mode == SimulationMode.CS_DOMINANT:
+            solution_basis_kind = "CS"
 
         initial_settings = DynamicsSettings(
             Nmax=Nmax,
@@ -196,10 +255,12 @@ class Dynamics:
             save_steady_states=save_steady_states,
             integrator=integrator,
             backend=backend,
-            filename_prefix=filename_prefix or "simulation",
             solution_basis_kind=solution_basis_kind,
             pure_spectral=pure_spectral,
         )
+        
+        if simulation_mode is not None:
+            initial_settings.simulation_mode = simulation_mode
         self.settings = initial_settings
         self.backend = set_backend(backend)
 

@@ -48,7 +48,7 @@ def test_cs_basis_simulation_dop853():
         vector_u=True,
         integrator="euler",
         multi_data=True,
-        solution_basis_kind="CS", # THE KEY CHANGE
+        simulation_mode="cs_dominant",
     )
 
     # Assert.

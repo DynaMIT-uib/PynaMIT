@@ -36,6 +36,7 @@ def run_pynamit(
     multi_data: bool = False,
     solution_basis_kind: str = "SH",
     pure_spectral: bool = False,
+    simulation_mode: Optional[str] = None,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -98,7 +99,7 @@ def run_pynamit(
     import numpy as np
 
     from pynamit.math.constants import RE
-    from pynamit.simulation.dynamics import Dynamics
+    from pynamit.simulation.dynamics import Dynamics, SimulationMode
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
     # Initialize the 2D ionosphere object at 110 km altitude.
@@ -121,7 +122,9 @@ def run_pynamit(
         integrator=integrator,
         solution_basis_kind=solution_basis_kind,
         pure_spectral=pure_spectral,
+        simulation_mode=None if simulation_mode is None else SimulationMode(simulation_mode),
     )
+
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
     time = np.linspace(0, final_time, 4) if multi_data else None
