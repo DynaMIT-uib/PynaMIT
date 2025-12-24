@@ -12,7 +12,7 @@ import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
 from scipy.sparse.linalg import aslinearoperator
 
-from pynamit.utils import asarray, get_array_module
+from pynamit.utils import asarray, get_array_module, xp
 from pynamit.math.tensor_chain import TensorChain
 
 
@@ -417,7 +417,7 @@ def as_linear_map(
     # Generic check to avoid importing jax if not present
     op_type = str(type(op))
     if "jax.experimental.sparse" in op_type or ("jax" in op_type and hasattr(op, "todense") and hasattr(op, "indices")):
-         return _linear_map_from_jax_sparse(op)
+        return _linear_map_from_jax_sparse(op)
 
     if isinstance(op, ScipyLinearOperator):
         chain = getattr(op, "_tensor_chain", None)
@@ -483,3 +483,81 @@ def as_linear_map(
         reshaped = arr.reshape(flat_out, flat_in)
         return _linear_map_from_dense(reshaped)
     raise TypeError(f"Unsupported operator type '{type(op)}' for LinearMap conversion.")
+
+
+def BlockLinearMap(blocks: List[List[Any]]) -> LinearMap:
+    """
+    Create a LinearMap from a block-matrix of operators.
+    
+    blocks[i][j] is the operator mapping from component j to component i.
+    """
+    from pynamit.math.linear_map import as_linear_map
+    
+    # Convert all blocks to LinearMaps
+    lm_blocks = [[as_linear_map(b) for b in row] for row in blocks]
+    
+    num_rows = len(lm_blocks)
+    num_cols = len(lm_blocks[0])
+    
+    # Check consistency of block shapes
+    row_heights = [row[0].shape[0] for row in lm_blocks]
+    col_widths = [lm_blocks[0][j].shape[1] for j in range(num_cols)]
+    
+    total_height = sum(row_heights)
+    total_width = sum(col_widths)
+    
+    dtype = lm_blocks[0][0].dtype
+    
+    def matvec(x):
+        # x: (total_width)
+        # Partition x into column components
+        x_parts = []
+        curr = 0
+        for w in col_widths:
+            x_parts.append(x[curr:curr+w])
+            curr += w
+            
+        # Cumulative sum for each row
+        res_parts = []
+        for i in range(num_rows):
+            row_sum = None
+            for j in range(num_cols):
+                term = lm_blocks[i][j].matvec(x_parts[j])
+                row_sum = term if row_sum is None else row_sum + term
+            res_parts.append(row_sum)
+            
+        return xp.concatenate(res_parts, axis=0)
+
+    def rmatvec(y):
+        # y: (total_height)
+        y_parts = []
+        curr = 0
+        for h in row_heights:
+            y_parts.append(y[curr:curr+h])
+            curr += h
+            
+        res_parts = []
+        for j in range(num_cols):
+            col_sum = None
+            for i in range(num_rows):
+                term = lm_blocks[i][j].rmatvec(y_parts[i])
+                col_sum = term if col_sum is None else col_sum + term
+            res_parts.append(col_sum)
+            
+        return xp.concatenate(res_parts, axis=0)
+
+    def to_dense():
+        rows = []
+        for i in range(num_rows):
+            row_dense = xp.concatenate([b.to_dense() for b in lm_blocks[i]], axis=1)
+            rows.append(row_dense)
+        return xp.concatenate(rows, axis=0)
+
+    return LinearMap(
+        shape=(total_height, total_width),
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _to_dense=to_dense if all(b._to_dense for row in lm_blocks for b in row) else None,
+        source=lm_blocks
+    )

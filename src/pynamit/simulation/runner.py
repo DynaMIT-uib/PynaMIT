@@ -35,6 +35,7 @@ def run_pynamit(
     u_lambda: Optional[float] = None,
     multi_data: bool = False,
     solution_basis_kind: str = "SH",
+    pure_spectral: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -119,6 +120,7 @@ def run_pynamit(
         vector_u=vector_u,
         integrator=integrator,
         solution_basis_kind=solution_basis_kind,
+        pure_spectral=pure_spectral,
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)

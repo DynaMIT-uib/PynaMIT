@@ -10,6 +10,7 @@ import scipy
 
 from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
 from pynamit.primitives.basis import Basis
+from pynamit.utils import xp
 
 if TYPE_CHECKING:
     from pynamit.math.linear_map import LinearMap
@@ -437,6 +438,116 @@ class SHBasis(Basis):
         from pynamit.math.linear_map import diagonal_linear_map
         return diagonal_linear_map(self.coeffs_to_delta_V)
 
+    def get_gradient_operator(self, r: float = 1.0) -> "LinearMap":
+        """
+        Get the analytical gradient operator in spectral space.
+        Maps scalar coefficients to Poloidal Vector coefficients.
+        
+        Applying this operator results in coefficients for the basis functions
+        G_vsh[0] = -grad Y.
+        """
+        from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+        ident = diagonal_linear_map(xp.ones(self.index_length) / r)
+        zeros = diagonal_linear_map(xp.zeros(self.index_length))
+        return BlockLinearMap([[ident], [zeros]]) # Shape (2L, L)
+
+    def get_curl_operator(self, r: float = 1.0) -> "LinearMap":
+        """
+        Get the analytical curl operator (r x grad) in spectral space.
+        Maps scalar coefficients to Toroidal Vector coefficients.
+        """
+        from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+        zeros = diagonal_linear_map(xp.zeros(self.index_length))
+        # Note: Torque R x Grad preserves the 1/r scaling
+        ident = diagonal_linear_map(xp.ones(self.index_length) / r)
+        return BlockLinearMap([[zeros], [ident]]) # Shape (2L, L)
+
+    def get_divergence_operator(self, r: float = 1.0) -> "LinearMap":
+        """
+        Get the analytical divergence operator in spectral space.
+        Maps [Poloidal; Toroidal] vector coefficients to scalar coefficients.
+        
+        div(c_pol * (-grad Y) + c_tor * (rxgrad Y)) = c_pol * (-laplacian Y)
+        Note: -laplacian Y / r^2 = n(n+1)/r^2 Y
+        The coefficients c_pol already include the 1/r from the gradient operator.
+        So divergence of (1/r grad Y) is (1/r^2 laplacian Y).
+        """
+        from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+        # Div of Poloidal: factors = n(n+1)/r 
+        # (since pol basis is -grad Y, and Div(-grad Y) = -Lap Y)
+        # If c_pol = V/r, then div(c_pol * -grad Y) = (V/r) * -Lap Y = V/r * n(n+1)/r^2 ... wait.
+        # Actually, the divergence operator should map the vector coefficients directly.
+        # div is d/dr ... wait, for sheet current on a sphere:
+        # div_S (A) = 1/(r sin th) [ d/dth (A_th sin th) + d/dph A_ph ]
+        # For our basis: div_S (-grad Y) = -Laplacian_S Y = n(n+1)/r^2 Y
+        factors = self.n * (self.n + 1) / r
+        op_pol = diagonal_linear_map(factors)
+        op_tor = diagonal_linear_map(xp.zeros(self.index_length))
+        return BlockLinearMap([[op_pol, op_tor]]) # Shape (L, 2L)
+
+    def get_vector_product_operator(self, tensor_sigma_coeffs: np.ndarray) -> "LinearMap":
+        """
+        Get interaction operator for a 2x2 conductance tensor and VSH vectors.
+        tensor_sigma_coeffs: (2, 2, L) matching SHBasis.
+        """
+        from pynamit.math.gaunt import GauntEngine
+        from pynamit.math.linear_map import as_linear_map
+        engine = GauntEngine(self)
+        
+        # 1. Project tensor components to quadrature grid
+        # Result: (2, 2, Q)
+        Q = engine.quad_grid.size
+        sigma_quad = np.empty((2, 2, Q))
+        for i in range(2):
+            for j in range(2):
+                sigma_quad[i, j] = engine.G_scalar.T @ tensor_sigma_coeffs[i, j]
+                
+        # 2. Compute Vector Interaction Matrix
+        M = engine.get_vector_interaction_matrix(sigma_quad)
+        return as_linear_map(M)
+
+    def get_product_operator(
+        self, coeffs_a: np.ndarray, grid: Optional[Any] = None, method: str = "transform"
+    ) -> "LinearMap":
+        """
+        Get product operator for SHBasis.
+
+        Parameters
+        ----------
+        coeffs_a : np.ndarray
+            Coefficients of multiplier field.
+        grid : Any, optional
+            Grid for transform method.
+        method : str, optional
+            'transform' (Grid-based evaluate/multiply/project) or 
+            'spectral' (Wigner-3j / Gaunt convolution).
+        """
+        from pynamit.math.linear_map import as_linear_map
+
+        if method == "spectral":
+            from pynamit.math.gaunt import GauntEngine
+            engine = GauntEngine(self)
+            M = engine.get_interaction_matrix(coeffs_a)
+            return as_linear_map(M)
+
+        if grid is None:
+            raise ValueError("SHBasis.get_product_operator requires a grid for the transform method.")
+
+        # 1. Transform multiplier coefficients to grid
+        a_grid = self.evaluate(coeffs_a, grid, vector_type="scalar")
+        
+        # 2. Build the Transform-Product-Project operator: P @ diag(a) @ G
+        G_mat = self.get_G(grid)
+        P_mat = grid.get_projection_matrix(self)
+        
+        op_G = as_linear_map(G_mat)
+        op_P = as_linear_map(P_mat)
+        
+        from pynamit.math.linear_map import diagonal_linear_map
+        op_diag_a = diagonal_linear_map(a_grid.flatten())
+        
+        return op_P @ op_diag_a @ op_G
+
     def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""
         if vector_type == "scalar":
@@ -543,8 +654,7 @@ class SHBasis(Basis):
         
         Requires an evaluator that can compute G_helmholtz (vector basis).
         """
-        from pynamit.utils import tensor_pinv
-        
+        from pynamit.utils import asarray, get_array_module, use_jax, xp, tensor_pinv
         # Calculate pseudo-inverse of the Helmholtz matrix: (2, N_grid, 2, N_sh)
         # Flatten input dims (2, N_grid) -> leading dim
 

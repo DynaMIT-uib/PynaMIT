@@ -21,7 +21,8 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import as_linear_map, LinearMap, diagonal_linear_map
 from pynamit.simulation.geometry import Geometry
 from pynamit.primitives.basis import Basis
-from pynamit.utils import asarray, use_jax, xp, to_numpy
+from pynamit.math.constants import mu0
+from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,7 @@ class State:
         self.RM = None if settings.RM == 0 else settings.RM
         self.ih_constraint_scaling = settings.ih_constraint_scaling
         self.connect_hemispheres = bool(settings.connect_hemispheres)
+        self.pure_spectral = getattr(settings, "pure_spectral", False)
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients."""
@@ -251,48 +253,83 @@ class State:
         # output: (i, j, k)
         return xp.einsum("sijk,sk->ijk", b_stacked, eta_stacked, optimize=True)
 
-    def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[LinearMap]:
-        if G_X_to_JS is None:
+    def _create_E_coeffs_operator(
+        self, G_X_to_JS: Optional[np.ndarray], mapping_type: str = "poloidal"
+    ) -> Optional[LinearMap]:
+        if G_X_to_JS is None and not self.pure_spectral:
             return None
         
-        # Geometry (G): Coeffs -> Grid Vector
-        G_backend = asarray(G_X_to_JS)
-        op_G = as_linear_map(G_backend.reshape(-1, G_backend.shape[-1]))
+        # Hybrid/Grid Path check
+        if not self.pure_spectral:
+            # Geometry (G): Coeffs -> Grid Vector
+            G_backend = asarray(G_X_to_JS)
+            op_G = as_linear_map(G_backend.reshape(-1, G_backend.shape[-1]))
+            
+            # Resistance (M): Grid Vector -> Grid Vector (Block Diagonal)
+            res_op = _ResistanceOperator(self.M_total_on_grid)
+            op_M = LinearMap(
+                shape=res_op.shape,
+                dtype=res_op.dtype,
+                _matvec=res_op.matvec,
+                _rmatvec=res_op.rmatvec,
+                _matmat=res_op.matmat,
+                _rmatmat=res_op.rmatmat,
+                _to_dense=res_op.to_dense,
+                source=res_op
+            )
+            
+            # Projection (P): Grid Vector -> Solution Basis
+            P_matrix = self.geometry.projection_matrix
+            op_P = as_linear_map(asarray(P_matrix) if not hasattr(P_matrix, "toarray") else P_matrix)
+            
+            return op_P @ op_M @ op_G
+            
+        # Pure Spectral Path
+        # JS_coeffs = Σ_coeffs * E_coeffs
+        m_total = self.M_total_on_grid # (2, 2, Q) - Conductance tensor on grid
         
-        # Resistance (M): Grid Vector -> Grid Vector (Block Diagonal)
-        res_op = _ResistanceOperator(self.M_total_on_grid)
-        op_M = LinearMap(
-            shape=res_op.shape,
-            dtype=res_op.dtype,
-            _matvec=res_op.matvec,
-            _rmatvec=res_op.rmatvec,
-            _matmat=res_op.matmat,
-            _rmatmat=res_op.rmatmat,
-            _to_dense=res_op.to_dense,
-            source=res_op
-        )
+        # Project each component of the tensor to spectral coefficients (L, 2, 2)
+        G_scalar = self.solution_basis.get_evaluation_matrix(self.geometry.grid)
+        if hasattr(G_scalar, "toarray"):
+            G_scalar = G_scalar.toarray()
+        P_scalar = tensor_pinv(asarray(G_scalar), n_leading_flattened=1)
+        m_total_coeffs = xp.tensordot(P_scalar, m_total, axes=([1], [2])) # (L, 2, 2)
         
-        # Projection (P): Grid Vector -> Solution Basis
-        # Returns Dense (SH) or Sparse (CS/Grid)
-        P_matrix = self.geometry.projection_matrix
-        op_P = as_linear_map(asarray(P_matrix) if not hasattr(P_matrix, "toarray") else P_matrix)
+        # We need (2, 2, L) for the vector product call
+        sigma_tensor_coeffs = xp.transpose(m_total_coeffs, (1, 2, 0))
         
-        return op_P @ op_M @ op_G
+        # Build Vector Interaction Operator (Spectral to Spectral VSH)
+        op_M_spec = self.solution_basis.get_vector_product_operator(sigma_tensor_coeffs)
+        
+        # Analytical Mapping (Gradient or Curl)
+        # Physics factor: E = -grad V. J_S = Σ E.
+        # But our VSH basis P maps to -grad Y. So JS = Σ (V_coeffs * -grad Y).
+        # We also need the 1/mu0 factor from G_grad = (-1/mu0) * grad_op in Geometry.
+        phys_factor = -1.0 / mu0
+        
+        if mapping_type == "poloidal":
+            op_G_spec = self.solution_basis.get_gradient_operator(self.geometry.RI)
+        else:
+            op_G_spec = self.solution_basis.get_curl_operator(self.geometry.RI)
+            
+        return op_M_spec @ (phys_factor * op_G_spec)
 
     @cached_property
     def m_ind_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_ind coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS)
+        return self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS, mapping_type="toroidal")
 
     @cached_property
     def m_imp_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_imp coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS)
+        return self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS, mapping_type="poloidal")
 
     @cached_property
     def Br_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping Br coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(getattr(self.geometry, "G_Br_to_JS", None))
+        return self._create_E_coeffs_operator(
+            getattr(self.geometry, "G_Br_to_JS", None), mapping_type="toroidal"
+        )
 
     @cached_property
     def E_map_constraint_operator(self) -> Optional[LinearMap]:

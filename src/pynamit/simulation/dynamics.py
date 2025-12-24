@@ -56,6 +56,7 @@ class DynamicsSettings:
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     filename_prefix: str = "simulation"
     solution_basis_kind: Literal["SH", "CS"] = "SH"
+    pure_spectral: bool = False
 
     def to_dataset(self) -> xr.Dataset:
         """Convert settings to an xarray Dataset for storage."""
@@ -70,6 +71,7 @@ class DynamicsSettings:
         attrs["vector_conductance"] = int(self.vector_conductance)
         attrs["vector_u"] = int(self.vector_u)
         attrs["save_steady_states"] = int(self.save_steady_states)
+        attrs["pure_spectral"] = int(self.pure_spectral)
 
         # Remove backend as it is runtime configuration
         if "backend" in attrs:
@@ -113,8 +115,9 @@ class DynamicsSettings:
             integrator=get("integrator", defaults.integrator),
             # Runtime fields not in file
             backend=defaults.backend,
-            filename_prefix=defaults.filename_prefix,
+            filename_prefix=get("filename_prefix", defaults.filename_prefix),
             solution_basis_kind=get("solution_basis_kind", defaults.solution_basis_kind),
+            pure_spectral=bool(get("pure_spectral", defaults.pure_spectral)),
         )
 
 
@@ -165,13 +168,13 @@ class Dynamics:
         integrator: Literal["euler", "exponential"] = "euler",
         backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
         solution_basis_kind: Literal["SH", "CS"] = "SH",
+        pure_spectral: bool = False,
     ):
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
             FAC_integration_steps = np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
 
         initial_settings = DynamicsSettings(
-            filename_prefix=filename_prefix,
             Nmax=Nmax,
             Mmax=Mmax,
             Ncs=Ncs,
@@ -193,7 +196,9 @@ class Dynamics:
             save_steady_states=save_steady_states,
             integrator=integrator,
             backend=backend,
+            filename_prefix=filename_prefix or "simulation",
             solution_basis_kind=solution_basis_kind,
+            pure_spectral=pure_spectral,
         )
         self.settings = initial_settings
         self.backend = set_backend(backend)

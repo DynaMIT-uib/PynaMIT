@@ -84,6 +84,11 @@ class GridBasis(Basis, ABC):
         """Get the potential scaling operator. To be implemented by subclasses if applicable."""
         raise NotImplementedError(f"Potential scaling not defined for base {self.__class__.__name__}")
 
+    def get_product_operator(self, coeffs_a: np.ndarray, grid: Optional[Any] = None) -> LinearMap:
+        """Get product operator for GridBasis (diagonal multiplication)."""
+        from pynamit.math.linear_map import diagonal_linear_map
+        return diagonal_linear_map(np.asarray(coeffs_a).flatten())
+
     def get_extended_basis(self) -> "Basis":
         """Default: return self."""
         return self

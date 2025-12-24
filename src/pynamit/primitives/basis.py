@@ -93,6 +93,28 @@ class Basis(ABC):
         pass
 
     @abstractmethod
+    def get_product_operator(self, coeffs_a: np.ndarray, grid: Optional[Any] = None) -> "LinearMap":
+        """
+        Get a LinearMap that performs multiplication by a field in this basis.
+        
+        Applying the resulting operator to coeffs_b should yield the 
+        coefficients of the field product c = a * b.
+
+        Parameters
+        ----------
+        coeffs_a : np.ndarray
+            Coefficients of the multiplier field 'a'.
+        grid : Any, optional
+            Grid to use if the implementation requires a transform.
+
+        Returns
+        -------
+        LinearMap
+            Operator M such that M @ coeffs_b = coeffs(a * b).
+        """
+        pass
+
+    @abstractmethod
     def get_extended_basis(self) -> "Basis":
         """Return a basis extended to include lower-order terms if applicable."""
         pass
