@@ -19,6 +19,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
 from pynamit.primitives.basis import Basis
+from pynamit.math.linear_map import as_linear_map
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -98,30 +99,23 @@ class Geometry:
 
         self._init_constraint_mappings()
 
-        # Use solution basis for the Laplacian operator (m_imp -> jr)
+        # 1. Solution/Simulation basis operators (for the unknowns on the solver grid)
         self.m_imp_to_jr = (self.RI / mu0) * self.solution_basis.get_laplacian_operator(self.RI)
-        
+        self.m_ind_to_Br = -(self.RI**2) * self.solution_basis.get_laplacian_operator(self.RI)
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
-        # Use geomagnetic basis for Laplacian and Curl related to m_ind
-        basis_for_induction = self.basis
-        self.m_ind_to_Br = -(self.RI**2) * basis_for_induction.get_laplacian_operator(self.RI)
 
-        # Induction operators
-        # Check if basis supports poloidal-to-current conversion
+        # 2. Spectral Induction operators (Required for T_to_Ve and coupling)
+        scaling_op_sh = self.basis.get_potential_scaling_operator()
+        curl_sh = as_linear_map(self.basis.get_curl_matrix(self.grid))
+        G_lin_sh = (1.0 / self.RI) * (curl_sh @ ((-self.RI / mu0) * scaling_op_sh))
+        self.G_Ve_to_JS_sh = G_lin_sh.to_dense().reshape(2, -1, self.basis.index_length)
+
+        # 3. Grid-native Induction operators (for local induction loop)
         try:
-             scaling_op = basis_for_induction.get_potential_scaling_operator()
-             # Mapping from external poloidal potential to surface current
-             Ve_to_J_df_coeffs = (-self.RI / mu0) * scaling_op
-             
-             # G_Ve_to_JS maps m_ind -> JS (surface current)
-             # JS = (1/RI) * Curl * Ve_to_J_df_coeffs * m_ind
-             from pynamit.math.linear_map import as_linear_map
-             curl_op = as_linear_map(basis_for_induction.get_curl_matrix(self.grid))
-             G_lin = (1.0 / self.RI) * (curl_op @ Ve_to_J_df_coeffs)
-             
-             # Densify and reshape to match expected 3D geometry structure (comp, grid, coeffs)
-             L = basis_for_induction.index_length
-             self.G_Ve_to_JS = G_lin.to_dense().reshape(2, -1, L)
+             scaling_op_cs = self.solution_basis.get_potential_scaling_operator()
+             curl_cs = as_linear_map(self.solution_basis.get_curl_matrix(self.grid))
+             G_lin_cs = (1.0 / self.RI) * (curl_cs @ ((-self.RI / mu0) * scaling_op_cs))
+             self.G_Ve_to_JS = G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
         except (NotImplementedError, AttributeError):
              self.G_Ve_to_JS = None
 
@@ -289,8 +283,10 @@ class Geometry:
                 "All FAC integration steps must be inside the magnetospheric boundary (RM)."
             )
 
-        JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
-        m_imp_to_jr_coeffs = self.RI / mu0 * self.basis.laplacian(self.RI)
+        # Use spectral induction mapping here (T -> Ve)
+        JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS_sh, n_leading_flattened=2, rtol=0)
+        # Use eigenvalues (diagonal) for scaling the spectral basis
+        m_imp_to_jr_coeffs = self.RI / mu0 * np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
 
         for i, rk in enumerate(rks):
             logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
@@ -334,16 +330,24 @@ class Geometry:
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
-        G_T_to_JS = -1.0 / self.RI * self.basis.get_gradient_matrix(self.grid) * (self.RI / mu0)
+        # Gradient part matches solution_basis (CS or SH)
+        grad_op = as_linear_map(self.solution_basis.get_gradient_matrix(self.grid))
+        G_grad = (-1.0 / self.RI) * grad_op * (self.RI / mu0)
+        G_total = G_grad.to_dense().reshape(2, -1, self.solution_basis.index_length)
         
-        if self.G_Ve_to_JS is not None:
-             term = np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))
-             G_T_to_JS += term
+        if self.G_Ve_to_JS_sh is not None:
+             # Coupling part (T -> Ve -> JS) ALWAYS uses spectral SH
+             JS_coupling_sh = np.tensordot(self.G_Ve_to_JS_sh, self.T_to_Ve.values, axes=([2], [0]))
              
-        if self.input_adapter is not None:
-             G_T_to_JS = np.tensordot(G_T_to_JS, self.input_adapter, axes=([2], [0]))
+             if self.input_adapter is not None:
+                  # Hybrid: map spectral coupling back to solution grid
+                  JS_coupling_grid = np.tensordot(JS_coupling_sh, as_linear_map(self.input_adapter).to_dense(), axes=([2], [0]))
+                  G_total += JS_coupling_grid
+             else:
+                  # SH-only: G_total is already spectral
+                  G_total += JS_coupling_sh
         
-        return G_T_to_JS
+        return G_total
 
     def _get_transformation_matrices(self, dfield: Field):
         """Compute transformation matrices for Apex coordinates."""
@@ -398,27 +402,31 @@ class Geometry:
         if self.G_Ve_to_JS is None:
              return None
              
+        # G is our local operator (now on solution_basis, e.g. CS)
         G = self.G_Ve_to_JS.copy()
-        # Use geomagnetic basis for scaling
-        L_op = self.basis.get_laplacian_operator(self.RI)
-        # Extract diagonal for element-wise scaling of coefficients
-        m_ind_to_Br = -(self.RI**2) * np.diag(L_op.to_dense())
-
-        # Scale spectral operator first
-        if self.RM is not None:
-            # SHBasis returns diagonal operators, so extracting diag is safe and correct for scaling
-            br_shift = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
-            vi_shift = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
-            den = 1.0 - br_shift * vi_shift
-            
-            # G_Br_to_JS matches Br input basis
-            G_Br_to_JS_coeffs = G * (-br_shift / den / m_ind_to_Br)
-            G *= 1.0 + (br_shift * vi_shift / den)
-            
-            self.G_Br_to_JS = G_Br_to_JS_coeffs
-
-        # Map complete operator to grid if hybrid to match m_ind input (Grid)
-        if self.input_adapter is not None:
-             G = np.tensordot(G, self.input_adapter, axes=([2], [0]))
         
+        if self.RM is not None:
+             # 1. Build spectral factors (sh version of local part for magnetosphere)
+             # G_Br_to_JS is spectral (maps SH Br -> grid JS)
+             br_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+             vi_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+             den = 1.0 - br_shift_sh * vi_shift_sh
+             
+             spectral_L_op = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
+             m_ind_to_Br_sh = -(self.RI**2) * spectral_L_op
+             
+             self.G_Br_to_JS = self.G_Ve_to_JS_sh * (-br_shift_sh / den / m_ind_to_Br_sh)
+             
+             # 2. Add coupling to local grid-native G
+             coupling_scale = (br_shift_sh * vi_shift_sh / den)
+             G_coupling_sh = self.G_Ve_to_JS_sh * coupling_scale
+             
+             if self.input_adapter is not None:
+                  # Hybrid: map spectral coupling back to grid to match solution_basis (m_ind_cs)
+                  G_coupling_grid = np.tensordot(G_coupling_sh, as_linear_map(self.input_adapter).to_dense(), axes=([2], [0]))
+                  G += G_coupling_grid
+             else:
+                  # SH-only: G is already spectral
+                  G += G_coupling_sh
+                  
         return G

@@ -87,10 +87,9 @@ def test_cs_basis_state_end_to_end():
     assert state.geometry.input_adapter is not None, "Hybrid input_adapter should be created w/ SHBasis/CSBasis mismatch"
     assert state.geometry.G_Ve_to_JS is not None, "Hybrid G_Ve_to_JS should be created w/ SHBasis"
     
-    # Check shape of G_Ve_to_JS (2, N_grid, N_sh)
-    # (2 comps, N output grid, N input SH coeffs)
-    # Note: G_Ve_to_JS is kept in spectral domain (coeffs input) to compatible with T_to_Ve
-    assert state.geometry.G_Ve_to_JS.shape == (2, cs_basis.size, sh_basis_dummy.index_length)
+    # Check shape of G_Ve_to_JS (2, N_grid, N_coeffs)
+    # After refactor, G_Ve_to_JS uses solution_basis (grid-native)
+    assert state.geometry.G_Ve_to_JS.shape == (2, cs_basis.size, cs_basis.size)
     
     # Verify Geometry initialized with correct matrix operators
     assert state.geometry.m_imp_to_jr.shape == (cs_basis.size, cs_basis.size)
