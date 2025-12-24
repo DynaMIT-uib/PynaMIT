@@ -308,9 +308,9 @@ class State:
         phys_factor = -1.0 / mu0
         
         if mapping_type == "poloidal":
-            op_G_spec = self.solution_basis.get_gradient_operator(self.geometry.RI)
+            op_G_spec = self.solution_basis.get_gradient_operator() # Unit sphere gradient (r=1.0)
         else:
-            op_G_spec = self.solution_basis.get_curl_operator(self.geometry.RI)
+            op_G_spec = self.solution_basis.get_curl_operator() # Unit sphere curl (r=1.0)
             
         return op_M_spec @ (phys_factor * op_G_spec)
 
