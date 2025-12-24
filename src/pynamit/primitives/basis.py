@@ -11,6 +11,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from pynamit.math.least_squares_problem import LeastSquaresProblem
+    from pynamit.math.linear_map import LinearMap
 
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 
@@ -72,6 +73,28 @@ class Basis(ABC):
     @abstractmethod
     def minimum_phi_sampling(self) -> float:
         """Minimum required sampling in phi direction."""
+        pass
+
+    @abstractmethod
+    def get_laplacian_operator(self, r: float = 1.0) -> "LinearMap":
+        """Get the Laplacian operator for this basis."""
+        pass
+
+    @abstractmethod
+    def get_radial_shift_operator(
+        self, start_r: float, end_r: float, kind: str = "external"
+    ) -> "LinearMap":
+        """Get the radial shift operator for potential coefficients."""
+        pass
+
+    @abstractmethod
+    def get_potential_scaling_operator(self) -> "LinearMap":
+        """Get the operator for converting coefficients to surface potential."""
+        pass
+
+    @abstractmethod
+    def get_extended_basis(self) -> "Basis":
+        """Return a basis extended to include lower-order terms if applicable."""
         pass
 
 

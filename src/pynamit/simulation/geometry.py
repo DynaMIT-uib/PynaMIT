@@ -18,7 +18,7 @@ from pynamit.math.constants import mu0
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
-from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.primitives.basis import Basis
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ class Geometry:
 
     def __init__(
         self,
-        basis: SHBasis,
+        basis: Basis,
         grid_basis: "GridBasis",
         mainfield: Any,
         settings: Any,
@@ -99,20 +99,30 @@ class Geometry:
         self._init_constraint_mappings()
 
         # Use solution basis for the Laplacian operator (m_imp -> jr)
-        self.m_imp_to_jr = self.RI / mu0 * self.solution_basis.laplacian(self.RI)
+        self.m_imp_to_jr = (self.RI / mu0) * self.solution_basis.get_laplacian_operator(self.RI)
         
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
-        # Always use spectral laplacian for induction scaling factors
-        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+        # Use geomagnetic basis for Laplacian and Curl related to m_ind
+        basis_for_induction = self.basis
+        self.m_ind_to_Br = -(self.RI**2) * basis_for_induction.get_laplacian_operator(self.RI)
 
-        # Induction operators: specialized logic removed.
-        # Use simple attribute check.
-        basis_for_induction = self.solution_basis if hasattr(self.solution_basis, "coeffs_to_delta_V") else self.basis
-        
-        if hasattr(basis_for_induction, "coeffs_to_delta_V"):
-             Ve_to_J_df_coeffs = -self.RI / mu0 * basis_for_induction.coeffs_to_delta_V
-             self.G_Ve_to_JS = (1.0 / self.RI) * self.basis.get_curl_matrix(self.grid) * Ve_to_J_df_coeffs
-        else:
+        # Induction operators
+        # Check if basis supports poloidal-to-current conversion
+        try:
+             scaling_op = basis_for_induction.get_potential_scaling_operator()
+             # Mapping from external poloidal potential to surface current
+             Ve_to_J_df_coeffs = (-self.RI / mu0) * scaling_op
+             
+             # G_Ve_to_JS maps m_ind -> JS (surface current)
+             # JS = (1/RI) * Curl * Ve_to_J_df_coeffs * m_ind
+             from pynamit.math.linear_map import as_linear_map
+             curl_op = as_linear_map(basis_for_induction.get_curl_matrix(self.grid))
+             G_lin = (1.0 / self.RI) * (curl_op @ Ve_to_J_df_coeffs)
+             
+             # Densify and reshape to match expected 3D geometry structure (comp, grid, coeffs)
+             L = basis_for_induction.index_length
+             self.G_Ve_to_JS = G_lin.to_dense().reshape(2, -1, L)
+        except (NotImplementedError, AttributeError):
              self.G_Ve_to_JS = None
 
 
@@ -130,10 +140,7 @@ class Geometry:
         self.grid = grid_basis.grid
         
         # Use polymorphic method to get zero-added basis (for Monopole support in SH)
-        if hasattr(self.basis, "get_extended_basis"):
-            self.basis_zero_added = self.basis.get_extended_basis()
-        else:
-            self.basis_zero_added = self.basis
+        self.basis_zero_added = self.basis.get_extended_basis()
              
         self.b_field = self.mainfield.discretize(self.grid, self.RI)
 
@@ -387,23 +394,28 @@ class Geometry:
 
     @cached_property
     def G_m_ind_to_JS(self) -> np.ndarray:
-        """Operator mapping m_imp to sheet current on grid."""
+        """Operator mapping m_ind to sheet current on grid."""
+        if self.G_Ve_to_JS is None:
+             return None
+             
         G = self.G_Ve_to_JS.copy()
-        # Use spectral physics (basis) for scaling
-        m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
+        # Use geomagnetic basis for scaling
+        L_op = self.basis.get_laplacian_operator(self.RI)
+        # Extract diagonal for element-wise scaling of coefficients
+        m_ind_to_Br = -(self.RI**2) * np.diag(L_op.to_dense())
 
         # Scale spectral operator first
         if self.RM is not None:
-            br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
-            vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
+            # SHBasis returns diagonal operators, so extracting diag is safe and correct for scaling
+            br_shift = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+            vi_shift = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
             den = 1.0 - br_shift * vi_shift
             
-            # Note: G_Ve_to_JS is already spectral if initialized with basis
-            G_Br_to_JS_spectral = self.G_Ve_to_JS * (-br_shift / den / m_ind_to_Br)
+            # G_Br_to_JS matches Br input basis
+            G_Br_to_JS_coeffs = G * (-br_shift / den / m_ind_to_Br)
             G *= 1.0 + (br_shift * vi_shift / den)
             
-            # G_Br_to_JS should match Br input basis (SH)
-            self.G_Br_to_JS = G_Br_to_JS_spectral
+            self.G_Br_to_JS = G_Br_to_JS_coeffs
 
         # Map complete operator to grid if hybrid to match m_ind input (Grid)
         if self.input_adapter is not None:

@@ -70,6 +70,35 @@ class CSBasis(GridBasis):
     def kind(self) -> str:
         return "CS"
 
+    def get_laplacian_operator(self, r: float = 1.0) -> "LinearMap":
+        """Get the Laplacian operator for CSBasis."""
+        from pynamit.math.linear_map import as_linear_map
+        return as_linear_map(self.laplacian(r))
+
+    def get_radial_shift_operator(
+        self, start_r: float, end_r: float, kind: str = "external"
+    ) -> "LinearMap":
+        """Get the radial shift operator. Default to global SH-like scaling for now."""
+        from pynamit.math.linear_map import diagonal_linear_map
+        # Grid basis can follow same potential radial scaling as SH (physics-based)
+        # We assume each point scales like a generic potential term.
+        # This is strictly true only for SH, but a reasonable "grid" approximation 
+        # for potential fields if we don't have a better model.
+        if kind == "external":
+            # For Ve, usually n-dependent. If we don't have n, we assume a representative n=1?
+            # Or we use a safe default of 1.0 if not supported.
+            factor = (start_r / end_r)
+        else:
+            factor = (start_r / end_r) ** 2
+        
+        return diagonal_linear_map(np.ones(self.index_length) * factor)
+
+    def get_potential_scaling_operator(self) -> "LinearMap":
+        """Get potential scaling operator. To be refined for CS geometry."""
+        from pynamit.math.linear_map import diagonal_linear_map
+        # SH uses (2n + 1). For grid, 1.0 is a safe identity stub if not doing induction.
+        return diagonal_linear_map(np.ones(self.index_length))
+
     @property
     def size(self):
         """Number of grid points."""

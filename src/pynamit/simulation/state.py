@@ -20,7 +20,7 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 
 from pynamit.math.linear_map import as_linear_map, LinearMap, diagonal_linear_map
 from pynamit.simulation.geometry import Geometry
-from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.primitives.basis import Basis
 from pynamit.utils import asarray, use_jax, xp, to_numpy
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ class State:
 
     def __init__(
         self,
-        basis: SHBasis,
+        basis: Basis,
         mainfield: Any,
         grid_basis: Any,
         settings: Any,
@@ -106,7 +106,7 @@ class State:
         
         Parameters
         ----------
-        basis : SHBasis
+        basis : Basis
             The spectral basis.
         mainfield : Mainfield
             The main magnetic field.

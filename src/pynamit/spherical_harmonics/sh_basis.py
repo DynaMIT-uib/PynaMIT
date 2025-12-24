@@ -1,7 +1,7 @@
 """Spherical Harmonic Basis Class."""
 
 import numpy as np
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, TYPE_CHECKING
 import math
 from functools import cached_property
 import warnings
@@ -10,6 +10,9 @@ import scipy
 
 from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
 from pynamit.primitives.basis import Basis
+
+if TYPE_CHECKING:
+    from pynamit.math.linear_map import LinearMap
 
 # Conditional Import for SciPy Version Compatibility
 # Check the SciPy version to import the correct, available function.
@@ -413,6 +416,26 @@ class SHBasis(Basis):
     def coeffs_to_delta_V(self):
         """Factor to convert coefficients to delta V at unit radius."""
         return 2 * self.n + 1
+
+    def get_laplacian_operator(self, r: float = 1.0) -> "LinearMap":
+        """Get the Laplacian operator for this basis."""
+        from pynamit.math.linear_map import diagonal_linear_map
+        return diagonal_linear_map(self.laplacian(r))
+
+    def get_radial_shift_operator(
+        self, start_r: float, end_r: float, kind: str = "external"
+    ) -> "LinearMap":
+        """Get the radial shift operator for potential coefficients."""
+        from pynamit.math.linear_map import diagonal_linear_map
+        if kind == "external":
+            return diagonal_linear_map(self.radial_shift_Ve(start_r, end_r))
+        else:
+            return diagonal_linear_map(self.radial_shift_Vi(start_r, end_r))
+
+    def get_potential_scaling_operator(self) -> "LinearMap":
+        """Get the operator for converting coefficients to surface potential."""
+        from pynamit.math.linear_map import diagonal_linear_map
+        return diagonal_linear_map(self.coeffs_to_delta_V)
 
     def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""

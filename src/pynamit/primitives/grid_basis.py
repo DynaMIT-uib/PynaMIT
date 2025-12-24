@@ -11,6 +11,7 @@ from pynamit.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import Grid
+    from pynamit.math.linear_map import LinearMap
 
 
 class GridBasis(Basis, ABC):
@@ -68,6 +69,24 @@ class GridBasis(Basis, ABC):
     def minimum_phi_sampling(self) -> float:
         """Default sampling requirement."""
         return 1.0
+
+    def get_laplacian_operator(self, r: float = 1.0) -> "LinearMap":
+        """Get the Laplacian operator. To be implemented by subclasses if applicable."""
+        raise NotImplementedError(f"Laplacian not defined for base {self.__class__.__name__}")
+
+    def get_radial_shift_operator(
+        self, start_r: float, end_r: float, kind: str = "external"
+    ) -> "LinearMap":
+        """Get the radial shift operator. To be implemented by subclasses if applicable."""
+        raise NotImplementedError(f"Radial shift not defined for base {self.__class__.__name__}")
+
+    def get_potential_scaling_operator(self) -> "LinearMap":
+        """Get the potential scaling operator. To be implemented by subclasses if applicable."""
+        raise NotImplementedError(f"Potential scaling not defined for base {self.__class__.__name__}")
+
+    def get_extended_basis(self) -> "Basis":
+        """Default: return self."""
+        return self
 
     @property
     def theta(self):

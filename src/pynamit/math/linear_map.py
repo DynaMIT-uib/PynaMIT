@@ -26,6 +26,11 @@ class LinearMap:
 
     shape: Shape
     dtype: Any
+
+    @property
+    def ndim(self) -> int:
+        """Dimensionality of the linear map (always 2)."""
+        return 2
     _matvec: MapFunc
     _rmatvec: MapFunc
     _matmat: Optional[MapFunc] = None
@@ -64,8 +69,16 @@ class LinearMap:
             raise ValueError("Dense representation not available for this LinearMap.")
         return self._to_dense()
 
-    def __matmul__(self, other: Any) -> LinearMap:
-        """Compose this linear map with another operator."""
+    def __matmul__(self, other: Any) -> Any:
+        """Matrix-vector product (if other is array) or Composition (if other is manager)."""
+        # If other is an array, perform matvec/matmat for better drop-in compatibility
+        if isinstance(other, (np.ndarray, list)) or (hasattr(other, "shape") and not hasattr(other, "matvec")):
+             arr = asarray(other)
+             if arr.ndim == 1:
+                  return self.matvec(arr)
+             if arr.ndim == 2:
+                  return self.matmat(arr)
+
         other_map = as_linear_map(other)
         if self.shape[1] != other_map.shape[0]:
             raise ValueError(

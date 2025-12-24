@@ -20,6 +20,7 @@ from pynamit.primitives.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.primitives.input_manager import InputManager
+from pynamit.primitives.basis import Basis
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, set_backend, xp
 
@@ -133,6 +134,8 @@ class Dynamics:
         Current state of the system.
     RI : float
         Radius of the ionosphere in meters.
+    basis : Basis
+        The mathematical basis used for the simulation.
     mainfield : Mainfield
         Main magnetic field model.
     """
