@@ -7,7 +7,7 @@ import pytest
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
 
-
+@pytest.mark.wind
 def test_steady_state_init_grid():
     """Test grid-based simulation with steady state initialization."""
     # Arrange.

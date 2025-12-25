@@ -7,7 +7,7 @@ import pytest
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
 
-
+@pytest.mark.wind
 def test_multi_data():
     """Test simulation with multiple data points."""
     # Arrange.

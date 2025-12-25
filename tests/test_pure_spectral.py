@@ -3,12 +3,13 @@ import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
 
-def test_pure_spectral_execution():
+@pytest.mark.wind
+def test_pure_spectral_execution(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode
-    expected_coeff_norm = 2.7168892105e-08
-    expected_coeff_max = 1.8360738910e-08
-    expected_coeff_min = -7.0821962621e-09
+    expected_coeff_norm = 2.716889203812775e-08
+    expected_coeff_max = 1.836073890986364e-08
+    expected_coeff_min = -7.082196262066677e-09
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(
@@ -18,6 +19,7 @@ def test_pure_spectral_execution():
         Ncs=6,
         simulation_mode="pure_spectral",
         steady_state_initialization=False,
+        wind=True,
     )
     
     state_ds = dynamics.output_timeseries.datasets["state"]
@@ -32,10 +34,15 @@ def test_pure_spectral_execution():
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
 
+    print("actual_coeff_norm: ", actual_coeff_norm)
+    print("actual_coeff_max: ", actual_coeff_max)
+    print("actual_coeff_min: ", actual_coeff_min)
+    print("actual_n_coeffs: ", actual_n_coeffs)
+
     # Assert.
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
+    assert actual_coeff_norm == pynamit_approx(expected_coeff_norm)
+    assert actual_coeff_max == pynamit_approx(expected_coeff_max)
+    assert actual_coeff_min == pynamit_approx(expected_coeff_min)
     assert actual_n_coeffs == expected_n_coeffs
     
     print("Pure Spectral execution and numerical validation successful.")

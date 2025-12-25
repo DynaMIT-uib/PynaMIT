@@ -7,7 +7,7 @@ import pytest
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
 
-
+@pytest.mark.wind
 def test_multi_data_dop853():
     """Test simulation with multiple data points and DOP853."""
     # Arrange.

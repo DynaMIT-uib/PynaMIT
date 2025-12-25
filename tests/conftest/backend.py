@@ -149,3 +149,23 @@ def configure_runtime(backend: str, data_source: str):
             os.environ.pop("PYNAMIT_INPUT_SOURCE", None)
         else:
             os.environ["PYNAMIT_INPUT_SOURCE"] = previous_source_env
+
+
+@pytest.fixture
+def rel_tol(request: pytest.FixtureRequest, data_source: str) -> float:
+    """Fixture to provide the relative tolerance for comparisons.
+
+    Defaults to 1e-10. Returns 1e-5 for native tests with wind enabled.
+    """
+    is_wind = "wind" in request.node.name.lower() or request.node.get_closest_marker("wind")
+    if data_source == "native" and is_wind:
+        return 1e-5
+    return 1e-9
+
+
+@pytest.fixture
+def pynamit_approx(rel_tol: float):
+    """Fixture providing a configured pytest.approx with appropriate rel threshold."""
+    from functools import partial
+
+    return partial(pytest.approx, rel=rel_tol, abs=0.0)

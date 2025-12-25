@@ -8,7 +8,8 @@ from pynamit.simulation.runner import run_pynamit
 import numpy as np
 
 
-def test_2d_igrf_pfac_hc_wind():
+@pytest.mark.wind
+def test_2d_igrf_pfac_hc_wind(pynamit_approx):
     """Test 2D simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
     expected_coeff_norm = 8.02198350603864e-09
@@ -55,7 +56,7 @@ def test_2d_igrf_pfac_hc_wind():
     print("actual_n_coeffs: ", actual_n_coeffs)
 
     # pyHWM uses single precision, relax tolerances for wind tests.
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert actual_coeff_norm == pynamit_approx(expected_coeff_norm)
+    assert actual_coeff_max == pynamit_approx(expected_coeff_max)
+    assert actual_coeff_min == pynamit_approx(expected_coeff_min)
+    assert actual_n_coeffs == pynamit_approx(expected_n_coeffs)
