@@ -510,13 +510,85 @@ class CSBasis(GridBasis):
 
 
     def construct_projection_matrix(self, grid) -> Any:
-        """Construct the projection matrix mapping Grid Vector -> Grid Values.
+        """Construct the projection matrix mapping Grid Vector -> Scalar Potentials.
         
-        For CSBasis, this is Identity (mapped to flat vector).
+        For CSBasis in cs_dominant mode, the state variables (Phi, W) are 
+        scalar potentials. This matrix performs Helmholtz decomposition 
+        on the grid to extract them.
         """
-        from scipy import sparse
-        n = 2 * self.index_length
-        return sparse.eye(n, format="csr")
+        import scipy.sparse
+        import scipy.sparse.linalg
+        from pynamit.utils import xp, to_numpy, asarray
+
+        # 1. Operators on the sphere
+        L = self.laplacian(r=1.0)
+        D = self._get_grid_divergence(grid, r=1.0)
+        C = self._get_grid_curl(grid, r=1.0)
+
+        # 2. Regularized Pseudo-inverse of Laplacian
+        # L is singular (constant null-space). 
+        # We solve (L - reg*I) x = f
+        n = self.index_length
+        L_dense = L.toarray()
+        reg = 1e-12 
+        L_reg = L_dense - reg * np.eye(n)
+        L_inv = np.linalg.inv(L_reg)
+
+        # 3. Build block matrix P = [ -L_inv @ D ; -L_inv @ C ]
+        # D is (N, 2N), C is (N, 2N)
+        P_phi = -L_inv @ D
+        P_w = -L_inv @ C
+        
+        P = np.vstack([P_phi, P_w]) # (2N, 2N)
+        
+        return scipy.sparse.csr_matrix(P)
+
+    def _get_grid_divergence(self, grid: Any, r: float = 1.0) -> Any:
+        """Get the discrete divergence operator matrix on the grid."""
+        import scipy.sparse
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
+
+        theta_rad = np.deg2rad(self.arr_theta)
+        sin_th = np.sin(theta_rad)
+        
+        epsilon = 1e-10
+        sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
+        sin_th_mat = scipy.sparse.diags(sin_th)
+
+        # Div = (1/r sin th) [ d_th (E_th sin th) + d_ph E_ph ]
+        # Div_th = (1/r sin th) @ G_th @ sin_th
+        # Div_ph = (1/r sin th) @ G_ph
+        # Matrix shape (N, 2N) acting on [E_th; E_ph]
+        
+        D_th = inv_sin_th @ G_th @ sin_th_mat
+        D_ph = inv_sin_th @ G_ph
+        
+        return scipy.sparse.hstack([D_th, D_ph]) / r
+
+    def _get_grid_curl(self, grid: Any, r: float = 1.0) -> Any:
+        """Get the discrete radial curl operator matrix on the grid."""
+        import scipy.sparse
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
+
+        theta_rad = np.deg2rad(self.arr_theta)
+        sin_th = np.sin(theta_rad)
+        
+        epsilon = 1e-10
+        sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
+        sin_th_mat = scipy.sparse.diags(sin_th)
+
+        # Curl_r = (1/r sin th) [ d_th (E_ph sin th) - d_ph E_th ]
+        # Curl_th = -(1/r sin th) @ G_ph
+        # Curl_ph = (1/r sin th) @ G_th @ sin_th
+        
+        C_th = -inv_sin_th @ G_ph
+        C_ph = inv_sin_th @ G_th @ sin_th_mat
+        
+        return scipy.sparse.hstack([C_th, C_ph]) / r
 
     def get_extended_basis(self) -> "CSBasis":
         """Return a basis extended to include the monopole term.

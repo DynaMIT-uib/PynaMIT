@@ -12,9 +12,9 @@ def test_cs_basis_simulation_dop853():
     """Test full simulation with CSBasis as solution basis using DOP853."""
     # Updated regression values for non-singular (ignore_PFAC=True, connect=False) case
     # These represent the stable solution without Apex singularity at equator.
-    expected_coeff_norm = 4.877427413463063e-07
-    expected_coeff_max =  8.869463316455299e-08
-    expected_coeff_min = -1.2845118368908083e-07
+    expected_coeff_norm = 5.780812370179208
+    expected_coeff_max =  0.39333446127517147
+    expected_coeff_min = -1.2845118368907625e-07
     expected_n_coeffs = 432
     # CSBasis N=18 (approx equivalent to Nmax=10 in resolution?)
     # SH Nmax=10 approx 121 DOFs.
@@ -41,7 +41,7 @@ def test_cs_basis_simulation_dop853():
         ignore_PFAC=True, 
         connect_hemispheres=False,
         latitude_boundary=50,
-        wind=False,
+        wind=True,
         steady_state_initialization=False,
         vector_jr=True,
         vector_conductance=True,
@@ -102,7 +102,7 @@ def test_cs_basis_simulation_dop853():
     print("actual_n_coeffs: ", actual_n_coeffs)
 
     # pyHWM uses single precision, relax tolerances for wind tests.
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-10)
+    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-8)
+    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-8)
+    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-8)
+    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-8)
