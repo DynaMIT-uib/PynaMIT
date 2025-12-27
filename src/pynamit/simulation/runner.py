@@ -37,6 +37,8 @@ def run_pynamit(
     solution_basis_kind: str = "SH",
     pure_spectral: bool = False,
     simulation_mode: Optional[str] = None,
+    least_squares_solver: str = "cg",
+    m_imp_regularization_lambda: float = 0.0,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -88,6 +90,9 @@ def run_pynamit(
         Basis to use for the solution state variables. 
         "SH" uses Spherical Harmonics (default).
         "CS" uses Cubed Sphere Grid values.
+    least_squares_solver : str, optional
+        Solver to use for least squares problems (e.g. "cg", "svd").
+        Default is "cg".
 
     Returns
     -------
@@ -123,6 +128,8 @@ def run_pynamit(
         solution_basis_kind=solution_basis_kind,
         pure_spectral=pure_spectral,
         simulation_mode=None if simulation_mode is None else SimulationMode(simulation_mode),
+        least_squares_solver=least_squares_solver,
+        m_imp_regularization_lambda=m_imp_regularization_lambda,
     )
 
 

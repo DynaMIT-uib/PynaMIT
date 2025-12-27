@@ -135,6 +135,11 @@ def configure_runtime(backend: str, data_source: str):
     previous_source_env = os.environ.get("PYNAMIT_INPUT_SOURCE")
 
     try:
+        # Enforce JAX 64-bit precision to match Numpy results for regression testing
+        if JAX_AVAILABLE:
+            from jax import config
+            config.update("jax_enable_x64", True)
+
         set_backend(backend)
         set_input_source(data_source)
         yield

@@ -307,8 +307,11 @@ class CSBasis(GridBasis):
                    is_compatible = True
         
         if grid is not None and not is_compatible:
-             # For now, only support evaluating on self (which is what projection expects for self-evaluation)
-             raise NotImplementedError("CSBasis currently only supports get_G on its own grid.")
+             # Evaluate basis on arbitrary grid (Interpolation)
+             if derivative is not None:
+                 raise NotImplementedError("Derivatives on arbitrary grids not yet supported for CSBasis.")
+             
+             return self._get_arbitrary_interpolation_matrix(grid, Ni=4)
 
         # 1. Check final operator cache
         if hasattr(grid, "hash"):
@@ -362,6 +365,155 @@ class CSBasis(GridBasis):
             self._cache[grid.hash][derivative] = res
             
         return res
+
+    def _get_arbitrary_interpolation_matrix(self, grid, Ni=4):
+        """Construct interpolation matrix for arbitrary target points (2D Tensor Product)."""
+        import scipy.sparse
+        
+        N = self.N
+        # 1. Map target grid to CS coordinates
+        xi_tgt, eta_tgt, k_tgt = cs_math.geo2cube(grid.phi, 90.0 - grid.theta)
+        
+        # 2. Fractional indices
+        h_scaling = (2 * N) / np.pi
+        i_tgt = (xi_tgt + np.pi / 4) * h_scaling
+        j_tgt = (eta_tgt + np.pi / 4) * h_scaling
+        
+        # 3. Base integer indices (floor)
+        i_base = np.floor(i_tgt).astype(int)
+        j_base = np.floor(j_tgt).astype(int)
+        
+        # 4. Prepare Stencil Iteration
+        # Stencil range relative to base: e.g. -1, 0, 1, 2 for Ni=4
+        start = -(Ni // 2) + 1  # -1 for Ni=4
+        stencil_offsets = np.arange(start, start + Ni)
+        
+        rows = []
+        cols = []
+        data = []
+        
+        n_targets = i_tgt.size
+        target_indices = np.arange(n_targets)
+        
+        # Pre-calculate distances for weight computation
+        # Lagrange weights for tensor product
+        # w_total(di, dj) = w(di) * w(dj)
+        
+        # Loop over the 2D stencil (Ni x Ni)
+        for di in stencil_offsets:
+            for dj in stencil_offsets:
+                # A. Identify Source Candidates (on the definition face k_tgt)
+                i_cand = i_base + di
+                j_cand = j_base + dj
+                
+                # B. Map Candidates to Valid Grid Nodes (Handle Face Crossing)
+                # Convert (k_tgt, i_cand, j_cand) -> (xi_cand, eta_cand)
+                # Note: This xi/eta might be outside [-pi/4, pi/4]
+                xi_cand = -np.pi / 4 + i_cand * np.pi / (2 * N)
+                eta_cand = -np.pi / 4 + j_cand * np.pi / (2 * N)
+                
+                # Map through sphere to canonical CS coordinates
+                r, th, ph = cs_math.cube2spherical(xi_cand, eta_cand, k_tgt, r=1.0, deg=True)
+                xi_prim, eta_prim, k_prim = cs_math.geo2cube(ph, 90.0 - th)
+                
+                # Convert back to indices on the new face
+                i_prim = np.rint((xi_prim + np.pi / 4) * h_scaling).astype(int)
+                j_prim = np.rint((eta_prim + np.pi / 4) * h_scaling).astype(int)
+                
+                # Clamp strict limits to avoid floating point noise issues at corners? 
+                # geo2cube should handle it, but indices must be 0..N
+                i_prim = np.clip(i_prim, 0, N) 
+                j_prim = np.clip(j_prim, 0, N)
+                
+                # Flattened Column Indices
+                # shape (6, N, N) -> (6, N+1, N+1)? 
+                # CSBasis typically N+1? 
+                # self.get_gridpoints(N) uses N+1. 
+                # get_gridpoints(flat=True) returns size 6*(N+1)*(N+1).
+                # Wait, CSBasis index length?
+                # line 49: k, i, j = self.get_gridpoints(N)
+                # line 52: i[:, :-1, :-1].
+                # It drops the last row/col?
+                # This implies "Centered" or "Element-based"? 
+                # Yin et al method usually LGL nodes or similar.
+                # Lines 52-54: i[:, :-1, :-1] + 0.5.
+                # This implies CELL CENTRED basis? Or nodes at 0.5?
+                # "xi = -pi/4 + (i+0.5)*..."
+                # If basis is defined at cell centers, N is number of cells.
+                
+                # My `i_tgt` calculation used `i_tgt = (xi + pi/4) / h`. 
+                # If xi = -pi/4 + (i_idx + 0.5)*h
+                # Then xi + pi/4 = (i_idx + 0.5)*h
+                # i_tgt (from xi) = i_idx + 0.5.
+                # So `i_tgt` is shifted by 0.5 relative to integer indices?
+                
+                # Let's check `xi` method:
+                # `return -np.pi / 4 + i * np.pi / (2 * N)`
+                # AND init uses `i[:, :-1, :-1] + 0.5`.
+                # So the STORED grid is at half-indices. 0.5, 1.5, ...
+                
+                # To align `i_tgt` with integer grid storage indices `0, 1, 2...` (representing 0.5, 1.5...):
+                # i_grid_idx = i_tgt - 0.5.
+                # Let's adjust i_tgt in Step 2.
+                
+                # Re-check. 
+                # Basis stored at `indices` 0..N-1?
+                # `self.arr_xi` derived from `i + 0.5`.
+                # If I want to interpolate from values at `i+0.5`,
+                # My coordinate `u` mapping to index `idx`:
+                # `u = u0 + (idx + 0.5) * h`.
+                # `u - u0 = idx*h + 0.5*h`
+                # `(u-u0)/h = idx + 0.5`
+                # `idx = (u-u0)/h - 0.5`.
+                
+                # So my `i_tgt` calculation (which was `(xi-xi0)/h`) yields `idx + 0.5`.
+                # So I should subtract 0.5 to get `idx`.
+                # Correct.
+                
+                # C. Compute Weights (Lagrange Interpolation for Cell-Centered Grid)
+                # Nodes are at indices like 0.5, 1.5, etc.
+                # i_tgt is in these units.
+                # Relative to i_base, nodes are at (offset + 0.5)
+                # Target is at delta = (i_tgt - i_base)
+                
+                # w_i(di) = Product_{m in stencil, m!=di} (delta - (m+0.5)) / ((di+0.5) - (m+0.5))
+                #         = Product_{m!=di} (delta - m - 0.5) / (di - m)
+                
+                delta_i = i_tgt - i_base
+                delta_j = j_tgt - j_base
+                
+                w_i = np.ones_like(delta_i)
+                w_j = np.ones_like(delta_j)
+                
+                for m in stencil_offsets:
+                    if m != di:
+                        w_i *= (delta_i - m - 0.5) / (di - m)
+                    if m != dj:
+                        w_j *= (delta_j - m - 0.5) / (dj - m)
+                        
+                weight = w_i * w_j
+                
+                # D. Store in Sparse Lists
+                # flattened index for col: k, i, j
+                # Clip to valid index range 0..N-1 just in case
+                i_prim = np.clip(i_prim, 0, N - 1)
+                j_prim = np.clip(j_prim, 0, N - 1)
+                
+                col_indices = np.ravel_multi_index(
+                    (k_prim, i_prim, j_prim), (6, N, N)
+                )
+                
+                rows.append(target_indices)
+                cols.append(col_indices)
+                data.append(weight)
+
+        # 5. Build Final Matrix
+        rows = np.concatenate(rows)
+        cols = np.concatenate(cols)
+        data = np.concatenate(data)
+        
+        from scipy.sparse import coo_matrix
+        return coo_matrix((data, (rows, cols)), shape=(n_targets, 6 * N * N))
 
     def laplacian(self, r=1.0):
         """Compute the Laplacian operator matrix on the sphere.

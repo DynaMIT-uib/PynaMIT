@@ -366,11 +366,12 @@ class Geometry:
 
         else:
             # --- NEW DYNAMIC CS PATH (Matrix-based) ---
+            print("DEBUG: CS PFAC MATRIX CONSTRUCTION")
             if self.G_Ve_to_JS is None:
-                 G_inv = tensor_pinv(self.G_Ve_to_JS_sh, n_leading_flattened=2, rtol=0)
+                 G_inv = tensor_pinv(self.G_Ve_to_JS_sh, n_leading_flattened=2, rtol=1e-15)
                  n_sol = self.basis.index_length
             else:
-                 G_inv = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
+                 G_inv = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=1e-15)
                  n_sol = self.solution_basis.index_length
             
             G_inv = G_inv.reshape(n_sol, -1)
@@ -379,6 +380,32 @@ class Geometry:
 
             L_op = self.solution_basis.get_laplacian_operator(self.RI).to_dense()
             m_imp_to_jr_op = (self.RI / mu0) * L_op
+
+            # --- Spectral Transform Setup (Pre-compute Invariant Operators) ---
+            # To ensure physical stability (n-dependent decay), we map CS -> SH, shift, SH -> CS.
+            
+            # 1. Compute Transformation Matrices (Constant for grid)
+            # P_sh: Grid -> SH (pinv of Eval_SH)
+            E_sh_mat = self.basis.get_evaluation_matrix(self.grid)
+            if hasattr(E_sh_mat, "toarray"): E_sh_mat = E_sh_mat.toarray()
+            P_sh_mat = np.linalg.pinv(E_sh_mat)
+            
+            E_cs_mat = self.solution_basis.get_evaluation_matrix(self.grid)
+            if hasattr(E_cs_mat, "toarray"): E_cs_mat = E_cs_mat.toarray()
+            # T_cs_to_sh = P_sh @ E_cs : CS coeffs -> SH coeffs
+            T_cs_to_sh = P_sh_mat @ E_cs_mat
+
+            # T_sh_to_cs: SH coeffs -> CS coeffs
+            # P_cs: Grid -> CS (pinv of Eval_CS)
+            P_cs_mat = np.linalg.pinv(E_cs_mat)
+            # T_sh_to_cs = P_cs @ E_sh
+            T_sh_to_cs = P_cs_mat @ E_sh_mat
+            
+            def get_spectral_shift_op(start, end, kind):
+                # Get SH diagonal shift (Fast)
+                S_sh = self.basis.get_radial_shift_operator(start, end, kind).to_dense()
+                # Conjugate: CS -> SH -> Shift -> CS
+                return T_sh_to_cs @ S_sh @ T_cs_to_sh
 
             for i, rk in enumerate(rks):
                 logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
@@ -389,10 +416,10 @@ class Geometry:
                 rk_b_field = self.mainfield.discretize(self.grid, rk)
                 mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
 
-                # CS Path only (since SH is handled above)
-                M_interp = self.solution_basis.get_evaluation_matrix(mapped_grid) 
+                M_interp = self.solution_basis.get_evaluation_matrix(mapped_grid)
                 if hasattr(M_interp, "toarray"):
                       M_interp = M_interp.toarray()
+                
                 m_imp_to_jr_grid = M_interp @ m_imp_to_jr_op
 
                 jr_to_JS_rk = np.array(
@@ -401,32 +428,30 @@ class Geometry:
                         rk_b_field.vec.phi / mapped_b_field.vec.r,
                     ]
                 )
+                
                 m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
 
-                Ve_rk_to_Ve_op = self.solution_basis.get_radial_shift_operator(rk, self.RI, kind="external").to_dense()
+                Ve_rk_to_Ve_op = get_spectral_shift_op(rk, self.RI, kind="external")
                 
                 if self.RM is not None:
-                    S_ext_RM = self.solution_basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense()
-                    S_int_rk = self.solution_basis.get_radial_shift_operator(rk, self.RM, kind="internal").to_dense()
+                    S_ext_RM = get_spectral_shift_op(self.RM, self.RI, kind="external")
+                    S_int_rk = get_spectral_shift_op(rk, self.RM, kind="internal")
                     
                     Ve_rk_to_Ve_op -= S_ext_RM @ S_int_rk
                     
-                    S_int_RI = self.solution_basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense()
+                    S_int_RI = get_spectral_shift_op(self.RI, self.RM, kind="internal")
                     denom_op = np.eye(n_sol) - S_ext_RM @ S_int_RI
                     factor_op = -1.0 * np.linalg.inv(denom_op)
                 else:
                     factor_op = -1.0 * np.eye(n_sol)
 
                 m_J_flat = m_imp_to_JS_rk.reshape(-1, n_sol)
-                S_rk_to_RI = self.solution_basis.get_radial_shift_operator(rk, self.RI, kind="external").to_dense()
+                S_rk_to_RI = get_spectral_shift_op(rk, self.RI, kind="external")
                 step_term = factor_op @ (S_rk_to_RI @ (G_inv @ m_J_flat))
                 
                 T_to_Ve += Delta_k[i] * step_term
             
             return T_to_Ve
-            
-            T_to_Ve += Delta_k[i] * step_term
-        return T_to_Ve
 
     # ----- G operators mapping to sheet current (JS) -----
 
@@ -438,7 +463,14 @@ class Geometry:
         G_grad = (-1.0 / self.RI) * grad_op * (self.RI / mu0)
         G_total = G_grad.to_dense().reshape(2, -1, self.solution_basis.index_length)
         
-        if self.G_Ve_to_JS_sh is not None:
+        if self.solution_basis.kind == "CS":
+             # CS Path: Use generic G_Ve_to_JS (already set up in __init__)
+             # G_Ve_to_JS is (2*Ngrid, Nsol)
+             JS_coupling_cs = self.G_Ve_to_JS @ self.T_to_Ve.values
+             # Reshape to (2, Ngrid, Nsol)
+             G_total += JS_coupling_cs.reshape(2, self.grid.size, -1)
+             
+        elif self.G_Ve_to_JS_sh is not None:
              # Coupling part (T -> Ve -> JS) ALWAYS uses spectral SH
              JS_coupling_sh = np.tensordot(self.G_Ve_to_JS_sh, self.T_to_Ve.values, axes=([2], [0]))
              

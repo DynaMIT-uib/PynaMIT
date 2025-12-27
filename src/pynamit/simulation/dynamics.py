@@ -88,6 +88,8 @@ class DynamicsSettings:
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     filename_prefix: str = "simulation"
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM
+    least_squares_solver: str = "cg"
+    m_imp_regularization_lambda: float = 0.0
     
     # Deprecated / Computed fields
     solution_basis_kind: Literal["SH", "CS"] = "SH"
@@ -109,6 +111,7 @@ class DynamicsSettings:
         
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
+        attrs["least_squares_solver"] = self.least_squares_solver
         
         # Deprecated Serialization (for consistency)
         attrs["pure_spectral"] = int(self.pure_spectral)
@@ -143,6 +146,7 @@ class DynamicsSettings:
 
         return DynamicsSettings(
             simulation_mode=sim_mode,
+            least_squares_solver=get("least_squares_solver", defaults.least_squares_solver),
             Nmax=get("Nmax", defaults.Nmax),
             Mmax=get("Mmax", defaults.Mmax),
             Ncs=get("Ncs", defaults.Ncs),
@@ -222,6 +226,8 @@ class Dynamics:
         solution_basis_kind: Literal["SH", "CS"] = "SH",
         pure_spectral: bool = False,
         simulation_mode: Optional[SimulationMode] = None,
+        least_squares_solver: str = "cg",
+        m_imp_regularization_lambda: float = 0.0,
     ):
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
@@ -257,6 +263,9 @@ class Dynamics:
             backend=backend,
             solution_basis_kind=solution_basis_kind,
             pure_spectral=pure_spectral,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM if simulation_mode is None else simulation_mode,
+            least_squares_solver=least_squares_solver,
+            m_imp_regularization_lambda=m_imp_regularization_lambda,
         )
         
         if simulation_mode is not None:
