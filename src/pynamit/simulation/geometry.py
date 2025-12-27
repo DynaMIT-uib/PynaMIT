@@ -107,43 +107,24 @@ class Geometry:
         # 2. Spectral Induction operators (Required for T_to_Ve and coupling)
         scaling_op_sh = self.basis.get_potential_scaling_operator()
         curl_sh = as_linear_map(self.basis.get_curl_matrix(self.grid))
-        G_lin_sh = (1.0 / self.RI) * (curl_sh @ ((-self.RI / mu0) * scaling_op_sh))
+        
+        # Scaling factor: -1/mu0 (Standard Pynamit Induction Factor)
+        # We include the scaling op (2n + 1) which relates m to potential.
+        G_lin_sh = (-1.0 / mu0) * (curl_sh @ scaling_op_sh)
         self.G_Ve_to_JS_sh = G_lin_sh.to_dense().reshape(2, -1, self.basis.index_length)
 
         # 3. Grid-native Induction operators (for local induction loop)
-        # Default to spectral (reliable for SH and hybrid)
         self.G_Ve_to_JS = self.G_Ve_to_JS_sh
         if self.solution_basis.kind == "CS":
              try:
                   scaling_op_cs = self.solution_basis.get_potential_scaling_operator()
                   curl_cs = as_linear_map(self.solution_basis.get_curl_matrix(self.grid))
                   
-                  # Use explicit matrix multiplication to avoid scaling errors?
-                  # For now, let's trust the operators but verify scaling.
                   # G = (1/RI) * Curl * (-RI/mu0 * S) 
-                  # Factors: 1/RI * (-RI/mu0) = -1/mu0. 
-                  # BUT: State.py might re-apply physics if we are not careful.
-                  # Let's align with the SH path: SH path has (-1/mu0) inside G_lin_sh above.
-                  # So we should include it here too.
-                  
-                  # Note: get_potential_scaling_operator on CS basis returns "2n+1" equivalent scaling.
-                  # But it might be purely geometric (unitless).
-                  # SH path: (-self.RI / mu0) * scaling_op_sh. 
-                  
-                  # Let's replicate the structure exactly:
                   G_lin_cs = (1.0 / self.RI) * (curl_cs @ ((-self.RI / mu0) * scaling_op_cs))
-                  
-                  # Density check
-                  if hasattr(G_lin_cs, "to_dense"):
-                       self.G_Ve_to_JS = G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
-                  else:
-                       # If it's pure sparse/linear map, we might need to densify for reshaping or keep as LinearMap
-                       # Current architecture expects (2, N_grid, L) array for G_Ve_to_JS usually.
-                       # So let's densify.
-                       self.G_Ve_to_JS = G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
-                       
+                  self.G_Ve_to_JS = G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
              except (NotImplementedError, AttributeError):
-                  # Fallback to spectral if CS basis doesn't support these operators yet
+                  # Fallback to spectral
                   logger.warning("CS Basis does not support operator construction. Falling back to spectral.")
                   pass
 
@@ -292,198 +273,148 @@ class Geometry:
         return self._build_T_to_Ve()
 
     def _build_T_to_Ve(self) -> xr.DataArray:
-        """Construct the T_to_Ve operator by integrating radially."""
-        n = self.basis.index_length
-        T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
+        """Construct the T_to_Ve operator by integrating radially.
+        
+        Physics:
+          1. Internal potential m_imp produces radial current jr via Laplacian.
+          2. jr maps to sheet current JS(rk) in the magnetospheric layers.
+          3. Integrated JS produces poloidal potential Ve at ionospheric boundary.
+        
+        Implementation:
+          We use a 'Spectral Accelerated Kernel'. For SH basis, this stays in 
+          coefficient space. For grid bases (CS), it maps to SH for propagation.
+        """
+        n_sol = self.solution_basis.index_length
+        n_sh = self.basis.index_length
+        T_to_Ve = xr.DataArray(np.zeros((n_sol, n_sol)), dims=("current_pot", "field_pot"))
+        
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
             return T_to_Ve
 
+        # Radial steps
         rk_steps = np.asarray(self.FAC_integration_steps)
         Delta_k = np.diff(rk_steps)
         rks = rk_steps[:-1] + 0.5 * Delta_k
 
-        if np.any(rks < self.RI):
-            raise ValueError(
-                "All FAC integration steps must be outside the ionospheric boundary (RI)."
-            )
-        if self.RM is not None and np.any(rks > self.RM):
-            raise ValueError(
-                "All FAC integration steps must be inside the magnetospheric boundary (RM)."
-            )
+        # 1. Integration Backbone (Spectral space)
+        # We perform the bulk of the math on SH coefficients regardless of simulation basis
+        G_inv_sh = tensor_pinv(self.G_Ve_to_JS_sh, n_leading_flattened=2, rtol=0).reshape(n_sh, -1)
+        
+        # Source operator factor: RI/mu0 * Laplacian
+        m_imp_to_jr_sh_op = (self.RI / mu0) * self.basis.get_laplacian_operator(self.RI).to_dense()
 
-        if self.RM is not None and np.any(rks > self.RM):
-            raise ValueError(
-                "All FAC integration steps must be inside the magnetospheric boundary (RM)."
-            )
+        # Is this a pure spectral simulation?
+        is_pure_sh = (self.solution_basis is self.basis or self.solution_basis.kind == "SH")
+        
+        # Accumulator (Spectral result: Ve_sh_coeffs / m_imp_coeffs)
+        T_accum = np.zeros((n_sh, n_sol))
 
-        if self.RM is not None and np.any(rks > self.RM):
-            raise ValueError(
-                "All FAC integration steps must be inside the magnetospheric boundary (RM)."
-            )
+        for i, rk in enumerate(rks):
+            # Coordinate mapping
+            theta_m, phi_m = self.mainfield.map_coords(self.RI, rk, self.grid.theta, self.grid.phi)
+            m_grid = Grid(theta=theta_m, phi=phi_m)
+            rk_b = self.mainfield.discretize(self.grid, rk)
+            m_b = self.mainfield.discretize(m_grid, self.RI)
 
-        # STRICT BIFURCATION: Legacy SH Path vs Dynamic CS Path
-        if self.solution_basis.kind == "SH":
-            # --- LEGACY SH PATH (Preserves strict numerical consistency) ---
-            JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS_sh, n_leading_flattened=2, rtol=0)
-            m_imp_to_jr_coeffs = self.RI / mu0 * np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
-
-            for i, rk in enumerate(rks):
-                logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
-                theta_mapped, phi_mapped = self.mainfield.map_coords(
-                    self.RI, rk, self.grid.theta, self.grid.phi
-                )
-                mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
-                rk_b_field = self.mainfield.discretize(self.grid, rk)
-                mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
-
-                m_imp_to_jr_grid = self.basis.get_scaled_matrix(mapped_grid, m_imp_to_jr_coeffs)
-                jr_to_JS_rk = np.array(
-                    [
-                        rk_b_field.vec.theta / mapped_b_field.vec.r,
-                        rk_b_field.vec.phi / mapped_b_field.vec.r,
-                    ]
-                )
-                m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
-
-                Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
-                if self.RM is not None:
-                    Ve_rk_to_Ve -= (
-                        self.basis.radial_shift_Ve(self.RM, self.RI)
-                        * self.basis.radial_shift_Vi(rk, self.RM)
-                    ).reshape((-1, 1, 1))
-                    factor = -1.0 / (
-                        1.0
-                        - self.basis.radial_shift_Ve(self.RM, self.RI)
-                        * self.basis.radial_shift_Vi(self.RI, self.RM)
-                    )
-                else:
-                    factor = -1.0
-
-                JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
-                T_to_Ve += Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
+            # Footprint evaluation of the DRIVING potential (m_imp)
+            M_source = self.solution_basis.get_evaluation_matrix(m_grid)
+            if hasattr(M_source, "toarray"): M_source = M_source.toarray()
             
-            return T_to_Ve
+            # Laplacian on solution basis (if CS, this is grid-local Laplacian)
+            L_sol = self.solution_basis.get_laplacian_operator(self.RI).to_dense()
+            m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
 
-        else:
-            # --- NEW DYNAMIC CS PATH (Matrix-based) ---
-            print("DEBUG: CS PFAC MATRIX CONSTRUCTION")
-            if self.G_Ve_to_JS is None:
-                 G_inv = tensor_pinv(self.G_Ve_to_JS_sh, n_leading_flattened=2, rtol=1e-15)
-                 n_sol = self.basis.index_length
+            # Source term mapping: m_imp_sol -> jr_grid -> JS_grid(rk)
+            m_imp_to_JS_rk = np.einsum(
+                "ij,jk->ijk",
+                [rk_b.vec.theta / m_b.vec.r, rk_b.vec.phi / m_b.vec.r],
+                M_source @ m_imp_to_jr_sol_op, optimize=True
+            ).reshape(-1, n_sol)
+
+            # Radial propagation factors (exact spectral decay)
+            prop_vec = np.diag(self.basis.get_radial_shift_operator(rk, self.RI, kind="external").to_dense())
+            if self.RM is not None:
+                # Reflection and boundaries
+                S_ext_RM = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+                S_int_rk = np.diag(self.basis.get_radial_shift_operator(rk, self.RM, kind="internal").to_dense())
+                S_int_RI = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+                prop_vec = prop_vec - S_ext_RM * S_int_rk
+                factor_vec = -1.0 / (1.0 - S_ext_RM * S_int_RI)
             else:
-                 G_inv = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=1e-15)
-                 n_sol = self.solution_basis.index_length
-            
-            G_inv = G_inv.reshape(n_sol, -1)
-            if n_sol != n:
-                 T_to_Ve = xr.DataArray(np.zeros((n_sol, n_sol)), dims=("current_pot", "field_pot"))
+                factor_vec = -1.0 * np.ones(n_sh)
 
-            L_op = self.solution_basis.get_laplacian_operator(self.RI).to_dense()
-            m_imp_to_jr_op = (self.RI / mu0) * L_op
-
-            # --- Spectral Transform Setup (Pre-compute Invariant Operators) ---
-            # To ensure physical stability (n-dependent decay), we map CS -> SH, shift, SH -> CS.
-            
-            # 1. Compute Transformation Matrices (Constant for grid)
-            # P_sh: Grid -> SH (pinv of Eval_SH)
-            E_sh_mat = self.basis.get_evaluation_matrix(self.grid)
-            if hasattr(E_sh_mat, "toarray"): E_sh_mat = E_sh_mat.toarray()
-            P_sh_mat = np.linalg.pinv(E_sh_mat)
-            
-            E_cs_mat = self.solution_basis.get_evaluation_matrix(self.grid)
-            if hasattr(E_cs_mat, "toarray"): E_cs_mat = E_cs_mat.toarray()
-            # T_cs_to_sh = P_sh @ E_cs : CS coeffs -> SH coeffs
-            T_cs_to_sh = P_sh_mat @ E_cs_mat
-
-            # T_sh_to_cs: SH coeffs -> CS coeffs
-            # P_cs: Grid -> CS (pinv of Eval_CS)
-            P_cs_mat = np.linalg.pinv(E_cs_mat)
-            # T_sh_to_cs = P_cs @ E_sh
-            T_sh_to_cs = P_cs_mat @ E_sh_mat
-            
-            def get_spectral_shift_op(start, end, kind):
-                # Get SH diagonal shift (Fast)
-                S_sh = self.basis.get_radial_shift_operator(start, end, kind).to_dense()
-                # Conjugate: CS -> SH -> Shift -> CS
-                return T_sh_to_cs @ S_sh @ T_cs_to_sh
-
-            for i, rk in enumerate(rks):
-                logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
-                theta_mapped, phi_mapped = self.mainfield.map_coords(
-                    self.RI, rk, self.grid.theta, self.grid.phi
-                )
-                mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
-                rk_b_field = self.mainfield.discretize(self.grid, rk)
-                mapped_b_field = self.mainfield.discretize(mapped_grid, self.RI)
-
-                M_interp = self.solution_basis.get_evaluation_matrix(mapped_grid)
-                if hasattr(M_interp, "toarray"):
-                      M_interp = M_interp.toarray()
+            # Ve_coeffs += Delta_k * Prop(row) * G_inv * JS_grid * Factor(col)
+            # Legacy consistency: prop scales the inverse (rows), factor scales the result (cols)
+            step_mat = G_inv_sh @ m_imp_to_JS_rk
+            step_mat = prop_vec[:, None] * step_mat
+            if self.RM is not None:
+                step_mat = step_mat * factor_vec
+            else:
+                step_mat = step_mat * -1.0
                 
-                m_imp_to_jr_grid = M_interp @ m_imp_to_jr_op
+            T_accum += Delta_k[i] * step_mat
 
-                jr_to_JS_rk = np.array(
-                    [
-                        rk_b_field.vec.theta / mapped_b_field.vec.r,
-                        rk_b_field.vec.phi / mapped_b_field.vec.r,
-                    ]
-                )
-                
-                m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
-
-                Ve_rk_to_Ve_op = get_spectral_shift_op(rk, self.RI, kind="external")
-                
-                if self.RM is not None:
-                    S_ext_RM = get_spectral_shift_op(self.RM, self.RI, kind="external")
-                    S_int_rk = get_spectral_shift_op(rk, self.RM, kind="internal")
-                    
-                    Ve_rk_to_Ve_op -= S_ext_RM @ S_int_rk
-                    
-                    S_int_RI = get_spectral_shift_op(self.RI, self.RM, kind="internal")
-                    denom_op = np.eye(n_sol) - S_ext_RM @ S_int_RI
-                    factor_op = -1.0 * np.linalg.inv(denom_op)
-                else:
-                    factor_op = -1.0 * np.eye(n_sol)
-
-                m_J_flat = m_imp_to_JS_rk.reshape(-1, n_sol)
-                S_rk_to_RI = get_spectral_shift_op(rk, self.RI, kind="external")
-                step_term = factor_op @ (S_rk_to_RI @ (G_inv @ m_J_flat))
-                
-                T_to_Ve += Delta_k[i] * step_term
+        # Map back to result basis
+        if is_pure_sh:
+            T_to_Ve.values = T_accum
+        else:
+            # Map integrated SH coefficients back to Solver coefficients (Hybrid)
+            E_sh = self.basis.get_evaluation_matrix(self.grid)
+            if hasattr(E_sh, "toarray"): E_sh = E_sh.toarray()
+            E_sol = self.solution_basis.get_evaluation_matrix(self.grid)
+            if hasattr(E_sol, "toarray"): E_sol = E_sol.toarray()
+            P_sol = tensor_pinv(E_sol, rtol=0)
+            T_to_Ve.values = (P_sol @ E_sh) @ T_accum
             
-            return T_to_Ve
-
-    # ----- G operators mapping to sheet current (JS) -----
+        return T_to_Ve
 
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
-        # Gradient part matches solution_basis (CS or SH)
         grad_op = as_linear_map(self.solution_basis.get_gradient_matrix(self.grid))
-        G_grad = (-1.0 / self.RI) * grad_op * (self.RI / mu0)
+        G_grad = (1.0 / self.RI) * (grad_op * ((-self.RI / mu0)))
         G_total = G_grad.to_dense().reshape(2, -1, self.solution_basis.index_length)
-        
-        if self.solution_basis.kind == "CS":
-             # CS Path: Use generic G_Ve_to_JS (already set up in __init__)
-             # G_Ve_to_JS is (2*Ngrid, Nsol)
-             JS_coupling_cs = self.G_Ve_to_JS @ self.T_to_Ve.values
-             # Reshape to (2, Ngrid, Nsol)
-             G_total += JS_coupling_cs.reshape(2, self.grid.size, -1)
-             
-        elif self.G_Ve_to_JS_sh is not None:
-             # Coupling part (T -> Ve -> JS) ALWAYS uses spectral SH
-             JS_coupling_sh = np.tensordot(self.G_Ve_to_JS_sh, self.T_to_Ve.values, axes=([2], [0]))
-             
-             if self.input_adapter is not None:
-                  # Hybrid: map spectral coupling back to solution grid
-                  JS_coupling_grid = np.tensordot(JS_coupling_sh, as_linear_map(self.input_adapter).to_dense(), axes=([2], [0]))
-                  G_total += JS_coupling_grid
-             else:
-                  # SH-only: G_total is already spectral
-                  G_total += JS_coupling_sh
-        
+        JS_coupling = np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))
+        G_total += JS_coupling
         return G_total
 
+    @cached_property
+    def G_m_ind_to_JS(self) -> np.ndarray:
+        """Operator mapping m_ind to sheet current on grid."""
+        if self.G_Ve_to_JS is None:
+             return None
+        G = self.G_Ve_to_JS.copy()
+        
+        if self.RM is not None:
+             # Add Magnetospheric Coupling (Standard legacy logic)
+             br_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+             vi_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+             den = 1.0 - br_shift_sh * vi_shift_sh
+             
+             G_coupling_sh = self.G_Ve_to_JS_sh * (br_shift_sh * vi_shift_sh / den)
+             
+             if self.input_adapter is not None:
+                  G += np.tensordot(G_coupling_sh, self.input_adapter, axes=([2], [0]))
+             else:
+                  G += G_coupling_sh
+                   
+        return G
+
+    @cached_property
+    def G_Br_to_JS(self) -> Optional[np.ndarray]:
+        """Operator mapping boundary Br to sheet current on grid."""
+        if self.RM is None:
+             return None
+             
+        br_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+        vi_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+        den = 1.0 - br_shift_sh * vi_shift_sh
+        
+        L_op_sh = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
+        m_ind_to_Br_sh = -(self.RI**2) * L_op_sh
+        
+        G_Br_sh = self.G_Ve_to_JS_sh * (-br_shift_sh / den / m_ind_to_Br_sh)
+        return G_Br_sh
     def _get_transformation_matrices(self, dfield: Field):
         """Compute transformation matrices for Apex coordinates."""
         # Get basis vectors
@@ -530,38 +461,3 @@ class Geometry:
         horizontal_to_apex = np.einsum("ikn,kjn->ijn", fo_to_apex, horiz_to_fo, optimize=True)
         
         return radial_to_apex, horizontal_to_apex
-
-    @cached_property
-    def G_m_ind_to_JS(self) -> np.ndarray:
-        """Operator mapping m_ind to sheet current on grid."""
-        if self.G_Ve_to_JS is None:
-             return None
-             
-        # G is our local operator (now on solution_basis, e.g. CS)
-        G = self.G_Ve_to_JS.copy()
-        
-        if self.RM is not None:
-             # 1. Build spectral factors (sh version of local part for magnetosphere)
-             # G_Br_to_JS is spectral (maps SH Br -> grid JS)
-             br_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
-             vi_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
-             den = 1.0 - br_shift_sh * vi_shift_sh
-             
-             spectral_L_op = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
-             m_ind_to_Br_sh = -(self.RI**2) * spectral_L_op
-             
-             self.G_Br_to_JS = self.G_Ve_to_JS_sh * (-br_shift_sh / den / m_ind_to_Br_sh)
-             
-             # 2. Add coupling to local grid-native G
-             coupling_scale = (br_shift_sh * vi_shift_sh / den)
-             G_coupling_sh = self.G_Ve_to_JS_sh * coupling_scale
-             
-             if self.input_adapter is not None:
-                  # Hybrid: map spectral coupling back to grid to match solution_basis (m_ind_cs)
-                  G_coupling_grid = np.tensordot(G_coupling_sh, as_linear_map(self.input_adapter).to_dense(), axes=([2], [0]))
-                  G += G_coupling_grid
-             else:
-                  # SH-only: G is already spectral
-                  G += G_coupling_sh
-                  
-        return G

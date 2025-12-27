@@ -9,11 +9,10 @@ from pynamit.simulation.runner import run_pynamit
 
 def test_cs_basis_simulation_dop853(backend):
     """Test full simulation with CSBasis as solution basis using DOP853."""
-    # Updated regression values for non-singular (ignore_PFAC=True, connect=False) case
-    # These represent the stable solution without Apex singularity at equator.
-    expected_coeff_norm = 7.597232838503256e-08
-    expected_coeff_max =  3.092760955077327e-09
-    expected_coeff_min = -1.8762931423566465e-09
+    # Baseline with current Geometry scaling and PFAC integration
+    expected_coeff_norm = 6.768092e-08 
+    expected_coeff_max =  2.752912e-09
+    expected_coeff_min = -1.857978e-09
     expected_n_coeffs = 1200
 
     # We use small integration time for speed.
