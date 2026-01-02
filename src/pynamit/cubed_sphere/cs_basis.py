@@ -663,36 +663,50 @@ class CSBasis(GridBasis):
 
     def construct_projection_matrix(self, grid) -> Any:
         """Construct the projection matrix mapping Grid Vector -> Scalar Potentials.
-        
-        For CSBasis in cs_dominant mode, the state variables (Phi, W) are 
-        scalar potentials. This matrix performs Helmholtz decomposition 
+
+        For CSBasis in cs_dominant mode, the state variables (Phi, W) are
+        scalar potentials. This matrix performs Helmholtz decomposition
         on the grid to extract them.
+
+        Uses direct pseudo-inverse of the forward Helmholtz mapping (like SHBasis)
+        rather than Laplacian inversion, which avoids numerical instability from
+        the Laplacian's null space (constant functions).
         """
         import scipy.sparse
-        import scipy.sparse.linalg
-        from pynamit.utils import xp, to_numpy, asarray
+        from pynamit.utils import tensor_pinv
 
-        # 1. Operators on the sphere
-        L = self.laplacian(r=1.0)
-        D = self._get_grid_divergence(grid, r=1.0)
-        C = self._get_grid_curl(grid, r=1.0)
+        # Get gradient operators
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
 
-        # 2. Regularized Pseudo-inverse of Laplacian
-        # L is singular (constant null-space). 
-        # We solve (L - reg*I) x = f
-        n = self.index_length
-        L_dense = L.toarray()
-        reg = 1e-12 
-        L_reg = L_dense - reg * np.eye(n)
-        L_inv = np.linalg.inv(L_reg)
+        # Convert to dense if sparse
+        if scipy.sparse.issparse(G_th):
+            G_th = G_th.toarray()
+        if scipy.sparse.issparse(G_ph):
+            G_ph = G_ph.toarray()
 
-        # 3. Build block matrix P = [ -L_inv @ D ; -L_inv @ C ]
-        # D is (N, 2N), C is (N, 2N)
-        P_phi = -L_inv @ D
-        P_w = -L_inv @ C
-        
-        P = np.vstack([P_phi, P_w]) # (2N, 2N)
-        
+        # Build forward Helmholtz mapping: coeffs -> grid vectors
+        # G_grad maps scalar potential to E-field components: E = -grad(phi)
+        # G_rxgrad maps stream function to E-field: E = R x grad(psi)
+        G_grad = np.array([G_th, G_ph])           # (2, N_grid, N_coeffs)
+        G_rxgrad = np.array([-G_ph, G_th])        # (2, N_grid, N_coeffs)
+
+        # G_helmholtz: (2, N_grid, 2, N_coeffs)
+        # First index: vector component (theta, phi)
+        # Second index: grid point
+        # Third index: potential type (0=poloidal/phi, 1=toroidal/psi)
+        # Fourth index: coefficient
+        G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
+
+        # Use proper pseudo-inverse via SVD (handles rank deficiency gracefully)
+        # This avoids the numerical instability of inverting the singular Laplacian
+        pinv = tensor_pinv(G_helmholtz, n_leading_flattened=2)
+
+        # Reshape to 2D matrix: (2*N_coeffs, 2*N_grid)
+        # pinv shape: (2, N_coeffs, 2, N_grid)
+        shape = pinv.shape
+        P = pinv.reshape(shape[0] * shape[1], shape[2] * shape[3])
+
         return scipy.sparse.csr_matrix(P)
 
     def _get_grid_divergence(self, grid: Any, r: float = 1.0) -> Any:

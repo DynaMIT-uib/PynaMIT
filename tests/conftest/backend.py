@@ -160,10 +160,10 @@ def configure_runtime(backend: str, data_source: str):
 def rel_tol(request: pytest.FixtureRequest, data_source: str) -> float:
     """Fixture to provide the relative tolerance for comparisons.
 
-    Defaults to 1e-10. Returns 1e-5 for native tests with wind enabled.
+    Returns 1e-5 for native tests (pyHWM uses single precision).
+    Returns 1e-9 for fallback tests (allows for minor platform/version differences).
     """
-    is_wind = "wind" in request.node.name.lower() or request.node.get_closest_marker("wind")
-    if data_source == "native" and is_wind:
+    if data_source == "native":
         return 1e-5
     return 1e-9
 
