@@ -7,9 +7,10 @@ from pynamit.simulation.runner import run_pynamit
 def test_pure_spectral_execution(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode
-    expected_coeff_norm = 2.716889203812775e-08
-    expected_coeff_max = 1.836073890986364e-08
-    expected_coeff_min = -7.082196262066677e-09
+    # (Updated after fixing GL quadrature mass matrix normalization)
+    expected_coeff_norm = 2.0443538467034098e-08
+    expected_coeff_max = 8.543496060306728e-09
+    expected_coeff_min = -1.688556670702783e-08
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(

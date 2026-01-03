@@ -306,7 +306,12 @@ class Dynamics:
         cs_basis = CSBasis(self.settings.Ncs)
 
         # Select grid basis based on simulation mode
-        if self.settings.simulation_mode == SimulationMode.SPECTRAL_TRANSFORM_GL:
+        # GL grid for exact SH transforms (pure spectral and GL transform modes)
+        # CS grid for cubed-sphere based modes
+        if self.settings.simulation_mode in (
+            SimulationMode.PURE_SPECTRAL,
+            SimulationMode.SPECTRAL_TRANSFORM_GL,
+        ):
             grid_basis = GLBasis(self.settings.Nmax)
         else:
             grid_basis = cs_basis

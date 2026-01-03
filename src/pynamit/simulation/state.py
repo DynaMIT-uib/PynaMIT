@@ -274,12 +274,23 @@ class State:
         if self.mode == SimulationMode.PURE_SPECTRAL:
             # JS_coeffs = Σ_coeffs * E_coeffs
             m_total = self.M_total_on_grid # (2, 2, Q) - Conductance tensor on grid
-            
+
             # Project each component of the tensor to spectral coefficients (L, 2, 2)
             G_scalar = self.solution_basis.get_evaluation_matrix(self.geometry.grid)
             if hasattr(G_scalar, "toarray"):
                 G_scalar = G_scalar.toarray()
-            P_scalar = tensor_pinv(asarray(G_scalar), n_leading_flattened=1)
+
+            # Use exact GL quadrature if grid_basis has weights, else pseudo-inverse
+            if hasattr(self.geometry.grid_basis, "weights"):
+                # Weighted least-squares: A = (G^T W G)^{-1} G^T W
+                # This accounts for non-orthonormal Schmidt quasi-normalized SH
+                weights = self.geometry.grid_basis.weights
+                GtW = G_scalar.T * weights  # (N_sh, N_grid)
+                GtWG = GtW @ G_scalar       # (N_sh, N_sh) - mass matrix
+                P_scalar = xp.linalg.solve(GtWG, GtW)
+            else:
+                P_scalar = tensor_pinv(asarray(G_scalar), n_leading_flattened=1)
+
             m_total_coeffs = xp.tensordot(P_scalar, m_total, axes=([1], [2])) # (L, 2, 2)
             
             # We need (2, 2, L) for the vector product call
