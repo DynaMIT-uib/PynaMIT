@@ -12,6 +12,7 @@ from typing import Any, List, Optional, Union, Literal
 import numpy as np
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.gauss_legendre.gl_basis import GLBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.field import Field
 from pynamit.primitives.grid import Grid
@@ -32,7 +33,7 @@ from enum import Enum
 class SimulationMode(str, Enum):
     """
     Defines the operational mode of the simulation.
-    
+
     Attributes
     ----------
     PURE_SPECTRAL : str
@@ -40,23 +41,36 @@ class SimulationMode(str, Enum):
         Solver, differentiation, and products happen in spectral coefficients.
         Physics: Exact (subject to truncation), Ground Truth.
         Cost: O(N^4).
-        
-    SPECTRAL_TRANSFORM : str
-        "spectral_transform" - Standard Pseudo-Spectral method.
-        Solver is spectral. Nonlinear products happen on grid.
-        differentiation is analytical (recurrence) but evaluated on grid.
+
+    SPECTRAL_TRANSFORM_CS : str
+        "spectral_transform_cs" - Pseudo-Spectral method with Cubed-Sphere grid.
+        Solver is spectral. Nonlinear products happen on CS grid.
+        SH<->Grid transforms use pseudo-inverse (approximate).
         Physics: Fast, includes aliasing.
         Cost: O(N^3).
-        
+
+    SPECTRAL_TRANSFORM_GL : str
+        "spectral_transform_gl" - Pseudo-Spectral method with Gauss-Legendre grid.
+        Solver is spectral. Nonlinear products happen on GL grid.
+        SH<->Grid transforms are exact via quadrature weights.
+        Physics: Fast, machine-precision transforms.
+        Cost: O(N^3).
+
     CS_DOMINANT : str
         "cs_dominant" - Cubed-Sphere Hybrid method.
         Solver is spectral (Laplacian inverse).
         differentiation and products happen via Finite Differences on Cubed Sphere.
         Physics: Local, fast parallel, numerical dissipation.
+
+    SPECTRAL_TRANSFORM : str
+        Alias for SPECTRAL_TRANSFORM_CS (backward compatibility).
     """
     PURE_SPECTRAL = "pure_spectral"
-    SPECTRAL_TRANSFORM = "spectral_transform"
+    SPECTRAL_TRANSFORM_CS = "spectral_transform_cs"
+    SPECTRAL_TRANSFORM_GL = "spectral_transform_gl"
     CS_DOMINANT = "cs_dominant"
+    # Backward compatibility alias
+    SPECTRAL_TRANSFORM = "spectral_transform_cs"
 
 
 @dataclass
@@ -87,7 +101,7 @@ class DynamicsSettings:
     integrator: Literal["euler", "exponential"] = "euler"
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     filename_prefix: str = "simulation"
-    simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM
+    simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "cg"
     m_imp_regularization_lambda: float = 0.0
     
@@ -291,6 +305,12 @@ class Dynamics:
 
         cs_basis = CSBasis(self.settings.Ncs)
 
+        # Select grid basis based on simulation mode
+        if self.settings.simulation_mode == SimulationMode.SPECTRAL_TRANSFORM_GL:
+            grid_basis = GLBasis(self.settings.Nmax)
+        else:
+            grid_basis = cs_basis
+
         # Specify input format and load input data.
         self.input_variables = {
             "jr": {"jr": "scalar"},
@@ -307,7 +327,7 @@ class Dynamics:
         }
 
         self.input_timeseries = Timeseries(self.input_storage_bases, self.input_variables)
-        self.input_manager = InputManager(self.input_timeseries, cs_basis, self.input_variables)
+        self.input_manager = InputManager(self.input_timeseries, grid_basis, self.input_variables)
         self.input_timeseries.load_all(self.io)
 
         # Specify output format and load output data.
@@ -333,10 +353,10 @@ class Dynamics:
         self.output_timeseries.load_all(self.io)
 
         self.interpolation_bases = {
-            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
-            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
-            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
-            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
+            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else grid_basis,
+            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else grid_basis,
+            "conductance": sh_basis if bool(self.settings.vector_conductance) else grid_basis,
+            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else grid_basis,
         }
 
         self.mainfield = Mainfield(
@@ -351,7 +371,7 @@ class Dynamics:
         self.state = State(
             basis=sh_basis_zero_removed,
             mainfield=self.mainfield,
-            grid_basis=cs_basis,
+            grid_basis=grid_basis,
             settings=self.settings,
             PFAC_matrix=PFAC_matrix_on_file,
             solution_basis=solution_basis,

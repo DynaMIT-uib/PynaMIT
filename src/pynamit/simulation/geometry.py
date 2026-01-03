@@ -134,17 +134,90 @@ class Geometry:
 
     @cached_property
     def projection_matrix(self) -> np.ndarray:
-        """Projection matrix (Grid Vector -> Basis Coefficients)."""
+        """Projection matrix (Grid Vector -> Basis Coefficients).
+
+        For Helmholtz decomposition of vector fields E = -grad(Φ) + r×grad(Ψ).
+
+        For Gauss-Legendre grids with quadrature weights, uses exact analysis:
+            A = G^T @ diag(weights)
+        which gives machine-precision transforms for orthonormal SH.
+
+        For other grids (e.g., Cubed-Sphere), uses pseudo-inverse.
+        """
+        # Check if grid_basis has quadrature weights for exact analysis
+        if hasattr(self.grid_basis, "weights"):
+            logger.info("Using exact GL quadrature for Helmholtz decomposition.")
+            return self._build_exact_helmholtz_analysis()
+
+        # Default: use pseudo-inverse based projection
         return self.solution_basis.construct_projection_matrix(self.grid)
+
+    def _build_exact_helmholtz_analysis(self) -> np.ndarray:
+        """Build exact Helmholtz analysis matrix using GL quadrature.
+
+        Uses weighted least-squares with GL quadrature weights:
+            A = (G^T W G)^{-1} G^T W
+
+        where W = diag(weights) accounts for the quadrature measure.
+        This is equivalent to pseudo-inverse but uses exact quadrature
+        inner products, giving machine-precision for GL grids.
+
+        Returns
+        -------
+        A : ndarray
+            Analysis matrix of shape (2*N_sh, 2*N_grid).
+        """
+        import scipy.sparse
+
+        # Get gradient operators from the spectral basis
+        G_th = self.basis.get_G(self.grid, derivative="theta")
+        G_ph = self.basis.get_G(self.grid, derivative="phi")
+
+        # Convert to dense if sparse
+        if scipy.sparse.issparse(G_th):
+            G_th = G_th.toarray()
+        if scipy.sparse.issparse(G_ph):
+            G_ph = G_ph.toarray()
+
+        n_grid = G_th.shape[0]
+        n_sh = G_th.shape[1]
+
+        # Build Helmholtz basis vectors:
+        # -grad(Y) for poloidal potential Φ
+        # r×grad(Y) for toroidal potential Ψ
+        G_grad = np.array([G_th, G_ph])        # (2, N_grid, N_sh)
+        G_rxgrad = np.array([-G_ph, G_th])     # (2, N_grid, N_sh)
+
+        # G_helmholtz: (vec_comp, grid_pt, pot_type, sh_idx)
+        G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
+
+        # Flatten to 2D: (2*N_grid, 2*N_sh)
+        G_flat = G_helmholtz.transpose(0, 1, 2, 3).reshape(2 * n_grid, 2 * n_sh)
+
+        # Build weight matrix: W = diag([w, w]) for both vector components
+        weights = self.grid_basis.weights  # (N_grid,)
+        W_diag = np.tile(weights, 2)  # (2*N_grid,)
+
+        # Weighted least-squares: A = (G^T W G)^{-1} G^T W
+        # Using efficient formulation: solve (G^T W G) A^T = G^T W
+        GtW = G_flat.T * W_diag  # (2*N_sh, 2*N_grid), broadcast multiply
+        GtWG = GtW @ G_flat     # (2*N_sh, 2*N_sh)
+
+        # Solve the normal equations
+        # A = (GtWG)^{-1} @ GtW
+        A = np.linalg.solve(GtWG, GtW)
+
+        return A
 
         
     def _init_evaluators(self, grid_basis: "GridBasis") -> None:
         """Set up grid, basis evaluators, and field evaluators."""
+        self.grid_basis = grid_basis
         self.grid = grid_basis.grid
-        
+
         # Use polymorphic method to get zero-added basis (for Monopole support in SH)
         self.basis_zero_added = self.basis.get_extended_basis()
-             
+
         self.b_field = self.mainfield.discretize(self.grid, self.RI)
 
         # Optional evaluators for the conjugate hemisphere
