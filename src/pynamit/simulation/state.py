@@ -265,18 +265,61 @@ class State:
         # output: (i, j, k)
         return xp.einsum("sijk,sk->ijk", b_stacked, eta_stacked, optimize=True)
 
+    def _build_gaunt_vector_operator(
+        self, m_total_coeffs: np.ndarray
+    ) -> LinearMap:
+        """
+        Build the vector interaction operator for pure spectral mode.
+
+        Takes conductance coefficients (in extended basis with n=0) and builds
+        the VSH interaction matrix using the solution basis's GauntEngine.
+
+        Parameters
+        ----------
+        m_total_coeffs : np.ndarray
+            Conductance tensor coefficients in extended basis, shape (L_ext, 2, 2)
+
+        Returns
+        -------
+        LinearMap
+            Operator mapping VSH E coefficients to VSH J coefficients
+        """
+        from pynamit.math.gaunt import GauntEngine
+
+        # Create GauntEngine with solution basis (determines quad grid)
+        engine = GauntEngine(self.solution_basis)
+        Q = engine.quad_grid.size
+
+        # Synthesize conductance coefficients to the GauntEngine's quadrature grid
+        # Use extended basis for synthesis (to preserve n=0 monopole component)
+        extended_basis = self.geometry.basis_zero_added
+        G_scalar_quad = extended_basis.get_evaluation_matrix(engine.quad_grid)
+        if hasattr(G_scalar_quad, "toarray"):
+            G_scalar_quad = G_scalar_quad.toarray()
+
+        # Synthesize: (Q, L_ext) @ (L_ext, 2, 2) -> (Q, 2, 2)
+        sigma_quad = xp.tensordot(G_scalar_quad, m_total_coeffs, axes=([1], [0]))
+        # Transpose to (2, 2, Q) for GauntEngine
+        sigma_quad = xp.transpose(sigma_quad, (1, 2, 0))
+
+        # Build vector interaction matrix using the solution basis's GauntEngine
+        M = engine.get_vector_interaction_matrix(to_numpy(sigma_quad))
+        return as_linear_map(M)
+
     def _create_E_coeffs_operator(
         self, G_X_to_JS: Optional[np.ndarray], mapping_type: str = "poloidal"
     ) -> Optional[LinearMap]:
         from pynamit.simulation.dynamics import SimulationMode
-        
+
         # PURE_SPECTRAL Path
         if self.mode == SimulationMode.PURE_SPECTRAL:
             # JS_coeffs = Σ_coeffs * E_coeffs
             m_total = self.M_total_on_grid # (2, 2, Q) - Conductance tensor on grid
 
-            # Project each component of the tensor to spectral coefficients (L, 2, 2)
-            G_scalar = self.solution_basis.get_evaluation_matrix(self.geometry.grid)
+            # Use extended basis (with monopole n=0) for conductance projection
+            # This is critical because constant conductance needs n=0 to be represented
+            extended_basis = self.geometry.basis_zero_added
+            G_scalar = extended_basis.get_evaluation_matrix(self.geometry.grid)
             if hasattr(G_scalar, "toarray"):
                 G_scalar = G_scalar.toarray()
 
@@ -285,33 +328,43 @@ class State:
                 # Weighted least-squares: A = (G^T W G)^{-1} G^T W
                 # This accounts for non-orthonormal Schmidt quasi-normalized SH
                 weights = self.geometry.grid_basis.weights
-                GtW = G_scalar.T * weights  # (N_sh, N_grid)
-                GtWG = GtW @ G_scalar       # (N_sh, N_sh) - mass matrix
+                GtW = G_scalar.T * weights  # (N_sh_ext, N_grid)
+                GtWG = GtW @ G_scalar       # (N_sh_ext, N_sh_ext) - mass matrix
                 P_scalar = xp.linalg.solve(GtWG, GtW)
             else:
                 P_scalar = tensor_pinv(asarray(G_scalar), n_leading_flattened=1)
 
-            m_total_coeffs = xp.tensordot(P_scalar, m_total, axes=([1], [2])) # (L, 2, 2)
-            
-            # We need (2, 2, L) for the vector product call
-            sigma_tensor_coeffs = xp.transpose(m_total_coeffs, (1, 2, 0))
-            
-            # Build Vector Interaction Operator (Spectral to Spectral VSH)
-            op_M_spec = self.solution_basis.get_vector_product_operator(sigma_tensor_coeffs)
+            # Project conductance to extended basis coefficients: (L_ext, 2, 2)
+            m_total_coeffs = xp.tensordot(P_scalar, m_total, axes=([1], [2]))
+
+            # Build Vector Interaction Operator using solution basis
+            # The helper synthesizes to GauntEngine's quad grid internally
+            op_M_spec = self._build_gaunt_vector_operator(m_total_coeffs)
             
             # Analytical Mapping (Gradient or Curl)
-            # Physics factor: E = -grad V. J_S = Σ E.
-            # But our VSH basis P maps to -grad Y. So JS = Σ (V_coeffs * -grad Y).
-            # We also need the 1/mu0 factor from G_grad = (-1/mu0) * grad_op in Geometry.
-            phys_factor = -1.0 / mu0
+            # The VSH basis vectors are: Poloidal = -grad(Y), Toroidal = r×grad(Y)
+            # When we synthesize E = G_vsh @ coeffs, the signs in the basis vectors apply.
+            #
+            # For GL path: E = (-1/mu0) * grad_matrix @ c = (-1/mu0) * grad(Y) * c
+            # For pure spectral poloidal: E = (-grad Y) @ (factor * c)
+            #   To match GL: (-grad Y) @ (factor * c) = (-1/mu0) * grad(Y) * c
+            #   So: -factor = -1/mu0, meaning factor = +1/mu0
+            #
+            # For GL path toroidal: E = (-1/mu0) * curl_matrix @ scaling @ c
+            # For pure spectral toroidal: E = (r×grad Y) @ (factor * scaling * c)
+            #   The r×grad basis has same sign as curl_matrix, so factor = -1/mu0
 
             if mapping_type == "poloidal":
-                # Poloidal (gradient) path: matches G_m_imp_to_JS = -1/mu0 * grad
-                op_G_spec = self.solution_basis.get_gradient_operator() # Unit sphere gradient (r=1.0)
+                # Poloidal (gradient) path: VSH basis is -grad(Y)
+                # Need +1/mu0 to cancel the minus in the basis and match GL's -1/mu0 * grad
+                phys_factor = 1.0 / mu0
+                op_G_spec = self.solution_basis.get_gradient_operator()
                 return op_M_spec @ (phys_factor * op_G_spec)
             else:
-                # Toroidal (curl) path: matches G_Ve_to_JS = (-1/mu0) * curl * (2n+1)
-                op_G_spec = self.solution_basis.get_curl_operator() # Unit sphere curl (r=1.0)
+                # Toroidal (curl) path: VSH basis is r×grad(Y) (same sign as curl_matrix)
+                # Need -1/mu0 to match GL's (-1/mu0) * curl * scaling
+                phys_factor = -1.0 / mu0
+                op_G_spec = self.solution_basis.get_curl_operator()
                 scaling_op = self.solution_basis.get_potential_scaling_operator()
                 return op_M_spec @ (phys_factor * op_G_spec @ scaling_op)
 
