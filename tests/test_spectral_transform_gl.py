@@ -22,9 +22,9 @@ def test_spectral_transform_gl():
     on the GL grid.
     """
     # Expected values for GL mode with exact quadrature Helmholtz decomposition
-    expected_coeff_norm = 5.0728711073791334e-08
-    expected_coeff_max = 7.588651306247171e-09
-    expected_coeff_min = -2.6031517777458468e-08
+    expected_coeff_norm = 3.611476307534931e-08
+    expected_coeff_max = 3.188123429263445e-09
+    expected_coeff_min = -1.6261933724953575e-08
     expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit_gl")

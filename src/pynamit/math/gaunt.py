@@ -34,6 +34,9 @@ class GauntEngine:
         self.basis = basis
         self.Nmax = basis.Nmax
         res = grid_resolution or int(1.5 * self.Nmax + 2)
+        # Ensure res is even for consistency with GLBasis and to avoid magnetic equator
+        if res % 2 != 0:
+            res += 1
         
         # Gauss-Legendre quadrature in theta
         x, w = np.polynomial.legendre.leggauss(res)

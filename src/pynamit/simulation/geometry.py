@@ -511,8 +511,15 @@ class Geometry:
         zeros = np.zeros_like(br)
 
         # 1. Radial to Apex: Map radial vector (0, 0, 1)_sph -> Apex
-        ratio_theta = btheta / br
-        ratio_phi = bphi / br
+        # Regularize division by br to handle magnetic equator (where br→0).
+        # At the equator, the magnetic field is purely horizontal, so radial
+        # vectors are perpendicular to B and should have minimal field-aligned
+        # contribution. This regularization prevents division by zero on GL grids
+        # which may place quadrature points exactly at the magnetic equator.
+        EPS = 1e-10
+        br_safe = np.where(np.abs(br) < EPS, np.sign(br + EPS) * EPS, br)
+        ratio_theta = btheta / br_safe
+        ratio_phi = bphi / br_safe
         
         # Transformation: proj_radial = d3 . r_hat_sph
         rad_to_fp = np.stack([ones, ratio_theta, ratio_phi], axis=0)
