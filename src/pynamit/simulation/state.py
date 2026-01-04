@@ -265,38 +265,6 @@ class State:
         # output: (i, j, k)
         return xp.einsum("sijk,sk->ijk", b_stacked, eta_stacked, optimize=True)
 
-    def _build_gaunt_vector_operator(
-        self, m_total_coeffs: np.ndarray
-    ) -> LinearMap:
-        """
-        Build the vector interaction operator for pure spectral mode.
-
-        Takes conductance coefficients (in extended basis with n=0) and builds
-        the VSH interaction matrix using the solution basis's GauntEngine.
-
-        Parameters
-        ----------
-        m_total_coeffs : np.ndarray
-            Conductance tensor coefficients in extended basis, shape (L_ext, 2, 2)
-
-        Returns
-        -------
-        LinearMap
-            Operator mapping VSH E coefficients to VSH J coefficients
-        """
-        from pynamit.math.gaunt import GauntEngine
-
-        # Create GauntEngine with solution basis (determines quad grid)
-        engine = GauntEngine(self.solution_basis)
-        Q = engine.quad_grid.size
-
-        # Synthesize conductance coefficients to the GauntEngine's quadrature grid
-        # Use extended basis for synthesis (to preserve n=0 monopole component)
-        extended_basis = self.geometry.basis_zero_added
-        G_scalar_quad = extended_basis.get_evaluation_matrix(engine.quad_grid)
-        if hasattr(G_scalar_quad, "toarray"):
-            G_scalar_quad = G_scalar_quad.toarray()
-
         # Synthesize: (Q, L_ext) @ (L_ext, 2, 2) -> (Q, 2, 2)
         sigma_quad = xp.tensordot(G_scalar_quad, m_total_coeffs, axes=([1], [0]))
         # Transpose to (2, 2, Q) for GauntEngine
@@ -309,92 +277,18 @@ class State:
     def _create_E_coeffs_operator(
         self, G_X_to_JS: Optional[np.ndarray], mapping_type: str = "poloidal"
     ) -> Optional[LinearMap]:
-        from pynamit.simulation.dynamics import SimulationMode
-
-        # PURE_SPECTRAL Path
-        if self.mode == SimulationMode.PURE_SPECTRAL:
-            # JS_coeffs = Σ_coeffs * E_coeffs
-            m_total = self.M_total_on_grid # (2, 2, Q) - Conductance tensor on grid
-
-            # Use extended basis (with monopole n=0) for conductance projection
-            # This is critical because constant conductance needs n=0 to be represented
-            extended_basis = self.geometry.basis_zero_added
-            G_scalar = extended_basis.get_evaluation_matrix(self.geometry.grid)
-            if hasattr(G_scalar, "toarray"):
-                G_scalar = G_scalar.toarray()
-
-            # Use exact GL quadrature if grid_basis has weights, else pseudo-inverse
-            if hasattr(self.geometry.grid_basis, "weights"):
-                # Weighted least-squares: A = (G^T W G)^{-1} G^T W
-                # This accounts for non-orthonormal Schmidt quasi-normalized SH
-                weights = self.geometry.grid_basis.weights
-                GtW = G_scalar.T * weights  # (N_sh_ext, N_grid)
-                GtWG = GtW @ G_scalar       # (N_sh_ext, N_sh_ext) - mass matrix
-                P_scalar = xp.linalg.solve(GtWG, GtW)
-            else:
-                P_scalar = tensor_pinv(asarray(G_scalar), n_leading_flattened=1)
-
-            # Project conductance to extended basis coefficients: (L_ext, 2, 2)
-            m_total_coeffs = xp.tensordot(P_scalar, m_total, axes=([1], [2]))
-
-            # Build Vector Interaction Operator using solution basis
-            # The helper synthesizes to GauntEngine's quad grid internally
-            op_M_spec = self._build_gaunt_vector_operator(m_total_coeffs)
+        """Unified operator mapping potential coefficients to J coefficients."""
+        potential_type = "m_imp" if mapping_type == "poloidal" else "m_ind"
+        
+        # Check for Br specifically
+        if G_X_to_JS is getattr(self.geometry, "G_Br_to_JS", None) and G_X_to_JS is not None:
+            potential_type = "Br"
             
-            # Analytical Mapping (Gradient or Curl)
-            # The VSH basis vectors are: Poloidal = -grad(Y), Toroidal = r×grad(Y)
-            # When we synthesize E = G_vsh @ coeffs, the signs in the basis vectors apply.
-            #
-            # For GL path: E = (-1/mu0) * grad_matrix @ c = (-1/mu0) * grad(Y) * c
-            # For pure spectral poloidal: E = (-grad Y) @ (factor * c)
-            #   To match GL: (-grad Y) @ (factor * c) = (-1/mu0) * grad(Y) * c
-            #   So: -factor = -1/mu0, meaning factor = +1/mu0
-            #
-            # For GL path toroidal: E = (-1/mu0) * curl_matrix @ scaling @ c
-            # For pure spectral toroidal: E = (r×grad Y) @ (factor * scaling * c)
-            #   The r×grad basis has same sign as curl_matrix, so factor = -1/mu0
-
-            if mapping_type == "poloidal":
-                # Poloidal (gradient) path: VSH basis is -grad(Y)
-                # Need +1/mu0 to cancel the minus in the basis and match GL's -1/mu0 * grad
-                phys_factor = 1.0 / mu0
-                op_G_spec = self.solution_basis.get_gradient_operator()
-                return op_M_spec @ (phys_factor * op_G_spec)
-            else:
-                # Toroidal (curl) path: VSH basis is r×grad(Y) (same sign as curl_matrix)
-                # Need -1/mu0 to match GL's (-1/mu0) * curl * scaling
-                phys_factor = -1.0 / mu0
-                op_G_spec = self.solution_basis.get_curl_operator()
-                scaling_op = self.solution_basis.get_potential_scaling_operator()
-                return op_M_spec @ (phys_factor * op_G_spec @ scaling_op)
-
-        # SPECTRAL_TRANSFORM (Legacy/Pseudo-Spectral) or CS_DOMINANT
-        # For now, both rely on the grid-based construction provided by G_X_to_JS
-        if G_X_to_JS is None:
-            return None
-        
-        # Geometry (G): Coeffs -> Grid Vector
-        G_backend = asarray(G_X_to_JS)
-        op_G = as_linear_map(G_backend.reshape(-1, G_backend.shape[-1]))
-        
-        # Resistance (M): Grid Vector -> Grid Vector (Block Diagonal)
-        res_op = _ResistanceOperator(self.M_total_on_grid)
-        op_M = LinearMap(
-            shape=res_op.shape,
-            dtype=res_op.dtype,
-            _matvec=res_op.matvec,
-            _rmatvec=res_op.rmatvec,
-            _matmat=res_op.matmat,
-            _rmatmat=res_op.rmatmat,
-            _to_dense=res_op.to_dense,
-            source=res_op
+        return self.geometry.get_conductivity_operator(
+            mode=self.mode,
+            potential_type=potential_type,
+            sigma_grid=self.M_total_on_grid
         )
-        
-        # Projection (P): Grid Vector -> Solution Basis
-        P_matrix = self.geometry.projection_matrix
-        op_P = as_linear_map(asarray(P_matrix) if not hasattr(P_matrix, "toarray") else P_matrix)
-        
-        return op_P @ op_M @ op_G
         
 
     @cached_property

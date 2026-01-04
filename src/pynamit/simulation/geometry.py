@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid_basis import GridBasis
+    from pynamit.math.gaunt import GauntEngine
+    from pynamit.simulation.dynamics import SimulationMode
 
 
 logger = logging.getLogger(__name__)
@@ -128,8 +130,119 @@ class Geometry:
                   logger.warning("CS Basis does not support operator construction. Falling back to spectral.")
                   pass
 
+    @cached_property
+    def gaunt_engine(self) -> "GauntEngine":
+        """Lazy-loaded GauntEngine for spectral interaction matrices."""
+        from pynamit.math.gaunt import GauntEngine
+        return GauntEngine(self.solution_basis)
 
+    def _synthesize_to_gaunt(self, grid_data: np.ndarray) -> np.ndarray:
+        """Synthesize grid data from simulation grid to GauntEngine grid."""
+        from pynamit.utils import xp, asarray
+        # grid_data: (..., N_grid)
+        # 1. Project to extended basis
+        G_scalar = self.basis_zero_added.get_evaluation_matrix(self.grid)
+        if hasattr(G_scalar, "toarray"): G_scalar = G_scalar.toarray()
+        
+        if hasattr(self.grid_basis, "weights"):
+            weights = self.grid_basis.weights
+            GtW = G_scalar.T * weights
+            GtWG = GtW @ G_scalar
+            P_scalar = xp.linalg.solve(GtWG, GtW)
+        else:
+            from pynamit.utils import tensor_pinv
+            P_scalar = tensor_pinv(asarray(G_scalar), n_leading_flattened=1)
+            
+        coeffs = xp.tensordot(P_scalar, grid_data, axes=([1], [-1]))
+        
+        # 2. Synthesize to Gaunt grid
+        engine = self.gaunt_engine
+        G_quad = self.basis_zero_added.get_evaluation_matrix(engine.quad_grid)
+        if hasattr(G_quad, "toarray"): G_quad = G_quad.toarray()
+        
+        # (Q, L) @ (L, ...) -> (Q, ...)
+        res = xp.tensordot(G_quad, coeffs, axes=([1], [0]))
+        return xp.moveaxis(res, 0, -1)
 
+    def get_E_vsh_operator(self, potential_type: str) -> "LinearMap":
+        """Get operator mapping potential coefficients to VSH E-field coefficients."""
+        from pynamit.math.linear_map import as_linear_map
+        L = self.solution_basis.index_length
+        
+        if potential_type == "m_imp":
+             # Poloidal part: E_p = -grad(m_imp)/mu0 -> p_coeffs = (1/mu0) * m_imp
+             p_op = (1.0 / mu0) * np.eye(L)
+             # Toroidal part: E_t = Tor(Ve_coeffs) -> t_coeffs = T_to_Ve @ m_imp
+             t_op = self.T_to_Ve.values
+             return as_linear_map(np.vstack([p_op, t_op]))
+             
+        elif potential_type == "m_ind":
+             # E_t = -1/mu0 * Scaling(m_ind) * Y^T
+             scaling = self.solution_basis.get_potential_scaling_operator()
+             t_mat = (-1.0 / mu0) * scaling.to_dense()
+             
+             if self.RM is not None:
+                 br = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+                 vi = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+                 coupling = (br * vi / (1.0 - br * vi))
+                 t_mat = t_mat * (1.0 + coupling)
+                 
+             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
+
+        elif potential_type == "Br":
+             # Br path is purely toroidal
+             br_shift = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+             vi_shift = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+             den = 1.0 - br_shift * vi_shift
+             L_op = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
+             m_ind_to_Br = -(self.RI**2) * L_op
+             
+             scaling = self.basis.get_potential_scaling_operator()
+             t_mat = (-1.0 / mu0) * scaling.to_dense() * (-br_shift / den / m_ind_to_Br)[:, None]
+             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
+
+        raise ValueError(f"Unknown potential_type: {potential_type}")
+
+    def get_conductivity_operator(
+        self, 
+        mode: Any, 
+        potential_type: str, 
+        sigma_grid: np.ndarray
+    ) -> "LinearMap":
+        """Construct a unified conductivity operator (Potential -> JS_coeffs)."""
+        from pynamit.simulation.dynamics import SimulationMode
+        from pynamit.utils import to_numpy
+        from pynamit.math.linear_map import as_linear_map
+        
+        if mode == SimulationMode.PURE_SPECTRAL:
+            # Galerkin Path: Exact spectral interaction
+            op_E_vsh = self.get_E_vsh_operator(potential_type)
+            # Build interaction matrix (2L, 2L)
+            sigma_quad = self._synthesize_to_gaunt(sigma_grid)
+            M_vsh = self.gaunt_engine.get_vector_interaction_matrix(to_numpy(sigma_quad))
+            return as_linear_map(M_vsh) @ op_E_vsh
+        else:
+            # Transform Path: P @ sigma @ G
+            G_grid = getattr(self, f"G_{potential_type}_to_JS", None)
+            if G_grid is None: return None
+            
+            from pynamit.simulation.state import _ResistanceOperator
+            from pynamit.math.linear_map import LinearMap
+            res_op = _ResistanceOperator(sigma_grid)
+            op_M = LinearMap(
+                shape=res_op.shape,
+                dtype=res_op.dtype,
+                _matvec=res_op.matvec,
+                _rmatvec=res_op.rmatvec,
+                _matmat=res_op.matmat,
+                _rmatmat=res_op.rmatmat,
+                _to_dense=res_op.to_dense,
+                source=res_op
+            )
+            
+            op_G = as_linear_map(G_grid.reshape(-1, G_grid.shape[-1]))
+            op_P = as_linear_map(self.projection_matrix)
+            return op_P @ op_M @ op_G
 
 
     @cached_property
