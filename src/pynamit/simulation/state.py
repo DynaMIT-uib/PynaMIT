@@ -304,13 +304,16 @@ class State:
             # But our VSH basis P maps to -grad Y. So JS = Σ (V_coeffs * -grad Y).
             # We also need the 1/mu0 factor from G_grad = (-1/mu0) * grad_op in Geometry.
             phys_factor = -1.0 / mu0
-            
+
             if mapping_type == "poloidal":
+                # Poloidal (gradient) path: matches G_m_imp_to_JS = -1/mu0 * grad
                 op_G_spec = self.solution_basis.get_gradient_operator() # Unit sphere gradient (r=1.0)
+                return op_M_spec @ (phys_factor * op_G_spec)
             else:
+                # Toroidal (curl) path: matches G_Ve_to_JS = (-1/mu0) * curl * (2n+1)
                 op_G_spec = self.solution_basis.get_curl_operator() # Unit sphere curl (r=1.0)
-                
-            return op_M_spec @ (phys_factor * op_G_spec)
+                scaling_op = self.solution_basis.get_potential_scaling_operator()
+                return op_M_spec @ (phys_factor * op_G_spec @ scaling_op)
 
         # SPECTRAL_TRANSFORM (Legacy/Pseudo-Spectral) or CS_DOMINANT
         # For now, both rely on the grid-based construction provided by G_X_to_JS
