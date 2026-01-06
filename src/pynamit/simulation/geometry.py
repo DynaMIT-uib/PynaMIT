@@ -559,7 +559,20 @@ class Geometry:
 
     @cached_property
     def G_m_ind_to_JS(self) -> np.ndarray:
-        """Operator mapping m_ind to sheet current on grid."""
+        """Operator mapping m_ind to sheet current on grid.
+        
+        This operator combines two physical effects:
+        1. Local "Vacuum" Induction: m_ind -> E -> J.
+           - Captured by `self.G_Ve_to_JS`.
+           - Uses the Solution Basis (e.g. CS) for maximum local accuracy.
+           
+        2. Gap Region / Magnetospheric Boundary Coupling: m_ind -> Coupling -> J.
+           - Captured by `self.G_Ve_to_JS_sh` + coupling factors.
+           - Represents feedback from the boundary condition at RM, mediated
+             through the gap region (RI < r < RM).
+           - This is a global, spectral effect and MUST use the SH basis.
+           - If solution basis is not SH, we map SH coupling -> Grid using the adapter.
+        """
         if self.G_Ve_to_JS is None:
              return None
         G = self.G_Ve_to_JS.copy()
@@ -577,13 +590,14 @@ class Geometry:
         return G
 
     def _compute_vsh_operator(self, basis: Basis) -> np.ndarray:
-        """Compute VSH induction operator (-1/mu0 * Curl @ Scaling)."""
+        """Compute generic VSH induction operator (-1/mu0 * Curl @ Scaling).
+        
+        This constructs the "Vacuum Induction" operator for a given basis.
+        """
         scaling_op = basis.get_potential_scaling_operator()
         curl_op = as_linear_map(basis.get_curl_matrix(self.grid))
         
         # Generic Formula: (-1/mu0) * (Curl @ Scaling)
-        # Note: For CSBasis, legacy code used (1/RI) * Curl @ (-RI/mu0 * Scaling).
-        # These factors cancel analytically to (-1/mu0).
         G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
         return G_lin.to_dense().reshape(2, -1, basis.index_length)
 
