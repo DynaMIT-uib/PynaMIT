@@ -182,18 +182,15 @@ class Geometry:
              t_mat = (-1.0 / mu0) * scaling.to_dense()
              
              if self.RM is not None:
-                 br = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
-                 vi = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
-                 coupling = (br * vi / (1.0 - br * vi))
+                 br, vi, den = self._get_coupling_factors()
+                 coupling = (br * vi / den)
                  t_mat = t_mat * (1.0 + coupling)
                  
              return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
 
         elif potential_type == "Br":
              # Br path is purely toroidal
-             br_shift = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
-             vi_shift = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
-             den = 1.0 - br_shift * vi_shift
+             br_shift, vi_shift, den = self._get_coupling_factors()
              L_op = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
              m_ind_to_Br = -(self.RI**2) * L_op
              
@@ -554,6 +551,26 @@ class Geometry:
             
         return T_to_Ve
 
+    def _get_coupling_factors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute magnetospheric coupling factors.
+        
+        Returns
+        -------
+        br_shift : ndarray
+            Diagonal of external radial shift operator (RM -> RI).
+        vi_shift : ndarray
+             Diagonal of internal radial shift operator (RI -> RM).
+        den : ndarray
+             Resonance denominator (1 - br*vi).
+        """
+        if self.RM is None:
+             raise ValueError("Cannot compute coupling factors without RM.")
+             
+        br_shift = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
+        vi_shift = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
+        den = 1.0 - br_shift * vi_shift
+        return br_shift, vi_shift, den
+
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
@@ -572,10 +589,7 @@ class Geometry:
         G = self.G_Ve_to_JS.copy()
         
         if self.RM is not None:
-             # Add Magnetospheric Coupling (Standard legacy logic)
-             br_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
-             vi_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
-             den = 1.0 - br_shift_sh * vi_shift_sh
+             br_shift_sh, vi_shift_sh, den = self._get_coupling_factors()
              
              G_coupling_sh = self.G_Ve_to_JS_sh * (br_shift_sh * vi_shift_sh / den)
              
@@ -592,9 +606,7 @@ class Geometry:
         if self.RM is None:
              return None
              
-        br_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RM, self.RI, kind="external").to_dense())
-        vi_shift_sh = np.diag(self.basis.get_radial_shift_operator(self.RI, self.RM, kind="internal").to_dense())
-        den = 1.0 - br_shift_sh * vi_shift_sh
+        br_shift_sh, vi_shift_sh, den = self._get_coupling_factors()
         
         L_op_sh = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
         m_ind_to_Br_sh = -(self.RI**2) * L_op_sh
