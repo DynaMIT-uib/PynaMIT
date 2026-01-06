@@ -576,32 +576,37 @@ class Geometry:
                    
         return G
 
+    def _compute_vsh_operator(self, basis: Basis) -> np.ndarray:
+        """Compute VSH induction operator (-1/mu0 * Curl @ Scaling)."""
+        scaling_op = basis.get_potential_scaling_operator()
+        curl_op = as_linear_map(basis.get_curl_matrix(self.grid))
+        
+        # Generic Formula: (-1/mu0) * (Curl @ Scaling)
+        # Note: For CSBasis, legacy code used (1/RI) * Curl @ (-RI/mu0 * Scaling).
+        # These factors cancel analytically to (-1/mu0).
+        G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
+        return G_lin.to_dense().reshape(2, -1, basis.index_length)
+
     @cached_property
     def G_Ve_to_JS_sh(self) -> np.ndarray:
         """Spectral Induction operator (SH Basis)."""
-        scaling_op_sh = self.basis.get_potential_scaling_operator()
-        curl_sh = as_linear_map(self.basis.get_curl_matrix(self.grid))
-        
-        # Legacy Arithmetic: (-1/mu0) * (Curl @ Scaling)
-        G_lin_sh = (-1.0 / mu0) * (curl_sh @ scaling_op_sh)
-        return G_lin_sh.to_dense().reshape(2, -1, self.basis.index_length)
+        return self._compute_vsh_operator(self.basis)
 
     @cached_property
     def G_Ve_to_JS(self) -> np.ndarray:
         """Grid-native Induction operator (Solution Basis)."""
         if self.solution_basis.kind == "CS":
              try:
-                  scaling_op_cs = self.solution_basis.get_potential_scaling_operator()
-                  curl_cs = as_linear_map(self.solution_basis.get_curl_matrix(self.grid))
-                  
-                  # Legacy Arithmetic: (1/RI) * (Curl @ (Factor * Scaling))
-                  G_lin_cs = (1.0 / self.RI) * (curl_cs @ ((-self.RI / mu0) * scaling_op_cs))
-                  return G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
+                  return self._compute_vsh_operator(self.solution_basis)
              except (NotImplementedError, AttributeError):
                   logger.warning("CS Basis does not support operator construction. Falling back to spectral.")
                   pass
         
-        return self.G_Ve_to_JS_sh
+        # If SH basis (or fallback), just reuse the SH operator
+        if self.solution_basis is self.basis:
+             return self.G_Ve_to_JS_sh
+             
+        return self._compute_vsh_operator(self.solution_basis)
     def _get_transformation_matrices(self, dfield: Field):
         """Compute transformation matrices for Apex coordinates."""
         # Get basis vectors
