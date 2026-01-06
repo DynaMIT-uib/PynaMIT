@@ -106,30 +106,6 @@ class Geometry:
         self.m_ind_to_Br = -(self.RI**2) * self.solution_basis.get_laplacian_operator(self.RI)
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
 
-        # 2. Spectral Induction operators (Required for T_to_Ve and coupling)
-        scaling_op_sh = self.basis.get_potential_scaling_operator()
-        curl_sh = as_linear_map(self.basis.get_curl_matrix(self.grid))
-        
-        # Scaling factor: -1/mu0 (Standard Pynamit Induction Factor)
-        # We include the scaling op (2n + 1) which relates m to potential.
-        G_lin_sh = (-1.0 / mu0) * (curl_sh @ scaling_op_sh)
-        self.G_Ve_to_JS_sh = G_lin_sh.to_dense().reshape(2, -1, self.basis.index_length)
-
-        # 3. Grid-native Induction operators (for local induction loop)
-        self.G_Ve_to_JS = self.G_Ve_to_JS_sh
-        if self.solution_basis.kind == "CS":
-             try:
-                  scaling_op_cs = self.solution_basis.get_potential_scaling_operator()
-                  curl_cs = as_linear_map(self.solution_basis.get_curl_matrix(self.grid))
-                  
-                  # G = (1/RI) * Curl * (-RI/mu0 * S) 
-                  G_lin_cs = (1.0 / self.RI) * (curl_cs @ ((-self.RI / mu0) * scaling_op_cs))
-                  self.G_Ve_to_JS = G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
-             except (NotImplementedError, AttributeError):
-                  # Fallback to spectral
-                  logger.warning("CS Basis does not support operator construction. Falling back to spectral.")
-                  pass
-
     @cached_property
     def gaunt_engine(self) -> "GauntEngine":
         """Lazy-loaded GauntEngine for spectral interaction matrices."""
@@ -601,18 +577,31 @@ class Geometry:
         return G
 
     @cached_property
-    def G_Br_to_JS(self) -> Optional[np.ndarray]:
-        """Operator mapping boundary Br to sheet current on grid."""
-        if self.RM is None:
-             return None
-             
-        br_shift_sh, vi_shift_sh, den = self._get_coupling_factors()
+    def G_Ve_to_JS_sh(self) -> np.ndarray:
+        """Spectral Induction operator (SH Basis)."""
+        scaling_op_sh = self.basis.get_potential_scaling_operator()
+        curl_sh = as_linear_map(self.basis.get_curl_matrix(self.grid))
         
-        L_op_sh = np.diag(self.basis.get_laplacian_operator(self.RI).to_dense())
-        m_ind_to_Br_sh = -(self.RI**2) * L_op_sh
+        # Legacy Arithmetic: (-1/mu0) * (Curl @ Scaling)
+        G_lin_sh = (-1.0 / mu0) * (curl_sh @ scaling_op_sh)
+        return G_lin_sh.to_dense().reshape(2, -1, self.basis.index_length)
+
+    @cached_property
+    def G_Ve_to_JS(self) -> np.ndarray:
+        """Grid-native Induction operator (Solution Basis)."""
+        if self.solution_basis.kind == "CS":
+             try:
+                  scaling_op_cs = self.solution_basis.get_potential_scaling_operator()
+                  curl_cs = as_linear_map(self.solution_basis.get_curl_matrix(self.grid))
+                  
+                  # Legacy Arithmetic: (1/RI) * (Curl @ (Factor * Scaling))
+                  G_lin_cs = (1.0 / self.RI) * (curl_cs @ ((-self.RI / mu0) * scaling_op_cs))
+                  return G_lin_cs.to_dense().reshape(2, -1, self.solution_basis.index_length)
+             except (NotImplementedError, AttributeError):
+                  logger.warning("CS Basis does not support operator construction. Falling back to spectral.")
+                  pass
         
-        G_Br_sh = self.G_Ve_to_JS_sh * (-br_shift_sh / den / m_ind_to_Br_sh)
-        return G_Br_sh
+        return self.G_Ve_to_JS_sh
     def _get_transformation_matrices(self, dfield: Field):
         """Compute transformation matrices for Apex coordinates."""
         # Get basis vectors
