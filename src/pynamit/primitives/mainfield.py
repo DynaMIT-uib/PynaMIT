@@ -147,7 +147,7 @@ class RadialImplementation(MainfieldImplementation):
     """Radial magnetic field implementation."""
 
     def __init__(self, epoch: int, B0: Optional[float]):
-        self.B0 = dipole.Dipole(epoch).B0 if B0 is None else B0
+        self.B0 = (dipole.Dipole(epoch).B0 * 1e-9) if B0 is None else B0
 
     def evaluate(self, r, theta, phi) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         r, theta, phi = np.broadcast_arrays(r, theta, phi)

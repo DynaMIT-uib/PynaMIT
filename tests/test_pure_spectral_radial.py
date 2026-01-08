@@ -8,9 +8,9 @@ def test_pure_spectral_radial(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode
     # (Updated after synchronized even-resolution fix in both GLBasis and GauntEngine)
-    expected_coeff_norm = 0.0029634334739569515
-    expected_coeff_max = 0.0012235623267769031
-    expected_coeff_min = -0.0012931373997382254
+    expected_coeff_norm = 3.9180173232428894e-08
+    expected_coeff_max = 8.562985980286138e-09
+    expected_coeff_min = -2.3258520870173936e-08
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(

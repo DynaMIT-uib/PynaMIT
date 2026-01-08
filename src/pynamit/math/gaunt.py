@@ -387,7 +387,8 @@ class GauntEngine:
                                          wm = wigner_3j(li, lj, lk, m1, m2, m3)
                                          sg += np.real(c1*c2*c3 * 4*np.pi * w0 * wm)
                         
-                        sym_factor = 0.5 * (lk*(lk+1) - li*(li+1) - lj*(lj+1)) * sg
+                        # Symmetric Factor (Corrected Sign: li+lj-lk)
+                        sym_factor = 0.5 * (li*(li+1) + lj*(lj+1) - lk*(lk+1)) * sg
                         
                         if has_P: sum_sym_P += cP * sym_factor
                         if has_H: sum_sym_H += cH * sym_factor
@@ -398,18 +399,36 @@ class GauntEngine:
                         if has_P: sum_els_P += cP * els_factor
                         if has_H: sum_els_H += cH * els_factor
 
-                # Fill Blocks
-                # PP (0,0) and TT (1,1): Sym(P) - Els(H)
+                # Fill Blocks based on Analytic Derivation
+                # PP (0,0) and TT (1,1): S(P) - E(H)
                 val_diag = sum_sym_P - sum_els_H
                 M_mat[i, j] = val_diag
                 M_mat[i + L_len, j + L_len] = val_diag
                 
-                # TP (1,0): Els(P) + Sym(H)
-                val_TP = sum_els_P + sum_sym_H
-                M_mat[i + L_len, j] = val_TP
+                # PT (0,1) (Row P, Col T): E(P) + S(H)
+                val_off = sum_els_P + sum_sym_H
+                M_mat[i, j + L_len] = val_off
+
+                # TP (1,0) (Row T, Col P): -E(P) - S(H)
+                M_mat[i + L_len, j] = -val_off
                 
-                # PT (0,1): -Els(P) - Sym(H)
-                M_mat[i, j + L_len] = -val_TP
+        # Apply Inverse Metric Scaling D_inv @ M
+        # For Vector Harmonics (Schmidt): D_ii = l(l+1) * 4*pi / (2*l_i + 1)
+        # So multiply row i by (2*l_i + 1) / (4*pi * l_i * (l_i + 1))
+        
+        l_vec = self.basis.n.astype(float)
+        
+        # Avoid division by zero for l=0 (monopole has no vector part)
+        div_vec = 4 * np.pi * l_vec * (l_vec + 1)
+        div_vec[div_vec == 0] = 1.0 
+        
+        scale_vec = (2 * l_vec + 1) / div_vec
+        
+        # Apply to both Poloidal and Toroidal blocks (same l_vec)
+        full_scale = np.concatenate([scale_vec, scale_vec])
+        
+        # Row-wise multiplication
+        M_mat = full_scale[:, None] * M_mat
                 
         return M_mat
 
