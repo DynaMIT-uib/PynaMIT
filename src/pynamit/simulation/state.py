@@ -284,10 +284,16 @@ class State:
         if G_X_to_JS is getattr(self.geometry, "G_Br_to_JS", None) and G_X_to_JS is not None:
             potential_type = "Br"
             
+        # Pass eta fields if available for analytic mode
+        etaP_field = getattr(self, "etaP", None)
+        etaH_field = getattr(self, "etaH", None)
+
         return self.geometry.get_conductivity_operator(
             mode=self.mode,
             potential_type=potential_type,
-            sigma_grid=self.M_total_on_grid
+            sigma_grid=self.M_total_on_grid,
+            etaP=etaP_field,
+            etaH=etaH_field
         )
         
 

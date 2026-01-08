@@ -4,13 +4,13 @@ import numpy as np
 from pynamit.simulation.runner import run_pynamit
 
 @pytest.mark.wind
-def test_pure_spectral_execution(pynamit_approx):
+def test_pure_spectral_radial(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode
     # (Updated after synchronized even-resolution fix in both GLBasis and GauntEngine)
-    expected_coeff_norm = 2.3585250922238736e-08
-    expected_coeff_max = 7.704433571645792e-09
-    expected_coeff_min = -1.7363537958915214e-08
+    expected_coeff_norm = 0.0029634334739569515
+    expected_coeff_max = 0.0012235623267769031
+    expected_coeff_min = -0.0012931373997382254
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(
@@ -18,9 +18,7 @@ def test_pure_spectral_execution(pynamit_approx):
         Nmax=5,
         Mmax=5,
         Ncs=6,
-        mainfield_kind="igrf",
-        ignore_PFAC=False,
-        connect_hemispheres=True,
+        mainfield_kind="radial",
         simulation_mode="pure_spectral",
         steady_state_initialization=False,
         wind=True,

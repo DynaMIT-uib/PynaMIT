@@ -180,7 +180,9 @@ class Geometry:
         self, 
         mode: Any, 
         potential_type: str, 
-        sigma_grid: np.ndarray
+        sigma_grid: np.ndarray,
+        etaP: Optional[Any] = None,
+        etaH: Optional[Any] = None
     ) -> "LinearMap":
         """Construct a unified conductivity operator (Potential -> JS_coeffs)."""
         from pynamit.simulation.dynamics import SimulationMode
@@ -190,9 +192,28 @@ class Geometry:
         if mode == SimulationMode.PURE_SPECTRAL:
             # Galerkin Path: Exact spectral interaction
             op_E_vsh = self.get_E_vsh_operator(potential_type)
-            # Build interaction matrix (2L, 2L)
-            sigma_quad = self._synthesize_to_gaunt(sigma_grid)
-            M_vsh = self.gaunt_engine.get_vector_interaction_matrix(to_numpy(sigma_quad))
+            
+            # Prefer Analytic VSH Coupling if analytic fields available AND Mainfield is Radial
+            # Standard Analytic Formula assumes isotropic/radial geometry. 
+            # For Dipole B, the angular variation in sigma_tensor is significant and better handled by Quadrature.
+            use_analytic = (
+                etaP is not None and etaH is not None and 
+                getattr(self.mainfield, "kind", "dipole") == "radial"
+            )
+            
+            if use_analytic:
+                try:
+                    logger.info("Building Analytic Interaction Matrix (Vector Basis, Radial B)...")
+                    M_vsh = self.gaunt_engine.get_analytic_interaction_matrix(etaP.coeffs, etaH.coeffs)
+                except Exception as e:
+                    logger.warning(f"Analytic construction failed ({e}), falling back to Quadrature.")
+                    sigma_quad = self._synthesize_to_gaunt(sigma_grid)
+                    M_vsh = self.gaunt_engine.get_vector_interaction_matrix(to_numpy(sigma_quad))
+            else:
+                 # Standard Quadrature Path (Handles Dipole Anisotropy Correctly)
+                 sigma_quad = self._synthesize_to_gaunt(sigma_grid)
+                 M_vsh = self.gaunt_engine.get_vector_interaction_matrix(to_numpy(sigma_quad))
+                 
             return as_linear_map(M_vsh) @ op_E_vsh
         else:
             # Transform Path: P @ sigma @ G

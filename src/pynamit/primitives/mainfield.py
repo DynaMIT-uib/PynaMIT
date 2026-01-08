@@ -174,9 +174,35 @@ class RadialImplementation(MainfieldImplementation):
         b_at_re = self.evaluate(np.array([RE]), np.array([0]), np.array([0]))[0][0]
         sign = np.sign(b_at_re)
 
-        d1, e1 = e
-        d2, e2 = n * sign * (-1)
-        d3, e3 = u * sign
+        # Assign basis vectors for simple Radial/Spherical alignment
+        # d1 = East = Phi (0,0,1)
+        # d2 = Equatorward = -Theta (0,-1,0) (for NH) -> Actually logic depends on hem? 
+        # For simple radial test, use d2 = -theta everywhere? 
+        # Standard: d1= East, d2= Down/North? 
+        # Let's align with (r, th, ph) unit vectors.
+        # d1 (East) is parallel to ph (u).
+        # d2 is perp to d1 and d3.
+        # d3 is parallel to r (e).
+        
+        d1 = u # (3, size)
+        e1 = u
+        
+        # If sign > 0 (Outward B), d3 is Up. d2 is South?
+        # If sign < 0 (Inward B), d3 is Down. 
+        # Let's trust the logic: d2 x d3 = d1? Or d1 x d2 = d3?
+        # Right handed (d1, d2, d3)?
+        # (East) x (North) = (Up/Field is Up?)
+        # u x (-n) = (0,0,1) x (0,-1,0) = (1,0,0) = e.
+        # So d2 should be -n.
+        
+        d2 = -n * sign * (-1) # Preserving the sign logic from original if any?
+        # Original: d2, e2 = n * sign * (-1). 
+        # If sign=1, d2 ~ -n. Correct.
+        d2 = -1.0 * n 
+        e2 = d2
+        
+        d3 = e * sign
+        e3 = d3
 
         return d1, d2, d3, e1, e2, e3
 

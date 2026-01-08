@@ -39,6 +39,7 @@ def run_pynamit(
     simulation_mode: Optional[str] = None,
     least_squares_solver: str = "cg",
     m_imp_regularization_lambda: float = 0.0,
+    mainfield_B0: Optional[float] = None,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -117,6 +118,7 @@ def run_pynamit(
         RI=RI,
         RM=RM,
         mainfield_kind=mainfield_kind,
+        mainfield_B0=mainfield_B0,
         ignore_PFAC=ignore_PFAC,
         connect_hemispheres=connect_hemispheres,
         latitude_boundary=latitude_boundary,
