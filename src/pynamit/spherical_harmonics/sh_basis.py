@@ -93,6 +93,7 @@ class SHBasis(Basis):
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
         self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
+        self.Nmin = Nmin
         self.is_normalized = quasi_normalized
         self._use_modern_scipy = _USE_MODERN_SCIPY
 

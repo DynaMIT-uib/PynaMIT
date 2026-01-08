@@ -1,6 +1,7 @@
 """Wigner 3j symbols and related functions."""
 
 import numpy as np
+import scipy.special
 from scipy.special import gammaln
 
 
@@ -205,4 +206,63 @@ def wigner_9j(j1, j2, j3, j4, j5, j6, j7, j8, j9):
 
 def _check_triangle(a, b, c):
     return abs(a - b) <= c <= a + b
+
+def wigner_small_d(j, mp, m, beta):
+    """
+    Compute Wigner small-d matrix element d^j_{m', m}(beta).
+    
+    Using explicit summation formula (Wigner 1959).
+    Valid for small j (stable up to j ~ 30).
+    
+    Parameters
+    ----------
+    j : float or int
+        Angular momentum.
+    mp : float or int
+        m' (row index).
+    m : float or int
+        m (column index).
+    beta : float or array-like
+        Angle in radians.
+        
+    Returns
+    -------
+    d_val : float or ndarray
+        Value of d^j_{m', m}(beta).
+    """
+    # Range of k summation
+    # max(0, m - mp) <= k <= min(j + m, j - mp)
+    k_min = max(0, m - mp)
+    k_max = min(j + m, j - mp)
+    
+    if k_min > k_max:
+        return 0.0
+        
+    # Pre-compute factorials
+    def fact(n):
+        return scipy.special.factorial(n)
+        
+    prefactor = np.sqrt(
+        fact(j + mp) * fact(j - mp) * fact(j + m) * fact(j - m)
+    )
+    
+    sum_val = 0.0
+    
+    # Cast beta to array for vectorization
+    beta = np.asarray(beta)
+    cos_half = np.cos(beta / 2.0)
+    sin_half = np.sin(beta / 2.0)
+    
+    for k in range(int(k_min), int(k_max) + 1):
+        num = (-1)**(k - m + mp)
+        den = (
+            fact(j + m - k) * 
+            fact(k) * 
+            fact(j - mp - k) * 
+            fact(mp - m + k)
+        )
+        term = (num / den) * (cos_half**(2*j - mp + m - 2*k)) * (sin_half**(mp - m + 2*k))
+        sum_val += term
+        
+    return prefactor * sum_val
 
