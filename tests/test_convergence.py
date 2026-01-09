@@ -7,7 +7,7 @@ from pynamit.simulation.runner import run_pynamit
 def test_convergence():
     logging.basicConfig(level=logging.ERROR)
     
-    N_values = [2, 3, 4] # Keep small for speed
+    N_values = [4, 8, 12] # Higher N stress test
     errors = []
     
     print("Testing Convergence of General Analytic Path...")
@@ -16,7 +16,11 @@ def test_convergence():
     
     for N in N_values:
         # Ensure Ncs is even
-        Ncs = N + 2 + (N % 2)
+        # Ensure Ncs is high enough for exact cubic integration
+        # Order is roughly 3*N. GL integrates 2*Ncs - 1.
+        # Need 2*Ncs - 1 >= 3*N
+        # Ncs >= (3N+1)/2
+        Ncs = 2 * N + 4 # Safe margin
         
         # Run Baseline (Quadrature)
         sim_quad = run_pynamit(
