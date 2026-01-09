@@ -157,6 +157,7 @@ class Geometry:
              scaling = self.solution_basis.get_potential_scaling_operator()
              t_mat = (-1.0 / mu0) * scaling.to_dense()
              
+
              if self.RM is not None:
                  br, vi, den = self._get_coupling_factors()
                  coupling = (br * vi / den)

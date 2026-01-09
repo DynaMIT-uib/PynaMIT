@@ -546,9 +546,7 @@ class GauntEngine:
         
         # 6. Real Basis Projection
         
-        print(f"DEBUG_MAT: idx_map[1]={idx_map[1]}")
-        print(f"DEBUG_MAT: M_PP[1,1]={M_PP[1,1]:.4e}")
-        print(f"DEBUG_MAT: M_mat[1,1]={M_mat[1,1]:.4e}")
+
         
         # 6. Real Basis Projection
         # Map Complex P/T -> Real P/T
@@ -563,8 +561,6 @@ class GauntEngine:
         P_full = np.block([[P_real_complex, zero_block], [zero_block, P_real_complex]])
         
         M_final = P_full.conj().T @ M_mat @ P_full
-        
-        print(f"DEBUG_MAT: M_final[1,1] (Real Basis)={M_final[1,1].real:.4e}")
         
         # Return Real Part (Physics is Real)
         return M_final.real
@@ -610,8 +606,6 @@ class GauntEngine:
                  phase = (-1.0)**(m1 + s1)
                  
                  term = c * g * phase
-                 if l1 == 1 and m1 == 0 and l2 == 1 and m2 == 0:
-                     print(f"DEBUG_TRACE: l3={l3} idx={idx} m={m1} s={s1} c={c.real:.4e} g={g:.4e} ph={phase} term={term.real:.4e}")
                  val += term
                  
         return val
@@ -669,16 +663,17 @@ class GauntEngine:
                 
                 if count == 0:
                     # First time: Cosine (g_lm)
-                    # Y_cos = 1/sr2 (Y_m + Y_-m)
-                    val = inv_sr2
-                    U[idx_pos, k] = val
-                    U[idx_neg, k] = val
+                    # Y_cos = 1/sr2 (Y_m + (-1)^m Y_-m)
+                    phase = (-1.0)**mr
+                    U[idx_pos, k] = inv_sr2
+                    U[idx_neg, k] = inv_sr2 * phase
                 else:
                     # Second time: Sine (h_lm)
-                    # Y_sin = -i/sr2 (Y_m - Y_-m)
-                    
+                    # Y_sin = 1/(i sr2) (Y_m - (-1)^m Y_-m)
+                    #       = -i/sr2 * Y_m + i/sr2 * (-1)^m * Y_-m
+                    phase = (-1.0)**mr
                     U[idx_pos, k] = -1j * inv_sr2
-                    U[idx_neg, k] = 1j * inv_sr2
+                    U[idx_neg, k] = 1j * inv_sr2 * phase
                     
         return U
     def _compute_vsh_coupling_constant(self, li, lj, lk) -> complex:

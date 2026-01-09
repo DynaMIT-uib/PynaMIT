@@ -60,14 +60,38 @@ def test_convergence():
             print("Analytic Diagonal (First 5):")
             print(np.diag(M_gen).real[:5])
 
-        # Compare
-        diff = M_gen - M_ref
-        rel_err = np.linalg.norm(diff) / norm_ref
+        # Detailed Analysis
+        diff = M_ref - M_gen
+        rel_norm_error = np.linalg.norm(diff) / np.linalg.norm(M_ref)
         
-        diag0 = M_gen[0,0]
+        max_abs_err = np.max(np.abs(diff))
+        mean_abs_err = np.mean(np.abs(diff))
         
-        errors.append(rel_err)
-        print(f"{N:<5} {norm_ref:<12.4e} {norm_gen:<12.4e} {rel_err:<12.4f} {diag0:.2e}")
+        # Element-wise relative error (filter small values)
+        mask = np.abs(M_ref) > 1e-4
+        if np.any(mask):
+            elem_rel_err = np.abs(diff[mask]) / np.abs(M_ref[mask])
+            max_elem_rel_err = np.max(elem_rel_err)
+            mean_elem_rel_err = np.mean(elem_rel_err)
+        else:
+            max_elem_rel_err = 0.0
+            mean_elem_rel_err = 0.0
+            
+        print(f"{N:<5} {norm_ref:<12.4e} {norm_gen:<12.4e} {rel_norm_error:<12.4e} {M_gen.diagonal()[0].real:<14.2e}")
+        print(f"      MaxAbs: {max_abs_err:.4e}  MeanAbs: {mean_abs_err:.4e}")
+        print(f"      MaxRel: {max_elem_rel_err:.4e}  MeanRel: {mean_elem_rel_err:.4e}")
+        
+        # Check Ratio of Diagonals (Scaling factor check)
+        diag_ref = M_ref.diagonal()
+        diag_gen = M_gen.diagonal()
+        ratios = diag_ref.real / diag_gen.real
+        valid_r = np.abs(diag_gen) > 1e-4
+        if np.any(valid_r):
+             mean_ratio = np.mean(ratios[valid_r])
+             std_ratio = np.std(ratios[valid_r])
+             print(f"      DiagRatio Mean: {mean_ratio:.4f} +/- {std_ratio:.4f}")
+        
+        errors.append(rel_norm_error)
         
     print("\nConvergence Analysis:")
     if errors[-1] < errors[0]:
