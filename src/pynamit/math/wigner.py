@@ -3,8 +3,10 @@
 import numpy as np
 import scipy.special
 from scipy.special import gammaln
+from functools import lru_cache
 
 
+@lru_cache(maxsize=None)
 def wigner_3j(j1, j2, j3, m1, m2, m3):
     """
     Compute the Wigner 3j symbol using the Racah formula.
@@ -74,6 +76,7 @@ def wigner_3j(j1, j2, j3, m1, m2, m3):
     
     return result
 
+@lru_cache(maxsize=None)
 def wigner_6j(j1, j2, j3, J1, J2, J3):
     """
     Compute the Wigner 6j symbol { j1 j2 j3 }
@@ -114,6 +117,7 @@ def wigner_6j(j1, j2, j3, J1, J2, J3):
         
     return np.exp(triangles) * sum_val
 
+@lru_cache(maxsize=None)
 def wigner_9j(j1, j2, j3, j4, j5, j6, j7, j8, j9):
     """
     Compute the Wigner 9j symbol:

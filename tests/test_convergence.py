@@ -1,107 +1,97 @@
-
 import logging
+import pytest
 import numpy as np
-import matplotlib.pyplot as plt
 from pynamit.simulation.runner import run_pynamit
+from pynamit.primitives.field import Field
 
-def test_convergence():
-    logging.basicConfig(level=logging.ERROR)
+def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
+    """
+    Run a convergence check for a specific configuration.
     
-    N_values = [4, 8, 12] # Higher N stress test
-    errors = []
+    Parameters
+    ----------
+    mainfield_kind : str
+        "radial" or "dipole"
+    conductance_kind : str
+        "unit", "hall", "pedersen_smooth"
+    N : int
+        Spectral resolution
+    tol : float
+        Relative error tolerance
+    """
+    print(f"\nTesting {mainfield_kind} {conductance_kind} (N={N})...")
     
-    print("Testing Convergence of General Analytic Path...")
-    print(f"{'N':<5} {'RefNorm':<12} {'GenNorm':<12} {'RelError':<12} {'GenDiagonal[0]'}")
-    print("-" * 60)
+    sim = run_pynamit(
+        Nmax=N, Mmax=N, Ncs=2*N+4,
+        simulation_mode="spectral_transform_gl",
+        mainfield_kind=mainfield_kind,
+        final_time=0.01,
+        steady_state_initialization=False,
+        wind=True
+    )
     
-    for N in N_values:
-        # Ensure Ncs is even
-        # Ensure Ncs is high enough for exact cubic integration
-        # Order is roughly 3*N. GL integrates 2*Ncs - 1.
-        # Need 2*Ncs - 1 >= 3*N
-        # Ncs >= (3N+1)/2
-        Ncs = 2 * N + 4 # Safe margin
-        
-        # Run Baseline (Quadrature)
-        sim_quad = run_pynamit(
-            Nmax=N, Mmax=N, Ncs=Ncs,
-            simulation_mode="spectral_transform_gl",
-            mainfield_kind="dipole",
-            final_time=0.01,
-            steady_state_initialization=False,
-            wind=True
-        )
-        
-        geo = sim_quad.state.geometry
-        engine = geo.gaunt_engine
-        sigma = sim_quad.state.M_total_on_grid
-        
-        # Reference (Quadrature)
-        M_ref = engine.get_vector_interaction_matrix(sigma)
-        norm_ref = np.linalg.norm(M_ref)
-        
-        # Analytic (General)
-        c_pp, c_mm, c_pm, c_mp = geo._get_spin_tensor_coeffs(sigma)
-        M_gen = engine.get_general_analytic_interaction_matrix(c_pp, c_mm, c_pm, c_mp, input_is_complex=True)
-        norm_gen = np.linalg.norm(M_gen)
-        
-        if N == N_values[0]:
-            # Save N=2 matrices for diagnosis
-            np.save("M_ref_failure.npy", M_ref)
-            np.save("M_gen_failure.npy", M_gen)
-            print("Saved M_ref_failure.npy and M_gen_failure.npy")
-            
-            # Print top-left 4x4 block for quick inspection
-            print("\nDEBUG MATRIX DUMP (N=2, Top-Left 4x4 of Real):")
-            print("Reference:")
-            print(M_ref.real[:4, :4])
-            print("Analytic:")
-            print(M_gen.real[:4, :4])
-            
-            # Print Diagonal
-            print("\nReference Diagonal (First 5):")
-            print(np.diag(M_ref).real[:5])
-            print("Analytic Diagonal (First 5):")
-            print(np.diag(M_gen).real[:5])
-
-        # Detailed Analysis
-        diff = M_ref - M_gen
-        rel_norm_error = np.linalg.norm(diff) / np.linalg.norm(M_ref)
-        
-        max_abs_err = np.max(np.abs(diff))
-        mean_abs_err = np.mean(np.abs(diff))
-        
-        # Element-wise relative error (filter small values)
-        mask = np.abs(M_ref) > 1e-4
-        if np.any(mask):
-            elem_rel_err = np.abs(diff[mask]) / np.abs(M_ref[mask])
-            max_elem_rel_err = np.max(elem_rel_err)
-            mean_elem_rel_err = np.mean(elem_rel_err)
-        else:
-            max_elem_rel_err = 0.0
-            mean_elem_rel_err = 0.0
-            
-        print(f"{N:<5} {norm_ref:<12.4e} {norm_gen:<12.4e} {rel_norm_error:<12.4e} {M_gen.diagonal()[0].real:<14.2e}")
-        print(f"      MaxAbs: {max_abs_err:.4e}  MeanAbs: {mean_abs_err:.4e}")
-        print(f"      MaxRel: {max_elem_rel_err:.4e}  MeanRel: {mean_elem_rel_err:.4e}")
-        
-        # Check Ratio of Diagonals (Scaling factor check)
-        diag_ref = M_ref.diagonal()
-        diag_gen = M_gen.diagonal()
-        ratios = diag_ref.real / diag_gen.real
-        valid_r = np.abs(diag_gen) > 1e-4
-        if np.any(valid_r):
-             mean_ratio = np.mean(ratios[valid_r])
-             std_ratio = np.std(ratios[valid_r])
-             print(f"      DiagRatio Mean: {mean_ratio:.4f} +/- {std_ratio:.4f}")
-        
-        errors.append(rel_norm_error)
-        
-    print("\nConvergence Analysis:")
-    if errors[-1] < errors[0]:
-        print("Error is decreasing.")
+    geo = sim.state.geometry
+    basis = geo.solution_basis
+    
+    # Custom Conductance Setup
+    th_rad = np.deg2rad(geo.grid.theta)
+    
+    if conductance_kind == "unit":
+        etaP = np.zeros(geo.grid.size)
+        etaH = np.zeros(geo.grid.size) # Unit implies vacuum? No, unit conductance usually means sigma=I?
+        # Analytic solver usually tests "Identity" which implies Integral( Y vector * Y vector ).
+        # In PynaMIT, sigma is input as Fields.
+        # Let's use etaP=1, etaH=0 for "Pedersen Identity".
+        # Effectively Constant SigmaP=1.
+        etaP_val = np.ones(geo.grid.size)
+        etaH_val = np.zeros(geo.grid.size)
+    elif conductance_kind == "hall":
+        # Constant Hall
+        etaP_val = np.zeros(geo.grid.size)
+        etaH_val = np.ones(geo.grid.size)
+    elif conductance_kind == "pedersen_smooth":
+        # Smooth variable
+        etaP_val = 1.0 + 0.5 * np.cos(th_rad)**2
+        etaH_val = np.zeros(geo.grid.size)
     else:
-        print("Error is NOT decreasing (likely structural mismatch).")
+        raise ValueError(f"Unknown conductance kind: {conductance_kind}")
+
+    sim.state.etaP = Field.from_values(geo.grid, etaP_val, np.zeros(geo.grid.size), np.zeros(geo.grid.size))
+    sim.state.etaH = Field.from_values(geo.grid, etaH_val, np.zeros(geo.grid.size), np.zeros(geo.grid.size))
+    sim.state._invalidate_caches()
+
+    sigma = sim.state.M_total_on_grid
+    
+    # Reference (Quadrature)
+    sigma_gaunt = geo._synthesize_to_gaunt(sigma)
+    M_ref = basis.get_quadrature_interaction_matrix(sigma_gaunt)
+    norm_ref = np.linalg.norm(M_ref)
+    
+    # Analytic (General)
+    M_gen = basis.get_analytic_interaction_matrix_from_real_grid(
+        sigma_gaunt[0, 0], sigma_gaunt[1, 1], sigma_gaunt[0, 1], sigma_gaunt[1, 0],
+        input_gauge="geophysics"
+    )
+    norm_gen = np.linalg.norm(M_gen)
+    
+    diff = M_ref - M_gen
+    rel_err = np.linalg.norm(diff) / norm_ref
+    
+    print(f"  Norm Ref: {norm_ref:.4e}")
+    print(f"  Norm Gen: {norm_gen:.4e}")
+    print(f"  Rel Error: {rel_err:.4e}")
+    
+    assert rel_err < tol, f"Convergence failed for {mainfield_kind} {conductance_kind}: {rel_err:.4e} > {tol}"
+    return rel_err
+
+def test_analytic_convergence_radial_hall():
+    # Bit-exact expectation
+    run_convergence_check("radial", "hall", N=12, tol=1e-10)
+
+def test_analytic_convergence_dipole_pedersen():
+    # High precision expectation (N=12 limited by spectral truncation ~3e-5)
+    run_convergence_check("dipole", "pedersen_smooth", N=12, tol=1e-4)
 
 if __name__ == "__main__":
-    test_convergence()
+    test_analytic_convergence_radial_hall()
+    test_analytic_convergence_dipole_pedersen()

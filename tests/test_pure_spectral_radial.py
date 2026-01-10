@@ -7,10 +7,10 @@ from pynamit.simulation.runner import run_pynamit
 def test_pure_spectral_radial(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode
-    # (Updated after synchronized even-resolution fix in both GLBasis and GauntEngine)
-    expected_coeff_norm = 3.9180173235977896e-08
-    expected_coeff_max = 8.562985980286138e-09
-    expected_coeff_min = -2.3258520870173936e-08
+    # (Updated after synchronized even-resolution fix and Wigner Revert 2026-01-10)
+    expected_coeff_norm = 3.9180175138326294e-08
+    expected_coeff_max = 8.562985980286141e-09
+    expected_coeff_min = -2.325852087017394e-08
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(

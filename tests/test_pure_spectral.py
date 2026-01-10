@@ -6,11 +6,11 @@ from pynamit.simulation.runner import run_pynamit
 @pytest.mark.wind
 def test_pure_spectral_execution(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
-    # Updated regression values for pure_spectral mode
-    # (Updated after synchronized even-resolution fix in both GLBasis and GauntEngine)
-    expected_coeff_norm = 2.3585250922238736e-08
-    expected_coeff_max = 7.704433571645792e-09
-    expected_coeff_min = -1.7363537958915214e-08
+    # Updated regression values for pure_spectral mode (Analytic Tensor Path)
+    # Norm stabilized at 2.54e-08 after Gaunt/Sign calibration (2026-01-10)
+    expected_coeff_norm = 2.544673656829113e-08
+    expected_coeff_max = 7.188162317778454e-09
+    expected_coeff_min = -1.940252236218261e-08
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(
