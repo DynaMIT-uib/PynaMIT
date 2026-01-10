@@ -73,7 +73,7 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         # phase alignment (Condon-Shortley) in the test harness to match the 
         # solver's vector basis, which is prone to mismatch.
         # The (2,0) mode is sufficient to verify Resolution and Matrix Physics.
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
         eng_dense = GauntEngine(basis_dense)
         
         c_p2 = np.zeros(basis_dense.index_length, dtype=complex)

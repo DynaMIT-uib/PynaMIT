@@ -1,6 +1,6 @@
 
 import numpy as np
-from pynamit.math.wigner import wigner_3j
+from pynamit.spherical_harmonics.wigner import wigner_3j
 
 def debug_calc():
     l1, l2, l3 = 1, 1, 0

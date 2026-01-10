@@ -120,6 +120,14 @@ class SHBasis(Basis):
         self._index_arrays = [self.n, self.m]
         self._index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
 
+        if self.backend == "scipy" and not self._use_modern_scipy:
+            warnings.warn(
+                f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling "
+                "back to the deprecated 'lpmn' function. Please consider upgrading SciPy.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
     @property
     def kind(self) -> str:
         return self._kind
@@ -159,16 +167,6 @@ class SHBasis(Basis):
     @minimum_phi_sampling.setter
     def minimum_phi_sampling(self, value):
         self._minimum_phi_sampling = value
-
-
-
-        if self.backend == "scipy" and not self._use_modern_scipy:
-            warnings.warn(
-                f"Your SciPy version ({scipy.__version__}) is older than 1.15.0. Falling "
-                "back to the deprecated 'lpmn' function. Please consider upgrading SciPy.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
 
     @cached_property
     def schmidt_factors(self) -> np.ndarray:
@@ -491,7 +489,7 @@ class SHBasis(Basis):
         Get interaction operator for a 2x2 conductance tensor and VSH vectors.
         tensor_sigma_coeffs: (2, 2, L) matching SHBasis.
         """
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
         from pynamit.math.linear_map import as_linear_map
         engine = GauntEngine(self)
         
@@ -526,7 +524,7 @@ class SHBasis(Basis):
         from pynamit.math.linear_map import as_linear_map
 
         if method == "spectral":
-            from pynamit.math.gaunt import GauntEngine
+            from pynamit.spherical_harmonics.gaunt import GauntEngine
             engine = GauntEngine(self)
             M = engine.get_interaction_matrix(coeffs_a)
             return as_linear_map(M)
@@ -681,7 +679,7 @@ class SHBasis(Basis):
         M : np.ndarray
             The block interaction matrix (2L x 2L).
         """
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
 
         # 1. Apply Transformation
         if input_gauge == "geophysics":
@@ -736,102 +734,24 @@ class SHBasis(Basis):
         
         Wrapper for GauntEngine.get_vector_interaction_matrix.
         """
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
         engine = GauntEngine(self)
         return engine.get_vector_interaction_matrix(sigma_quad)
 
     @property
     def integration_grid(self):
         """Get the quadrature grid used for integration."""
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
         return GauntEngine(self).quad_grid
 
     def analyze_spin_weighted(self, spin: int, values: np.ndarray) -> np.ndarray:
         """Analyze spin-weighted field `values` on the quadrature grid.
-        
+
         Wrapper for GauntEngine.analyze_spin_weighted.
         """
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
         engine = GauntEngine(self)
         return engine.analyze_spin_weighted(spin, values)
-
-    def align_tensor_gauge(
-        self, c_pp: np.ndarray, c_mm: np.ndarray, c_pm: np.ndarray, c_mp: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Align Physical Grid Tensor coefficients to Quantum Analytic Gauge.
-
-        This method acts as the explicit Translation Layer between the Geophysics
-        Input Domain and the Quantum Analytic Backend.
-
-        Transformations applied:
-        1. Normalization: Implicitly assumed that input coefficients are produced
-           by a Quantum-Normalized Quadrature (like `analyze_spin_weighted`).
-        
-        2. Vector Basis Alignment (Gauge Fix):
-           The Anisotropic components (Spin +/- 2) require a sign flip to match
-           the handedness/phase definition of the analytic Spin-Weighted Basis
-           used by `GauntEngine`.
-           
-           c_pm (Spin +2) -> -c_pm
-           c_mp (Spin -2) -> -c_mp
-
-        Parameters
-        ----------
-        c_pp, c_mm : np.ndarray
-            Isotropic components (Spin 0). Unchanged.
-        c_pm, c_mp : np.ndarray
-            Anisotropic components (Spin +/- 2). Sign flipped.
-
-        Returns
-        -------
-        tuple[np.ndarray, ...]
-            The gauge-aligned coefficients ready for the analytic solver.
-        """
-        return c_pp, c_mm, c_pm, c_mp
-
-    def get_analytic_interaction_matrix(
-        self, 
-        c_pp: np.ndarray, 
-        c_mm: np.ndarray, 
-        c_pm: np.ndarray, 
-        c_mp: np.ndarray,
-        input_gauge: str = "geophysics"
-    ) -> np.ndarray:
-        """Compute the Analytic Block Interaction Matrix M.
-
-        This matrix describes the coupling of Poloidal and Toroidal potentials
-        via an Anisotropic Conductance Tensor defined by the input spin-weighted
-        coefficients.
-
-        Parameters
-        ----------
-        c_pp, c_mm, c_pm, c_mp : np.ndarray
-            Spin-weighted coefficients of the conductivity tensor.
-            (pp=Spin 0, mm=Spin 0, pm=Spin +2, mp=Spin -2).
-        input_gauge : str, default="geophysics"
-            If "geophysics", applies the gauge alignment (sign flip for anisotropy)
-            to match the Quantum backend. If "quantum", assumes inputs are already aligned.
-
-        Returns
-        -------
-        M : np.ndarray
-            The block interaction matrix (2L x 2L).
-        """
-        from pynamit.math.gaunt import GauntEngine
-
-        # 1. Apply Transformation
-        if input_gauge == "geophysics":
-            c_pp, c_mm, c_pm, c_mp = self.align_tensor_gauge(c_pp, c_mm, c_pm, c_mp)
-        
-        # 2. Instantiate Engine with self (ensure consistent basis)
-        engine = GauntEngine(self)
-
-        # 3. Compute Matrix. Inputs come from analyze_spin_weighted (already Complex Orthonormal).
-        return engine.get_general_analytic_interaction_matrix(
-            c_pp, c_mm, c_pm, c_mp, input_is_complex=True
-        )
-
-
 
     def get_analytic_interaction_matrix_from_real_grid(
         self,
@@ -924,7 +844,7 @@ class SHBasis(Basis):
         # We must call GauntEngine DIRECTLY to avoid SHBasis wrappers that might 
         # assume real/schmidt inputs.
         
-        from pynamit.math.gaunt import GauntEngine
+        from pynamit.spherical_harmonics.gaunt import GauntEngine
         engine = GauntEngine(self)
         
         return engine.get_general_analytic_interaction_matrix(

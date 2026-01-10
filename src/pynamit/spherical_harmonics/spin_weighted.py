@@ -13,7 +13,7 @@ Real Schmidt basis and algebraic 3j formulas.
 """
 
 import numpy as np
-from pynamit.math.wigner import wigner_small_d
+from pynamit.spherical_harmonics.wigner import wigner_small_d
 
 class SpinWeightedBasis:
     """

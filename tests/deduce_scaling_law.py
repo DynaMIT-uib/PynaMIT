@@ -2,7 +2,7 @@
 import numpy as np
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
-from pynamit.math.gaunt import GauntEngine
+from pynamit.spherical_harmonics.gaunt import GauntEngine
 from pynamit.utils import tensor_pinv
 
 def deduce_scaling():

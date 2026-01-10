@@ -5,7 +5,7 @@ Gaunt engine for real spherical harmonics.
 import numpy as np
 import scipy.special
 from typing import Tuple, List, Dict
-from pynamit.math.wigner import wigner_3j
+from pynamit.spherical_harmonics.wigner import wigner_3j
 
 def get_complex_gaunt_coeff(l1, m1, l2, m2, l3, m3):
     """Calculate the Gaunt coefficient for complex spherical harmonics."""
@@ -17,7 +17,7 @@ def get_complex_gaunt_coeff(l1, m1, l2, m2, l3, m3):
 
 def get_spin_weighted_gaunt_coeff(l1, m1, s1, l2, m2, s2, l3, m3, s3):
     """Integral( s1_Y_l1m1 * s2_Y_l2m2 * s3_Y_l3m3 )"""
-    from pynamit.math.wigner import wigner_3j
+    from pynamit.spherical_harmonics.wigner import wigner_3j
     return np.sqrt((2*l1+1)*(2*l2+1)*(2*l3+1)/(4.0*np.pi)) * \
            wigner_3j(l1, l2, l3, m1, m2, m3) * \
            wigner_3j(l1, l2, l3, -s1, -s2, -s3)
@@ -80,7 +80,7 @@ class GauntEngine:
         return self._compute_elsasser_gl_raw(l1, m1, l2, m2, l3, m3)
 
     def get_spin_evaluation_matrix(self, s):
-        from pynamit.math.wigner import wigner_small_d
+        from pynamit.spherical_harmonics.wigner import wigner_small_d
         L, Q = self.basis.index_length, self.quad_grid.size
         th, ph = np.deg2rad(self.quad_grid.theta), np.deg2rad(self.quad_grid.phi)
         G = np.zeros((Q, L), dtype=complex)
@@ -122,7 +122,7 @@ class GauntEngine:
             return self._KERNEL_CACHE[key]
             
         # We need Nmin=0 basis for the Sigma Coefficients
-        from pynamit.spherical_harmonics.sh_basis import SHBasis # Local import
+        from pynamit.spherical_harmonics.sh_basis import SHBasis
         sigma_basis = SHBasis(self.Nmax, self.basis.Mmax, Nmin=0, quasi_normalized=self.basis.is_normalized, backend="internal")
         L_sig = sigma_basis.index_length
         L_vec = self.basis.index_length

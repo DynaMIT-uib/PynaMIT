@@ -10,7 +10,7 @@ import pynamit
 print("PynaMIT Path:", pynamit.__file__)
 
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.math.gaunt import GauntEngine
+from pynamit.spherical_harmonics.gaunt import GauntEngine
 
 def check_rigorous():
     print("Initialize Final Rigorous Elsasser Verification...")

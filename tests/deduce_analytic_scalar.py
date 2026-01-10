@@ -2,8 +2,8 @@ import numpy as np
 import sys
 import os
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.math.gaunt import GauntEngine, get_real_decomposition
-from pynamit.math.wigner import wigner_3j
+from pynamit.spherical_harmonics.gaunt import GauntEngine, get_real_decomposition
+from pynamit.spherical_harmonics.wigner import wigner_3j
 
 # Ensure src in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
