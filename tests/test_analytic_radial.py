@@ -1,4 +1,3 @@
-
 import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit

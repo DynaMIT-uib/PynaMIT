@@ -702,11 +702,34 @@ class SHBasis(Basis):
     ) -> np.ndarray:
         """Compute the Analytic Interaction Matrix for Isotropic conductivities.
         
-        Wrapper for GauntEngine.get_analytic_interaction_matrix.
+        Refactored to use the Verified General Analytic Tensor Solver.
+        1. Evaluates Isotropic/Hall coefficients to Grid.
+        2. Constructs Canonical Tensor on Grid.
+        3. Invokes General Solver.
         """
-        from pynamit.math.gaunt import GauntEngine
-        engine = GauntEngine(self)
-        return engine.get_analytic_interaction_matrix(etaP_coeffs, etaH_coeffs)
+        # 1. Evaluate to Grid
+        
+        # Use scalar evaluation (Real SH -> Grid)
+        grid = self.integration_grid
+        
+        # Create basis for Conductance (Nmin=0) to match input coeffs
+        cond_basis = self.get_extended_basis()
+        
+        etaP_grid = cond_basis.evaluate(etaP_coeffs, grid, vector_type="scalar")
+        etaH_grid = cond_basis.evaluate(etaH_coeffs, grid, vector_type="scalar")
+        
+        # 2. Construct Tensor Components
+        # Isotropic: S_tt = S_pp = P
+        # Hall: S_tp = H, S_pt = -H
+        S_tt = etaP_grid
+        S_pp = etaP_grid
+        S_tp = etaH_grid
+        S_pt = -etaH_grid
+        
+        # 3. Call General Solver
+        return self.get_analytic_interaction_matrix_from_real_grid(
+            S_tt, S_pp, S_tp, S_pt, input_gauge="geophysics"
+        )
 
     def get_quadrature_interaction_matrix(self, sigma_quad: np.ndarray) -> np.ndarray:
         """Compute the Interaction Matrix via Quadrature.
@@ -808,42 +831,7 @@ class SHBasis(Basis):
             c_pp, c_mm, c_pm, c_mp, input_is_complex=True
         )
 
-    def get_isotropic_interaction_matrix(
-        self,
-        etaP_coeffs: np.ndarray,
-        etaH_coeffs: np.ndarray
-    ) -> np.ndarray:
-        """Compute the Analytic Interaction Matrix for Isotropic conductivities.
-        
-        Wrapper for GauntEngine.get_analytic_interaction_matrix.
-        """
-        from pynamit.math.gaunt import GauntEngine
-        engine = GauntEngine(self)
-        return engine.get_analytic_interaction_matrix(etaP_coeffs, etaH_coeffs)
 
-    def get_quadrature_interaction_matrix(self, sigma_quad: np.ndarray) -> np.ndarray:
-        """Compute the Interaction Matrix via Quadrature.
-        
-        Wrapper for GauntEngine.get_vector_interaction_matrix.
-        """
-        from pynamit.math.gaunt import GauntEngine
-        engine = GauntEngine(self)
-        return engine.get_vector_interaction_matrix(sigma_quad)
-
-    @property
-    def integration_grid(self):
-        """Get the quadrature grid used for integration."""
-        from pynamit.math.gaunt import GauntEngine
-        return GauntEngine(self).quad_grid
-
-    def analyze_spin_weighted(self, spin: int, values: np.ndarray) -> np.ndarray:
-        """Analyze spin-weighted field `values` on the quadrature grid.
-        
-        Wrapper for GauntEngine.analyze_spin_weighted.
-        """
-        from pynamit.math.gaunt import GauntEngine
-        engine = GauntEngine(self)
-        return engine.analyze_spin_weighted(spin, values)
 
     def get_analytic_interaction_matrix_from_real_grid(
         self,
@@ -877,7 +865,8 @@ class SHBasis(Basis):
         # 1. Decompose into Isotropic/Hall and Anisotropic Parts
         # Isotropic/Hall part: S_iso = diag(S, S) + offdiag(H, -H)
         val_iso = 0.5 * (S_tt + S_pp)
-        val_hall = 0.5 * (S_tp - S_pt)
+        # Note: Hall Term flipped for Gauge Alignment with Quadrature
+        val_hall = -0.5 * (S_tp - S_pt)
         
         S_tt_iso = val_iso
         S_pp_iso = val_iso

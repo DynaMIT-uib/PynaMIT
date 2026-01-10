@@ -256,6 +256,7 @@ class GauntEngine:
         tn = n_st; V = np.sqrt(tn*(tn+1)*4.0*np.pi/(2*tn+1)); V[V==0]=1.0
         S = np.concatenate([V, V])
         S_ratio = S[None,:] / S[:,None]
+        # S_ratio = 1.0
         
         return M_real * S_ratio
 

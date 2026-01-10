@@ -50,4 +50,5 @@ def test_pure_spectral_radial(pynamit_approx):
     print("Pure Spectral execution and numerical validation successful.")
 
 if __name__ == "__main__":
-    test_pure_spectral_execution()
+    from pytest import approx
+    test_pure_spectral_radial(pynamit_approx=approx)

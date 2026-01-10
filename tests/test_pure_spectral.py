@@ -7,10 +7,10 @@ from pynamit.simulation.runner import run_pynamit
 def test_pure_spectral_execution(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode (Analytic Tensor Path)
-    # Norm stabilized at 2.54e-08 after Gaunt/Sign calibration (2026-01-10)
-    expected_coeff_norm = 2.544673656829113e-08
-    expected_coeff_max = 7.188162317778454e-09
-    expected_coeff_min = -1.940252236218261e-08
+    # Norm stabilized at 2.6165e-08 after Central Gauge Hall Flip (2026-01-10)
+    expected_coeff_norm = 2.6165202432600794e-08
+    expected_coeff_max = 1.1234825156370206e-08
+    expected_coeff_min = -1.7343268737216632e-08
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(
@@ -52,4 +52,5 @@ def test_pure_spectral_execution(pynamit_approx):
     print("Pure Spectral execution and numerical validation successful.")
 
 if __name__ == "__main__":
-    test_pure_spectral_execution()
+    from pytest import approx
+    test_pure_spectral_execution(pynamit_approx=approx)
