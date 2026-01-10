@@ -855,10 +855,6 @@ class SHBasis(Basis):
     ) -> np.ndarray:
         """Compute Analytic Interaction Matrix from REAL Grid Components.
 
-        This method centralizes the translation from Real Geophysics Grid Data
-        (Tensor components in orthonormal frame) to the Complex Spin-Weighted
-        Coefficients required by the Gaunt Engine.
-
         Parameters
         ----------
         S_tt : np.ndarray
@@ -878,23 +874,47 @@ class SHBasis(Basis):
         M : np.ndarray
             The Real block interaction matrix.
         """
+        # 1. Decompose into Isotropic/Hall and Anisotropic Parts
+        # Isotropic/Hall part: S_iso = diag(S, S) + offdiag(H, -H)
+        val_iso = 0.5 * (S_tt + S_pp)
+        val_hall = 0.5 * (S_tp - S_pt)
+        
+        S_tt_iso = val_iso
+        S_pp_iso = val_iso
+        S_tp_iso = val_hall
+        S_pt_iso = -val_hall
+        
+        # Anisotropic Part (Residual) -> Pure Spin-2
+        S_tt_aniso = S_tt - S_tt_iso
+        S_pp_aniso = S_pp - S_pp_iso
+        S_tp_aniso = S_tp - S_tp_iso
+        S_pt_aniso = S_pt - S_pt_iso
+        
+        # 2. Prepare Inputs for Gaunt Engine
         if input_gauge == "geophysics":
             # Align Geophysics Gauge to Analytic Gauge
-            # Requires negating the off-diagonal components to match Hall parity
-            t_tt, t_pp = S_tt, S_pp
-            t_tp, t_pt = -S_tp, -S_pt
-        else:
-            t_tt, t_pp, t_tp, t_pt = S_tt, S_pp, S_tp, S_pt
+            # Empirically, Isotropic/Hall matches WITHOUT negation.
+            t_tt, t_pp = S_tt_iso, S_pp_iso
+            t_tp, t_pt = S_tp_iso, S_pt_iso
             
-        val_0plus_gaunt = 0.5 * ((t_tt + t_pp) + 1j * (t_tp - t_pt))
-        val_0minus_gaunt = 0.5 * ((t_tt + t_pp) - 1j * (t_tp - t_pt))
-        val_p2_gaunt = 0.5 * ((t_tt - t_pp) - 1j * (t_tp + t_pt))
-        val_m2_gaunt = 0.5 * ((t_tt - t_pp) + 1j * (t_tp + t_pt))
+            # For Spin-2, we assume similar identity relationship
+            a_tt, a_pp = S_tt_aniso, S_pp_aniso
+            a_tp, a_pt = S_tp_aniso, S_pt_aniso
+        else:
+            t_tt, t_pp, t_tp, t_pt = S_tt_iso, S_pp_iso, S_tp_iso, S_pt_iso
+            a_tt, a_pp, a_tp, a_pt = S_tt_aniso, S_pp_aniso, S_tp_aniso, S_pt_aniso
+            
+        # Spin-0 Components (Isotropic)
+        val_0plus = 0.5 * ((t_tt + t_pp) + 1j * (t_tp - t_pt))
+        val_0minus = 0.5 * ((t_tt + t_pp) - 1j * (t_tp - t_pt))
         
+        # Spin-2 Components (Anisotropic)
+        # val_p2 = 0.5 * ((tt - pp) - i(tp + pt))
+        val_p2_gaunt = 0.5 * ((a_tt - a_pp) - 1j * (a_tp + a_pt))
+        val_m2_gaunt = 0.5 * ((a_tt - a_pp) + 1j * (a_tp + a_pt))
         
-        # Analyze using Spin-Weighted Harmonics
-        # CRITICAL: We must use a Basis with Nmin=0 to capture the Isotropic (L=0) 
-        # component of the conductivity. 'self' might be Nmin=1 (Vector Basis).
+        # Analyze using Spin-Weighted Harmonics (Nmin=0)
+        # Note: We use Nmin=0 to capture L=0 isotropic terms.
         sigma_basis = SHBasis(
             self.Nmax, 
             self.Mmax, 
@@ -903,19 +923,23 @@ class SHBasis(Basis):
             backend=self.backend
         )
         
-        # c_pp (Spin 0)
-        c_pp = sigma_basis.analyze_spin_weighted(0, val_0plus_gaunt.flatten())
-        # c_mm (Spin 0 check - usually same as pp for symmetric)
-        c_mm = sigma_basis.analyze_spin_weighted(0, val_0minus_gaunt.flatten())
-        
-        # c_pm (Spin +2)
+        c_pp = sigma_basis.analyze_spin_weighted(0, val_0plus.flatten())
+        c_mm = sigma_basis.analyze_spin_weighted(0, val_0minus.flatten())
         c_pm = sigma_basis.analyze_spin_weighted(2, val_p2_gaunt.flatten())
-        
-        # c_mp (Spin -2)
         c_mp = sigma_basis.analyze_spin_weighted(-2, val_m2_gaunt.flatten())
         
-        return self.get_analytic_interaction_matrix(
-            c_pp, c_mm, c_pm, c_mp, input_gauge=input_gauge
+        # 3. Pass Coefficients to Analytic Engine
+        # input_is_complex=True tells the engine that coefficients are already
+        # in the Complex Orthonormal basis (matching the Wigner-3j definition).
+        # This is guaranteed by GauntEngine.analyze_spin_weighted.
+        # We must call GauntEngine DIRECTLY to avoid SHBasis wrappers that might 
+        # assume real/schmidt inputs.
+        
+        from pynamit.math.gaunt import GauntEngine
+        engine = GauntEngine(self)
+        
+        return engine.get_general_analytic_interaction_matrix(
+            c_pp, c_mm, c_pm, c_mp, input_is_complex=True
         )
         
     def project_to_basis(
