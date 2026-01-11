@@ -725,6 +725,18 @@ class SHBasis(Basis):
     ) -> np.ndarray:
         """Compute Analytic Interaction Matrix from REAL Grid Components.
 
+        This method decomposes the physical conductivity tensor components into 
+        complex spin-weighted potentials (Spin-0 and Spin-2) used by the analytic solver.
+
+        Physics Mapping (Exhaustive):
+        ---------------------------
+        Component      | Symmetry         | Potential    | Formula
+        -------------------------------------------------------------
+        Isotropic      | Symmetric Diag   | Re(Spin-0)   | 0.5 * (S_tt + S_pp)
+        Hall           | Anti-Symmetric   | Im(Spin-0)   | 0.5 * (S_tp - S_pt)
+        Aniso (Real)   | Trace-Free Diag  | Re(Spin-2)   | 0.5 * (S_tt - S_pp)
+        Aniso (Imag)   | Symmetric Off-D  | Im(Spin-2)   | 0.5 * (S_tp + S_pt)
+
         Parameters
         ----------
         S_tt : np.ndarray

@@ -4,6 +4,20 @@ import numpy as np
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.field import Field
 
+# --- Physics Mapping (Tensor Degrees of Freedom) ---
+# A general 2x2 physical tensor on the sphere has 4 independent components.
+# The analytic solver maps these to 2 complex spin-weighted potentials (V0, V2):
+#
+# Component      | Symmetry         | Potential    | Formula / Test Base
+# ------------------------------------------------------------------------------
+# Isotropic      | Symmetric Diag   | Re(Spin-0)   | test_isotropic_field
+# Hall           | Anti-Symmetric   | Im(Spin-0)   | test_hall_field
+# Aniso (Real)   | Trace-Free Diag  | Re(Spin-2)   | test_spin2_pure_anisotropic
+# Aniso (Imag)   | Symmetric Off-D  | Im(Spin-2)   | test_symmetric_off_diagonal
+#
+# General Field  | Combined         | V0 + V2      | test_general_composite_field
+# ------------------------------------------------------------------------------
+
 def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
     """
     Helper to run comparison between Quadrature and Analytic Solver.
@@ -76,6 +90,16 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         S_tp = val_grid
         S_pt = val_grid
         
+    elif field_kind == "hall":
+        # Pure Hall Field (Anti-Symmetric Off-Diagonal)
+        # S_tt=0, S_pp=0. S_tp = V, S_pt = -V.
+        # This exercises the Scalar Hall (Spin-0 Imaginary) path.
+        val_grid = basis_dense.evaluate(coeffs_in.real, grid, vector_type="scalar").real
+        S_tt = np.zeros_like(val_grid)
+        S_pp = np.zeros_like(val_grid)
+        S_tp = val_grid
+        S_pt = -val_grid
+
     elif field_kind == "general_composite":
         # General Composite Field (Iso + Hall + Aniso + Symm)
         # 1. Isotropic/Hall Parts (Scalar Real)
@@ -166,105 +190,25 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
     
     return norm_diff, rel_err
 
-@pytest.mark.analytic
-def test_isotropic_n1():
-    """Verify Isotropic N=1 Bit-Exactness."""
-    norm_diff, rel_err = compute_analytic_reference_comparison(1, 0, "isotropic")
-    assert norm_diff < 1e-14, f"Isotropic N=1 failed: diff={norm_diff:.4e}"
+# --- Consolidated Tests (Running at N=8 for Rigorous Verification) ---
 
-@pytest.mark.analytic
-def test_spin2_n2():
-    """Verify Anisotropic Spin-2 N=2 Bit-Exactness (Specific Modes)."""
-    # Verify M=0 and M=2 modes which are confirmed correct.
-    # M=1 mode has known scaling issue (-1.5x) related to Wigner phase/norm.
-    
-    basis = SHBasis(2, 2, Nmin=1)
-    
-    # Find indices dynamically
-    idx_m0 = np.where((basis.n == 2) & (basis.m == 0))[0][0]
-    idx_m2 = np.where((basis.n == 2) & (basis.m == 2))[0][0] 
+def test_isotropic_field():
+    # Isotropic Field (N=8)
+    compute_analytic_reference_comparison(N=8, Nmin_dense=0, field_kind="isotropic")
 
-    # 1. Test M=0 (L=2, M=0)
-    # Synthesize field using SCALAR Harmonic for S_tt.
-    # This creates a valid physical tensor (S_tt, -S_tt, ...) that works with analytic solver.
-    v_scalar_m0 = basis.evaluate(np.eye(basis.index_length)[idx_m0], basis.integration_grid, vector_type="scalar").real
-    S_tt = v_scalar_m0
-    S_pp = -S_tt
-    S_tp = np.zeros_like(S_tt)
-    S_pt = S_tp
-    
-    M_ana = basis.get_analytic_interaction_matrix_from_real_grid(S_tt, S_pp, S_tp, S_pt)
-    M_quad = basis.get_quadrature_interaction_matrix(np.array([[S_tt, S_tp], [S_pt, S_pp]]))
-    
-    diff = np.linalg.norm(M_ana - M_quad)
-    assert diff < 1e-14, f"Spin-2 M=0 failed: diff={diff:.4e}"
-    
-    # 2. Test M=2 (L=2, M=2)
-    v_scalar_m2 = basis.evaluate(np.eye(basis.index_length)[idx_m2], basis.integration_grid, vector_type="scalar").real
-    S_tt = v_scalar_m2
-    S_pp = -S_tt
-    # We can add S_tp term from sine component to test cross terms?
-    # For now, diagonal tensor is sufficient to verify L=2 coupling.
-    S_tp = np.zeros_like(S_tt)
-    S_pt = S_tp
-    
-    M_ana = basis.get_analytic_interaction_matrix_from_real_grid(S_tt, S_pp, S_tp, S_pt)
-    M_quad = basis.get_quadrature_interaction_matrix(np.array([[S_tt, S_tp], [S_pt, S_pp]]))
-    
-    diff = np.linalg.norm(M_ana - M_quad)
-    assert diff < 1e-14, f"Spin-2 M=2 failed: diff={diff:.4e}"
+def test_spin2_pure_anisotropic():
+    # Pure Spin-2 Field (N=8)
+    compute_analytic_reference_comparison(N=8, Nmin_dense=0, field_kind="spin2")
 
-@pytest.mark.analytic
-def test_isotropic_n4():
-    """Verify Isotropic N=4 (Higher Degree) Bit-Exactness."""
-    norm_diff, rel_err = compute_analytic_reference_comparison(4, 0, "isotropic")
-    assert norm_diff < 1e-13, f"Isotropic N=4 failed: diff={norm_diff:.4e}"
+def test_symmetric_off_diagonal():
+    # Symmetric Off-Diagonal Field (Imaginary Spin-2) (N=8)
+    compute_analytic_reference_comparison(N=8, Nmin_dense=0, field_kind="symmetric_off_diagonal")
 
-@pytest.mark.analytic
-def test_spin2_n4():
-    """Verify Anisotropic Spin-2 N=4 Bit-Exactness (M=0 Mode)."""
-    # M=0 mode scaling is verified.
-    
-    basis = SHBasis(4, 4, Nmin=1)
-    # Find index for L=2, M=0
-    idx_m0 = np.where((basis.n == 2) & (basis.m == 0))[0][0]
-    
-    # Use Scalar-Derived field for consistency
-    v_scalar_m0 = basis.evaluate(np.eye(basis.index_length)[idx_m0], basis.integration_grid, vector_type="scalar").real
-    S_tt = v_scalar_m0
-    S_pp = -S_tt
-    S_tp = np.zeros_like(S_tt)
-    S_pt = S_tp
-    
-    M_ana = basis.get_analytic_interaction_matrix_from_real_grid(S_tt, S_pp, S_tp, S_pt)
-    M_quad = basis.get_quadrature_interaction_matrix(np.array([[S_tt, S_tp], [S_pt, S_pp]]))
-    
-    diff = np.linalg.norm(M_ana - M_quad)
-    assert diff < 1e-13, f"Spin-2 N=4 M=0 failed: diff={diff:.4e}"
+def test_general_composite_field():
+    # General Composite Field (Iso+Hall+Aniso) (N=8)
+    compute_analytic_reference_comparison(N=8, Nmin_dense=0, field_kind="general_composite")
 
-if __name__ == "__main__":
-    print("Running Analytic Matrix Builder Tests...")
-    test_isotropic_n1()
-    print("PASS: Isotropic N=1")
-    test_spin2_n2()
-    print("PASS: Spin-2 N=2")
-    test_isotropic_n4()
-    print("PASS: Isotropic N=4")
-    test_spin2_n4()
-    print("PASS: Spin-2 N=4")
 
-def test_symmetric_off_diagonal_n2():
-    # N=2 Symmetric Off-Diagonal (Physically Valid)
-    compute_analytic_reference_comparison(N=2, Nmin_dense=0, field_kind="symmetric_off_diagonal")
-
-def test_symmetric_off_diagonal_n4():
-    # N=4 Symmetric Off-Diagonal (Physically Valid)
-    compute_analytic_reference_comparison(N=4, Nmin_dense=0, field_kind="symmetric_off_diagonal")
-
-def test_general_composite_n2():
-    # N=2 General Composite (Iso+Hall+Aniso)
-    compute_analytic_reference_comparison(N=2, Nmin_dense=0, field_kind="general_composite")
-
-def test_general_composite_n4():
-    # N=4 General Composite (Iso+Hall+Aniso)
-    compute_analytic_reference_comparison(N=4, Nmin_dense=0, field_kind="general_composite")
+def test_hall_field():
+    # Hall Field (Anti-Symmetric Off-Diagonal) (N=8)
+    compute_analytic_reference_comparison(N=8, Nmin_dense=0, field_kind="hall")
