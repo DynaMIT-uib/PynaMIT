@@ -7,10 +7,11 @@ from pynamit.simulation.runner import run_pynamit
 def test_pure_spectral_execution(pynamit_approx):
     """Verify that pure_spectral=True runs without errors and matches regression baselines."""
     # Updated regression values for pure_spectral mode (Analytic Tensor Path)
-    # Norm stabilized at 2.6165e-08 after Central Gauge Hall Flip (2026-01-10)
-    expected_coeff_norm = 2.6165202432600794e-08
-    expected_coeff_max = 1.1234825156370206e-08
-    expected_coeff_min = -1.7343268737216632e-08
+    # Norm stabilized at 2.3585e-08 after Spin-2 Phase Fix (+1j) (2026-01-11)
+    # Previous value (2.61e-08) reflected incorrect (-1j) Symmetric Off-Diagonal phase.
+    expected_coeff_norm = 2.3585250922235536e-08
+    expected_coeff_max = 7.704433571646292e-09
+    expected_coeff_min = -1.736353795891065e-08
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(

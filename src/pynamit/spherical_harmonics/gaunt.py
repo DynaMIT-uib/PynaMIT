@@ -89,8 +89,12 @@ class GauntEngine:
         for l in range(l_min, self.Nmax + 1):
             for m in range(-l, l + 1):
                 if abs(s) <= l:
-                    G[:, idx] = ((-1)**s * np.sqrt((2*l+1)/(4*np.pi)) * 
-                               wigner_small_d(l, m, -s, th) * np.exp(1j*m*ph))
+                    G[:, idx] = (
+                        (-1) ** s
+                        * np.sqrt((2 * l + 1) / (4 * np.pi))
+                        * wigner_small_d(l, m, -s, th)
+                        * np.exp(1j * m * ph)
+                    )
                 idx += 1
         return G
 

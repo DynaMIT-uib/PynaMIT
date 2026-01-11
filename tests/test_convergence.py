@@ -69,8 +69,7 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     
     # Analytic (General)
     M_gen = basis.get_analytic_interaction_matrix_from_real_grid(
-        sigma_gaunt[0, 0], sigma_gaunt[1, 1], sigma_gaunt[0, 1], sigma_gaunt[1, 0],
-        input_gauge="geophysics"
+        sigma_gaunt[0, 0], sigma_gaunt[1, 1], sigma_gaunt[0, 1], sigma_gaunt[1, 0]
     )
     norm_gen = np.linalg.norm(M_gen)
     

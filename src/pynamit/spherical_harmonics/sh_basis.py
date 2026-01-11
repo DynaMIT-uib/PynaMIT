@@ -617,39 +617,6 @@ class SHBasis(Basis):
             )
             return np.array([L_cf, L_df])
 
-    def align_tensor_gauge(
-        self, c_pp: np.ndarray, c_mm: np.ndarray, c_pm: np.ndarray, c_mp: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Align Physical Grid Tensor coefficients to Quantum Analytic Gauge.
-
-        This method acts as the explicit Translation Layer between the Geophysics
-        Input Domain and the Quantum Analytic Backend.
-
-        Transformations applied:
-        1. Normalization: Implicitly assumed that input coefficients are produced
-           by a Quantum-Normalized Quadrature (like `analyze_spin_weighted`).
-        
-        2. Vector Basis Alignment (Gauge Fix):
-           The Anisotropic components (Spin +/- 2) require a sign flip to match
-           the handedness/phase definition of the analytic Spin-Weighted Basis
-           used by `GauntEngine`.
-           
-           c_pm (Spin +2) -> -c_pm
-           c_mp (Spin -2) -> -c_mp
-
-        Parameters
-        ----------
-        c_pp, c_mm : np.ndarray
-            Isotropic components (Spin 0). Unchanged.
-        c_pm, c_mp : np.ndarray
-            Anisotropic components (Spin +/- 2). Sign flipped.
-
-        Returns
-        -------
-        tuple[np.ndarray, ...]
-            The gauge-aligned coefficients ready for the analytic solver.
-        """
-        return c_pp, c_mm, c_pm, c_mp
 
     def get_analytic_interaction_matrix(
         self, 
@@ -657,7 +624,6 @@ class SHBasis(Basis):
         c_mm: np.ndarray, 
         c_pm: np.ndarray, 
         c_mp: np.ndarray,
-        input_gauge: str = "geophysics"
     ) -> np.ndarray:
         """Compute the Analytic Block Interaction Matrix M.
 
@@ -670,9 +636,6 @@ class SHBasis(Basis):
         c_pp, c_mm, c_pm, c_mp : np.ndarray
             Spin-weighted coefficients of the conductivity tensor.
             (pp=Spin 0, mm=Spin 0, pm=Spin +2, mp=Spin -2).
-        input_gauge : str, default="geophysics"
-            If "geophysics", applies the gauge alignment (sign flip for anisotropy)
-            to match the Quantum backend. If "quantum", assumes inputs are already aligned.
 
         Returns
         -------
@@ -680,10 +643,6 @@ class SHBasis(Basis):
             The block interaction matrix (2L x 2L).
         """
         from pynamit.spherical_harmonics.gaunt import GauntEngine
-
-        # 1. Apply Transformation
-        if input_gauge == "geophysics":
-            c_pp, c_mm, c_pm, c_mp = self.align_tensor_gauge(c_pp, c_mm, c_pm, c_mp)
         
         # 2. Instantiate Engine with self (ensure consistent basis)
         engine = GauntEngine(self)
@@ -726,7 +685,7 @@ class SHBasis(Basis):
         
         # 3. Call General Solver
         return self.get_analytic_interaction_matrix_from_real_grid(
-            S_tt, S_pp, S_tp, S_pt, input_gauge="geophysics"
+            S_tt, S_pp, S_tp, S_pt
         )
 
     def get_quadrature_interaction_matrix(self, sigma_quad: np.ndarray) -> np.ndarray:
@@ -738,19 +697,23 @@ class SHBasis(Basis):
         engine = GauntEngine(self)
         return engine.get_vector_interaction_matrix(sigma_quad)
 
-    @property
-    def integration_grid(self):
+    def get_integration_grid(self, grid_resolution: int = None):
         """Get the quadrature grid used for integration."""
         from pynamit.spherical_harmonics.gaunt import GauntEngine
-        return GauntEngine(self).quad_grid
+        return GauntEngine(self, grid_resolution=grid_resolution).quad_grid
 
-    def analyze_spin_weighted(self, spin: int, values: np.ndarray) -> np.ndarray:
+    @property
+    def integration_grid(self):
+        """Standard integration grid for this basis."""
+        return self.get_integration_grid()
+
+    def analyze_spin_weighted(self, spin: int, values: np.ndarray, grid_resolution: int = None) -> np.ndarray:
         """Analyze spin-weighted field `values` on the quadrature grid.
 
         Wrapper for GauntEngine.analyze_spin_weighted.
         """
         from pynamit.spherical_harmonics.gaunt import GauntEngine
-        engine = GauntEngine(self)
+        engine = GauntEngine(self, grid_resolution=grid_resolution)
         return engine.analyze_spin_weighted(spin, values)
 
     def get_analytic_interaction_matrix_from_real_grid(
@@ -759,7 +722,6 @@ class SHBasis(Basis):
         S_pp: np.ndarray,
         S_tp: np.ndarray,
         S_pt: np.ndarray,
-        input_gauge: str = "geophysics"
     ) -> np.ndarray:
         """Compute Analytic Interaction Matrix from REAL Grid Components.
 
@@ -773,9 +735,6 @@ class SHBasis(Basis):
             Theta-Phi component on the quadrature grid.
         S_pt : np.ndarray
             Phi-Theta component on the quadrature grid.
-        input_gauge : str, default="geophysics"
-            Passed to `get_analytic_interaction_matrix`. 
-            Usually "geophysics" to ensure correct sign flip for Spin components.
 
         Returns
         -------
@@ -800,18 +759,12 @@ class SHBasis(Basis):
         S_pt_aniso = S_pt - S_pt_iso
         
         # 2. Prepare Inputs for Gaunt Engine
-        if input_gauge == "geophysics":
-            # Align Geophysics Gauge to Analytic Gauge
-            # Empirically, Isotropic/Hall matches WITHOUT negation.
-            t_tt, t_pp = S_tt_iso, S_pp_iso
-            t_tp, t_pt = S_tp_iso, S_pt_iso
-            
-            # For Spin-2, we assume similar identity relationship
-            a_tt, a_pp = S_tt_aniso, S_pp_aniso
-            a_tp, a_pt = S_tp_aniso, S_pt_aniso
-        else:
-            t_tt, t_pp, t_tp, t_pt = S_tt_iso, S_pp_iso, S_tp_iso, S_pt_iso
-            a_tt, a_pp, a_tp, a_pt = S_tt_aniso, S_pp_aniso, S_tp_aniso, S_pt_aniso
+        # Assign Isotropic (Spin-0) and Anisotropic (Spin-2) Components
+        t_tt, t_pp = S_tt_iso, S_pp_iso
+        t_tp, t_pt = S_tp_iso, S_pt_iso
+        
+        a_tt, a_pp = S_tt_aniso, S_pp_aniso
+        a_tp, a_pt = S_tp_aniso, S_pt_aniso
             
         # Spin-0 Components (Isotropic)
         val_0plus = 0.5 * ((t_tt + t_pp) + 1j * (t_tp - t_pt))
@@ -819,31 +772,29 @@ class SHBasis(Basis):
         
         # Spin-2 Components (Anisotropic)
         # val_p2 = 0.5 * ((tt - pp) - i(tp + pt))
-        val_p2_gaunt = 0.5 * ((a_tt - a_pp) - 1j * (a_tp + a_pt))
-        val_m2_gaunt = 0.5 * ((a_tt - a_pp) + 1j * (a_tp + a_pt))
+        val_p2_gaunt = 0.5 * ((a_tt - a_pp) + 1j * (a_tp + a_pt))
+        val_m2_gaunt = 0.5 * ((a_tt - a_pp) - 1j * (a_tp + a_pt))
         
-        # Analyze using Spin-Weighted Harmonics (Nmin=0)
-        # Note: We use Nmin=0 to capture L=0 isotropic terms.
+        # 2. Analyze using Spin-Weighted Harmonics (Nmin=0)
+        # Note: Coupling of degree N1 and N2 requires Ls up to N1+N2 (2*Nmax).
+        # We must analyze on the SAME grid as the input values (the solver grid).
         sigma_basis = SHBasis(
-            self.Nmax, 
-            self.Mmax, 
+            2 * self.Nmax, 
+            2 * self.Mmax, 
             Nmin=0, 
             quasi_normalized=self.is_normalized, 
             backend=self.backend
         )
+        # Solve for the grid resolution that corresponds to the solver basis (self)
+        res_solver = int(3.0 * self.Nmax + 10)
+        if res_solver % 2 != 0: res_solver += 1
         
-        c_pp = sigma_basis.analyze_spin_weighted(0, val_0plus.flatten())
-        c_mm = sigma_basis.analyze_spin_weighted(0, val_0minus.flatten())
-        c_pm = sigma_basis.analyze_spin_weighted(2, val_p2_gaunt.flatten())
-        c_mp = sigma_basis.analyze_spin_weighted(-2, val_m2_gaunt.flatten())
+        c_pp = sigma_basis.analyze_spin_weighted(0, val_0plus.flatten(), grid_resolution=res_solver)
+        c_mm = sigma_basis.analyze_spin_weighted(0, val_0minus.flatten(), grid_resolution=res_solver)
+        c_pm = sigma_basis.analyze_spin_weighted(2, val_p2_gaunt.flatten(), grid_resolution=res_solver)
+        c_mp = sigma_basis.analyze_spin_weighted(-2, val_m2_gaunt.flatten(), grid_resolution=res_solver)
         
         # 3. Pass Coefficients to Analytic Engine
-        # input_is_complex=True tells the engine that coefficients are already
-        # in the Complex Orthonormal basis (matching the Wigner-3j definition).
-        # This is guaranteed by GauntEngine.analyze_spin_weighted.
-        # We must call GauntEngine DIRECTLY to avoid SHBasis wrappers that might 
-        # assume real/schmidt inputs.
-        
         from pynamit.spherical_harmonics.gaunt import GauntEngine
         engine = GauntEngine(self)
         
