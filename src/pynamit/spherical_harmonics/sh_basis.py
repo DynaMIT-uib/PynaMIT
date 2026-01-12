@@ -678,14 +678,14 @@ class SHBasis(Basis):
         # 2. Construct Tensor Components
         # Isotropic: S_tt = S_pp = P
         # Hall: S_tp = H, S_pt = -H
-        S_tt = etaP_grid
-        S_pp = etaP_grid
-        S_tp = etaH_grid
-        S_pt = -etaH_grid
+        eta_tt = etaP_grid
+        eta_pp = etaP_grid
+        eta_tp = etaH_grid
+        eta_pt = -etaH_grid
         
         # 3. Call General Solver
         return self.get_analytic_interaction_matrix_from_real_grid(
-            S_tt, S_pp, S_tp, S_pt
+            eta_tt, eta_pp, eta_tp, eta_pt
         )
 
     def get_quadrature_interaction_matrix(self, sigma_quad: np.ndarray) -> np.ndarray:
@@ -718,74 +718,66 @@ class SHBasis(Basis):
 
     def get_analytic_interaction_matrix_from_real_grid(
         self,
-        S_tt: np.ndarray,
-        S_pp: np.ndarray,
-        S_tp: np.ndarray,
-        S_pt: np.ndarray,
+        eta_tt: np.ndarray,
+        eta_pp: np.ndarray,
+        eta_tp: np.ndarray,
+        eta_pt: np.ndarray,
     ) -> np.ndarray:
         """Compute Analytic Interaction Matrix from REAL Grid Components.
 
-        This method decomposes the physical conductivity tensor components into 
+        This method decomposes the physical resistivity tensor components into 
         complex spin-weighted potentials (Spin-0 and Spin-2) used by the analytic solver.
 
         Physics Mapping (Exhaustive):
         ---------------------------
         Component      | Symmetry         | Potential    | Formula
         -------------------------------------------------------------
-        Isotropic      | Symmetric Diag   | Re(Spin-0)   | 0.5 * (S_tt + S_pp)
-        Hall           | Anti-Symmetric   | Im(Spin-0)   | 0.5 * (S_tp - S_pt)
-        Aniso (Real)   | Trace-Free Diag  | Re(Spin-2)   | 0.5 * (S_tt - S_pp)
-        Aniso (Imag)   | Symmetric Off-D  | Im(Spin-2)   | 0.5 * (S_tp + S_pt)
+        Isotropic      | Symmetric Diag   | Re(Spin-0)   | 0.5 * (eta_tt + eta_pp)
+        Hall           | Anti-Symmetric   | Im(Spin-0)   | 0.5 * (eta_tp - eta_pt)
+        Aniso (Real)   | Trace-Free Diag  | Re(Spin-2)   | 0.5 * (eta_tt - eta_pp)
+        Aniso (Imag)   | Symmetric Off-D  | Im(Spin-2)   | 0.5 * (eta_tp + eta_pt)
 
         Parameters
         ----------
-        S_tt : np.ndarray
-            Theta-Theta component on the quadrature grid.
-        S_pp : np.ndarray
-            Phi-Phi component on the quadrature grid.
-        S_tp : np.ndarray
-            Theta-Phi component on the quadrature grid.
-        S_pt : np.ndarray
-            Phi-Theta component on the quadrature grid.
+        eta_tt : np.ndarray
+            Theta-Theta resistivity component on the quadrature grid.
+        eta_pp : np.ndarray
+            Phi-Phi resistivity component on the quadrature grid.
+        eta_tp : np.ndarray
+            Theta-Phi resistivity component on the quadrature grid.
+        eta_pt : np.ndarray
+            Phi-Theta resistivity component on the quadrature grid.
 
         Returns
         -------
         M : np.ndarray
             The Real block interaction matrix.
         """
-        # 1. Decompose into Isotropic/Hall and Anisotropic Parts
-        # Isotropic/Hall part: S_iso = diag(S, S) + offdiag(H, -H)
-        val_iso = 0.5 * (S_tt + S_pp)
-        # Note: Hall Term flipped for Gauge Alignment with Quadrature
-        val_hall = -0.5 * (S_tp - S_pt)
+        # 1. Decompose into Isotropic/Hall (Spin-0) and Anisotropic (Spin-2)
+        # -----------------------------------------------------------------
+        # Resistance Tensor Structure (Cartesian-Like):
+        # [ S_tt, S_tp ]
+        # 1. Decompose into Isotropic/Hall (Spin-0) and Anisotropic (Spin-2)
+        # -----------------------------------------------------------------
+        # Resistivity Tensor Structure:
+        # [ eta_tt, eta_tp ]
+        # [ eta_pt, eta_pp ]
         
-        S_tt_iso = val_iso
-        S_pp_iso = val_iso
-        S_tp_iso = val_hall
-        S_pt_iso = -val_hall
-        
-        # Anisotropic Part (Residual) -> Pure Spin-2
-        S_tt_aniso = S_tt - S_tt_iso
-        S_pp_aniso = S_pp - S_pp_iso
-        S_tp_aniso = S_tp - S_tp_iso
-        S_pt_aniso = S_pt - S_pt_iso
-        
-        # 2. Prepare Inputs for Gaunt Engine
-        # Assign Isotropic (Spin-0) and Anisotropic (Spin-2) Components
-        t_tt, t_pp = S_tt_iso, S_pp_iso
-        t_tp, t_pt = S_tp_iso, S_pt_iso
-        
-        a_tt, a_pp = S_tt_aniso, S_pp_aniso
-        a_tp, a_pt = S_tp_aniso, S_pt_aniso
-            
-        # Spin-0 Components (Isotropic)
-        val_0plus = 0.5 * ((t_tt + t_pp) + 1j * (t_tp - t_pt))
-        val_0minus = 0.5 * ((t_tt + t_pp) - 1j * (t_tp - t_pt))
+        # Physical Components:
+        val_iso      = 0.5 * (eta_tt + eta_pp)
+        val_hall_raw = 0.5 * (eta_tp - eta_pt)
+        val_aniso_re = 0.5 * (eta_tt - eta_pp)
+        val_aniso_im = 0.5 * (eta_tp + eta_pt)
+
+        # Spin-0 Components (Isotropic + Hall)
+        # Re(Spin-0) = Isotropic, Im(Spin-0) = -Hall (Alignment Gauge)
+        val_0plus  = val_iso - 1j * val_hall_raw
+        val_0minus = val_iso + 1j * val_hall_raw
         
         # Spin-2 Components (Anisotropic)
-        # val_p2 = 0.5 * ((tt - pp) - i(tp + pt))
-        val_p2_gaunt = 0.5 * ((a_tt - a_pp) + 1j * (a_tp + a_pt))
-        val_m2_gaunt = 0.5 * ((a_tt - a_pp) - 1j * (a_tp + a_pt))
+        # Re(Spin-2) = Aniso_re, Im(Spin-2) = Aniso_im
+        val_p2_gaunt = val_aniso_re + 1j * val_aniso_im
+        val_m2_gaunt = val_aniso_re - 1j * val_aniso_im
         
         # 2. Analyze using Spin-Weighted Harmonics (Nmin=0)
         # Note: Coupling of degree N1 and N2 requires Ls up to N1+N2 (2*Nmax).

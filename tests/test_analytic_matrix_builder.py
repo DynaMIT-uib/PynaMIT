@@ -5,7 +5,7 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.field import Field
 
 # --- Physics Mapping (Tensor Degrees of Freedom) ---
-# A general 2x2 physical tensor on the sphere has 4 independent components.
+# A general 2x2 physical Resistivity tensor (eta) has 4 independent components.
 # The analytic solver maps these to 2 complex spin-weighted potentials (V0, V2):
 #
 # Component      | Symmetry         | Potential    | Formula / Test Base
@@ -75,30 +75,30 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         # Or simply: Generate random Real Grid values band-limited?
         # Evaluate complex coeffs -> Real part?
         val_grid = basis_dense.evaluate(coeffs_in, grid, vector_type="scalar").real
-        S_tt = val_grid
-        S_pp = val_grid
-        S_tp = np.zeros_like(val_grid)
-        S_pt = np.zeros_like(val_grid)
+        eta_tt = val_grid
+        eta_pp = val_grid
+        eta_tp = np.zeros_like(val_grid)
+        eta_pt = np.zeros_like(val_grid)
         
     elif field_kind == "symmetric_off_diagonal":
         # Pure Symmetric Off-Diagonal Field
         # S_tt=0, S_pp=0. S_tp = S_pt = V (Real).
         # This exercises the Imaginary Spin-2 path.
         val_grid = basis_dense.evaluate(coeffs_in, grid, vector_type="scalar").real
-        S_tt = np.zeros_like(val_grid)
-        S_pp = np.zeros_like(val_grid)
-        S_tp = val_grid
-        S_pt = val_grid
+        eta_tt = np.zeros_like(val_grid)
+        eta_pp = np.zeros_like(val_grid)
+        eta_tp = val_grid
+        eta_pt = val_grid
         
     elif field_kind == "hall":
         # Pure Hall Field (Anti-Symmetric Off-Diagonal)
         # S_tt=0, S_pp=0. S_tp = V, S_pt = -V.
         # This exercises the Scalar Hall (Spin-0 Imaginary) path.
         val_grid = basis_dense.evaluate(coeffs_in.real, grid, vector_type="scalar").real
-        S_tt = np.zeros_like(val_grid)
-        S_pp = np.zeros_like(val_grid)
-        S_tp = val_grid
-        S_pt = -val_grid
+        eta_tt = np.zeros_like(val_grid)
+        eta_pp = np.zeros_like(val_grid)
+        eta_tp = val_grid
+        eta_pt = -val_grid
 
     elif field_kind == "general_composite":
         # General Composite Field (Iso + Hall + Aniso + Symm)
@@ -134,10 +134,10 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         s2_tp = s2_tp.real
         s2_pt = s2_pt.real
         
-        S_tt = val_iso + s2_tt
-        S_pp = val_iso + s2_pp
-        S_tp = val_hall + s2_tp
-        S_pt = -val_hall + s2_pt
+        eta_tt = val_iso + s2_tt
+        eta_pp = val_iso + s2_pp
+        eta_tp = val_hall + s2_tp
+        eta_pt = -val_hall + s2_pt
         
     elif field_kind == "spin2":
         # Proper Spin-2 Synthesis: Full Random Physical Field
@@ -159,28 +159,28 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         val_m2 = np.conj(val_p2)
         
         # Reconstruct Tensor Components
-        S_tt = 0.5 * (val_p2 + val_m2).real
-        S_pp = -0.5 * (val_p2 + val_m2).real
-        S_tp = 0.5j * (val_p2 - val_m2)
-        S_pt = S_tp
-        S_tp = S_tp.real
-        S_pt = S_pt.real
+        eta_tt = 0.5 * (val_p2 + val_m2).real
+        eta_pp = -0.5 * (val_p2 + val_m2).real
+        eta_tp = 0.5j * (val_p2 - val_m2)
+        eta_pt = eta_tp
+        eta_tp = eta_tp.real
+        eta_pt = eta_pt.real
         
     else:
         raise ValueError(f"Unknown field kind: {field_kind}")
         
     # 5. Compute Matrices (Size N_calc)
-    sigma_quad = np.array([[S_tt, S_tp], [S_pt, S_pp]])
-    M_ref = basis_sol.get_quadrature_interaction_matrix(sigma_quad)
-    
-    M_ana = basis_sol.get_analytic_interaction_matrix_from_real_grid(
-        S_tt, S_pp, S_tp, S_pt
+    eta_quad = np.array([[eta_tt, eta_tp], [eta_pt, eta_pp]])
+    M_ref = basis_sol.get_quadrature_interaction_matrix(eta_quad)
+    # Analytic (General)
+    M_gen = basis_sol.get_analytic_interaction_matrix_from_real_grid(
+        eta_tt, eta_pp, eta_tp, eta_pt
     )
     
     # 6. Extract Target Subblock (N x N)
     # M is (Dim x Dim).
     M_ref_sub = M_ref[:dim_target, :dim_target]
-    M_ana_sub = M_ana[:dim_target, :dim_target]
+    M_ana_sub = M_gen[:dim_target, :dim_target]
     
     # 7. Compare
     diff = M_ref_sub - M_ana_sub

@@ -175,11 +175,15 @@ class Geometry:
         self, 
         mode: Any, 
         potential_type: str, 
-        sigma_grid: np.ndarray,
+        eta_grid: np.ndarray,
         etaP: Optional[Any] = None,
         etaH: Optional[Any] = None
     ) -> "LinearMap":
-        """Construct a unified conductivity operator (Potential -> JS_coeffs)."""
+        """Construct a unified conductivity operator (Potential -> JS_coeffs).
+        
+        This operator relates potential (current) to JS_coeffs (electric field).
+        It internally uses the resistivity tensor (eta).
+        """
         from pynamit.simulation.dynamics import SimulationMode
         from pynamit.utils import to_numpy
         from pynamit.math.linear_map import as_linear_map
@@ -199,8 +203,8 @@ class Geometry:
             
             # Feature Extension: General Analytic Path
             # If isotropic fails (e.g. Dipole), try General Analytic.
-            # Only if we have the grid tensor available (passed as sigma_grid argument).
-            # Note: sigma_grid acts as source for SHT.
+            # Only if we have the grid tensor available (passed as eta_grid argument).
+            # Note: eta_grid acts as source for SHT.
             
             M_vsh = None
             
@@ -222,17 +226,17 @@ class Geometry:
                     try:
                         logger.info("Building General Analytic Interaction Matrix (Anisotropic Tensor)...")
                         # Synthesize tensor on Gaunt Grid (needed for SHT)
-                        sigma_quad = self._synthesize_to_gaunt(sigma_grid) # (2, 2, Q)
+                        eta_quad = self._synthesize_to_gaunt(eta_grid) # (2, 2, Q)
                         
                         # Extract components
                         # Assume indices: 0=theta, 1=phi
-                        S_tt = sigma_quad[0, 0]
-                        S_tp = sigma_quad[0, 1]
-                        S_pt = sigma_quad[1, 0]
-                        S_pp = sigma_quad[1, 1]
+                        eta_tt = eta_quad[0, 0]
+                        eta_tp = eta_quad[0, 1]
+                        eta_pt = eta_quad[1, 0]
+                        eta_pp = eta_quad[1, 1]
                         
                         M_vsh = self.solution_basis.get_analytic_interaction_matrix_from_real_grid(
-                            S_tt, S_pp, S_tp, S_pt
+                            eta_tt, eta_pp, eta_tp, eta_pt
                         )
                     except Exception as e:
                          logger.warning(f"General Analytic construction failed ({e}), falling back to Quadrature.")
@@ -241,18 +245,18 @@ class Geometry:
             if M_vsh is None:
                  # Standard Quadrature Path (Legacy / Robust Fallback)
                  # Handles Dipole Anisotropy Correctly via Grid Integration
-                 sigma_quad = self._synthesize_to_gaunt(sigma_grid)
-                 M_vsh = self.solution_basis.get_quadrature_interaction_matrix(to_numpy(sigma_quad))
+                 eta_quad = self._synthesize_to_gaunt(eta_grid)
+                 M_vsh = self.solution_basis.get_quadrature_interaction_matrix(to_numpy(eta_quad))
                  
             return as_linear_map(M_vsh) @ op_E_vsh
         else:
-            # Transform Path: P @ sigma @ G
+            # Transform Path: P @ eta @ G
             G_grid = getattr(self, f"G_{potential_type}_to_JS", None)
             if G_grid is None: return None
             
             from pynamit.simulation.state import _ResistanceOperator
             from pynamit.math.linear_map import LinearMap
-            res_op = _ResistanceOperator(sigma_grid)
+            res_op = _ResistanceOperator(eta_grid)
             op_M = LinearMap(
                 shape=res_op.shape,
                 dtype=res_op.dtype,

@@ -241,7 +241,7 @@ class State:
 
     @cached_property
     def M_total_on_grid(self) -> np.ndarray:
-        """Resistance tensor on the spatial grid."""
+        """Physical Resistance (Resistivity) tensor on the spatial grid."""
         if self.etaP is None or self.etaH is None:
             raise RuntimeError(
                 "Conductance must be set before accessing conductance-dependent properties."
@@ -277,7 +277,7 @@ class State:
     def _create_E_coeffs_operator(
         self, G_X_to_JS: Optional[np.ndarray], mapping_type: str = "poloidal"
     ) -> Optional[LinearMap]:
-        """Unified operator mapping potential coefficients to J coefficients."""
+        """Unified operator mapping potential coefficients to electric field (E) coefficients."""
         potential_type = "m_imp" if mapping_type == "poloidal" else "m_ind"
         
         # Check for Br specifically
@@ -291,7 +291,7 @@ class State:
         return self.geometry.get_conductivity_operator(
             mode=self.mode,
             potential_type=potential_type,
-            sigma_grid=self.M_total_on_grid,
+            eta_grid=self.M_total_on_grid,
             etaP=etaP_field,
             etaH=etaH_field
         )

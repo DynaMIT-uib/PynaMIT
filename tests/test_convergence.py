@@ -63,13 +63,13 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     sigma = sim.state.M_total_on_grid
     
     # Reference (Quadrature)
-    sigma_gaunt = geo._synthesize_to_gaunt(sigma)
-    M_ref = basis.get_quadrature_interaction_matrix(sigma_gaunt)
+    eta_quad = geo._synthesize_to_gaunt(sigma)
+    M_ref = basis.get_quadrature_interaction_matrix(eta_quad)
     norm_ref = np.linalg.norm(M_ref)
     
     # Analytic (General)
     M_gen = basis.get_analytic_interaction_matrix_from_real_grid(
-        sigma_gaunt[0, 0], sigma_gaunt[1, 1], sigma_gaunt[0, 1], sigma_gaunt[1, 0]
+        eta_quad[0, 0], eta_quad[1, 1], eta_quad[0, 1], eta_quad[1, 0]
     )
     norm_gen = np.linalg.norm(M_gen)
     
