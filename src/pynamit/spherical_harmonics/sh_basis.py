@@ -1,7 +1,7 @@
 """Spherical Harmonic Basis Class."""
 
 import numpy as np
-from typing import Any, Optional, Union, TYPE_CHECKING
+from typing import Any, Optional, Union, TYPE_CHECKING, Tuple
 import math
 from functools import cached_property
 import warnings
@@ -617,6 +617,450 @@ class SHBasis(Basis):
             )
             return np.array([L_cf, L_df])
 
+
+    def grid_to_basis_fast(
+        self, 
+        data: Union[np.ndarray, Tuple[np.ndarray, np.ndarray]], 
+        theta: np.ndarray,
+        phi: np.ndarray = None,
+        weights: np.ndarray = None,
+        reg_lambda: float = None,
+        vector_type: str = "scalar"
+    ) -> np.ndarray:
+        """
+        Fast Spherical Harmonic Transform for Regular Grids via Separation of Variables.
+
+        This method is significantly faster ($O(N^3)$) than the generic Least Squares 
+        solver ($O(N^4)$) for data situated on a regular grid (separable in theta/phi).
+        It performs an FFT in longitude (phi) followed by a per-m Regularized Least Squares 
+        fit in colatitude (theta).
+
+        Parameters
+        ----------
+        data : np.ndarray or Tuple[np.ndarray, np.ndarray]
+            Input data. 
+            - If scalar: array of shape (N_theta, N_phi).
+            - If tangential: tuple (u_theta, u_phi), each (N_theta, N_phi).
+        theta : np.ndarray
+            1D array of colatitudes in radians, shape (N_theta,).
+        phi : np.ndarray, optional
+            1D array of longitudes in radians, shape (N_phi,).
+        weights : np.ndarray, optional
+            1D array of weights for the theta dimension, shape (N_theta,).
+            (Phi weighting is uniform due to FFT).
+        reg_lambda : float, optional
+            Tikhonov regularization parameter.
+        vector_type : str
+            "scalar" or "tangential".
+
+        Returns
+        -------
+        coeffs : np.ndarray
+            Spectral coefficients vector.
+```python
+        """
+        
+        N_theta = theta.size
+        # Precompute sin(theta) for vector scaling
+        sin_th = np.sin(theta)
+        # sin_th_safe not needed anymore as get_G(phi) handles poles internally
+        
+        # 0. Setup and Validation
+        is_vector = (vector_type == "tangential")
+        
+        if is_vector:
+            if not isinstance(data, (tuple, list)) or len(data) != 2:
+                raise ValueError("For vector_type='tangential', data must be (u_theta, u_phi)")
+            d_th_in, d_ph_in = data
+            N_theta, N_phi = d_th_in.shape
+        else:
+            d_in = data
+            N_theta, N_phi = d_in.shape
+
+        if len(theta) != N_theta:
+            raise ValueError(f"Theta shape {theta.shape} mismatch with data rows {N_theta}")
+
+        # 1. FFT in Longitude
+        # -------------------
+        # Normalize by N_phi to match PynaMIT orthonormal definition
+        if is_vector:
+            fft_th = np.fft.fft(d_th_in, axis=1) / N_phi
+            fft_ph = np.fft.fft(d_ph_in, axis=1) / N_phi
+        else:
+            fft_scalar = np.fft.fft(d_in, axis=1) / N_phi
+
+        # 2. Pre-compute 1D Legendre Matrices (P_lm, dP_lm/dth, etc.)
+        # -----------------------------------------------------------
+        from pynamit.primitives.grid import Grid
+        theta_deg = np.rad2deg(theta)
+        # Dummy grid for 1D evaluation (phi=0)
+        grid_1d = Grid(theta=theta_deg, phi=np.zeros(N_theta))
+
+        # We need P(theta) and potentially dP/dth and P/sin_th (via get_G)
+        # get_G(derivative=None) -> P_lm (at phi=0)
+        # get_G(derivative='theta') -> dP_lm/dth (at phi=0)
+        # get_G(derivative='phi') -> Im * P_lm / sin_th (at phi=0, imaginary handled by complex logic?)
+        # Wait, get_G returns REAL matrices.
+        # For 'phi' derivative, it returns dY/dphi.
+        # Y_c = P cos(m phi), Y_s = P sin(m phi).
+        # dY_c/dphi = -m P sin(m phi), dY_s/dphi = m P cos(m phi).
+        # At phi=0: dY_c = 0, dY_s = m P.
+        # So G_phi at phi=0 contains [0, m P]. Correct.
+        # But we need 1/sin_theta * dY/dphi for the vector basis.
+        # SHBasis.get_G(derivative='phi') already includes the 1/sin(theta) factor!
+        
+        G_0 = self.get_G(grid_1d, derivative=None)
+        
+        if is_vector:
+            G_th = self.get_G(grid_1d, derivative='theta')
+            G_ph = self.get_G(grid_1d, derivative='phi') # Includes 1/sin(theta)
+
+        # 3. Regularization Setup
+        # -----------------------
+        # Penalty Matrix L_diag (diagonal of L)
+        # Scalar: diag(n)
+        # Vector: Pol -> diag(n(n+1)/(2n+1)), Tor -> diag((n+1)/2)
+        reg_L = None
+        if reg_lambda is not None and reg_lambda > 0:
+            if is_vector:
+                # Pol and Tor penalties
+                # Note: This logic matches get_regularization_matrix
+                pen_pol = self.n * (self.n + 1) / (2 * self.n + 1)
+                pen_tor = (self.n + 1) / 2
+                reg_L = (pen_pol, pen_tor)
+            else:
+                reg_L = self.n
+
+        # Weights handling
+        W_diag = None
+        if weights is not None:
+            # Sqrt weights for linear system: min || W (Ax - b) ||
+            W_diag = weights if weights.ndim == 1 else weights.flatten()
+            # If user passed sqrt_weights directly (as is common in PynaMIT), usage is direct.
+            # Assuming 'weights' here means sqrt_weights (as in interpolate_and_add_entry)
+        
+        # 4. Indices
+        offset_s = self.cnm.n.size
+        coeffs = np.zeros(self.index_length * (2 if is_vector else 1), dtype=float)
+
+        # 5. Solve per m
+        # --------------
+        limit_m = min(self.Mmax, N_phi // 2)
+
+        # 6. Pre-compute Global Regularization Scaling (Strict Equivalence)
+        # -----------------------------------------------------------------
+        
+        scale_A_global = 1.0
+        scale_L_global = 1.0
+        
+        if reg_lambda is not None and reg_lambda > 0 and reg_L is not None:
+             all_norms_A = []
+             all_norms_L = []
+             
+             for m in range(limit_m + 1):
+                 mask_c = (self.cnm.m.flatten() == m)
+                 if not np.any(mask_c): continue
+                 idx_c_out = np.where(mask_c)[0]
+                 
+                 mask_s = (self.snm.m.flatten() == m)
+                 idx_s_out = (np.where(mask_s)[0] + offset_s) if np.any(mask_s) else []
+                 
+                 # L-Penalty Norms
+                 if isinstance(reg_L, tuple):
+                     pen_pol, pen_tor = reg_L
+                     # Pol coeffs
+                     p_vals = pen_pol[idx_c_out % len(pen_pol)]
+                     all_norms_L.append(p_vals**2)
+                     if m > 0:
+                         t_vals = pen_tor[idx_c_out % len(pen_tor)]
+                         all_norms_L.append(t_vals**2)
+                     if np.any(mask_s):
+                          p_vals_s = pen_pol[idx_s_out % len(pen_pol)]
+                          all_norms_L.append(p_vals_s**2)
+                          t_vals_s = pen_tor[idx_s_out % len(pen_tor)]
+                          all_norms_L.append(t_vals_s**2)
+                     
+                 else:
+                     l_vals = reg_L[idx_c_out]
+                     all_norms_L.append(l_vals**2)
+                     if np.any(mask_s):
+                         all_norms_L.append(reg_L[idx_s_out]**2)
+                         
+                 # A-Matrix Norms using 1D approx
+                 # Matching Legacy Scaling:
+                 # Legacy Scale_A corresponds to ~ N_phi * Mean(Norms_2D).
+                 # Fast Data is 2/N_phi scaled (Energy).
+                 # With corrected physics (1/sin scaling for Gang), the Matrix Norms should be correct.
+                 # Energy ratio implies phi_factor should be 1.0.
+                 
+                 phi_factor = N_phi / 2.0 if m > 0 else float(N_phi)
+                 w_eff = W_diag if W_diag is not None else np.ones(N_theta)
+                 
+                 if not is_vector:
+                     G_sub = G_0[:, idx_c_out]
+                     Gw = G_sub * w_eff[:, None]
+                     n_A = np.sum(Gw**2, axis=0) * phi_factor
+                     all_norms_A.append(n_A)
+                     if np.any(mask_s):
+                         all_norms_A.append(n_A)
+                 else:
+                     Gp = G_th[:, idx_c_out]
+                     Gang = np.zeros_like(Gp)
+                     if m > 0:
+                         # Toroidal term uses 1/sin(theta) * dY/dphi
+                         # G_ph is dY/dphi (m*P) / sin(theta) ALREADY (from get_G).
+                         Gang = G_ph[:, idx_c_out]
+                         # 1/sin scaling is handled in get_G(derivative='phi').
+                     term = (Gp**2 + Gang**2) * (w_eff[:, None]**2)
+                     n_vec = np.sum(term, axis=0) * phi_factor
+                     all_norms_A.append(n_vec)
+                     all_norms_A.append(n_vec)
+                     if np.any(mask_s):
+                         all_norms_A.append(n_vec)
+                         all_norms_A.append(n_vec)
+
+             if all_norms_A:
+                 flat_A = np.concatenate(all_norms_A)
+                 valid_A = flat_A[flat_A > 1e-14]
+                 scale_A_global = np.median(valid_A) if valid_A.size else 1.0
+                 
+             if all_norms_L:
+                 flat_L = np.concatenate(all_norms_L)
+                 valid_L = flat_L[flat_L > 1e-14]
+                 scale_L_global = np.median(valid_L) if valid_L.size else 1.0
+
+        for m in range(limit_m + 1):
+            
+            # Identify active L-indices for this m
+            # Cosine terms (m matches)
+            mask_c = (self.cnm.m.flatten() == m)
+            if not np.any(mask_c): continue
+            idx_c_out = np.where(mask_c)[0]
+            
+            # Sine terms (m matches)
+            mask_s = (self.snm.m.flatten() == m)
+            has_sine = np.any(mask_s)
+            idx_s_out = (np.where(mask_s)[0] + offset_s) if has_sine else []
+
+            # -------------------------------------------------------------
+            # Build System Matrices for this m-block
+            # -------------------------------------------------------------
+            
+            # SCALAR CASE
+            if not is_vector:
+                # Basis: P_lm(theta)
+                # G_sub has shape (N_theta, n_L_active)
+                # Columns correspond to P_lm for l >= m
+                G_sub_c = G_0[:, idx_c_out] 
+                # (For sine terms, P_lm is identical, so we reuse G_sub_c)
+
+                # Targets
+                d_c, d_s = self._get_fft_targets(fft_scalar, m)
+
+                # Solve Cosine
+                self._solve_stacked(G_sub_c, d_c, coeffs, idx_c_out, W_diag, reg_lambda, reg_L, idx_c_out, scale_A_global, scale_L_global)
+                
+                # Solve Sine
+                if has_sine:
+                    self._solve_stacked(G_sub_c, d_s, coeffs, idx_s_out, W_diag, reg_lambda, reg_L, idx_c_out, scale_A_global, scale_L_global)
+
+            # VECTOR CASE
+            else:
+                # Vector Basis Block Structure (per m):
+                # u_theta = -dY/dth * C_pol + 1/sin dY/dphi * C_tor
+                # u_phi   = -1/sin dY/dphi * C_pol - dY/dth * C_tor
+                #
+                # At phi=0:
+                # Y_c = P.  dY_c/dphi = 0.
+                # Y_s = 0.  dY_s/dphi = m P.
+                #
+                # Cosine Coeffs (C_lm^c) interact with Cosine Targets?
+                # This is tricky mixing.
+                # Let's use the exact definition from get_vector_basis_matrix:
+                # Pol = -Grad Y. Tor = Curl(rY).
+                #
+                # We need to construct the system for [C_pol, C_tor]^T given [d_th, d_ph]^T
+                # Be careful: FFT separates e^{im\phi}.
+                # For m=0: Decoupled.
+                
+                if m == 0:
+                    # Special Case: Decoupled Logic for Zonal Flow
+                    # u_theta^c = -P' C_pol^c  (u_theta^s=0, C_tor^s=0)
+                    # u_phi^c   = +P' C_tor^c  (u_phi^s=0,   C_pol^s=0)
+                    
+                    d_th = fft_th[:, 0].real
+                    d_ph = fft_ph[:, 0].real
+                    
+                    n_vals = self.cnm.n.flatten()[idx_c_out]
+                    scale_vec = 1.0 # Reset to 1.0 based on diagnostic
+                    Gp = G_th[:, idx_c_out] * scale_vec # Scaled derivative
+                    
+                    # Poloidal Solve: u_theta = -P' -> Target = -Gp
+                    idx_pol = idx_c_out
+                    self._solve_stacked(-Gp, d_th, coeffs, idx_pol, W_diag, reg_lambda, reg_L, (idx_pol, []), scale_A_global, scale_L_global)
+                    
+                    # Toroidal Solve: u_phi = P' -> Target = Gp
+                    idx_tor = idx_c_out + self.index_length
+                    self._solve_stacked(Gp, d_ph, coeffs, idx_tor, W_diag, reg_lambda, reg_L, ([], idx_tor), scale_A_global, scale_L_global)
+                    
+                else:
+                    # Coupled Logic (m > 0)
+                    # Targets
+                    t_th_c, t_th_s = self._get_fft_targets(fft_th, m)
+                    t_ph_c, t_ph_s = self._get_fft_targets(fft_ph, m)
+
+                    # Block 1 (Cos-Sin Mix) [C_pol^c, C_tor^s]
+                    # Target u_theta: - ( Pol_theta u_pol^c + Tor_theta u_tor^s )
+                    # Target u_phi:   - ( Pol_phi u_pol^c + Tor_phi u_tor^s )? 
+                    # Actually, look at Basis matrix: Pol = -Grad, Tor = Curl
+                    # A_vec = [[-G_th*cos, -G_ph*sin], [-G_ph*cos, G_th*sin]]
+                    
+                    n_vals = self.cnm.n.flatten()[idx_c_out]
+                    scale_vec = 1.0 
+                    
+                    Gp = G_th[:, idx_c_out] * scale_vec
+                    # G_ph at phi=0 is zero for Cosine terms (dY_c/dphi ~ sin(0)=0).
+                    # We need the magnitude, which is stored in Sine terms (dY_s/dphi ~ cos(0)=1).
+                    G_ang = G_ph[:, idx_s_out] * scale_vec
+                    
+                    # Toroidal Scaling & Phase
+                    # TS = -1.0 (Global Legacy Toroidal Flip verified).
+                    TS = -1.0
+                    
+                    # Weights (applied to rows)
+                    W_block = np.concatenate([W_diag, W_diag]) if W_diag is not None else None
+
+                    # Block 1 (u_th_c, u_ph_s) -> (P_c, T_s)
+                    # Pol Cos -> u_phi (Sine): -1/sin d/dphi(P cos) = +m P/sin sin = +Gang. (Positive)
+                    # Tor Sin -> u_th (Cos):  -1/sin d/dphi(T sin) = -m T/sin cos = -Gang. (Matches TS=-1).
+                    A_11 = -Gp      
+                    A_12 = G_ang * TS    
+                    A_21 = G_ang          # CORRECTED: Positive G_ang
+                    A_22 = -Gp * TS      
+                    
+                    A_block1 = np.block([[A_11, A_12], [A_21, A_22]])
+                    
+                    b1 = np.concatenate([t_th_c, t_ph_s])
+                    
+                    idx_pol_c = idx_c_out
+                    idx_tor_s = idx_s_out + self.index_length
+                    
+                    dest_indices_1 = np.concatenate([idx_pol_c, idx_tor_s])
+                    
+                    self._solve_stacked(A_block1, b1, coeffs, dest_indices_1, W_block, reg_lambda, reg_L, (idx_c_out, idx_s_out), scale_A_global, scale_L_global)
+                 
+                    # Block 2 (u_th_s, u_ph_c) -> (P_s, T_c)
+                    if has_sine:
+                        b2 = np.concatenate([t_th_s, t_ph_c])
+                        
+                        # Pol Sin -> u_phi (Cos): -1/sin d/dphi(P sin) = -m P/sin cos = -Gang. (Negative)
+                        # Tor Cos -> u_th (Sin):  -1/sin d/dphi(T cos) = +m T/sin sin = +Gang. (Matches TS=-1 -> -(-1)=+1).
+                        A_11 = -Gp      
+                        A_12 = -G_ang * TS   
+                        A_21 = -G_ang         # Correct: Negative G_ang
+                        A_22 = -Gp * TS      
+                        
+                        A_block2 = np.block([[A_11, A_12], [A_21, A_22]])
+                        
+                        idx_pol_s = idx_s_out
+                        idx_tor_c = idx_c_out + self.index_length
+                        
+                        dest_indices_2 = np.concatenate([idx_pol_s, idx_tor_c])
+                        self._solve_stacked(A_block2, b2, coeffs, dest_indices_2, W_block, reg_lambda, reg_L, (idx_s_out, idx_c_out), scale_A_global, scale_L_global)
+
+        return coeffs
+
+    def _get_fft_targets(self, fft_data, m):
+        """Extract Real (Cosine) and Imag (Sine) targets from FFT."""
+        if m == 0:
+            return fft_data[:, 0].real, None
+        else:
+            # 2 * Real for Cosine, -2 * Imag for Sine
+            return 2 * fft_data[:, m].real, -2 * fft_data[:, m].imag
+
+    def _solve_stacked(self, A, b, coeffs_out, dest_idxs, weights, reg_lambda, reg_L, reg_idxs_source, scale_A_forced=None, scale_L_forced=None):
+        """
+        Solve weighted regularized system using Stacked Matrices.
+        min || W(Ax - b) ||^2 + lambda || L x ||^2
+        
+        Equivalent to solving:
+        [ W A           ] x = [ W b ]
+        [ sqrt(lam) L ]     [ 0   ]
+        """
+        if len(dest_idxs) == 0: return
+
+        # Apply weights to A/b
+        if weights is not None:
+             # Broadcast weights if needed (e.g. for block system)
+             # A is (N_rows, N_cols). weights (N_rows,)
+             A_w = A * weights[:, None]
+             b_w = b * weights
+        else:
+             A_w = A
+             b_w = b
+             
+        # Add Regularization
+        if reg_lambda is not None and reg_lambda > 0 and reg_L is not None:
+            # Construct Penalty Matrix L_sub
+            n_cols = A.shape[1]
+            
+            # Handle split penalty (Vector case: Pol/Tor distinct)
+            if isinstance(reg_L, tuple):
+                pen_pol, pen_tor = reg_L
+                # Identify which cols are Pol vs Tor based on source indices
+                # reg_idxs_source is (idx_pol, idx_tor)
+                idx_p, idx_t = reg_idxs_source
+                idx_p = np.asarray(idx_p, dtype=int)
+                idx_t = np.asarray(idx_t, dtype=int)
+                n_p = len(idx_p)
+                n_t = len(idx_t) # Should sum to n_cols
+                
+                L_vals = np.concatenate([
+                    pen_pol[idx_p % len(pen_pol)], # Use modulo just in case, but should match
+                    pen_tor[idx_t % len(pen_tor)]
+                ])
+            else:
+                # Scalar case
+                idx_source = reg_idxs_source
+                L_vals = reg_L[idx_source]
+            
+            # Auto-Scaling Logic (replicating LeastSquaresProblem)
+            # ---------------------------------------------------
+            # Ratio = Median(diag(A^T A)) / Median(diag(L^T L))
+            if scale_A_forced is not None and scale_L_forced is not None:
+                scale_A = scale_A_forced
+                scale_L = scale_L_forced
+            else:
+                # Approx diag(A^T A) by column norms squared
+                norm_A = np.sum(A_w**2, axis=0) # (n_cols,)
+                norm_L = L_vals**2
+                
+                # Filter zeros
+                valid_A = norm_A[norm_A > 1e-14]
+                valid_L = norm_L[norm_L > 1e-14]
+                
+                scale_A = np.median(valid_A) if valid_A.size else 1.0
+                scale_L = np.median(valid_L) if valid_L.size else 1.0
+            
+            factor = np.sqrt(scale_A / scale_L) if scale_L > 0 else 1.0
+            
+            effective_lam = np.sqrt(reg_lambda) * factor
+            
+            # Stack
+            L_block = np.diag(effective_lam * L_vals)
+            zeros_rhs = np.zeros(n_cols)
+            
+            A_final = np.vstack([A_w, L_block])
+            b_final = np.concatenate([b_w, zeros_rhs])
+        else:
+            A_final = A_w
+            b_final = b_w
+            
+        # Solve
+        x, _, _, _ = np.linalg.lstsq(A_final, b_final, rcond=None)
+        
+        # Store
+        coeffs_out[dest_idxs] = x
 
     def get_analytic_interaction_matrix(
         self, 

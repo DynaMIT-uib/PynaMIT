@@ -12,6 +12,7 @@ latitude_boundary = 35
 
 PLOT = True
 
+# Regularization parameters
 BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 2.5
 JR_LAMBDA = 0.1
