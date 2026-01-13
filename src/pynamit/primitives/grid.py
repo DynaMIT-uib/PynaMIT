@@ -111,3 +111,39 @@ class Grid:
         # Hash match implies equality within float32 precision
         # This acts as a robust check replacing np.allclose(..., rtol=1e-6)
         return self.hash == other.hash
+    @classmethod
+    def create_mw_grid(cls, L):
+        """Create a McEwen-Wiaux (MW) equiangular grid for band-limit L.
+        
+        Ref: McEwen & Wiaux (2011), 'A novel sampling theorem on the sphere'.
+        
+        Parameters
+        ----------
+        L : int
+            Band-limit (L_max). Ideally the grid supports exact quadrature for degrees up to L.
+            Number of theta points: L+1.
+            Number of phi points: 2L+1.
+            
+        Returns
+        -------
+        Grid
+            The generated Grid object.
+        """
+        N_theta = L + 1
+        N_phi = 2 * L + 1
+        
+        # Theta: t = 0..L. theta_t = pi * (2t + 1) / (2N_theta - 1)
+        # Note: MW paper uses N for N_theta. Denom is 2N-1.
+        t = np.arange(N_theta)
+        theta_1d = np.pi * (2 * t + 1) / (2 * N_theta - 1)
+        
+        # Phi: p = 0..2L. phi_p = 2pi * p / (2L+1)
+        p = np.arange(N_phi)
+        phi_1d = 2 * np.pi * p / N_phi
+        
+        # Meshgrid
+        tt, pp = np.meshgrid(theta_1d, phi_1d, indexing='ij')
+        
+        # Convert to Degrees for InputManager compatibility
+        # Grid expects flattened arrays in degrees
+        return cls(theta=np.rad2deg(tt).flatten(), phi=np.rad2deg(pp).flatten())

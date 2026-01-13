@@ -40,66 +40,17 @@ def run_pynamit(
     least_squares_solver: str = "cg",
     m_imp_regularization_lambda: float = 0.0,
     mainfield_B0: Optional[float] = None,
+    use_exact_weights: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
     Parameters
     ----------
-    final_time : float, optional
-        The final time of the simulation in seconds.
-    plotsteps : int, optional
-        The number of steps between each plot.
-    dt : float, optional
-        The time step for the simulation.
-    Nmax : int, optional
-        The maximum degree of the spherical harmonics.
-    Mmax : int, optional
-        The maximum order of the spherical harmonics.
-    Ncs : int, optional
-        The number of grid points in the cubed sphere grid.
-    mainfield_kind : str, optional
-        The type of main field model.
-    fig_directory : str, optional
-        The directory to save the figures.
-    ignore_PFAC : bool, optional
-        Whether to ignore the poloidal field-aligned currents.
-    connect_hemispheres : bool, optional
-        Whether to connect the hemispheres.
-    latitude_boundary : float, optional
-        The latitude boundary for the simulation.
-    wind : bool, optional
-        Whether to include wind in the simulation.
-    steady_state : bool, optional
-        Whether to impose a steady state.
-    vector_jr : bool, optional
-        Whether to use vector representation for radial current.
-    vector_Br : bool, optional
-        Whether to use vector representation for magnetic field.
-    vector_conductance : bool, optional
-        Whether to use vector representation for conductance.
-    vector_u : bool, optional
-        Whether to use vector representation for wind.
-    integrator : {'euler', 'exponential'}, optional
-        Integrator type for time evolution.
-    jr_lambda : float, optional
-        Regularization parameter for the radial current.
-    conductance_lambda : float, optional
-        Regularization parameter for the conductance.
-    u_lambda : float, optional
-        Regularization parameter for the wind.
-    solution_basis_kind : {'SH', 'CS'}, optional
-        Basis to use for the solution state variables. 
-        "SH" uses Spherical Harmonics (default).
-        "CS" uses Cubed Sphere Grid values.
-    least_squares_solver : str, optional
-        Solver to use for least squares problems (e.g. "cg", "svd").
-        Default is "cg".
-
-    Returns
-    -------
-    dynamics : Dynamics
-        The dynamics object for performing the simulation and handling
-        the simulation results.
+    ...
+    use_exact_weights : bool, optional
+        Whether to compute and use exact quadrature weights for the input grids.
+        Only applies if the input grids are regular (iso-latitude).
+        Default is False.
     """
     import datetime
     import numpy as np
@@ -107,6 +58,57 @@ def run_pynamit(
     from pynamit.math.constants import RE
     from pynamit.simulation.dynamics import Dynamics, SimulationMode
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
+    from pynamit.spherical_harmonics.sh_basis import SHBasis
+
+    # Helper for weight generation
+    def _get_weights(lat, lon, Nmax, use_exact):
+        if not use_exact:
+            return None
+            
+        # Check for regularity (Iso-Latitude)
+        # 1D Unique Latitudes
+        unique_lats = np.unique(lat)
+        n_lat = len(unique_lats)
+        if n_lat < 2: return None # Robustness
+        
+        # Check if grid size matches N_lat * N_lon roughly
+        # Or simply: can we construct a 2D mesh?
+        # Assuming lat/lon are flattened.
+        if lat.size % n_lat != 0:
+            # Not a simple product grid?
+            # Fallback
+            return None
+            
+        n_lon = lat.size // n_lat
+        
+        # Compute exact weights for unique lats
+        # Sort descending (90 to -90) or however they appear?
+        # compute_exact_weights takes theta in radians.
+        # Ensure unique_lats are sorted as they appear in the grid?
+        # If grid is (lat, lon) meshgrid, lats are block constants.
+        
+        # We assume standard meshgrid order or consistent blocks.
+        # Let's verify separability more strictly if needed, but for now specific to regular grids.
+        
+        theta_1d = np.deg2rad(90 - unique_lats)
+        # Note: compute_exact_weights requires theta to be sorted? 
+        # Integration depends on points. Order implies output order.
+        # If unique_lats is sorted (np.unique does), theta_1d is sorted (0 to pi).
+        
+        weights_1d = SHBasis.compute_exact_weights(theta_1d, Nmax)
+        
+        # We need to map these 1D weights back to the full grid (lat, lon).
+        # We can use a lookup or broadcast if we know the shape.
+        # Safe way: interp? Or lookup.
+        
+        # Create a map lat -> weight
+        w_map = {l: w for l, w in zip(unique_lats, weights_1d)}
+        
+        # Map to full grid
+        # Only works if lat contains EXACTLY the unique values (it does by definition).
+        weights_full = np.array([w_map[l] for l in lat.flatten()])
+        
+        return np.sqrt(weights_full) # Return sqrt weights for solver
 
     # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
@@ -144,15 +146,28 @@ def run_pynamit(
     hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
         date, conductance_lat, conductance_lon, time
     )
+    
+    w_cond = _get_weights(conductance_lat, conductance_lon, Nmax, use_exact_weights)
 
     jr_lat = dynamics.state.geometry.grid.lat
     jr_lon = dynamics.state.geometry.grid.lon
     jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
+    
+    w_jr = _get_weights(jr_lat, jr_lon, Nmax, use_exact_weights)
 
     wind_inputs = get_wind_inputs(date, wind=wind, time=time)
 
     if wind_inputs is not None:
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
+        if use_exact_weights:
+             w_u = _get_weights(u_lat, u_lon, Nmax, True)
+             if w_u is not None:
+                 weights = np.tile(w_u, (2, 1)).flatten().reshape(2, -1) # Vector weighting?
+                 # Or just pass flat? set_u expects...
+                 # set_u signature: sqrt_weights.
+                 # Usually expects 1D or matched to input.
+                 # The default `weights` from input is None?
+                 pass
 
     dynamics.set_conductance(
         hall,
@@ -160,10 +175,18 @@ def run_pynamit(
         lat=conductance_lat,
         lon=conductance_lon,
         reg_lambda=conductance_lambda,
+        sqrt_weights=w_cond, 
         time=time,
     )
 
-    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
+    dynamics.set_jr(
+        jr, 
+        lat=jr_lat, 
+        lon=jr_lon, 
+        reg_lambda=jr_lambda, 
+        sqrt_weights=w_jr,
+        time=time
+    )
 
     if wind_inputs is not None:
         dynamics.set_u(

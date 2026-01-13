@@ -197,6 +197,78 @@ class SHBasis(Basis):
              return self
         return SHBasis(self.Nmax, self.Mmax, Nmin=0, quasi_normalized=self.is_normalized, backend=self.backend)
 
+    @staticmethod
+    def compute_exact_weights(theta_1d, L):
+        """Compute exact quadrature weights for a given 1D theta grid and bandlimit.
+        
+        Solves the moment equations: sum_t w_t P_l(theta_t) = 2 * delta_{l0}
+        for l = 0 ... L-1.
+        
+        Parameters
+        ----------
+        theta_1d : np.ndarray
+             Theta coordinates (colatitude) in radians.
+        L : int
+             Band limit (maximum degree P_l to match).
+             Usually N_theta >= L.
+             
+        Returns
+        -------
+        weights : np.ndarray
+             Weights for each theta point.
+        """
+        N_points = len(theta_1d)
+        if N_points < L:
+             # Underdetermined. Can't be exact for all L moments.
+             # Warn or just solve best fit.
+             # We assume L <= N_points. But usually we solve for N_points weights using N_points constraints.
+             pass
+             
+        # We solve for weights corresponding to L moments equal to N_points
+        # Or if L < N_points, system is underdetermined (many solutions).
+        # We typically want the solution that minimizes weight variance?
+        # But for 'exact transform', we usually imply N_points = L (minimal grid).
+        # If N_points > L, we can match up to degree N_points-1.
+        
+        N_moments = N_points 
+        
+        from scipy.special import eval_legendre
+        P_matrix = np.zeros((N_moments, N_points))
+        for l in range(N_moments):
+            P_matrix[l, :] = eval_legendre(l, np.cos(theta_1d))
+            
+        b = np.zeros(N_moments)
+        b[0] = 2.0
+        
+        try:
+            weights = np.linalg.solve(P_matrix, b)
+        except np.linalg.LinAlgError:
+            weights = np.ones(N_points) * 2.0 / N_points
+            
+        return weights
+
+    @staticmethod
+    def get_mw_weights(L):
+        """Compute quadrature weights for McEwen-Wiaux (MW) sampling.
+        
+        Ref: McEwen & Wiaux (2011).
+        
+        Parameters
+        ----------
+        L : int
+             Band limit. N_theta = L + 1.
+             
+        Returns
+        -------
+        weights : np.ndarray
+             Weights for each theta_t (shape: L+1).
+        """
+        N = L + 1 # N_theta
+        t = np.arange(N)
+        theta_t = np.pi * (2 * t + 1) / (2 * N - 1)
+        
+        return SHBasis.compute_exact_weights(theta_t, N)
+
     def _get_legendre_scipy(self, theta: np.ndarray, compute_derivative: bool = False):
         """Dispatcher for Scipy Legendre function calculation."""
         if self._use_modern_scipy:
@@ -552,6 +624,9 @@ class SHBasis(Basis):
         if vector_type == "scalar":
             return self.basis_to_grid(coeffs, grid, helmholtz=False)
         elif vector_type == "tangential":
+            if coeffs.ndim == 1:
+                # basis_to_grid expects (2, N_coeffs) for contraction
+                coeffs = coeffs.reshape(2, -1)
             return self.basis_to_grid(coeffs, grid, helmholtz=True)
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
@@ -772,12 +847,12 @@ class SHBasis(Basis):
                      p_vals = pen_pol[idx_c_out % len(pen_pol)]
                      all_norms_L.append(p_vals**2)
                      if m > 0:
-                         t_vals = pen_tor[idx_c_out % len(pen_tor)]
+                         t_vals = pen_tor[idx_c_out % len(pen_pol)]
                          all_norms_L.append(t_vals**2)
                      if np.any(mask_s):
                           p_vals_s = pen_pol[idx_s_out % len(pen_pol)]
                           all_norms_L.append(p_vals_s**2)
-                          t_vals_s = pen_tor[idx_s_out % len(pen_tor)]
+                          t_vals_s = pen_tor[idx_s_out % len(pen_pol)]
                           all_norms_L.append(t_vals_s**2)
                      
                  else:

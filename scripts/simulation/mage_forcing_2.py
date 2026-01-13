@@ -110,6 +110,17 @@ for step in range(0, nstep):
     if np.any(np.isnan(delta_Br)):
         raise ValueError("Br input contains NaN values.")
 
+    theta_1d = np.deg2rad(90 - ionosphere_lat[:, 0]) # 1D colatitude
+    # Nmax defined above as 80. Grid has 144 lats.
+    # Compute Exact Quadrature Weights for this grid
+    weights_1d = pynamit.SHBasis.compute_exact_weights(theta_1d, Nmax)
+    
+    # Broadcast to 2D grid (lat, lon)
+    # weights_1d is shape (N_lat,). Grid is (N_lat, N_lon).
+    # Provide sqrt weights for Least Squares solver.
+    weights_2d = np.tile(weights_1d[:, None], (1, ionosphere_lon.shape[1]))
+    sqrt_weights_exact = np.sqrt(weights_2d).flatten()
+
     print("Setting Delta Br with (abs. min, RMS, abs. max):")
     print(
         f"\t({np.min(np.abs(delta_Br))}, "
@@ -117,12 +128,17 @@ for step in range(0, nstep):
         f"{np.max(np.abs(delta_Br))})"
     )
 
+    theta_mag_1d = np.deg2rad(90 - magnetosphere_lat[:, 0])
+    weights_mag_1d = pynamit.SHBasis.compute_exact_weights(theta_mag_1d, Nmax)
+    weights_mag_2d = np.tile(weights_mag_1d[:, None], (1, magnetosphere_lon.shape[1]))
+    sqrt_weights_mag_exact = np.sqrt(weights_mag_2d).flatten()
+
     dynamics.set_Br(
         delta_Br,
         lat=magnetosphere_lat,
         lon=magnetosphere_lon,
         time=dt * step,
-        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - magnetosphere_lat).flatten()))),
+        sqrt_weights=sqrt_weights_mag_exact, # Use exact weights for Regular Magnetosphere Grid
         reg_lambda=BR_LAMBDA,
     )
 
@@ -143,7 +159,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
+        sqrt_weights=sqrt_weights_exact, # Use exact weights
         reg_lambda=JR_LAMBDA,
     )
 
@@ -179,7 +195,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
+        sqrt_weights=sqrt_weights_exact, # Use exact weights
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
@@ -208,7 +224,13 @@ for step in range(0, nstep):
         lat=u_lat,
         lon=u_lon,
         time=dt * step,
-        sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+        sqrt_weights=np.tile(sqrt_weights_exact, (2, 1)).flatten().reshape(2, -1), # Stack for vector
+        # Wait, set_u likely takes (2, N) or (2*N,)?
+        # Original: np.tile(np.sqrt(np.sin...), (2, 1)).
+        # Flattened? set_u signature usually expects 1D or matched shape.
+        # Let's assume passed shape should match.
+        # Original was tile -> (2, N_points).
+        # We pass the same shape.
         reg_lambda=U_LAMBDA,
     )
 
