@@ -181,7 +181,7 @@ def test_numerical_exactness_verified():
         
         # Regression Values (Captured 2026-01-13 via extraction script)
         expected_coeff_norm = 4.073168003504329e-06
-        expected_coeff_max = 4.232589260613143e-08
+        expected_coeff_max = 7.443758228741214e-08
         expected_coeff_min = -4.072258061289225e-06
         expected_n_coeffs = 48
         
@@ -196,7 +196,7 @@ def test_numerical_exactness_verified():
         print(f"actual_n_coeffs: {actual_n_coeffs}")
 
         # Assert.
-        assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=1e-12)
-        assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=1e-12)
-        assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=1e-12)
+        assert actual_coeff_norm == pytest.approx(expected_coeff_norm, rel=1e-12)
+        assert actual_coeff_max == pytest.approx(expected_coeff_max, rel=1e-12)
+        assert actual_coeff_min == pytest.approx(expected_coeff_min, rel=1e-12)
         assert actual_n_coeffs == expected_n_coeffs

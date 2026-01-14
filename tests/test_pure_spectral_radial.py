@@ -51,4 +51,4 @@ def test_pure_spectral_radial(pynamit_approx):
 
 if __name__ == "__main__":
     from pytest import approx
-    test_pure_spectral_radial(pynamit_approx=approx)
+    test_pure_spectral_radial(pynamit_approx=lambda x: approx(x, rel=1e-12))

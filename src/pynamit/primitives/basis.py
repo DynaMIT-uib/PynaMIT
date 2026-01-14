@@ -196,22 +196,37 @@ class Basis(ABC):
         """
         G_grad = self.get_gradient_matrix(grid)
         G_th, G_ph = G_grad[0], G_grad[1]
-        return np.array([-G_ph, G_th])
+        
+        # Option 1: Uniform Potential Convention (-,-)
+        # Poloidal: -Grad V
+        # Toroidal: Curl(Tr) = -r x Grad T
+        # r x Grad = [-G_phi, G_theta] -> -r x Grad = [G_phi, -G_theta]
+        return np.array([G_ph, -G_th])
 
     def get_vector_basis_matrix(self, grid: Any) -> Any:
         """Get vector basis evaluation matrix (Helmholtz decomposition).
         
         Maps [Poloidal_Coeffs; Toroidal_Coeffs] -> [Vector_Theta; Vector_Phi].
         
+        Definition (Uniform Potential Convention):
+        Poloidal: -Grad P
+        Toroidal: Curl(T r) = -r x Grad T
+        
         Returns
         -------
         matrix : array-like
              Shape (2, N_grid, 2*N_coeffs) or similar.
         """
-        # Default: Stack [-Grad, Curl]
+        # Default: Stack [-Grad, Curl(T r)]
+        # get_gradient_matrix returns Grad.
+        # get_curl_matrix now returns Curl(T r) = -r x Grad.
         G_grad = self.get_gradient_matrix(grid)
-        G_rxgrad = self.get_curl_matrix(grid)
-        return np.stack([-G_grad, G_rxgrad], axis=2)
+        G_curl_Tr = self.get_curl_matrix(grid)
+        
+        # Poloidal = -Grad
+        G_pol = -G_grad
+        
+        return np.stack([G_pol, G_curl_Tr], axis=2)
 
     def get_scaled_matrix(self, grid: Any, factor: Any) -> Any:
         """Get evaluation matrix scaled by a factor (row or column).

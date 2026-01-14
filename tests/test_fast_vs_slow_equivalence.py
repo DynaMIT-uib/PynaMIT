@@ -5,6 +5,8 @@ from pynamit.primitives.grid import Grid
 
 @pytest.mark.parametrize("N, M", [(5, 5), (10, 5), (15, 0)])
 def test_fast_vs_slow_equivalence_scalar(N, M):
+    import pynamit
+    print(f"DEBUG: PynaMIT Path: {pynamit.__file__}")
     """
     Verify Fast vs Slow Equivalence for Scalar Fields.
     Expect Bit-Exact Identity for reg_lambda=0.
@@ -38,7 +40,7 @@ def test_fast_vs_slow_equivalence_scalar(N, M):
     print(f"Scalar N={N} M={M} Rel: {rel_err}")
     
     # Scalar should be perfect
-    assert rel_err < 1e-10, f"Scalar Identity Failed: {rel_err}"
+    assert rel_err < 1e-13, f"Scalar Identity Failed: {rel_err}"
 
 @pytest.mark.parametrize("N, M", [(1, 1), (5, 5), (10, 5)])
 def test_fast_vs_slow_equivalence_vector(N, M):
@@ -97,15 +99,8 @@ def test_fast_vs_slow_equivalence_vector(N, M):
         print("Ratios (Slow/Fast) first 10:")
         print(ratio[:10])
     
-    # Zonal should be perfect. Coupled has scaling approximation that drifts for high N.
-    if M == 0:
-        assert rel_err < 1e-10, f"Zonal Vector Identity Failed: {rel_err}"
-    elif N == 1:
-        # N=1 should be close (< 1%)
-        assert rel_err < 0.05, f"Coupled Vector Identity Failed at N=1: {rel_err}"
-    else:
-        # For N > 1, scaling drift is known. Log but do not fail.
-        if rel_err > 0.1:
-            pytest.xfail(f"Known scaling drift for High N Coupled Vector: {rel_err}")
-        else:
-            assert rel_err < 0.1, f"Coupled Vector Identity Failed: {rel_err}"
+    # Exactness Requirement
+    # After removing empirical scalings and unifying signs, the Fast Path and 
+    # Slow Path (Gaunt) should match to precision (< 1e-10) for all modes.
+    
+    assert rel_err < 1e-13, f"Vector Identity Failed: {rel_err}"

@@ -967,16 +967,15 @@ class SHBasis(Basis):
                     d_ph = fft_ph[:, 0].real
                     
                     n_vals = self.cnm.n.flatten()[idx_c_out]
-                    scale_vec = 1.0 # Reset to 1.0 based on diagnostic
-                    Gp = G_th[:, idx_c_out] * scale_vec # Scaled derivative
+                    Gp = G_th[:, idx_c_out] # Scaled derivative
                     
                     # Poloidal Solve: u_theta = -P' -> Target = -Gp
                     idx_pol = idx_c_out
                     self._solve_stacked(-Gp, d_th, coeffs, idx_pol, W_diag, reg_lambda, reg_L, (idx_pol, []), scale_A_global, scale_L_global)
                     
-                    # Toroidal Solve: u_phi = P' -> Target = Gp
+                    # Toroidal Solve: u_phi = P' -> Target = -Gp (Uniform CCW)
                     idx_tor = idx_c_out + self.index_length
-                    self._solve_stacked(Gp, d_ph, coeffs, idx_tor, W_diag, reg_lambda, reg_L, ([], idx_tor), scale_A_global, scale_L_global)
+                    self._solve_stacked(-Gp, d_ph, coeffs, idx_tor, W_diag, reg_lambda, reg_L, ([], idx_tor), scale_A_global, scale_L_global)
                     
                 else:
                     # Coupled Logic (m > 0)
@@ -991,27 +990,24 @@ class SHBasis(Basis):
                     # A_vec = [[-G_th*cos, -G_ph*sin], [-G_ph*cos, G_th*sin]]
                     
                     n_vals = self.cnm.n.flatten()[idx_c_out]
-                    scale_vec = 1.0 
-                    
-                    Gp = G_th[:, idx_c_out] * scale_vec
+                    Gp = G_th[:, idx_c_out]
                     # G_ph at phi=0 is zero for Cosine terms (dY_c/dphi ~ sin(0)=0).
                     # We need the magnitude, which is stored in Sine terms (dY_s/dphi ~ cos(0)=1).
-                    G_ang = G_ph[:, idx_s_out] * scale_vec
+                    G_ang = G_ph[:, idx_s_out]
                     
                     # Toroidal Scaling & Phase
-                    # TS = -1.0 (Global Legacy Toroidal Flip verified).
-                    TS = -1.0
+                    # Uniform Potential Convention (CCW): Matches Electric Potential.
                     
                     # Weights (applied to rows)
                     W_block = np.concatenate([W_diag, W_diag]) if W_diag is not None else None
 
                     # Block 1 (u_th_c, u_ph_s) -> (P_c, T_s)
-                    # Pol Cos -> u_phi (Sine): -1/sin d/dphi(P cos) = +m P/sin sin = +Gang. (Positive)
-                    # Tor Sin -> u_th (Cos):  -1/sin d/dphi(T sin) = -m T/sin cos = -Gang. (Matches TS=-1).
+                    # Pol Cos -> u_phi (Sine): -1/sin d/dphi(P cos) = +m P/sin sin = +Gang.
+                    # Tor Sin -> u_th (Cos):  -1/sin d/dphi(T sin) = -m T/sin cos = -Gang.
                     A_11 = -Gp      
-                    A_12 = G_ang * TS    
-                    A_21 = G_ang          # CORRECTED: Positive G_ang
-                    A_22 = -Gp * TS      
+                    A_12 = G_ang
+                    A_21 = G_ang
+                    A_22 = -Gp
                     
                     A_block1 = np.block([[A_11, A_12], [A_21, A_22]])
                     
@@ -1028,12 +1024,12 @@ class SHBasis(Basis):
                     if has_sine:
                         b2 = np.concatenate([t_th_s, t_ph_c])
                         
-                        # Pol Sin -> u_phi (Cos): -1/sin d/dphi(P sin) = -m P/sin cos = -Gang. (Negative)
-                        # Tor Cos -> u_th (Sin):  -1/sin d/dphi(T cos) = +m T/sin sin = +Gang. (Matches TS=-1 -> -(-1)=+1).
+                        # Pol Sin -> u_phi (Cos): -1/sin d/dphi(P sin) = -m P/sin cos = -Gang.
+                        # Tor Cos -> u_th (Sin):  -1/sin d/dphi(T cos) = +m T/sin sin = +Gang.
                         A_11 = -Gp      
-                        A_12 = -G_ang * TS   
-                        A_21 = -G_ang         # Correct: Negative G_ang
-                        A_22 = -Gp * TS      
+                        A_12 = -G_ang
+                        A_21 = -G_ang
+                        A_22 = -Gp
                         
                         A_block2 = np.block([[A_11, A_12], [A_21, A_22]])
                         
@@ -1376,8 +1372,8 @@ class SHBasis(Basis):
         G_ph = G_ph.toarray() if scipy.sparse.issparse(G_ph) else G_ph
         G_grad = np.array([G_th, G_ph])
         
-        # G_rxgrad = [-G_ph, G_th]
-        G_rxgrad = np.array([-G_ph, G_th])
+        # G_rxgrad = [G_ph, -G_th] (Uniform Potential Convention: -r x Grad)
+        G_rxgrad = np.array([G_ph, -G_th])
         
         G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
 

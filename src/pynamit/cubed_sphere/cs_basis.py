@@ -687,9 +687,9 @@ class CSBasis(GridBasis):
 
         # Build forward Helmholtz mapping: coeffs -> grid vectors
         # G_grad maps scalar potential to E-field components: E = -grad(phi)
-        # G_rxgrad maps stream function to E-field: E = R x grad(psi)
+        # G_rxgrad maps toroidal potential T to E-field: E = -r x grad(T) (Uniform Potential)
         G_grad = np.array([G_th, G_ph])           # (2, N_grid, N_coeffs)
-        G_rxgrad = np.array([-G_ph, G_th])        # (2, N_grid, N_coeffs)
+        G_rxgrad = np.array([G_ph, -G_th])        # (2, N_grid, N_coeffs)
 
         # G_helmholtz: (2, N_grid, 2, N_coeffs)
         # First index: vector component (theta, phi)

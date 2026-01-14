@@ -243,6 +243,15 @@ class GauntEngine:
         M_TT = 0.5 * (M_pp + M_mm + M_pm + M_mp)
         M_PT = -0.5j * (M_pp - M_mm + M_pm - M_mp)
         M_TP = 0.5j * (M_pp - M_mm - M_pm + M_mp)
+
+        # Uniform Potential Convention (CCW Toroidal): T = -r x Grad
+        # Gaunt Engine native integrals assume Standard (T = +r x Grad).
+        # Therefore, cross-terms involving ONE Toroidal component must be negated.
+        M_PT = -M_PT
+        M_TP = -M_TP
+        
+        # Mapping to Basis Layout
+        M = np.zeros((2*self.index_length, 2*self.index_length), dtype=np.complex128)
         
         M_tot = np.block([[M_PP, M_PT], [M_TP, M_TT]])
         

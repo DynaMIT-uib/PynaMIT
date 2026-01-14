@@ -328,12 +328,15 @@ class Geometry:
         n_sh = G_th.shape[1]
 
         # Build Helmholtz basis vectors:
-        # -grad(Y) for poloidal potential Φ
-        # r×grad(Y) for toroidal potential Ψ
+        # -grad(Y) for poloidal potential V
+        # -r×grad(T) for toroidal potential T (Uniform Potential Convention)
         G_grad = np.array([G_th, G_ph])        # (2, N_grid, N_sh)
-        G_rxgrad = np.array([-G_ph, G_th])     # (2, N_grid, N_sh)
+        # Old: G_rxgrad = np.array([-G_ph, G_th])
+        # New: -r x Grad = [G_ph, -G_th]
+        G_rxgrad = np.array([G_ph, -G_th])     # (2, N_grid, N_sh)
 
         # G_helmholtz: (vec_comp, grid_pt, pot_type, sh_idx)
+        # Stack [-G_grad, G_rxgrad] -> [-G_th, G_ph], [G_ph, -G_th]
         G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
 
         # Flatten to 2D: (2*N_grid, 2*N_sh)

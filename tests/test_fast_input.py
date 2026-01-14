@@ -221,24 +221,10 @@ def test_fast_input_vector_coupled(setup_manager):
     
     # 2. Add Toroidal Contribution (C_21^c = 0.5) to mix things up
     # Toroidal field from same harmonic (Cosine 2,1)
-    # Legacy Definition: u = r x Grad T.
-    # u_theta = (r x Grad T)_theta = -1/sin dT/dphi.
-    # u_phi   = (r x Grad T)_phi   = +dT/dtheta.
-    
-    # dT/dphi   = m * (-sin phi) * P_nm = -m P sin = -1 (coeff) * G_ph_magnitude?
-    # G_ph from get_evaluation_matrix is 1/sin dY/dphi.
-    
-    # Actually simpler: Use basis.get_curl_matrix structure.
-    # Curl Matrix (Legacy) returns [-G_ph, G_th].
-    # Row 1 (Theta): -G_ph.
-    # Row 2 (Phi):   +G_th.
-    
-    # So to inject +0.5 Toroidal Coeff using Legacy Basis:
-    # u_theta += -G_ph * 0.5
     # u_phi   += +G_th * 0.5
     
-    u_th_flat += -G_ph[:, idx_21] * 0.5
-    u_ph_flat += G_th[:, idx_21] * 0.5
+    u_th_flat += G_ph[:, idx_21] * 0.5
+    u_ph_flat -= G_th[:, idx_21] * 0.5
     
     input_data = {'u': [(u_th_flat, u_ph_flat)]}
     
