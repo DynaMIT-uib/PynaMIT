@@ -251,7 +251,7 @@ class GauntEngine:
         M_TP = -M_TP
         
         # Mapping to Basis Layout
-        M = np.zeros((2*self.index_length, 2*self.index_length), dtype=np.complex128)
+        M = np.zeros((2*self.basis.index_length, 2*self.basis.index_length), dtype=np.complex128)
         
         M_tot = np.block([[M_PP, M_PT], [M_TP, M_TT]])
         
