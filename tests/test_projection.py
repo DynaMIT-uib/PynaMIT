@@ -13,7 +13,7 @@ from pynamit.cubed_sphere import cs_basis
 from pynamit.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
 from importlib import reload
 import cartopy.crs as ccrs
-from pynamit.math import cs_math
+from pynamit.cubed_sphere import cs_math
 
 reload(cs_basis)
 

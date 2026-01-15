@@ -15,7 +15,7 @@ import numpy as np
 from scipy.interpolate import griddata, LinearNDInterpolator
 from scipy.spatial import QhullError, Delaunay
 
-from pynamit.math import cs_math
+from pynamit.cubed_sphere import cs_math
 from pynamit.math import arrayutils
 
 

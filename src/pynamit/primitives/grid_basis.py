@@ -5,7 +5,7 @@ from typing import Any, Tuple, TYPE_CHECKING, Optional
 from abc import ABC
 import numpy as np
 from pynamit.math import arrayutils
-from pynamit.math import cs_math
+from pynamit.cubed_sphere import cs_math
 from pynamit.primitives.basis import Basis
 from pynamit.interpolation import create_interpolator
 

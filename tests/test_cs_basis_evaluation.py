@@ -4,7 +4,7 @@ import pytest
 import scipy
 import scipy.sparse
 from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.math import cs_math
+from pynamit.cubed_sphere import cs_math
 
 def test_cs_basis_differentiation():
     """Test that CSBasis can differentiate a field."""

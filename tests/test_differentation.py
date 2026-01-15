@@ -6,7 +6,7 @@ import numpy as np
 from ppigrf.ppigrf import igrf_gc, igrf_V
 import datetime
 from pynamit.cubed_sphere import cs_basis, diffutils
-from pynamit.math import cs_math
+from pynamit.cubed_sphere import cs_math
 from functools import reduce
 import pytest
 

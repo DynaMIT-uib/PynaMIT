@@ -16,7 +16,7 @@ from scipy.sparse import coo_matrix
 
 from pynamit.cubed_sphere import diffutils
 from pynamit.math import arrayutils
-from pynamit.math import cs_math
+from pynamit.cubed_sphere import cs_math
 from pynamit.primitives.grid_basis import GridBasis
 from pynamit.primitives.grid import Grid
 from pynamit.interpolation import create_interpolator
