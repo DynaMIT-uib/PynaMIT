@@ -19,7 +19,7 @@ from pynamit.math import arrayutils
 from pynamit.cubed_sphere import cs_math
 from pynamit.primitives.grid_basis import GridBasis
 from pynamit.primitives.grid import Grid
-from pynamit.interpolation import create_interpolator
+from pynamit.primitives.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.cubed_sphere.grid import CubedSphereGrid
@@ -62,7 +62,7 @@ class CSBasis(GridBasis):
         self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
 
         # Initialize optimized interpolator
-        from pynamit.interpolation import CSInterpolator
+        from pynamit.primitives.interpolation import CSInterpolator
 
         self._interpolator = CSInterpolator(N)
 

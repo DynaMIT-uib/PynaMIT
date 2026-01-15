@@ -7,7 +7,7 @@ import numpy as np
 from pynamit.math import arrayutils
 from pynamit.cubed_sphere import cs_math
 from pynamit.primitives.basis import Basis
-from pynamit.interpolation import create_interpolator
+from pynamit.primitives.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import Grid

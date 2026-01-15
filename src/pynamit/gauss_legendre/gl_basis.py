@@ -252,7 +252,7 @@ class GLBasis(GridBasis):
         coeffs : ndarray
             Coefficients in target_basis.
         """
-        from pynamit.interpolation import create_interpolator
+        from pynamit.primitives.interpolation import create_interpolator
 
         if target_grid is None:
             raise ValueError("target_grid must be provided")

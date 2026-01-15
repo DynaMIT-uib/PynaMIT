@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from pynamit.math.least_squares_problem import LeastSquaresProblem
 
 
-from pynamit.interpolation import create_interpolator
+from pynamit.primitives.interpolation import create_interpolator
 
 
 class _FieldImpl(ABC):
