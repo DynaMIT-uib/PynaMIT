@@ -4,13 +4,12 @@ from __future__ import annotations
 from typing import Any, Tuple, TYPE_CHECKING, Optional
 from abc import ABC
 import numpy as np
-from pynamit.math import arrayutils
 from pynamit.cubed_sphere import cs_math
 from pynamit.primitives.basis import Basis
-from pynamit.primitives.interpolation import create_interpolator
+from pynamit.primitives.grid.interpolation import create_interpolator
 
 if TYPE_CHECKING:
-    from pynamit.primitives.grid import Grid
+    from pynamit.primitives.grid.coordinates import Grid
     from pynamit.math.linear_map import LinearMap
 
 

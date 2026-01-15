@@ -1,8 +1,10 @@
-"""Array utilities.
+"""Generic grid utilities.
 
-This module contains utility functions for performing array operations
-such as computing determinants and inverses of 3D matrices, as well as
-constraining array values within specified bounds.
+This module contains utility functions for grid-related operations
+such as computing determinants and inverses of 3D Jacobian matrices,
+and constraining array values within specified bounds.
+
+These are generic routines that don't depend on any specific grid type.
 """
 
 import numpy as np

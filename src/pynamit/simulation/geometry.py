@@ -8,7 +8,7 @@ mappings.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
@@ -25,10 +25,9 @@ from pynamit.spherical_harmonics.gaunt import GauntEngine
 from pynamit.simulation.geometry_utils import to_dense, get_radial_shift_diagonal
 from pynamit.simulation.pfac import PFACIntegrator
 from pynamit.simulation.constraints import ApexMapper
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pynamit.primitives.grid_basis import GridBasis
+    from pynamit.primitives.grid import GridBasis
     from pynamit.simulation.dynamics import SimulationMode
 
 

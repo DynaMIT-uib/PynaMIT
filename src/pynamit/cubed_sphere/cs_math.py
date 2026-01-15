@@ -7,7 +7,8 @@ dependencies.
 """
 
 import numpy as np
-from pynamit.math import arrayutils
+
+from pynamit.primitives.grid.grid_utils import invert_3D_matrices
 
 
 def block(lon, lat):
@@ -203,7 +204,7 @@ def get_Pc(xi, eta, r=1, block=0, inverse=False):
     Pc[iii, 2, 2] = -1 / np.sqrt(delta[iii])
 
     if inverse:
-        return arrayutils.invert_3D_matrices(Pc)
+        return invert_3D_matrices(Pc)
     return Pc
 
 
@@ -260,7 +261,7 @@ def get_Ps(xi, eta, r=1, block=0, inverse=False):
         Ps[iii, 2, 2] = 1
 
     if inverse:
-        return arrayutils.invert_3D_matrices(Ps)
+        return invert_3D_matrices(Ps)
     return Ps
 
 
@@ -280,7 +281,7 @@ def get_Q(lat, r, inverse=False):
     Q[:, 1, 1] = r
     Q[:, 2, 2] = 1
     if inverse:
-        return arrayutils.invert_3D_matrices(Q)
+        return invert_3D_matrices(Q)
     return Q
 
 
@@ -291,7 +292,7 @@ def get_metric_tensor(xi, eta, r=1, block=0, covariant=True):
         Pc = get_Pc(xi, eta, r=1.0, block=block)
         # g^ij = sum_k (dxi^i/dX^k) (dxi^j/dX^k)
         g_inv_1 = np.einsum("nik, njk -> nij", Pc, Pc)
-        g_cov_1 = arrayutils.invert_3D_matrices(g_inv_1)
+        g_cov_1 = invert_3D_matrices(g_inv_1)
         
         # Scale by r^2
         r = np.array(r)

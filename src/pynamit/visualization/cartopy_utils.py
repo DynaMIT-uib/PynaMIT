@@ -1,9 +1,7 @@
-"""Test Utilities for Cubed Sphere Calculations.
+"""Cartopy Visualization Utilities.
 
-This module contains helper functions for testing and validating
-components of the cubed sphere implementation, including coordinate
-projection adjustments for visualizations using Plate Carree
-projections.
+This module contains helper functions for Cartopy-based visualizations,
+including coordinate projection adjustments for plotting vector fields.
 """
 
 import numpy as np

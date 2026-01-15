@@ -12,8 +12,7 @@ from typing import TYPE_CHECKING, Optional, Any
 
 import numpy as np
 
-from pynamit.primitives.grid import Grid
-from pynamit.primitives.grid_basis import GridBasis
+from pynamit.primitives.grid import Grid, GridBasis
 
 if TYPE_CHECKING:
     from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -252,7 +251,7 @@ class GLBasis(GridBasis):
         coeffs : ndarray
             Coefficients in target_basis.
         """
-        from pynamit.primitives.interpolation import create_interpolator
+        from pynamit.primitives.grid.interpolation import create_interpolator
 
         if target_grid is None:
             raise ValueError("target_grid must be provided")

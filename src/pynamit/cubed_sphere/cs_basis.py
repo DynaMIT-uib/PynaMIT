@@ -15,11 +15,9 @@ from scipy.special import binom
 from scipy.sparse import coo_matrix
 
 from pynamit.cubed_sphere import diffutils
-from pynamit.math import arrayutils
 from pynamit.cubed_sphere import cs_math
-from pynamit.primitives.grid_basis import GridBasis
-from pynamit.primitives.grid import Grid
-from pynamit.primitives.interpolation import create_interpolator
+from pynamit.primitives.grid import Grid, GridBasis, create_interpolator
+from pynamit.primitives.grid.grid_utils import get_3D_determinants, constrain_values
 
 if TYPE_CHECKING:
     from pynamit.cubed_sphere.grid import CubedSphereGrid
@@ -62,7 +60,7 @@ class CSBasis(GridBasis):
         self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
 
         # Initialize optimized interpolator
-        from pynamit.primitives.interpolation import CSInterpolator
+        from pynamit.primitives.grid.interpolation import CSInterpolator
 
         self._interpolator = CSInterpolator(N)
 
@@ -120,7 +118,7 @@ class CSBasis(GridBasis):
     @functools.cached_property
     def sqrt_detg(self) -> np.ndarray:
         """Square root of determinant of the metric tensor."""
-        return np.sqrt(arrayutils.get_3D_determinants(self.g))
+        return np.sqrt(get_3D_determinants(self.g))
 
     @functools.cached_property
     def unit_area(self) -> np.ndarray:
@@ -237,10 +235,10 @@ class CSBasis(GridBasis):
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
         interpolation_points = np.arange(Ni).reshape((1, -1))
-        j_interpolation_points = arrayutils.constrain_values(
+        j_interpolation_points = constrain_values(
             interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
         )
-        i_interpolation_points = arrayutils.constrain_values(
+        i_interpolation_points = constrain_values(
             interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
         )
 

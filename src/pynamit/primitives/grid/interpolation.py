@@ -16,7 +16,7 @@ from scipy.interpolate import griddata, LinearNDInterpolator
 from scipy.spatial import QhullError, Delaunay
 
 from pynamit.cubed_sphere import cs_math
-from pynamit.math import arrayutils
+from pynamit.primitives.grid.grid_utils import get_3D_determinants
 
 
 class Interpolator(ABC):
@@ -378,7 +378,7 @@ class UnstructuredInterpolator(Interpolator):
             Ps_check = cs_math.get_Ps(
                 u_xi[candidates_idx], u_eta[candidates_idx], r=1, block=u_block[candidates_idx]
             )
-            det_Ps = arrayutils.get_3D_determinants(Ps_check)
+            det_Ps = get_3D_determinants(Ps_check)
             valid_candidates = ~np.isclose(det_Ps, 0, atol=1e-8)
             valid_idx = candidates_idx[valid_candidates]
         else:

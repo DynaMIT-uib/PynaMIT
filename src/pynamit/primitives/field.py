@@ -12,12 +12,10 @@ import numpy as np
 
 # Imports
 from pynamit.primitives.grid import Grid
+from pynamit.primitives.grid.interpolation import create_interpolator
 
 if TYPE_CHECKING:
     from pynamit.math.least_squares_problem import LeastSquaresProblem
-
-
-from pynamit.primitives.interpolation import create_interpolator
 
 
 class _FieldImpl(ABC):
