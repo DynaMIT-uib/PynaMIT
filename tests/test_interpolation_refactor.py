@@ -1,8 +1,6 @@
 import numpy as np
 from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.primitives.grid_basis import GridBasis
-from pynamit.primitives.grid import Grid
-from pynamit.primitives.interpolation import CSInterpolator, UnstructuredInterpolator
+from pynamit.primitives.grid import Grid, GridBasis, CSInterpolator, UnstructuredInterpolator
 
 
 def test_interpolation_identity():
