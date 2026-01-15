@@ -27,63 +27,6 @@ from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 logger = logging.getLogger(__name__)
 
 
-class _ResistanceOperator:
-    """Helper for block-diagonal resistance operator application.
-    
-    Wraps M_total_on_grid (2, 2, N) and behaves as a linear operator
-    on flattened vectors (2*N).
-    """
-    def __init__(self, M: np.ndarray):
-        self.M = asarray(M)
-        self.n = M.shape[2]
-        self.shape = (2 * self.n, 2 * self.n)
-        self.dtype = M.dtype
-
-    def matvec(self, x: Any) -> Any:
-        # x is flat (2*N). Reshape to (2, N)
-        x_reshaped = asarray(x).reshape(2, self.n)
-        # M is (2, 2, N). x is (2, N).
-        # y_0 = M_00 * x_0 + M_01 * x_1
-        # y_1 = M_10 * x_0 + M_11 * x_1
-        # Einsum: ijk, jk -> ik
-        y = xp.einsum("ijk,jk->ik", self.M, x_reshaped)
-        return y.reshape(-1)
-
-    def rmatvec(self, y: Any) -> Any:
-        y_reshaped = asarray(y).reshape(2, self.n)
-        # Transpose M in first two dims for adjoint
-        # MT_ijk = M_jik
-        # Einsum: jik, jk -> ik
-        res = xp.einsum("jik,jk->ik", self.M, y_reshaped)
-        return res.reshape(-1)
-        
-    def matmat(self, X: Any) -> Any:
-        # X is (2*N, Cols)
-        cols = X.shape[1]
-        X_reshaped = asarray(X).reshape(2, self.n, cols)
-        # Einsum: ijk, jkl -> ikl
-        res = xp.einsum("ijk,jkl->ikl", self.M, X_reshaped)
-        return res.reshape(2 * self.n, cols)
-
-    def rmatmat(self, Y: Any) -> Any:
-        cols = Y.shape[1]
-        Y_reshaped = asarray(Y).reshape(2, self.n, cols)
-        res = xp.einsum("jik,jkl->ikl", self.M, Y_reshaped)
-        return res.reshape(2 * self.n, cols)
-        
-    def to_dense(self) -> np.ndarray:
-        # M is (2, 2, N). We construct the (2N, 2N) block matrix.
-        # Structure:
-        # [ diag(M_00)  diag(M_01) ]
-        # [ diag(M_10)  diag(M_11) ]
-        M_np = to_numpy(self.M)
-        d00 = np.diag(M_np[0, 0])
-        d01 = np.diag(M_np[0, 1])
-        d10 = np.diag(M_np[1, 0])
-        d11 = np.diag(M_np[1, 1])
-        return np.block([[d00, d01], [d10, d11]])
-
-
 class State:
     """Manages the ionospheric electrodynamic state.
 

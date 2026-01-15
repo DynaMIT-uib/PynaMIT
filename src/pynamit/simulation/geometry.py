@@ -165,8 +165,42 @@ class Geometry:
         res = xp.tensordot(G_quad, coeffs, axes=([1], [0]))
         return xp.moveaxis(res, 0, -1)
 
-    def get_E_vsh_operator(self, potential_type: str) -> "LinearMap":
-        """Get operator mapping potential coefficients to VSH E-field coefficients."""
+    def get_potential_to_E_operator(
+        self,
+        potential_type: str,
+        mode: Optional[Any] = None
+    ) -> "LinearMap":
+        """Get operator mapping potential coefficients to E-field representation.
+
+        This method provides a unified interface for potential-to-E-field operators
+        across different simulation modes.
+
+        Parameters
+        ----------
+        potential_type : str
+            Type of potential: "m_imp", "m_ind", or "Br".
+        mode : SimulationMode, optional
+            Simulation mode. If None or PURE_SPECTRAL, returns VSH representation.
+            For other modes, returns grid-based operator.
+
+        Returns
+        -------
+        LinearMap
+            For spectral mode: Operator mapping potential coeffs to VSH E-field coeffs.
+            For grid mode: Operator mapping potential coeffs to E-field on grid.
+        """
+        from pynamit.simulation.dynamics import SimulationMode
+
+        # Determine if we should use spectral (VSH) or grid representation
+        use_spectral = (mode is None or mode == SimulationMode.PURE_SPECTRAL)
+
+        if use_spectral:
+            return self._get_E_operator_spectral(potential_type)
+        else:
+            return self._get_E_operator_grid(potential_type)
+
+    def _get_E_operator_spectral(self, potential_type: str) -> "LinearMap":
+        """Get spectral (VSH) E-field operator for given potential type."""
         L = self.solution_basis.index_length
 
         if potential_type == "m_imp":
@@ -200,6 +234,13 @@ class Geometry:
 
         raise ValueError(f"Unknown potential_type: {potential_type}")
 
+    def _get_E_operator_grid(self, potential_type: str) -> Optional["LinearMap"]:
+        """Get grid-based E-field operator for given potential type."""
+        G_grid = getattr(self, f"G_{potential_type}_to_JS", None)
+        if G_grid is None:
+            return None
+        return as_linear_map(G_grid.reshape(-1, G_grid.shape[-1]))
+
     def get_conductivity_operator(
         self,
         mode: Any,
@@ -210,86 +251,121 @@ class Geometry:
     ) -> "LinearMap":
         """Construct a unified conductivity operator (Potential -> JS_coeffs).
 
-        This operator relates potential (current) to JS_coeffs (electric field).
-        It internally uses the resistivity tensor (eta).
+        This operator maps potential coefficients to sheet current coefficients,
+        incorporating the resistivity tensor (η) which relates E-field to current.
+
+        Parameters
+        ----------
+        mode : SimulationMode
+            The simulation mode (PURE_SPECTRAL or grid-based).
+        potential_type : str
+            Type of potential: "m_imp", "m_ind", or "Br".
+        eta_grid : np.ndarray
+            Resistivity tensor on the grid, shape (2, 2, N).
+        etaP : Field, optional
+            Pedersen resistivity as spectral field (for analytic path).
+        etaH : Field, optional
+            Hall resistivity as spectral field (for analytic path).
+
+        Returns
+        -------
+        LinearMap
+            Operator mapping potential coefficients to JS coefficients.
         """
         from pynamit.simulation.dynamics import SimulationMode
         from pynamit.utils import to_numpy
 
         if mode == SimulationMode.PURE_SPECTRAL:
-            # Galerkin Path: Exact spectral interaction
-            op_E_vsh = self.get_E_vsh_operator(potential_type)
-
-            # Prefer Analytic VSH Coupling if analytic fields available
-            use_isotropic_analytic = (
-                etaP is not None and etaH is not None and
-                getattr(self.mainfield, "kind", "dipole") == "radial"
+            return self._get_conductivity_operator_spectral(
+                potential_type, eta_grid, etaP, etaH
             )
-
-            M_vsh = None
-
-            if use_isotropic_analytic:
-                try:
-                    logger.info("Building Analytic Interaction Matrix (Isotropic/Radial)...")
-                    engine = GauntEngine(self.solution_basis)
-                    M_vsh = engine.get_isotropic_interaction_matrix(etaP.coeffs, etaH.coeffs)
-                except Exception as e:
-                    logger.warning(f"Isotropic Analytic construction failed ({e}).")
-
-            if M_vsh is None:
-                # General Analytic Tensor Path
-                use_experimental_analytic = True
-
-                if use_experimental_analytic:
-                    try:
-                        logger.info("Building General Analytic Interaction Matrix (Anisotropic Tensor)...")
-                        eta_quad = self._synthesize_to_gaunt(eta_grid)
-
-                        eta_tt = eta_quad[0, 0]
-                        eta_tp = eta_quad[0, 1]
-                        eta_pt = eta_quad[1, 0]
-                        eta_pp = eta_quad[1, 1]
-
-                        engine = GauntEngine(self.solution_basis)
-                        M_vsh = engine.get_interaction_matrix_from_real_grid(
-                            eta_tt, eta_pp, eta_tp, eta_pt
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"General Analytic construction failed ({e}), falling back to Quadrature."
-                        )
-
-            if M_vsh is None:
-                # Standard Quadrature Path (Legacy / Robust Fallback)
-                eta_quad = self._synthesize_to_gaunt(eta_grid)
-                engine = GauntEngine(self.solution_basis)
-                M_vsh = engine.get_vector_interaction_matrix(to_numpy(eta_quad))
-
-            return as_linear_map(M_vsh) @ op_E_vsh
         else:
-            # Transform Path: P @ eta @ G
-            G_grid = getattr(self, f"G_{potential_type}_to_JS", None)
-            if G_grid is None:
-                return None
+            return self._get_conductivity_operator_grid(potential_type, eta_grid)
 
-            from pynamit.simulation.state import _ResistanceOperator
-            from pynamit.math.linear_map import LinearMap
+    def _get_conductivity_operator_spectral(
+        self,
+        potential_type: str,
+        eta_grid: np.ndarray,
+        etaP: Optional[Any] = None,
+        etaH: Optional[Any] = None
+    ) -> "LinearMap":
+        """Build spectral (Galerkin) conductivity operator."""
+        from pynamit.utils import to_numpy
 
-            res_op = _ResistanceOperator(eta_grid)
-            op_M = LinearMap(
-                shape=res_op.shape,
-                dtype=res_op.dtype,
-                _matvec=res_op.matvec,
-                _rmatvec=res_op.rmatvec,
-                _matmat=res_op.matmat,
-                _rmatmat=res_op.rmatmat,
-                _to_dense=res_op.to_dense,
-                source=res_op
+        # Get potential-to-E operator in VSH representation
+        op_E = self.get_potential_to_E_operator(potential_type, mode=None)
+
+        # Build resistivity interaction matrix in VSH space
+        M_vsh = self._build_resistivity_interaction_matrix(eta_grid, etaP, etaH)
+
+        return as_linear_map(M_vsh) @ op_E
+
+    def _get_conductivity_operator_grid(
+        self,
+        potential_type: str,
+        eta_grid: np.ndarray
+    ) -> Optional["LinearMap"]:
+        """Build grid-based (transform) conductivity operator."""
+        from pynamit.simulation.operators import ResistivityTensorOperator
+
+        # Get potential-to-E operator (grid representation)
+        op_E = self._get_E_operator_grid(potential_type)
+        if op_E is None:
+            return None
+
+        # Apply resistivity tensor and project back to coefficients
+        op_eta = ResistivityTensorOperator(eta_grid).to_linear_map()
+        op_P = as_linear_map(self.projection_matrix)
+
+        return op_P @ op_eta @ op_E
+
+    def _build_resistivity_interaction_matrix(
+        self,
+        eta_grid: np.ndarray,
+        etaP: Optional[Any] = None,
+        etaH: Optional[Any] = None
+    ) -> np.ndarray:
+        """Build resistivity interaction matrix in VSH space.
+
+        Tries multiple approaches in order of preference:
+        1. Isotropic analytic (for radial mainfield with spectral resistivity)
+        2. General analytic tensor (anisotropic via Gaunt integrals)
+        3. Quadrature fallback (robust numerical integration)
+        """
+        from pynamit.utils import to_numpy
+
+        # Try isotropic analytic path
+        use_isotropic = (
+            etaP is not None and etaH is not None and
+            getattr(self.mainfield, "kind", "dipole") == "radial"
+        )
+
+        if use_isotropic:
+            try:
+                logger.info("Building Analytic Interaction Matrix (Isotropic/Radial)...")
+                engine = GauntEngine(self.solution_basis)
+                return engine.get_isotropic_interaction_matrix(etaP.coeffs, etaH.coeffs)
+            except Exception as e:
+                logger.warning(f"Isotropic Analytic construction failed ({e}).")
+
+        # Try general analytic tensor path
+        try:
+            logger.info("Building General Analytic Interaction Matrix (Anisotropic Tensor)...")
+            eta_quad = self._synthesize_to_gaunt(eta_grid)
+
+            engine = GauntEngine(self.solution_basis)
+            return engine.get_interaction_matrix_from_real_grid(
+                eta_quad[0, 0], eta_quad[1, 1], eta_quad[0, 1], eta_quad[1, 0]
+            )
+        except Exception as e:
+            logger.warning(
+                f"General Analytic construction failed ({e}), falling back to Quadrature."
             )
 
-            op_G = as_linear_map(G_grid.reshape(-1, G_grid.shape[-1]))
-            op_P = as_linear_map(self.projection_matrix)
-            return op_P @ op_M @ op_G
+        # Quadrature fallback (robust)
+        eta_quad = self._synthesize_to_gaunt(eta_grid)
+        engine = GauntEngine(self.solution_basis)
+        return engine.get_vector_interaction_matrix(to_numpy(eta_quad))
 
     @cached_property
     def projection_matrix(self) -> np.ndarray:
