@@ -2,6 +2,7 @@
 import pytest
 import numpy as np
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.spherical_harmonics.gaunt import GauntEngine
 from pynamit.primitives.field import Field
 
 # --- Physics Mapping (Tensor Degrees of Freedom) ---
@@ -38,8 +39,8 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
     N_calc = max(N, 8)
     
     basis_sol = SHBasis(Nmax=N_calc, Mmax=N_calc, Nmin=1)
-    basis_dense = SHBasis(Nmax=N_calc, Mmax=N_calc, Nmin=0) 
-    grid = basis_sol.integration_grid
+    basis_dense = SHBasis(Nmax=N_calc, Mmax=N_calc, Nmin=0)
+    grid = GauntEngine(basis_sol).quad_grid
     
     # Target Dimension for Comparison (Validation set requested by User)
     basis_target = SHBasis(Nmax=N, Mmax=N, Nmin=1)
@@ -115,7 +116,6 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         if idx_limit < basis_dense.index_length:
             coeffs_aniso[idx_limit:] = 0.0
             
-        from pynamit.spherical_harmonics.gaunt import GauntEngine
         eng_dense = GauntEngine(basis_dense)
         G_p2 = eng_dense.get_spin_evaluation_matrix(2)
         val_p2 = G_p2 @ coeffs_aniso
@@ -141,10 +141,9 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         
     elif field_kind == "spin2":
         # Proper Spin-2 Synthesis: Full Random Physical Field
-        # We use a random physical field (all M modes excited) to rigorously 
+        # We use a random physical field (all M modes excited) to rigorously
         # verify the solver logic and resolution (User Request).
         # Ensures bit-exactness for arbitrary spectral content.
-        from pynamit.spherical_harmonics.gaunt import GauntEngine
         eng_dense = GauntEngine(basis_dense)
         
         # c_p2 from random complex seed (already band-limited to N in Section 2)
@@ -171,9 +170,10 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
         
     # 5. Compute Matrices (Size N_calc)
     eta_quad = np.array([[eta_tt, eta_tp], [eta_pt, eta_pp]])
-    M_ref = basis_sol.get_quadrature_interaction_matrix(eta_quad)
+    engine = GauntEngine(basis_sol)
+    M_ref = engine.get_vector_interaction_matrix(eta_quad)
     # Analytic (General)
-    M_gen = basis_sol.get_analytic_interaction_matrix_from_real_grid(
+    M_gen = engine.get_interaction_matrix_from_real_grid(
         eta_tt, eta_pp, eta_tp, eta_pt
     )
     

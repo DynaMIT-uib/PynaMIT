@@ -20,6 +20,7 @@ from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
 from pynamit.primitives.basis import Basis
 from pynamit.math.linear_map import as_linear_map
+from pynamit.spherical_harmonics.gaunt import GauntEngine
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -125,8 +126,8 @@ class Geometry:
         coeffs = xp.tensordot(P_scalar, grid_data, axes=([1], [-1]))
         
         # 2. Synthesize to Gaunt grid
-        # Use SHBasis Integration Grid (Centralized QC)
-        quad_grid = self.solution_basis.integration_grid
+        # Use GauntEngine quadrature grid
+        quad_grid = GauntEngine(self.solution_basis).quad_grid
         G_quad = self.basis_zero_added.get_evaluation_matrix(quad_grid)
         if hasattr(G_quad, "toarray"): G_quad = G_quad.toarray()
         
@@ -211,7 +212,8 @@ class Geometry:
             if use_isotropic_analytic:
                 try:
                     logger.info("Building Analytic Interaction Matrix (Isotropic/Radial)...")
-                    M_vsh = self.solution_basis.get_isotropic_interaction_matrix(etaP.coeffs, etaH.coeffs)
+                    engine = GauntEngine(self.solution_basis)
+                    M_vsh = engine.get_isotropic_interaction_matrix(etaP.coeffs, etaH.coeffs)
                 except Exception as e:
                     logger.warning(f"Isotropic Analytic construction failed ({e}).")
             
@@ -235,7 +237,8 @@ class Geometry:
                         eta_pt = eta_quad[1, 0]
                         eta_pp = eta_quad[1, 1]
                         
-                        M_vsh = self.solution_basis.get_analytic_interaction_matrix_from_real_grid(
+                        engine = GauntEngine(self.solution_basis)
+                        M_vsh = engine.get_interaction_matrix_from_real_grid(
                             eta_tt, eta_pp, eta_tp, eta_pt
                         )
                     except Exception as e:
@@ -246,7 +249,8 @@ class Geometry:
                  # Standard Quadrature Path (Legacy / Robust Fallback)
                  # Handles Dipole Anisotropy Correctly via Grid Integration
                  eta_quad = self._synthesize_to_gaunt(eta_grid)
-                 M_vsh = self.solution_basis.get_quadrature_interaction_matrix(to_numpy(eta_quad))
+                 engine = GauntEngine(self.solution_basis)
+                 M_vsh = engine.get_vector_interaction_matrix(to_numpy(eta_quad))
                  
             return as_linear_map(M_vsh) @ op_E_vsh
         else:

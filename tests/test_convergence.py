@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
 from pynamit.primitives.field import Field
+from pynamit.spherical_harmonics.gaunt import GauntEngine
 
 def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     """
@@ -64,11 +65,12 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     
     # Reference (Quadrature)
     eta_quad = geo._synthesize_to_gaunt(sigma)
-    M_ref = basis.get_quadrature_interaction_matrix(eta_quad)
+    engine = GauntEngine(basis)
+    M_ref = engine.get_vector_interaction_matrix(eta_quad)
     norm_ref = np.linalg.norm(M_ref)
-    
+
     # Analytic (General)
-    M_gen = basis.get_analytic_interaction_matrix_from_real_grid(
+    M_gen = engine.get_interaction_matrix_from_real_grid(
         eta_quad[0, 0], eta_quad[1, 1], eta_quad[0, 1], eta_quad[1, 0]
     )
     norm_gen = np.linalg.norm(M_gen)

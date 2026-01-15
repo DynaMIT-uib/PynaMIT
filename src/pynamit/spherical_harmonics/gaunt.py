@@ -1,36 +1,15 @@
-"""
-Gaunt engine for real spherical harmonics.
-"""
+"""Gaunt engine for real spherical harmonics."""
 
 import numpy as np
-import scipy.special
-from typing import Tuple, List, Dict
 from pynamit.spherical_harmonics.wigner import wigner_3j
 
-def get_complex_gaunt_coeff(l1, m1, l2, m2, l3, m3):
-    """Calculate the Gaunt coefficient for complex spherical harmonics."""
-    factor = 4.0 * np.pi
-    w3j_0 = wigner_3j(l1, l2, l3, 0, 0, 0)
-    if w3j_0 == 0: return 0.0
-    w3j_m = wigner_3j(l1, l2, l3, m1, m2, m3)
-    return factor * w3j_0 * w3j_m
 
-def get_spin_weighted_gaunt_coeff(l1, m1, s1, l2, m2, s2, l3, m3, s3):
-    """Integral( s1_Y_l1m1 * s2_Y_l2m2 * s3_Y_l3m3 )"""
-    from pynamit.spherical_harmonics.wigner import wigner_3j
+def _get_spin_weighted_gaunt_coeff(l1, m1, s1, l2, m2, s2, l3, m3, s3):
+    """Compute integral of product of three spin-weighted spherical harmonics."""
     return np.sqrt((2*l1+1)*(2*l2+1)*(2*l3+1)/(4.0*np.pi)) * \
            wigner_3j(l1, l2, l3, m1, m2, m3) * \
            wigner_3j(l1, l2, l3, -s1, -s2, -s3)
 
-def get_real_decomposition(l, m):
-    """Decomposition of Real SH Y_lm into Complex SH Y_l,mu."""
-    if m == 0: return [(1.0, 0)]
-    inv_sr2 = 1.0/np.sqrt(2)
-    if m > 0:
-        return [(inv_sr2, -m), ((-1)**m * inv_sr2, m)]
-    else:
-        k = abs(m)
-        return [(1j * inv_sr2, -k), (-1j * (-1)**k * inv_sr2, k)]
 
 class GauntEngine:
     """Engine for computing and caching the triple integrals of real SH."""
@@ -178,7 +157,7 @@ class GauntEngine:
                 if 0 <= idx < len(coeffs):
                     c = coeffs[idx]
                     if abs(c) > 1e-12:
-                        val += c * get_spin_weighted_gaunt_coeff(l1, -m1, -s1, l2, m2, s2, l3, m3, s3) * ((-1.0)**(m1+s1))
+                        val += c * _get_spin_weighted_gaunt_coeff(l1, -m1, -s1, l2, m2, s2, l3, m3, s3) * ((-1.0)**(m1+s1))
         return val
 
     def get_general_analytic_interaction_matrix(self, c_pp, c_mm, c_pm, c_mp, input_is_complex=False):
@@ -285,3 +264,122 @@ class GauntEngine:
         J = np.einsum('okq, kqi -> oqi', tensor_sigma_quad, G_vsh, optimize=True)
         H = np.einsum('oqi, q, oqj -> ij', G_vsh, self.weights, J, optimize=True)
         return D_inv @ H
+
+    def get_interaction_matrix_from_real_grid(
+        self,
+        eta_tt: np.ndarray,
+        eta_pp: np.ndarray,
+        eta_tp: np.ndarray,
+        eta_pt: np.ndarray,
+    ) -> np.ndarray:
+        """Compute Analytic Interaction Matrix from REAL Grid Components.
+
+        This method decomposes the physical resistivity tensor components into
+        complex spin-weighted potentials (Spin-0 and Spin-2) used by the analytic solver.
+
+        Physics Mapping:
+        ----------------
+        Component      | Symmetry         | Potential    | Formula
+        -------------------------------------------------------------
+        Isotropic      | Symmetric Diag   | Re(Spin-0)   | 0.5 * (eta_tt + eta_pp)
+        Hall           | Anti-Symmetric   | Im(Spin-0)   | 0.5 * (eta_tp - eta_pt)
+        Aniso (Real)   | Trace-Free Diag  | Re(Spin-2)   | 0.5 * (eta_tt - eta_pp)
+        Aniso (Imag)   | Symmetric Off-D  | Im(Spin-2)   | 0.5 * (eta_tp + eta_pt)
+
+        Parameters
+        ----------
+        eta_tt : np.ndarray
+            Theta-Theta resistivity component on the quadrature grid.
+        eta_pp : np.ndarray
+            Phi-Phi resistivity component on the quadrature grid.
+        eta_tp : np.ndarray
+            Theta-Phi resistivity component on the quadrature grid.
+        eta_pt : np.ndarray
+            Phi-Theta resistivity component on the quadrature grid.
+
+        Returns
+        -------
+        M : np.ndarray
+            The Real block interaction matrix.
+        """
+        from pynamit.spherical_harmonics.sh_basis import SHBasis
+
+        # 1. Decompose into Isotropic/Hall (Spin-0) and Anisotropic (Spin-2)
+        val_iso      = 0.5 * (eta_tt + eta_pp)
+        val_hall_raw = 0.5 * (eta_tp - eta_pt)
+        val_aniso_re = 0.5 * (eta_tt - eta_pp)
+        val_aniso_im = 0.5 * (eta_tp + eta_pt)
+
+        # Spin-0 Components (Isotropic + Hall)
+        val_0plus  = val_iso - 1j * val_hall_raw
+        val_0minus = val_iso + 1j * val_hall_raw
+
+        # Spin-2 Components (Anisotropic)
+        val_p2_gaunt = val_aniso_re + 1j * val_aniso_im
+        val_m2_gaunt = val_aniso_re - 1j * val_aniso_im
+
+        # 2. Analyze using Spin-Weighted Harmonics (Nmin=0)
+        # Coupling of degree N1 and N2 requires Ls up to N1+N2 (2*Nmax).
+        sigma_basis = SHBasis(
+            2 * self.Nmax,
+            2 * self.basis.Mmax,
+            Nmin=0,
+            quasi_normalized=self.basis.is_normalized,
+            backend=self.basis.backend
+        )
+        res_solver = int(3.0 * self.Nmax + 10)
+        if res_solver % 2 != 0: res_solver += 1
+
+        sigma_engine = GauntEngine(sigma_basis, grid_resolution=res_solver)
+        c_pp = sigma_engine.analyze_spin_weighted(0, val_0plus.flatten())
+        c_mm = sigma_engine.analyze_spin_weighted(0, val_0minus.flatten())
+        c_pm = sigma_engine.analyze_spin_weighted(2, val_p2_gaunt.flatten())
+        c_mp = sigma_engine.analyze_spin_weighted(-2, val_m2_gaunt.flatten())
+
+        # 3. Pass Coefficients to Analytic Engine
+        return self.get_general_analytic_interaction_matrix(
+            c_pp, c_mm, c_pm, c_mp, input_is_complex=True
+        )
+
+    def get_isotropic_interaction_matrix(
+        self,
+        etaP_coeffs: np.ndarray,
+        etaH_coeffs: np.ndarray
+    ) -> np.ndarray:
+        """Compute the Analytic Interaction Matrix for Isotropic conductivities.
+
+        1. Evaluates Isotropic/Hall coefficients to Grid.
+        2. Constructs Canonical Tensor on Grid.
+        3. Invokes General Solver.
+
+        Parameters
+        ----------
+        etaP_coeffs : np.ndarray
+            Pedersen (isotropic) resistivity coefficients.
+        etaH_coeffs : np.ndarray
+            Hall resistivity coefficients.
+
+        Returns
+        -------
+        M : np.ndarray
+            The interaction matrix.
+        """
+        # Create basis for Conductance (Nmin=0) to match input coeffs
+        from pynamit.spherical_harmonics.sh_basis import SHBasis
+        cond_basis = SHBasis(
+            self.basis.Nmax, self.basis.Mmax, Nmin=0,
+            quasi_normalized=self.basis.is_normalized, backend=self.basis.backend
+        )
+
+        # Evaluate to Grid
+        etaP_grid = cond_basis.evaluate(etaP_coeffs, self.quad_grid, vector_type="scalar")
+        etaH_grid = cond_basis.evaluate(etaH_coeffs, self.quad_grid, vector_type="scalar")
+
+        # Construct Tensor Components
+        # Isotropic: S_tt = S_pp = P, Hall: S_tp = H, S_pt = -H
+        eta_tt = etaP_grid
+        eta_pp = etaP_grid
+        eta_tp = etaH_grid
+        eta_pt = -etaH_grid
+
+        return self.get_interaction_matrix_from_real_grid(eta_tt, eta_pp, eta_tp, eta_pt)
