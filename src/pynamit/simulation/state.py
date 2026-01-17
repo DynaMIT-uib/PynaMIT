@@ -229,40 +229,19 @@ class State:
 
     @cached_property
     def dt_jr_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for `dt_jr` (Dynamic)."""
+        """The least-squares problem definition for `dt_jr` (Dynamic).
+
+        Delegates to ToroidalSystemMatrices.build_least_squares_problem()
+        with parameters from the current state.
+        """
         logger.info("Defining new least-squares problem for dt_jr.")
         if self.toroidal_matrices is None:
             raise RuntimeError("Toroidal matrices required for dt_jr problem.")
-            
-        operators, data_shapes = [], []
 
-        # 1. Physics Equation: L * dt_jr = K
-        # We model this as minimizing || L * x - K ||
-        op_L = as_linear_map(self.toroidal_matrices.linear_operator_L)
-        operators.append(op_L)
-        data_shapes.append((op_L.shape[0],))
-        
-        # 2. Partitioning & Interhemispheric Constraint: 
-        # Enforce djr/dt matches Driver in High Latitudes and matches IH mapping in Gap.
-        # This is unified via the jr_map_sim operator.
-        # jr_map_sim is: (j_apex) in HL, and (j_apex_N - j_apex_S) in Gap.
-        # Thus, we want (jr_map_sim @ dt_jr) = rhs, where rhs is (driver_rate) in HL and (0) in Gap.
-        
-        op_constraint = as_linear_map(self.geometry.jr_map_sim)
-        
-        # Scaling for constraint (penalty method)
-        constraint_weight = 1000.0 
-        op_constraint = op_constraint.with_scaling(constraint_weight)
-        
-        operators.append(op_constraint)
-        data_shapes.append((op_constraint.shape[0],))
-            
-        return LeastSquaresProblem(
-            A=operators,
-            solution_shape=self.solution_basis.index_length,
-            data_shapes=data_shapes,
-            regularization_matrices=[], # Tikhonov handled by physics?
-            regularization_weights=[],
+        return self.toroidal_matrices.build_least_squares_problem(
+            jr_map_operator=self.geometry.jr_map_sim,
+            constraint_scaling=1000.0,
+            regularization_lambda=0.0,
         )
 
 
@@ -852,62 +831,58 @@ class State:
         return E_total, self.psi
 
     def solve_dt_jr(self, E_known: np.ndarray) -> np.ndarray:
-        """Solve constrained system for dt_jr."""
-        problem = self.dt_jr_problem # Cached problem definition
-        
-        # Assemble RHS K
-        E_coeffs = asarray(E_known)
-        rhs_K = self.toroidal_matrices.compute_K_from_E(E_coeffs)
-        rhs_K = to_numpy(rhs_K)
-        
-        # Assemble RHS for problem:
-        # Term 1 (Physics): K - L * dt_jr_driver
-        # Check if we have driver derivative
-        dt_jr_driver_coeffs = np.zeros(self.solution_basis.index_length)
+        """Solve constrained system for dt_jr.
+
+        Uses ToroidalSystemMatrices.compute_rhs_physics() for the physics RHS
+        and assembles the constraint RHS from driver data.
+        """
+        problem = self.dt_jr_problem  # Cached problem definition
+
+        # Get driver coefficients if available
+        dt_jr_driver_coeffs = None
         if self.dt_jr_driver is not None:
-             dt_jr_driver_coeffs = to_numpy(self.dt_jr_driver.coeffs)
-             
-        # L * dt_jr_driver
-        op_L = problem.A[0]
-        # op_L is a ProcessedOperator, we need the underlying LinearMap
-        L_driver = op_L.linear_map.matvec(dt_jr_driver_coeffs)
-        
-        rhs_1 = rhs_K - L_driver
-        
+            dt_jr_driver_coeffs = to_numpy(self.dt_jr_driver.coeffs)
+
+        # Term 1 (Physics): K - L * dt_jr_driver
+        # Delegate to toroidal_matrices
+        E_coeffs = asarray(E_known)
+        rhs_1 = self.toroidal_matrices.compute_rhs_physics(E_coeffs, dt_jr_driver_coeffs)
+
         # Term 2 (Constraint): Unified Apex Current Mapping (Driver + IH)
         # We want (jr_map_sim @ x) = rhs.
         # rhs = j_apex_driver_rate in HL, 0 in Gap (IH difference).
         constraint_weight = 1000.0
         n_grid = self.geometry.grid.size
         rhs_2 = np.zeros(n_grid)
-        
-        if self.dt_jr_driver is not None:
+
+        if dt_jr_driver_coeffs is not None:
             # 1. Get transformation: radial to apex
-            rad_to_apx, _ = self.geometry._apex_mapper.get_transformation_matrices(self.geometry.b_field)
-            
+            rad_to_apx, _ = self.geometry._apex_mapper.get_transformation_matrices(
+                self.geometry.b_field
+            )
+
             # 2. Map driver to apex current rate
             # j_apex = (rad_to_apx) * j_r
-            driver_jr_grid = self.geometry.basis.evaluate(dt_jr_driver_coeffs, self.geometry.grid, "scalar")
+            driver_jr_grid = self.geometry.basis.evaluate(
+                dt_jr_driver_coeffs, self.geometry.grid, "scalar"
+            )
             driver_j_apex = rad_to_apx * to_numpy(driver_jr_grid)
-            
+
             # 3. Apply to HL region only
             hl_mask = ~self.geometry.ll_mask
             rhs_2[hl_mask] = driver_j_apex[hl_mask]
-        
+
         # Scale for penalty
         rhs_2 = constraint_weight * rhs_2
-             
+
         # Solve
-        # A list has [L, Constraint]. rhs list must match.
         rhs_entries = [rhs_1, rhs_2]
-             
-        # Solve!
         solver = self.m_imp_solver
         solution = solver.solve(problem, rhs_entries)
-        
+
         if solution is None:
-             return xp.zeros(self.solution_basis.index_length)
-             
+            return xp.zeros(self.solution_basis.index_length)
+
         return asarray(solution)
 
     def evolve_psi(self, psi: np.ndarray, dt: float) -> np.ndarray:

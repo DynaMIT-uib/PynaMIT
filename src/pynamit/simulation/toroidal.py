@@ -574,14 +574,14 @@ class ToroidalSystemMatrices:
             # Exact GL or quadrature grid
             weights = self.grid.weights
             G = to_numpy(self.basis.get_G(self.grid))
-            
+
             # Weighted Least Squares: P = (G^T W G)^-1 G^T W
             # 1. G^T W
             GtW = G.T * weights
-            
+
             # 2. Mass Matrix M = G^T W G
             M = GtW @ G
-            
+
             # 3. P = M^-1 G^T W
             # Use solve usually faster/stable than inv
             # We want P such that coeffs = P @ values
@@ -589,8 +589,116 @@ class ToroidalSystemMatrices:
             # So P is the operator that solves this system.
             # Explicitly constructing matrix P: P = solve(M, GtW)
             P = np.linalg.solve(M, GtW)
-            
+
             return asarray(P)
         else:
             return tensor_pinv(self.basis.get_G(self.grid), n_leading_flattened=1)
+
+    # -------------------------------------------------------------------------
+    # Least-Squares Problem Construction (aligned with PoloidalSystemMatrices)
+    # -------------------------------------------------------------------------
+
+    def build_least_squares_problem(
+        self,
+        jr_map_operator: np.ndarray,
+        constraint_scaling: float = 1000.0,
+        regularization_lambda: float = 0.0,
+    ) -> "LeastSquaresProblem":
+        """Build the least-squares problem for dt_jr (toroidal induction).
+
+        The problem structure is:
+            minimize || A @ dt_jr - b ||^2
+
+        Where A consists of:
+        1. Physics equation: L @ dt_jr = K (where L = C + M0 + M1*D1)
+        2. Apex current constraint: jr_map @ dt_jr = driver_rate
+        3. Tikhonov regularization (if lambda > 0)
+
+        This is analogous to PoloidalSystemMatrices.build_least_squares_problem().
+
+        Parameters
+        ----------
+        jr_map_operator : np.ndarray
+            Operator mapping jr coefficients to apex current (jr_map_sim).
+        constraint_scaling : float
+            Scaling factor for the apex current constraint (penalty weight).
+        regularization_lambda : float
+            Tikhonov regularization weight.
+
+        Returns
+        -------
+        LeastSquaresProblem
+            The assembled least-squares problem.
+        """
+        from pynamit.math.least_squares_problem import LeastSquaresProblem
+        from pynamit.math.linear_map import as_linear_map, diagonal_linear_map
+
+        operators = []
+        data_shapes = []
+
+        # 1. Physics equation: L @ dt_jr = K
+        op_L = as_linear_map(self.linear_operator_L)
+        operators.append(op_L)
+        data_shapes.append((op_L.shape[0],))
+
+        # 2. Apex current constraint (interhemispheric + driver matching)
+        op_constraint = as_linear_map(jr_map_operator)
+        op_constraint = op_constraint.with_scaling(constraint_scaling)
+        operators.append(op_constraint)
+        data_shapes.append((op_constraint.shape[0],))
+
+        # 3. Tikhonov regularization
+        reg_ops = []
+        reg_weights = []
+        if regularization_lambda > 0:
+            n = self.basis.index_length
+            identity_op = diagonal_linear_map(xp.ones(n))
+            reg_ops.append(identity_op)
+            reg_weights.append(regularization_lambda)
+
+        return LeastSquaresProblem(
+            A=operators,
+            solution_shape=self.basis.index_length,
+            data_shapes=data_shapes,
+            regularization_matrices=reg_ops,
+            regularization_weights=reg_weights,
+        )
+
+    def compute_rhs_physics(
+        self,
+        E_coeffs: np.ndarray,
+        dt_jr_driver_coeffs: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Compute RHS for the physics equation term.
+
+        RHS = K - L @ dt_jr_driver
+
+        Where K is computed from E-field and L @ dt_jr_driver accounts
+        for the known driver contribution.
+
+        This is analogous to PoloidalSystemMatrices.compute_rhs_from_jr().
+
+        Parameters
+        ----------
+        E_coeffs : np.ndarray
+            E-field coefficients for computing K.
+        dt_jr_driver_coeffs : np.ndarray, optional
+            Driver rate coefficients. If None, assumes zero driver.
+
+        Returns
+        -------
+        np.ndarray
+            RHS vector for the physics term.
+        """
+        # Compute K from E-field
+        K = self.compute_K_from_E(E_coeffs)
+        K = to_numpy(K)
+
+        # Subtract driver contribution if present
+        if dt_jr_driver_coeffs is not None:
+            L = to_numpy(self.linear_operator_L)
+            L_driver = L @ to_numpy(dt_jr_driver_coeffs)
+            K = K - L_driver
+
+        return asarray(K)
 
