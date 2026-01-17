@@ -18,7 +18,7 @@ from pynamit.primitives.field import Field
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 
-from pynamit.math.linear_map import as_linear_map, LinearMap, diagonal_linear_map
+from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.geometry import Geometry
 from pynamit.primitives.basis import Basis
 from pynamit.math.constants import mu0
@@ -430,53 +430,29 @@ class State:
     # ----- Solver Setup and Execution -----
     @cached_property
     def m_imp_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for `m_imp`."""
+        """The least-squares problem definition for `m_imp`.
+
+        Delegates to PoloidalSystemMatrices.build_least_squares_problem()
+        with parameters from the current state.
+        """
         logger.info("Defining new least-squares problem for m_imp.")
-        operators, data_shapes = [], []
 
-        # Radial current (jr) must match imposed field.
-        # Generalize m_imp_to_jr application:
-        # If it's a matrix (Grid basis), use matrix multiplication.
-        # If it's a vector (SH basis diagonal), use broadcasting.
-        m_imp_to_jr = self.geometry.m_imp_to_jr
-        jr_coeffs_to_j_apex = self.geometry.jr_map_sim
-        
-        op_apex = as_linear_map(jr_coeffs_to_j_apex)
-        
-        # Handle m_imp_to_jr (Matrix or Diagonal Scaling)
-        # 1D or 2D handled automatically by as_linear_map
-        op_m_to_jr = as_linear_map(m_imp_to_jr)
-             
-        op_jr = op_apex @ op_m_to_jr
-        operators.append(op_jr)
-        data_shapes.append((op_jr.shape[0],))
-
-        # E-field must map at low latitudes.
-        # In full_induction mode, this is replaced by the djr/dt constraint + physics.
+        # Determine E-field constraint operator based on mode
+        # In full_induction mode, IH coupling is handled by the global solution
+        E_constraint_op = None
         if (
-            self.connect_hemispheres 
+            self.connect_hemispheres
             and self.dynamics_mode != "full_induction"
             and self.E_map_constraint_operator is not None
         ):
-            op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
-            operators.append(op_E)
-            data_shapes.append((op_E.shape[0],))
+            E_constraint_op = self.E_map_constraint_operator
 
-        # Add Tikhonov regularization if lambda is set.
-        reg_ops, reg_weights = [], []
-        if self.m_imp_regularization_lambda > 0:
-            n = self.solution_basis.index_length
-            # Use diagonal map for backend-agnostic identity
-            identity_op = diagonal_linear_map(xp.ones(n))
-            reg_ops.append(identity_op)
-            reg_weights.append(self.m_imp_regularization_lambda)
-
-        return LeastSquaresProblem(
-            A=operators,
-            solution_shape=self.solution_basis.index_length,
-            data_shapes=data_shapes,
-            regularization_matrices=reg_ops,
-            regularization_weights=reg_weights,
+        return self.geometry.poloidal_matrices.build_least_squares_problem(
+            jr_map_operator=self.geometry.jr_map_sim,
+            E_constraint_operator=E_constraint_op,
+            connect_hemispheres=(E_constraint_op is not None),
+            ih_constraint_scaling=self.ih_constraint_scaling,
+            regularization_lambda=self.m_imp_regularization_lambda,
         )
 
     @cached_property

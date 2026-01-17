@@ -5,12 +5,16 @@ Core simulation infrastructure for PynaMIT:
 - State: Physical state management
 - run_pynamit: Entry point function
 - settings: Configuration classes (SimulationMode, DynamicsSettings)
+- ToroidalSystemMatrices: System matrices for toroidal induction
+- PoloidalSystemMatrices: System matrices for poloidal induction
 """
 
 from .state import State
 from .dynamics import Dynamics
 from .runner import run_pynamit
 from .settings import SimulationMode, DynamicsSettings, FLOAT_ERROR_MARGIN
+from .toroidal import ToroidalSystemMatrices
+from .poloidal import PoloidalSystemMatrices
 
 __all__ = [
     "Dynamics",
@@ -19,4 +23,6 @@ __all__ = [
     "SimulationMode",
     "DynamicsSettings",
     "FLOAT_ERROR_MARGIN",
+    "ToroidalSystemMatrices",
+    "PoloidalSystemMatrices",
 ]

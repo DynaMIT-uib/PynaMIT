@@ -25,6 +25,7 @@ from pynamit.spherical_harmonics.gaunt import GauntEngine
 from pynamit.simulation.geometry_utils import to_dense, get_radial_shift_diagonal
 from pynamit.simulation.pfac import PFACIntegrator
 from pynamit.simulation.constraints import ApexMapper
+from pynamit.simulation.poloidal import PoloidalSystemMatrices
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import GridBasis
@@ -111,10 +112,57 @@ class Geometry:
         )
         self._init_constraint_mappings()
 
-        # Solution/Simulation basis operators (for the unknowns on the solver grid)
-        self.m_imp_to_jr = (self.RI / mu0) * self.solution_basis.get_laplacian_operator(self.RI)
-        self.m_ind_to_Br = -(self.RI**2) * self.solution_basis.get_laplacian_operator(self.RI)
-        self.E_df_to_d_m_ind_dt = 1.0 / self.RI
+        # Initialize Poloidal System Matrices
+        # Note: We defer initialization until after grid is set up
+        self._poloidal_matrices: Optional[PoloidalSystemMatrices] = None
+
+    @property
+    def poloidal_matrices(self) -> PoloidalSystemMatrices:
+        """Lazy-initialized poloidal system matrices.
+
+        Returns
+        -------
+        PoloidalSystemMatrices
+            The assembled poloidal system matrices.
+        """
+        if self._poloidal_matrices is None:
+            self._poloidal_matrices = PoloidalSystemMatrices(
+                basis=self.basis,
+                solution_basis=self.solution_basis,
+                grid=self.grid,
+                b_field=self.b_field,
+                RI=self.RI,
+                pfac_integrator=self._pfac,
+            )
+        return self._poloidal_matrices
+
+    # -------------------------------------------------------------------------
+    # Backward-compatibility properties (delegate to poloidal_matrices)
+    # -------------------------------------------------------------------------
+
+    @property
+    def m_imp_to_jr(self) -> np.ndarray:
+        """Operator mapping m_imp to radial current jr.
+
+        Backward compatibility - delegates to poloidal_matrices.
+        """
+        return self.poloidal_matrices.m_imp_to_jr
+
+    @property
+    def m_ind_to_Br(self) -> np.ndarray:
+        """Operator mapping induced potential m_ind to radial field Br.
+
+        Backward compatibility - delegates to poloidal_matrices.
+        """
+        return self.poloidal_matrices.m_ind_to_Br
+
+    @property
+    def E_df_to_d_m_ind_dt(self) -> float:
+        """Scaling factor for induction equation.
+
+        Backward compatibility - delegates to poloidal_matrices.
+        """
+        return self.poloidal_matrices.E_df_to_d_m_ind_dt
 
     def _init_input_adapter(self) -> Optional[np.ndarray]:
         """Initialize hybrid basis adapter if needed.
@@ -507,36 +555,23 @@ class Geometry:
 
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
-        """Operator mapping m_imp to sheet current on grid."""
-        grad_op = as_linear_map(self.solution_basis.get_gradient_matrix(self.grid))
-        G_grad = (1.0 / self.RI) * (grad_op * ((-self.RI / mu0)))
-        G_total = to_dense(G_grad).reshape(2, -1, self.solution_basis.index_length)
-        JS_coupling = np.tensordot(self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0]))
-        G_total += JS_coupling
-        return G_total
+        """Operator mapping m_imp to sheet current on grid.
+
+        Backward compatibility - delegates to poloidal_matrices.
+        """
+        return self.poloidal_matrices.G_m_imp_to_JS
 
     @cached_property
-    def G_m_ind_to_JS(self) -> np.ndarray:
+    def G_m_ind_to_JS(self) -> Optional[np.ndarray]:
         """Operator mapping m_ind to sheet current on grid.
+
+        Backward compatibility - delegates to poloidal_matrices.
 
         This operator combines two physical effects:
         1. Local "Vacuum" Induction: m_ind -> E -> J.
         2. Gap Region / Magnetospheric Boundary Coupling: m_ind -> Coupling -> J.
         """
-        if self.G_Ve_to_JS is None:
-            return None
-        G = self.G_Ve_to_JS.copy()
-
-        if self.RM is not None:
-            br_shift_sh, vi_shift_sh, den = self._pfac.get_coupling_factors()
-            G_coupling_sh = self.G_Ve_to_JS_sh * (br_shift_sh * vi_shift_sh / den)
-
-            if self.input_adapter is not None:
-                G += np.tensordot(G_coupling_sh, self.input_adapter, axes=([2], [0]))
-            else:
-                G += G_coupling_sh
-
-        return G
+        return self.poloidal_matrices.G_m_ind_to_JS
 
     def _compute_vsh_operator(self, basis: Basis) -> np.ndarray:
         """Compute generic VSH induction operator (-1/mu0 * Curl @ Scaling)."""
