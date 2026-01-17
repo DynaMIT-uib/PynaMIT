@@ -58,6 +58,25 @@ class GauntEngine:
         """
         return self._compute_elsasser_gl_raw(l1, m1, l2, m2, l3, m3)
 
+    def get_scalar_interaction_matrix(self, coeffs):
+        """Compute the scalar interaction matrix M(f)_ij = <Y_i, f Y_j>.
+        
+        Parameters
+        ----------
+        coeffs : np.ndarray
+             Spectral coefficients of the scalar field f.
+        """
+        # Evaluate f on quadrature grid
+        # self.G_scalar is (L, Q). Transpose is Synthesis (Q, L).
+        f_vals = self.G_scalar.T @ coeffs
+        
+        # M = G @ diag(w * f) @ G^T
+        # Optimize: M = (G * (w*f)) @ G^T
+        weighted_f = self.weights * f_vals
+        scaled_G = self.G_scalar * weighted_f[None, :]
+        
+        return scaled_G @ self.G_scalar.T
+
     def get_spin_evaluation_matrix(self, s):
         from pynamit.spherical_harmonics.wigner import wigner_small_d
         L, Q = self.basis.index_length, self.quad_grid.size

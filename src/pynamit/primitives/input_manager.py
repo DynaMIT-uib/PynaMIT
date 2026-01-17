@@ -258,6 +258,10 @@ class InputManager:
         """
         return self.timeseries.get_entry(key, time, interpolation=interpolation)
 
+    def get_entry_with_derivative(self, key, time, interpolation=False):
+        """Get data and derivative from timeseries."""
+        return self.timeseries.get_entry_with_derivative(key, time, interpolation=interpolation)
+
     @property
     def input_keys(self):
         """Return the keys of the available input datasets."""

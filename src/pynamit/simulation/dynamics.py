@@ -79,6 +79,7 @@ class Dynamics:
         simulation_mode: Optional[SimulationMode] = None,
         least_squares_solver: str = "cg",
         m_imp_regularization_lambda: float = 0.0,
+        dynamics_mode: Literal["legacy", "full_induction"] = "legacy",
     ):
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
@@ -117,6 +118,7 @@ class Dynamics:
             simulation_mode=SimulationMode.SPECTRAL_TRANSFORM if simulation_mode is None else simulation_mode,
             least_squares_solver=least_squares_solver,
             m_imp_regularization_lambda=m_imp_regularization_lambda,
+            dynamics_mode=dynamics_mode,
         )
         
         if simulation_mode is not None:
@@ -124,6 +126,7 @@ class Dynamics:
         self.settings = initial_settings
         self.backend = set_backend(backend)
 
+        self.filename_prefix = filename_prefix
         self.io = IO(filename_prefix)
 
         # Check if settings are consistent with previously saved runs.
@@ -174,8 +177,8 @@ class Dynamics:
 
         # Specify output format and load output data.
         self.output_variables = {
-            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+            "state": {"m_ind": "scalar", "psi": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+            "steady_state": {"m_ind": "scalar", "psi": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
         }
 
         # Select solution basis
@@ -199,6 +202,8 @@ class Dynamics:
             "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else grid_basis,
             "conductance": sh_basis if bool(self.settings.vector_conductance) else grid_basis,
             "u": sh_basis_zero_removed if bool(self.settings.vector_u) else grid_basis,
+            # Add psi to interpolation bases to support output timeseries loading
+            "psi": sh_basis_zero_removed, 
         }
 
         self.mainfield = Mainfield(
@@ -276,24 +281,42 @@ class Dynamics:
                 zeros = xp.zeros((self.output_storage_bases["state"].index_length,))
                 inductive_m_ind = zeros
 
+        # Sync state psi if dynamic mode
+        if self.settings.dynamics_mode == "full_induction":
+             if self.state.psi is None:
+                  self.state.psi = xp.zeros((self.state.solution_basis.index_length,))
+             psi = self.state.psi
+        else:
+             psi = None
+
         while True:
             self.state.update(self.input_manager, self.current_time, interpolation=True)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
-            if self.settings.integrator == "exponential" or (
-                bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
-            ):
-                steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+            # Prepare data for logging/storage
+            if self.settings.dynamics_mode == "full_induction":
+                 current_m_ind = inductive_m_ind
+                 current_psi = psi
+                 steady_state_m_ind = None 
+                 steady_state_psi = None
             else:
-                steady_state_m_ind = None
+                 current_m_ind = inductive_m_ind
+                 current_psi = None
+                 if self.settings.integrator == "exponential" or (
+                    bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
+                 ):
+                    steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+                 else:
+                    steady_state_m_ind = None
+                 steady_state_psi = None
 
             if step % sampling_step_interval == 0:
-                self.add_state_to_timeseries("state", inductive_m_ind, E_coeffs_noind, m_imp_noind)
+                self.add_state_to_timeseries("state", current_m_ind, E_coeffs_noind, m_imp_noind, psi=current_psi)
 
-                if bool(self.settings.save_steady_states):
+                if bool(self.settings.save_steady_states) and steady_state_m_ind is not None:
                     self.add_state_to_timeseries(
-                        "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
+                        "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind, psi=steady_state_psi
                     )
 
                 # Save state and steady state time series.
@@ -309,7 +332,7 @@ class Dynamics:
                             flush=True,
                         )
 
-                    if bool(self.settings.save_steady_states):
+                    if bool(self.settings.save_steady_states) and steady_state_m_ind is not None:
                         self.output_timeseries.save("steady_state", self.io)
 
                         if quiet:
@@ -330,14 +353,29 @@ class Dynamics:
                     print("\n\n")
                 break
 
-            inductive_m_ind = self.state.evolve_m_ind(
-                inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
-            )
+            # Evolve State
+            if self.settings.dynamics_mode == "full_induction":
+                 # 1. Evolve Toroidal field (psi)
+                 psi = self.state.evolve_psi(psi, dt)
+                 self.state.psi = psi
+                 # 2. Evolve Poloidal field (m_ind)
+                 inductive_m_ind = self.state.evolve_m_ind(
+                    inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
+                 )
+            else:
+                 inductive_m_ind = self.state.evolve_m_ind(
+                    inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
+                 )
+            
+            self.current_time = next_time
+
+            step += 1
+                
             self.current_time = next_time
 
             step += 1
 
-    def add_state_to_timeseries(self, key, m_ind, E_coeffs_noind, m_imp_noind):
+    def add_state_to_timeseries(self, key, m_ind, E_coeffs, m_imp, psi=None):
         """Add the current state to the time series.
 
         Parameters
@@ -346,23 +384,39 @@ class Dynamics:
             Key for the time series entry.
         m_ind : array-like
             Inductive magnetic field coefficients.
-        E_coeffs_noind : tuple
+        E_coeffs : tuple
             Electric field coefficients without induced effects.
-        m_imp_noind : array-like
+        m_imp : array-like
             Imposed magnetic field coefficients without induced effects.
+        psi : array-like, optional
+            Toroidal Stream Function coefficients.
         """
-        E_coeffs_ind, m_imp_ind = self.state.calculate_ind_coeffs(m_ind)
-
-        E_coeffs = E_coeffs_noind + E_coeffs_ind
-        m_imp = m_imp_noind + m_imp_ind
+        # Calculate full fields if needed (only if m_ind provided)
+        # If full induction, m_ind might be None.
+        if m_ind is not None:
+             E_coeffs_ind, m_imp_ind = self.state.calculate_ind_coeffs(m_ind)
+             E_coeffs = np.asarray(E_coeffs) + E_coeffs_ind
+             m_imp = np.asarray(m_imp) + m_imp_ind
+        else:
+             # Just use what was passed (no poloidal induction added)
+             E_coeffs = np.asarray(E_coeffs) if E_coeffs is not None else (np.zeros(1), np.zeros(1))
+             m_imp = np.asarray(m_imp)
 
         # Append current state to time series.
         state_data = {
-            "m_ind": np.asarray(m_ind),
+            "m_ind": np.asarray(m_ind) if m_ind is not None else None,
             "m_imp": np.asarray(m_imp),
+            "psi": np.asarray(psi) if psi is not None else None,
             "Phi": np.asarray(E_coeffs[0]),
             "W": np.asarray(E_coeffs[1]),
         }
+        
+        # Ensure dummy zeros for missing fields if required by schema
+        if state_data["m_ind"] is None and "m_ind" in self.output_variables[key]:
+             state_data["m_ind"] = np.zeros(self.state.solution_basis.index_length)
+             
+        if state_data["psi"] is None and "psi" in self.output_variables[key]:
+             state_data["psi"] = np.zeros(self.state.solution_basis.index_length)
 
         self.output_timeseries.add_entry(key, state_data, time=self.current_time)
 

@@ -148,6 +148,7 @@ class DynamicsSettings:
     integrator: Literal["euler", "exponential"] = "euler"
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     filename_prefix: str = "simulation"
+    dynamics_mode: Literal["legacy", "full_induction"] = "legacy"
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "cg"
     m_imp_regularization_lambda: float = 0.0

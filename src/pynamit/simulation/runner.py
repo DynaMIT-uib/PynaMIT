@@ -17,6 +17,7 @@ def run_pynamit(
     Nmax: int = 20,
     Mmax: int = 20,
     Ncs: int = 30,
+    RI: Optional[float] = None,
     RM: Optional[float] = None,
     mainfield_kind: str = "dipole",
     fig_directory: str = "./figs",
@@ -40,6 +41,8 @@ def run_pynamit(
     least_squares_solver: str = "cg",
     m_imp_regularization_lambda: float = 0.0,
     mainfield_B0: Optional[float] = None,
+    dynamics_mode: str = "legacy",
+    mainfield_epoch: int = 2020,
     use_exact_weights: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
@@ -110,8 +113,10 @@ def run_pynamit(
         
         return np.sqrt(weights_full) # Return sqrt weights for solver
 
-    # Initialize the 2D ionosphere object at 110 km altitude.
-    RI = RE + 110.0e3
+    # Initialize the 2D ionosphere object.
+    if RI is None:
+        RI = RE + 110.0e3
+        
     dynamics = Dynamics(
         filename_prefix=None,
         Nmax=Nmax,
@@ -134,6 +139,8 @@ def run_pynamit(
         simulation_mode=None if simulation_mode is None else SimulationMode(simulation_mode),
         least_squares_solver=least_squares_solver,
         m_imp_regularization_lambda=m_imp_regularization_lambda,
+        dynamics_mode=dynamics_mode,
+        mainfield_epoch=mainfield_epoch,
     )
 
 

@@ -127,7 +127,18 @@ class Timeseries:
             ).sortby("time")
 
     def get_entry(self, key, time, interpolation=False):
-        """Select time series data corresponding to the specified time.
+        """Select, and optionally interpolate, time series data.
+
+        Returns
+        -------
+        dict or None
+            Dictionaries containing the latest data for the specified
+            key, or None if no data is available.
+        """
+        return self.get_entry_with_derivative(key, time, interpolation=interpolation)[0]
+
+    def get_entry_with_derivative(self, key, time, interpolation=False):
+        """Select time series data and derivative corresponding to the specified time.
 
         Parameters
         ----------
@@ -140,12 +151,13 @@ class Timeseries:
 
         Returns
         -------
-        dict or None
-            Dictionary containing the latest data for the specified
-            key, or None if no data is available.
+        (data, derivative) : tuple of (dict or None, dict or None)
+            Dictionaries containing the latest data and derivative for the specified
+            key, or (None, None) if no data is available.
         """
         if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
             current_data = {}
+            current_derivative = {}
 
             # Select latest data before the current time.
             dataset_before = self.datasets[key].sel(
@@ -156,6 +168,8 @@ class Timeseries:
                 current_data[var] = dataset_before[
                     self.storage_bases[key].kind + "_" + var
                 ].values.flatten()
+                # Default derivative is zero if no next point
+                current_derivative[var] = np.zeros_like(current_data[var])
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
@@ -164,31 +178,23 @@ class Timeseries:
                 dataset_after = self.datasets[key].sel(
                     time=[time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
-                for var in self.variables[key]:
-                    current_data[var] += (
-                        (time - dataset_before.time.item())
-                        / (dataset_after.time.item() - dataset_before.time.item())
-                        * (
-                            dataset_after[
-                                self.storage_bases[key].kind + "_" + var
-                            ].values.flatten()
-                            - dataset_before[
-                                self.storage_bases[key].kind + "_" + var
-                            ].values.flatten()
-                        )
-                    )
+                
+                dt = float(dataset_after.time.item() - dataset_before.time.item())
+                if dt > 0:
+                     factor = (time - dataset_before.time.item()) / dt
+                     for var in self.variables[key]:
+                        y0 = dataset_before[self.storage_bases[key].kind + "_" + var].values.flatten()
+                        y1 = dataset_after[self.storage_bases[key].kind + "_" + var].values.flatten()
+                        
+                        slope = (y1 - y0) / dt
+                        
+                        current_data[var] += factor * (y1 - y0) # Optimized interp
+                        current_derivative[var] = slope
 
-            return current_data
+            return current_data, current_derivative
         else:
             # No data available for the specified time.
-            return None
+            return None, None
 
     def save(self, key, io):
-        """Save a timeseries to NetCDF file.
-
-        Parameters
-        ----------
-        key : str
-            The key identifying which timeseries to save.
-        """
         io.save_dataset(self.datasets[key].reset_index("i"), key)

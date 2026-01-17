@@ -95,6 +95,9 @@ class GLBasis(GridBasis):
         self._weights = (
             np.tile(self.w_theta[:, None], (1, self.n_phi)) * self.w_phi
         ).flatten()
+        
+        # Attach weights to grid for integration purposes (used by ToroidalSystemMatrices)
+        self._grid.weights = self._weights
 
         logger.info(
             f"GLBasis initialized: Nmax={Nmax}, res={self.res}, "

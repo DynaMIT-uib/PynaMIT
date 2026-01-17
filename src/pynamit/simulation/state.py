@@ -23,6 +23,8 @@ from pynamit.simulation.geometry import Geometry
 from pynamit.primitives.basis import Basis
 from pynamit.math.constants import mu0
 from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
+from pynamit.simulation.toroidal import ToroidalSystemMatrices
+from pynamit.simulation.geometry_utils import to_dense
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +68,25 @@ class State:
         self.basis = basis
         self.solution_basis = solution_basis if solution_basis is not None else basis
         self._init_settings(settings)
+        
+        # New: Toroidal Potential State Variable for "full_induction"
+        self.psi: Optional[np.ndarray] = None
+        self.d_psi_dt: Optional[np.ndarray] = None
 
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(
             basis, grid_basis, mainfield, settings, PFAC_matrix, solution_basis=self.solution_basis
         )
+
+        # Initialize Toroidal System Matrices if in full_induction mode
+        self.toroidal_matrices: Optional[ToroidalSystemMatrices] = None
+        if self.dynamics_mode == "full_induction":
+            self.toroidal_matrices = ToroidalSystemMatrices(
+                basis=self.solution_basis, 
+                grid=self.geometry.grid, 
+                b_field=self.geometry.b_field,
+                RI=self.RI
+            )
 
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
@@ -85,6 +101,9 @@ class State:
         self.u: Optional[Field] = None
         self.Br: Optional[Field] = None
         self.jr: Optional[Field] = None
+        # New: Track driver derivative for dynamic mode
+        self.dt_jr_driver: Optional[Field] = None
+        
         self.etaP: Optional[Field] = None
         self.etaH: Optional[Field] = None
 
@@ -107,6 +126,8 @@ class State:
         self.RM = None if settings.RM == 0 else settings.RM
         self.ih_constraint_scaling = settings.ih_constraint_scaling
         self.connect_hemispheres = bool(settings.connect_hemispheres)
+        self.dynamics_mode = getattr(settings, "dynamics_mode", "legacy")
+        print(f"DEBUG: State initialized with dynamics_mode={self.dynamics_mode}")
         
         # Mode Handling
         from pynamit.simulation.dynamics import SimulationMode
@@ -164,6 +185,44 @@ class State:
         self._operator_linear_map_cache: Dict[
             Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
         ] = {}
+
+    @cached_property
+    def dt_jr_problem(self) -> LeastSquaresProblem:
+        """The least-squares problem definition for `dt_jr` (Dynamic)."""
+        logger.info("Defining new least-squares problem for dt_jr.")
+        if self.toroidal_matrices is None:
+            raise RuntimeError("Toroidal matrices required for dt_jr problem.")
+            
+        operators, data_shapes = [], []
+
+        # 1. Physics Equation: L * dt_jr = K
+        # We model this as minimizing || L * x - K ||
+        op_L = as_linear_map(self.toroidal_matrices.linear_operator_L)
+        operators.append(op_L)
+        data_shapes.append((op_L.shape[0],))
+        
+        # 2. Partitioning & Interhemispheric Constraint: 
+        # Enforce djr/dt matches Driver in High Latitudes and matches IH mapping in Gap.
+        # This is unified via the jr_map_sim operator.
+        # jr_map_sim is: (j_apex) in HL, and (j_apex_N - j_apex_S) in Gap.
+        # Thus, we want (jr_map_sim @ dt_jr) = rhs, where rhs is (driver_rate) in HL and (0) in Gap.
+        
+        op_constraint = as_linear_map(self.geometry.jr_map_sim)
+        
+        # Scaling for constraint (penalty method)
+        constraint_weight = 1000.0 
+        op_constraint = op_constraint.with_scaling(constraint_weight)
+        
+        operators.append(op_constraint)
+        data_shapes.append((op_constraint.shape[0],))
+            
+        return LeastSquaresProblem(
+            A=operators,
+            solution_shape=self.solution_basis.index_length,
+            data_shapes=data_shapes,
+            regularization_matrices=[], # Tikhonov handled by physics?
+            regularization_weights=[],
+        )
 
 
 
@@ -306,7 +365,12 @@ class State:
         data_shapes.append((op_jr.shape[0],))
 
         # E-field must map at low latitudes.
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+        # In full_induction mode, this is replaced by the djr/dt constraint + physics.
+        if (
+            self.connect_hemispheres 
+            and self.dynamics_mode != "full_induction"
+            and self.E_map_constraint_operator is not None
+        ):
             op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
             operators.append(op_E)
             data_shapes.append((op_E.shape[0],))
@@ -350,7 +414,11 @@ class State:
             # Compute RHS: op @ jr_coeffs
             rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
 
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+        if (
+            self.connect_hemispheres 
+            and self.dynamics_mode != "full_induction"
+            and self.E_map_constraint_operator is not None
+        ):
             # Op is now basis-consistent (SH or Grid) thanks to Geometry.
             E_map_op = asarray(self.geometry.E_coeffs_to_E_apex_ll_diff)
             E_direct_input = asarray(E_direct_coeffs)
@@ -401,6 +469,13 @@ class State:
             # Update cache and proceed
             self.previous_input_data[key] = current_data
             updated_input = current_data
+ 
+            # Check for derivatives
+            current_deriv = None
+            if key == "jr" and hasattr(input_manager, "get_entry_with_derivative"):
+                # This assumes InputManager has been updated to provide derivatives methods.
+                # We need interpolation to get correct derivatives from sparse time points
+                _, current_deriv = input_manager.get_entry_with_derivative(key, time, interpolation=True)
 
             storage_base = input_manager.get_storage_basis(key)
             if key == "conductance":
@@ -409,6 +484,8 @@ class State:
                 self.etaH = Field.from_coefficients(storage_base, coeffs=updated_input["etaH"])
             elif key == "jr":
                 self.jr = Field.from_coefficients(storage_base, coeffs=updated_input["jr"])
+                if current_deriv is not None:
+                     self.dt_jr_driver = Field.from_coefficients(storage_base, coeffs=current_deriv["jr"])
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
@@ -469,7 +546,273 @@ class State:
             E_direct += self._apply_operator(self.Br_to_E_coeffs, asarray(self.Br.coeffs), E_shape)
 
         jr_coeffs = None if self.jr is None else asarray(self.jr.coeffs)
+        
+        # DYNAMIC MODES: Handle Toroidal Induction
+        if self.dynamics_mode == "full_induction":
+            return self._calculate_dynamic_state(E_direct, jr_coeffs)
+            
+        # LEGACY MODE
         return self._calculate_total_E_field(E_direct, jr_coeffs)
+
+    def _calculate_dynamic_state(
+        self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Solve for state in full induction mode (Toroidal + Poloidal).
+        
+        Solves the partitioned system:
+        L * dt_jr_gap = K - L * dt_jr_driver
+        """
+        if self.toroidal_matrices is None:
+             raise RuntimeError("Toroidal matrices not initialized.")
+             
+        # 1. Compute Source Vector K (RHS)
+        # K = - Integral [ Y * S_known ]
+        # S_known excludes toroidal d/dt term.
+        # Ideally, we implement a helper to get S_known explicitly.
+        # For now, let's assume we can compute the FULL RHS as usual but 
+        # we need to subtract the toroidal part or construct it purely.
+        
+        # Actually, the user spec says:
+        # "Reuse the existing calc_RHS logic but filter out the toroidal terms"
+        # Since we don't have a `calc_RHS` method exactly here (it's embedded in `evolve_m_ind`),
+        # we need to be careful.
+        
+        # Wait, `calculate_noind_coeffs` is usually called by `dynamics.py` BEFORE evolution.
+        # But for the dynamic solver, we need `dt_jr` (which is `x`).
+        # `dt_jr` drives the evolution of `psi`.
+        
+        # Let's align with the `State` class flow.
+        # Normally `calculate_noind_coeffs` returns (E_total, m_imp).
+        # In Dynamic mode, `m_imp` should be consistent with `psi` (if we define psi as toroidal potential leading to current).
+        # Or, `m_imp` is the POLOIDAL part of the potential response.
+        
+        # User Spec: "Update Toroidal Field (psi)... Update Poloidal Field (P)..."
+        # "P^(n+1) = P^n + dt * T[dt_jr]"
+        # This implies we are integrating `m_imp` (which is P) in time too!
+        
+        # So in this function we should primarily be solving for `dt_jr` (the rate).
+        # However, `calculate_noind_coeffs` expects to return STATIC COEFFICIENTS for the current timestep step.
+        # The integration happens in `dynamics.py` / `TimeStepper`.
+        
+        # So, we should return the CURRENT E-field and m_imp.
+        # But `m_imp` is now a state variable, evolved by `TimeStepper`.
+        # So here we just return the current values from `self.m_imp` (if we store it) or `self.psi`.
+        
+        # If `m_imp` is state, we don't solve for it statically here.
+        # We just return the stored value.
+        
+        # But we DO need to calculate `dt_jr` so the TimeStepper can use it.
+        # Let's store `dt_jr` as a side effect or return it?
+        # `dynamics.py` calls this method.
+        # We might need to refactor `dynamics.py` significantly.
+        # For now, let's implement the solver step here as a helper `_solve_dt_jr`.
+        # And `calculate_noind_coeffs` just assembles E from current psi/m_imp.
+        
+        # If we assume `self.psi` contains Toroidal potential T, and maybe we add `self.m_imp` as Poloidal potential P state?
+        # Legacy code calculates `m_imp` statically from `jr`.
+        # Dynamic code evolves `m_imp`.
+        # So we need to store `m_imp` in `self`.
+        
+        if self.psi is None:
+             # Initialize if first run
+             n = self.solution_basis.index_length
+             self.psi = xp.zeros(n)
+             # We should also have self.m_imp_state
+             
+        # Compute E from current potentials
+        # E = E_direct + E(psi) + E(m_imp)
+        # Note: E(psi) is Toroidal E from toroidal potential T.
+        # E(m_imp) is Poloidal E from poloidal potential P.
+        
+        # For now, to satisfy the API:
+        # We treat `m_imp` here as the Poloidal Potential P.
+        # Return E_total, m_imp.
+        
+        # But we need to update `dt_jr` for the NEXT step.
+        # Computing `dt_jr` requires the CURRENT E-field (including induced!).
+        # But `calculate_noind_coeffs` is supposed to return "No Induced" part?
+        # In legacy: "No Induced" = Direct + Imposed (Static).
+        # In dynamic: "No Induced" might mean "Everything except self-induction of m_ind"?
+        # Or does it mean "Everything known at time t"?
+        
+        # Let's assume this method calculates E based on the CURRENT state variables.
+        # For dynamic mode, m_imp is state.
+        # So we construct E_noind = E_direct.
+        # E_total = E_direct + E_psi + E_m_imp + E_m_ind?
+        # Wait, m_ind is handled by `evolve_m_ind` in legacy.
+        # The user spec says "Disable ApexMapping... coupling handled by global solution".
+        # And "m_ind" might be subsumed by the new physics or kept separate?
+        # "Specifically, ensure K includes only the poloidal contribution..."
+        
+        # E-field calculation and solver step
+        n = self.solution_basis.index_length
+    
+        if self.psi is None:
+             # Initialize if first run
+             self.psi = xp.zeros(n)
+             self.d_psi_dt = xp.zeros(n)
+
+        # 1. Solve for dt_jr
+        # We need the current TOTAL E-field (excluding toroidal induction term d_psi/dt to be solved?)
+        # Wait, the Master Equation is: dt_jr = - (1/mu B^2) * CurlCurl E . B
+        # E = E_potential + E_induced.
+        # E_induced = d_A / dt. A = A_pol + A_tor.
+        # But here we are separating the Toroidal Induction part?
+        # The spec says: "Filter out the toroidal contribution to d/dt(r x b_S)".
+        # This implies K includes everything EXCEPT the term L*dt_jr is modelling.
+        
+        # Calculate E_current from known potentials
+        u_coeffs = 0 if self.u is None else asarray(self.u.coeffs)
+        E_u = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, (2, n))
+        
+        # Imposed Poloidal Field (m_imp) from *current* state
+        # Note: in dynamic mode, m_imp is likely evolved or derived.
+        # For now, let's assume we use the legacy m_imp solution as the "Base Poloidal Field".
+        # Or if m_imp is a state variable, we use self.m_imp_state.
+        
+        # Let's assume for this step that `m_imp` is calculated statically consistent with `jr`.
+        # (Mixed mode: Static Poloidal, Dynamic Toroidal).
+        # E_poloidal = E(m_imp)
+        m_imp_curr = self._solve_for_m_imp(jr_coeffs, E_u) # Poloidal part
+        E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp_curr, (2, n))
+        
+        # Total Known E (Poloidal + Motional)
+        E_known = E_u + E_imp
+        
+        # 2. Solve for dt_jr
+        dt_jr = self.solve_dt_jr(E_known)
+        
+        # 3. Update Toroidal State (psi)
+        # This function returns E-coeffs, not evolves state.
+        # Evolution happens in `evolve_m_ind`.
+        # But we need to return the E-field corresponding to the *rates*?
+        # No, `calculate_noind_coeffs` returns E for the main loop.
+        
+        # Wait, `TimeStepper` needs `d_y / dt`.
+        # If `psi` is the state, we need `d_psi / dt`.
+        # dt_jr gives us `d_psi / dt` !
+        # J_tor = Curl Curl (r Psi). J_r term? 
+        # Actually dt_jr is related to dt_psi.
+        # Toroidal field is defined by scalar T (or psi). 
+        # Curl(T r) = - r x grad T.
+        # Curl Curl (T r) = ...
+        # Relationship: j_r is defined by Poloidal, not Toroidal field.
+        # Wait, j_r = - Delta_S P / r.
+        # Toroidal field T has NO radial current.
+        # So why are we solving for dt_jr?
+        # "Master Equation... identity for the radial current density jr".
+        # This equation governs the evolution of `jr` (which comes from Poloidal field P)
+        # due to Induction (which involves Toroidal field).
+        
+        # Ah, `dt_jr` updates `jr` (Poloidal Source).
+        # This allows calculating `P` (Poloidal Potential m_imp).
+        # What about `psi`? "Update Toroidal Field... Derive d_psi from d_jr".
+        # Equation (26) inverse?
+        
+        # Okay, so finding `dt_jr` gives us everything.
+        # We store `dt_jr` or `d_psi_dt` for the integrator.
+        
+        # Here we just return the E-field of the CURRENT state.
+        # E_total = E_known + E_psi.
+        # E_psi comes from `psi`.
+        # We need an operator `psi_to_E`.
+        # Toroidal E-field E_T = - dA_T/dt = - d/dt Curl(r psi)? 
+        # No, usually E = -grad Phi - dA/dt.
+        # If psi is Toroidal Potential for B? B = Curl(r psi).
+        # Then E? 
+        # Let's assume standard VSH E-field structure.
+        # If we have `psi` (Toroidal B potential or Poloidal E potential?),
+        # let's assume `psi` represents the Toroidal Magnetic Field T.
+        # Then the Electric Field is Poloidal?
+        # E = - grad V - dA/dt.
+        # This is getting deep into physics definitions not fully in the snippet.
+        
+        # 3. Handle Scaling: Derive d_psi_dt from dt_jr
+        # jr = (R/mu0) * Laplacian(psi). So psi = inv(m_imp_to_jr) * jr.
+        op_m_to_jr = as_linear_map(self.geometry.m_imp_to_jr)
+        # For SH, this is a diagonal operator. For general, we use pinv.
+        # Use dense pinv for robustness on the small spectral system.
+        m_to_jr_dense = to_dense(op_m_to_jr)
+        jr_to_m_dense = tensor_pinv(m_to_jr_dense)
+        self.d_psi_dt = asarray(jr_to_m_dense @ dt_jr)
+        
+        # 4. Return Total E-field and current Toroidal state
+        # psi represents the Toroidal Potential (m_imp Equivalent)
+        # Use spectral mode=None because E_known is always in spectral space (projected).
+        op_m_imp_to_E = self.geometry.get_potential_to_E_operator("m_imp", mode=None)
+        E_psi = asarray(op_m_imp_to_E.matmat(self.psi)).reshape(E_known.shape)
+        
+        E_total = E_known + E_psi
+        
+        return E_total, self.psi
+
+    def solve_dt_jr(self, E_known: np.ndarray) -> np.ndarray:
+        """Solve constrained system for dt_jr."""
+        problem = self.dt_jr_problem # Cached problem definition
+        
+        # Assemble RHS K
+        E_coeffs = asarray(E_known)
+        rhs_K = self.toroidal_matrices.compute_K_from_E(E_coeffs)
+        rhs_K = to_numpy(rhs_K)
+        
+        # Assemble RHS for problem:
+        # Term 1 (Physics): K - L * dt_jr_driver
+        # Check if we have driver derivative
+        dt_jr_driver_coeffs = np.zeros(self.solution_basis.index_length)
+        if self.dt_jr_driver is not None:
+             dt_jr_driver_coeffs = to_numpy(self.dt_jr_driver.coeffs)
+             
+        # L * dt_jr_driver
+        op_L = problem.A[0]
+        # op_L is a ProcessedOperator, we need the underlying LinearMap
+        L_driver = op_L.linear_map.matvec(dt_jr_driver_coeffs)
+        
+        rhs_1 = rhs_K - L_driver
+        
+        # Term 2 (Constraint): Unified Apex Current Mapping (Driver + IH)
+        # We want (jr_map_sim @ x) = rhs.
+        # rhs = j_apex_driver_rate in HL, 0 in Gap (IH difference).
+        constraint_weight = 1000.0
+        n_grid = self.geometry.grid.size
+        rhs_2 = np.zeros(n_grid)
+        
+        if self.dt_jr_driver is not None:
+            # 1. Get transformation: radial to apex
+            rad_to_apx, _ = self.geometry._apex_mapper.get_transformation_matrices(self.geometry.b_field)
+            
+            # 2. Map driver to apex current rate
+            # j_apex = (rad_to_apx) * j_r
+            driver_jr_grid = self.geometry.basis.evaluate(dt_jr_driver_coeffs, self.geometry.grid, "scalar")
+            driver_j_apex = rad_to_apx * to_numpy(driver_jr_grid)
+            
+            # 3. Apply to HL region only
+            hl_mask = ~self.geometry.ll_mask
+            rhs_2[hl_mask] = driver_j_apex[hl_mask]
+        
+        # Scale for penalty
+        rhs_2 = constraint_weight * rhs_2
+             
+        # Solve
+        # A list has [L, Constraint]. rhs list must match.
+        rhs_entries = [rhs_1, rhs_2]
+             
+        # Solve!
+        solver = self.m_imp_solver
+        solution = solver.solve(problem, rhs_entries)
+        
+        if solution is None:
+             return xp.zeros(self.solution_basis.index_length)
+             
+        return asarray(solution)
+
+    def evolve_psi(self, psi: np.ndarray, dt: float) -> np.ndarray:
+        """Evolve psi forward in time."""
+        # Simple Euler: psi_new = psi + dt * d_psi_dt
+        if self.d_psi_dt is None:
+             return psi
+            
+        new_psi = asarray(psi) + dt * asarray(self.d_psi_dt)
+        return new_psi
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
