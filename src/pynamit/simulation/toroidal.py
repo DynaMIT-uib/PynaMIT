@@ -63,7 +63,7 @@ class ToroidalSystemMatrices:
             self.gaunt_engine = GauntEngine(basis)
 
     @cached_property
-    def one_over_Br_regularized(self) -> np.ndarray:
+    def inverse_radial_field(self) -> np.ndarray:
         """Compute regularized 1/Br on the grid.
         
         Regularization: 1/B0r -> B0r / (B0r^2 + eps^2)
@@ -74,15 +74,15 @@ class ToroidalSystemMatrices:
         return Br / (Br**2 + epsilon**2)
 
     @cached_property
-    def mass_matrix_C(self) -> np.ndarray:
-        """Construct Mass Matrix C.
+    def inertia_matrix(self) -> np.ndarray:
+        """Construct Inertia Matrix C.
         
         C_lm,l'm' = mu0 * Integral [ Y_lm * (|B0|^2 / B0r) * Y_l'm' ]
         """
-        logger.info("Building Toroidal Mass Matrix C...")
+        logger.info("Building Toroidal Inertia Matrix...")
         
         B2 = self.b_field.magnitude**2
-        factor = B2 * self.one_over_Br_regularized
+        factor = B2 * self.inverse_radial_field
         
         if self.is_cs:
             # CS Basis is Nodal/FV. Mass matrix is diagonal: Weights * Factor.
@@ -110,15 +110,15 @@ class ToroidalSystemMatrices:
         return mu0 * asarray(M_factor)
 
     @cached_property
-    def mapping_operator_D1(self) -> np.ndarray:
-        """Construct Mapping Operator D1.
+    def advection_derivative(self) -> np.ndarray:
+        """Construct Advection Derivative Operator D1.
         
         Maps dt_jr -> partial_r(dt_jr).
         
         Term 1: Y_l'm' * (d_r B0r / B0r)
         Term 2: - (1/Rb) * B0s . grad( Y_l'm' / B0r )
         """
-        logger.info("Building Mapping Operator D1...")
+        logger.info("Building Advection Derivative Operator D1...")
         
         if self.is_cs:
             # CS Implementation:
@@ -141,7 +141,7 @@ class ToroidalSystemMatrices:
             dr_Br_grid = self.b_field.vec.r * dr_factor
             
             # Term 1 factor
-            term1_grid_factor = dr_Br_grid * self.one_over_Br_regularized
+            term1_grid_factor = dr_Br_grid * self.inverse_radial_field
             
             # Gradients on Grid
             G_th = self.basis.get_G(self.grid, derivative="theta")
@@ -149,7 +149,7 @@ class ToroidalSystemMatrices:
             
             # Term 2 factors
             inv_Rb = 1.0 / self.RI
-            inv_Br = self.one_over_Br_regularized
+            inv_Br = self.inverse_radial_field
             
             B_theta = to_numpy(self.b_field.vec.theta).flatten()
             B_phi = to_numpy(self.b_field.vec.phi).flatten()
@@ -211,7 +211,7 @@ class ToroidalSystemMatrices:
         dr_Br_coeffs = Br_coeffs * dr_factor
         dr_Br_grid = self.basis.evaluate(dr_Br_coeffs, self.grid, "scalar")
         
-        term1_grid_factor = dr_Br_grid * self.one_over_Br_regularized
+        term1_grid_factor = dr_Br_grid * self.inverse_radial_field
         
         # --- Term 2 ---
         
@@ -230,7 +230,7 @@ class ToroidalSystemMatrices:
         
         # Grid factors
         inv_Rb = 1.0 / self.RI
-        inv_Br = self.one_over_Br_regularized
+        inv_Br = self.inverse_radial_field
         
         # Gradient of 1/B0r on grid
         # We can compute it numerically or via spectral. Let's use spectral for consistency.
@@ -257,8 +257,8 @@ class ToroidalSystemMatrices:
         # D1 = P @ Total_Grid_Op
         return asarray(P @ Total_Grid_Op)
 
-    def compute_K_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
-        """Compute RHS vector K from Known E-field.
+    def compute_source_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
+        """Compute Source vector K from Known E-field.
         
         K = - Integral [ Y_lm * (Curl Curl E) . B0 ]
         
@@ -444,8 +444,8 @@ class ToroidalSystemMatrices:
         return xp.zeros(self.basis.index_length)
 
     @cached_property
-    def stiffness_matrices(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Construct Stiffness Matrices M0 and M1.
+    def advection_matrices(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Construct Advection Matrices M0 and M1.
         
         M0_lm,l'm' = Integrate[ Y_lm * (B0s . grad Y_l'm') * (2 mu0 / (l'(l'+1))) ]
         M1_lm,l'm' = Integrate[ Y_lm * (B0s . grad Y_l'm') * (-mu0 Rb / (l'(l'+1))) ]
@@ -456,7 +456,7 @@ class ToroidalSystemMatrices:
         
         And then scaling depends on column index l'.
         """
-        logger.info("Building Stiffness Matrices M0 and M1...")
+        logger.info("Building Advection Matrices M0 and M1...")
         
         if self.is_cs:
             # CS Implementation:
@@ -554,11 +554,11 @@ class ToroidalSystemMatrices:
         return asarray(M0), asarray(M1)
 
     @cached_property
-    def linear_operator_L(self) -> np.ndarray:
+    def system_matrix(self) -> np.ndarray:
         """Assemble total System Matrix L = C + M0 + M1 * D1."""
-        M0, M1 = self.stiffness_matrices
-        D1 = to_numpy(self.mapping_operator_D1) # D1 is built via projection, usually numpy/xp
-        C = to_numpy(self.mass_matrix_C)
+        M0, M1 = self.advection_matrices
+        D1 = to_numpy(self.advection_derivative) # D1 is built via projection, usually numpy/xp
+        C = to_numpy(self.inertia_matrix)
         
         # M1 * D1
         M1_D1 = M1 @ D1
@@ -610,7 +610,7 @@ class ToroidalSystemMatrices:
             minimize || A @ dt_jr - b ||^2
 
         Where A consists of:
-        1. Physics equation: L @ dt_jr = K (where L = C + M0 + M1*D1)
+            1. Physics equation: L @ dt_jr = K (where L = C + M0 + M1*D1)
         2. Apex current constraint: jr_map @ dt_jr = driver_rate
         3. Tikhonov regularization (if lambda > 0)
 
@@ -637,7 +637,7 @@ class ToroidalSystemMatrices:
         data_shapes = []
 
         # 1. Physics equation: L @ dt_jr = K
-        op_L = as_linear_map(self.linear_operator_L)
+        op_L = as_linear_map(self.system_matrix)
         operators.append(op_L)
         data_shapes.append((op_L.shape[0],))
 
@@ -664,7 +664,7 @@ class ToroidalSystemMatrices:
             regularization_weights=reg_weights,
         )
 
-    def compute_rhs_physics(
+    def compute_forcing_vector(
         self,
         E_coeffs: np.ndarray,
         dt_jr_driver_coeffs: Optional[np.ndarray] = None,
@@ -672,7 +672,7 @@ class ToroidalSystemMatrices:
         """Compute RHS for the physics equation term.
 
         RHS = K - L @ dt_jr_driver
-
+        
         Where K is computed from E-field and L @ dt_jr_driver accounts
         for the known driver contribution.
 
@@ -691,12 +691,12 @@ class ToroidalSystemMatrices:
             RHS vector for the physics term.
         """
         # Compute K from E-field
-        K = self.compute_K_from_E(E_coeffs)
+        K = self.compute_source_from_E(E_coeffs)
         K = to_numpy(K)
 
         # Subtract driver contribution if present
         if dt_jr_driver_coeffs is not None:
-            L = to_numpy(self.linear_operator_L)
+            L = to_numpy(self.system_matrix)
             L_driver = L @ to_numpy(dt_jr_driver_coeffs)
             K = K - L_driver
 

@@ -846,7 +846,7 @@ class State:
         # Term 1 (Physics): K - L * dt_jr_driver
         # Delegate to toroidal_matrices
         E_coeffs = asarray(E_known)
-        rhs_1 = self.toroidal_matrices.compute_rhs_physics(E_coeffs, dt_jr_driver_coeffs)
+        rhs_1 = self.toroidal_matrices.compute_forcing_vector(E_coeffs, dt_jr_driver_coeffs)
 
         # Term 2 (Constraint): Unified Apex Current Mapping (Driver + IH)
         # We want (jr_map_sim @ x) = rhs.
