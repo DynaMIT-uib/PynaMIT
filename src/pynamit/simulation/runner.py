@@ -44,16 +44,15 @@ def run_pynamit(
     dynamics_mode: str = "legacy",
     mainfield_epoch: int = 2020,
     use_exact_weights: bool = False,
+    filename_prefix: Optional[str] = None,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
     Parameters
     ----------
     ...
-    use_exact_weights : bool, optional
-        Whether to compute and use exact quadrature weights for the input grids.
-        Only applies if the input grids are regular (iso-latitude).
-        Default is False.
+    filename_prefix : str, optional
+        Prefix for output files.
     """
     import datetime
     import numpy as np
@@ -118,7 +117,7 @@ def run_pynamit(
         RI = RE + 110.0e3
         
     dynamics = Dynamics(
-        filename_prefix=None,
+        filename_prefix=filename_prefix,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
@@ -146,6 +145,7 @@ def run_pynamit(
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
     time = np.linspace(0, final_time, 4) if multi_data else None
+
 
     conductance_lat = dynamics.state.geometry.grid.lat
     conductance_lon = dynamics.state.geometry.grid.lon

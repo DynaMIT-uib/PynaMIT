@@ -185,9 +185,13 @@ class Dynamics:
         if self.settings.solution_basis_kind == "CS":
             solution_basis = cs_basis
             state_output_basis = cs_basis
+            print(f"DEBUG: Selected CSBasis. Ncs={self.settings.Ncs}. Size={cs_basis.size if hasattr(cs_basis, 'size') else '?'}")
         else:
             solution_basis = sh_basis_zero_removed
             state_output_basis = sh_basis_zero_removed
+            print(f"DEBUG: Selected SHBasis. Nmax={self.settings.Nmax}. Size={sh_basis_zero_removed.size if hasattr(sh_basis_zero_removed, 'size') else '?'}")
+
+        print(f"DEBUG: Dynamics initialized. Mode={simulation_mode}. SolutionBasisKind={self.settings.solution_basis_kind}. Storage Basis Size={state_output_basis.size if hasattr(state_output_basis,'size') else '?'}")
 
         self.output_storage_bases = {
             "state": state_output_basis,
@@ -216,7 +220,7 @@ class Dynamics:
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            basis=sh_basis_zero_removed,
+            basis=solution_basis,
             mainfield=self.mainfield,
             grid_basis=grid_basis,
             settings=self.settings,

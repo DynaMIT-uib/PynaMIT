@@ -137,7 +137,7 @@ class PFACIntegrator:
         rks = rk_steps[:-1] + 0.5 * Delta_k
 
         # Integration backbone (spectral space)
-        G_inv_sh = tensor_pinv(G_Ve_to_JS_sh, n_leading_flattened=2, rtol=0).reshape(n_sh, -1)
+        G_inv_sh = tensor_pinv(G_Ve_to_JS_sh, n_leading_flattened=2, rtol=1e-12).reshape(n_sh, -1)
 
         # Source operator factor: RI/mu0 * Laplacian
         m_imp_to_jr_sh_op = (self.RI / mu0) * to_dense(self.basis.get_laplacian_operator(self.RI))
@@ -161,7 +161,7 @@ class PFACIntegrator:
             # Map integrated SH coefficients back to solver coefficients (hybrid)
             E_sh = to_dense(self.basis.get_evaluation_matrix(grid))
             E_sol = to_dense(self.solution_basis.get_evaluation_matrix(grid))
-            P_sol = tensor_pinv(E_sol, rtol=0)
+            P_sol = tensor_pinv(E_sol, rtol=1e-12)
             T_to_Ve.values = (P_sol @ E_sh) @ T_accum
 
         return T_to_Ve

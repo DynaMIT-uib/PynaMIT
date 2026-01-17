@@ -233,7 +233,7 @@ class InputManager:
                         reg_lambda=reg_lambda,
                         pinv_rtol=pinv_rtol,
                     )
-
+                
                 interpolated_data[var] = coeffs
 
             self.timeseries.add_entry(key, interpolated_data, time[time_index])

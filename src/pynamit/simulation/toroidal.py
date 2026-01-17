@@ -57,7 +57,10 @@ class ToroidalSystemMatrices:
              # But the code should be robust.
              pass
 
-        self.gaunt_engine = GauntEngine(basis)
+        
+        self.is_cs = (getattr(self.basis, "kind", "") == "CS")
+        if not self.is_cs:
+            self.gaunt_engine = GauntEngine(basis)
 
     @cached_property
     def one_over_Br_regularized(self) -> np.ndarray:
@@ -81,6 +84,21 @@ class ToroidalSystemMatrices:
         B2 = self.b_field.magnitude**2
         factor = B2 * self.one_over_Br_regularized
         
+        if self.is_cs:
+            # CS Basis is Nodal/FV. Mass matrix is diagonal: Weights * Factor.
+            # Factor is defined on the grid.
+            weights = self.grid.weights if hasattr(self.grid, "weights") else xp.ones(self.grid.size)
+            # Ensure shape match
+            if weights.size != factor.size:
+                 # Fallback if grid sizes mismatched?
+                 raise RuntimeError(f"Grid size mismatch in CS Mass Matrix: {weights.size} vs {factor.size}")
+            
+            # C_ii = mu0 * weight_i * factor_i
+            # Return sparse diagonal or dense diagonal
+            # We assume factor is on grid corresponding to basis nodes
+            C = xp.diag(mu0 * weights * factor)
+            return C
+
         # Scalar interaction matrix
         # Projects factor to spectral coeffs, then builds multiplication matrix
         factor_coeffs = self.basis.from_grid_values(factor, self.grid, "scalar")
@@ -102,12 +120,75 @@ class ToroidalSystemMatrices:
         """
         logger.info("Building Mapping Operator D1...")
         
+        if self.is_cs:
+            # CS Implementation:
+            # D1 = (Identity) @ Total_Grid_Op (since we are on Grid Basis)
+            # We need to construct the operator matrix directly or lazily.
+            # But the structure requires a MATRIX return.
+            # Total_Grid_Op = Diag(T1) + Diag(T2b) + Diag(T2a_scale) * (B_th @ G_th + B_ph @ G_ph)
+            
+            # 1. dr_B0r term
+            # For CS, we don't have 'l'. Assume Dipole scaling?
+            # Dipole: dr_Br = -3/r Br. (Since Br ~ 1/r^3).
+            # Wait, Br = 2 M cos theta / r^3.
+            # dBr/dr = -3 * 2 M cos theta / r^4 = -3/r * Br.
+            # Generally for potential field of degree l: dr_Br = -(l+2)/r Br.
+            # If we don't know 'l' locally, we must assume a dominant length scale or provided gradient.
+            # For now, assume Dipole (l=1) -> -3/r.
+            dr_factor = -3.0 / self.RI # Default assumption
+            # TODO: Improve this with RadialGradientOperator from Basis if available
+            
+            dr_Br_grid = self.b_field.vec.r * dr_factor
+            
+            # Term 1 factor
+            term1_grid_factor = dr_Br_grid * self.one_over_Br_regularized
+            
+            # Gradients on Grid
+            G_th = self.basis.get_G(self.grid, derivative="theta")
+            G_ph = self.basis.get_G(self.grid, derivative="phi")
+            
+            # Term 2 factors
+            inv_Rb = 1.0 / self.RI
+            inv_Br = self.one_over_Br_regularized
+            
+            B_theta = to_numpy(self.b_field.vec.theta).flatten()
+            B_phi = to_numpy(self.b_field.vec.phi).flatten()
+            
+            # Gradient of 1/Br
+            grad_inv_Br_th = G_th @ inv_Br
+            grad_inv_Br_ph = G_ph @ inv_Br
+            
+            # Term 2b factor
+            val_2b = -inv_Rb * (B_theta * grad_inv_Br_th + B_phi * grad_inv_Br_ph)
+            
+            # Term 2a scale
+            scale_2a = -inv_Rb * inv_Br
+            
+            # Construct Sparse Matrix
+            # Diagonals
+            Diag_T1 = scipy.sparse.diags([term1_grid_factor], [0])
+            Diag_T2b = scipy.sparse.diags([val_2b], [0])
+            Diag_Scale2a = scipy.sparse.diags([scale_2a], [0])
+            
+            # Advection Operator
+            # Op_adv = Diag(B_th) @ G_th + Diag(B_ph) @ G_ph
+            Op_adv = scipy.sparse.diags([B_theta], [0]) @ G_th + scipy.sparse.diags([B_phi], [0]) @ G_ph
+            
+            Total_Grid_Op = Diag_T1 + Diag_T2b + (Diag_Scale2a @ Op_adv)
+            
+            print(f"DEBUG: D1 Total_Grid_Op type: {type(Total_Grid_Op)}, shape: {Total_Grid_Op.shape}")
+            
+            # Return dense matrix to ensure compatibility with to_numpy/matmul downstream
+            if scipy.sparse.issparse(Total_Grid_Op):
+                return Total_Grid_Op.toarray()
+            return Total_Grid_Op
+
+        # --- SH Implementation (Spectral) ---
         n_sh = self.basis.index_length
         # Note: This is an operator acting on coefficients.
-        # It's complex to build entirely in spectral space efficiently without explicit Quadrature
-        # if the terms are non-polynomial.
-        # We will use a Grid-based approach: Transform -> Operate on Grid -> Transform back.
-        # But we need the OPERATOR matrix.
+        # ... (rest of SH logic)
+        
+        # ...
         
         # Approach:
         # 1. Evaluate Basis Y on Grid: G
@@ -118,41 +199,12 @@ class ToroidalSystemMatrices:
         
         # --- Term 1 ---
         # Grid factor: f1 = dr_B0r * (1/B0r)_reg
-        # We need dr_B0r. For dipole, it's known, but we should use general form if possible.
-        # Assuming b_field object might have gradients or we use numerical diff?
-        # For now, let's assume we can get it or approximate it from potential.
-        # Actually, Mainfield usually provides B, but maybe not radial gradients directly on grid.
-        # Let's approximate dr_Br using the basis if B is potential field.
-        # Br = - dV/dr. dr_Br = - d2V/dr2.
+        # ...
         
-        # Get Poloidal Potential coefficients for B mainfield
-        # We can extract them from the mainfield object in Geometry usually, but here we just have b_field.
-        # Let's assume we use the field values directly.
-        # For radial dependence ~ 1/r^(l+2), d/dr -> -(l+2)/r
-        # This is strictly true only for internal sources! Mainfield is internal.
-        
-        # So, Term 1 operator on coeffs: D1_1 = Diagonal( -(l+2)/r ) * Identity?
-        # No, dr_B0r is a field, multiplied by Y. 
-        # But wait, B0r itself is sum (-(l+2)/r * V_lm * Y_lm).
-        # dr_B0r is sum ( (l+2)(l+3)/r^2 * V_lm * Y_lm ).
-        # So dr_B0r is a scalar field we can evaluate.
-        
-        # Let's verify this radial derivative assumption.
-        # B = - grad V. V ~ (a/r)^(l+1).
-        # Br = - dV/dr ~ (l+1)/r * V. 
-        # d(Br)/dr = d/dr( (l+1)/r V ) = -(l+1)/r^2 V + (l+1)/r dV/dr
-        # = -(l+1)/r^2 V - (l+1)^2/r^2 V = - (l+1)(l+2)/r^2 V.
-        # Also Br = (l+1)/r V => V = r/(l+1) Br.
-        # So d(Br)/dr = -(l+2)/r * Br.
-        # This relationship d(Br)/dr = -(l+2)/r Br holds per harmonic component!
-        # But Br is a sum. 
-        # So we can't just say d(Br)/dr = const * Br.
-        # We CAN operate on Br coefficients though.
+        # SH Logic continues...
+        # Let's clean up indentation and scope.
         
         # Strategy for dr_B0r:
-        # 1. Get Br coeffs.
-        # 2. Apply -(l+2)/r factor to each coeff.
-        # 3. Evaluate to grid.
         Br_coeffs = self.basis.from_grid_values(self.b_field.vec.r, self.grid, "scalar")
         l_arr = to_numpy(self.basis.n).flatten()
         dr_factor = -(l_arr + 2.0) / self.RI
@@ -162,18 +214,6 @@ class ToroidalSystemMatrices:
         term1_grid_factor = dr_Br_grid * self.one_over_Br_regularized
         
         # --- Term 2 ---
-        # - (1/Rb) * B0s . grad( Y_l'm' / B0r )
-        # This acts on the test function Y_l'm' (which comes from the input vector x).
-        # Wait, D1 * x. x is coeff vector for dt_jr.
-        # So we effectively input a field f = Sum(x_i Y_i).
-        # Result is r.h.s.
-        # Term 2 acts on f:  - (1/Rb) * B0s . grad( f / B0r )
-        # = - (1/Rb) * B0s . [ (1/B0r) grad f + f grad(1/B0r) ]
-        # = - (1/Rb) * (1/B0r) * B0s . grad f  - (1/Rb) * f * B0s . grad(1/B0r)
-        
-        # So we have two parts in Term 2:
-        # Part 2a: Advection of f.   - (1 / (Rb*B0r)) * (B0s . grad f)
-        # Part 2b: Scaling of f.     - (1/Rb) * (B0s . grad(1/B0r)) * f
         
         # Helper: B0s dot grad
         B_theta = self.b_field.vec.theta
@@ -194,14 +234,9 @@ class ToroidalSystemMatrices:
         
         # Gradient of 1/B0r on grid
         # We can compute it numerically or via spectral. Let's use spectral for consistency.
-        # But we need to use G_th/G_ph matrices directly as evaluate() doesn't support 'derivative' arg for vector_type
         inv_Br_coeffs = self.basis.from_grid_values(inv_Br, self.grid, "scalar")
         grad_inv_Br_th = G_th @ inv_Br_coeffs
-        grad_inv_Br_ph = G_ph @ inv_Br_coeffs # Note: G_ph includes 1/sin(th) factor as verified
-        # Let's check G_ph. SHBasis.get_G(derivative="phi") usually includes 1/sin(theta) if it is the physical gradient component?
-        # Checking sh_basis.py... 
-        # "Gs = np.divide(num_Gs, sin_theta, ...)" 
-        # YES, get_G("phi") returns the physical derivative component 1/sin(th) d/dphi.
+        grad_inv_Br_ph = G_ph @ inv_Br_coeffs 
         
         # Term 1 (Scalar Scale): dr_Br/B0r
         T1 = term1_grid_factor[:, None] * G
@@ -423,33 +458,65 @@ class ToroidalSystemMatrices:
         """
         logger.info("Building Stiffness Matrices M0 and M1...")
         
+        if self.is_cs:
+            # CS Implementation:
+            # M_0 = 2 mu0 * (Laplacian^-1) @ Advection_Matrix
+            # M_1 = -mu0 Rb * (Laplacian^-1) @ Advection_Matrix
+            
+            # 1. Build Advection Matrix on Grid (Mass Weighted)
+            # A_ij = Int [ Y_i (v . grad Y_j) ]
+            # = (Weight_Matrix @ Grid_Op) ??
+            # Wait. On Nodal Basis:
+            # Y_i is 1 at node i, 0 else.
+            # Int [ Y_i * f ] = w_i * f(x_i).
+            # So Row i of A is w_i * (Op_adv)_row_i.
+            # A = Diag(Weights) @ Op_adv.
+            
+            weights = self.grid.weights if hasattr(self.grid, "weights") else xp.ones(self.grid.size)
+            W_diag = scipy.sparse.diags([weights], [0])
+            
+            G_th = self.basis.get_G(self.grid, derivative="theta")
+            G_ph = self.basis.get_G(self.grid, derivative="phi")
+            
+            B_theta = to_numpy(self.b_field.vec.theta).flatten()
+            B_phi = to_numpy(self.b_field.vec.phi).flatten()
+            
+            Op_adv = scipy.sparse.diags([B_theta], [0]) @ G_th + scipy.sparse.diags([B_phi], [0]) @ G_ph
+            
+            Advection_Matrix = W_diag @ Op_adv
+            
+            # 2. Laplacian Inverse
+            L_mat = self.basis.laplacian(r=1.0)
+            
+            if scipy.sparse.issparse(L_mat):
+                L_dense = L_mat.toarray()
+            else:
+                L_dense = L_mat
+                
+            L_inv = tensor_pinv(L_dense, n_leading_flattened=1)
+
+            # Apply Inverse Laplacian
+            Inv_Lap_Op = -L_inv
+            
+            # Combine
+            scale_M0 = 2.0 * mu0
+            scale_M1 = -mu0 * self.RI
+            
+            # Convert sparse Advection Matrix to dense for safe matmul with dense L_inv
+            Adv_dense = Advection_Matrix.toarray() if scipy.sparse.issparse(Advection_Matrix) else Advection_Matrix
+
+            print(f"DEBUG: Inv_Lap_Op shape: {Inv_Lap_Op.shape}, Adv_dense shape: {Adv_dense.shape}")
+            print(f"DEBUG: scale_M0 type: {type(scale_M0)}, Inv_Lap_Op type: {type(Inv_Lap_Op)}, Adv_dense type: {type(Adv_dense)}")
+
+            M0 = scale_M0 * (Inv_Lap_Op @ Adv_dense)
+            M1 = scale_M1 * (Inv_Lap_Op @ Adv_dense)
+            
+            return asarray(M0), asarray(M1)
+
+        # --- SH Implementation ---
         # 1. Build Advection Matrix A: A_ij = Int[ Y_i * (B0s . grad Y_j) ]
-        # We can use the Projection * Grid_Op approach again.
-        # A = P @ (B_theta * G_th + B_phi * G_ph)
-        # However, P usually includes weights: P = (G^T W G)^-1 G^T W.
-        # For orthogonal basis on GL grid, P = G^T W (if normalized).
-        # We want the integral, not the projection coefficients.
-        # The integral is exactly (G^T W) @ Grid_Values.
-        # So we just need the "Analysis" part without the inverse mass matrix part?
-        # If basis is orthonormal, they are the same.
-        # SHBasis is Schmidt semi-normalized.
-        # Let's rely on `construct_projection_matrix` which usually gives the "Least Squares" projector.
-        # If we want the integral <Y_i, f>, that is effectively the coefficient of Y_i 
-        # IF we were projecting f onto the basis.
-        # coeff_i = <Y_i, f> / <Y_i, Y_i>.
-        # So <Y_i, f> = coeff_i * norm_sq_i.
-        # We need to handle the normalization carefully.
-        
-        # Let's compute the raw integral matrix via quadrature explicitly.
-        # Int_Matrix = G^T @ W @ (B_theta * G_th + B_phi * G_ph)
-        
         if not hasattr(self.grid, "weights"):
             # Fallback for non-GL grids?
-            # We can use the projection matrix P (which maps grid->coeffs)
-            # coeffs = P @ values
-            # <Y_i, values> ? 
-            # This is hard without weights. 
-            # But the Geometry class usually sets up a GL grid for spectral mode.
             raise RuntimeError("Grid weights required for stiffness matrix construction.")
             
         weights = self.grid.weights

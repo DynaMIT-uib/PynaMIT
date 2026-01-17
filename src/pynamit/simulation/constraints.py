@@ -21,6 +21,87 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+
+
+@dataclass
+class ConstraintOperator:
+    """Encapsulates the constraint tensor logic to abstract rank differences."""
+    tensor: Any
+
+    def __init__(self, tensor: Any):
+        if isinstance(tensor, ConstraintOperator):
+            self.tensor = tensor.tensor
+        else:
+            self.tensor = tensor
+
+    def apply(self, coeffs: np.ndarray) -> np.ndarray:
+        """Apply the operator to input coefficients."""
+        from pynamit.utils import xp
+        
+
+
+        # Ensure tensor is compatible with backend (e.g. JAX)
+        t_in = xp.asarray(self.tensor)
+        coeffs = xp.asarray(coeffs)
+        
+        # E_map_op: (2, Mask, [PolTor], L) or (2, Mask, L)
+        # coeffs: (N) or (N, Batch)
+        # N = 2*L for SH, or L for CS (usually)
+        
+        if t_in.ndim == 4:
+            # SH: (2, Mask, 2, L) -> Contract dims 2,3
+            # Input must be shaped (2, L) or (2, L, Batch)
+            
+            # If flat input (N) or (N, Batch), reshape to (2, L, ...)
+            if coeffs.ndim == 1:
+                # (2*L) -> (2, L)
+                coeffs = coeffs.reshape(2, -1)
+            elif coeffs.ndim == 2 and coeffs.shape[0] != 2:
+                # (2*L, Batch) -> (2, L, Batch)
+                # Note: If coeffs is naturally (2, L), shape[0]==2.
+                # If N=2, ambiguity exists, but L=1 is rare.
+                coeffs = coeffs.reshape(2, -1, coeffs.shape[1])
+                
+            return -xp.tensordot(t_in, coeffs, axes=([2, 3], [0, 1]))
+
+
+
+        else:
+            # CS: (2, Mask, N) -> Contract dim 2
+            # Input must be (N) or (N, Batch)
+            
+            # Use reshape to flatten stacked inputs if necessary (e.g. from state.py logic)
+            # If coeffs is (2, L, Batch), reshape to (2*L, Batch)
+            
+
+
+
+            if coeffs.ndim == 3 and coeffs.shape[0] == 2:
+                # (2, L, Batch) -> (2*L, Batch)
+                coeffs = coeffs.reshape(-1, coeffs.shape[2])
+            elif coeffs.ndim == 2 and coeffs.shape[0] == 2:
+                # (2, L) -> (2*L)
+                coeffs = coeffs.reshape(-1)
+            
+
+            # tensordot axes=([2], [0]) handles both (N) and (N, Batch) correctly
+
+            # tensordot axes=([2], [0]) handles both (N) and (N, Batch) correctly
+            # because dim 0 of coeffs matches dim 2 of tensor.
+            return -xp.tensordot(t_in, coeffs, axes=([2], [0]))
+
+
+# Register ConstraintOperator as a JAX PyTree node if JAX is available
+try:
+    import jax
+    jax.tree_util.register_pytree_node(
+        ConstraintOperator,
+        lambda c: ((c.tensor,), None), # Flatten: children=(tensor,), aux=None
+        lambda aux, children: ConstraintOperator(children[0]) # Unflatten
+    )
+except ImportError:
+    pass
+
 @dataclass
 class ConstraintMappings:
     """Container for constraint-related operators.
@@ -31,7 +112,7 @@ class ConstraintMappings:
         Operator mapping radial current to apex current (spectral basis).
     jr_map_sim : np.ndarray
         Operator mapping radial current to apex current (simulation basis).
-    E_coeffs_to_E_apex_ll_diff : np.ndarray or None
+    E_coeffs_to_E_apex_ll_diff : ConstraintOperator or None
         E-field difference operator for low-latitude interhemispheric constraint.
     ll_mask : np.ndarray
         Boolean mask for low-latitude points.
@@ -39,7 +120,7 @@ class ConstraintMappings:
 
     jr_map_spectral: np.ndarray
     jr_map_sim: np.ndarray
-    E_coeffs_to_E_apex_ll_diff: Optional[np.ndarray]
+    E_coeffs_to_E_apex_ll_diff: Optional[ConstraintOperator]
     ll_mask: np.ndarray
 
 
@@ -163,10 +244,39 @@ class ApexMapper:
         jr_op = self.basis.get_scaled_matrix(grid, radial_to_apex)
 
         # E_coeffs_to_E_apex
+        # E_coeffs_to_E_apex
+        # Robust construction:
+        # horizontal_to_apex: (2, 2, N_grid) [i, j, k]
+        # vector_basis: (Comp, Spatial..., Coeffs)
+        # We need (Comp, N_grid, Coeffs) [j, k, l]
+        
+
+
+        G_raw = self.basis.get_vector_basis_matrix(grid)
+        if isinstance(G_raw, tuple): # Some bases return tuple
+             G_raw = np.array(G_raw)
+        
+        # Determine contraction string based on basis rank
+        # SHBasis: (Comp, Grid, PolTor, Coeffs) -> Rank 4
+        # CSBasis: (Comp, Grid, Coeffs) -> Rank 3
+        
+        if G_raw.ndim == 4:
+            einsum_str = "ijk,jkpq->ikpq"
+            G_in = G_raw
+        else:
+            einsum_str = "ijk,jkm->ikm"
+            G_in = G_raw
+
+        # Handle Component Dimension mismatch (legacy/robustness)
+        # horizontal_to_apex is (2, 2, N). Input dim 2 (theta, phi).
+        # G_in dim 0 is components. If 3 (r, th, ph), slice to 2.
+        if G_in.shape[0] == 3 and horizontal_to_apex.shape[1] == 2:
+             G_in = G_in[1:]
+
         E_op = np.einsum(
-            "ijk,jklm->iklm",
+            einsum_str,
             horizontal_to_apex,
-            self.basis.get_vector_basis_matrix(grid),
+            G_in,
             optimize=True,
         )
         return jr_op, E_op
@@ -217,12 +327,21 @@ class ApexMapper:
             )
 
             # Apply correction in spectral domain
-            jr_map_spectral[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]
+            # Use LIL format for efficient in-place modification if sparse
+            import scipy.sparse
+            if scipy.sparse.issparse(jr_map_spectral):
+                jr_map_spectral_lil = jr_map_spectral.tolil()
+                jr_map_spectral_lil[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]
+                jr_map_spectral = jr_map_spectral_lil.tocsr()
+            else:
+                jr_map_spectral[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]
 
             # Create E-field mapping difference operator for constraint
             E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
                 (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, ll_mask]
             )
+
+
 
             if input_adapter is not None:
                 # Pre-compose with analysis matrix (SH->Grid)
@@ -230,6 +349,17 @@ class ApexMapper:
                 E_coeffs_to_E_apex_ll_diff = np.tensordot(
                     E_coeffs_to_E_apex_ll_diff, input_adapter, axes=([-1], [0])
                 )
+        
+        if E_coeffs_to_E_apex_ll_diff is not None:
+             print(f"DEBUG: E_coeffs_diff Type: {type(E_coeffs_to_E_apex_ll_diff)}")
+             if hasattr(E_coeffs_to_E_apex_ll_diff, 'dtype'):
+                 print(f"DEBUG: E_coeffs_diff Dtype: {E_coeffs_to_E_apex_ll_diff.dtype}")
+                 print(f"DEBUG: E_coeffs_diff Shape: {E_coeffs_to_E_apex_ll_diff.shape}")
+
+        # Wrap in ConstraintOperator
+        E_op_obj = None
+        if E_coeffs_to_E_apex_ll_diff is not None:
+             E_op_obj = ConstraintOperator(E_coeffs_to_E_apex_ll_diff)
 
         # Compute simulation operator
         if input_adapter is not None:
@@ -240,7 +370,7 @@ class ApexMapper:
         return ConstraintMappings(
             jr_map_spectral=jr_map_spectral,
             jr_map_sim=jr_map_sim,
-            E_coeffs_to_E_apex_ll_diff=E_coeffs_to_E_apex_ll_diff,
+            E_coeffs_to_E_apex_ll_diff=E_op_obj,
             ll_mask=ll_mask,
         )
 

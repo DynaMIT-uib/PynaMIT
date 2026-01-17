@@ -58,6 +58,8 @@ class CSBasis(GridBasis):
         
         # Initialize Grid object (Essential for GridBasis compatibility)
         self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
+        # Attach weights for compatibility with numerical integrators (like SH path)
+        self.grid.weights = self.unit_area
 
         # Initialize optimized interpolator
         from pynamit.primitives.grid.interpolation import CSInterpolator

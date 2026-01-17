@@ -315,6 +315,9 @@ class Geometry:
         # Apply resistivity tensor and project back to coefficients
         op_eta = ResistivityTensorOperator(eta_grid).to_linear_map()
         op_P = as_linear_map(self.projection_matrix)
+        
+        # DEBUG: Isolate backend divergence
+
 
         return op_P @ op_eta @ op_E
 

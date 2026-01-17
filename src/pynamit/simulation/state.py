@@ -143,28 +143,69 @@ class State:
         self.pure_spectral = (self.mode == SimulationMode.PURE_SPECTRAL)
 
     def _create_u_to_E_operator(self) -> np.ndarray:
-        """Operator mapping wind coefficients to E coefficients."""
-        bu = asarray(self.geometry.bu)
-        G_helmholtz = asarray(self.geometry.basis.get_vector_basis_matrix(self.geometry.grid))
-        G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
+        """Operator mapping wind coefficients to E coefficients.
         
-        # Flatten operator to (Output Grid Dims, Input Coeff Dims)
-        # G shape is (2, N_grid, L...)
-        # We want to combine (2, N_grid) into rows.
-        grid_dim_prod = G_u_to_uxB_grid.shape[0] * G_u_to_uxB_grid.shape[1]
-        G_u_to_uxB_flat = G_u_to_uxB_grid.reshape(grid_dim_prod, -1)
+        Calculates M such that E_coeffs = M @ u_coeffs.
+        E = u x B.
+        Logic: v = u x B.
+        Geometry.bu provides the cross-product tensor B_x such that v = B_x @ u.
+        bu has shape (2, 2, Spatial...).
+        """
+        bu = asarray(self.geometry.bu)
+        G_raw = asarray(self.geometry.basis.get_vector_basis_matrix(self.geometry.grid))
+        
+        # 1. Normalize shapes
+        
+        # bu: (2, 2, Spatial...) -> (2, 2, N_grid)
+        if bu.ndim == 4: # (2, 2, Lat, Lon)
+            bu_flat = bu.reshape(2, 2, -1)
+        elif bu.ndim == 3: # (2, 2, Grid)
+            bu_flat = bu
+        else:
+            raise ValueError(f"Unexpected bu shape: {bu.shape}")
+            
+        n_grid = bu_flat.shape[2]
+        
+        # G: (Component, Spatial..., Coeffs)
+        # We need (Component, N_grid, Coeffs).
+        # And Component dimension must match bu (2).
+        if G_raw.ndim == 4: # SH: (Comp, Lat, Lon, Coeffs)
+            G_flat = G_raw.reshape(G_raw.shape[0], n_grid, -1)
+        elif G_raw.ndim == 3: # CS: (Comp, Grid, Coeffs)
+            G_flat = G_raw
+        else:
+             raise ValueError(f"Unexpected G shape: {G_raw.shape}")
+             
+        # Handle Component Dimension Mismatch (3 vs 2)
+        # Geometry.bu is 2x2 (assumes horizontal u).
+        # If G has 3 components (r, th, ph), slice to (th, ph).
+        if G_flat.shape[0] == 3 and bu_flat.shape[1] == 2:
+             # Assume components are (r, th, ph). Take (th, ph).
+             G_flat = G_flat[1:, :, :]
+        elif G_flat.shape[0] != bu_flat.shape[1]:
+             raise ValueError(f"Component mismatch: bu {bu_flat.shape[1]}, G {G_flat.shape[0]}")
+             
+        # 2. Compute Matrix Product: M = bu @ G
+        # bu: (i, j, p). G: (j, p, c). Result: (i, p, c).
+        # Elementwise on grid (p). Matrix product on components (j).
+        M_grid = xp.einsum("ijp,jpc->ipc", bu_flat, G_flat, optimize=True)
+        
+        n_coeffs = M_grid.shape[2]
+        
+        # 3. Flatten for Projection (2*N_grid, N_coeffs)
+        # Component Major: i=0... then i=1...
+        # M_grid (2, N_grid, Coeffs) -> (2*N_grid, Coeffs)
+        M_flat = M_grid.reshape(2 * n_grid, n_coeffs)
 
-        # Projection Operator P
+        # 4. Projection
         P_matrix = self.geometry.projection_matrix
         
-        # Apply projection: P @ G
-        # Handles both Spectral (Pinv) and Grid (Identity) cases via polymorphism.
         if hasattr(P_matrix, "dot"):
-            res_flat = P_matrix.dot(G_u_to_uxB_flat)
+            res_flat = P_matrix.dot(M_flat)
         else:
-            res_flat = asarray(P_matrix) @ G_u_to_uxB_flat
+            res_flat = asarray(P_matrix) @ M_flat
             
-        return res_flat.reshape(2, -1, G_u_to_uxB_grid.shape[-1])
+        return res_flat.reshape(2, -1, n_coeffs)
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
@@ -261,11 +302,41 @@ class State:
         eta_stacked = xp.stack([asarray(etaP_val), asarray(etaH_val)], axis=0)
         b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
         
+        # Robust Shape Handling
+        # Flatten spatial dimensions to (S, Tensor1, Tensor2, N_points)
+        # b_stacked shape: (S, T1, T2, Spatial...)
+        if b_stacked.ndim > 4: # e.g. (S, T1, T2, Lat, Lon)
+            s, t1, t2 = b_stacked.shape[:3]
+            b_flat = b_stacked.reshape(s, t1, t2, -1)
+        else: # (S, T1, T2, Grid)
+            b_flat = b_stacked
+            
+        # eta_stacked shape: (S, Spatial...)
+        if eta_stacked.ndim > 2:
+            s_eta = eta_stacked.shape[0]
+            eta_flat = eta_stacked.reshape(s_eta, -1)
+        else:
+            eta_flat = eta_stacked
+            
         # Contract species (s) and grid points (k)
-        # b_stacked: (s, i, j, k)
-        # eta_stacked: (s, k)
-        # output: (i, j, k)
-        return xp.einsum("sijk,sk->ijk", b_stacked, eta_stacked, optimize=True)
+        # b_flat: (s, i, j, k)
+        # eta_flat: (s, k)
+        # output: (i, j, k) -> (T1, T2, N_points)
+        M_flat = xp.einsum("sijk,sk->ijk", b_flat, eta_flat, optimize=True)
+        
+        # Reshape output back to original spatialdims if needed?
+        # Operators usually expect flattened grid for vector ops.
+        # But if SH legacy expects (3, 3, Lat, Lon)...
+        # LinearMap expects flattened.
+        
+        # If geometry uses 2D grid, we might need to reshape back.
+        # But LinearMap usually wraps flat arrays or handles reshaping internally.
+        # Let's verify what `LinearMap` expects?
+        # It expects `(Matrix, ...)`?
+        # Wait, M is tensor field.
+        # If downstream uses M.
+        # m_total_coeffs -> ?
+        return M_flat
 
         # Synthesize: (Q, L_ext) @ (L_ext, 2, 2) -> (Q, 2, 2)
         sigma_quad = xp.tensordot(G_scalar_quad, m_total_coeffs, axes=([1], [0]))
@@ -322,15 +393,31 @@ class State:
         # This tensor maps E-field coefficients (or grid values) to
         # the difference in E_apex at conjugate points.
         # Shape: (2, Mask, 2, L)
-        outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
+
+        # This tensor maps E-field coefficients (or grid values) to
+        # the difference in E_apex at conjugate points.
+        # Shape: (2, Mask, 2, L) or (2, Mask, L) wrapped in ConstraintOperator
+        op_obj = self.geometry.E_coeffs_to_E_apex_ll_diff
         
-        if outer_tensor is None:
+        if op_obj is None:
             return None
 
-        # Outer: Violation Check (E_apex difference). Flatten to (2*Mask, 2*L).
-        outer_t = asarray(outer_tensor)
-        n_mask, n_in = outer_t.shape[1], outer_t.shape[3]
-        op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in))
+        # Extract underlying tensor if wrapped
+        if hasattr(op_obj, "tensor"):
+             outer_t = asarray(op_obj.tensor)
+        else:
+             outer_t = asarray(op_obj)
+        
+        if outer_t.ndim == 4:
+             # Legacy SH: (2, Mask, Dim2, Coeffs). Presumes Dim2=2.
+             n_mask, n_in = outer_t.shape[1], outer_t.shape[3]
+             op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in))
+        elif outer_t.ndim == 3:
+             # CS: (2, Mask, Coeffs)
+             n_mask, n_coeffs = outer_t.shape[1], outer_t.shape[2]
+             op_outer = as_linear_map(outer_t.reshape(2 * n_mask, n_coeffs))
+        else:
+             raise ValueError(f"Unexpected constraint tensor shape: {outer_t.shape}")
 
         # Inner: m_imp -> E-field
         op_inner = self.m_imp_to_E_coeffs
@@ -419,15 +506,21 @@ class State:
             and self.dynamics_mode != "full_induction"
             and self.E_map_constraint_operator is not None
         ):
+
             # Op is now basis-consistent (SH or Grid) thanks to Geometry.
-            E_map_op = asarray(self.geometry.E_coeffs_to_E_apex_ll_diff)
+            # It is wrapped in ConstraintOperator to handle rank differences.
+            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
             E_direct_input = asarray(E_direct_coeffs)
 
-            # E_map_op: (2, Mask, 2, L)
-            # E_direct_input: (2, L)
-            # Contract Component(2) and Basis(L) dimensions.
-            # Axes: Op dim 2,3 against Input dim 0,1.
-            b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2, 3], [0, 1]))
+            if hasattr(E_map_op, "apply"):
+                 b_E = E_map_op.apply(E_direct_input)
+            else:
+                 # Fallback for raw arrays (if somehow not wrapped)
+                 E_map_op = asarray(E_map_op)
+                 if E_map_op.ndim == 4:
+                     b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2, 3], [0, 1]))
+                 else:
+                     b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2], [0]))
             
             rhs_entries[1] = self.ih_constraint_scaling * xp.reshape(b_E, (-1,))
 
@@ -453,6 +546,36 @@ class State:
             ):
                 return True
         return False
+
+    def _ensure_basis(self, field: Field, field_type: str = "scalar") -> Field:
+        """Ensure the field is represented in the solution basis."""
+        if field.basis is self.solution_basis or field.basis == self.solution_basis:
+             return field
+             
+        # Handle projection to CS/Nodal basis
+        if hasattr(self.solution_basis, "kind") and self.solution_basis.kind == "CS":
+             grid = self.geometry.grid
+             # Evaluate on grid
+             v1, v2, v3 = field.evaluate(self.geometry.RI, grid.theta, grid.phi)
+             
+             if field_type == "scalar":
+                  return Field.from_coefficients(
+                      self.solution_basis, 
+                      coeffs=asarray(v1).flatten(), 
+                      field_type="scalar"
+                  )
+             elif field_type == "tangential":
+                  # u (wind): theta, phi components
+                  v2_flat = asarray(v2).flatten()
+                  v3_flat = asarray(v3).flatten()
+                  new_coeffs = xp.stack([v2_flat, v3_flat], axis=0)
+                  return Field.from_coefficients(
+                      self.solution_basis, 
+                      coeffs=new_coeffs, 
+                      field_type="tangential"
+                  )
+        
+        return field
 
     def update(self, input_manager: Any, time: float, interpolation: bool = False) -> None:
         """Update the state variables based on the current input."""
@@ -480,22 +603,28 @@ class State:
             storage_base = input_manager.get_storage_basis(key)
             if key == "conductance":
                 conductance_updated = True
-                self.etaP = Field.from_coefficients(storage_base, coeffs=updated_input["etaP"])
-                self.etaH = Field.from_coefficients(storage_base, coeffs=updated_input["etaH"])
+                f_etaP = Field.from_coefficients(storage_base, coeffs=updated_input["etaP"])
+                f_etaH = Field.from_coefficients(storage_base, coeffs=updated_input["etaH"])
+                self.etaP = self._ensure_basis(f_etaP, "scalar")
+                self.etaH = self._ensure_basis(f_etaH, "scalar")
             elif key == "jr":
-                self.jr = Field.from_coefficients(storage_base, coeffs=updated_input["jr"])
+                f_jr = Field.from_coefficients(storage_base, coeffs=updated_input["jr"])
+                self.jr = self._ensure_basis(f_jr, "scalar")
                 if current_deriv is not None:
-                     self.dt_jr_driver = Field.from_coefficients(storage_base, coeffs=current_deriv["jr"])
+                     f_dt_jr = Field.from_coefficients(storage_base, coeffs=current_deriv["jr"])
+                     self.dt_jr_driver = self._ensure_basis(f_dt_jr, "scalar")
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                self.Br = Field.from_coefficients(storage_base, coeffs=updated_input["Br"])
+                f_Br = Field.from_coefficients(storage_base, coeffs=updated_input["Br"])
+                self.Br = self._ensure_basis(f_Br, "scalar")
             elif key == "u":
-                self.u = Field.from_coefficients(
+                f_u = Field.from_coefficients(
                     storage_base,
                     coeffs=updated_input["u"].reshape((2, -1)),
                     field_type="tangential",
                 )
+                self.u = self._ensure_basis(f_u, "tangential")
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
@@ -841,16 +970,34 @@ class State:
         problem = self.m_imp_problem
         rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
 
+
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            E_map_op = asarray(self.geometry.E_coeffs_to_E_apex_ll_diff)
+            # Op is ConstraintOperator (Rank agnostic)
+            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
             
-            # Map div-free E-field coefficients to constraint violations at magnetic equator
-            # E_map_op: (2, Mask, 2, L) (or L_grid if hybrid)
-            # E_direct_dense: (2, L, N) (L is basis length)
-            # Contract: Component(0) vs Component(2), Basis(1) vs Basis(3)
-            term = xp.tensordot(E_map_op, E_direct_dense, axes=([2, 3], [0, 1])) 
+            # Use apply() which handles reshaping and contraction internally
+            # E_direct_dense has shape (N, Batch=N) (from to_dense presumably)
+            # Or (2, L, N) if previously reshaped?
+            # Let's trust E_direct_dense valid shape for now, but be careful.
             
-            b_E_block = -term
+            # If E_direct_dense was reshaped to (2, n, n) previously (line 968),
+            # it implies n is NOT index_length? Or index_length = 2 * something?
+            # Assuming ConstraintOperator handles (N, Batch) or (2, L, Batch).
+            
+
+            if hasattr(E_map_op, "apply"):
+                 term = E_map_op.apply(E_direct_dense)
+            else:
+                 # Fallback logic if somehow raw array
+                 E_map_op = asarray(E_map_op)
+                 if E_map_op.ndim == 4:
+                      # Manually reshape dense input if needed?
+                      # Assume E_direct_dense is (2, L, N)
+                      term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2, 3], [0, 1]))
+                 else:
+                      term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2], [0]))
+            
+            b_E_block = term
             if len(rhs_entries) > 1:
                 rhs_entries[1] = self.ih_constraint_scaling * b_E_block
 

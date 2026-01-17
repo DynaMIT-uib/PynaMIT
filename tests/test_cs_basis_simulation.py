@@ -21,9 +21,10 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
     unconstrained.
     """
     # Expected values averaged between numpy and JAX backends
-    expected_coeff_norm = 1.578973791536708e-06
-    expected_coeff_max = 3.316347445722484e-07
-    expected_coeff_min = -2.803730467646991e-07
+    # Updated values after sign fix in ConstraintOperator/state.py
+    expected_coeff_norm = 8.004498264306536e-07
+    expected_coeff_max = 1.1524553666831046e-07
+    expected_coeff_min = -8.974473096896431e-08
     expected_n_coeffs = 768
 
     # We use small integration time for speed.

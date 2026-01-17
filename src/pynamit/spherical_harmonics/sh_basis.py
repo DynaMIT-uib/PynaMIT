@@ -166,6 +166,10 @@ class SHBasis(Basis):
         self._index_names = ["n", "m"]
         self._minimum_phi_sampling = 2 * Mmax + 1
         super().__init__()
+        
+        # DEBUG: Backend inspection
+        # print(f"DEBUG: SHBasis Init. Backend: {self.backend}. Normalized: {self.is_normalized}")
+
 
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)

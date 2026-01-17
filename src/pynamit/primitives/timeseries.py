@@ -138,23 +138,8 @@ class Timeseries:
         return self.get_entry_with_derivative(key, time, interpolation=interpolation)[0]
 
     def get_entry_with_derivative(self, key, time, interpolation=False):
-        """Select time series data and derivative corresponding to the specified time.
+        """Select time series data and derivative corresponding to the specified time."""
 
-        Parameters
-        ----------
-        key : str
-            Key for the time series.
-        time : float
-            Current time for which to select data.
-        interpolation : bool, optional
-            Whether to use linear interpolation.
-
-        Returns
-        -------
-        (data, derivative) : tuple of (dict or None, dict or None)
-            Dictionaries containing the latest data and derivative for the specified
-            key, or (None, None) if no data is available.
-        """
         if np.any(self.datasets[key].time.values <= time + FLOAT_ERROR_MARGIN):
             current_data = {}
             current_derivative = {}

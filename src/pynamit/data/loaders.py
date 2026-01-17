@@ -184,6 +184,7 @@ def _load_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, A
 
 def _expand_time_series(data: np.ndarray, time: Optional[np.ndarray]) -> np.ndarray:
     base = np.asarray(data).reshape(-1)
+
     if time is None or time.size <= 1:
         return base
     scaling = np.linspace(1.0, 2.0, time.size)[:, None]
