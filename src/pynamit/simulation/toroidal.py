@@ -682,7 +682,7 @@ class ToroidalSystemMatrices:
     # Time Evolution Logic
     # -------------------------------------------------------------------------
 
-    def calculate_d_psi_dt(
+    def compute_rates(
         self,
         dt_jr: np.ndarray,
         m_imp_to_jr_operator: Any,
@@ -720,39 +720,6 @@ class ToroidalSystemMatrices:
         d_psi_dt = jr_to_m_dense @ asarray(dt_jr)
         return asarray(d_psi_dt)
 
-    def evolve_psi(
-        self,
-        psi: np.ndarray,
-        d_psi_dt: np.ndarray,
-        dt: float,
-        integrator: str = "euler",
-    ) -> np.ndarray:
-        """Evolve toroidal potential psi forward in time.
-        
-        Parameters
-        ----------
-        psi : np.ndarray
-             Current state of toroidal potential.
-        d_psi_dt : np.ndarray
-             Calculated rate of change.
-        dt : float
-             Time step.
-        integrator : str
-             Integration scheme. Currently only 'euler'.
-             
-        Returns
-        -------
-        np.ndarray
-             New state psi(t+dt).
-        """
-        if d_psi_dt is None:
-             return psi
-             
-        if integrator == "euler":
-             # Simple Euler: psi_new = psi + dt * d_psi_dt
-             new_psi = asarray(psi) + dt * asarray(d_psi_dt)
-             return new_psi
-        
-        raise ValueError(f"Integrator '{integrator}' not supported for toroidal evolution.")
+
 
 

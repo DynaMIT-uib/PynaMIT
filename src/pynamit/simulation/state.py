@@ -17,6 +17,8 @@ from functools import cached_property
 from pynamit.primitives.field import Field
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Integrator
+from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Integrator, ScipySolveIVPIntegrator
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.geometry import Geometry
@@ -146,6 +148,21 @@ class State:
              
         # Map mode to legacy flags for internal checks (if any remain)
         self.pure_spectral = (self.mode == SimulationMode.PURE_SPECTRAL)
+
+        if self.integrator == "exponential":
+             self.poloidal_integrator = ExponentialIntegrator()
+        elif self.integrator == "euler":
+             self.poloidal_integrator = EulerIntegrator()
+        else:
+             # Assume it's a scipy method (DOP853, RK45, etc.)
+             self.poloidal_integrator = ScipySolveIVPIntegrator(method=self.integrator)
+
+        # Toroidal currently only supports Euler or matches poloidal if capable
+        if self.integrator == "euler" or self.integrator == "exponential": # Exponential not yet implemented for Toroidal
+             self.toroidal_integrator = EulerIntegrator()
+        else:
+             # Fallback to Euler for safety or implement others
+             self.toroidal_integrator = EulerIntegrator()
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients.
@@ -818,7 +835,7 @@ class State:
         
         # 3. Handle Scaling: Derive d_psi_dt from dt_jr
         # Delegate to ToroidalSystemMatrices
-        self.d_psi_dt = self.toroidal_matrices.calculate_d_psi_dt(
+        self.d_psi_dt = self.toroidal_matrices.compute_rates(
              dt_jr,
              self.geometry.m_imp_to_jr
         )
@@ -890,14 +907,17 @@ class State:
 
     def evolve_psi(self, psi: np.ndarray, dt: float) -> np.ndarray:
         """Evolve psi forward in time."""
-        # Delegates to ToroidalSystemMatrices
-        # Note: Toroidal solver currently only supports Euler or should match State's integrator
-        # Assuming Euler for now as per legacy implementation, or pass self.integrator if supported
-        return self.toroidal_matrices.evolve_psi(
-             psi=psi,
-             d_psi_dt=self.d_psi_dt,
+        if self.d_psi_dt is None:
+             return psi
+             
+        # Define rate closure
+        def rates_func(y, t):
+             return self.d_psi_dt
+
+        return self.toroidal_integrator.step(
+             y=psi,
              dt=dt,
-             integrator="euler" # Explicitly use Euler for now as legacy did
+             rates_func=rates_func
         )
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -923,7 +943,7 @@ class State:
 
     # _build_m_ind_to_E_df_matrix refactored to PoloidalSystemMatrices.build_induction_matrix
 
-    # _calculate_d_m_ind_dt refactored to PoloidalSystemMatrices.calculate_d_m_ind_dt
+    # _calculate_d_m_ind_dt refactored to PoloidalSystemMatrices.compute_rates
 
     def evolve_m_ind(
         self,
@@ -932,27 +952,43 @@ class State:
         E_coeffs_noind: np.ndarray,
         steady_state_m_ind: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Evolves the induced potential `m_ind` forward in time.
+        """Evolves the induced potential `m_ind` forward in time."""
+        
+        # Prepare closures for Integrator
+        def rates_func(y, t):
+             return self.poloidal_matrices.compute_rates(
+                 m_ind=y,
+                 t=t,
+                 E_coeffs_noind=E_coeffs_noind,
+                 induction_matrix=self.m_ind_to_E_df_matrix if self.integrator == "exponential" else None,
+                 m_ind_to_E_operator=self.m_ind_to_E_coeffs,
+                 problem=self.m_imp_problem,
+                 solver=self.m_imp_solver,
+                 preconditioner=self.m_imp_preconditioner,
+                 E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
+                 ih_constraint_scaling=self.ih_constraint_scaling,
+                 connect_hemispheres=self.connect_hemispheres,
+                 m_imp_to_E_operator=self.m_imp_to_E_coeffs,
+             )
 
-        Uses the integration scheme specified by `self.integrator`.
-        Supports 'euler', 'exponential', and any method supported by
-        `scipy.solve_ivp`.
-        """
-        return self.poloidal_matrices.evolve_m_ind(
-             m_ind=m_ind,
+        # For Exponential Integrator, we need linear operator and steady state
+        # The linear operator L for d(m)/dt = L m + K is:
+        # L = Scale * M_ind_to_E_df
+        # We need to construct this.
+        linear_operator = None
+        if isinstance(self.poloidal_integrator, ExponentialIntegrator):
+             scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
+             # induction_matrix is cached property m_ind_to_E_df_matrix
+             # L = scale * induction_matrix
+             linear_operator = scale * self.m_ind_to_E_df_matrix
+             
+        # Call Integrator
+        return self.poloidal_integrator.step(
+             y=m_ind,
              dt=dt,
-             E_coeffs_noind=E_coeffs_noind,
-             integrator=self.integrator,
-             induction_matrix=self.m_ind_to_E_df_matrix if self.integrator == "exponential" else None,
-             steady_state_m_ind=steady_state_m_ind,
-             m_ind_to_E_operator=self.m_ind_to_E_coeffs,
-             problem=self.m_imp_problem,
-             solver=self.m_imp_solver,
-             preconditioner=self.m_imp_preconditioner,
-             E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
-             ih_constraint_scaling=self.ih_constraint_scaling,
-             connect_hemispheres=self.connect_hemispheres,
-             m_imp_to_E_operator=self.m_imp_to_E_coeffs,
+             rates_func=rates_func,
+             linear_operator=linear_operator,
+             steady_state=steady_state_m_ind
         )
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
