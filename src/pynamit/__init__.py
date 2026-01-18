@@ -36,7 +36,13 @@ from .primitives import (
     interpolation,  # Re-export for backwards compatibility
 )
 from .simulation import Dynamics, State, run_pynamit
-from .visualization import PynamEye, debugplot, globalplot
+try:
+    from .visualization import PynamEye, debugplot, globalplot
+except ImportError:
+    # Visualization dependencies (e.g. Cartopy) might be missing in production/test envs
+    PynamEye = None
+    debugplot = None
+    globalplot = None
 from .spherical_harmonics import SHBasis
 from .utils import set_backend
 

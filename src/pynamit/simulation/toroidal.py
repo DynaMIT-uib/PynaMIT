@@ -568,31 +568,7 @@ class ToroidalSystemMatrices:
     @cached_property
     def projection_matrix(self) -> np.ndarray:
         """Get projection matrix from Basis (Grid -> Coeffs)."""
-        # Re-use logic from geometry or basis
-        # Re-use logic from geometry or basis
-        if hasattr(self.grid, "weights"):
-            # Exact GL or quadrature grid
-            weights = self.grid.weights
-            G = to_numpy(self.basis.get_G(self.grid))
-
-            # Weighted Least Squares: P = (G^T W G)^-1 G^T W
-            # 1. G^T W
-            GtW = G.T * weights
-
-            # 2. Mass Matrix M = G^T W G
-            M = GtW @ G
-
-            # 3. P = M^-1 G^T W
-            # Use solve usually faster/stable than inv
-            # We want P such that coeffs = P @ values
-            # M @ coeffs = G^T W values
-            # So P is the operator that solves this system.
-            # Explicitly constructing matrix P: P = solve(M, GtW)
-            P = np.linalg.solve(M, GtW)
-
-            return asarray(P)
-        else:
-            return tensor_pinv(self.basis.get_G(self.grid), n_leading_flattened=1)
+        return self.basis.construct_scalar_projection_matrix(self.grid)
 
     # -------------------------------------------------------------------------
     # Least-Squares Problem Construction (aligned with PoloidalSystemMatrices)
@@ -701,4 +677,82 @@ class ToroidalSystemMatrices:
             K = K - L_driver
 
         return asarray(K)
+
+    # -------------------------------------------------------------------------
+    # Time Evolution Logic
+    # -------------------------------------------------------------------------
+
+    def calculate_d_psi_dt(
+        self,
+        dt_jr: np.ndarray,
+        m_imp_to_jr_operator: Any,
+    ) -> np.ndarray:
+        """Calculate rate of change of toroidal potential (psi) from dt_jr.
+        
+        Physics:
+            jr = (R/mu0) * Laplacian(psi).
+            So d_psi_dt = (jr_to_m_operator) @ dt_jr.
+            
+        Parameters
+        ----------
+        dt_jr : np.ndarray
+             Rate of change of radial current density (dt_jr).
+        m_imp_to_jr_operator : Any
+             The operator mapping potential m (psi) to current jr.
+             Typically geometry.m_imp_to_jr.
+             
+        Returns
+        -------
+        np.ndarray
+             d(psi)/dt coefficients.
+        """
+        from pynamit.utils import tensor_pinv
+        from pynamit.simulation.geometry_utils import to_dense
+        
+        # Invert operator: jr = Op @ psi  ->  psi = InvOp @ jr
+        # Use dense pinv for robustness on the small spectral system
+        op_m_to_jr = as_linear_map(m_imp_to_jr_operator)
+        m_to_jr_dense = to_dense(op_m_to_jr)
+        
+        # Calculate pseudo-inverse
+        jr_to_m_dense = tensor_pinv(m_to_jr_dense)
+        
+        d_psi_dt = jr_to_m_dense @ asarray(dt_jr)
+        return asarray(d_psi_dt)
+
+    def evolve_psi(
+        self,
+        psi: np.ndarray,
+        d_psi_dt: np.ndarray,
+        dt: float,
+        integrator: str = "euler",
+    ) -> np.ndarray:
+        """Evolve toroidal potential psi forward in time.
+        
+        Parameters
+        ----------
+        psi : np.ndarray
+             Current state of toroidal potential.
+        d_psi_dt : np.ndarray
+             Calculated rate of change.
+        dt : float
+             Time step.
+        integrator : str
+             Integration scheme. Currently only 'euler'.
+             
+        Returns
+        -------
+        np.ndarray
+             New state psi(t+dt).
+        """
+        if d_psi_dt is None:
+             return psi
+             
+        if integrator == "euler":
+             # Simple Euler: psi_new = psi + dt * d_psi_dt
+             new_psi = asarray(psi) + dt * asarray(d_psi_dt)
+             return new_psi
+        
+        raise ValueError(f"Integrator '{integrator}' not supported for toroidal evolution.")
+
 

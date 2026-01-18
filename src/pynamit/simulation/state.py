@@ -113,6 +113,11 @@ class State:
         # Invalidate all caches
         self._invalidate_caches()
 
+    @property
+    def poloidal_matrices(self) -> Any:
+        """The poloidal system matrices."""
+        return self.geometry.poloidal_matrices
+
     # ----- Initialization Helpers -----
 
     def _init_settings(self, settings: Any) -> None:
@@ -812,13 +817,11 @@ class State:
         # This is getting deep into physics definitions not fully in the snippet.
         
         # 3. Handle Scaling: Derive d_psi_dt from dt_jr
-        # jr = (R/mu0) * Laplacian(psi). So psi = inv(m_imp_to_jr) * jr.
-        op_m_to_jr = as_linear_map(self.geometry.m_imp_to_jr)
-        # For SH, this is a diagonal operator. For general, we use pinv.
-        # Use dense pinv for robustness on the small spectral system.
-        m_to_jr_dense = to_dense(op_m_to_jr)
-        jr_to_m_dense = tensor_pinv(m_to_jr_dense)
-        self.d_psi_dt = asarray(jr_to_m_dense @ dt_jr)
+        # Delegate to ToroidalSystemMatrices
+        self.d_psi_dt = self.toroidal_matrices.calculate_d_psi_dt(
+             dt_jr,
+             self.geometry.m_imp_to_jr
+        )
         
         # 4. Return Total E-field and current Toroidal state
         # psi represents the Toroidal Potential (m_imp Equivalent)
@@ -833,7 +836,7 @@ class State:
     def solve_dt_jr(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dt_jr.
 
-        Uses ToroidalSystemMatrices.compute_rhs_physics() for the physics RHS
+        Uses ToroidalSystemMatrices.compute_forcing_vector() for the physics RHS
         and assembles the constraint RHS from driver data.
         """
         problem = self.dt_jr_problem  # Cached problem definition
@@ -887,12 +890,15 @@ class State:
 
     def evolve_psi(self, psi: np.ndarray, dt: float) -> np.ndarray:
         """Evolve psi forward in time."""
-        # Simple Euler: psi_new = psi + dt * d_psi_dt
-        if self.d_psi_dt is None:
-             return psi
-            
-        new_psi = asarray(psi) + dt * asarray(self.d_psi_dt)
-        return new_psi
+        # Delegates to ToroidalSystemMatrices
+        # Note: Toroidal solver currently only supports Euler or should match State's integrator
+        # Assuming Euler for now as per legacy implementation, or pass self.integrator if supported
+        return self.toroidal_matrices.evolve_psi(
+             psi=psi,
+             d_psi_dt=self.d_psi_dt,
+             dt=dt,
+             integrator="euler" # Explicitly use Euler for now as legacy did
+        )
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
@@ -905,108 +911,19 @@ class State:
     @cached_property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
         """Dense matrix mapping m_ind to div-free E-field."""
-        return self._build_m_ind_to_E_df_matrix()
+        return self.poloidal_matrices.build_induction_matrix(
+            problem=self.m_imp_problem,
+            solver=self.m_imp_solver,
+            E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
+            ih_constraint_scaling=self.ih_constraint_scaling,
+            connect_hemispheres=self.connect_hemispheres,
+            m_ind_to_E_operator=self.m_ind_to_E_coeffs,
+            m_imp_to_E_operator=self.m_imp_to_E_coeffs,
+        )
 
-    def _build_m_ind_to_E_df_matrix(self) -> np.ndarray:
-        """Construct the dense matrix for the induction operator."""
-        logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        n = self.solution_basis.index_length
-        if self.m_ind_to_E_coeffs is None:
-            logger.info("Dense induction operator built (degenerate: no mapping available).")
-            return xp.zeros((n, n))
+    # _build_m_ind_to_E_df_matrix refactored to PoloidalSystemMatrices.build_induction_matrix
 
-        # Direct contribution from induced potential (without imposed solver feedback)
-        E_direct_dense = asarray(self.m_ind_to_E_coeffs.to_dense()).reshape(2, n, n)
-
-        problem = self.m_imp_problem
-        rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
-
-
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            # Op is ConstraintOperator (Rank agnostic)
-            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            
-            # Use apply() which handles reshaping and contraction internally
-            # E_direct_dense has shape (N, Batch=N) (from to_dense presumably)
-            # Or (2, L, N) if previously reshaped?
-            # Let's trust E_direct_dense valid shape for now, but be careful.
-            
-            # If E_direct_dense was reshaped to (2, n, n) previously (line 968),
-            # it implies n is NOT index_length? Or index_length = 2 * something?
-            # Assuming ConstraintOperator handles (N, Batch) or (2, L, Batch).
-            
-
-            if hasattr(E_map_op, "apply"):
-                 term = E_map_op.apply(E_direct_dense)
-            else:
-                 # Fallback logic if somehow raw array
-                 E_map_op = asarray(E_map_op)
-                 if E_map_op.ndim == 4:
-                      # Manually reshape dense input if needed?
-                      # Assume E_direct_dense is (2, L, N)
-                      term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2, 3], [0, 1]))
-                 else:
-                      term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2], [0]))
-            
-            b_E_block = term
-            if len(rhs_entries) > 1:
-                rhs_entries[1] = self.ih_constraint_scaling * b_E_block
-
-        rhs_block, _, num_scenarios = problem.assemble_rhs_block(rhs_entries)
-        if rhs_block is None:
-            op_rows = problem.get_system_operator().shape[0]
-            rhs_block = xp.zeros((op_rows, n), dtype=E_direct_dense.dtype)
-            num_scenarios = n
-        rhs_block = asarray(rhs_block)
-
-        # Solve in batch using cached SVD decomposition
-        u, s, vt = problem.svd
-        if s.size == 0:
-            m_imp_block = xp.zeros((problem.solution_size, num_scenarios), dtype=rhs_block.dtype)
-        else:
-            tol = getattr(self.m_imp_solver, "tolerance", 0.0)
-            cutoff = tol * s[0] if tol > 0 else 0.0
-            s_inv = xp.where(s > cutoff, 1.0 / s, 0.0)
-            tmp = u.T.conj() @ rhs_block
-            tmp = s_inv[:, None] * tmp
-            m_imp_block = vt.T.conj() @ tmp
-
-        if num_scenarios != n:
-            raise RuntimeError(
-                f"Expected {n} scenarios when building induction operator, got {num_scenarios}."
-            )
-
-        # Map imposed potential response back to E-field coefficients
-        if self.m_imp_to_E_coeffs is not None:
-            m_imp_flat = asarray(m_imp_block)
-            E_imp_flat = self.m_imp_to_E_coeffs.matmat(m_imp_flat)
-            E_imp_block = asarray(E_imp_flat).reshape(2, n, n)
-        else:
-            E_imp_block = xp.zeros_like(E_direct_dense)
-
-        total_E = E_direct_dense + E_imp_block
-        logger.info("Dense induction operator built.")
-        return asarray(total_E[1])
-
-    def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculate the time derivative of the induced potential.
-
-        This is the right-hand side of the ODE: d(m_ind)/dt = f(m_ind).
-        The non-induced E-field is treated as a constant parameter for
-        the ODE.
-        """
-        # Calculate the E-field contribution from the current induced
-        # potential.
-        E_ind_coeffs, _ = self.calculate_ind_coeffs(m_ind)
-        E_df_ind = E_ind_coeffs[1]
-
-        # Total divergence-free E-field is the sum of induced and
-        # non-induced parts.
-        E_df_total = E_df_ind + E_coeffs_noind[1]
-
-        # Calculate the time derivative using the geometry operator.
-        d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
-        return d_m_ind_dt
+    # _calculate_d_m_ind_dt refactored to PoloidalSystemMatrices.calculate_d_m_ind_dt
 
     def evolve_m_ind(
         self,
@@ -1021,68 +938,29 @@ class State:
         Supports 'euler', 'exponential', and any method supported by
         `scipy.solve_ivp`.
         """
-        backend_m_ind = asarray(m_ind)
-        backend_E_noind = asarray(E_coeffs_noind)
-
-        if self.integrator == "euler":
-            d_m_ind_dt = self._calculate_d_m_ind_dt(backend_m_ind, backend_E_noind)
-            return backend_m_ind + dt * d_m_ind_dt
-
-        elif self.integrator == "exponential":
-            # The exponential integrator requires the dense operator
-            # matrix.
-            op_A = asarray(self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix)
-
-            if steady_state_m_ind is None:
-                steady_state_m_ind = self.steady_state_m_ind(backend_E_noind)
-            diff = backend_m_ind - asarray(steady_state_m_ind)
-
-            if use_jax():
-                from jax.scipy.linalg import expm as jax_expm
-
-                evolved = jax_expm(dt * op_A) @ diff + asarray(steady_state_m_ind)
-                return evolved
-
-            # Use scipy.linalg.expm for NumPy
-            op_A_np = to_numpy(op_A)
-            diff_np = to_numpy(diff)
-            steady_state_m_ind_np = to_numpy(steady_state_m_ind)
-
-            evolved = expm(dt * op_A_np) @ diff_np
-            return asarray(evolved) + asarray(steady_state_m_ind_np)
-
-        else:
-            # Fallback to scipy.solve_ivp for other integrators
-            logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
-
-            def rhs_numpy(t, y):
-                # Ensure input is backed by numpy if using scipy.solve_ivp
-                y_backend = asarray(y)
-                dy = self._calculate_d_m_ind_dt(y_backend, backend_E_noind)
-                return to_numpy(dy)
-
-            sol = solve_ivp(
-                fun=rhs_numpy,
-                t_span=(0, dt),
-                y0=to_numpy(backend_m_ind),
-                method=self.integrator,
-                t_eval=[dt],
-                dense_output=False,
-            )
-
-            if not sol.success:
-                logger.warning(
-                    f"solve_ivp integrator '{self.integrator}' failed with "
-                    f"status {sol.status}: {sol.message}"
-                )
-
-            result = sol.y[:, -1]
-            return asarray(result)
+        return self.poloidal_matrices.evolve_m_ind(
+             m_ind=m_ind,
+             dt=dt,
+             E_coeffs_noind=E_coeffs_noind,
+             integrator=self.integrator,
+             induction_matrix=self.m_ind_to_E_df_matrix if self.integrator == "exponential" else None,
+             steady_state_m_ind=steady_state_m_ind,
+             m_ind_to_E_operator=self.m_ind_to_E_coeffs,
+             problem=self.m_imp_problem,
+             solver=self.m_imp_solver,
+             preconditioner=self.m_imp_preconditioner,
+             E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
+             ih_constraint_scaling=self.ih_constraint_scaling,
+             connect_hemispheres=self.connect_hemispheres,
+             m_imp_to_E_operator=self.m_imp_to_E_coeffs,
+        )
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculate the steady-state induced potential."""
-        # This operation requires solving a linear system, which is most
-        # robustly done with the dense matrix form of the operator.
-        op_A = asarray(self.m_ind_to_E_df_matrix)
-        vec_b = -asarray(E_coeffs_noind[1])
-        return xp.linalg.solve(op_A, vec_b)
+        """Calculate the steady-state induced potential.
+        
+        Delegates to self.poloidal_matrices.steady_state_m_ind().
+        """
+        return self.poloidal_matrices.steady_state_m_ind(
+            E_coeffs_noind=asarray(E_coeffs_noind),
+            induction_matrix=self.m_ind_to_E_df_matrix
+        )

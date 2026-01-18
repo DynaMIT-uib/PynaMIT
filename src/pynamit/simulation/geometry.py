@@ -247,39 +247,11 @@ class Geometry:
             return self._get_E_operator_grid(potential_type)
 
     def _get_E_operator_spectral(self, potential_type: str) -> "LinearMap":
-        """Get spectral (VSH) E-field operator for given potential type."""
-        L = self.solution_basis.index_length
-
-        if potential_type == "m_imp":
-            # Poloidal part: E_p = -grad(m_imp)/mu0 -> p_coeffs = (1/mu0) * m_imp
-            p_op = (1.0 / mu0) * np.eye(L)
-            # Toroidal part: E_t = Tor(Ve_coeffs) -> t_coeffs = T_to_Ve @ m_imp
-            t_op = self.T_to_Ve.values
-            return as_linear_map(np.vstack([p_op, t_op]))
-
-        elif potential_type == "m_ind":
-            # E_t = -1/mu0 * Scaling(m_ind) * Y^T
-            scaling = self.solution_basis.get_potential_scaling_operator()
-            t_mat = (-1.0 / mu0) * to_dense(scaling)
-
-            if self.RM is not None:
-                br, vi, den = self._pfac.get_coupling_factors()
-                coupling = br * vi / den
-                t_mat = t_mat * (1.0 + coupling)
-
-            return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
-
-        elif potential_type == "Br":
-            # Br path is purely toroidal
-            br_shift, vi_shift, den = self._pfac.get_coupling_factors()
-            L_op = np.diag(to_dense(self.basis.get_laplacian_operator(self.RI)))
-            m_ind_to_Br = -(self.RI**2) * L_op
-
-            scaling = self.basis.get_potential_scaling_operator()
-            t_mat = (-1.0 / mu0) * to_dense(scaling) * (-br_shift / den / m_ind_to_Br)[:, None]
-            return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
-
-        raise ValueError(f"Unknown potential_type: {potential_type}")
+        """Get spectral (VSH) E-field operator for given potential type.
+        
+        Delegates to PoloidalSystemMatrices.
+        """
+        return self.poloidal_matrices.get_potential_to_E_operator(potential_type)
 
     def _get_E_operator_grid(self, potential_type: str) -> Optional["LinearMap"]:
         """Get grid-based E-field operator for given potential type."""
