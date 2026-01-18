@@ -12,7 +12,6 @@ def _run_dynamic_ramp_test(sim_mode, expected_psi_norm, expected_mind_norm, rel_
     # Run using the default runner with multi_data=True
     # Using 'direct' solver for maximum precision and tighter tolerances
     sim = run_pynamit(
-        filename_prefix=test_name,
         final_time=2.0,
         dt=1.0,
         plotsteps=1, 
@@ -21,6 +20,7 @@ def _run_dynamic_ramp_test(sim_mode, expected_psi_norm, expected_mind_norm, rel_
         Ncs=10,
         dynamics_mode="full_induction",
         simulation_mode=sim_mode.value,
+        ignore_PFAC=False,
         mainfield_kind="igrf",
         mainfield_epoch=2020,
         multi_data=True,
@@ -57,7 +57,7 @@ def _run_dynamic_ramp_test(sim_mode, expected_psi_norm, expected_mind_norm, rel_
 def test_dynamic_ramp_pure_spectral():
     """Test pure spectral mode with dual induction."""
     # Baseline values for dual induction @ t=1.0s
-    expected_psi_norm = 6.620653069357e-11
+    expected_psi_norm = 6.62065306935731e-08
     expected_mind_norm = 3.203992935564e-09
     
     _run_dynamic_ramp_test(
@@ -71,8 +71,8 @@ def test_dynamic_ramp_pure_spectral():
 def test_dynamic_ramp_spectral_transform_gl():
     """Test spectral transform GL mode with dual induction."""
     # Baseline values for dual induction @ t=1.0s
-    expected_psi_norm = 6.620653069357e-11
-    expected_mind_norm = 3.200144824210e-09
+    expected_psi_norm = 6.62065306935731e-08
+    expected_mind_norm = 3.959375316445736e-09
     
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -87,8 +87,8 @@ def test_dynamic_ramp_spectral_transform_cs():
     """Test spectral transform CS mode with dual induction."""
     # Mode-specific baseline values for dual induction @ t=1.0s
     # Note: CS transform uses pseudo-inverse approximation, so values differ from pure spectral
-    expected_psi_norm = 6.225616393348059e-11
-    expected_mind_norm = 1.993965367941095e-09
+    expected_psi_norm = 6.225616393348073e-08
+    expected_mind_norm = 2.0694833942741078e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
@@ -103,8 +103,8 @@ def test_dynamic_ramp_cs_dominant():
     """Test CS dominant mode with dual induction."""
     # Mode-specific baseline values for dual induction @ t=1.0s
     # Note: CS Dominant uses finite differences on cubed sphere, values differ significantly from spectral modes
-    expected_psi_norm = 3.500819210491890e-10
-    expected_mind_norm = 2.088704285188413e-06
+    expected_psi_norm = 3.5008192104897026e-07
+    expected_mind_norm = 2.0389433648974744e-06
 
     _run_dynamic_ramp_test(
         SimulationMode.CS_DOMINANT,

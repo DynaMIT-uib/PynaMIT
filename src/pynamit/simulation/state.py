@@ -262,7 +262,7 @@ class State:
 
         return self.toroidal_matrices.build_least_squares_problem(
             jr_map_operator=self.geometry.jr_map_sim,
-            constraint_scaling=1000.0,
+            constraint_scaling=1.0,
             regularization_lambda=0.0,
         )
 

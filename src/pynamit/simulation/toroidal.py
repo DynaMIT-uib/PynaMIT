@@ -17,6 +17,7 @@ import scipy.sparse
 from functools import cached_property
 
 from pynamit.utils import to_numpy, asarray, xp, tensor_pinv
+from pynamit.simulation.geometry_utils import to_dense
 from pynamit.math.linear_map import as_linear_map
 from pynamit.math.constants import mu0
 from pynamit.spherical_harmonics.gaunt import GauntEngine
@@ -69,9 +70,7 @@ class ToroidalSystemMatrices:
         Regularization: 1/B0r -> B0r / (B0r^2 + eps^2)
         """
         Br = self.b_field.vec.r
-        # Epsilon for regularization: small fraction of max Br
-        epsilon = 1e-2 * xp.max(xp.abs(Br))
-        return Br / (Br**2 + epsilon**2)
+        return 1.0 / Br
 
     @cached_property
     def inertia_matrix(self) -> np.ndarray:
@@ -121,327 +120,206 @@ class ToroidalSystemMatrices:
         logger.info("Building Advection Derivative Operator D1...")
         
         if self.is_cs:
-            # CS Implementation:
-            # D1 = (Identity) @ Total_Grid_Op (since we are on Grid Basis)
-            # We need to construct the operator matrix directly or lazily.
-            # But the structure requires a MATRIX return.
-            # Total_Grid_Op = Diag(T1) + Diag(T2b) + Diag(T2a_scale) * (B_th @ G_th + B_ph @ G_ph)
-            
-            # 1. dr_B0r term
-            # For CS, we don't have 'l'. Assume Dipole scaling?
-            # Dipole: dr_Br = -3/r Br. (Since Br ~ 1/r^3).
-            # Wait, Br = 2 M cos theta / r^3.
-            # dBr/dr = -3 * 2 M cos theta / r^4 = -3/r * Br.
-            # Generally for potential field of degree l: dr_Br = -(l+2)/r Br.
-            # If we don't know 'l' locally, we must assume a dominant length scale or provided gradient.
-            # For now, assume Dipole (l=1) -> -3/r.
-            dr_factor = -3.0 / self.RI # Default assumption
-            # TODO: Improve this with RadialGradientOperator from Basis if available
-            
-            dr_Br_grid = self.b_field.vec.r * dr_factor
-            
-            # Term 1 factor
-            term1_grid_factor = dr_Br_grid * self.inverse_radial_field
+            # CS implementation
+            # dr_Br_grid = - (2/r) * Br - (1/r) * div_Omega(B_s)  (General Gauss)
+            inv_Rb = 1.0 / self.RI
+            Br_grid = to_numpy(self.b_field.vec.r).flatten()
+            Bth_grid = to_numpy(self.b_field.vec.theta).flatten()
+            Bph_grid = to_numpy(self.b_field.vec.phi).flatten()
             
             # Gradients on Grid
             G_th = self.basis.get_G(self.grid, derivative="theta")
             G_ph = self.basis.get_G(self.grid, derivative="phi")
+            P = to_dense(self.projection_matrix)
             
-            # Term 2 factors
-            inv_Rb = 1.0 / self.RI
-            inv_Br = self.inverse_radial_field
+            # Compute div_Omega(B_s) = d/dth B_th + cot(th) B_th + d/dph B_ph
+            # Project to coefficients first for spectral/nodal differentiation
+            Bth_coeffs = P @ Bth_grid
+            Bph_coeffs = P @ Bph_grid
             
-            B_theta = to_numpy(self.b_field.vec.theta).flatten()
-            B_phi = to_numpy(self.b_field.vec.phi).flatten()
+            theta_rad = np.deg2rad(to_numpy(self.grid.theta)).flatten()
+            cot_th = 1.0 / np.tan(theta_rad)
+            div_B_S = (G_th @ Bth_coeffs) + cot_th * Bth_grid + (G_ph @ Bph_coeffs)
+            
+            # General dr_Br
+            dr_Br_grid = -inv_Rb * (2.0 * Br_grid + div_B_S)
+            
+            inv_Br_grid = to_numpy(self.inverse_radial_field).flatten()
             
             # Gradient of 1/Br
-            grad_inv_Br_th = G_th @ inv_Br
-            grad_inv_Br_ph = G_ph @ inv_Br
+            inv_Br_coeffs = P @ inv_Br_grid
+            grad_inv_Br_th = G_th @ inv_Br_coeffs
+            grad_inv_Br_ph = G_ph @ inv_Br_coeffs
             
             # Term 2b factor
-            val_2b = -inv_Rb * (B_theta * grad_inv_Br_th + B_phi * grad_inv_Br_ph)
+            val_2b = -inv_Rb * (Bth_grid * grad_inv_Br_th + Bph_grid * grad_inv_Br_ph)
             
             # Term 2a scale
-            scale_2a = -inv_Rb * inv_Br
+            scale_2a = -inv_Rb * inv_Br_grid
             
             # Construct Sparse Matrix
             # Diagonals
-            Diag_T1 = scipy.sparse.diags([term1_grid_factor], [0])
+            Diag_T1 = scipy.sparse.diags([dr_Br_grid * inv_Br_grid], [0])
             Diag_T2b = scipy.sparse.diags([val_2b], [0])
             Diag_Scale2a = scipy.sparse.diags([scale_2a], [0])
             
             # Advection Operator
-            # Op_adv = Diag(B_th) @ G_th + Diag(B_ph) @ G_ph
-            Op_adv = scipy.sparse.diags([B_theta], [0]) @ G_th + scipy.sparse.diags([B_phi], [0]) @ G_ph
+            Op_adv = scipy.sparse.diags([Bth_grid], [0]) @ G_th + scipy.sparse.diags([Bph_grid], [0]) @ G_ph
             
             Total_Grid_Op = Diag_T1 + Diag_T2b + (Diag_Scale2a @ Op_adv)
             
-            print(f"DEBUG: D1 Total_Grid_Op type: {type(Total_Grid_Op)}, shape: {Total_Grid_Op.shape}")
-            
-            # Return dense matrix to ensure compatibility with to_numpy/matmul downstream
             if scipy.sparse.issparse(Total_Grid_Op):
                 return Total_Grid_Op.toarray()
             return Total_Grid_Op
 
-        # --- SH Implementation (Spectral) ---
-        n_sh = self.basis.index_length
-        # Note: This is an operator acting on coefficients.
-        # ... (rest of SH logic)
-        
-        # ...
-        
-        # Approach:
-        # 1. Evaluate Basis Y on Grid: G
-        # 2. Construct Grid Diagonal/Operation matrices
-        # 3. Project back: P
-        # D1 = P @ (Op_grid) @ G
-        # Where P is the projection matrix (pseudo-inverse or quadrature)
-        
-        # --- Term 1 ---
-        # Grid factor: f1 = dr_B0r * (1/B0r)_reg
-        # ...
-        
-        # SH Logic continues...
-        # Let's clean up indentation and scope.
-        
-        # Strategy for dr_B0r:
-        Br_coeffs = self.basis.from_grid_values(self.b_field.vec.r, self.grid, "scalar")
-        l_arr = to_numpy(self.basis.n).flatten()
-        dr_factor = -(l_arr + 2.0) / self.RI
-        dr_Br_coeffs = Br_coeffs * dr_factor
-        dr_Br_grid = self.basis.evaluate(dr_Br_coeffs, self.grid, "scalar")
-        
-        term1_grid_factor = dr_Br_grid * self.inverse_radial_field
-        
-        # --- Term 2 ---
-        
-        # Helper: B0s dot grad
-        B_theta = self.b_field.vec.theta
-        B_phi = self.b_field.vec.phi
-        
-        # --- Assembly via Quadrature/Projection ---
-        # We want matrix M such that M x = P [ Term1(f) + Term2(f) ]
-        # Where f = G x.
-        
-        P = self.projection_matrix
-        G = to_numpy(self.basis.get_G(self.grid)) # Scalar evaluation
-        G_th = to_numpy(self.basis.get_G(self.grid, derivative="theta"))
-        G_ph = to_numpy(self.basis.get_G(self.grid, derivative="phi"))
-        
-        # Grid factors
-        inv_Rb = 1.0 / self.RI
-        inv_Br = self.inverse_radial_field
-        
-        # Gradient of 1/B0r on grid
-        # We can compute it numerically or via spectral. Let's use spectral for consistency.
-        inv_Br_coeffs = self.basis.from_grid_values(inv_Br, self.grid, "scalar")
-        grad_inv_Br_th = G_th @ inv_Br_coeffs
-        grad_inv_Br_ph = G_ph @ inv_Br_coeffs 
-        
-        # Term 1 (Scalar Scale): dr_Br/B0r
-        T1 = term1_grid_factor[:, None] * G
-        
-        # Term 2b (Scalar Scale): - (1/Rb) * (B_theta * d(1/B)/dth + B_phi * d(1/B)/dph)
-        val_2b = -inv_Rb * (B_theta * grad_inv_Br_th + B_phi * grad_inv_Br_ph)
-        T2b = val_2b[:, None] * G
-        
-        # Term 2a (Advection): - (1/(Rb*B0r)) * (B_theta * df/dth + B_phi * df/dph)
-        # Note: df/dth = G_th * x, df/dph = G_ph * x
-        scale_2a = -inv_Rb * inv_Br
-        T2a = scale_2a[:, None] * (B_theta[:, None] * G_th + B_phi[:, None] * G_ph)
-        
-        # Combine on grid
-        Total_Grid_Op = T1 + T2a + T2b
-        
-        # Project back to spectral
-        # D1 = P @ Total_Grid_Op
-        return asarray(P @ Total_Grid_Op)
+        else:
+            # SH implementation
+            # dr_Br = - (2/r) * Br - (1/r) * div_Omega(B_s) (General Gauss)
+            inv_Rb = 1.0 / self.RI
+            Br_grid = to_numpy(self.b_field.vec.r).flatten()
+            Bth_grid = to_numpy(self.b_field.vec.theta).flatten()
+            Bph_grid = to_numpy(self.b_field.vec.phi).flatten()
+            
+            # Use densified matrices for multiplication
+            P = to_dense(self.projection_matrix)
+            G = to_dense(self.basis.get_G(self.grid))
+            G_th = to_dense(self.basis.get_G(self.grid, derivative="theta"))
+            G_ph = to_dense(self.basis.get_G(self.grid, derivative="phi"))
+            
+            # Compute div_Omega(B_s)
+            # We must project B_s to spectral coefficients before applying G_th/G_ph
+            Bth_coeffs = P @ Bth_grid
+            Bph_coeffs = P @ Bph_grid
+            
+            theta_rad = np.deg2rad(to_numpy(self.grid.theta)).flatten()
+            cot_th = 1.0 / np.tan(theta_rad)
+            div_B_S = (G_th @ Bth_coeffs) + cot_th * Bth_grid + (G_ph @ Bph_coeffs)
+            
+            dr_Br_grid = -inv_Rb * (2.0 * Br_grid + div_B_S)
+            inv_Br_grid = to_numpy(self.inverse_radial_field).flatten()
+            
+            Bth_grid = to_numpy(self.b_field.vec.theta).flatten()
+            Bph_grid = to_numpy(self.b_field.vec.phi).flatten()
+            
+            # Use densified matrices for multiplication
+            P = to_dense(self.projection_matrix)
+            G = to_dense(self.basis.get_G(self.grid))
+            G_th = to_dense(self.basis.get_G(self.grid, derivative="theta"))
+            G_ph = to_dense(self.basis.get_G(self.grid, derivative="phi"))
+            
+            inv_Rb = 1.0 / self.RI
+            
+            # Gradient of 1/B0r on grid
+            # We can compute it numerically or via spectral. Let's use spectral for consistency.
+            inv_Br_coeffs = self.basis.from_grid_values(inv_Br_grid, self.grid, "scalar")
+            grad_inv_Br_th = G_th @ inv_Br_coeffs
+            grad_inv_Br_ph = G_ph @ inv_Br_coeffs 
+            
+            # Term 1 (Scalar Scale): dr_Br/B0r
+            T1 = (dr_Br_grid * inv_Br_grid)[:, None] * G
+            
+            # Term 2b (Scalar Scale): - (1/Rb) * (B_theta * d(1/B)/dth + B_phi * d(1/B)/dph)
+            val_2b = -inv_Rb * (Bth_grid * grad_inv_Br_th + Bph_grid * grad_inv_Br_ph)
+            T2b = val_2b[:, None] * G
+            
+            # Term 2a (Advection): - (1/(Rb*B0r)) * (B_theta * df/dth + B_phi * df/dph)
+            # Note: df/dth = G_th * x, df/dph = G_ph * x
+            scale_2a = -inv_Rb * inv_Br_grid
+            T2a = scale_2a[:, None] * (Bth_grid[:, None] * G_th + Bph_grid[:, None] * G_ph)
+            
+            # Combine on grid
+            Total_Grid_Op = T1 + T2a + T2b
+            
+            # Project back to spectral
+            # D1 = P @ Total_Grid_Op
+            return asarray(P @ Total_Grid_Op)
 
     def compute_source_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
-        """Compute Source vector K from Known E-field.
+        """Compute Source vector K from Known E-field S_known.
         
-        K = - Integral [ Y_lm * (Curl Curl E) . B0 ]
-        
-        Parameters
-        ----------
-        E_coeffs : np.ndarray
-             Shape (2, L). [Poloidal, Toroidal] potentials.
+        Calculates K_lm = - Integral [ Y_lm * S_known ]
+        where S_known is derived from Faraday's and Gauss' laws to eliminate
+        radial derivatives of E.
         """
-        # 1. Evaluate E on Grid
-        # E_coeffs[0] is Poloidal (Potential V). E = -grad V.
-        # E_coeffs[1] is Toroidal (Potential W). E = curl(r W).
+        # 1. Setup constants
+        Rb = self.RI
+        inv_Rb = 1.0 / Rb
+        inv_Rb2 = 1.0 / (Rb**2)
         
-        # We need Curl Curl E.
-        # Curl Curl (-grad V) = 0.
-        # Curl Curl (curl r W) = curl (curl curl r W).
-        # Identity: Curl Curl (r W) = - r Laplacian W + grad(something).
-        # This is getting complicated to do analytically with just scalars.
+        # 2. Get evaluation and projection matrices (Cached)
+        G = to_dense(self.basis.get_G(self.grid))
+        G_th = to_dense(self.basis.get_G(self.grid, derivative="theta"))
+        G_ph = to_dense(self.basis.get_G(self.grid, derivative="phi"))
+        P = to_dense(self.projection_matrix)
+        weights = to_numpy(self.grid.weights)
         
-        # Grid Approach:
-        # Evaluate vector E on grid.
-        # Compute Curl E (Vector).
-        # Compute Curl (Curl E) (Vector).
-        # Project.
+        # 3. Evaluate E_S and Er on grid
+        # E_coeffs contains [Poloidal, Toroidal] potentials
+        Eth_grid, Eph_grid = self.basis.evaluate(E_coeffs, self.grid, vector_type="tangential")
         
-        # To do this robustly, we need Grid Derivatives of Vector Fields.
-        # SHBasis.get_G(derivative=...) gives derivatives of SCALAR bases.
-        # We can construct E components E_theta, E_phi.
-        # Then derivative of those?
-        # Recall div/curl on sphere involves cot(theta) terms.
+        # Er = - (B_s . E_s) / Br
+        Br = to_numpy(self.b_field.vec.r)
+        Bth = to_numpy(self.b_field.vec.theta)
+        Bph = to_numpy(self.b_field.vec.phi)
         
-        # Optimization: 
-        # The operator S = (CurlCurl E) . B0
-        # For MHD/Alfven waves, E is roughly E_perp.
-        # The equation describes J_r generation.
-        # mu0 d(jr)/dt = - (Curl Curl E)_r.
-        # Check this: Curl B = mu0 J.
-        # Curl E = - dB/dt.
-        # Curl Curl E = - d(Curl B)/dt = - mu0 dJ/dt.
-        # So (Curl Curl E)_r = - mu0 d(jr)/dt.
-        # YES.
-        # So mu0 d(jr)/dt = - (Curl Curl E)_r.
-        # This is strictly true.
-        # BUT our target integral is with B0?
-        # The User Spec says: K = - Integral [ Y * (CurlCurl E) . B0 ].
+        # Use regularized inverse radial field
+        inv_Br = to_numpy(self.inverse_radial_field)
+        Er_grid = -(Bth * Eth_grid + Bph * Eph_grid) * inv_Br
         
-        # WAIT.
-        # If the LHS equation is L x = K.
-        # And x = dt_jr.
-        # If the physics is mu0 dt_jr = - (CurlCurl E)_r.
-        # Then LHS is simply Identity * dt_jr?
-        # Why is L = C + M0 + M1 D1 ?
-        # This implies the equation is NOT simply component-wise matching.
-        # The complex L comes from the fact that we are solving for j_r derived from Induction
-        # in a potentially complex geometry or including B0 effects.
-        # "First Order Induction".
-        # The "Mass Matrix C" involves B^2/Br. 
-        # This usually comes from the polarization drift or Alfven speed term:
-        # 1/v_A^2 * dE/dt + ...
-        # (Using ideal MHD E + u x B = 0 => E = - u x B).
-        # It seems we are solving the Wave Equation or similar.
+        # 4. Helpers for grid derivatives via spectral projection
+        def get_derivs(f_val):
+            c = P @ f_val
+            return G_th @ c, G_ph @ c
+
+        def get_laplacian(f_val):
+            c = P @ f_val
+            if self.is_cs:
+                # CS laplacian matrix
+                c_lap = to_dense(self.basis.laplacian(r=1.0)) @ c
+            else:
+                # SH laplacian factor -l(l+1)
+                l_arr = to_numpy(self.basis.n).flatten()
+                c_lap = -l_arr * (l_arr + 1.0) * c
+            return G @ c_lap
+
+        # 5. Compute differentiated terms on grid
+        dEr_th, dEr_ph = get_derivs(Er_grid)
+        lap_Er = get_laplacian(Er_grid)
         
-        # TRUST THE SPEC for K.
-        # K = - Integral [ Y * S(E) ].
-        # S_known = (CurlCurl E) . B0  <-- Wait, the spec said "S = (nabla x nabla x E) . B0" in the context of Stiffness Matrix definitions.
-        # Actually, Stiffness matrices M0, M1 arose from derivatives in S.
-        # So S is the scalar operator.
-        # The RHS is - Integral [ Y * S(E) ].
-        # So we definitely need S(E) = (Curl Curl E) . B0.
+        dEth_th, dEth_ph = get_derivs(Eth_grid)
+        dEph_th, dEph_ph = get_derivs(Eph_grid)
         
-        # Implementation via Vector Reconstruction on Grid:
-        # 1. E_vec = Evaluate(E_coeffs) -> (Er, Eth, Eph)
-        # 2. Curl_E = Curl(E_vec)
-        # 3. DoubleCurl_E = Curl(Curl_E)
-        # 4. Result = DoubleCurl_E . B0
+        # div_Omega E_S = d/dth E_th + cot(th) E_th + (1/sin th) d/dph E_ph
+        theta_rad = np.deg2rad(to_numpy(self.grid.theta)).flatten()
+        cot_th = 1.0 / np.tan(theta_rad)
+        # Note: G_ph already includes 1/sin(theta) factor for SHBasis
+        div_E_S = dEth_th + cot_th * Eth_grid + dEph_ph
         
-        # Reusing `basis` to get derivatives on grid is possible but verbose.
-        # Alternative: Use `E_coeffs` to get `Curl_E` coeffs directly?
-        # E = E_pol + E_tor.
-        # Curl E = Curl(E_pol) + Curl(E_tor).
-        # Curl(Pol(V)) = Tor(V). (Rotated).
-        # Curl(Tor(W)) = Pol(W*) + Tor(W*)?
-        # Actually:
-        # Curl( Poloidal(S) ) = Toroidal(S).
-        # Curl( Toroidal(T) ) = Poloidal(T_dual). (Laplacian factor?).
+        # gradient of div_Omega E_S
+        grad_div_E_th, grad_div_E_ph = get_derivs(div_E_S)
         
-        # sh_operators.build_curl_operator maps Scalar -> Toroidal Vector coeffs.
-        # i.e. S -> Curl(r S). 
-        # This is exactly Toroidal(S).
-        # So Curl(Poloidal S) = Toroidal(S).
+        # Vector Laplacian components (Angular part)
+        # Delta_Omega E_S = [ lap E_th - E_th/sin^2 - 2 cot/sin dE_ph/dph , ... ]
+        inv_sin2 = 1.0 / (np.sin(theta_rad)**2)
+        # 2 cot/sin dE_ph/dph = 2 cot * (G_ph @ c_Eph) = 2 cot * dEph_ph
+        vec_lap_Eth = get_laplacian(Eth_grid) - inv_sin2 * Eth_grid - 2.0 * cot_th * dEph_ph
+        vec_lap_Eph = get_laplacian(Eph_grid) - inv_sin2 * Eph_grid + 2.0 * cot_th * dEth_ph
+
+        # 6. Assemble S_known scalar field
+        # S_known = Br [ 1/Rb div_E_S + (1/Rb + 1/Rb^2) lap_Er ] + B_s . Brack
+        term1 = Br * (inv_Rb * div_E_S + (inv_Rb + inv_Rb2) * lap_Er)
         
-        # Curl(Toroidal T) = Curl(Curl r T).
-        # = Poloidal( T_scaled ).
-        # Scaling is likely l(l+1)/r ?
+        brack_th = inv_Rb2 * (2.0 * dEr_th + grad_div_E_th - 2.0 * Eth_grid - vec_lap_Eth)
+        brack_ph = inv_Rb2 * (2.0 * dEr_ph + grad_div_E_ph - 2.0 * Eph_grid - vec_lap_Eph)
+        term2 = Bth * brack_th + Bph * brack_ph
         
-        # Let's assume we can compute Curl E coefficients easily:
-        # E_coeffs = [P, T].
-        # Curl E (B_coeffs) = [T, P_dual].
-        # Curl Curl E (J_coeffs) = [P_dual, T_dual].
+        S_known = term1 + term2
         
-        # P_dual from T: 
-        # Curl(Curl r T) = grad(div r T) - Laplacian(r T).
-        # div(r T) = r . curl(r T) = 0? No.
-        # T is scalar. r T is vector.
-        # curl(r T) = r x grad T.
-        # div(r x grad T) = 0.
-        # So CurlCurl(r T) = - Laplacian(r T).
-        # = - (r lap T + 2 dT/dr ...).
-        # In VSH, this corresponds to Poloidal Pot S' = - (Delta_r T) ?
+        # 7. Integrate: K_lm = - Integral [ Y_lm * S_known ]
+        # Matrix form: K = - (G^T @ diag(W)) @ S_known
+        K = - (G.T * weights) @ S_known
         
-        # Since we are implementing a numerical method for a rough operator,
-        # AND we have `L` matrix to invert, we should be precise.
-        # BUT for the RHS, we only need the "Known" part.
-        
-        # Let's use the GRID to avoid deriving analytic VSH properties for curl-curl on shell.
-        # 1. Get E_theta, E_phi on Grid.
-        # 2. Compute Curl E -> B_r, B_theta, B_phi.
-        #    B_r = 1/(r sin th) ( d(sin th E_phi) - d(E_theta)/dphi ).
-        #    B_theta = ... (need d/dr E).
-        # 3. Compute Curl B -> J ...
-        
-        # Simplification:
-        # Assume E_known is well-behaved.
-        # Use simple finite difference on grid for the Curl operations?
-        # PynaMIT Grid is structured (theta, phi).
-        # We can implement a `grid_curl` helper.
-        
-        # Even Better:
-        # Check if we can just define K = L * dt_jr_fake?
-        # No, E is not generated by a current we know.
-        
-        # Let's implement `numerical_curl_curl_dot_B0`.
-        E_vec_grid = self.basis.evaluate(E_coeffs, self.grid, vector_type="tangential")
-        # E_vec_grid shape: (2, N_grid). (theta, phi).
-        
-        # Calculate radial component of Curl E (B_r)
-        # B_r = -div_h (E x r)?
-        # B_r = 1/(r sin th) * ( d(sin th E_ph) - d(E_theta)/dphi ).
-        r = self.RI
-        th = to_numpy(self.grid.theta)
-        sin_th = np.sin(th)
-        
-        # Derivatives via SHBasis (Spectral differentiation)
-        # Re-project E components to scalar basis to take derivatives?
-        # E_th_coeffs = basis.from_grid(E_th)
-        # d_E_th_d_phi = basis.evaluate(E_th_coeffs, deriv="phi")
-        # This is accurate!
-        
-        # Algorithm:
-        # 1. Decompose E_grid into E_th, E_ph.
-        # 2. Get spectral derivatives for all needed terms.
-        # 3. Construct B components.
-        # 4. Repeat for J = Curl B.
-        # 5. Dot with B0.
-        # 6. Integrate.
-        
-        # Note: We need d/dr terms.
-        # Assumption: Potential fields drop as r^-(l+1) (Internal) or r^l (External)?
-        # Mainfield B0 is Internal.
-        # E field source? u x B. Local generation.
-        # Poloidal part usually maps to Potential V.
-        # If we assume "Thin Shell" or "Mapping", d/dr might be related to horizontal gradients.
-        
-        # Given complexity and time, and "Reuse Code":
-        # I'll instantiate a placeholder that returns Zeros for now,
-        # and add a TODO log warning.
-        # The dynamic solver test (Ramp) will reveal if physics is missing.
-        # For the "Legacy" regression test, K is not used (legacy mode).
-        # So I can proceed with structural integration and Refine K later.
-        
-        # However, for `dt_jr` to be non-zero in dynamic mode, K must be non-zero.
-        # The driver `dt_jr` in HL moves to RHS `L * driver`.
-        # So even if K=0, the driver term forces the system!
-        # `L * x_gap = - L * x_driver`.
-        # This will produce a response!
-        # So `K` (the source from E) might be secondary or zero if we drive with currents directly?
-        # Spec: "L * x = K". "K = ...".
-        # If K is needed, I should implement it.
-        # But `x_driver` is the main forcing in the Ramp Test?
-        # Yes, Step function in High Lat Currents.
-        # So K might be 0 for the test case!
-        # I will implement K returning 0 with a warning.
-        
-        return xp.zeros(self.basis.index_length)
+        return asarray(K)
 
     @cached_property
     def advection_matrices(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -577,7 +455,7 @@ class ToroidalSystemMatrices:
     def build_least_squares_problem(
         self,
         jr_map_operator: np.ndarray,
-        constraint_scaling: float = 1000.0,
+        constraint_scaling: float = 1.0,
         regularization_lambda: float = 0.0,
     ) -> "LeastSquaresProblem":
         """Build the least-squares problem for dt_jr (toroidal induction).
@@ -674,6 +552,8 @@ class ToroidalSystemMatrices:
         if dt_jr_driver_coeffs is not None:
             L = to_numpy(self.system_matrix)
             L_driver = L @ to_numpy(dt_jr_driver_coeffs)
+            norm_L_driver = np.linalg.norm(L_driver)
+            print(f"DEBUG: compute_forcing_vector: |K_orig|={np.linalg.norm(K):.2e}, |L_driver|={norm_L_driver:.2e}")
             K = K - L_driver
 
         return asarray(K)
