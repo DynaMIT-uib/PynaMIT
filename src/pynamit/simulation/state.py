@@ -666,91 +666,7 @@ class State:
         """Solve for state in full induction mode (Toroidal + Poloidal).
         
         Solves the partitioned system:
-        L * dt_jr_gap = K - L * dt_jr_driver
         """
-        if self.toroidal_matrices is None:
-             raise RuntimeError("Toroidal matrices not initialized.")
-             
-        # 1. Compute Source Vector K (RHS)
-        # K = - Integral [ Y * S_known ]
-        # S_known excludes toroidal d/dt term.
-        # Ideally, we implement a helper to get S_known explicitly.
-        # For now, let's assume we can compute the FULL RHS as usual but 
-        # we need to subtract the toroidal part or construct it purely.
-        
-        # Actually, the user spec says:
-        # "Reuse the existing calc_RHS logic but filter out the toroidal terms"
-        # Since we don't have a `calc_RHS` method exactly here (it's embedded in `evolve_m_ind`),
-        # we need to be careful.
-        
-        # Wait, `calculate_noind_coeffs` is usually called by `dynamics.py` BEFORE evolution.
-        # But for the dynamic solver, we need `dt_jr` (which is `x`).
-        # `dt_jr` drives the evolution of `psi`.
-        
-        # Let's align with the `State` class flow.
-        # Normally `calculate_noind_coeffs` returns (E_total, m_imp).
-        # In Dynamic mode, `m_imp` should be consistent with `psi` (if we define psi as toroidal potential leading to current).
-        # Or, `m_imp` is the POLOIDAL part of the potential response.
-        
-        # User Spec: "Update Toroidal Field (psi)... Update Poloidal Field (P)..."
-        # "P^(n+1) = P^n + dt * T[dt_jr]"
-        # This implies we are integrating `m_imp` (which is P) in time too!
-        
-        # So in this function we should primarily be solving for `dt_jr` (the rate).
-        # However, `calculate_noind_coeffs` expects to return STATIC COEFFICIENTS for the current timestep step.
-        # The integration happens in `dynamics.py` / `TimeStepper`.
-        
-        # So, we should return the CURRENT E-field and m_imp.
-        # But `m_imp` is now a state variable, evolved by `TimeStepper`.
-        # So here we just return the current values from `self.m_imp` (if we store it) or `self.psi`.
-        
-        # If `m_imp` is state, we don't solve for it statically here.
-        # We just return the stored value.
-        
-        # But we DO need to calculate `dt_jr` so the TimeStepper can use it.
-        # Let's store `dt_jr` as a side effect or return it?
-        # `dynamics.py` calls this method.
-        # We might need to refactor `dynamics.py` significantly.
-        # For now, let's implement the solver step here as a helper `_solve_dt_jr`.
-        # And `calculate_noind_coeffs` just assembles E from current psi/m_imp.
-        
-        # If we assume `self.psi` contains Toroidal potential T, and maybe we add `self.m_imp` as Poloidal potential P state?
-        # Legacy code calculates `m_imp` statically from `jr`.
-        # Dynamic code evolves `m_imp`.
-        # So we need to store `m_imp` in `self`.
-        
-        if self.psi is None:
-             # Initialize if first run
-             n = self.solution_basis.index_length
-             self.psi = xp.zeros(n)
-             # We should also have self.m_imp_state
-             
-        # Compute E from current potentials
-        # E = E_direct + E(psi) + E(m_imp)
-        # Note: E(psi) is Toroidal E from toroidal potential T.
-        # E(m_imp) is Poloidal E from poloidal potential P.
-        
-        # For now, to satisfy the API:
-        # We treat `m_imp` here as the Poloidal Potential P.
-        # Return E_total, m_imp.
-        
-        # But we need to update `dt_jr` for the NEXT step.
-        # Computing `dt_jr` requires the CURRENT E-field (including induced!).
-        # But `calculate_noind_coeffs` is supposed to return "No Induced" part?
-        # In legacy: "No Induced" = Direct + Imposed (Static).
-        # In dynamic: "No Induced" might mean "Everything except self-induction of m_ind"?
-        # Or does it mean "Everything known at time t"?
-        
-        # Let's assume this method calculates E based on the CURRENT state variables.
-        # For dynamic mode, m_imp is state.
-        # So we construct E_noind = E_direct.
-        # E_total = E_direct + E_psi + E_m_imp + E_m_ind?
-        # Wait, m_ind is handled by `evolve_m_ind` in legacy.
-        # The user spec says "Disable ApexMapping... coupling handled by global solution".
-        # And "m_ind" might be subsumed by the new physics or kept separate?
-        # "Specifically, ensure K includes only the poloidal contribution..."
-        
-        # E-field calculation and solver step
         n = self.solution_basis.index_length
     
         if self.psi is None:
@@ -835,9 +751,11 @@ class State:
         
         # 3. Handle Scaling: Derive d_psi_dt from dt_jr
         # Delegate to ToroidalSystemMatrices
+        # 3. Handle Scaling: Derive d_psi_dt from dt_jr
+        # Delegate to ToroidalSystemMatrices
         self.d_psi_dt = self.toroidal_matrices.compute_rates(
              dt_jr,
-             self.geometry.m_imp_to_jr
+             m_imp_to_jr_operator=self.geometry.m_imp_to_jr
         )
         
         # 4. Return Total E-field and current Toroidal state
