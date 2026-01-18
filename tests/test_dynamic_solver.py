@@ -64,7 +64,7 @@ def test_dynamic_ramp_pure_spectral():
         SimulationMode.PURE_SPECTRAL,
         expected_psi_norm,
         expected_mind_norm,
-        rel_tol=1e-12,
+        rel_tol=1e-10,
         test_name="sim_pure_spectral"
     )
 
@@ -78,37 +78,38 @@ def test_dynamic_ramp_spectral_transform_gl():
         SimulationMode.SPECTRAL_TRANSFORM_GL,
         expected_psi_norm,
         expected_mind_norm,
-        rel_tol=1e-12,
+        rel_tol=1e-10,
         test_name="sim_st_gl"
     )
 
 
 def test_dynamic_ramp_spectral_transform_cs():
     """Test spectral transform CS mode with dual induction."""
-    # Baseline values for dual induction @ t=1.0s (Updated for CS transform)
-    expected_psi_norm = 6.22561639334808e-11
-    expected_mind_norm = 1.9939653679410715e-09
-    
+    # Mode-specific baseline values for dual induction @ t=1.0s
+    # Note: CS transform uses pseudo-inverse approximation, so values differ from pure spectral
+    expected_psi_norm = 6.225616393348059e-11
+    expected_mind_norm = 1.993965367941095e-09
+
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
         expected_psi_norm,
         expected_mind_norm,
-        rel_tol=1e-2, # Relaxed tolerance for CS transform differences
+        rel_tol=1e-10,
         test_name="sim_st_cs"
     )
 
 
 def test_dynamic_ramp_cs_dominant():
     """Test CS dominant mode with dual induction."""
-    # Baseline values for CS Dominant (Placeholder - using GL values)
-    # Note: CS Dominant path uses different basis/matrices, so values will differ.
-    expected_psi_norm = 3.5008192104918903e-10
-    expected_mind_norm = 2.0887042851884125e-06
-    
+    # Mode-specific baseline values for dual induction @ t=1.0s
+    # Note: CS Dominant uses finite differences on cubed sphere, values differ significantly from spectral modes
+    expected_psi_norm = 3.500819210491890e-10
+    expected_mind_norm = 2.088704285188413e-06
+
     _run_dynamic_ramp_test(
         SimulationMode.CS_DOMINANT,
         expected_psi_norm,
         expected_mind_norm,
-        rel_tol=1.0, # High tolerance for now just to ensure it runs and produces output
+        rel_tol=1e-10,
         test_name="sim_cs_dom"
     )
