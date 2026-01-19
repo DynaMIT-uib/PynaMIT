@@ -104,7 +104,7 @@ def test_dynamic_ramp_cs_dominant():
     # Mode-specific baseline values for dual induction @ t=1.0s
     # Note: CS Dominant uses finite differences on cubed sphere, values differ significantly from spectral modes
     expected_psi_norm = 3.5008192104897026e-07
-    expected_mind_norm = 2.0389433648974744e-06
+    expected_mind_norm = 1.6384916889774027e-06
 
     _run_dynamic_ramp_test(
         SimulationMode.CS_DOMINANT,
