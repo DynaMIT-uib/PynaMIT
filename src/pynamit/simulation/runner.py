@@ -45,14 +45,20 @@ def run_pynamit(
     mainfield_epoch: int = 2020,
     use_exact_weights: bool = False,
     filename_prefix: Optional[str] = None,
+    use_jr: bool = True,
+    induction_constraint_scaling: float = 1.0,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
-
+    
     Parameters
     ----------
     ...
     filename_prefix : str, optional
         Prefix for output files.
+    use_jr : bool, optional
+        Whether to drive with field aligned currents (default True).
+    induction_constraint_scaling : float, optional
+        Scaling factor for induction constraint (default 1.0).
     """
     import datetime
     import numpy as np
@@ -61,6 +67,17 @@ def run_pynamit(
     from pynamit.simulation.dynamics import Dynamics, SimulationMode
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
     from pynamit.spherical_harmonics.sh_basis import SHBasis
+
+    # ... (skipping unchanged) ...
+
+    # INITIALIZE DYNAMICS (unchanged) 
+    # But I can't easily skip lines in replacement without multi_replace or correct target.
+    # The duplicate error was in the signature.
+    # I will split this into two edits:
+    # 1. Fix signature (and remove duplicate line).
+    # 2. Add zeroing logic.
+    
+    # Actually, let's just fix the signature issue first.
 
     # Helper for weight generation
     def _get_weights(lat, lon, Nmax, use_exact):
@@ -140,6 +157,7 @@ def run_pynamit(
         m_imp_regularization_lambda=m_imp_regularization_lambda,
         dynamics_mode=dynamics_mode,
         mainfield_epoch=mainfield_epoch,
+        induction_constraint_scaling=induction_constraint_scaling,
     )
 
 
@@ -159,6 +177,8 @@ def run_pynamit(
     jr_lat = dynamics.state.geometry.grid.lat
     jr_lon = dynamics.state.geometry.grid.lon
     jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
+    if not use_jr:
+        jr = np.zeros_like(jr)
     
     w_jr = _get_weights(jr_lat, jr_lon, Nmax, use_exact_weights)
 

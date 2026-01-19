@@ -132,6 +132,7 @@ class State:
         self.RI = settings.RI
         self.RM = None if settings.RM == 0 else settings.RM
         self.ih_constraint_scaling = settings.ih_constraint_scaling
+        self.induction_constraint_scaling = getattr(settings, "induction_constraint_scaling", 1.0)
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.dynamics_mode = getattr(settings, "dynamics_mode", "legacy")
         print(f"DEBUG: State initialized with dynamics_mode={self.dynamics_mode}")
@@ -262,7 +263,7 @@ class State:
 
         return self.toroidal_matrices.build_least_squares_problem(
             jr_map_operator=self.geometry.jr_map_sim,
-            constraint_scaling=1.0,
+            constraint_scaling=self.induction_constraint_scaling,
             regularization_lambda=0.0,
         )
 
@@ -703,6 +704,11 @@ class State:
         
         # 2. Solve for dt_jr
         dt_jr = self.solve_dt_jr(E_known)
+        
+        # DEBUG: Trace Sensitivity
+        nm_E = np.linalg.norm(E_known)
+        nm_dtjr = np.linalg.norm(dt_jr)
+        print(f"DEBUG: E_known norm={nm_E:.4e}, dt_jr norm={nm_dtjr:.4e}")
         
         # 3. Update Toroidal State (psi)
         # This function returns E-coeffs, not evolves state.

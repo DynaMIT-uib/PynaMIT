@@ -139,6 +139,7 @@ class DynamicsSettings:
     connect_hemispheres: bool = False
     latitude_boundary: float = 50.0
     ih_constraint_scaling: float = 1e-5
+    induction_constraint_scaling: float = 1.0
     vector_jr: bool = True
     vector_Br: bool = True
     vector_conductance: bool = True

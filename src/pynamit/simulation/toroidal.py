@@ -171,6 +171,10 @@ class ToroidalSystemMatrices:
             if scipy.sparse.issparse(Total_Grid_Op):
                 return Total_Grid_Op.toarray()
             return Total_Grid_Op
+            
+            if scipy.sparse.issparse(Total_Grid_Op):
+                return Total_Grid_Op.toarray()
+            return Total_Grid_Op
 
         else:
             # SH implementation
@@ -185,6 +189,8 @@ class ToroidalSystemMatrices:
             G = to_dense(self.basis.get_G(self.grid))
             G_th = to_dense(self.basis.get_G(self.grid, derivative="theta"))
             G_ph = to_dense(self.basis.get_G(self.grid, derivative="phi"))
+            
+            # div_B_S = (G_th @ Bth_coeffs) + cot_th * Bth_grid + (G_ph @ Bph_coeffs)
             
             # Compute div_Omega(B_s)
             # We must project B_s to spectral coefficients before applying G_th/G_ph
@@ -264,6 +270,7 @@ class ToroidalSystemMatrices:
         
         # Use regularized inverse radial field
         inv_Br = to_numpy(self.inverse_radial_field)
+        
         Er_grid = -(Bth * Eth_grid + Bph * Eph_grid) * inv_Br
         
         # 4. Helpers for grid derivatives via spectral projection
