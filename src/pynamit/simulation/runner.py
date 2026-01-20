@@ -23,6 +23,7 @@ def run_pynamit(
     fig_directory: str = "./figs",
     ignore_PFAC: bool = True,
     connect_hemispheres: bool = False,
+    northern_hemisphere_apex_constraints: bool = False,
     latitude_boundary: float = 50.0,
     wind: bool = False,
     steady_state_initialization: bool = True,
@@ -144,6 +145,7 @@ def run_pynamit(
         mainfield_B0=mainfield_B0,
         ignore_PFAC=ignore_PFAC,
         connect_hemispheres=connect_hemispheres,
+        northern_hemisphere_apex_constraints=northern_hemisphere_apex_constraints,
         latitude_boundary=latitude_boundary,
         vector_jr=vector_jr,
         vector_Br=vector_Br,
@@ -206,14 +208,15 @@ def run_pynamit(
         time=time,
     )
 
-    dynamics.set_jr(
-        jr, 
-        lat=jr_lat, 
-        lon=jr_lon, 
-        reg_lambda=jr_lambda, 
-        sqrt_weights=w_jr,
-        time=time
-    )
+    if use_jr:
+        dynamics.set_jr(
+            jr, 
+            lat=jr_lat, 
+            lon=jr_lon, 
+            reg_lambda=jr_lambda, 
+            sqrt_weights=w_jr,
+            time=time
+        )
 
     if wind_inputs is not None:
         dynamics.set_u(

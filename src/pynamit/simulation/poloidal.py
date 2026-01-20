@@ -288,6 +288,7 @@ class PoloidalSystemMatrices:
         connect_hemispheres: bool = True,
         ih_constraint_scaling: float = 1.0,
         regularization_lambda: float = 0.0,
+        use_pinning: bool = False,
     ) -> "LeastSquaresProblem":
         """Build the least-squares problem for m_imp.
 
@@ -297,7 +298,8 @@ class PoloidalSystemMatrices:
         Where A consists of:
         1. jr constraint: jr_map @ (m_imp_to_jr @ m_imp) = jr_data
         2. E-field mapping constraint (if connect_hemispheres)
-        3. Tikhonov regularization (if lambda > 0)
+        3. Pinning constraint (if use_pinning): m_imp[0] = 0
+        4. Tikhonov regularization (if lambda > 0)
 
         Parameters
         ----------
@@ -311,6 +313,9 @@ class PoloidalSystemMatrices:
             Scaling factor for the IH constraint term.
         regularization_lambda : float
             Tikhonov regularization weight.
+        use_pinning : bool
+            Whether to specificall pin the first potential coefficient to zero.
+            Necessary for Cubed-Sphere basis to resolve the constant null mode.
 
         Returns
         -------
@@ -337,7 +342,27 @@ class PoloidalSystemMatrices:
             operators.append(op_E)
             data_shapes.append((op_E.shape[0],))
 
-        # 3. Tikhonov regularization
+        # 3. Pinning Constraint
+        if use_pinning:
+            # m_imp[0] = 0.
+            # Create a 1-row operator: [1, 0, 0, ...]
+            # We can use a sparse matrix for efficiency or a DenseLinearMap
+            # For a single row, dense is fine, or sparse.
+            n = self.solution_basis.index_length
+            row = np.zeros((1, n))
+            row[0, 0] = 1.0 # Pin first element
+            # Scale constraint to be strictly enforced (high weight)
+            # Though standard formulation effectively weights it by 1 unless scaled.
+            # Pinning should be "exact", so let's weight it high? 
+            # Or just rely on it being the only definition for this mode.
+            # Given the null space, any non-zero weight works.
+            # Let's use a modest scaling to avoid bad conditioning in the other direction?
+            # Actually, standard weight is usually fine if row is normalized.
+            op_pin = as_linear_map(row)
+            operators.append(op_pin)
+            data_shapes.append((1,))
+
+        # 4. Tikhonov regularization
         reg_ops = []
         reg_weights = []
         if regularization_lambda > 0:
@@ -452,6 +477,8 @@ class PoloidalSystemMatrices:
         E_direct_dense = asarray(m_ind_to_E.to_dense()).reshape(2, n, n)
         
         # 2. Compute Imposed Feedback (Constraint Response)
+        # We need to construct the RHS for each "scenario" (each basis function being excited).
+        # The problem.num_data_terms includes: [jr_constraint, E_mapping, pinning_constraint(optional)]
         rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
 
         if connect_hemispheres and E_map_constraint_operator is not None:
@@ -467,11 +494,19 @@ class PoloidalSystemMatrices:
                  else:
                       term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2], [0]))
             
-            b_E_block = term
+            # Reshape b_E_block from (2, Mask, Batch) to (2*Mask, Batch)
+            # This matches the flattening logic used for the LHS operator.
+            b_E_block = xp.reshape(term, (-1, n))
+
             if len(rhs_entries) > 1:
                 rhs_entries[1] = ih_constraint_scaling * b_E_block
 
+        # IMPORTANT: If pinning is active (num_data_terms > 2), we leave that entry as None (Zero).
+        # This is correct because the induction terms (scenarios) do not drive the pinning value.
+        # However, assemble_rhs_block expects rhs_entries to match num_data_terms.
+        
         rhs_block, _, num_scenarios = problem.assemble_rhs_block(rhs_entries)
+        
         if rhs_block is None:
             op_rows = problem.get_system_operator().shape[0]
             rhs_block = xp.zeros((op_rows, n), dtype=E_direct_dense.dtype)

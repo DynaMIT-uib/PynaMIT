@@ -23,7 +23,6 @@ def test_induction_sensitivity():
         dynamics_mode="full_induction",
         mainfield_kind="igrf",
         least_squares_solver="svd",
-        filename_prefix="sensitivity_test_runner",
         induction_constraint_scaling=1e-12,
         wind=True,
         use_jr=False,

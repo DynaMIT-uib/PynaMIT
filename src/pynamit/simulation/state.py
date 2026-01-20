@@ -455,6 +455,7 @@ class State:
             connect_hemispheres=(E_constraint_op is not None),
             ih_constraint_scaling=self.ih_constraint_scaling,
             regularization_lambda=self.m_imp_regularization_lambda,
+            use_pinning=(getattr(self.solution_basis, "kind", "") == "CS"),
         )
 
     @cached_property
@@ -813,8 +814,9 @@ class State:
             driver_j_apex = rad_to_apx * to_numpy(driver_jr_grid)
 
             # 3. Apply to HL region only
-            hl_mask = ~self.geometry.ll_mask
-            rhs_2[hl_mask] = driver_j_apex[hl_mask]
+            if self.geometry.ll_mask is not None:
+                hl_mask = ~self.geometry.ll_mask
+                rhs_2[hl_mask] = driver_j_apex[hl_mask]
 
         # Scale for penalty
         rhs_2 = constraint_weight * rhs_2
@@ -860,7 +862,7 @@ class State:
             solver=self.m_imp_solver,
             E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
             ih_constraint_scaling=self.ih_constraint_scaling,
-            connect_hemispheres=self.connect_hemispheres,
+            connect_hemispheres=(self.connect_hemispheres and self.dynamics_mode != "full_induction"),
             m_ind_to_E_operator=self.m_ind_to_E_coeffs,
             m_imp_to_E_operator=self.m_imp_to_E_coeffs,
         )
@@ -891,7 +893,7 @@ class State:
                  preconditioner=self.m_imp_preconditioner,
                  E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
                  ih_constraint_scaling=self.ih_constraint_scaling,
-                 connect_hemispheres=self.connect_hemispheres,
+                 connect_hemispheres=(self.connect_hemispheres and self.dynamics_mode != "full_induction"),
                  m_imp_to_E_operator=self.m_imp_to_E_coeffs,
              )
 

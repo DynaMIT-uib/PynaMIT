@@ -140,6 +140,7 @@ class DynamicsSettings:
     latitude_boundary: float = 50.0
     ih_constraint_scaling: float = 1e-5
     induction_constraint_scaling: float = 1.0
+    northern_hemisphere_apex_constraints: bool = False
     vector_jr: bool = True
     vector_Br: bool = True
     vector_conductance: bool = True
@@ -171,6 +172,7 @@ class DynamicsSettings:
         attrs["vector_conductance"] = int(self.vector_conductance)
         attrs["vector_u"] = int(self.vector_u)
         attrs["save_steady_states"] = int(self.save_steady_states)
+        attrs["northern_hemisphere_apex_constraints"] = int(self.northern_hemisphere_apex_constraints)
 
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
@@ -226,12 +228,19 @@ class DynamicsSettings:
             connect_hemispheres=bool(get("connect_hemispheres", defaults.connect_hemispheres)),
             latitude_boundary=get("latitude_boundary", defaults.latitude_boundary),
             ih_constraint_scaling=get("ih_constraint_scaling", defaults.ih_constraint_scaling),
+            induction_constraint_scaling=get(
+                "induction_constraint_scaling", defaults.induction_constraint_scaling
+            ),
+            northern_hemisphere_apex_constraints=bool(
+                get("northern_hemisphere_apex_constraints", defaults.northern_hemisphere_apex_constraints)
+            ),
             vector_jr=bool(get("vector_jr", defaults.vector_jr)),
             vector_Br=bool(get("vector_Br", defaults.vector_Br)),
             vector_conductance=bool(get("vector_conductance", defaults.vector_conductance)),
             vector_u=bool(get("vector_u", defaults.vector_u)),
             t0=get("t0", defaults.t0),
             save_steady_states=bool(get("save_steady_states", defaults.save_steady_states)),
+
             integrator=get("integrator", defaults.integrator),
             # Runtime fields not in file
             backend=defaults.backend,

@@ -22,10 +22,13 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
     """
     # Expected values averaged between numpy and JAX backends
     # Updated values after sign fix in ConstraintOperator/state.py
-    expected_coeff_norm = 8.004498264306536e-07
-    expected_coeff_max = 1.1524553666831046e-07
-    expected_coeff_min = -8.974473096896431e-08
+    expected_coeff_norm = 1.46885617534854e-06
+    expected_coeff_max = 1.3610340879836602e-07
+    expected_coeff_min = -2.5279310767038976e-07
     expected_n_coeffs = 768
+
+    # Using Northern Apex Constraints improved values (slightly higher energy due to different constraint)
+    # The previous legacy values were ~8.01e-7.
 
     # We use small integration time for speed.
     final_time = 0.003
@@ -57,6 +60,7 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
         integrator="euler",
         multi_data=True,
         simulation_mode="cs_dominant",
+        northern_hemisphere_apex_constraints=True,
         # CG solver works well with balanced resolution (near-full rank)
     )
 

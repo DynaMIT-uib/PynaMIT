@@ -84,6 +84,9 @@ class Geometry:
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.latitude_boundary = settings.latitude_boundary
         self.ignore_PFAC = bool(settings.ignore_PFAC)
+        self.northern_hemisphere_apex_constraints = bool(
+            getattr(settings, "northern_hemisphere_apex_constraints", False)
+        )
         self.FAC_integration_steps = settings.FAC_integration_steps
 
         # Initialize core geometric objects
@@ -109,6 +112,7 @@ class Geometry:
             basis=self.basis,
             latitude_boundary=self.latitude_boundary,
             connect_hemispheres=self.connect_hemispheres,
+            northern_hemisphere_apex_constraints=self.northern_hemisphere_apex_constraints,
         )
         self._init_constraint_mappings()
 
