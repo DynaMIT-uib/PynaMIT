@@ -18,6 +18,7 @@ from pynamit.cubed_sphere import diffutils
 from pynamit.cubed_sphere import cs_math
 from pynamit.primitives.grid import Grid, GridBasis, create_interpolator
 from pynamit.primitives.grid.grid_utils import get_3D_determinants, constrain_values
+from pynamit.utils import asarray
 
 if TYPE_CHECKING:
     from pynamit.cubed_sphere.grid import CubedSphereGrid
@@ -74,6 +75,56 @@ class CSBasis(GridBasis):
         """Get the Laplacian operator for CSBasis."""
         from pynamit.math.linear_map import as_linear_map
         return as_linear_map(self.laplacian(r))
+
+    def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
+        """Get the discrete radial curl operator on the grid."""
+        from pynamit.math.linear_map import as_linear_map
+        target_grid = grid if grid is not None else self.grid
+        return as_linear_map(self._get_grid_curl(target_grid, r=1.0))
+
+    def get_vector_divergence_operator(self, grid: Optional[Any] = None) -> "LinearMap":
+        """Get the discrete divergence operator on the grid."""
+        from pynamit.math.linear_map import as_linear_map
+        target_grid = grid if grid is not None else self.grid
+        return as_linear_map(self._get_grid_divergence(target_grid, r=1.0))
+
+    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract toroidal potential coefficients using Helmholtz projection."""
+        target_grid = grid if grid is not None else self.grid
+        P = self.construct_projection_matrix(target_grid)
+        n = self.index_length
+        coeffs = asarray(coeffs)
+        
+        # Handle different coefficient layout formats
+        if coeffs.shape[0] == 2:
+             # Component-major: (2, N_coeffs, ...)
+             c_flat = coeffs.reshape(2 * n, -1)
+             res = P[n:] @ c_flat
+             return res.reshape((n,) + coeffs.shape[2:]) if coeffs.ndim > 2 else res.flatten()
+        elif coeffs.shape[0] == 2 * n:
+             # Flattened: (2*N_coeffs, ...)
+             res = P[n:] @ coeffs.reshape(2 * n, -1)
+             return res.reshape((n,) + coeffs.shape[1:]) if coeffs.ndim > 1 else res.flatten()
+        
+        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
+
+    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract poloidal potential coefficients using Helmholtz projection."""
+        target_grid = grid if grid is not None else self.grid
+        P = self.construct_projection_matrix(target_grid)
+        n = self.index_length
+        coeffs = asarray(coeffs)
+
+        # Handle different coefficient layout formats
+        if coeffs.shape[0] == 2:
+             c_flat = coeffs.reshape(2 * n, -1)
+             res = P[:n] @ c_flat
+             return res.reshape((n,) + coeffs.shape[2:]) if coeffs.ndim > 2 else res.flatten()
+        elif coeffs.shape[0] == 2 * n:
+             res = P[:n] @ coeffs.reshape(2 * n, -1)
+             return res.reshape((n,) + coeffs.shape[1:]) if coeffs.ndim > 1 else res.flatten()
+
+        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
 
     def get_radial_shift_operator(
         self, start_r: float, end_r: float, kind: str = "external"
@@ -672,6 +723,11 @@ class CSBasis(GridBasis):
         rather than Laplacian inversion, which avoids numerical instability from
         the Laplacian's null space (constant functions).
         """
+        # 1. Check Cache
+        grid_key = getattr(grid, "hash", id(grid))
+        if grid_key in self._cache and "projection_matrix" in self._cache[grid_key]:
+            return self._cache[grid_key]["projection_matrix"]
+
         import scipy.sparse
         from pynamit.utils import tensor_pinv
 
@@ -686,17 +742,22 @@ class CSBasis(GridBasis):
             G_ph = G_ph.toarray()
 
         # Build forward Helmholtz mapping: coeffs -> grid vectors
-        # G_grad maps scalar potential to E-field components: E = -grad(phi)
-        # G_rxgrad maps toroidal potential T to E-field: E = -r x grad(T) (Uniform Potential)
-        G_grad = np.array([G_th, G_ph])           # (2, N_grid, N_coeffs)
-        G_rxgrad = np.array([G_ph, -G_th])        # (2, N_grid, N_coeffs)
+        # G_grad: E = -grad(phi) = (-1/r * d_th phi, -1/(r sin th) * d_ph phi)
+        # G_rxgrad: E = -r x grad(T) = (1/(r sin th) * d_ph T, -1/r * d_th T)
+        # We use r=1.0 as the ionosphere reference radius.
+        
+        theta_rad = np.deg2rad(getattr(grid, "theta", self.arr_theta))
+        sin_th = np.sin(theta_rad)
+        epsilon = 1e-10
+        inv_sin_th = 1.0 / np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+        
+        # Rescale the gradient components physically
+        G_grad = np.array([-G_th, -inv_sin_th[:, None] * G_ph])
+        G_rxgrad = np.array([inv_sin_th[:, None] * G_ph, -G_th])
 
         # G_helmholtz: (2, N_grid, 2, N_coeffs)
-        # First index: vector component (theta, phi)
-        # Second index: grid point
-        # Third index: potential type (0=poloidal/phi, 1=toroidal/psi)
-        # Fourth index: coefficient
-        G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
+        # Potential types: 0=poloidal, 1=toroidal
+        G_helmholtz = np.stack([G_grad, G_rxgrad], axis=2)
 
         # Use proper pseudo-inverse via SVD (handles rank deficiency gracefully)
         # This avoids the numerical instability of inverting the singular Laplacian
@@ -707,7 +768,14 @@ class CSBasis(GridBasis):
         shape = pinv.shape
         P = pinv.reshape(shape[0] * shape[1], shape[2] * shape[3])
 
-        return scipy.sparse.csr_matrix(P)
+        res = scipy.sparse.csr_matrix(P)
+        
+        # 2. Store in Cache
+        if grid_key not in self._cache:
+            self._cache[grid_key] = {}
+        self._cache[grid_key]["projection_matrix"] = res
+        
+        return res
 
     def _get_grid_divergence(self, grid: Any, r: float = 1.0) -> Any:
         """Get the discrete divergence operator matrix on the grid."""

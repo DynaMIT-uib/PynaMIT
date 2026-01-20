@@ -105,8 +105,8 @@ def test_dynamic_ramp_cs_dominant():
     # CS Dominant uses finite differences on cubed sphere.
     # Updated: Use lstsq-based minimum-norm steady state for numerical stability.
     # Previous value (3.015e-06) included null-space component that differed between backends.
-    expected_psi_norm = 3.5008192104897026e-07 # Consistent
-    expected_mind_norm = 9.443199812629917e-07 # Minimum-norm solution (consistent across backends)
+    expected_psi_norm = 3.5008192104888524e-07 # Consistent
+    expected_mind_norm = 0.00029393360233666624 # Minimum-norm solution (consistent across backends)
 
     print(f"DEBUG: CS Dominant Test - sim_mode={SimulationMode.CS_DOMINANT.value}")
 

@@ -7,6 +7,7 @@ from functools import cached_property
 import scipy.sparse
 
 from pynamit.spherical_harmonics.legendre import LegendreFunctions
+from pynamit.utils import asarray
 
 
 # --- SHIndices and normalization helpers (merged from helpers.py) ---
@@ -416,6 +417,48 @@ class SHBasis(Basis):
     def get_divergence_operator(self, r: float = 1.0) -> "LinearMap":
         """Get the analytical divergence operator in spectral space."""
         return sh_operators.build_divergence_operator(self, r)
+
+    def get_vector_divergence_operator(self, grid: Optional[Any] = None) -> "LinearMap":
+        """Get the analytical divergence operator for vector fields.
+        
+        For SHBasis, this is radius-independent in spectral space (mapped to r=1 coefficients).
+        """
+        # Note: In PynaMIT, VSH vectors are typically defined at the simulation radius RI.
+        # However, the Basis class is often used with grid objects.
+        # For SH, we use the analytical operator.
+        # If we need it at a specific radius, we should probably pass it.
+        # For now, use r=1 to match internal scaling conventions if possible?
+        # Actually, the user asked for this in the context of poloidal.py which has self.RI.
+        # Let's check how GridBasis does it. CSBasis uses r=1.0 in its Diff operators usually.
+        return sh_operators.build_divergence_operator(self, r=1.0)
+
+    def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
+        """Get the analytical radial curl operator for vector fields."""
+        return sh_operators.build_vector_curl_operator(self, r=1.0)
+
+    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract toroidal potential coefficients. For SH, this is the second half."""
+        n = self.index_length
+        coeffs = asarray(coeffs)
+        if coeffs.shape[0] == 2:
+             return coeffs[1]
+        if coeffs.shape[0] == 2 * n:
+             if coeffs.ndim == 1:
+                  return coeffs.reshape(2, n)[1]
+             return coeffs.reshape(2, n, -1)[1].reshape((n,) + coeffs.shape[1:])
+        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
+
+    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract poloidal potential coefficients. For SH, this is the first half."""
+        n = self.index_length
+        coeffs = asarray(coeffs)
+        if coeffs.shape[0] == 2:
+             return coeffs[0]
+        if coeffs.shape[0] == 2 * n:
+             if coeffs.ndim == 1:
+                  return coeffs.reshape(2, n)[0]
+             return coeffs.reshape(2, n, -1)[0].reshape((n,) + coeffs.shape[1:])
+        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
 
     def get_product_operator(
         self, coeffs_a: np.ndarray, grid: Optional[Any] = None, method: str = "transform"

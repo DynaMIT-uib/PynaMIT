@@ -22,6 +22,7 @@ from pynamit.simulation.geometry_utils import to_dense
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 from pynamit.utils import use_jax
+from pynamit.primitives.field import Field
 
 
 if TYPE_CHECKING:
@@ -541,10 +542,14 @@ class PoloidalSystemMatrices:
         E_imp_block = asarray(E_imp_flat).reshape(2, n, n)
 
         total_E = E_direct_dense + E_imp_block
+        
+        # Basis-agnostic extraction of the induction-driving E-field part (Toroidal Potential)
+        # Optimized: Single matrix operation for all scenarios
+        curled_scenarios = self.solution_basis.get_toroidal_potential_coeffs(total_E.reshape(2*n, n))
+        
         logger.info("Dense induction operator built.")
         
-        # Return E_df part (Toroidal component, index 1)
-        return asarray(total_E[1])
+        return asarray(curled_scenarios)
 
     def solve_for_m_imp(
          self,
@@ -616,7 +621,10 @@ class PoloidalSystemMatrices:
         # Otherwise, compute E_ind via operator.
         
         backend_m_ind = asarray(m_ind)
-        E_df_noind = asarray(E_coeffs_noind[1]) # Index 1 is Toroidal/DivFree
+        
+        # Extract Toroidal Potential part of no-induction E-field
+        E_noind_field = Field.from_coefficients(self.solution_basis, E_coeffs_noind, field_type="tangential")
+        E_df_noind = asarray(E_noind_field.toroidal_potential().coeffs)
         
         if induction_matrix is not None:
              # Matrix ALREADY includes the feedback (m_imp) response!
@@ -701,7 +709,10 @@ class PoloidalSystemMatrices:
         near-null-space components that can differ between backends.
         """
         # op_A * m_ss + const = 0 -> op_A * m_ss = -const
-        vec_b = -asarray(E_coeffs_noind[1])
+        # Extract Toroidal Potential consistently
+        E_noind_field = Field.from_coefficients(self.solution_basis, E_coeffs_noind, field_type="tangential")
+        vec_b = -asarray(E_noind_field.toroidal_potential().coeffs)
+        
         L = asarray(induction_matrix)
         # Use lstsq for numerical stability with ill-conditioned matrices
         # rcond=1e-13 filters out singular values below this relative threshold

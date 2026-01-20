@@ -229,6 +229,32 @@ def build_divergence_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
     return BlockLinearMap([[op_pol, op_tor]])
 
 
+def build_vector_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
+    """Build the analytical radial curl operator in spectral space.
+
+    Maps [Poloidal; Toroidal] vector coefficients to scalar coefficients.
+
+    curl_r(c_pol * (-grad Y) + c_tor * (-r x grad Y)) = c_tor * (-laplacian Y)
+
+    Parameters
+    ----------
+    basis : SHBasis
+        The spherical harmonic basis.
+    r : float
+        Radius at which to evaluate.
+
+    Returns
+    -------
+    LinearMap
+        Block linear map of shape (L, 2L).
+    """
+    from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+    factors = basis.n * (basis.n + 1) / r
+    op_pol = diagonal_linear_map(xp.zeros(basis.index_length))
+    op_tor = diagonal_linear_map(factors)
+    return BlockLinearMap([[op_pol, op_tor]])
+
+
 def build_product_operator(
     basis: "SHBasis",
     coeffs_a: np.ndarray,

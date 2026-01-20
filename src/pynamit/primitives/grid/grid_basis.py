@@ -82,6 +82,21 @@ class GridBasis(Basis, ABC):
     def get_potential_scaling_operator(self) -> "LinearMap":
         """Get the potential scaling operator. To be implemented by subclasses if applicable."""
         raise NotImplementedError(f"Potential scaling not defined for base {self.__class__.__name__}")
+    def get_vector_curl_operator(self, grid: Any) -> "LinearMap":
+        """Get the analytical curl operator for vector fields. To be implemented by subclasses."""
+        raise NotImplementedError(f"Vector curl not defined for base {self.__class__.__name__}")
+
+    def get_vector_divergence_operator(self, grid: Any) -> "LinearMap":
+        """Get the analytical divergence operator for vector fields. To be implemented by subclasses."""
+        raise NotImplementedError(f"Vector divergence not defined for base {self.__class__.__name__}")
+
+    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray) -> np.ndarray:
+        """Extract toroidal potential coefficients. To be implemented by subclasses."""
+        raise NotImplementedError(f"Toroidal potential extraction not defined for base {self.__class__.__name__}")
+
+    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray) -> np.ndarray:
+        """Extract poloidal potential coefficients. To be implemented by subclasses."""
+        raise NotImplementedError(f"Poloidal potential extraction not defined for base {self.__class__.__name__}")
 
     def get_product_operator(self, coeffs_a: np.ndarray, grid: Optional[Any] = None) -> LinearMap:
         """Get product operator for GridBasis (diagonal multiplication)."""

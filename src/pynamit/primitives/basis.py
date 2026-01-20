@@ -120,6 +120,49 @@ class Basis(ABC):
         pass
 
 
+    @abstractmethod
+    def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
+        """Get the analytical curl operator for vector fields.
+
+        Parameters
+        ----------
+        grid : Any, optional
+            The grid on which the operator is evaluated. If None, basis may use its default grid.
+
+        Returns
+        -------
+        LinearMap
+            The curl operator.
+        """
+        pass
+
+    @abstractmethod
+    def get_vector_divergence_operator(self, grid: Optional[Any] = None) -> "LinearMap":
+        """Get the analytical divergence operator for vector fields.
+
+        Parameters
+        ----------
+        grid : Any, optional
+            The grid on which the operator is evaluated. If None, basis may use its default grid.
+
+        Returns
+        -------
+        LinearMap
+            The divergence operator.
+        """
+        pass
+
+    @abstractmethod
+    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract toroidal potential coefficients from vector coefficients."""
+        pass
+
+    @abstractmethod
+    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract poloidal potential coefficients from vector coefficients."""
+        pass
+
+
 
     @abstractmethod
     def evaluate(

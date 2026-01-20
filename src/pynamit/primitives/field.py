@@ -82,6 +82,59 @@ class _ExpansionImpl(_FieldImpl):
 
         raise ValueError(f"Unknown field_type: {self.field_type}")
 
+    def curl(self) -> "ExpansionImpl":
+        """Compute the radial curl of the horizontal vector field."""
+        if self.field_type not in ["vector", "tangential"]:
+            raise ValueError("curl() only valid for vector or tangential fields.")
+        
+        # Mapping: [Poloidal; Toroidal] -> Scalar
+        grid = getattr(self.basis, "grid", None)
+        op = self.basis.get_vector_curl_operator(grid)
+        new_coeffs = op.matvec(self.coeffs.reshape(-1))
+        
+        return _ExpansionImpl(
+            self.basis, new_coeffs, field_type="scalar", 
+            weights=self.weights, reg_lambda=self.reg_lambda, pinv_rtol=self.pinv_rtol
+        )
+
+    def div(self) -> "_ExpansionImpl":
+        """Compute the divergence of the horizontal vector field."""
+        if self.field_type not in ["vector", "tangential"]:
+            raise ValueError("div() only valid for vector or tangential fields.")
+            
+        grid = getattr(self.basis, "grid", None)
+        op = self.basis.get_vector_divergence_operator(grid)
+        new_coeffs = op.matvec(self.coeffs.reshape(-1))
+        
+        return _ExpansionImpl(
+            self.basis, new_coeffs, field_type="scalar", 
+            weights=self.weights, reg_lambda=self.reg_lambda, pinv_rtol=self.pinv_rtol
+        )
+
+    def toroidal_potential(self) -> "_ExpansionImpl":
+        """Extract the toroidal potential from a horizontal vector field."""
+        if self.field_type not in ["vector", "tangential"]:
+            raise ValueError("toroidal_potential() only valid for vector or tangential fields.")
+        
+        psi_coeffs = self.basis.get_toroidal_potential_coeffs(self.coeffs)
+        
+        return _ExpansionImpl(
+            self.basis, psi_coeffs, field_type="scalar",
+            weights=self.weights, reg_lambda=self.reg_lambda, pinv_rtol=self.pinv_rtol
+        )
+
+    def poloidal_potential(self) -> "_ExpansionImpl":
+        """Extract the poloidal potential from a horizontal vector field."""
+        if self.field_type not in ["vector", "tangential"]:
+            raise ValueError("poloidal_potential() only valid for vector or tangential fields.")
+        
+        phi_coeffs = self.basis.get_poloidal_potential_coeffs(self.coeffs)
+        
+        return _ExpansionImpl(
+            self.basis, phi_coeffs, field_type="scalar",
+            weights=self.weights, reg_lambda=self.reg_lambda, pinv_rtol=self.pinv_rtol
+        )
+
 
 class _DiscreteImpl(_FieldImpl):
     """Implementation for discrete grid fields."""
@@ -367,6 +420,62 @@ class Field(ABC):
                 reg_lambda=self.reg_lambda,
             )
         raise NotImplementedError("regularization_term valid only for Expansion fields.")
+
+    def curl(self) -> "Field":
+        """Compute the radial curl of the field."""
+        if hasattr(self._impl, "curl"):
+            res_impl = self._impl.curl()
+            return Field.from_coefficients(
+                basis=res_impl.basis,
+                coeffs=res_impl.coeffs,
+                field_type=res_impl.field_type,
+                weights=res_impl.weights,
+                reg_lambda=res_impl.reg_lambda,
+                pinv_rtol=res_impl.pinv_rtol
+            )
+        raise NotImplementedError("curl() only supported for Expansion fields for now.")
+
+    def div(self) -> "Field":
+        """Compute the divergence of the field."""
+        if hasattr(self._impl, "div"):
+            res_impl = self._impl.div()
+            return Field.from_coefficients(
+                basis=res_impl.basis,
+                coeffs=res_impl.coeffs,
+                field_type=res_impl.field_type,
+                weights=res_impl.weights,
+                reg_lambda=res_impl.reg_lambda,
+                pinv_rtol=res_impl.pinv_rtol
+            )
+        raise NotImplementedError("div() only supported for Expansion fields for now.")
+
+    def toroidal_potential(self) -> "Field":
+        """Extract the toroidal potential of the field."""
+        if hasattr(self._impl, "toroidal_potential"):
+            res_impl = self._impl.toroidal_potential()
+            return Field.from_coefficients(
+                basis=res_impl.basis,
+                coeffs=res_impl.coeffs,
+                field_type=res_impl.field_type,
+                weights=res_impl.weights,
+                reg_lambda=res_impl.reg_lambda,
+                pinv_rtol=res_impl.pinv_rtol
+            )
+        raise NotImplementedError("toroidal_potential() only supported for Expansion fields for now.")
+
+    def poloidal_potential(self) -> "Field":
+        """Extract the poloidal potential of the field."""
+        if hasattr(self._impl, "poloidal_potential"):
+            res_impl = self._impl.poloidal_potential()
+            return Field.from_coefficients(
+                basis=res_impl.basis,
+                coeffs=res_impl.coeffs,
+                field_type=res_impl.field_type,
+                weights=res_impl.weights,
+                reg_lambda=res_impl.reg_lambda,
+                pinv_rtol=res_impl.pinv_rtol
+            )
+        raise NotImplementedError("poloidal_potential() only supported for Expansion fields for now.")
 
 
 class VectorAccessor:

@@ -22,9 +22,9 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
     """
     # Expected values averaged between numpy and JAX backends
     # Updated values after sign fix in ConstraintOperator/state.py
-    expected_coeff_norm = 1.46885617534854e-06
-    expected_coeff_max = 1.3610340879836602e-07
-    expected_coeff_min = -2.5279310767038976e-07
+    expected_coeff_norm = 1.3030089113509432e-06
+    expected_coeff_max = 1.309852951106592e-07
+    expected_coeff_min = -2.5586436026135313e-07
     expected_n_coeffs = 768
 
     # Using Northern Apex Constraints improved values (slightly higher energy due to different constraint)
