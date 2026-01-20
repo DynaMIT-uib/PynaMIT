@@ -103,9 +103,10 @@ def test_dynamic_ramp_cs_dominant():
     """Test CS dominant mode with dual induction."""
     # Mode-specific baseline values for dual induction @ t=1.0s
     # CS Dominant uses finite differences on cubed sphere.
-    # Updated to reflect user environment baseline.
+    # Updated: Use lstsq-based minimum-norm steady state for numerical stability.
+    # Previous value (3.015e-06) included null-space component that differed between backends.
     expected_psi_norm = 3.5008192104897026e-07 # Consistent
-    expected_mind_norm = 3.0150645140779266e-06 # Numpy value (User reported)
+    expected_mind_norm = 9.443199812629917e-07 # Minimum-norm solution (consistent across backends)
 
     print(f"DEBUG: CS Dominant Test - sim_mode={SimulationMode.CS_DOMINANT.value}")
 

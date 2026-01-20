@@ -693,8 +693,18 @@ class PoloidalSystemMatrices:
         raise ValueError(f"Unknown potential_type: {potential_type}")
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray, induction_matrix: np.ndarray) -> np.ndarray:
-        """Calculate the steady-state induced potential."""
+        """Calculate the steady-state induced potential.
+
+        Uses least-squares (lstsq) instead of direct solve to handle
+        ill-conditioned induction matrices. This ensures the minimum-norm
+        solution is returned, avoiding numerical instability from
+        near-null-space components that can differ between backends.
+        """
         # op_A * m_ss + const = 0 -> op_A * m_ss = -const
         vec_b = -asarray(E_coeffs_noind[1])
-        return xp.linalg.solve(asarray(induction_matrix), vec_b)
+        L = asarray(induction_matrix)
+        # Use lstsq for numerical stability with ill-conditioned matrices
+        # rcond=1e-13 filters out singular values below this relative threshold
+        result = xp.linalg.lstsq(L, vec_b, rcond=1e-13)
+        return result[0]
 
