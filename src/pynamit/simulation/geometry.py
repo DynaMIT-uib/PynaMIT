@@ -404,12 +404,18 @@ class Geometry:
         which gives machine-precision transforms for orthonormal SH.
 
         For other grids (e.g., Cubed-Sphere), uses pseudo-inverse.
+
+        Returns a 2D matrix of shape (2*N_coeffs, 2*N_grid).
         """
         if hasattr(self.grid_basis, "weights"):
             logger.info("Using exact GL quadrature for Helmholtz decomposition.")
             return self._build_exact_helmholtz_analysis()
 
-        return self.solution_basis.construct_projection_matrix(self.grid)
+        P = self.solution_basis.construct_projection_matrix(self.grid)
+        # CSBasis returns 4D tensor (2, N_coeffs, 2, N_grid), flatten to 2D
+        if P.ndim == 4:
+            P = P.reshape(P.shape[0] * P.shape[1], P.shape[2] * P.shape[3])
+        return P
 
     def _build_exact_helmholtz_analysis(self) -> np.ndarray:
         """Build exact Helmholtz analysis matrix using GL quadrature.

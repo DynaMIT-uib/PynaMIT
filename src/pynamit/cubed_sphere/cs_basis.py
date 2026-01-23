@@ -89,42 +89,50 @@ class CSBasis(GridBasis):
         return as_linear_map(self._get_grid_divergence(target_grid, r=1.0))
 
     def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
-        """Extract toroidal potential coefficients using Helmholtz projection."""
+        """Extract toroidal potential coefficients using Helmholtz projection.
+
+        Parameters
+        ----------
+        coeffs : np.ndarray
+            Vector field coefficients with shape (2, N_coeffs, ...).
+        grid : optional
+            Target grid for projection. Defaults to self.grid.
+
+        Returns
+        -------
+        np.ndarray
+            Toroidal potential coefficients with shape (N_coeffs, ...).
+        """
         target_grid = grid if grid is not None else self.grid
+        # P has shape (2, N_coeffs, 2, N_grid) - P[1] is the toroidal operator
         P = self.construct_projection_matrix(target_grid)
-        n = self.index_length
         coeffs = asarray(coeffs)
-        
-        # Handle different coefficient layout formats
-        if coeffs.shape[0] == 2:
-             # Component-major: (2, N_coeffs, ...)
-             c_flat = coeffs.reshape(2 * n, -1)
-             res = P[n:] @ c_flat
-             return res.reshape((n,) + coeffs.shape[2:]) if coeffs.ndim > 2 else res.flatten()
-        elif coeffs.shape[0] == 2 * n:
-             # Flattened: (2*N_coeffs, ...)
-             res = P[n:] @ coeffs.reshape(2 * n, -1)
-             return res.reshape((n,) + coeffs.shape[1:]) if coeffs.ndim > 1 else res.flatten()
-        
-        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
+
+        # P[1] has shape (N_coeffs, 2, N_grid), coeffs has shape (2, N_coeffs, ...)
+        return np.einsum('ijk,jk...->i...', P[1], coeffs)
 
     def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
-        """Extract poloidal potential coefficients using Helmholtz projection."""
+        """Extract poloidal potential coefficients using Helmholtz projection.
+
+        Parameters
+        ----------
+        coeffs : np.ndarray
+            Vector field coefficients with shape (2, N_coeffs, ...).
+        grid : optional
+            Target grid for projection. Defaults to self.grid.
+
+        Returns
+        -------
+        np.ndarray
+            Poloidal potential coefficients with shape (N_coeffs, ...).
+        """
         target_grid = grid if grid is not None else self.grid
+        # P has shape (2, N_coeffs, 2, N_grid) - P[0] is the poloidal operator
         P = self.construct_projection_matrix(target_grid)
-        n = self.index_length
         coeffs = asarray(coeffs)
 
-        # Handle different coefficient layout formats
-        if coeffs.shape[0] == 2:
-             c_flat = coeffs.reshape(2 * n, -1)
-             res = P[:n] @ c_flat
-             return res.reshape((n,) + coeffs.shape[2:]) if coeffs.ndim > 2 else res.flatten()
-        elif coeffs.shape[0] == 2 * n:
-             res = P[:n] @ coeffs.reshape(2 * n, -1)
-             return res.reshape((n,) + coeffs.shape[1:]) if coeffs.ndim > 1 else res.flatten()
-
-        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
+        # P[0] has shape (N_coeffs, 2, N_grid), coeffs has shape (2, N_coeffs, ...)
+        return np.einsum('ijk,jk...->i...', P[0], coeffs)
 
     def get_radial_shift_operator(
         self, start_r: float, end_r: float, kind: str = "external"
@@ -404,8 +412,19 @@ class CSBasis(GridBasis):
                  M_deta_dth = diags(deta_dth.flatten())
                  res = M_dxi_dth.dot(Dxi) + M_deta_dth.dot(Deta)
              elif derivative == "phi":
-                 M_dxi_dph = diags(dxi_dph.flatten())
-                 M_deta_dph = diags(deta_dph.flatten())
+                 # Apply 1/sin(theta) scaling to match SHBasis convention.
+                 # This makes G_ph represent (1/sin θ) d/dφ, which is the
+                 # physical gradient component in spherical coordinates.
+                 sin_th = np.sin(np.deg2rad(grid.theta)).reshape(dxi_dph.shape)
+                 epsilon = 1e-10
+                 sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+                 inv_sin_th = 1.0 / sin_th_safe
+
+                 dxi_dph_scaled = dxi_dph * inv_sin_th
+                 deta_dph_scaled = deta_dph * inv_sin_th
+
+                 M_dxi_dph = diags(dxi_dph_scaled.flatten())
+                 M_deta_dph = diags(deta_dph_scaled.flatten())
                  res = M_dxi_dph.dot(Dxi) + M_deta_dph.dot(Deta)
         
         else:
@@ -584,29 +603,21 @@ class CSBasis(GridBasis):
 
         theta_rad = np.deg2rad(self.arr_theta)
         sin_th = np.sin(theta_rad)
-        sin_sq_th = sin_th**2
 
         # Avoid division by zero at poles
-        # For CS grid, valid points are usually away from poles, but handle safely
         epsilon = 1e-10
         sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
-        sin_sq_th_safe = np.where(np.abs(sin_sq_th) < epsilon**2, epsilon**2, sin_sq_th)
 
         # Diagonal matrices for metric terms
-        # 1/sin(theta)
         inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
-        # sin(theta)
         sin_th_mat = scipy.sparse.diags(sin_th)
-        # 1/sin^2(theta)
-        inv_sin_sq_th = scipy.sparse.diags(1.0 / sin_sq_th_safe)
 
         # Term 1: (1/sin(theta)) * d/dtheta (sin(theta) d/dtheta)
-        # = inv_sin_th @ G_th @ sin_th_mat @ G_th
         term1 = inv_sin_th @ G_th @ sin_th_mat @ G_th
 
         # Term 2: (1/sin^2(theta)) * d^2/dphi^2
-        # = inv_sin_sq_th @ G_ph @ G_ph
-        term2 = inv_sin_sq_th @ G_ph @ G_ph
+        # G_ph already includes 1/sin(theta), so G_ph @ G_ph = (1/sin²θ) d²/dφ²
+        term2 = G_ph @ G_ph
 
         # Combine
         L = (term1 + term2) / (r**2)
@@ -742,18 +753,11 @@ class CSBasis(GridBasis):
             G_ph = G_ph.toarray()
 
         # Build forward Helmholtz mapping: coeffs -> grid vectors
-        # G_grad: E = -grad(phi) = (-1/r * d_th phi, -1/(r sin th) * d_ph phi)
-        # G_rxgrad: E = -r x grad(T) = (1/(r sin th) * d_ph T, -1/r * d_th T)
-        # We use r=1.0 as the ionosphere reference radius.
-        
-        theta_rad = np.deg2rad(getattr(grid, "theta", self.arr_theta))
-        sin_th = np.sin(theta_rad)
-        epsilon = 1e-10
-        inv_sin_th = 1.0 / np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
-        
-        # Rescale the gradient components physically
-        G_grad = np.array([-G_th, -inv_sin_th[:, None] * G_ph])
-        G_rxgrad = np.array([inv_sin_th[:, None] * G_ph, -G_th])
+        # G_grad: E = -grad(phi) = (-d_th phi, -(1/sin th) d_ph phi)
+        # G_rxgrad: E = r x grad(psi) = ((1/sin th) d_ph psi, -d_th psi)
+        # G_ph already includes 1/sin(th) factor from get_G().
+        G_grad = np.array([-G_th, -G_ph])
+        G_rxgrad = np.array([G_ph, -G_th])
 
         # G_helmholtz: (2, N_grid, 2, N_coeffs)
         # Potential types: 0=poloidal, 1=toroidal
@@ -761,14 +765,12 @@ class CSBasis(GridBasis):
 
         # Use proper pseudo-inverse via SVD (handles rank deficiency gracefully)
         # This avoids the numerical instability of inverting the singular Laplacian
-        pinv = tensor_pinv(G_helmholtz, n_leading_flattened=2)
-
-        # Reshape to 2D matrix: (2*N_coeffs, 2*N_grid)
         # pinv shape: (2, N_coeffs, 2, N_grid)
-        shape = pinv.shape
-        P = pinv.reshape(shape[0] * shape[1], shape[2] * shape[3])
-
-        res = scipy.sparse.csr_matrix(P)
+        # Index 0: potential type (0=poloidal, 1=toroidal)
+        # Index 1: coefficient index
+        # Index 2: vector component (0=theta, 1=phi)
+        # Index 3: grid point
+        res = tensor_pinv(G_helmholtz, n_leading_flattened=2)
         
         # 2. Store in Cache
         if grid_key not in self._cache:
@@ -785,20 +787,19 @@ class CSBasis(GridBasis):
 
         theta_rad = np.deg2rad(self.arr_theta)
         sin_th = np.sin(theta_rad)
-        
+
         epsilon = 1e-10
         sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
         inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
         sin_th_mat = scipy.sparse.diags(sin_th)
 
         # Div = (1/r sin th) [ d_th (E_th sin th) + d_ph E_ph ]
-        # Div_th = (1/r sin th) @ G_th @ sin_th
-        # Div_ph = (1/r sin th) @ G_ph
-        # Matrix shape (N, 2N) acting on [E_th; E_ph]
-        
+        # G_ph already includes 1/sin(th), so:
+        # Div_th = (1/r sin th) @ G_th @ sin_th = (1/r) @ inv_sin_th @ G_th @ sin_th
+        # Div_ph = (1/r sin th) @ d_ph = (1/r) @ G_ph
         D_th = inv_sin_th @ G_th @ sin_th_mat
-        D_ph = inv_sin_th @ G_ph
-        
+        D_ph = G_ph
+
         return scipy.sparse.hstack([D_th, D_ph]) / r
 
     def _get_grid_curl(self, grid: Any, r: float = 1.0) -> Any:
@@ -809,19 +810,19 @@ class CSBasis(GridBasis):
 
         theta_rad = np.deg2rad(self.arr_theta)
         sin_th = np.sin(theta_rad)
-        
+
         epsilon = 1e-10
         sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
         inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
         sin_th_mat = scipy.sparse.diags(sin_th)
 
         # Curl_r = (1/r sin th) [ d_th (E_ph sin th) - d_ph E_th ]
-        # Curl_th = -(1/r sin th) @ G_ph
-        # Curl_ph = (1/r sin th) @ G_th @ sin_th
-        
-        C_th = -inv_sin_th @ G_ph
+        # G_ph already includes 1/sin(th), so:
+        # C_th (acting on E_th) = -(1/r sin th) @ d_ph = -(1/r) @ G_ph
+        # C_ph (acting on E_ph) = (1/r sin th) @ G_th @ sin_th = (1/r) @ inv_sin_th @ G_th @ sin_th
+        C_th = -G_ph
         C_ph = inv_sin_th @ G_th @ sin_th_mat
-        
+
         return scipy.sparse.hstack([C_th, C_ph]) / r
 
     def get_extended_basis(self) -> "CSBasis":

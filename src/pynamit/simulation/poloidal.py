@@ -542,10 +542,10 @@ class PoloidalSystemMatrices:
         E_imp_block = asarray(E_imp_flat).reshape(2, n, n)
 
         total_E = E_direct_dense + E_imp_block
-        
+
         # Basis-agnostic extraction of the induction-driving E-field part (Toroidal Potential)
-        # Optimized: Single matrix operation for all scenarios
-        curled_scenarios = self.solution_basis.get_toroidal_potential_coeffs(total_E.reshape(2*n, n))
+        # total_E has shape (2, n, n) = (component, coeffs, scenarios)
+        curled_scenarios = self.solution_basis.get_toroidal_potential_coeffs(total_E)
         
         logger.info("Dense induction operator built.")
         
