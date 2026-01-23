@@ -76,6 +76,22 @@ class CSBasis(GridBasis):
         from pynamit.math.linear_map import as_linear_map
         return as_linear_map(self.laplacian(r))
 
+    def get_gradient_operator(self, r: float = 1.0) -> "LinearMap":
+        """Get the analytical gradient operator.
+        
+        Returns a LinearMap that maps scalar potential coefficients to
+        vector field components: E = -grad(φ) = (-d_θ φ, -(1/sin θ) d_φ φ) / r
+        """
+        return self._get_grid_gradient_operator(self.grid, r=r)
+
+    def get_curl_operator(self, r: float = 1.0) -> "LinearMap":
+        """Get the analytical curl operator (r × grad).
+        
+        Returns a LinearMap that maps scalar potential coefficients to
+        vector field components: E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
+        """
+        return self._get_grid_curl_operator(self.grid, r=r)
+
     def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
         """Get the discrete radial curl operator on the grid."""
         from pynamit.math.linear_map import as_linear_map
@@ -368,7 +384,10 @@ class CSBasis(GridBasis):
         if grid is not None and not is_compatible:
              # Evaluate basis on arbitrary grid (Interpolation)
              if derivative is not None:
-                 raise NotImplementedError("Derivatives on arbitrary grids not yet supported for CSBasis.")
+                  # Compute derivative on native grid first, then interpolate
+                  D_native = self.get_G(self, derivative=derivative)
+                  I_interp = self._get_arbitrary_interpolation_matrix(grid, Ni=4)
+                  return I_interp @ D_native
              
              return self._get_arbitrary_interpolation_matrix(grid, Ni=4)
 
@@ -825,6 +844,40 @@ class CSBasis(GridBasis):
 
         return scipy.sparse.hstack([C_th, C_ph]) / r
 
+    def _get_grid_gradient_operator(self, grid: Any, r: float = 1.0) -> "LinearMap":
+        """Get gradient operator mapping spectral potential to vector grid field.
+        
+        Returns a LinearMap that computes E = -grad(φ) = (-d_θ φ, -(1/sin θ) d_φ φ) / r
+        The returned operator maps from scalar coefficients to stacked vector components.
+        """
+        from pynamit.math.linear_map import as_linear_map, BlockLinearMap
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
+        
+        # E = -grad(phi) = (-d_th phi, -1/sin_th * d_ph phi) / r
+        # G_ph already includes 1/sin_th factor.
+        op_phi_th = as_linear_map(G_th) * (-1.0 / r)
+        op_phi_ph = as_linear_map(G_ph) * (-1.0 / r)
+        
+        return BlockLinearMap([[op_phi_th], [op_phi_ph]])
+
+    def _get_grid_curl_operator(self, grid: Any, r: float = 1.0) -> "LinearMap":
+        """Get curl operator mapping spectral potential to vector grid field.
+        
+        Returns a LinearMap that computes E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
+        The returned operator maps from scalar coefficients to stacked vector components.
+        """
+        from pynamit.math.linear_map import as_linear_map, BlockLinearMap
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
+        
+        # E = -r x grad(psi) = (1/sin_th * d_ph psi, -d_th psi) / r
+        # G_ph already includes 1/sin_th factor.
+        op_psi_th = as_linear_map(G_ph) * (1.0 / r)
+        op_psi_ph = as_linear_map(G_th) * (-1.0 / r)
+        
+        return BlockLinearMap([[op_psi_th], [op_psi_ph]])
+
     def get_extended_basis(self) -> "CSBasis":
         """Return a basis extended to include the monopole term.
         
@@ -838,31 +891,24 @@ class CSBasis(GridBasis):
 
     def get_vector_basis_matrix(self, grid: Any) -> Any:
         """Get vector basis evaluation matrix.
-        
-        For CSBasis, vector coefficients are simply components [u_th; u_ph].
-        Maps [u_th; u_ph] -> [u_th_grid; u_ph_grid].
-        Returns Identity-like block matrix (interpolation if grid differs).
+
+        For Cubed Sphere, we now use the Helmholtz decomposition as the vector
+        representation: [Poloidal Potential; Toroidal Potential].
+
+        This method returns the matrix G such that E_grid = G @ [phi_coeffs; psi_coeffs].
+        G = [ G_pol, G_tor ] where G_pol maps potential to -grad(phi)
+        and G_tor maps potential to -r x grad(psi).
         """
-        G_scalar = self.get_evaluation_matrix(grid) # (N_g_out, N_g_in)
-        import scipy.sparse
-        
-        # We need to construct (2, N_g_out, 2 * N_g_in)
-        # Result[:, :, 0:N] maps first component.
-        # Result[:, :, N:2N] maps second component.
-        # M_00 = G_scalar. M_01 = 0
-        # M_10 = 0. M_11 = G_scalar.
-        
-        # Dense approach for now (to support tensor contraction downstream)
-        # As Geometry.create_apex_operators uses einsum which might expect dense.
-        is_sparse = scipy.sparse.issparse(G_scalar)
-        if is_sparse:
-             G_scalar = G_scalar.toarray()
-            
-        N_in = self.index_length
-        N_out = G_scalar.shape[0]
-        
-        res = np.zeros((2, N_out, 2 * N_in))
-        res[0, :, 0:N_in] = G_scalar
-        res[1, :, N_in:] = G_scalar
-        
-        return res
+        from pynamit.math.linear_map import BlockLinearMap
+        # Use our grid-based Helmholtz operators (at r=1.0 for the basis definition)
+        G_pol = self._get_grid_gradient_operator(grid, r=1.0)
+        G_tor = self._get_grid_curl_operator(grid, r=1.0)
+
+        # Combine into [G_pol, G_tor]
+        G_vec = BlockLinearMap([[G_pol, G_tor]])
+
+        # Return as dense matrix with shape (2, N_grid, 2*L)
+        G_dense = G_vec.to_dense()
+        n_grid = grid.size if hasattr(grid, "size") else self.arr_theta.size
+        return G_dense.reshape(2, n_grid, 2 * self.index_length)
+
