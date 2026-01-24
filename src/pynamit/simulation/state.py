@@ -241,6 +241,7 @@ class State:
             "m_ind_to_E_df_matrix",
             "m_imp_problem",
             "m_imp_preconditioner",
+            "coupled_induction_tensor",
         ]:
             try:
                 delattr(self, attr)
@@ -261,11 +262,31 @@ class State:
         if self.toroidal_matrices is None:
             raise RuntimeError("Toroidal matrices required for dt_jr problem.")
 
+        effective_scaling = self._compute_balanced_constraint_scaling()
+        
         return self.toroidal_matrices.build_least_squares_problem(
             jr_map_operator=self.geometry.jr_map_sim,
-            constraint_scaling=self.induction_constraint_scaling,
+            constraint_scaling=effective_scaling,
             regularization_lambda=0.0,
         )
+
+    def _compute_balanced_constraint_scaling(self) -> float:
+        """Compute balanced constraint scaling based on matrix norms.
+        
+        L_sys has tiny eigenvalues (~1e-10 due to mu0) while jr_map has O(1).
+        We balance them: constraint_weight ~ L_sys_norm / jr_map_norm.
+        """
+        L_sys_norm = np.linalg.norm(self.toroidal_matrices.system_matrix)
+        
+        if hasattr(self.geometry.jr_map_sim, "tocsr"):
+            from scipy.sparse.linalg import norm as sparse_norm
+            jr_map_norm = sparse_norm(self.geometry.jr_map_sim)
+        else:
+            jr_map_norm = np.linalg.norm(self.geometry.jr_map_sim)
+            
+        balanced_scaling = L_sys_norm / jr_map_norm
+        # Apply user scaling on top of balanced scaling
+        return self.induction_constraint_scaling * balanced_scaling
 
 
 
@@ -796,7 +817,10 @@ class State:
         # Term 2 (Constraint): Unified Apex Current Mapping (Driver + IH)
         # We want (jr_map_sim @ x) = rhs.
         # rhs = j_apex_driver_rate in HL, 0 in Gap (IH difference).
-        constraint_weight = 1000.0
+        
+        # The constraint weight must be balanced against the physics term (L_sys).
+        constraint_weight = self._compute_balanced_constraint_scaling()
+        
         n_grid = self.geometry.grid.size
         rhs_2 = np.zeros(n_grid)
 
@@ -926,3 +950,128 @@ class State:
             E_coeffs_noind=asarray(E_coeffs_noind),
             induction_matrix=self.m_ind_to_E_df_matrix
         )
+
+    # -------------------------------------------------------------------------
+    # Coupled Exponential Integrator
+    # -------------------------------------------------------------------------
+
+    @cached_property
+    def coupled_induction_tensor(self) -> np.ndarray:
+        """Build the (2, N, 2, N) coupled system tensor for [psi; m_ind].
+        
+        The tensor L satisfies:
+            dy/dt = einsum('ijkl,kl->ij', L, y) + K
+        where y[0] = psi, y[1] = m_ind, and K is the forcing.
+        
+        Block structure:
+            L[0, :, 0, :] = L_psi_psi   (psi → d(psi)/dt)
+            L[0, :, 1, :] = L_psi_mind  (m_ind → d(psi)/dt)
+            L[1, :, 0, :] = L_mind_psi  (psi → d(m_ind)/dt)
+            L[1, :, 1, :] = L_mind_mind (m_ind → d(m_ind)/dt)
+        
+        Returns
+        -------
+        np.ndarray
+            Tensor of shape (2, N, 2, N).
+        """
+        from pynamit.simulation.geometry_utils import to_dense
+        
+        N = self.solution_basis.index_length
+        # Note: L will be constructed by stacking blocks to avoid in-place assignment (JAX support)
+        
+        # Get the psi → E operator (psi contributes like m_imp)
+        psi_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_imp", mode=None))
+        
+        # Get m_ind → E operator  
+        mind_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_ind", mode=None))
+        
+        # Block (0,0): L_psi_psi: psi → d(psi)/dt
+        # Uses toroidal system chain: psi → E_psi → K → dt_jr → d(psi)/dt
+        L_psi_psi = asarray(self.toroidal_matrices.build_psi_dynamics_matrix(
+            psi_to_E_operator=psi_to_E,
+            m_imp_to_jr_operator=self.geometry.m_imp_to_jr
+        ))
+        
+        # Block (0,1): L_psi_mind: m_ind → d(psi)/dt
+        # Uses: m_ind → E_mind → K → dt_jr → d(psi)/dt
+        L_psi_mind = asarray(self.toroidal_matrices.build_psi_dynamics_matrix(
+            psi_to_E_operator=mind_to_E,  # Note: using m_ind → E here
+            m_imp_to_jr_operator=self.geometry.m_imp_to_jr
+        ))
+        
+        # Block (1,0): L_mind_psi: psi → d(m_ind)/dt
+        # psi contributes to E_psi which affects m_ind evolution
+        # For now, subtract zero (Explicit coupling, handled in K)
+        L_mind_psi = xp.zeros_like(L_psi_psi)
+        
+        # Block (1,1): L_mind_mind: m_ind → d(m_ind)/dt
+        # This is the induction_matrix scaled by (1/RI)
+        scale = self.poloidal_matrices.E_df_to_d_m_ind_dt  # scalar = 1/RI
+        L_mind_mind = scale * asarray(self.m_ind_to_E_df_matrix)
+        
+        # Assemble 4D tensor (2, N, 2, N) by stacking
+        # Row 0 (Output: psi) -> Stack inputs (psi, m_ind) along axis 1 -> (N, 2, N)
+        L_row0 = xp.stack([L_psi_psi, L_psi_mind], axis=1)
+        
+        # Row 1 (Output: m_ind) -> Stack inputs (psi, m_ind) along axis 1 -> (N, 2, N)
+        L_row1 = xp.stack([L_mind_psi, L_mind_mind], axis=1)
+        
+        # Stack Rows along axis 0 -> (2, N, 2, N)
+        L = xp.stack([L_row0, L_row1], axis=0)
+        
+        return L
+
+    def evolve_coupled_induction(
+        self,
+        y: np.ndarray,
+        dt: float,
+        K: np.ndarray,
+        steady_state_y: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Evolve [psi; m_ind] together using full coupled exponential integrator.
+        
+        Uses the exponential integrator formula with the full coupled system:
+            y_new = y_ss + expm(L * dt) @ (y - y_ss)
+            
+        Note:
+            Matrix operations (lstsq, expm) may dispatch to CPU (SciPy/NumPy)
+            even when running with JAX backend, as dense matrix exponential support
+            is hardware-specific.
+            
+        Parameters
+        ----------
+        y : np.ndarray
+            State tensor of shape (2, N) where y[0]=psi, y[1]=m_ind.
+        dt : float
+            Time step.
+        K : np.ndarray
+            Forcing tensor of shape (2, N).
+        steady_state_y : np.ndarray, optional
+            Steady state of shape (2, N). If None, computed from full system.
+            
+        Returns
+        -------
+        np.ndarray
+            Updated state tensor of shape (2, N).
+        """
+        from scipy.linalg import expm
+        
+        N = self.solution_basis.index_length
+        
+        # Get full coupled system matrix L (2N x 2N)
+        L = self.coupled_induction_tensor  # (2, N, 2, N)
+        L_flat = L.reshape(2 * N, 2 * N)
+        y_flat = y.reshape(2 * N)
+        K_flat = K.reshape(2 * N)
+        
+        # Compute combined steady state: L @ y_ss = -K
+        if steady_state_y is not None:
+            y_ss_flat = steady_state_y.reshape(2 * N)
+        else:
+            # Use lstsq for the full coupled system
+            y_ss_flat, _, _, _ = np.linalg.lstsq(np.asarray(L_flat), -np.asarray(K_flat), rcond=None)
+        
+        # Full coupled exponential step
+        exp_L_dt = expm(np.asarray(L_flat) * dt)
+        y_new_flat = y_ss_flat + exp_L_dt @ (y_flat - y_ss_flat)
+        return y_new_flat.reshape(2, N)

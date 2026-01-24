@@ -57,7 +57,7 @@ def _run_dynamic_ramp_test(sim_mode, expected_psi_norm, expected_mind_norm, rel_
 def test_dynamic_ramp_pure_spectral():
     """Test pure spectral mode with dual induction."""
     # Baseline values for dual induction @ t=1.0s
-    expected_psi_norm = 6.62065306935731e-08
+    expected_psi_norm = 3.3685761932261086e-05
     expected_mind_norm = 3.203992935564e-09
     
     _run_dynamic_ramp_test(
@@ -71,7 +71,7 @@ def test_dynamic_ramp_pure_spectral():
 def test_dynamic_ramp_spectral_transform_gl():
     """Test spectral transform GL mode with dual induction."""
     # Baseline values for dual induction @ t=1.0s
-    expected_psi_norm = 6.62065306935731e-08
+    expected_psi_norm = 3.313625377476801e-05
     expected_mind_norm = 3.959375316445736e-09
     
     _run_dynamic_ramp_test(
@@ -87,7 +87,7 @@ def test_dynamic_ramp_spectral_transform_cs():
     """Test spectral transform CS mode with dual induction."""
     # Mode-specific baseline values for dual induction @ t=1.0s
     # Note: CS transform uses pseudo-inverse approximation, so values differ from pure spectral
-    expected_psi_norm = 6.225616393348073e-08
+    expected_psi_norm = 2.0127999627772646e-05
     expected_mind_norm = 2.0694833942741078e-09
 
     _run_dynamic_ramp_test(
@@ -104,7 +104,7 @@ def test_dynamic_ramp_cs_dominant():
     # Mode-specific baseline values for dual induction @ t=1.0s
     # CS Dominant uses finite differences on cubed sphere.
     # Updated: 2024-01 after 1/sin(theta) convention change in CSBasis.get_G(derivative="phi")
-    expected_psi_norm = 3.5185603651318465e-07
+    expected_psi_norm = 3.034333210444843e-05
     expected_mind_norm = 2.6708760378792624e-05
 
     print(f"DEBUG: CS Dominant Test - sim_mode={SimulationMode.CS_DOMINANT.value}")

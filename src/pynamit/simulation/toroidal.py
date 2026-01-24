@@ -240,6 +240,40 @@ class ToroidalSystemMatrices:
             # D1 = P @ Total_Grid_Op
             return asarray(P @ Total_Grid_Op)
 
+    @cached_property
+    def E_coeffs_to_K_matrix(self) -> np.ndarray:
+        """Build matrix mapping E_coeffs to source vector K.
+        
+        Since compute_source_from_E is linear in E_coeffs, we can represent it
+        as a matrix: K = E_coeffs_to_K @ E_coeffs.flatten()
+        
+        This enables expressing the toroidal system as a linear ODE for the
+        coupled exponential integrator.
+        
+        Returns
+        -------
+        np.ndarray
+            Matrix of shape (N, 2*N) mapping flattened E_coeffs to K vector.
+        """
+        N = self.basis.index_length
+        # E_coeffs has shape (2, N) - [poloidal, toroidal] potentials
+        # Build matrix by applying compute_source_from_E to each basis vector
+        
+        E_to_K = np.zeros((N, 2 * N))
+        
+        for i in range(2 * N):
+            # Create basis vector
+            e_i = np.zeros(2 * N)
+            e_i[i] = 1.0
+            E_i = e_i.reshape(2, N)
+            
+            # Apply the linear map
+            K_i = self.compute_source_from_E(E_i)
+            E_to_K[:, i] = to_numpy(K_i)
+        
+        return asarray(E_to_K)
+
+
     def compute_source_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
         """Compute Source vector K from Known E-field S_known.
         
@@ -607,6 +641,67 @@ class ToroidalSystemMatrices:
         d_psi_dt = jr_to_m_dense @ asarray(dt_jr)
         return asarray(d_psi_dt)
 
-
+    def build_psi_dynamics_matrix(
+        self,
+        psi_to_E_operator: np.ndarray,
+        m_imp_to_jr_operator: Any,
+    ) -> np.ndarray:
+        """Build the linear operator: psi → d(psi)/dt.
+        
+        This constructs the full chain:
+            psi → E_psi → K → dt_jr → d(psi)/dt
+        
+        Each step is linear, so the composition is also linear:
+            d(psi)/dt = L_psi_psi @ psi + (other contributions)
+        
+        Parameters
+        ----------
+        psi_to_E_operator : np.ndarray
+            Operator mapping psi to E_coeffs contribution.
+            Shape (2*N, N) or (2, N, N).
+        m_imp_to_jr_operator : Any
+            Operator mapping potential psi to jr.
+            
+        Returns
+        -------
+        np.ndarray
+            Matrix L_psi_psi of shape (N, N).
+        """
+        from pynamit.utils import tensor_pinv
+        from pynamit.simulation.geometry_utils import to_dense
+        
+        N = self.basis.index_length
+        
+        # Step 1: E_coeffs_to_K (already built)
+        # K = E_coeffs_to_K @ E_coeffs.flatten()
+        E_to_K = to_numpy(self.E_coeffs_to_K_matrix)  # (N, 2*N)
+        
+        # Step 2: psi → E_psi (reshape if needed)
+        # NOTE: psi_to_E has a built-in 1/mu0 factor (from get_potential_to_E_operator)
+        # which converts magnetic potential to E-field. We need to cancel this
+        # factor to maintain dimensional consistency with L_sys (which has mu0).
+        psi_to_E = to_numpy(psi_to_E_operator)
+        if psi_to_E.ndim == 3:  # shape (2, N, N)
+            psi_to_E = psi_to_E.reshape(2 * N, N)
+        # Scale by mu0 to cancel the 1/mu0 in the operator
+        psi_to_E = mu0 * psi_to_E  # Now dimensionally consistent
+        # psi_to_E is (2*N, N): E_coeffs.flatten() = psi_to_E @ psi
+        
+        # Step 3: K → dt_jr via L_sys^{-1}
+        # L_sys @ dt_jr = K  →  dt_jr = L_sys^{-1} @ K
+        L_sys = to_numpy(self.system_matrix)  # (N, N)
+        L_sys_inv = tensor_pinv(L_sys)  # (N, N)
+        
+        # Step 4: dt_jr → d(psi)/dt via jr_to_psi
+        op_m_to_jr = as_linear_map(m_imp_to_jr_operator)
+        m_to_jr_dense = to_dense(op_m_to_jr)  # (N, N)
+        jr_to_psi = tensor_pinv(m_to_jr_dense)  # (N, N)
+        
+        # Compose the chain:
+        # d(psi)/dt = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E @ psi
+        # L_psi_psi = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E
+        L_psi_psi = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E
+        
+        return asarray(L_psi_psi)
 
 

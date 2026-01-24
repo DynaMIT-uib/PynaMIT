@@ -306,7 +306,13 @@ class Dynamics:
             if self.settings.dynamics_mode == "full_induction":
                  current_m_ind = inductive_m_ind
                  current_psi = psi
-                 steady_state_m_ind = None 
+                 # Compute steady state if needed for exponential integrator
+                 if self.settings.integrator == "exponential" or (
+                    bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
+                 ):
+                    steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+                 else:
+                    steady_state_m_ind = None
                  steady_state_psi = None
             else:
                  current_m_ind = inductive_m_ind
@@ -363,22 +369,44 @@ class Dynamics:
 
             # Evolve State
             if self.settings.dynamics_mode == "full_induction":
-                 # 1. Evolve Toroidal field (psi)
-                 psi = self.state.evolve_psi(psi, dt)
-                 self.state.psi = psi
-                 # 2. Evolve Poloidal field (m_ind)
-                 inductive_m_ind = self.state.evolve_m_ind(
-                    inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
-                 )
+                 if self.settings.integrator == "exponential":
+                     # Use coupled exponential integrator
+                     # Combine psi and m_ind into state tensor y[0]=psi, y[1]=m_ind
+                     y = xp.stack([asarray(psi), asarray(inductive_m_ind)])  # shape (2, N)
+                     
+                     # Compute forcing tensor K (from external sources, not self-feedback)
+                     # K[1]: m_ind forcing from E_noind
+                     scale = self.state.poloidal_matrices.E_df_to_d_m_ind_dt
+                     E_noind_field = self.state.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind)
+                     k1 = asarray(scale * E_noind_field)
+                     
+                     # K[0]: psi forcing from external E-field (d_psi_dt)
+                     if self.state.d_psi_dt is not None:
+                         k0 = asarray(self.state.d_psi_dt)
+                     else:
+                         k0 = xp.zeros_like(k1)
+                     
+                     K = xp.stack([k0, k1])
+                     
+                     # Evolve coupled system
+                     y_new = self.state.evolve_coupled_induction(y, dt, K)
+                     psi = y_new[0]
+                     inductive_m_ind = y_new[1]
+                     self.state.psi = psi
+                 else:
+                     # Split evolution (Euler or other)
+                     # 1. Evolve Toroidal field (psi)
+                     psi = self.state.evolve_psi(psi, dt)
+                     self.state.psi = psi
+                     # 2. Evolve Poloidal field (m_ind)
+                     inductive_m_ind = self.state.evolve_m_ind(
+                        inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
+                     )
             else:
                  inductive_m_ind = self.state.evolve_m_ind(
                     inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
                  )
             
-            self.current_time = next_time
-
-            step += 1
-                
             self.current_time = next_time
 
             step += 1
