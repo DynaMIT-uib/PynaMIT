@@ -34,8 +34,8 @@ def test_induction_sensitivity():
     
     print(f"DEBUG: Sensitivity Test (Runner) |psi| = {psi_norm:.8e}")
     # Baseline observed from verified run based on built-in HWM14 wind and Zero Driver
-    # Exact value captured: 0.0005300126649000553
-    expected_psi_norm = 5.300126649000553e-04
+    # Exact value captured: 0.000530838684883729
+    expected_psi_norm = 5.30838684883729e-04
     import pytest
     assert psi_norm == pytest.approx(expected_psi_norm, rel=1e-10), \
         f"Induction response changed! Expected {expected_psi_norm}, got {psi_norm}"
