@@ -267,3 +267,156 @@ class TestCoupledSteadyStateMatrixFree:
             rtol=1e-6, atol=1e-10,
             err_msg="4D tensor LSMR result differs from dense"
         )
+
+
+class TestBlockCoupledOperator:
+    """Tests for BlockCoupledOperator matrix-free implementation."""
+
+    def test_block_coupled_matvec_matches_dense(self):
+        """Test that BlockCoupledOperator matvec matches dense matrix."""
+        from pynamit.simulation.operators import BlockCoupledOperator
+
+        N = 30
+        np.random.seed(42)
+
+        # Create random block matrices
+        L_00 = np.random.randn(N, N)
+        L_01 = np.random.randn(N, N)
+        L_10 = np.random.randn(N, N)
+        L_11 = np.random.randn(N, N)
+
+        # Build dense version
+        L_dense = np.block([[L_00, L_01], [L_10, L_11]])
+
+        # Create BlockCoupledOperator
+        block_op = BlockCoupledOperator(L_00, L_01, L_10, L_11, n=N)
+
+        # Test matvec
+        x = np.random.randn(2 * N)
+        y_dense = L_dense @ x
+        y_block = block_op.matvec(x)
+
+        np.testing.assert_allclose(
+            y_block, y_dense, rtol=1e-12, atol=1e-14,
+            err_msg="BlockCoupledOperator matvec differs from dense"
+        )
+
+    def test_block_coupled_rmatvec_matches_dense(self):
+        """Test that BlockCoupledOperator rmatvec matches dense transpose."""
+        from pynamit.simulation.operators import BlockCoupledOperator
+
+        N = 30
+        np.random.seed(42)
+
+        L_00 = np.random.randn(N, N)
+        L_01 = np.random.randn(N, N)
+        L_10 = np.random.randn(N, N)
+        L_11 = np.random.randn(N, N)
+
+        L_dense = np.block([[L_00, L_01], [L_10, L_11]])
+        block_op = BlockCoupledOperator(L_00, L_01, L_10, L_11, n=N)
+
+        # Test rmatvec (adjoint)
+        y = np.random.randn(2 * N)
+        x_dense = L_dense.T @ y
+        x_block = block_op.rmatvec(y)
+
+        np.testing.assert_allclose(
+            x_block, x_dense, rtol=1e-12, atol=1e-14,
+            err_msg="BlockCoupledOperator rmatvec differs from dense transpose"
+        )
+
+    def test_block_coupled_with_none_blocks(self):
+        """Test BlockCoupledOperator with None (zero) blocks."""
+        from pynamit.simulation.operators import BlockCoupledOperator
+
+        N = 20
+        np.random.seed(123)
+
+        # Only diagonal blocks are non-zero
+        L_00 = np.random.randn(N, N)
+        L_11 = np.random.randn(N, N)
+
+        block_op = BlockCoupledOperator(L_00, None, None, L_11, n=N)
+
+        # Build expected dense matrix with zeros
+        L_dense = np.block([
+            [L_00, np.zeros((N, N))],
+            [np.zeros((N, N)), L_11]
+        ])
+
+        x = np.random.randn(2 * N)
+        y_block = block_op.matvec(x)
+        y_dense = L_dense @ x
+
+        np.testing.assert_allclose(
+            y_block, y_dense, rtol=1e-12, atol=1e-14,
+            err_msg="BlockCoupledOperator with None blocks differs from dense"
+        )
+
+    def test_block_coupled_with_linear_maps(self):
+        """Test BlockCoupledOperator with LinearMap blocks."""
+        from pynamit.simulation.operators import BlockCoupledOperator
+
+        N = 25
+        np.random.seed(42)
+
+        # Create dense blocks and convert to LinearMaps
+        L_00_dense = np.random.randn(N, N)
+        L_01_dense = np.random.randn(N, N)
+        L_10_dense = np.random.randn(N, N)
+        L_11_dense = np.random.randn(N, N)
+
+        L_00_lm = as_linear_map(L_00_dense)
+        L_01_lm = as_linear_map(L_01_dense)
+        L_10_lm = as_linear_map(L_10_dense)
+        L_11_lm = as_linear_map(L_11_dense)
+
+        # Create operators
+        block_op_dense = BlockCoupledOperator(L_00_dense, L_01_dense, L_10_dense, L_11_dense, n=N)
+        block_op_lm = BlockCoupledOperator(L_00_lm, L_01_lm, L_10_lm, L_11_lm, n=N)
+
+        x = np.random.randn(2 * N)
+
+        np.testing.assert_allclose(
+            block_op_lm.matvec(x), block_op_dense.matvec(x),
+            rtol=1e-12, atol=1e-14,
+            err_msg="BlockCoupledOperator with LinearMaps differs from dense blocks"
+        )
+
+    def test_block_coupled_to_linear_map_for_solver(self):
+        """Test that BlockCoupledOperator.to_linear_map() works with solver."""
+        from pynamit.simulation.operators import BlockCoupledOperator
+
+        N = 20
+        np.random.seed(42)
+
+        # Create well-conditioned blocks
+        A = np.random.randn(N, N)
+        L_00 = A.T @ A + 0.1 * np.eye(N)
+        A = np.random.randn(N, N)
+        L_11 = A.T @ A + 0.1 * np.eye(N)
+
+        block_op = BlockCoupledOperator(L_00, None, None, L_11, n=N)
+        L_lm = block_op.to_linear_map()
+
+        # Create forcing and solve
+        K = np.random.randn(2 * N) * 1e-6
+
+        # Dense solution
+        L_dense = block_op.to_dense()
+        result_dense = xp.linalg.lstsq(L_dense, -K, rcond=1e-13)[0]
+
+        # Matrix-free solution
+        problem = LeastSquaresProblem(
+            A=[L_lm],
+            solution_shape=(2 * N,),
+            data_shapes=[(2 * N,)],
+        )
+        ls_solver = LeastSquaresSolver(solver="lsmr", tolerance=1e-10)
+        result_lsmr = asarray(ls_solver.solve(problem, [-K], maxiter=5000))
+
+        np.testing.assert_allclose(
+            result_lsmr, result_dense, rtol=1e-6, atol=1e-10,
+            err_msg="BlockCoupledOperator solver result differs from dense"
+        )

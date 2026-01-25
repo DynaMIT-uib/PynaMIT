@@ -1077,8 +1077,81 @@ class State:
         
         # Stack Rows along axis 0 -> (2, N, 2, N)
         L = xp.stack([L_row0, L_row1], axis=0)
-        
+
         return L
+
+    def get_coupled_induction_operator(
+        self,
+        L_psi_psi: Any = None,
+        L_psi_mind: Any = None,
+        L_mind_psi: Any = None,
+        L_mind_mind: Any = None,
+    ) -> "LinearMap":
+        """Build a matrix-free coupled induction operator.
+
+        Creates a BlockCoupledOperator that computes the coupled system
+        dynamics without materializing the full (2N, 2N) matrix. This is
+        useful for large systems where memory is a concern.
+
+        The operator represents:
+            [[L_psi_psi,   L_psi_mind ],
+             [L_mind_psi,  L_mind_mind]]
+
+        Parameters
+        ----------
+        L_psi_psi : np.ndarray or LinearMap, optional
+            Block (0,0): psi → d(psi)/dt. If None, uses default from toroidal.
+        L_psi_mind : np.ndarray or LinearMap, optional
+            Block (0,1): m_ind → d(psi)/dt. If None, uses default from toroidal.
+        L_mind_psi : np.ndarray or LinearMap, optional
+            Block (1,0): psi → d(m_ind)/dt. If None, uses zeros.
+        L_mind_mind : np.ndarray or LinearMap, optional
+            Block (1,1): m_ind → d(m_ind)/dt. If None, uses induction matrix.
+
+        Returns
+        -------
+        LinearMap
+            A matrix-free LinearMap representing the coupled operator.
+        """
+        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.geometry_utils import to_dense
+
+        N = self.solution_basis.index_length
+
+        # Build default blocks if not provided
+        if L_psi_psi is None or L_psi_mind is None:
+            psi_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_imp", mode=None))
+            mind_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_ind", mode=None))
+
+            if L_psi_psi is None:
+                L_psi_psi = self.toroidal_matrices.build_psi_dynamics_matrix(
+                    psi_to_E_operator=psi_to_E,
+                    m_imp_to_jr_operator=self.geometry.m_imp_to_jr
+                )
+
+            if L_psi_mind is None:
+                L_psi_mind = self.toroidal_matrices.build_psi_dynamics_matrix(
+                    psi_to_E_operator=mind_to_E,
+                    m_imp_to_jr_operator=self.geometry.m_imp_to_jr
+                )
+
+        if L_mind_psi is None:
+            L_mind_psi = None  # Zero block
+
+        if L_mind_mind is None:
+            scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
+            L_mind_mind = scale * asarray(self.m_ind_to_E_df_matrix)
+
+        # Create block operator and convert to LinearMap
+        block_op = BlockCoupledOperator(
+            L_00=L_psi_psi,
+            L_01=L_psi_mind,
+            L_10=L_mind_psi,
+            L_11=L_mind_mind,
+            n=N,
+        )
+
+        return block_op.to_linear_map()
 
     def evolve_coupled_induction(
         self,
