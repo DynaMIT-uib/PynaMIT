@@ -700,21 +700,61 @@ class PoloidalSystemMatrices:
 
         raise ValueError(f"Unknown potential_type: {potential_type}")
 
-    def steady_state_m_ind(self, E_coeffs_noind: np.ndarray, induction_matrix: np.ndarray) -> np.ndarray:
+    def steady_state_m_ind(
+        self,
+        E_coeffs_noind: np.ndarray,
+        induction_matrix: Any,
+        solver: str = "lsmr",
+    ) -> np.ndarray:
         """Calculate the steady-state induced potential.
 
-        Uses least-squares (lstsq) instead of direct solve to handle
+        Uses least-squares (lstsq or iterative solver) to handle
         ill-conditioned induction matrices. This ensures the minimum-norm
         solution is returned, avoiding numerical instability from
         near-null-space components that can differ between backends.
+
+        Parameters
+        ----------
+        E_coeffs_noind : np.ndarray
+            Non-inductive E-field coefficients with shape (2, n_coeffs) or (2*n_coeffs,).
+        induction_matrix : np.ndarray or LinearMap
+            Induction matrix mapping m_ind -> E_df. Can be a dense array
+            or a LinearMap for matrix-free operation.
+        solver : str, optional
+            Solver to use for matrix-free case: "lsmr" or "cg". Default "lsmr".
+            For dense matrices, lstsq is always used regardless of this parameter.
+
+        Returns
+        -------
+        np.ndarray
+            Steady-state induced potential coefficients.
         """
         # op_A * m_ss + const = 0 -> op_A * m_ss = -const
-        # Extract Toroidal Potential consistently
-        E_noind_field = Field.from_coefficients(self.solution_basis, E_coeffs_noind, field_type="tangential")
-        vec_b = -asarray(E_noind_field.toroidal_potential().coeffs)
-        
+        # Extract Toroidal Potential consistently using basis method
+        vec_b = -asarray(self.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind))
+
+        # Check if induction_matrix supports matrix-free operation
+        if hasattr(induction_matrix, "matvec"):
+            # Matrix-free path: Use iterative LeastSquaresSolver
+            from pynamit.math.least_squares_problem import LeastSquaresProblem
+            from pynamit.math.least_squares_solver import LeastSquaresSolver
+
+            n = self.solution_basis.index_length
+            induction_op = as_linear_map(induction_matrix)
+
+            problem = LeastSquaresProblem(
+                A=[induction_op],
+                solution_shape=(n,),
+                data_shapes=[(n,)],
+            )
+
+            # Use LSMR or CG for the steady-state inversion
+            # Increase maxiter for ill-conditioned systems
+            ls_solver = LeastSquaresSolver(solver=solver, tolerance=1e-10)
+            return asarray(ls_solver.solve(problem, [vec_b], maxiter=5000))
+
+        # Dense path: Use lstsq for numerical stability
         L = asarray(induction_matrix)
-        # Use lstsq for numerical stability with ill-conditioned matrices
         # rcond=1e-13 filters out singular values below this relative threshold
         result = xp.linalg.lstsq(L, vec_b, rcond=1e-13)
         return result[0]

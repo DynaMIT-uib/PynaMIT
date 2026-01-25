@@ -943,13 +943,72 @@ class State:
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the steady-state induced potential.
-        
+
         Delegates to self.poloidal_matrices.steady_state_m_ind().
         """
         return self.poloidal_matrices.steady_state_m_ind(
             E_coeffs_noind=asarray(E_coeffs_noind),
             induction_matrix=self.m_ind_to_E_df_matrix
         )
+
+    def steady_state_coupled(
+        self,
+        K: np.ndarray,
+        coupled_operator: Any = None,
+        solver: str = "lsmr",
+    ) -> np.ndarray:
+        """Calculate the steady-state for the coupled [psi, m_ind] system.
+
+        Solves L @ y_ss = -K for y_ss where L is the coupled induction operator.
+        Supports both dense tensor and matrix-free (LinearMap) operators.
+
+        Parameters
+        ----------
+        K : np.ndarray
+            Forcing tensor of shape (2, N) where K[0] is psi forcing
+            and K[1] is m_ind forcing.
+        coupled_operator : np.ndarray or LinearMap, optional
+            Coupled system operator. If None, uses self.coupled_induction_tensor.
+            Can be dense array of shape (2, N, 2, N) or (2N, 2N), or a LinearMap.
+        solver : str, optional
+            Solver for matrix-free case: "lsmr" or "cg". Default "lsmr".
+
+        Returns
+        -------
+        np.ndarray
+            Steady-state y_ss of shape (2, N).
+        """
+        N = self.solution_basis.index_length
+        K_flat = asarray(K).reshape(2 * N)
+
+        if coupled_operator is None:
+            coupled_operator = self.coupled_induction_tensor
+
+        # Check if operator supports matrix-free operation
+        if hasattr(coupled_operator, "matvec"):
+            # Matrix-free path: Use iterative LeastSquaresSolver
+            coupled_op = as_linear_map(coupled_operator)
+
+            problem = LeastSquaresProblem(
+                A=[coupled_op],
+                solution_shape=(2 * N,),
+                data_shapes=[(2 * N,)],
+            )
+
+            ls_solver = LeastSquaresSolver(solver=solver, tolerance=1e-10)
+            y_ss_flat = asarray(ls_solver.solve(problem, [-K_flat], maxiter=5000))
+            return y_ss_flat.reshape(2, N)
+
+        # Dense path
+        L = asarray(coupled_operator)
+        if L.ndim == 4:
+            L_flat = L.reshape(2 * N, 2 * N)
+        else:
+            L_flat = L
+
+        # Use lstsq for numerical stability
+        result = xp.linalg.lstsq(L_flat, -K_flat, rcond=1e-13)
+        return result[0].reshape(2, N)
 
     # -------------------------------------------------------------------------
     # Coupled Exponential Integrator
@@ -1027,17 +1086,19 @@ class State:
         dt: float,
         K: np.ndarray,
         steady_state_y: Optional[np.ndarray] = None,
+        coupled_operator: Any = None,
+        solver: str = "lsmr",
     ) -> np.ndarray:
         """Evolve [psi; m_ind] together using full coupled exponential integrator.
-        
+
         Uses the exponential integrator formula with the full coupled system:
             y_new = y_ss + expm(L * dt) @ (y - y_ss)
-            
+
         Note:
             Matrix operations (lstsq, expm) may dispatch to CPU (SciPy/NumPy)
             even when running with JAX backend, as dense matrix exponential support
             is hardware-specific.
-            
+
         Parameters
         ----------
         y : np.ndarray
@@ -1048,28 +1109,45 @@ class State:
             Forcing tensor of shape (2, N).
         steady_state_y : np.ndarray, optional
             Steady state of shape (2, N). If None, computed from full system.
-            
+        coupled_operator : np.ndarray or LinearMap, optional
+            Coupled system operator. If None, uses self.coupled_induction_tensor.
+            Can be dense or matrix-free.
+        solver : str, optional
+            Solver for matrix-free steady-state: "lsmr" or "cg". Default "lsmr".
+
         Returns
         -------
         np.ndarray
             Updated state tensor of shape (2, N).
         """
         from scipy.linalg import expm
-        
+
         N = self.solution_basis.index_length
-        
-        # Get full coupled system matrix L (2N x 2N)
-        L = self.coupled_induction_tensor  # (2, N, 2, N)
-        L_flat = L.reshape(2 * N, 2 * N)
-        y_flat = y.reshape(2 * N)
-        K_flat = K.reshape(2 * N)
-        
+
+        # Get full coupled system matrix L
+        if coupled_operator is None:
+            L = self.coupled_induction_tensor  # (2, N, 2, N)
+        else:
+            L = coupled_operator
+
+        # Flatten L for matrix exponential (requires dense for expm)
+        if hasattr(L, "to_dense"):
+            L_flat = L.to_dense().reshape(2 * N, 2 * N)
+        elif hasattr(L, "toarray"):
+            L_flat = L.toarray().reshape(2 * N, 2 * N)
+        else:
+            L_arr = asarray(L)
+            L_flat = L_arr.reshape(2 * N, 2 * N)
+
+        y_flat = asarray(y).reshape(2 * N)
+
         # Compute combined steady state: L @ y_ss = -K
         if steady_state_y is not None:
-            y_ss_flat = steady_state_y.reshape(2 * N)
+            y_ss_flat = asarray(steady_state_y).reshape(2 * N)
         else:
-            # Use lstsq for the full coupled system
-            y_ss_flat, _, _, _ = np.linalg.lstsq(np.asarray(L_flat), -np.asarray(K_flat), rcond=None)
+            # Use steady_state_coupled which handles both dense and matrix-free
+            y_ss = self.steady_state_coupled(K, coupled_operator=coupled_operator, solver=solver)
+            y_ss_flat = y_ss.reshape(2 * N)
         
         # Full coupled exponential step
         exp_L_dt = expm(np.asarray(L_flat) * dt)
