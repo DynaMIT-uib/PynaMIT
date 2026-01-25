@@ -403,9 +403,10 @@ class TestBlockCoupledOperator:
         # Create forcing and solve
         K = np.random.randn(2 * N) * 1e-6
 
-        # Dense solution
-        L_dense = block_op.to_dense()
-        result_dense = xp.linalg.lstsq(L_dense, -K, rcond=1e-13)[0]
+        # Dense solution (reshape tensor to 2N x 2N for lstsq)
+        L_tensor = block_op.to_dense()
+        L_flat = L_tensor.reshape(2 * N, 2 * N)
+        result_dense = xp.linalg.lstsq(L_flat, -K, rcond=1e-13)[0]
 
         # Matrix-free solution
         problem = LeastSquaresProblem(
@@ -419,4 +420,45 @@ class TestBlockCoupledOperator:
         np.testing.assert_allclose(
             result_lsmr, result_dense, rtol=1e-6, atol=1e-10,
             err_msg="BlockCoupledOperator solver result differs from dense"
+        )
+
+    def test_block_coupled_to_dense_tensor_format(self):
+        """Test that to_dense() returns (2, N, 2, N) matching codebase convention."""
+        from pynamit.simulation.operators import BlockCoupledOperator
+
+        N = 15
+        np.random.seed(42)
+
+        L_00 = np.random.randn(N, N)
+        L_01 = np.random.randn(N, N)
+        L_10 = np.random.randn(N, N)
+        L_11 = np.random.randn(N, N)
+
+        block_op = BlockCoupledOperator(L_00, L_01, L_10, L_11, n=N)
+
+        # Get tensor representation
+        L_tensor = block_op.to_dense()
+
+        # Check shape matches convention
+        assert L_tensor.shape == (2, N, 2, N), f"Expected (2, {N}, 2, {N}), got {L_tensor.shape}"
+
+        # Check block structure: L[i, :, j, :] = block (i, j)
+        np.testing.assert_allclose(L_tensor[0, :, 0, :], L_00)
+        np.testing.assert_allclose(L_tensor[0, :, 1, :], L_01)
+        np.testing.assert_allclose(L_tensor[1, :, 0, :], L_10)
+        np.testing.assert_allclose(L_tensor[1, :, 1, :], L_11)
+
+        # Verify einsum contraction matches matvec
+        y = np.random.randn(2, N)
+        y_flat = y.reshape(2 * N)
+
+        # Using einsum with tensor
+        result_einsum = np.einsum('ijkl,kl->ij', L_tensor, y)
+
+        # Using matvec
+        result_matvec = block_op.matvec(y_flat).reshape(2, N)
+
+        np.testing.assert_allclose(
+            result_einsum, result_matvec, rtol=1e-12, atol=1e-14,
+            err_msg="to_dense() einsum contraction differs from matvec"
         )

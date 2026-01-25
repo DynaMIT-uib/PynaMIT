@@ -184,21 +184,28 @@ class BlockCoupledOperator:
         return xp.stack(results, axis=1)
 
     def to_dense(self) -> np.ndarray:
-        """Convert to dense matrix representation.
+        """Convert to dense (2, N, 2, N) tensor representation.
+
+        Returns the tensor in the format used by coupled_induction_tensor,
+        where the block structure is explicit:
+            L[i, :, j, :] = block (i, j)
+
+        This format satisfies:
+            dy/dt = einsum('ijkl,kl->ij', L, y) + K
 
         Returns
         -------
         np.ndarray
-            Dense matrix of shape (2*N, 2*N).
+            Dense tensor of shape (2, N, 2, N).
         """
         n = self.n
-        result = np.zeros((2 * n, 2 * n), dtype=self.dtype)
+        result = np.zeros((2, n, 2, n), dtype=self.dtype)
 
         for i in range(2):
             for j in range(2):
                 block = self.blocks[i][j]
                 if block is not None:
-                    result[i * n:(i + 1) * n, j * n:(j + 1) * n] = block.to_dense()
+                    result[i, :, j, :] = block.to_dense()
 
         return result
 
