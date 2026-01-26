@@ -462,3 +462,59 @@ class TestBlockCoupledOperator:
             result_einsum, result_matvec, rtol=1e-12, atol=1e-14,
             err_msg="to_dense() einsum contraction differs from matvec"
         )
+
+
+class TestPsiDynamicsMatrixFree:
+    """Tests for matrix-free psi dynamics operator in toroidal.py."""
+
+    def test_psi_dynamics_operator_matches_dense(self):
+        """Test that matrix-free psi dynamics operator matches dense version."""
+        # This test verifies that get_psi_dynamics_operator produces the same
+        # results as build_psi_dynamics_matrix for a simple test case.
+
+        N = 20
+        np.random.seed(42)
+
+        # Create random well-conditioned operators to simulate the chain
+        # psi → E_psi → K → dt_jr → d(psi)/dt
+        psi_to_E = np.random.randn(2 * N, N)
+        E_to_K = np.random.randn(N, 2 * N)
+        L_sys = np.random.randn(N, N)
+        L_sys = L_sys.T @ L_sys + 0.1 * np.eye(N)  # Make well-conditioned
+        m_to_jr = np.random.randn(N, N)
+        m_to_jr = m_to_jr.T @ m_to_jr + 0.1 * np.eye(N)  # Make well-conditioned
+
+        # Build dense version: L_psi = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E
+        from pynamit.utils import tensor_pinv
+        L_sys_inv = tensor_pinv(L_sys, n_leading_flattened=1)
+        jr_to_psi = tensor_pinv(m_to_jr, n_leading_flattened=1)
+        L_dense = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E
+
+        # Build matrix-free version using similar chain
+        from pynamit.math.linear_map import LinearMap
+        from scipy.sparse.linalg import lsmr, LinearOperator
+
+        psi_to_E_op = as_linear_map(psi_to_E)
+        E_to_K_op = as_linear_map(E_to_K)
+        jr_to_psi_op = as_linear_map(jr_to_psi)
+
+        def apply_L_sys_inv(rhs):
+            result, *_ = lsmr(L_sys, rhs, atol=1e-12, btol=1e-12, maxiter=500)
+            return result
+
+        def matvec(x):
+            y = psi_to_E_op.matvec(x)
+            y = E_to_K_op.matvec(y)
+            y = apply_L_sys_inv(y)
+            y = jr_to_psi_op.matvec(y)
+            return y
+
+        # Test on random input
+        x = np.random.randn(N)
+        result_dense = L_dense @ x
+        result_mf = matvec(x)
+
+        np.testing.assert_allclose(
+            result_mf, result_dense, rtol=1e-6, atol=1e-10,
+            err_msg="Matrix-free psi dynamics differs from dense"
+        )

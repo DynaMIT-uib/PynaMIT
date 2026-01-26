@@ -982,7 +982,8 @@ class State:
         K_flat = asarray(K).reshape(2 * N)
 
         if coupled_operator is None:
-            coupled_operator = self.coupled_induction_tensor
+            # Default to matrix-free operator for steady-state (more efficient)
+            coupled_operator = self.get_coupled_induction_operator(matrix_free=True, solver=solver)
 
         # Check if operator supports matrix-free operation
         if hasattr(coupled_operator, "matvec"):
@@ -1086,6 +1087,8 @@ class State:
         L_psi_mind: Any = None,
         L_mind_psi: Any = None,
         L_mind_mind: Any = None,
+        matrix_free: bool = False,
+        solver: str = "lsmr",
     ) -> "LinearMap":
         """Build a matrix-free coupled induction operator.
 
@@ -1107,6 +1110,11 @@ class State:
             Block (1,0): psi → d(m_ind)/dt. If None, uses zeros.
         L_mind_mind : np.ndarray or LinearMap, optional
             Block (1,1): m_ind → d(m_ind)/dt. If None, uses induction matrix.
+        matrix_free : bool, optional
+            If True, build truly matrix-free operators using iterative solves.
+            If False (default), use dense matrices for the blocks.
+        solver : str, optional
+            Iterative solver for matrix-free mode: "lsmr" or "cg". Default "lsmr".
 
         Returns
         -------
@@ -1120,20 +1128,39 @@ class State:
 
         # Build default blocks if not provided
         if L_psi_psi is None or L_psi_mind is None:
-            psi_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_imp", mode=None))
-            mind_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_ind", mode=None))
+            psi_to_E = self.geometry.get_potential_to_E_operator("m_imp", mode=None)
+            mind_to_E = self.geometry.get_potential_to_E_operator("m_ind", mode=None)
+
+            if not matrix_free:
+                # Dense mode: convert to dense matrices
+                psi_to_E = to_dense(psi_to_E)
+                mind_to_E = to_dense(mind_to_E)
 
             if L_psi_psi is None:
-                L_psi_psi = self.toroidal_matrices.build_psi_dynamics_matrix(
-                    psi_to_E_operator=psi_to_E,
-                    m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-                )
+                if matrix_free:
+                    L_psi_psi = self.toroidal_matrices.get_psi_dynamics_operator(
+                        psi_to_E_operator=psi_to_E,
+                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr,
+                        solver=solver,
+                    )
+                else:
+                    L_psi_psi = self.toroidal_matrices.build_psi_dynamics_matrix(
+                        psi_to_E_operator=psi_to_E,
+                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr
+                    )
 
             if L_psi_mind is None:
-                L_psi_mind = self.toroidal_matrices.build_psi_dynamics_matrix(
-                    psi_to_E_operator=mind_to_E,
-                    m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-                )
+                if matrix_free:
+                    L_psi_mind = self.toroidal_matrices.get_psi_dynamics_operator(
+                        psi_to_E_operator=mind_to_E,
+                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr,
+                        solver=solver,
+                    )
+                else:
+                    L_psi_mind = self.toroidal_matrices.build_psi_dynamics_matrix(
+                        psi_to_E_operator=mind_to_E,
+                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr
+                    )
 
         if L_mind_psi is None:
             L_mind_psi = None  # Zero block
@@ -1218,8 +1245,9 @@ class State:
         if steady_state_y is not None:
             y_ss_flat = asarray(steady_state_y).reshape(2 * N)
         else:
-            # Use steady_state_coupled which handles both dense and matrix-free
-            y_ss = self.steady_state_coupled(K, coupled_operator=coupled_operator, solver=solver)
+            # Use steady_state_coupled with the same operator used for expm
+            # (pass L, not coupled_operator, since L is already resolved)
+            y_ss = self.steady_state_coupled(K, coupled_operator=L, solver=solver)
             y_ss_flat = y_ss.reshape(2 * N)
         
         # Full coupled exponential step

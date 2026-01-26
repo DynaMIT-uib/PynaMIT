@@ -691,7 +691,7 @@ class ToroidalSystemMatrices:
         # L_sys @ dt_jr = K  →  dt_jr = L_sys^{-1} @ K
         L_sys = to_numpy(self.system_matrix)  # (N, N)
         L_sys_inv = tensor_pinv(L_sys)  # (N, N)
-        
+
         # Step 4: dt_jr → d(psi)/dt via jr_to_psi
         op_m_to_jr = as_linear_map(m_imp_to_jr_operator)
         m_to_jr_dense = to_dense(op_m_to_jr)  # (N, N)
@@ -701,7 +701,149 @@ class ToroidalSystemMatrices:
         # d(psi)/dt = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E @ psi
         # L_psi_psi = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E
         L_psi_psi = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E
-        
+
         return asarray(L_psi_psi)
+
+    def get_psi_dynamics_operator(
+        self,
+        psi_to_E_operator: Any,
+        m_imp_to_jr_operator: Any,
+        solver: str = "lsmr",
+        solver_tol: float = 1e-10,
+        dense: bool = False,
+    ) -> "LinearMap":
+        """Get matrix-free linear operator: psi → d(psi)/dt.
+
+        This constructs the full chain as a LinearMap without materializing
+        intermediate dense matrices:
+            psi → E_psi → K → dt_jr → d(psi)/dt
+
+        The implicit inverse L_sys^{-1} is applied via iterative solve.
+
+        Parameters
+        ----------
+        psi_to_E_operator : np.ndarray or LinearMap
+            Operator mapping psi to E_coeffs contribution.
+            Shape (2*N, N) or (2, N, N).
+        m_imp_to_jr_operator : np.ndarray or LinearMap
+            Operator mapping potential to jr.
+        solver : str, optional
+            Iterative solver for L_sys inverse: "lsmr" or "cg". Default "lsmr".
+        solver_tol : float, optional
+            Tolerance for iterative solver. Default 1e-10.
+        dense : bool, optional
+            If True, return dense matrix wrapped as LinearMap (for debugging).
+            Default False (truly matrix-free).
+
+        Returns
+        -------
+        LinearMap
+            Matrix-free operator L_psi_psi of shape (N, N).
+        """
+        from pynamit.math.linear_map import LinearMap
+        from pynamit.simulation.geometry_utils import to_dense
+        from scipy.sparse.linalg import lsmr, cg, LinearOperator
+
+        N = self.basis.index_length
+
+        # If dense mode requested, fall back to dense implementation
+        if dense:
+            L_dense = self.build_psi_dynamics_matrix(psi_to_E_operator, m_imp_to_jr_operator)
+            return as_linear_map(L_dense)
+
+        # Wrap operators as LinearMaps
+        # Step 1: psi_to_E (with mu0 scaling)
+        psi_to_E_arr = to_numpy(psi_to_E_operator)
+        if psi_to_E_arr.ndim == 3:
+            psi_to_E_arr = psi_to_E_arr.reshape(2 * N, N)
+        psi_to_E_arr = mu0 * psi_to_E_arr
+        psi_to_E_op = as_linear_map(psi_to_E_arr)
+
+        # Step 2: E_to_K
+        E_to_K_arr = to_numpy(self.E_coeffs_to_K_matrix)
+        E_to_K_op = as_linear_map(E_to_K_arr)
+
+        # Step 3: L_sys (for implicit inverse via iterative solve)
+        L_sys_arr = to_numpy(self.system_matrix)
+        L_sys_op = LinearOperator(
+            shape=(N, N),
+            matvec=lambda x: L_sys_arr @ x,
+            rmatvec=lambda x: L_sys_arr.T @ x,
+            dtype=L_sys_arr.dtype,
+        )
+
+        # Step 4: jr_to_psi = pinv(m_to_jr)
+        m_to_jr_arr = to_dense(as_linear_map(m_imp_to_jr_operator))
+        jr_to_psi_arr = tensor_pinv(m_to_jr_arr, n_leading_flattened=1)
+        jr_to_psi_op = as_linear_map(jr_to_psi_arr)
+
+        def _apply_L_sys_inv(rhs, adjoint=False):
+            """Apply L_sys^{-1} or L_sys^{-T} via iterative solve."""
+            rhs_np = np.asarray(rhs).flatten()
+            if adjoint:
+                # Solve L_sys.T @ x = rhs
+                op = LinearOperator(
+                    shape=(N, N),
+                    matvec=lambda x: L_sys_arr.T @ x,
+                    dtype=L_sys_arr.dtype,
+                )
+            else:
+                op = L_sys_op
+
+            if solver == "lsmr":
+                result, *_ = lsmr(op, rhs_np, atol=solver_tol, btol=solver_tol)
+            elif solver == "cg":
+                # CG requires SPD, use normal equations
+                def normal_mv(x):
+                    if adjoint:
+                        return L_sys_arr @ (L_sys_arr.T @ x)
+                    else:
+                        return L_sys_arr.T @ (L_sys_arr @ x)
+                normal_op = LinearOperator(shape=(N, N), matvec=normal_mv, dtype=L_sys_arr.dtype)
+                if adjoint:
+                    normal_rhs = L_sys_arr @ rhs_np
+                else:
+                    normal_rhs = L_sys_arr.T @ rhs_np
+                result, _ = cg(normal_op, normal_rhs, tol=solver_tol)
+            else:
+                raise ValueError(f"Unknown solver: {solver}")
+
+            return result
+
+        def matvec(x):
+            """Apply L_psi_psi @ x = jr_to_psi @ L_sys_inv @ E_to_K @ psi_to_E @ x."""
+            x = asarray(x).flatten()
+            # psi → E_psi
+            y = psi_to_E_op.matvec(x)
+            # E_psi → K
+            y = E_to_K_op.matvec(y)
+            # K → dt_jr (via L_sys inverse)
+            y = _apply_L_sys_inv(y, adjoint=False)
+            # dt_jr → d(psi)/dt
+            y = jr_to_psi_op.matvec(y)
+            return asarray(y)
+
+        def rmatvec(x):
+            """Apply L_psi_psi.T @ x (adjoint)."""
+            x = asarray(x).flatten()
+            # Reverse order with adjoints
+            y = jr_to_psi_op.rmatvec(x)
+            y = _apply_L_sys_inv(y, adjoint=True)
+            y = E_to_K_op.rmatvec(y)
+            y = psi_to_E_op.rmatvec(y)
+            return asarray(y)
+
+        def to_dense_func():
+            """Materialize dense matrix (for debugging/comparison)."""
+            return self.build_psi_dynamics_matrix(psi_to_E_operator, m_imp_to_jr_operator)
+
+        return LinearMap(
+            shape=(N, N),
+            dtype=np.float64,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _to_dense=to_dense_func,
+            source=None,
+        )
 
 
