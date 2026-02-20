@@ -37,7 +37,6 @@ def run_pynamit(
     u_lambda: Optional[float] = None,
     multi_data: bool = False,
     solution_basis_kind: str = "SH",
-    pure_spectral: bool = False,
     simulation_mode: Optional[str] = None,
     least_squares_solver: str = "cg",
     m_imp_regularization_lambda: float = 0.0,
@@ -47,7 +46,16 @@ def run_pynamit(
     use_exact_weights: bool = False,
     filename_prefix: Optional[str] = None,
     use_jr: bool = True,
-    induction_constraint_scaling: float = 1.0,
+    apply_psi_gauge: bool = True,
+    apply_m_ind_gauge: bool = True,
+    magnetospheric_toroidal_lock: bool = False,
+    magnetospheric_poloidal_lock: bool = True,
+    toroidal_weighting: str = "none",
+    poloidal_weighting: str = "none",
+    least_squares_preconditioner: Optional[str] = "pinv",
+    toroidal_regularization_lambda: float = 0.0,
+    dense_full_operators: bool = False,
+    benchmark_mode: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
     
@@ -58,8 +66,6 @@ def run_pynamit(
         Prefix for output files.
     use_jr : bool, optional
         Whether to drive with field aligned currents (default True).
-    induction_constraint_scaling : float, optional
-        Scaling factor for induction constraint (default 1.0).
     """
     import datetime
     import numpy as np
@@ -68,17 +74,6 @@ def run_pynamit(
     from pynamit.simulation.dynamics import Dynamics, SimulationMode
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
     from pynamit.spherical_harmonics.sh_basis import SHBasis
-
-    # ... (skipping unchanged) ...
-
-    # INITIALIZE DYNAMICS (unchanged) 
-    # But I can't easily skip lines in replacement without multi_replace or correct target.
-    # The duplicate error was in the signature.
-    # I will split this into two edits:
-    # 1. Fix signature (and remove duplicate line).
-    # 2. Add zeroing logic.
-    
-    # Actually, let's just fix the signature issue first.
 
     # Helper for weight generation
     def _get_weights(lat, lon, Nmax, use_exact):
@@ -133,7 +128,7 @@ def run_pynamit(
     # Initialize the 2D ionosphere object.
     if RI is None:
         RI = RE + 110.0e3
-        
+
     dynamics = Dynamics(
         filename_prefix=filename_prefix,
         Nmax=Nmax,
@@ -153,13 +148,21 @@ def run_pynamit(
         vector_u=vector_u,
         integrator=integrator,
         solution_basis_kind=solution_basis_kind,
-        pure_spectral=pure_spectral,
         simulation_mode=None if simulation_mode is None else SimulationMode(simulation_mode),
         least_squares_solver=least_squares_solver,
         m_imp_regularization_lambda=m_imp_regularization_lambda,
         dynamics_mode=dynamics_mode,
         mainfield_epoch=mainfield_epoch,
-        induction_constraint_scaling=induction_constraint_scaling,
+        apply_psi_gauge=apply_psi_gauge,
+        apply_m_ind_gauge=apply_m_ind_gauge,
+        magnetospheric_toroidal_lock=magnetospheric_toroidal_lock,
+        magnetospheric_poloidal_lock=magnetospheric_poloidal_lock,
+        toroidal_weighting=toroidal_weighting,
+        poloidal_weighting=poloidal_weighting,
+        least_squares_preconditioner=least_squares_preconditioner,
+        toroidal_regularization_lambda=toroidal_regularization_lambda,
+        dense_full_operators=dense_full_operators,
+        benchmark_mode=benchmark_mode,
     )
 
 

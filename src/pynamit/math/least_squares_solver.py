@@ -7,8 +7,8 @@ from typing import Callable, Final, Optional, TypeAlias
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
-from .least_squares_problem import LeastSquaresProblem
-from .linear_map import LinearMap
+from .least_squares_problem import LeastSquaresProblem, ProcessedOperator
+from .linear_map import LinearMap, as_linear_map
 from pynamit.utils import xp, asarray, use_jax
 
 ITERATION_SAFETY_FACTOR: Final = 10
@@ -45,9 +45,23 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs: RHSInput,
         preconditioner: Optional[LinearOperator | LinearMap] = None,
+        equality_operator: Optional[np.ndarray | LinearOperator | LinearMap] = None,
+        equality_rhs: Optional[np.ndarray] = None,
+        elimination_rcond: Optional[float] = None,
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
+        if equality_operator is not None:
+            return self._solve_with_equality_constraints(
+                problem=problem,
+                rhs=rhs,
+                preconditioner=preconditioner,
+                equality_operator=equality_operator,
+                equality_rhs=equality_rhs,
+                elimination_rcond=elimination_rcond,
+                **kwargs,
+            )
+
         rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else xp.float64
@@ -64,11 +78,192 @@ class LeastSquaresSolver:
         solution_block = asarray(solution_block)
         return solution_block.reshape(problem.solution_shape + scenario_shape)
 
+    def _solve_with_equality_constraints(
+        self,
+        problem: LeastSquaresProblem,
+        rhs: RHSInput,
+        preconditioner: Optional[LinearOperator | LinearMap],
+        equality_operator: np.ndarray | LinearOperator | LinearMap,
+        equality_rhs: Optional[np.ndarray] = None,
+        elimination_rcond: Optional[float] = None,
+        **kwargs,
+    ) -> np.ndarray:
+        """Solve constrained LS with exact equalities ``C x = d``.
+
+        Uses null-space elimination:
+            x = x0 + Z y,  where C x0 = d and C Z = 0.
+        Then solves the reduced unconstrained LS problem for ``y`` using the
+        configured backend solver (svd/normal/lsmr/cg).
+        """
+        rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
+        if rhs_block is None:
+            dtype = problem.A[0].dtype if problem.A else xp.float64
+            return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
+
+        if preconditioner is not None:
+            warnings.warn(
+                "Preconditioner is ignored for equality-constrained solve; "
+                "preconditioning is not yet mapped through the null-space reduction.",
+                RuntimeWarning,
+            )
+
+        G = np.asarray(problem.dense_system_matrix)
+        b = np.asarray(rhs_block).reshape(G.shape[0], num_scenarios)
+        n = int(problem.solution_size)
+
+        C = np.asarray(as_linear_map(equality_operator).to_dense())
+        if C.ndim == 1:
+            C = C.reshape(1, -1)
+        if C.ndim != 2 or C.shape[1] != n:
+            raise ValueError(
+                f"equality_operator must be 2D with {n} columns, got {C.shape}"
+            )
+
+        if C.shape[0] == 0:
+            # No constraints: fall back to standard solve path.
+            return self.solve(problem, rhs, preconditioner=preconditioner, **kwargs)
+
+        rcond = self.tolerance if elimination_rcond is None else max(float(elimination_rcond), 0.0)
+        d_block = self._prepare_constraint_rhs(
+            equality_rhs=equality_rhs,
+            n_constraints=C.shape[0],
+            num_scenarios=num_scenarios,
+            scenario_shape=scenario_shape,
+        )
+
+        # Particular solution satisfying C x0 = d (minimum norm).
+        C_pinv = np.linalg.pinv(C, rcond=rcond)
+        x0 = C_pinv @ d_block
+
+        # Null-space basis Z of C.
+        _, s_c, vh_c = np.linalg.svd(C, full_matrices=True)
+        if s_c.size == 0:
+            rank_c = 0
+        else:
+            cutoff_c = rcond * float(s_c[0])
+            rank_c = int(np.sum(s_c > cutoff_c))
+        Z = vh_c[rank_c:].T  # (n, k)
+
+        if Z.shape[1] == 0:
+            x = x0
+        else:
+            A_red = G @ Z
+            b_red = b - (G @ x0)
+            y = self._solve_reduced_system(A_red, b_red, **kwargs)
+            x = x0 + Z @ y
+
+        x = asarray(x)
+        return x.reshape(problem.solution_shape + scenario_shape)
+
+    @staticmethod
+    def _prepare_constraint_rhs(
+        equality_rhs: Optional[np.ndarray],
+        n_constraints: int,
+        num_scenarios: int,
+        scenario_shape: tuple[int, ...],
+    ) -> np.ndarray:
+        """Normalize equality RHS into shape ``(n_constraints, num_scenarios)``."""
+        if equality_rhs is None:
+            return np.zeros((n_constraints, num_scenarios), dtype=float)
+
+        d = np.asarray(equality_rhs)
+        if d.ndim == 1:
+            if d.shape[0] != n_constraints:
+                raise ValueError(
+                    f"equality_rhs length {d.shape[0]} != n_constraints {n_constraints}"
+                )
+            return np.repeat(d[:, None], num_scenarios, axis=1)
+
+        if d.shape[0] != n_constraints:
+            raise ValueError(
+                f"equality_rhs first dim {d.shape[0]} != n_constraints {n_constraints}"
+            )
+
+        d_block = d.reshape(n_constraints, -1)
+        if d_block.shape[1] == 1 and num_scenarios > 1:
+            d_block = np.repeat(d_block, num_scenarios, axis=1)
+        if d_block.shape[1] != num_scenarios:
+            raise ValueError(
+                "equality_rhs scenario shape mismatch: "
+                f"expected trailing shape {scenario_shape} (num={num_scenarios}), "
+                f"got {d.shape[1:]}"
+            )
+        return d_block
+
+    def _solve_reduced_system(
+        self,
+        A_red: np.ndarray,
+        b_red: np.ndarray,
+        **kwargs,
+    ) -> np.ndarray:
+        """Solve reduced unconstrained LS for all scenarios."""
+        if self.solver == "svd":
+            U, s, Vt = np.linalg.svd(A_red, full_matrices=False)
+            cutoff = self.tolerance * (s[0] if s.size > 0 else 0.0)
+            s_inv = np.where(s > cutoff, 1.0 / s, 0.0)
+            return Vt.T @ (s_inv[:, None] * (U.T @ b_red))
+
+        if self.solver == "normal":
+            AtA = A_red.T @ A_red
+            Atb = A_red.T @ b_red
+            try:
+                return np.linalg.solve(AtA, Atb)
+            except np.linalg.LinAlgError:
+                return np.linalg.lstsq(AtA, Atb, rcond=self.tolerance)[0]
+
+        if self.solver == "lsmr":
+            m, k = A_red.shape
+            max_iter = kwargs.pop(
+                "maxiter", ITERATION_SAFETY_FACTOR * min(m, k) if m > 0 and k > 0 else k
+            )
+            lsmr_kwargs = {
+                "atol": self.tolerance,
+                "btol": self.tolerance,
+                "maxiter": max_iter,
+                "damp": 0.0,
+                **kwargs,
+            }
+            y = np.zeros((A_red.shape[1], b_red.shape[1]), dtype=A_red.dtype)
+            for j in range(b_red.shape[1]):
+                y_j, istop, *_ = lsmr(A_red, b_red[:, j], **lsmr_kwargs)
+                if istop not in [0, 1, 2]:
+                    warnings.warn(
+                        f"Reduced LSMR may not have converged (istop={istop}).",
+                        RuntimeWarning,
+                    )
+                y[:, j] = y_j
+            return y
+
+        if self.solver == "cg":
+            AtA = A_red.T @ A_red
+            Atb = A_red.T @ b_red
+            max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * A_red.shape[1])
+            y = np.zeros((A_red.shape[1], b_red.shape[1]), dtype=A_red.dtype)
+            for j in range(b_red.shape[1]):
+                y_j, exit_code = cg(
+                    AtA,
+                    Atb[:, j],
+                    rtol=self.tolerance,
+                    maxiter=max_iter,
+                    **kwargs,
+                )
+                if exit_code != 0:
+                    warnings.warn(
+                        f"Reduced CG did not converge (exit_code={exit_code}).",
+                        RuntimeWarning,
+                    )
+                y[:, j] = y_j
+            return y
+
+        raise ValueError(f"Unsupported solver type '{self.solver}' for reduced solve.")
+
     def build_preconditioner(
         self,
         problem: LeastSquaresProblem,
         preconditioner_type: Optional[str] = None,
         num_scenarios: int = 1,
+        pinv_rcond: Optional[float] = None,
+        pinv_mode: str = "symmetric",
     ) -> Optional[LinearMap]:
         """Build preconditioner for the specified solver and problem."""
         p_type = (
@@ -79,10 +274,86 @@ class LeastSquaresSolver:
         if p_type not in self.VALID_PRECONDITIONERS:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
         if self.solver in ["cg", "normal"]:
-            return self._build_normal_eq_preconditioner(problem, p_type, num_scenarios)
+            return self._build_normal_eq_preconditioner(
+                problem, p_type, num_scenarios, pinv_rcond=pinv_rcond
+            )
         if self.solver == "lsmr":
-            return self._build_lsmr_preconditioner(problem, p_type, num_scenarios)
+            return self._build_lsmr_preconditioner(
+                problem,
+                p_type,
+                num_scenarios,
+                pinv_rcond=pinv_rcond,
+                pinv_mode=pinv_mode,
+            )
         return None
+
+    def build_equality_constrained_components_from_normal(
+        self,
+        H: np.ndarray,
+        C: np.ndarray,
+        *,
+        pinv_rcond: Optional[float] = None,
+    ) -> dict[str, np.ndarray]:
+        """Build linear maps for the hard-constrained quadratic system.
+
+        Solves the KKT system in pseudoinverse form:
+            [H C^T] [x] = [g]
+            [C  0 ] [λ]   [d]
+
+        and returns operators such that:
+            x = X_g g + X_d d
+        """
+        H_np = np.asarray(H)
+        C_np = np.asarray(C)
+        if H_np.ndim != 2 or H_np.shape[0] != H_np.shape[1]:
+            raise ValueError(f"H must be square 2D array, got shape {H_np.shape}")
+        if C_np.ndim != 2 or C_np.shape[1] != H_np.shape[0]:
+            raise ValueError(
+                f"C must be 2D with {H_np.shape[0]} columns, got shape {C_np.shape}"
+            )
+
+        rcond = self.tolerance if pinv_rcond is None else max(float(pinv_rcond), 0.0)
+        n_x = H_np.shape[0]
+
+        if C_np.size == 0 or C_np.shape[0] == 0:
+            X_g = self._pinv_symmetric(H_np, rcond)
+            X_d = np.zeros((n_x, 0), dtype=H_np.dtype)
+            return {"X_g": X_g, "X_d": X_d, "P_space": X_g @ H_np}
+
+        n_c = C_np.shape[0]
+        zeros_cc = np.zeros((n_c, n_c), dtype=H_np.dtype)
+        K = np.block([[H_np, C_np.T], [C_np, zeros_cc]])
+        K_pinv = self._pinv_symmetric(K, rcond)
+
+        X_g = K_pinv[:n_x, :n_x]
+        X_d = K_pinv[:n_x, n_x:]
+        return {"X_g": X_g, "X_d": X_d, "P_space": X_g @ H_np}
+
+    @staticmethod
+    def _pinv_symmetric(a: np.ndarray, rcond: float) -> np.ndarray:
+        """Robust pseudoinverse for (near-)symmetric matrices.
+
+        Uses an eigen-decomposition of the symmetrized matrix to avoid
+        occasional SVD non-convergence in large KKT blocks.
+        """
+        a_np = np.asarray(a)
+        if a_np.ndim != 2 or a_np.shape[0] != a_np.shape[1]:
+            return np.linalg.pinv(a_np, rcond=max(float(rcond), 0.0))
+
+        a_sym = 0.5 * (a_np + a_np.T.conj())
+        rcond = max(float(rcond), 0.0)
+        try:
+            eigvals, eigvecs = np.linalg.eigh(a_sym)
+        except np.linalg.LinAlgError:
+            return np.linalg.pinv(a_sym, rcond=rcond)
+
+        max_abs = float(np.max(np.abs(eigvals))) if eigvals.size > 0 else 0.0
+        if not np.isfinite(max_abs) or max_abs <= 0.0:
+            return np.zeros_like(a_sym)
+
+        cutoff = rcond * max_abs
+        inv_eigvals = np.where(np.abs(eigvals) > cutoff, 1.0 / eigvals, 0.0)
+        return (eigvecs * inv_eigvals) @ eigvecs.T.conj()
 
     def _solve_svd(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
@@ -145,6 +416,7 @@ class LeastSquaresSolver:
             "atol": self.tolerance,
             "btol": self.tolerance,
             "maxiter": max_iter,
+            "damp": 0.0,
             **kwargs,
         }
         sol_y_flat, istop, *_ = lsmr(op_to_solve, rhs_block.flatten(), **lsmr_kwargs)
@@ -235,16 +507,28 @@ class LeastSquaresSolver:
             raise ValueError(f"Preconditioner shape {M.shape} != expected {expected_shape}")
 
     def _build_normal_eq_preconditioner(
-        self, problem: LeastSquaresProblem, p_type: str, num_scenarios: int
+        self,
+        problem: LeastSquaresProblem,
+        p_type: str,
+        num_scenarios: int,
+        pinv_rcond: Optional[float] = None,
     ) -> LinearMap:
         size = problem.solution_size * num_scenarios
         shape = (size, size)
         dtype = problem.A[0].dtype if problem.A else xp.float64
 
         if p_type == "jacobi":
-            G = problem.get_system_operator(num_scenarios=1)
-            # Use data_operator (LinearMap) to compute diagonal for robustness
-            diag = LeastSquaresProblem._compute_normal_matrix_diag(problem.data_operator)
+            # Build Jacobi from the full system map (data + explicit regularization rows)
+            # so the preconditioner matches the solved normal equations.
+            full_map = problem.get_system_linear_map(
+                num_scenarios=1, include_regularization=True
+            )
+            full_item = ProcessedOperator(
+                linear_map=full_map,
+                output_shape=(full_map.shape[0],),
+                input_shape=(full_map.shape[1],),
+            )
+            diag = LeastSquaresProblem._compute_normal_matrix_diag(full_item)
 
             full_inv_diag = xp.tile(1.0 / diag, num_scenarios)
             full_inv_diag = xp.where(xp.isinf(full_inv_diag), 1.0, full_inv_diag)
@@ -255,7 +539,9 @@ class LeastSquaresSolver:
             return LinearMap(shape=shape, dtype=dtype, _matvec=matvec, _rmatvec=matvec)
 
         if p_type == "pinv":
-            vt, s_pinv, s_inv_sq = self._get_pinv_components(problem, self.tolerance)
+            _, vt, s_pinv, s_inv_sq = self._get_pinv_components(
+                problem, self.tolerance, pinv_rcond=pinv_rcond
+            )
 
             def matvec(x_flat):
                 x_block = x_flat.reshape(problem.solution_size, num_scenarios)
@@ -266,14 +552,29 @@ class LeastSquaresSolver:
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for CG solver.")
 
     def _build_lsmr_preconditioner(
-        self, problem: LeastSquaresProblem, p_type: str, num_scenarios: int
+        self,
+        problem: LeastSquaresProblem,
+        p_type: str,
+        num_scenarios: int,
+        pinv_rcond: Optional[float] = None,
+        pinv_mode: str = "symmetric",
     ) -> LinearMap:
         size = problem.solution_size * num_scenarios
         shape = (size, size)
         dtype = problem.A[0].dtype if problem.A else xp.float64
 
         if p_type == "jacobi":
-            diag = LeastSquaresProblem._compute_normal_matrix_diag(problem.data_operator)
+            # Build Jacobi from the full system map (data + explicit regularization rows)
+            # so LSMR preconditioning reflects any regularization present in the problem.
+            full_map = problem.get_system_linear_map(
+                num_scenarios=1, include_regularization=True
+            )
+            full_item = ProcessedOperator(
+                linear_map=full_map,
+                output_shape=(full_map.shape[0],),
+                input_shape=(full_map.shape[1],),
+            )
+            diag = LeastSquaresProblem._compute_normal_matrix_diag(full_item)
             sqrt_inv = xp.sqrt(xp.where(diag != 0, 1.0 / diag, 1.0))
             if xp is not np:
                  # JAX compatible replacement for 'out' behavior (set zeros to 1s before sqrt, then mask?)
@@ -296,22 +597,58 @@ class LeastSquaresSolver:
             return LinearMap(shape=shape, dtype=dtype, _matvec=matvec, _rmatvec=matvec)
 
         if p_type == "pinv":
-            vt, s_pinv, _ = self._get_pinv_components(problem, self.tolerance)
+            u, vt, s_pinv, _ = self._get_pinv_components(
+                problem, self.tolerance, pinv_rcond=pinv_rcond, return_u=True
+            )
+            if pinv_mode not in ("symmetric", "true"):
+                raise ValueError("pinv_mode must be 'symmetric' or 'true'.")
 
-            def matvec(y_flat):
-                y_block = y_flat.reshape(problem.solution_size, num_scenarios)
-                x_block = vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
-                return x_block.flatten()
+            if pinv_mode == "true":
+                # LSMR uses right preconditioning (x = M y), so M must be square
+                # in solution space. The true Moore-Penrose form V S^+ U^T maps
+                # data-space to solution-space and is therefore only valid here
+                # if the stacked system is square (m == n).
+                if u.shape[0] != problem.solution_size * num_scenarios:
+                    raise ValueError(
+                        "pinv_mode='true' is not valid for rectangular LSMR systems "
+                        "(right preconditioner must be square in solution space). "
+                        "Use pinv_mode='symmetric'."
+                    )
 
-            return LinearMap(shape=shape, dtype=vt.dtype, _matvec=matvec, _rmatvec=matvec)
+                def matvec(y_flat):
+                    y_block = y_flat.reshape(problem.solution_size, num_scenarios)
+                    x_block = vt.T.conj() @ (s_pinv[:, None] * (u.T.conj() @ y_block))
+                    return x_block.flatten()
+
+                def rmatvec(y_flat):
+                    y_block = y_flat.reshape(problem.solution_size, num_scenarios)
+                    x_block = u @ (s_pinv[:, None] * (vt @ y_block))
+                    return x_block.flatten()
+            else:
+                def matvec(y_flat):
+                    y_block = y_flat.reshape(problem.solution_size, num_scenarios)
+                    x_block = vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
+                    return x_block.flatten()
+
+                rmatvec = matvec
+
+            return LinearMap(shape=shape, dtype=vt.dtype, _matvec=matvec, _rmatvec=rmatvec)
 
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for LSMR solver.")
 
     def _get_pinv_components(
-        self, problem: LeastSquaresProblem, tol: float
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        _, s, vt = problem.svd
+        self,
+        problem: LeastSquaresProblem,
+        tol: float,
+        *,
+        pinv_rcond: Optional[float] = None,
+        return_u: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        u, s, vt = problem.svd
         s_pinv = xp.zeros_like(s)
-        cutoff = tol * (s[0] if s.size > 0 else 0)
+        cutoff = (pinv_rcond if pinv_rcond is not None else tol) * (s[0] if s.size > 0 else 0)
         s_pinv = xp.where(s > cutoff, 1.0 / s, s_pinv)  # Safe generic assignment
-        return vt, s_pinv, s_pinv**2
+        if not return_u:
+            # Maintain backward compatibility for callers that ignore U
+            u = xp.zeros((0, 0), dtype=vt.dtype)
+        return u, vt, s_pinv, s_pinv**2

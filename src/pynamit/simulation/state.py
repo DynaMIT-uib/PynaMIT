@@ -7,7 +7,10 @@ for simulating ionospheric electrodynamics.
 
 from __future__ import annotations
 import logging
-from typing import Optional, Tuple, Any, List, Dict
+import os
+import time
+import warnings
+from typing import Optional, Tuple, Any, List, Dict, Literal, Callable
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -17,18 +20,40 @@ from functools import cached_property
 from pynamit.primitives.field import Field
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Integrator
 from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Integrator, ScipySolveIVPIntegrator
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.geometry import Geometry
+from pynamit.simulation.coupled_solver import CoupledSteadyStateSolver, CoupledOperatorAPI
 from pynamit.primitives.basis import Basis
 from pynamit.math.constants import mu0
 from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 from pynamit.simulation.toroidal import ToroidalSystemMatrices
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.geometry_utils import to_dense, canonicalize_vector_basis_matrix
 
 logger = logging.getLogger(__name__)
+
+
+def _timed_solve(label: str, solver: LeastSquaresSolver, *args: Any, **kwargs: Any) -> np.ndarray:
+    """Optionally time least-squares solves when PYNAMIT_TIMING_SOLVES is set."""
+    if os.getenv("PYNAMIT_TIMING_SOLVES", "").strip() in ("", "0"):
+        return solver.solve(*args, **kwargs)
+    t0 = time.perf_counter()
+    out = solver.solve(*args, **kwargs)
+    dt = time.perf_counter() - t0
+    solver_name = getattr(solver, "solver", "unknown")
+    print(f"TIMING solve[{label}] ({solver_name}): {dt:.3f}s", flush=True)
+    return out
+
+
+def _available_memory_bytes() -> Optional[int]:
+    """Best-effort estimate of currently available host memory in bytes."""
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        avail_pages = int(os.sysconf("SC_AVPHYS_PAGES"))
+        return page_size * avail_pages
+    except (ValueError, OSError, AttributeError):
+        return None
 
 
 class State:
@@ -71,9 +96,16 @@ class State:
         self.solution_basis = solution_basis if solution_basis is not None else basis
         self._init_settings(settings)
         
-        # New: Toroidal Potential State Variable for "full_induction"
+        # Toroidal magnetic scalar (inductive), analogous to m_imp but time-evolved.
         self.psi: Optional[np.ndarray] = None
         self.d_psi_dt: Optional[np.ndarray] = None
+        # Imposed toroidal magnetic scalar from driver (quasi-static baseline).
+        self.m_imp_imposed: Optional[np.ndarray] = None
+        self._imposed_toroidal_dirty: bool = True
+        self._coupled_null_basis: Optional[np.ndarray] = None
+        self._coupled_null_threshold: Optional[float] = None
+        self._coupled_null_warned: bool = False
+        self._coupled_stability_warned_keys: set[Tuple[Any, ...]] = set()
 
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(
@@ -83,16 +115,41 @@ class State:
         # Initialize Toroidal System Matrices if in full_induction mode
         self.toroidal_matrices: Optional[ToroidalSystemMatrices] = None
         if self.dynamics_mode == "full_induction":
+            closure_basis = self.solution_basis
+            if getattr(self.mode, "value", self.mode) == "cs_dominant":
+                from pynamit.spherical_harmonics.sh_basis import SHBasis
+
+                closure_basis = SHBasis(self.Nmax, self.Mmax)
             self.toroidal_matrices = ToroidalSystemMatrices(
                 basis=self.solution_basis, 
                 grid=self.geometry.grid, 
                 b_field=self.geometry.b_field,
-                RI=self.RI
+                RI=self.RI,
+                closure_derivative_basis=closure_basis,
+                forcing_derivative_basis=closure_basis,
+                radial_derivative_basis=closure_basis,
             )
-
-        # Operator for mapping velocity field `u` to E-field
-        # (independent of conductance)
-        self.u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
+            try:
+                self.toroidal_matrices.configure_dtjr_solver(
+                    solver=self.solver_type,
+                    preconditioner=self.preconditioner,
+                    tolerance=1e-13,
+                )
+            except ValueError:
+                logger.warning(
+                    "Invalid least_squares_solver=%r for toroidal dt_jr; falling back to 'svd'.",
+                    self.solver_type,
+                )
+                self.toroidal_matrices.configure_dtjr_solver(
+                    solver="svd",
+                    preconditioner=self.preconditioner,
+                    tolerance=1e-13,
+                )
+            if getattr(self.mode, "value", self.mode) == "cs_dominant":
+                logger.info(
+                    "Using SH auxiliary closure basis for toroidal operator assembly "
+                    "in cs_dominant/full_induction."
+                )
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -103,14 +160,15 @@ class State:
         self.u: Optional[Field] = None
         self.Br: Optional[Field] = None
         self.jr: Optional[Field] = None
-        # New: Track driver derivative for dynamic mode
-        self.dt_jr_driver: Optional[Field] = None
+        # Full-induction driver-rate representation in toroidal magnetic space.
+        self.dt_m_imp_driver: Optional[Field] = None
         
         self.etaP: Optional[Field] = None
         self.etaH: Optional[Field] = None
 
         # State tracking
         self.previous_input_data = {}
+        self.previous_input_time: Dict[str, float] = {}
 
         # Invalidate all caches
         self._invalidate_caches()
@@ -124,6 +182,9 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
+        self.Nmax = int(getattr(settings, "Nmax", 0))
+        self.Mmax = int(getattr(settings, "Mmax", 0))
+        self.Ncs = int(getattr(settings, "Ncs", 0))
         self.solver_type = getattr(settings, "least_squares_solver", "cg")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.static_preconditioner = getattr(settings, "static_preconditioner", False)
@@ -132,23 +193,69 @@ class State:
         self.RI = settings.RI
         self.RM = None if settings.RM == 0 else settings.RM
         self.ih_constraint_scaling = settings.ih_constraint_scaling
-        self.induction_constraint_scaling = getattr(settings, "induction_constraint_scaling", 1.0)
+        self.apply_psi_gauge = bool(getattr(settings, "apply_psi_gauge", True))
+        self.induction_null_diagnostics = False
+        self.induction_null_svd_rtol = 1e-8
+        self.induction_null_warn_ratio = 0.5
+        self.apply_m_ind_gauge = bool(getattr(settings, "apply_m_ind_gauge", True))
+        self.magnetospheric_toroidal_lock = bool(
+            getattr(settings, "magnetospheric_toroidal_lock", False)
+        )
+        self.toroidal_regularization_lambda = getattr(settings, "toroidal_regularization_lambda", 0.0)
+        self.dense_full_operators = bool(getattr(settings, "dense_full_operators", False))
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.dynamics_mode = getattr(settings, "dynamics_mode", "legacy")
-        print(f"DEBUG: State initialized with dynamics_mode={self.dynamics_mode}")
-        
+        self.toroidal_weighting = getattr(settings, "toroidal_weighting", "none")
+        self.poloidal_weighting = getattr(settings, "poloidal_weighting", "none")
+
         # Mode Handling
-        from pynamit.simulation.dynamics import SimulationMode
-        # If settings has no simulation_mode, fallback to backward compat check
+        from pynamit.simulation.settings import SimulationMode
         if hasattr(settings, "simulation_mode"):
             self.mode = settings.simulation_mode
         else:
-             # Legacy Fallback
-             pure = getattr(settings, "pure_spectral", False)
-             self.mode = SimulationMode.PURE_SPECTRAL if pure else SimulationMode.SPECTRAL_TRANSFORM
-             
+            # Legacy Fallback
+            pure = getattr(settings, "pure_spectral", False)
+            self.mode = SimulationMode.PURE_SPECTRAL if pure else SimulationMode.SPECTRAL_TRANSFORM
+
         # Map mode to legacy flags for internal checks (if any remain)
         self.pure_spectral = (self.mode == SimulationMode.PURE_SPECTRAL)
+
+        # Default to regularization for CS_DOMINANT to handle equatorial singularity in electrostatic problem
+        if self.mode == SimulationMode.CS_DOMINANT:
+            if self.m_imp_regularization_lambda == 0.0:
+                self.m_imp_regularization_lambda = 1e-4
+
+        # Robust defaults for induction feedback loop stability
+        # Equatorial singularity (Br=0) makes the toroidal problem ill-conditioned.
+        # Quadratic weighting by Br and Tikhonov regularization are essential for stability.
+        if self.dynamics_mode == "full_induction":
+            if self.toroidal_weighting == "none":
+                self.toroidal_weighting = "quadratic"
+            if self.toroidal_regularization_lambda == 0.0:
+                # Backward-compatible fallback for old serialized settings that
+                # still carry lambda=0. Keep this light but stability-safe.
+                self.toroidal_regularization_lambda = 1e-10
+            if self.poloidal_weighting == "none":
+                self.poloidal_weighting = "quadratic"
+
+        # CS-dominant full-induction is sensitive when SH truncation approaches
+        # the CS native Nyquist range; warn early to keep operational bandwidth safe.
+        if (
+            self.dynamics_mode == "full_induction"
+            and self.mode == SimulationMode.CS_DOMINANT
+            and self.Ncs > 0
+        ):
+            spectral_ratio = max(self.Nmax, self.Mmax) / float(self.Ncs)
+            if spectral_ratio > 0.7:
+                logger.warning(
+                    "CS dominant full_induction is operating near Nyquist: "
+                    "max(Nmax,Mmax)/Ncs=%.2f (Nmax=%d, Mmax=%d, Ncs=%d). "
+                    "For robust toroidal radial forcing, prefer <= 0.6.",
+                    spectral_ratio,
+                    self.Nmax,
+                    self.Mmax,
+                    self.Ncs,
+                )
 
         if self.integrator == "exponential":
              self.poloidal_integrator = ExponentialIntegrator()
@@ -157,13 +264,6 @@ class State:
         else:
              # Assume it's a scipy method (DOP853, RK45, etc.)
              self.poloidal_integrator = ScipySolveIVPIntegrator(method=self.integrator)
-
-        # Toroidal currently only supports Euler or matches poloidal if capable
-        if self.integrator == "euler" or self.integrator == "exponential": # Exponential not yet implemented for Toroidal
-             self.toroidal_integrator = EulerIntegrator()
-        else:
-             # Fallback to Euler for safety or implement others
-             self.toroidal_integrator = EulerIntegrator()
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients.
@@ -175,38 +275,32 @@ class State:
         bu has shape (2, 2, Spatial...).
         """
         bu = asarray(self.geometry.bu)
-        G_raw = asarray(self.geometry.basis.get_vector_basis_matrix(self.geometry.grid))
+        G_raw = canonicalize_vector_basis_matrix(
+            self.geometry.basis.get_vector_basis_matrix(self.geometry.grid),
+            basis_index_length=self.geometry.basis.index_length,
+        )
         
         # 1. Normalize shapes
         
-        # bu: (2, 2, Spatial...) -> (2, 2, N_grid)
-        if bu.ndim == 4: # (2, 2, Lat, Lon)
-            bu_flat = bu.reshape(2, 2, -1)
-        elif bu.ndim == 3: # (2, 2, Grid)
-            bu_flat = bu
-        else:
-            raise ValueError(f"Unexpected bu shape: {bu.shape}")
+        # bu is expected as flattened grid tensor: (2, 2, N_grid)
+        if bu.ndim != 3:
+            raise ValueError(
+                f"Unexpected bu shape {bu.shape}; expected canonical flattened (2, 2, N_grid)."
+            )
+        bu_flat = bu
             
         n_grid = bu_flat.shape[2]
         
-        # G: (Component, Spatial..., Coeffs)
-        # We need (Component, N_grid, Coeffs).
-        # And Component dimension must match bu (2).
-        if G_raw.ndim == 4: # SH: (Comp, Lat, Lon, Coeffs)
-            G_flat = G_raw.reshape(G_raw.shape[0], n_grid, -1)
-        elif G_raw.ndim == 3: # CS: (Comp, Grid, Coeffs)
-            G_flat = G_raw
-        else:
-             raise ValueError(f"Unexpected G shape: {G_raw.shape}")
+        # G_raw: (Component, N_grid, PotentialType, Coeffs)
+        # Flatten potential/coefficient axes for linear algebra below.
+        G_flat = G_raw.reshape(G_raw.shape[0], G_raw.shape[1], -1)
+        if G_flat.shape[1] != n_grid:
+            raise ValueError(
+                f"Grid size mismatch between bu ({n_grid}) and vector basis ({G_flat.shape[1]})."
+            )
              
-        # Handle Component Dimension Mismatch (3 vs 2)
-        # Geometry.bu is 2x2 (assumes horizontal u).
-        # If G has 3 components (r, th, ph), slice to (th, ph).
-        if G_flat.shape[0] == 3 and bu_flat.shape[1] == 2:
-             # Assume components are (r, th, ph). Take (th, ph).
-             G_flat = G_flat[1:, :, :]
-        elif G_flat.shape[0] != bu_flat.shape[1]:
-             raise ValueError(f"Component mismatch: bu {bu_flat.shape[1]}, G {G_flat.shape[0]}")
+        if G_flat.shape[0] != bu_flat.shape[1]:
+            raise ValueError(f"Component mismatch: bu {bu_flat.shape[1]}, G {G_flat.shape[0]}")
              
         # 2. Compute Matrix Product: M = bu @ G
         # bu: (i, j, p). G: (j, p, c). Result: (i, p, c).
@@ -230,19 +324,46 @@ class State:
             
         return res_flat.reshape(2, -1, n_coeffs)
 
+    @cached_property
+    def u_coeffs_to_E_coeffs(self) -> np.ndarray:
+        """Operator mapping wind coefficients to E coefficients.
+
+        Built lazily because many runs (including toroidal benchmarks) have no
+        wind forcing and do not require this expensive projection.
+        """
+        return self._create_u_to_E_operator()
+
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
-        for attr in [
+        # m_imp_problem depends on conductance only if we include the E-field
+        # interhemispheric constraint (legacy path). In full_induction or when
+        # IH coupling is disabled, it is conductance-independent.
+        invalidate_m_imp = (
+            self.connect_hemispheres
+            and self.dynamics_mode != "full_induction"
+            and self.geometry.E_coeffs_to_E_apex_ll_diff is not None
+        )
+
+        invalidate_attrs = [
             "M_total_on_grid",
             "m_ind_to_E_coeffs",
             "m_imp_to_E_coeffs",
+            "toroidal_to_E_coeffs",
             "Br_to_E_coeffs",
             "E_map_constraint_operator",
             "m_ind_to_E_df_matrix",
-            "m_imp_problem",
-            "m_imp_preconditioner",
+            "E_coeffs_to_E_df_matrix",
             "coupled_induction_tensor",
-        ]:
+            "coupled_induction_operator_sparse",
+            "coupled_induction_matrix_dense",
+            "coupled_induction_blocks_dense",
+            "coupled_preconditioner",
+        ]
+
+        if invalidate_m_imp:
+            invalidate_attrs.extend(["m_imp_problem", "m_imp_preconditioner"])
+
+        for attr in invalidate_attrs:
             try:
                 delattr(self, attr)
             except AttributeError:
@@ -250,6 +371,10 @@ class State:
         self._operator_linear_map_cache: Dict[
             Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
         ] = {}
+        self._coupled_null_basis = None
+        self._coupled_null_threshold = None
+        self._coupled_null_warned = False
+        self._coupled_stability_warned_keys.clear()
 
     @cached_property
     def dt_jr_problem(self) -> LeastSquaresProblem:
@@ -261,32 +386,13 @@ class State:
         logger.info("Defining new least-squares problem for dt_jr.")
         if self.toroidal_matrices is None:
             raise RuntimeError("Toroidal matrices required for dt_jr problem.")
-
-        effective_scaling = self._compute_balanced_constraint_scaling()
         
         return self.toroidal_matrices.build_least_squares_problem(
-            jr_map_operator=self.geometry.jr_map_sim,
-            constraint_scaling=effective_scaling,
-            regularization_lambda=0.0,
+            jr_map_operator=self.induction_constraint_operator_hard,
+            constraint_scaling=0.0,
+            regularization_lambda=self.toroidal_regularization_lambda,
+            weighting=self.toroidal_weighting,
         )
-
-    def _compute_balanced_constraint_scaling(self) -> float:
-        """Compute balanced constraint scaling based on matrix norms.
-        
-        L_sys has tiny eigenvalues (~1e-10 due to mu0) while jr_map has O(1).
-        We balance them: constraint_weight ~ L_sys_norm / jr_map_norm.
-        """
-        L_sys_norm = np.linalg.norm(self.toroidal_matrices.system_matrix)
-        
-        if hasattr(self.geometry.jr_map_sim, "tocsr"):
-            from scipy.sparse.linalg import norm as sparse_norm
-            jr_map_norm = sparse_norm(self.geometry.jr_map_sim)
-        else:
-            jr_map_norm = np.linalg.norm(self.geometry.jr_map_sim)
-            
-        balanced_scaling = L_sys_norm / jr_map_norm
-        # Apply user scaling on top of balanced scaling
-        return self.induction_constraint_scaling * balanced_scaling
 
 
 
@@ -302,6 +408,857 @@ class State:
             cached = as_linear_map(op, input_shape=input_shape, output_shape=output_shape)
             self._operator_linear_map_cache[cache_key] = cached
         return cached
+
+    def _extract_ll_constraint_rows(self) -> Any:
+        """Extract low-latitude (LL) rows from the jr-map operator."""
+        op = self.geometry.jr_map_sim
+        if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
+            return op
+
+        ll_mask = getattr(self.geometry, "ll_mask", None)
+        if ll_mask is None:
+            raise RuntimeError(
+                "LL mask is required for full_induction with connect_hemispheres=True."
+            )
+        row_mask = np.asarray(ll_mask, dtype=bool).reshape(-1)
+
+        op_lm = as_linear_map(op)
+        if row_mask.size != op_lm.shape[0]:
+            raise RuntimeError(
+                "LL mask size mismatch: "
+                f"mask={int(row_mask.size)} rows={int(op_lm.shape[0])}."
+            )
+        if not np.any(row_mask):
+            raise RuntimeError(
+                "LL mask contains no active rows for full_induction constraints."
+            )
+
+        if hasattr(op, "tocsr"):
+            return op.tocsr()[row_mask]
+        return np.ascontiguousarray(to_dense(op_lm)[row_mask, :])
+
+    def _orthonormalize_columns(self, A: np.ndarray, rtol: float) -> np.ndarray:
+        """Return an orthonormal basis for the column space of A."""
+        A = np.asarray(A, dtype=float)
+        if A.ndim != 2 or A.size == 0:
+            n_rows = A.shape[0] if A.ndim == 2 else 0
+            return np.zeros((n_rows, 0), dtype=float)
+        u, s, _ = np.linalg.svd(A, full_matrices=False)
+        if s.size == 0 or s[0] <= 0:
+            return np.zeros((A.shape[0], 0), dtype=float)
+        thresh = max(float(rtol), 0.0) * float(s[0])
+        keep = s > thresh
+        if not np.any(keep):
+            return np.zeros((A.shape[0], 0), dtype=float)
+        return np.ascontiguousarray(u[:, keep])
+
+    def _m_orthonormalize_columns(
+        self,
+        A: np.ndarray,
+        metric: np.ndarray,
+        rtol: float,
+    ) -> np.ndarray:
+        """Return an ``M``-orthonormal basis spanning ``col(A)``.
+
+        The concentration eigenmodes are naturally orthogonal in the magnetic
+        energy metric ``M``. We preserve that inner product so split amplitudes
+        are represented consistently as ``q^T M x``.
+        """
+        A = np.asarray(A, dtype=float)
+        if A.ndim != 2 or A.size == 0:
+            n_rows = A.shape[0] if A.ndim == 2 else 0
+            return np.zeros((n_rows, 0), dtype=float)
+
+        M = np.asarray(metric, dtype=float)
+        if M.ndim != 2 or M.shape[0] != M.shape[1] or M.shape[0] != A.shape[0]:
+            return self._orthonormalize_columns(A, rtol=rtol)
+
+        G = 0.5 * ((A.T @ M @ A) + (A.T @ M @ A).T)
+        try:
+            evals, evecs = np.linalg.eigh(G)
+        except np.linalg.LinAlgError:
+            return self._orthonormalize_columns(A, rtol=rtol)
+
+        if evals.size == 0:
+            return np.zeros((A.shape[0], 0), dtype=float)
+
+        order = np.argsort(evals)[::-1]
+        evals = np.asarray(evals[order], dtype=float)
+        evecs = np.asarray(evecs[:, order], dtype=float)
+        max_eval = float(np.max(evals))
+        if not np.isfinite(max_eval) or max_eval <= 0:
+            return np.zeros((A.shape[0], 0), dtype=float)
+
+        thresh = max(float(rtol), 0.0) * max_eval
+        keep = evals > thresh
+        if not np.any(keep):
+            return np.zeros((A.shape[0], 0), dtype=float)
+
+        scale = np.sqrt(np.maximum(evals[keep], 0.0))
+        Q = A @ (evecs[:, keep] / scale.reshape(1, -1))
+        return np.ascontiguousarray(Q)
+
+    @staticmethod
+    def _normalize_constraint_rows(C: np.ndarray) -> np.ndarray:
+        """Row-normalize constraint matrix and drop zero rows."""
+        C = np.asarray(C, dtype=float)
+        if C.ndim != 2 or C.shape[0] == 0:
+            return np.zeros((0, C.shape[1] if C.ndim == 2 else 0), dtype=float)
+        row_norm = np.linalg.norm(C, axis=1)
+        keep = row_norm > 0
+        if not np.any(keep):
+            return np.zeros((0, C.shape[1]), dtype=float)
+        C_use = C[keep] / row_norm[keep].reshape(-1, 1)
+        return np.ascontiguousarray(C_use)
+
+    def _basis_has_mean_free_scalar_space(self) -> bool:
+        """Return whether solution-basis scalar coefficients are mean-free by construction."""
+        if not hasattr(self.solution_basis, "scalar_fields_are_mean_free_by_construction"):
+            return False
+        try:
+            return bool(self.solution_basis.scalar_fields_are_mean_free_by_construction())
+        except Exception:
+            return False
+
+    def _get_psi_gauge_row(self, n_coeff: int) -> np.ndarray:
+        """Return scalar gauge row for psi coefficients.
+
+        Policy:
+        - Use basis-provided mean-zero gauge when available.
+        - If basis declares scalar mean-free coefficient space by construction,
+          no scalar gauge row is added.
+        - Fall back to first-coefficient pinning for bases without a
+          dedicated scalar gauge interface.
+        """
+        if self._basis_has_mean_free_scalar_space():
+            return np.zeros((0, n_coeff), dtype=float)
+        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
+            try:
+                row = np.asarray(
+                    self.solution_basis.get_scalar_gauge_constraint_matrix(
+                        n_coeff=n_coeff,
+                        mode="mean_zero",
+                    )
+                )
+                if row.ndim == 1:
+                    row = row.reshape(1, -1)
+                if row.ndim == 2 and row.shape[1] == n_coeff and row.shape[0] > 0:
+                    return row.astype(float, copy=False)
+            except Exception:
+                pass
+        row = np.zeros((1, n_coeff), dtype=float)
+        row[0, 0] = 1.0
+        return row
+
+    def _get_m_ind_gauge_row(self, n_coeff: int) -> np.ndarray:
+        """Return scalar gauge row for m_ind coefficients."""
+        if self._basis_has_mean_free_scalar_space():
+            return np.zeros((0, n_coeff), dtype=float)
+        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
+            try:
+                row = np.asarray(
+                    self.solution_basis.get_scalar_gauge_constraint_matrix(
+                        n_coeff=n_coeff,
+                        mode="mean_zero",
+                    )
+                )
+                if row.ndim == 1:
+                    row = row.reshape(1, -1)
+                if row.ndim == 2 and row.shape[1] == n_coeff and row.shape[0] > 0:
+                    return row.astype(float, copy=False)
+            except Exception:
+                pass
+        row = np.zeros((1, n_coeff), dtype=float)
+        row[0, 0] = 1.0
+        return row
+
+    def _get_m_imp_gauge_row(self, n_coeff: int) -> np.ndarray:
+        """Return scalar gauge row for m_imp coefficients."""
+        if self._basis_has_mean_free_scalar_space():
+            return np.zeros((0, n_coeff), dtype=float)
+        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
+            try:
+                row = np.asarray(
+                    self.solution_basis.get_scalar_gauge_constraint_matrix(
+                        n_coeff=n_coeff,
+                        mode="mean_zero",
+                    )
+                )
+                if row.ndim == 1:
+                    row = row.reshape(1, -1)
+                if row.ndim == 2 and row.shape[1] == n_coeff and row.shape[0] > 0:
+                    return row.astype(float, copy=False)
+            except Exception:
+                pass
+        row = np.zeros((1, n_coeff), dtype=float)
+        row[0, 0] = 1.0
+        return row
+
+    @cached_property
+    def m_ind_gauge_projector(self) -> np.ndarray:
+        """Dense scalar gauge projector for legacy m_ind evolution.
+
+        Applied only for CS-like solution bases to avoid changing SH pathways.
+        """
+        n = self.solution_basis.index_length
+        kind = getattr(self.solution_basis, "kind", "")
+        if not self.apply_m_ind_gauge or kind not in ("CS", "GRID"):
+            return np.eye(n, dtype=float)
+
+        row = np.asarray(self._get_m_ind_gauge_row(n), dtype=float)
+        if row.ndim == 1:
+            row = row.reshape(1, -1)
+        if row.ndim != 2 or row.shape[1] != n or row.shape[0] == 0:
+            return np.eye(n, dtype=float)
+
+        C = row
+        CCt = C @ C.T
+        if CCt.size == 0:
+            return np.eye(n, dtype=float)
+        rcond = max(float(np.finfo(float).eps * max(CCt.shape)), 1e-15)
+        CCt_pinv = np.linalg.pinv(CCt, rcond=rcond)
+        P = np.eye(n, dtype=float) - C.T @ CCt_pinv @ C
+        return np.asarray(0.5 * (P + P.T), dtype=float)
+
+    @cached_property
+    def m_imp_gauge_projector(self) -> np.ndarray:
+        """Dense scalar gauge projector for imposed toroidal scalar m_imp."""
+        n = self.solution_basis.index_length
+        kind = getattr(self.solution_basis, "kind", "")
+        if kind not in ("CS", "GRID"):
+            return np.eye(n, dtype=float)
+
+        row = np.asarray(self._get_m_imp_gauge_row(n), dtype=float)
+        if row.ndim == 1:
+            row = row.reshape(1, -1)
+        if row.ndim != 2 or row.shape[1] != n or row.shape[0] == 0:
+            return np.eye(n, dtype=float)
+
+        C = row
+        CCt = C @ C.T
+        if CCt.size == 0:
+            return np.eye(n, dtype=float)
+        rcond = max(float(np.finfo(float).eps * max(CCt.shape)), 1e-15)
+        CCt_pinv = np.linalg.pinv(CCt, rcond=rcond)
+        P = np.eye(n, dtype=float) - C.T @ CCt_pinv @ C
+        return np.asarray(0.5 * (P + P.T), dtype=float)
+
+    def _apply_m_ind_gauge_projection(self, coeffs: np.ndarray) -> np.ndarray:
+        """Project scalar coefficients onto configured m_ind gauge subspace."""
+        arr = np.asarray(asarray(coeffs)).reshape(-1)
+        P = np.asarray(self.m_ind_gauge_projector)
+        if P.shape != (arr.size, arr.size):
+            return asarray(arr)
+        return asarray(P @ arr)
+
+    def _apply_m_imp_gauge_projection(self, coeffs: np.ndarray) -> np.ndarray:
+        """Project scalar coefficients onto configured m_imp gauge subspace."""
+        arr = np.asarray(asarray(coeffs)).reshape(-1)
+        P = np.asarray(self.m_imp_gauge_projector)
+        if P.shape != (arr.size, arr.size):
+            return asarray(arr)
+        return asarray(P @ arr)
+
+    def _compress_constraint_rows(self, C: np.ndarray, rtol: float) -> np.ndarray:
+        """Compress row-space of C into a compact full-row-rank basis."""
+        C = np.asarray(C, dtype=float)
+        if C.ndim != 2 or C.size == 0:
+            n_cols = C.shape[1] if C.ndim == 2 else 0
+            return np.zeros((0, n_cols), dtype=float)
+        row_norm = np.linalg.norm(C, axis=1)
+        keep_rows = row_norm > 0
+        if not np.any(keep_rows):
+            return np.zeros((0, C.shape[1]), dtype=float)
+        C_use = C[keep_rows]
+        _, s, vh = np.linalg.svd(C_use, full_matrices=False)
+        if s.size == 0 or s[0] <= 0:
+            return np.zeros((0, C.shape[1]), dtype=float)
+        if rtol <= 0:
+            rtol = self._resolve_constraint_rank_rtol(
+                spectrum=s,
+                label="LL row compression",
+            )
+        thresh = max(float(rtol), 0.0) * float(s[0])
+        keep = s > thresh
+        if not np.any(keep):
+            return np.zeros((0, C.shape[1]), dtype=float)
+        return np.ascontiguousarray(vh[keep, :])
+
+    @staticmethod
+    def _auto_relative_cutoff_from_spectrum(
+        spectrum: np.ndarray,
+        *,
+        default_rtol: float = 1e-8,
+        min_rel: float = 1e-12,
+        max_rel: float = 1e-2,
+        gap_min_decades: float = 1.0,
+    ) -> float:
+        """Pick a relative rank cutoff from the largest spectral gap.
+
+        Uses ``default_rtol`` when no clear gap exists.
+        """
+        vals = np.asarray(spectrum, dtype=float).reshape(-1)
+        if vals.size == 0:
+            return float(np.clip(default_rtol, min_rel, max_rel))
+
+        vals = vals[np.isfinite(vals)]
+        if vals.size == 0:
+            return float(np.clip(default_rtol, min_rel, max_rel))
+        vals = np.sort(vals)[::-1]
+
+        s_max = float(vals[0])
+        if s_max <= 0:
+            return float(np.clip(default_rtol, min_rel, max_rel))
+
+        rel = vals / s_max
+        rel = rel[np.isfinite(rel) & (rel > min_rel)]
+        if rel.size < 2:
+            return float(np.clip(default_rtol, min_rel, max_rel))
+
+        log_rel = np.log10(rel)
+        gaps = log_rel[:-1] - log_rel[1:]
+        if gaps.size == 0:
+            return float(np.clip(default_rtol, min_rel, max_rel))
+
+        idx = int(np.argmax(gaps))
+        if gaps[idx] < gap_min_decades:
+            return float(np.clip(default_rtol, min_rel, max_rel))
+
+        rtol = float(rel[idx + 1])
+        return float(np.clip(rtol, min_rel, max_rel))
+
+    def _resolve_constraint_rank_rtol(self, spectrum: np.ndarray, label: str) -> float:
+        """Resolve rank cutoff for HL/LL constraint decomposition."""
+        auto = self._auto_relative_cutoff_from_spectrum(spectrum)
+        logger.info("Auto %s rank rtol from spectral gap: %.3e", label, auto)
+        return auto
+
+    def _build_energy_metric_pair(
+        self,
+        ll_mask: np.ndarray,
+        weights: np.ndarray,
+        n_coeffs: int,
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """Build global and HL magnetic-energy metrics in coefficient space.
+
+        Uses derivative operators so concentration is based on magnetic-field
+        energy rather than coefficient amplitude.
+        """
+        # Use the toroidal surface operator directly to avoid any ambiguity in
+        # sign convention. For quadratic energy, ± toroidal conventions are
+        # equivalent, but this keeps the implementation explicit.
+        try:
+            curl = np.asarray(self.solution_basis.get_curl_matrix(self.geometry.grid), dtype=float)
+        except Exception:
+            logger.warning("Energy-metric split: curl operator unavailable.", exc_info=True)
+            return None, None
+
+        if curl.ndim != 3 or curl.shape[0] != 2:
+            logger.warning(
+                "Energy-metric split skipped: unexpected curl shape %s (expected (2, N_grid, N_coeffs)).",
+                tuple(curl.shape),
+            )
+            return None, None
+        G_th = curl[0]
+        G_ph = curl[1]
+
+        if (
+            G_th.ndim != 2
+            or G_ph.ndim != 2
+            or G_th.shape != G_ph.shape
+            or G_th.shape[0] != ll_mask.size
+            or G_th.shape[1] != n_coeffs
+        ):
+            logger.warning(
+                "Energy-metric split skipped: derivative shapes incompatible (G_th=%s, G_ph=%s, expected=(%d,%d)).",
+                tuple(G_th.shape),
+                tuple(G_ph.shape),
+                int(ll_mask.size),
+                int(n_coeffs),
+            )
+            return None, None
+
+        hl_mask = ~ll_mask
+        sqrt_w = np.sqrt(weights)
+        sqrt_w_hl = np.sqrt(weights * hl_mask.astype(float))
+
+        Gth_w = sqrt_w.reshape(-1, 1) * G_th
+        Gph_w = sqrt_w.reshape(-1, 1) * G_ph
+        M = (Gth_w.T @ Gth_w) + (Gph_w.T @ Gph_w)
+
+        Gth_w_hl = sqrt_w_hl.reshape(-1, 1) * G_th
+        Gph_w_hl = sqrt_w_hl.reshape(-1, 1) * G_ph
+        M_hl = (Gth_w_hl.T @ Gth_w_hl) + (Gph_w_hl.T @ Gph_w_hl)
+
+        M = 0.5 * (M + M.T)
+        M_hl = 0.5 * (M_hl + M_hl.T)
+        return M, M_hl
+
+    def _build_apex_metric_pair(
+        self,
+        ll_mask: np.ndarray,
+        weights: np.ndarray,
+        n_coeffs: int,
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """Build global and HL Gram metrics in apex sample space.
+
+        The split is built from the non-mismatch apex map ``A_apex``:
+            B = A_apex^T W A_apex
+            B_hl = A_apex^T W_hl A_apex
+        so concentration is defined directly in apex-coordinate sample space.
+        """
+        apex_op = getattr(self.geometry, "jr_map_apex_sim", None)
+        if apex_op is None:
+            apex_op = self.geometry.jr_map_sim
+
+        A_apex = np.asarray(to_dense(as_linear_map(apex_op)), dtype=float)
+        if A_apex.ndim != 2:
+            logger.warning(
+                "Apex-metric split skipped: unexpected apex map shape %s.",
+                tuple(A_apex.shape),
+            )
+            return None, None
+        if A_apex.shape[0] != ll_mask.size or A_apex.shape[1] != n_coeffs:
+            logger.warning(
+                "Apex-metric split skipped: apex map shape %s incompatible with "
+                "mask size %d and n_coeffs %d.",
+                tuple(A_apex.shape),
+                int(ll_mask.size),
+                int(n_coeffs),
+            )
+            return None, None
+
+        hl_mask = ~ll_mask
+        sqrt_w = np.sqrt(weights).reshape(-1, 1)
+        sqrt_w_hl = np.sqrt(weights * hl_mask.astype(float)).reshape(-1, 1)
+
+        A_w = sqrt_w * A_apex
+        A_w_hl = sqrt_w_hl * A_apex
+        B = A_w.T @ A_w
+        B_hl = A_w_hl.T @ A_w_hl
+        B = 0.5 * (B + B.T)
+        B_hl = 0.5 * (B_hl + B_hl.T)
+        return B, B_hl
+
+    def _build_hl_ll_subspaces(self, n_coeffs: int, ll_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Build compact HL/LL dominant subspaces in coefficient space.
+
+        Uses apex-space concentration so CS-dominant and transform/SH pathways
+        share the same split semantics for driver and LL mismatch constraints.
+        """
+        ll_mask = np.asarray(ll_mask, dtype=bool).reshape(-1)
+        hl_mask = ~ll_mask
+        if not np.any(ll_mask) or not np.any(hl_mask):
+            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
+
+        weights = np.asarray(self.geometry.grid.weights).reshape(-1)
+        if weights.size != ll_mask.size:
+            weights = np.ones(ll_mask.size, dtype=float)
+        weights = np.maximum(weights, 0.0)
+        wsum = float(np.sum(weights))
+        if not np.isfinite(wsum) or wsum <= 0:
+            weights = np.ones_like(weights) / max(weights.size, 1)
+        else:
+            weights = weights / wsum
+
+        # All modes: use apex-space concentration based on the non-mismatch map.
+        M, M_hl = self._build_apex_metric_pair(ll_mask=ll_mask, weights=weights, n_coeffs=n_coeffs)
+        if M is None or M_hl is None:
+            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
+
+        U, svals, _ = np.linalg.svd(M, full_matrices=False)
+        if svals.size == 0 or svals[0] <= 0:
+            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
+        rtol = self._resolve_constraint_rank_rtol(
+            spectrum=svals,
+            label="HL/LL split",
+        )
+        keep_s = svals > (rtol * float(svals[0]))
+        if not np.any(keep_s):
+            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
+        U_r = U[:, keep_s]
+        s_r = svals[keep_s]
+        S_inv_half = U_r / np.sqrt(s_r).reshape(1, -1)
+
+        B = S_inv_half.T @ M_hl @ S_inv_half
+        B = 0.5 * (B + B.T)
+        evals, evecs = np.linalg.eigh(B)
+        order = np.argsort(evals)[::-1]
+        lambda_desc = np.clip(np.asarray(evals[order], dtype=float), 0.0, 1.0)
+        V_desc = S_inv_half @ evecs[:, order]
+
+        # Shannon-anchored two-sided gap split:
+        # - K ~ expected HL information dimension (Shannon number)
+        # - find strongest HL-side gap on [0, K-1]
+        # - find strongest LL-side gap on [K, N-2]
+        # - define HL/LL from index ranges so a middle band is guaranteed.
+        n_modes = int(lambda_desc.size)
+        if n_modes < 3:
+            # Degenerate spectra cannot support an explicit middle band.
+            # Keep a minimal split for robustness.
+            hl_idx_raw = np.array([0], dtype=int) if n_modes > 0 else np.zeros(0, dtype=int)
+            ll_idx_raw = (
+                np.array([n_modes - 1], dtype=int)
+                if n_modes > 1
+                else np.zeros(0, dtype=int)
+            )
+            shannon_hl = int(np.rint(float(np.sum(lambda_desc)))) if n_modes > 0 else 0
+            K = int(np.clip(shannon_hl, 0, max(n_modes - 1, 0)))
+            hl_cut = float(lambda_desc[0]) if n_modes > 0 else 0.0
+            ll_cut = float(lambda_desc[-1]) if n_modes > 0 else 0.0
+        else:
+            shannon_hl = int(np.rint(float(np.sum(lambda_desc))))
+            K = int(np.clip(shannon_hl, 1, n_modes - 2))
+            gaps = lambda_desc[:-1] - lambda_desc[1:]
+
+            idx_h = int(np.argmax(gaps[:K]))  # in [0, K-1]
+            idx_l = int(K + np.argmax(gaps[K:]))  # in [K, N-2]
+
+            # Safety guard for pathological numerical ties; preserve non-empty middle.
+            if idx_h >= idx_l:
+                idx_h = max(0, K - 1)
+                idx_l = min(n_modes - 2, K)
+
+            hl_idx_raw = np.arange(0, idx_h + 1, dtype=int)
+            ll_idx_raw = np.arange(idx_l + 1, n_modes, dtype=int)
+
+            hl_cut = float(0.5 * (lambda_desc[idx_h] + lambda_desc[idx_h + 1]))
+            ll_cut = float(0.5 * (lambda_desc[idx_l] + lambda_desc[idx_l + 1]))
+
+        hl_sel = np.zeros_like(lambda_desc, dtype=bool)
+        ll_sel = np.zeros_like(lambda_desc, dtype=bool)
+        hl_sel[hl_idx_raw] = True
+        ll_sel[ll_idx_raw] = True
+
+        Q_hl = (
+            self._m_orthonormalize_columns(V_desc[:, hl_sel], metric=M, rtol=rtol)
+            if np.any(hl_sel)
+            else np.zeros((n_coeffs, 0), dtype=float)
+        )
+        Q_ll = (
+            self._m_orthonormalize_columns(V_desc[:, ll_sel], metric=M, rtol=rtol)
+            if np.any(ll_sel)
+            else np.zeros((n_coeffs, 0), dtype=float)
+        )
+
+        n_modes = int(V_desc.shape[1])
+        n_hl = int(Q_hl.shape[1])
+        n_ll = int(Q_ll.shape[1])
+        hl_conc = float(np.mean(lambda_desc[hl_sel])) if np.any(hl_sel) else 0.0
+        ll_conc = float(np.mean(1.0 - lambda_desc[ll_sel])) if np.any(ll_sel) else 0.0
+        logger.info(
+            "Energy split (shannon-two-gap): n=%d, K=%d, hl=%d, ll=%d, mid=%d, hl_raw=%d, ll_raw=%d, hl_cut=%.3f, ll_cut=%.3f, mean_hl=%.3f, mean_ll=%.3f",
+            n_modes,
+            int(K),
+            n_hl,
+            n_ll,
+            int(max(n_modes - n_hl - n_ll, 0)),
+            int(hl_idx_raw.size),
+            int(ll_idx_raw.size),
+            float(hl_cut),
+            float(ll_cut),
+            hl_conc,
+            ll_conc,
+        )
+        return Q_hl, Q_ll
+
+    def _get_ll_constraint_row_weights(self, n_rows: int, dtype: Any) -> np.ndarray:
+        """Area weights aligned with LL constraint rows."""
+        ll_mask = getattr(self.geometry, "ll_mask", None)
+        weights_all = np.asarray(self.geometry.grid.weights).reshape(-1)
+
+        if ll_mask is None:
+            raise RuntimeError("LL mask is required for LL hard-constraint row weights.")
+        ll_idx = np.asarray(ll_mask, dtype=bool).reshape(-1)
+        if weights_all.size != ll_idx.size:
+            raise RuntimeError(
+                "LL mask/grid weight size mismatch while building LL hard-constraint row weights."
+            )
+        w = weights_all[ll_idx].astype(dtype, copy=False)
+        if w.size != n_rows:
+            raise RuntimeError(
+                "LL row-weight size mismatch while building LL hard-constraint rows: "
+                f"expected {int(n_rows)}, got {int(w.size)}."
+            )
+
+        w = np.maximum(w, 0.0)
+        w_sum = float(np.sum(w))
+        if not np.isfinite(w_sum) or w_sum <= 0:
+            raise RuntimeError(
+                "Non-positive LL row-weight sum while building LL hard-constraint rows."
+            )
+        return w / w_sum
+
+    @cached_property
+    def induction_constraint_bundle_hard(self) -> Optional[Dict[str, np.ndarray]]:
+        """Build compact hard-constraint blocks for LL symmetry and optional HL lock.
+
+        In full-induction mode we enforce hard LL conjugacy constraints on the
+        total dt_jr. Optional HL residual locking can be enabled via
+        ``magnetospheric_toroidal_lock``.
+        """
+        if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
+            return None
+
+        ll_op = self._extract_ll_constraint_rows()
+        C_ll_raw = np.asarray(to_dense(as_linear_map(ll_op)), dtype=float)
+        if C_ll_raw.ndim != 2:
+            C_ll_raw = C_ll_raw.reshape(C_ll_raw.shape[0], -1)
+        if C_ll_raw.shape[0] == 0:
+            return None
+
+        ll_mask = getattr(self.geometry, "ll_mask", None)
+        if ll_mask is None:
+            raise RuntimeError(
+                "LL mask is required to build hard induction constraints "
+                "for full_induction with connect_hemispheres=True."
+            )
+
+        ll_mask_np = np.asarray(ll_mask, dtype=bool).reshape(-1)
+        if ll_mask_np.size != self.geometry.grid.size:
+            raise RuntimeError(
+                "LL mask/grid size mismatch for hard split: "
+                f"mask={int(ll_mask_np.size)} grid={int(self.geometry.grid.size)}."
+            )
+
+        Q_hl, Q_ll = self._build_hl_ll_subspaces(C_ll_raw.shape[1], ll_mask_np)
+        weights = np.asarray(self.geometry.grid.weights).reshape(-1)
+        if weights.size != ll_mask_np.size:
+            weights = np.ones(ll_mask_np.size, dtype=float)
+        weights = np.maximum(weights, 0.0)
+        wsum = float(np.sum(weights))
+        if not np.isfinite(wsum) or wsum <= 0:
+            weights = np.ones_like(weights) / max(weights.size, 1)
+        else:
+            weights = weights / wsum
+        M_total, _ = self._build_apex_metric_pair(
+            ll_mask=ll_mask_np,
+            weights=weights,
+            n_coeffs=C_ll_raw.shape[1],
+        )
+        if M_total is None or M_total.shape != (C_ll_raw.shape[1], C_ll_raw.shape[1]):
+            raise RuntimeError(
+                "Failed to build apex metric for hard induction constraints."
+            )
+
+        # Single coherent hard-constraint framework:
+        # 1) LL hard constraints are defined by the LL mismatch row-space.
+        # 2) HL concentration modes are kept only in the metric-orthogonal
+        #    complement of the LL hard subspace.
+        ll_anchor_rtol = max(float(np.finfo(float).eps * max(M_total.shape)), 0.0)
+        Q_ll_anchor = self._m_orthonormalize_columns(
+            C_ll_raw.T,
+            metric=M_total,
+            rtol=ll_anchor_rtol,
+        )
+        if Q_ll_anchor.shape[1] == 0:
+            raise RuntimeError(
+                "LL hard-constraint subspace is empty: unable to build "
+                "metric-orthonormal LL mismatch row-space basis."
+            )
+
+        gram_ll = 0.5 * ((Q_ll_anchor.T @ M_total @ Q_ll_anchor) + (Q_ll_anchor.T @ M_total @ Q_ll_anchor).T)
+        rcond_ll = float(np.finfo(float).eps * max(gram_ll.shape))
+        gram_ll_pinv = np.linalg.pinv(gram_ll, rcond=rcond_ll)
+        P_ll = Q_ll_anchor @ (gram_ll_pinv @ (Q_ll_anchor.T @ M_total))
+
+        C_ll_mode = C_ll_raw @ P_ll
+        w_ll = self._get_ll_constraint_row_weights(C_ll_mode.shape[0], float)
+        C_ll_mode = np.sqrt(w_ll).reshape(-1, 1) * C_ll_mode
+        C_ll = self._normalize_constraint_rows(C_ll_mode)
+        C_ll = self._compress_constraint_rows(C_ll, rtol=0.0)
+        if C_ll.shape[0] == 0:
+            raise RuntimeError(
+                "LL hard-constraint row set is empty after LL row-space projection."
+            )
+
+        # Keep HL driver-lock modes in complement of LL hard subspace.
+        q_hl_raw = np.asarray(Q_hl, dtype=float)
+        if q_hl_raw.ndim == 2 and q_hl_raw.shape[1] > 0:
+            Q_hl = self._m_orthonormalize_columns(
+                q_hl_raw - (P_ll @ q_hl_raw),
+                metric=M_total,
+                rtol=ll_anchor_rtol,
+            )
+        else:
+            Q_hl = np.zeros((C_ll_raw.shape[1], 0), dtype=float)
+
+        Q_ll = Q_ll_anchor
+
+        if self.magnetospheric_toroidal_lock and Q_hl.shape[1] > 0:
+            C_hl = self._normalize_constraint_rows(Q_hl.T @ M_total)
+        else:
+            C_hl = np.zeros((0, C_ll_raw.shape[1]), dtype=float)
+        C_total = np.ascontiguousarray(np.vstack([C_ll, C_hl]))
+        return {
+            "C_total": C_total,
+            "C_ll": C_ll,
+            "C_hl": C_hl,
+            "Q_ll": Q_ll,
+            "Q_hl": Q_hl,
+            "Q_metric": np.asarray(M_total, dtype=float),
+        }
+
+    @cached_property
+    def induction_constraint_operator_hard(self) -> Any:
+        """Hard constraint operator for LL symmetry and optional HL lock.
+
+        Returns
+        -------
+        Any
+            - ``None`` for full-induction runs without IH coupling.
+            - Compact hard-constraint rows for full-induction IH runs.
+            - Legacy ``jr_map_sim`` operator for non-full-induction paths.
+        """
+        if self.dynamics_mode == "full_induction" and not self.connect_hemispheres:
+            return None
+        if self.dynamics_mode != "full_induction":
+            return self.geometry.jr_map_sim
+
+        bundle = self.induction_constraint_bundle_hard
+        if bundle is None or bundle["C_total"].shape[0] == 0:
+            raise RuntimeError(
+                "Hard induction constraint bundle is missing or empty."
+            )
+        return bundle["C_total"]
+
+    def _analyze_coupled_stability(
+        self,
+        L_flat: np.ndarray,
+        *,
+        label: str,
+        unstable_tol: float = 1e-12,
+    ) -> Dict[str, float]:
+        """Analyze coupled-operator spectrum and warn on unstable modes."""
+        arr = np.asarray(L_flat, dtype=float)
+        if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
+            arr = arr.reshape(arr.shape[0], -1)
+            if arr.shape[0] != arr.shape[1]:
+                raise ValueError(
+                    "Coupled stability analysis requires a square matrix, "
+                    f"got {arr.shape}."
+                )
+
+        eigvals = np.linalg.eigvals(arr)
+        real = np.real(eigvals)
+        max_real = float(np.max(real)) if real.size > 0 else 0.0
+        min_real = float(np.min(real)) if real.size > 0 else 0.0
+        n_pos = int(np.sum(real > float(unstable_tol)))
+        n_total = int(real.size)
+
+        report = {
+            "max_real": max_real,
+            "min_real": min_real,
+            "positive_real_count": float(n_pos),
+            "n_eigs": float(n_total),
+        }
+
+        if max_real > float(unstable_tol):
+            key = (
+                label,
+                arr.shape[0],
+                round(max_real, 9),
+                round(min_real, 9),
+                n_pos,
+            )
+            if key not in self._coupled_stability_warned_keys:
+                msg = (
+                    "Coupled full-induction operator has unstable eigenmodes "
+                    f"(label={label}, max Re(lambda)={max_real:.3e}, "
+                    f"positive modes={n_pos}/{n_total}). "
+                    "Explicit Euler integration is expected to be unstable for this operator."
+                )
+                logger.warning(msg)
+                warnings.warn(msg, RuntimeWarning, stacklevel=2)
+                self._coupled_stability_warned_keys.add(key)
+        return report
+
+    def get_coupled_stability_report(
+        self,
+        *,
+        source: Literal["dense", "sparse", "auto"] = "dense",
+        use_pinning: Optional[bool] = None,
+    ) -> Dict[str, float]:
+        """Return spectral stability report for the coupled full-induction operator."""
+        if use_pinning is None:
+            use_pinning = self.apply_psi_gauge
+        L_flat = np.asarray(
+            self.get_coupled_induction_matrix(
+                source=source,
+                flatten=True,
+                use_pinning=use_pinning,
+            )
+        )
+        return self._analyze_coupled_stability(
+            L_flat,
+            label=f"{source}:pinning={int(bool(use_pinning))}",
+        )
+
+    def _build_dt_jr_constraint_rhs(self, dt_jr_driver_coeffs: Optional[np.ndarray]) -> np.ndarray:
+        """Build hard-constraint RHS for residual dt_jr solve."""
+        constraint_op = self.induction_constraint_operator_hard
+        if constraint_op is None:
+            return xp.zeros(0)
+        constraint_lm = as_linear_map(constraint_op)
+        n_rows = int(constraint_lm.shape[0])
+        if n_rows <= 0:
+            return xp.zeros(0)
+        if dt_jr_driver_coeffs is None:
+            return xp.zeros(n_rows)
+
+        driver = np.asarray(dt_jr_driver_coeffs).reshape(-1)
+        bundle = self.induction_constraint_bundle_hard
+        if bundle is None:
+            if constraint_lm.shape[1] != driver.size and float(np.linalg.norm(driver)) == 0.0:
+                driver = np.zeros(int(constraint_lm.shape[1]), dtype=float)
+            if constraint_lm.shape[1] != driver.size:
+                raise RuntimeError(
+                    "Constraint RHS assembly mismatch for non-bundled constraints: "
+                    "constraint operator columns do not match driver dimension."
+                )
+            return -asarray(constraint_lm.matvec(driver))
+
+        if bundle is not None and bundle["C_total"].shape[1] != driver.size:
+            n_cols = int(bundle["C_total"].shape[1])
+            if float(np.linalg.norm(driver)) == 0.0:
+                # Zero driver is representation-invariant for the hard-constraint RHS.
+                driver = np.zeros(n_cols, dtype=float)
+
+        if (
+            bundle is not None
+            and bundle["C_total"].shape[0] == n_rows
+            and bundle["C_total"].shape[1] == driver.size
+        ):
+            C_ll = bundle["C_ll"]
+            C_hl = bundle["C_hl"]
+            rhs_ll = -C_ll @ driver if C_ll.shape[0] > 0 else np.zeros(0, dtype=float)
+            rhs_hl = np.zeros(C_hl.shape[0], dtype=float)
+            return asarray(np.concatenate([rhs_ll, rhs_hl]))
+
+        raise RuntimeError(
+            "Constraint RHS assembly mismatch: bundle rows/cols do not match "
+            "constraint operator and driver dimensions."
+        )
+
+    def _project_to_hl_modes(self, values: np.ndarray) -> np.ndarray:
+        """Project coefficient-space vector onto the HL mode subspace."""
+        vec = np.asarray(values).reshape(-1)
+        bundle = self.induction_constraint_bundle_hard
+        if bundle is None:
+            return asarray(vec)
+
+        Q_hl = np.asarray(bundle.get("Q_hl", np.zeros((vec.size, 0), dtype=float)))
+        M_metric = np.asarray(bundle.get("Q_metric", np.eye(vec.size, dtype=float)))
+        if (
+            Q_hl.ndim == 2
+            and Q_hl.shape[0] == vec.size
+            and Q_hl.shape[1] > 0
+        ):
+            if M_metric.ndim == 2 and M_metric.shape == (vec.size, vec.size):
+                vec = Q_hl @ (Q_hl.T @ (M_metric @ vec))
+            else:
+                vec = Q_hl @ (Q_hl.T @ vec)
+        return asarray(vec)
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -370,21 +1327,19 @@ class State:
         M = engine.get_vector_interaction_matrix(to_numpy(sigma_quad))
         return as_linear_map(M)
 
-    def _create_E_coeffs_operator(
-        self, G_X_to_JS: Optional[np.ndarray], mapping_type: str = "poloidal"
-    ) -> Optional[LinearMap]:
-        """Unified operator mapping potential coefficients to electric field (E) coefficients."""
-        potential_type = "m_imp" if mapping_type == "poloidal" else "m_ind"
-        
-        # Check for Br specifically
-        if G_X_to_JS is getattr(self.geometry, "G_Br_to_JS", None) and G_X_to_JS is not None:
-            potential_type = "Br"
-            
+    def _create_E_coeffs_operator(self, potential_type: str) -> Optional[LinearMap]:
+        """Unified operator mapping magnetic-scalar coefficients to E coefficients.
+
+        Parameters
+        ----------
+        potential_type : str
+            Magnetic scalar type: "m_imp", "m_ind", or "Br".
+        """
         # Pass eta fields if available for analytic mode
         etaP_field = getattr(self, "etaP", None)
         etaH_field = getattr(self, "etaH", None)
 
-        return self.geometry.get_conductivity_operator(
+        return self.geometry.get_potential_to_E_coeffs_operator(
             mode=self.mode,
             potential_type=potential_type,
             eta_grid=self.M_total_on_grid,
@@ -396,30 +1351,30 @@ class State:
     @cached_property
     def m_ind_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_ind coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS, mapping_type="toroidal")
+        return self._create_E_coeffs_operator("m_ind")
 
     @cached_property
     def m_imp_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_imp coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS, mapping_type="poloidal")
+        return self._create_E_coeffs_operator("m_imp")
+
+    @cached_property
+    def toroidal_to_E_coeffs(self) -> Optional[LinearMap]:
+        """Operator mapping dynamic toroidal magnetic scalar (psi) to E coefficients."""
+        op = self._create_E_coeffs_operator("psi")
+        if op is None:
+            return self.m_imp_to_E_coeffs
+        return op
 
     @cached_property
     def Br_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping Br coefficients to E coefficients."""
-        return self._create_E_coeffs_operator(
-            getattr(self.geometry, "G_Br_to_JS", None), mapping_type="toroidal"
-        )
+        return self._create_E_coeffs_operator("Br")
 
     @cached_property
     def E_map_constraint_operator(self) -> Optional[LinearMap]:
         """Operator enforcing E-field mapping at low latitudes."""
-        # This tensor maps E-field coefficients (or grid values) to
-        # the difference in E_apex at conjugate points.
-        # Shape: (2, Mask, 2, L)
-
-        # This tensor maps E-field coefficients (or grid values) to
-        # the difference in E_apex at conjugate points.
-        # Shape: (2, Mask, 2, L) or (2, Mask, L) wrapped in ConstraintOperator
+        # Tensor shape is canonical (2, n_mask, 2, n_coeffs).
         op_obj = self.geometry.E_coeffs_to_E_apex_ll_diff
         
         if op_obj is None:
@@ -431,16 +1386,13 @@ class State:
         else:
              outer_t = asarray(op_obj)
         
-        if outer_t.ndim == 4:
-             # Legacy SH: (2, Mask, Dim2, Coeffs). Presumes Dim2=2.
-             n_mask, n_in = outer_t.shape[1], outer_t.shape[3]
-             op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in))
-        elif outer_t.ndim == 3:
-             # CS: (2, Mask, Coeffs)
-             n_mask, n_coeffs = outer_t.shape[1], outer_t.shape[2]
-             op_outer = as_linear_map(outer_t.reshape(2 * n_mask, n_coeffs))
-        else:
-             raise ValueError(f"Unexpected constraint tensor shape: {outer_t.shape}")
+        if outer_t.ndim != 4 or outer_t.shape[2] != 2:
+            raise ValueError(
+                "Constraint tensor must have canonical shape (2, n_mask, 2, n_coeffs), "
+                f"got {outer_t.shape}."
+            )
+        n_mask, n_in = outer_t.shape[1], outer_t.shape[3]
+        op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in))
 
         # Inner: m_imp -> E-field
         op_inner = self.m_imp_to_E_coeffs
@@ -470,13 +1422,17 @@ class State:
         ):
             E_constraint_op = self.E_map_constraint_operator
 
+        # Keep lhs/rhs apex operator basis-consistent for legacy m_imp solves.
+        jr_map_operator = self.geometry.get_jr_operator(self.jr.basis if self.jr else None)
+
         return self.geometry.poloidal_matrices.build_least_squares_problem(
-            jr_map_operator=self.geometry.jr_map_sim,
+            jr_map_operator=jr_map_operator,
             E_constraint_operator=E_constraint_op,
             connect_hemispheres=(E_constraint_op is not None),
             ih_constraint_scaling=self.ih_constraint_scaling,
             regularization_lambda=self.m_imp_regularization_lambda,
-            use_pinning=(getattr(self.solution_basis, "kind", "") == "CS"),
+            use_pinning=(getattr(self.solution_basis, "kind", "") in ("CS", "GRID")),
+            weighting=self.poloidal_weighting,
         )
 
     @cached_property
@@ -485,50 +1441,111 @@ class State:
         logger.info("Building new preconditioner for m_imp solver.")
         return self.m_imp_solver.build_preconditioner(problem=self.m_imp_problem, num_scenarios=1)
 
-    def _solve_for_m_imp(
-        self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
+    @cached_property
+    def dt_jr_preconditioner(self) -> Optional[LinearMap]:
+        """Preconditioner for the dt_jr (toroidal) least-squares problem."""
+        return None
+
+    @cached_property
+    def coupled_preconditioner(self) -> Optional[LinearMap]:
+        """Preconditioner for the coupled (2N, 2N) induction system.
+
+        Uses the standard LeastSquaresProblem/LeastSquaresSolver construction.
+        """
+        if self.preconditioner is None:
+            return None
+
+        N = self.solution_basis.index_length
+        L = self.coupled_induction_tensor
+        L_map = as_linear_map(asarray(L).reshape(2 * N, 2 * N))
+        problem = LeastSquaresProblem(
+            A=[L_map],
+            solution_shape=(2 * N,),
+            data_shapes=[(2 * N,)],
+        )
+        solver = LeastSquaresSolver(solver=self.solver_type, preconditioner=self.preconditioner)
+        return solver.build_preconditioner(
+            problem=problem,
+            preconditioner_type=self.preconditioner,
+            num_scenarios=1,
+        )
+
+    def _build_imposed_toroidal_baseline(
+        self,
+        jr_coeffs: Optional[np.ndarray],
+        E_direct_coeffs: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Solves for the imposed potential coefficients `m_imp`."""
+        """Build imposed toroidal baseline `m_imp` from external driver inputs.
+
+        Full-induction path: direct `jr -> m_imp` map in solution space.
+        Legacy path: constrained least-squares solve for imposed baseline.
+        """
+        n = self.solution_basis.index_length
+        if self.dynamics_mode == "full_induction":
+            if jr_coeffs is None:
+                return xp.zeros(n)
+            input_basis = self.jr.basis if self.jr is not None else None
+            m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=input_basis))
+            jr_vec = np.asarray(jr_coeffs).reshape(-1)
+            return self._apply_m_imp_gauge_projection(m_imp_from_jr @ jr_vec)
+
+        # Legacy mode: when IH E-constraint is active we still solve m_imp even if
+        # jr is unavailable, because the E-constraint contributes RHS information.
+        use_e_constraint = self.connect_hemispheres and self.E_map_constraint_operator is not None
+        if jr_coeffs is None and not use_e_constraint:
+            return xp.zeros(n)
+
         problem = self.m_imp_problem
         preconditioner = self.m_imp_preconditioner
 
         rhs_entries: List[Optional[Any]] = [None] * problem.num_data_terms
         if jr_coeffs is not None:
-
-            # Select operator based on input basis
             op_rhs = self.geometry.get_jr_operator(self.jr.basis if self.jr else None)
-
-            # Compute RHS: op @ jr_coeffs
             rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
 
-        if (
-            self.connect_hemispheres 
-            and self.dynamics_mode != "full_induction"
-            and self.E_map_constraint_operator is not None
-        ):
-
-            # Op is now basis-consistent (SH or Grid) thanks to Geometry.
-            # It is wrapped in ConstraintOperator to handle rank differences.
+        if use_e_constraint:
+            if E_direct_coeffs is None:
+                raise ValueError(
+                    "E_direct_coeffs is required for imposed baseline solve with IH E-constraint."
+                )
             E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
             E_direct_input = asarray(E_direct_coeffs)
 
             if hasattr(E_map_op, "apply"):
-                 b_E = E_map_op.apply(E_direct_input)
+                b_E = E_map_op.apply(E_direct_input)
             else:
-                 # Fallback for raw arrays (if somehow not wrapped)
-                 E_map_op = asarray(E_map_op)
-                 if E_map_op.ndim == 4:
-                     b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2, 3], [0, 1]))
-                 else:
-                     b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2], [0]))
-            
+                raise TypeError(
+                    "E_coeffs_to_E_apex_ll_diff must provide an 'apply' method "
+                    "(ConstraintOperator)."
+                )
             rhs_entries[1] = self.ih_constraint_scaling * xp.reshape(b_E, (-1,))
 
-        solver = self.m_imp_solver
-        solution = solver.solve(problem=problem, rhs=rhs_entries, preconditioner=preconditioner)
+        solution = _timed_solve(
+            "state.m_imp",
+            self.m_imp_solver,
+            problem=problem,
+            rhs=rhs_entries,
+            preconditioner=preconditioner,
+        )
         if solution is None:
-            solution = xp.zeros(self.solution_basis.index_length)
-        return asarray(solution)
+            solution = xp.zeros(n)
+        return self._apply_m_imp_gauge_projection(solution)
+
+    def _map_dt_jr_driver_to_dt_m_imp(
+        self,
+        dt_jr_coeffs: np.ndarray,
+    ) -> np.ndarray:
+        """Map driver derivative ``dt_jr`` to toroidal driver derivative ``dt_m_imp``."""
+        dt_jr_vec = np.asarray(dt_jr_coeffs).reshape(-1)
+        m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=self.solution_basis))
+        if m_imp_from_jr.ndim != 2 or m_imp_from_jr.shape[1] != dt_jr_vec.size:
+            raise RuntimeError(
+                "dt_jr -> dt_m_imp mapping dimension mismatch: "
+                f"map={m_imp_from_jr.shape}, driver={dt_jr_vec.shape}."
+            )
+        dt_m_imp = m_imp_from_jr @ dt_jr_vec
+        dt_m_imp = self._project_to_hl_modes(dt_m_imp)
+        return self._apply_m_imp_gauge_projection(dt_m_imp)
 
     # ----- State Update -----
 
@@ -589,8 +1606,10 @@ class State:
             if not self._has_input_changed(key, current_data, input_manager.variables[key]):
                 continue
 
+            prev_data_for_key = self.previous_input_data.get(key)
+            prev_time_for_key = self.previous_input_time.get(key)
+
             # Update cache and proceed
-            self.previous_input_data[key] = current_data
             updated_input = current_data
  
             # Check for derivatives
@@ -599,6 +1618,20 @@ class State:
                 # This assumes InputManager has been updated to provide derivatives methods.
                 # We need interpolation to get correct derivatives from sparse time points
                 _, current_deriv = input_manager.get_entry_with_derivative(key, time, interpolation=True)
+                # Fallback: finite-difference derivative from the previously seen jr input.
+                if (
+                    current_deriv is None
+                    and prev_data_for_key is not None
+                    and prev_time_for_key is not None
+                    and "jr" in prev_data_for_key
+                    and np.isfinite(prev_time_for_key)
+                    and time > prev_time_for_key
+                ):
+                    dt = float(time - prev_time_for_key)
+                    jr_prev = np.asarray(prev_data_for_key["jr"])
+                    jr_curr = np.asarray(updated_input["jr"])
+                    if jr_prev.shape == jr_curr.shape and dt > 0.0:
+                        current_deriv = {"jr": (jr_curr - jr_prev) / dt}
 
             storage_base = input_manager.get_storage_basis(key)
             if key == "conductance":
@@ -610,9 +1643,24 @@ class State:
             elif key == "jr":
                 f_jr = Field.from_coefficients(storage_base, coeffs=updated_input["jr"])
                 self.jr = self._ensure_basis(f_jr, "scalar")
+                # Driver changed: rebuild imposed toroidal baseline on next use.
+                self._imposed_toroidal_dirty = True
                 if current_deriv is not None:
-                     f_dt_jr = Field.from_coefficients(storage_base, coeffs=current_deriv["jr"])
-                     self.dt_jr_driver = self._ensure_basis(f_dt_jr, "scalar")
+                    if self.dynamics_mode == "full_induction":
+                        f_dt_jr = Field.from_coefficients(storage_base, coeffs=current_deriv["jr"])
+                        dt_jr_solution = self._ensure_basis(f_dt_jr, "scalar")
+                        dt_m_imp_coeffs = self._map_dt_jr_driver_to_dt_m_imp(
+                            dt_jr_coeffs=asarray(dt_jr_solution.coeffs),
+                        )
+                        self.dt_m_imp_driver = Field.from_coefficients(
+                            self.solution_basis,
+                            coeffs=asarray(dt_m_imp_coeffs),
+                            field_type="scalar",
+                        )
+                    else:
+                        self.dt_m_imp_driver = None
+                else:
+                    self.dt_m_imp_driver = None
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
@@ -625,6 +1673,10 @@ class State:
                     field_type="tangential",
                 )
                 self.u = self._ensure_basis(f_u, "tangential")
+
+            # Persist latest snapshot/time for finite-difference derivative estimates.
+            self.previous_input_data[key] = current_data
+            self.previous_input_time[key] = float(time)
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
@@ -661,7 +1713,7 @@ class State:
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
         E_shape = (2, self.solution_basis.index_length)
-        m_imp = self._solve_for_m_imp(jr_coeffs, E_direct_coeffs)
+        m_imp = self._build_imposed_toroidal_baseline(jr_coeffs, E_direct_coeffs)
         E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
         return E_direct_coeffs + E_imp, m_imp
 
@@ -669,8 +1721,12 @@ class State:
         """Calculate E-field coefficients without induction effects."""
 
         E_shape = (2, self.solution_basis.index_length)
-        u_coeffs = 0 if self.u is None else asarray(self.u.coeffs)
-        E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
+        if self.u is None:
+            E_direct = xp.zeros(E_shape)
+        else:
+            E_direct = self._apply_operator(
+                self.u_coeffs_to_E_coeffs, asarray(self.u.coeffs), E_shape
+            )
         if self.Br is not None:
             E_direct += self._apply_operator(self.Br_to_E_coeffs, asarray(self.Br.coeffs), E_shape)
 
@@ -686,115 +1742,46 @@ class State:
     def _calculate_dynamic_state(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Solve for state in full induction mode (Toroidal + Poloidal).
-        
-        Solves the partitioned system:
-        """
+        """Assemble non-inductive forcing and update toroidal residual rate."""
         n = self.solution_basis.index_length
     
         if self.psi is None:
-             # Initialize if first run
-             self.psi = xp.zeros(n)
-             self.d_psi_dt = xp.zeros(n)
+            # Initialize dynamic residual state/rate on first call.
+            self.psi = xp.zeros(n)
+            self.d_psi_dt = xp.zeros(n)
 
-        # 1. Solve for dt_jr
-        # We need the current TOTAL E-field (excluding toroidal induction term d_psi/dt to be solved?)
-        # Wait, the Master Equation is: dt_jr = - (1/mu B^2) * CurlCurl E . B
-        # E = E_potential + E_induced.
-        # E_induced = d_A / dt. A = A_pol + A_tor.
-        # But here we are separating the Toroidal Induction part?
-        # The spec says: "Filter out the toroidal contribution to d/dt(r x b_S)".
-        # This implies K includes everything EXCEPT the term L*dt_jr is modelling.
-        
-        # Calculate E_current from known potentials
-        u_coeffs = 0 if self.u is None else asarray(self.u.coeffs)
-        E_u = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, (2, n))
-        
-        # Imposed Poloidal Field (m_imp) from *current* state
-        # Note: in dynamic mode, m_imp is likely evolved or derived.
-        # For now, let's assume we use the legacy m_imp solution as the "Base Poloidal Field".
-        # Or if m_imp is a state variable, we use self.m_imp_state.
-        
-        # Let's assume for this step that `m_imp` is calculated statically consistent with `jr`.
-        # (Mixed mode: Static Poloidal, Dynamic Toroidal).
-        # E_poloidal = E(m_imp)
-        m_imp_curr = self._solve_for_m_imp(jr_coeffs, E_u) # Poloidal part
-        E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp_curr, (2, n))
-        
-        # Total Known E (Poloidal + Motional)
-        E_known = E_u + E_imp
-        
-        # 2. Solve for dt_jr
-        dt_jr = self.solve_dt_jr(E_known)
-        
-        # DEBUG: Trace Sensitivity
-        nm_E = np.linalg.norm(E_known)
-        nm_dtjr = np.linalg.norm(dt_jr)
-        print(f"DEBUG: E_known norm={nm_E:.4e}, dt_jr norm={nm_dtjr:.4e}")
-        
-        # 3. Update Toroidal State (psi)
-        # This function returns E-coeffs, not evolves state.
-        # Evolution happens in `evolve_m_ind`.
-        # But we need to return the E-field corresponding to the *rates*?
-        # No, `calculate_noind_coeffs` returns E for the main loop.
-        
-        # Wait, `TimeStepper` needs `d_y / dt`.
-        # If `psi` is the state, we need `d_psi / dt`.
-        # dt_jr gives us `d_psi / dt` !
-        # J_tor = Curl Curl (r Psi). J_r term? 
-        # Actually dt_jr is related to dt_psi.
-        # Toroidal field is defined by scalar T (or psi). 
-        # Curl(T r) = - r x grad T.
-        # Curl Curl (T r) = ...
-        # Relationship: j_r is defined by Poloidal, not Toroidal field.
-        # Wait, j_r = - Delta_S P / r.
-        # Toroidal field T has NO radial current.
-        # So why are we solving for dt_jr?
-        # "Master Equation... identity for the radial current density jr".
-        # This equation governs the evolution of `jr` (which comes from Poloidal field P)
-        # due to Induction (which involves Toroidal field).
-        
-        # Ah, `dt_jr` updates `jr` (Poloidal Source).
-        # This allows calculating `P` (Poloidal Potential m_imp).
-        # What about `psi`? "Update Toroidal Field... Derive d_psi from d_jr".
-        # Equation (26) inverse?
-        
-        # Okay, so finding `dt_jr` gives us everything.
-        # We store `dt_jr` or `d_psi_dt` for the integrator.
-        
-        # Here we just return the E-field of the CURRENT state.
-        # E_total = E_known + E_psi.
-        # E_psi comes from `psi`.
-        # We need an operator `psi_to_E`.
-        # Toroidal E-field E_T = - dA_T/dt = - d/dt Curl(r psi)? 
-        # No, usually E = -grad Phi - dA/dt.
-        # If psi is Toroidal Potential for B? B = Curl(r psi).
-        # Then E? 
-        # Let's assume standard VSH E-field structure.
-        # If we have `psi` (Toroidal B potential or Poloidal E potential?),
-        # let's assume `psi` represents the Toroidal Magnetic Field T.
-        # Then the Electric Field is Poloidal?
-        # E = - grad V - dA/dt.
-        # This is getting deep into physics definitions not fully in the snippet.
-        
-        # 3. Handle Scaling: Derive d_psi_dt from dt_jr
-        # Delegate to ToroidalSystemMatrices
-        # 3. Handle Scaling: Derive d_psi_dt from dt_jr
-        # Delegate to ToroidalSystemMatrices
-        self.d_psi_dt = self.toroidal_matrices.compute_rates(
-             dt_jr,
-             m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-        )
-        
-        # 4. Return Total E-field and current Toroidal state
-        # psi represents the Toroidal Potential (m_imp Equivalent)
-        # Use spectral mode=None because E_known is always in spectral space (projected).
-        op_m_imp_to_E = self.geometry.get_potential_to_E_operator("m_imp", mode=None)
-        E_psi = asarray(op_m_imp_to_E.matmat(self.psi)).reshape(E_known.shape)
-        
-        E_total = E_known + E_psi
-        
-        return E_total, self.psi
+        # E_direct already contains external forcing terms (wind + imposed Br terms).
+        E_external = asarray(E_direct_coeffs)
+
+        # Build/refresh imposed toroidal baseline m_imp (quasi-static driver component).
+        imposed_refreshed = False
+        if jr_coeffs is None:
+            m_imp_curr = xp.zeros(n)
+            self.m_imp_imposed = asarray(m_imp_curr)
+            self._imposed_toroidal_dirty = False
+            imposed_refreshed = True
+        elif self.m_imp_imposed is None or self._imposed_toroidal_dirty:
+            m_imp_curr = self._build_imposed_toroidal_baseline(jr_coeffs, E_external)
+            self.m_imp_imposed = asarray(m_imp_curr)
+            self._imposed_toroidal_dirty = False
+            imposed_refreshed = True
+        else:
+            m_imp_curr = asarray(self.m_imp_imposed)
+            self.m_imp_imposed = asarray(m_imp_curr)
+
+        # Net LL closure is enforced inside the hard toroidal constraint system.
+        # Avoid post-hoc psi adjustments that can move the state off-manifold.
+
+        E_imposed_toroidal = self._apply_operator(self.m_imp_to_E_coeffs, m_imp_curr, (2, n))
+        E_noninductive = E_external + E_imposed_toroidal
+
+        # Solve directly for dpsi/dt for non-inductive forcing. Coupled
+        # self-feedback from (psi, m_ind) is handled in coupled operator blocks.
+        self.d_psi_dt = self.solve_dpsi_dt(E_noninductive)
+
+        # Return only non-inductive E coefficients here; inductive contributions
+        # from (psi, m_ind) are applied in the coupled dynamics path.
+        return E_noninductive, asarray(m_imp_curr)
 
     def solve_dt_jr(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dt_jr.
@@ -802,79 +1789,88 @@ class State:
         Uses ToroidalSystemMatrices.compute_forcing_vector() for the physics RHS
         and assembles the constraint RHS from driver data.
         """
-        problem = self.dt_jr_problem  # Cached problem definition
-
-        # Get driver coefficients if available
-        dt_jr_driver_coeffs = None
-        if self.dt_jr_driver is not None:
-            dt_jr_driver_coeffs = to_numpy(self.dt_jr_driver.coeffs)
+        dt_jr_driver_coeffs = self._get_dt_jr_driver_coeffs()
 
         # Term 1 (Physics): K - L * dt_jr_driver
-        # Delegate to toroidal_matrices
+        # Driver remains an external forcing. Hard LL symmetry is enforced on the
+        # total derivative via the constraint RHS below.
+        # Delegate to toroidal_matrices.
         E_coeffs = asarray(E_known)
         rhs_1 = self.toroidal_matrices.compute_forcing_vector(E_coeffs, dt_jr_driver_coeffs)
 
-        # Term 2 (Constraint): Unified Apex Current Mapping (Driver + IH)
-        # We want (jr_map_sim @ x) = rhs.
-        # rhs = j_apex_driver_rate in HL, 0 in Gap (IH difference).
-        
-        # The constraint weight must be balanced against the physics term (L_sys).
-        constraint_weight = self._compute_balanced_constraint_scaling()
-        
-        n_grid = self.geometry.grid.size
-        rhs_2 = np.zeros(n_grid)
+        # Term 2 (Constraint): hard LL symmetry constraints on residual solve.
+        # We want (C_ll @ x) = rhs_ll for x = dt_jr_residual.
+        # Constraint RHS for residual solve:
+        # For x = d(jr_ind)/dt and d(jr_tot)/dt = d(jr_imp)/dt + x:
+        # enforce LL coupling as C_LL x = -C_LL d(jr_imp)/dt.
+        constraint_op = self.induction_constraint_operator_hard
+        rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
 
-        if dt_jr_driver_coeffs is not None:
-            # 1. Get transformation: radial to apex
-            rad_to_apx, _ = self.geometry._apex_mapper.get_transformation_matrices(
-                self.geometry.b_field
-            )
-
-            # 2. Map driver to apex current rate
-            # j_apex = (rad_to_apx) * j_r
-            driver_jr_grid = self.geometry.basis.evaluate(
-                dt_jr_driver_coeffs, self.geometry.grid, "scalar"
-            )
-            driver_j_apex = rad_to_apx * to_numpy(driver_jr_grid)
-
-            # 3. Apply to HL region only
-            if self.geometry.ll_mask is not None:
-                hl_mask = ~self.geometry.ll_mask
-                rhs_2[hl_mask] = driver_j_apex[hl_mask]
-
-        # Scale for penalty
-        rhs_2 = constraint_weight * rhs_2
-
-        # Solve
-        rhs_entries = [rhs_1, rhs_2]
-        solver = self.m_imp_solver
-        solution = solver.solve(problem, rhs_entries)
+        solution = self.toroidal_matrices.solve_dt_jr_superposed(
+            rhs_physics=rhs_1,
+            rhs_constraint=rhs_2,
+            jr_map_operator=constraint_op,
+            weighting=self.toroidal_weighting,
+            regularization_lambda=self.toroidal_regularization_lambda,
+            penalty_operator=None,
+            penalty_scaling=0.0,
+            hinv_rtol=0.0,
+        )
 
         if solution is None:
-            return xp.zeros(self.solution_basis.index_length)
+            raise RuntimeError("Toroidal superposed dt_jr solve returned no solution.")
 
         return asarray(solution)
 
-    def evolve_psi(self, psi: np.ndarray, dt: float) -> np.ndarray:
-        """Evolve psi forward in time."""
-        if self.d_psi_dt is None:
-             return psi
-             
-        # Define rate closure
-        def rates_func(y, t):
-             return self.d_psi_dt
+    def solve_dpsi_dt(self, E_known: np.ndarray) -> np.ndarray:
+        """Solve constrained system for dpsi/dt."""
+        dt_jr_driver_coeffs = self._get_dt_jr_driver_coeffs()
 
-        return self.toroidal_integrator.step(
-             y=psi,
-             dt=dt,
-             rates_func=rates_func
+        E_coeffs = asarray(E_known)
+        rhs_1 = self.toroidal_matrices.compute_forcing_vector(E_coeffs, dt_jr_driver_coeffs)
+        constraint_op = self.induction_constraint_operator_hard
+        rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
+
+        solution = self.toroidal_matrices.solve_dpsi_dt_superposed(
+            rhs_physics=rhs_1,
+            rhs_constraint=rhs_2,
+            jr_map_operator=constraint_op,
+            m_imp_to_jr_operator=self.poloidal_matrices.m_imp_to_jr,
+            weighting=self.toroidal_weighting,
+            regularization_lambda=self.toroidal_regularization_lambda,
+            penalty_operator=None,
+            penalty_scaling=0.0,
+            hinv_rtol=0.0,
+            use_pinning=self.apply_psi_gauge,
         )
+        if solution is None:
+            raise RuntimeError("Toroidal superposed dpsi/dt solve returned no solution.")
+        return asarray(solution)
+
+    def _get_dt_jr_driver_coeffs(self) -> Optional[np.ndarray]:
+        """Return ``dt_jr`` driver mapped into the solution basis, then HL-projected."""
+        if self.dynamics_mode != "full_induction" or self.dt_m_imp_driver is None:
+            return None
+        dt_m_imp = np.asarray(asarray(self.dt_m_imp_driver.coeffs).reshape(-1))
+        dt_m_imp = np.asarray(self._project_to_hl_modes(dt_m_imp)).reshape(-1)
+        m_imp_to_jr = as_linear_map(self.poloidal_matrices.m_imp_to_jr)
+        return asarray(m_imp_to_jr.matvec(dt_m_imp)).reshape(-1)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
         E_shape = (2, self.solution_basis.index_length)
         E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, asarray(m_ind), E_shape)
+        if self.dynamics_mode == "full_induction":
+            # In full-induction, imposed toroidal baseline is handled separately
+            # via m_imp_imposed; the m_ind contribution should not trigger an
+            # additional m_imp feedback solve here.
+            return E_direct_ind, xp.zeros(self.solution_basis.index_length)
         return self._calculate_total_E_field(E_direct_ind, None)
+
+    def calculate_psi_E_coeffs(self, psi: np.ndarray) -> np.ndarray:
+        """Map inductive toroidal residual psi to E-field coefficients."""
+        E_shape = (2, self.solution_basis.index_length)
+        return self._apply_operator(self.toroidal_to_E_coeffs, asarray(psi), E_shape)
 
     # ----- Time Evolution -----
 
@@ -891,366 +1887,618 @@ class State:
             m_imp_to_E_operator=self.m_imp_to_E_coeffs,
         )
 
+    @cached_property
+    def E_coeffs_to_E_df_matrix(self) -> np.ndarray:
+        """Operator extracting toroidal potential (E_df) from vector coefficients."""
+        N = self.solution_basis.index_length
+        kind = getattr(self.solution_basis, "kind", "")
+
+        if kind == "SH":
+            zeros = np.zeros((N, N))
+            eye = np.eye(N)
+            return asarray(np.hstack([zeros, eye]))
+
+        if kind in ("CS", "GRID"):
+            P = self.solution_basis.construct_projection_matrix(self.geometry.grid)
+            if P.ndim != 4 or P.shape[0] != 2 or P.shape[2] != 2:
+                raise ValueError(
+                    "Projection matrix must have canonical shape (2, n_coeffs, 2, n_grid), "
+                    f"got {getattr(P, 'shape', None)}."
+                )
+            # P shape: (2, N_coeffs, 2, N_grid). Toroidal block is P[1].
+            return asarray(P[1].reshape(N, 2 * P.shape[3]))
+
+        # Fallback: build by probing basis extraction
+        M = np.zeros((N, 2 * N))
+        for i in range(2 * N):
+            e_i = np.zeros(2 * N)
+            e_i[i] = 1.0
+            coeffs = e_i.reshape(2, N)
+            M[:, i] = asarray(self.solution_basis.get_toroidal_potential_coeffs(coeffs))
+        return asarray(M)
+
+    def get_induction_operator(self) -> "LinearMap":
+        """Get matrix-free induction operator (m_ind -> E_df).
+
+        Returns a LinearMap for matrix-free steady-state computation.
+        More efficient than building the dense matrix for large systems.
+        """
+        return self.poloidal_matrices.get_induction_operator(
+            problem=self.m_imp_problem,
+            solver=self.m_imp_solver,
+            preconditioner=self.m_imp_preconditioner,
+            E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
+            ih_constraint_scaling=self.ih_constraint_scaling,
+            connect_hemispheres=(self.connect_hemispheres and self.dynamics_mode != "full_induction"),
+            m_ind_to_E_operator=self.m_ind_to_E_coeffs,
+            m_imp_to_E_operator=self.m_imp_to_E_coeffs,
+        )
+
     # _build_m_ind_to_E_df_matrix refactored to PoloidalSystemMatrices.build_induction_matrix
 
     # _calculate_d_m_ind_dt refactored to PoloidalSystemMatrices.compute_rates
 
-    def evolve_m_ind(
+    def _apply_state_linear_operator(
+        self,
+        operator: Any,
+        state: np.ndarray,
+        output_shape: Optional[Tuple[int, ...]] = None,
+    ) -> np.ndarray:
+        """Apply a state-space linear operator to a flattened/stacked state."""
+        state_arr = asarray(state)
+        state_shape = tuple(state_arr.shape)
+        state_flat = state_arr.reshape(-1)
+
+        if hasattr(operator, "matvec"):
+            out_flat = asarray(operator.matvec(state_flat)).reshape(-1)
+        else:
+            op_arr = asarray(operator)
+            if op_arr.ndim == 4:
+                if state_arr.ndim != 2:
+                    raise ValueError(
+                        "4D coupled operator requires 2D state shaped (n_state, n_coeffs)."
+                    )
+                out_arr = asarray(
+                    xp.einsum("ijkl,kl->ij", op_arr, state_arr, optimize=True)
+                )
+                return out_arr.reshape(output_shape or state_shape)
+            out_flat = asarray(op_arr).reshape(state_flat.size, state_flat.size) @ state_flat
+
+        return asarray(out_flat).reshape(output_shape or state_shape)
+
+    def _evolve_linear_state(
+        self,
+        y: np.ndarray,
+        dt: float,
+        *,
+        linear_operator: Optional[Any] = None,
+        forcing: Optional[np.ndarray] = None,
+        rates_func: Optional[Callable[[np.ndarray, float], np.ndarray]] = None,
+        steady_state: Optional[np.ndarray] = None,
+        exponential_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> np.ndarray:
+        """Shared linear-state evolution for legacy and full-induction paths."""
+        y_arr = asarray(y)
+        y_shape = tuple(y_arr.shape)
+        forcing_arr = (
+            xp.zeros_like(y_arr)
+            if forcing is None
+            else asarray(forcing).reshape(y_shape)
+        )
+
+        if isinstance(self.poloidal_integrator, ExponentialIntegrator):
+            if linear_operator is None:
+                raise ValueError("Exponential integration requires linear_operator.")
+
+            n_total = int(y_arr.size)
+            if hasattr(linear_operator, "matvec"):
+                L_dense = self._densify_linear_operator(linear_operator, n_total)
+            else:
+                L_arr = asarray(linear_operator)
+                if L_arr.ndim == 4:
+                    L_dense = asarray(L_arr).reshape(n_total, n_total)
+                else:
+                    L_dense = asarray(L_arr).reshape(n_total, n_total)
+
+            step_kwargs: Dict[str, Any] = dict(exponential_kwargs or {})
+            forcing_flat = None
+            if forcing is not None:
+                forcing_flat = np.asarray(asarray(forcing_arr), dtype=float).reshape(n_total)
+            steady_state_flat = None
+            if steady_state is not None:
+                steady_state_flat = np.asarray(steady_state, dtype=float).reshape(n_total)
+            if forcing_flat is None and steady_state_flat is None:
+                raise ValueError(
+                    "Exponential integration requires either forcing or steady_state."
+                )
+            y_next_flat = self.poloidal_integrator.step(
+                y=np.asarray(y_arr, dtype=float).reshape(n_total),
+                dt=float(dt),
+                linear_operator=np.asarray(L_dense, dtype=float),
+                forcing=forcing_flat,
+                steady_state=steady_state_flat,
+                **step_kwargs,
+            )
+            return asarray(y_next_flat).reshape(y_shape)
+
+        if rates_func is None:
+            if linear_operator is None:
+                raise ValueError("Either rates_func or linear_operator must be provided.")
+
+            def default_rates_func(y_curr: np.ndarray, _t: float) -> np.ndarray:
+                y_curr_arr = asarray(y_curr).reshape(y_shape)
+                rates = self._apply_state_linear_operator(
+                    linear_operator,
+                    y_curr_arr,
+                    output_shape=y_shape,
+                )
+                return asarray(rates + forcing_arr)
+
+            rates = default_rates_func
+        else:
+            rates = rates_func
+
+        return asarray(
+            self.poloidal_integrator.step(
+                y=y_arr,
+                dt=dt,
+                rates_func=rates,
+            )
+        ).reshape(y_shape)
+
+    def _solve_linear_steady_state(
+        self,
+        *,
+        linear_operator: Any,
+        forcing: np.ndarray,
+        solution_shape: Tuple[int, ...],
+        solver: Optional[str] = None,
+        preconditioner: Optional[LinearMap] = None,
+        use_pinning: Optional[bool] = None,
+    ) -> np.ndarray:
+        """Solve a linear steady-state system `A x = -forcing` for arbitrary state shape."""
+        rhs = asarray(forcing).reshape(-1)
+        n_total = int(np.prod(solution_shape))
+
+        # Coupled (psi, m_ind) steady-state path with gauge elimination.
+        if (
+            len(solution_shape) == 2
+            and int(solution_shape[0]) == 2
+            and int(solution_shape[1]) == self.solution_basis.index_length
+        ):
+            if use_pinning is None:
+                use_pinning = self.apply_psi_gauge
+            if solver is None:
+                solver = self.solver_type
+
+            coupled_operator = linear_operator
+            if coupled_operator is None:
+                coupled_operator = self.get_coupled_operator_for_steady_state(
+                    solver=solver,
+                    use_pinning=use_pinning,
+                )
+            steady_solver = CoupledSteadyStateSolver(
+                n_scalar=self.solution_basis.index_length,
+                apply_m_ind_gauge=self.apply_m_ind_gauge,
+                preconditioner_type=self.preconditioner,
+                psi_gauge_row_builder=self._get_psi_gauge_row,
+                m_ind_gauge_row_builder=self._get_m_ind_gauge_row,
+                timed_solve=_timed_solve,
+            )
+            y_ss_flat = steady_solver.solve(
+                coupled_operator=coupled_operator,
+                forcing_flat=rhs,
+                solver=solver,
+                preconditioner=preconditioner,
+                use_pinning=bool(use_pinning),
+            )
+            return asarray(y_ss_flat).reshape(solution_shape)
+
+        # Single-state steady-state path (legacy m_ind).
+        if linear_operator is None:
+            raise ValueError("Single-state steady-state solve requires linear_operator.")
+
+        vec_b = -rhs
+        induction_obj = linear_operator
+        if not hasattr(induction_obj, "matvec"):
+            induction_obj = asarray(induction_obj).reshape(n_total, n_total)
+        induction_op = as_linear_map(induction_obj)
+
+        equality_operator = None
+        equality_rhs = None
+        if self.apply_m_ind_gauge:
+            gauge_row = np.asarray(self._get_m_ind_gauge_row(n_total), dtype=float)
+            if gauge_row.ndim == 1:
+                gauge_row = gauge_row.reshape(1, -1)
+            if gauge_row.ndim == 2 and gauge_row.shape[1] == n_total and gauge_row.shape[0] > 0:
+                equality_operator = gauge_row
+                equality_rhs = np.zeros(gauge_row.shape[0], dtype=float)
+
+        ls_problem = LeastSquaresProblem(
+            A=[induction_op],
+            solution_shape=solution_shape,
+            data_shapes=[solution_shape],
+        )
+        ls_solver = LeastSquaresSolver(
+            solver=(solver or "lsmr"),
+            tolerance=1e-10,
+        )
+        solve_kwargs: Dict[str, Any] = {
+            "preconditioner": preconditioner if equality_operator is None else None,
+            "maxiter": 5000,
+        }
+        if equality_operator is not None:
+            solve_kwargs["equality_operator"] = equality_operator
+            solve_kwargs["equality_rhs"] = equality_rhs
+
+        sol = _timed_solve(
+            "state.steady_state_single",
+            ls_solver,
+            ls_problem,
+            [vec_b],
+            **solve_kwargs,
+        )
+        return asarray(sol).reshape(solution_shape)
+
+    def build_coupled_forcing(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
+        """Build coupled forcing tensor ``K`` for ``[psi, m_ind]`` dynamics."""
+        scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
+        E_noind_field = self.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(
+            E_coeffs_noind
+        )
+        k1 = asarray(scale * E_noind_field)
+        if self.d_psi_dt is not None:
+            k0 = asarray(self.d_psi_dt)
+        else:
+            k0 = xp.zeros_like(k1)
+        return xp.stack([k0, k1])
+
+    def solve_steady_state_model_variables(
+        self,
+        E_coeffs_noind: np.ndarray,
+        *,
+        update_state: bool = True,
+    ) -> Tuple[Optional[np.ndarray], np.ndarray]:
+        """Compute steady-state initialization for current dynamics mode."""
+        N = self.solution_basis.index_length
+        if self.dynamics_mode == "full_induction":
+            K = self.build_coupled_forcing(E_coeffs_noind)
+            y_ss = self._solve_linear_steady_state(
+                linear_operator=None,
+                forcing=K,
+                solution_shape=(2, N),
+                solver=self.solver_type,
+                use_pinning=self.apply_psi_gauge,
+            )
+            psi = asarray(y_ss[0])
+            m_ind = asarray(y_ss[1])
+            if update_state:
+                self.psi = psi
+            return psi, m_ind
+
+        k_legacy = asarray(self.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind))
+        m_ss = self._solve_linear_steady_state(
+            linear_operator=self.m_ind_to_E_df_matrix,
+            forcing=k_legacy,
+            solution_shape=(N,),
+            solver="lsmr",
+        )
+        return None, asarray(m_ss)
+
+    def evolve_model_variables(
         self,
         m_ind: np.ndarray,
         dt: float,
         E_coeffs_noind: np.ndarray,
+        *,
         steady_state_m_ind: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Evolves the induced potential `m_ind` forward in time."""
-        
-        # Prepare closures for Integrator
-        def rates_func(y, t):
-             return self.poloidal_matrices.compute_rates(
-                 m_ind=y,
-                 t=t,
-                 E_coeffs_noind=E_coeffs_noind,
-                 induction_matrix=self.m_ind_to_E_df_matrix if self.integrator == "exponential" else None,
-                 m_ind_to_E_operator=self.m_ind_to_E_coeffs,
-                 problem=self.m_imp_problem,
-                 solver=self.m_imp_solver,
-                 preconditioner=self.m_imp_preconditioner,
-                 E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
-                 ih_constraint_scaling=self.ih_constraint_scaling,
-                 connect_hemispheres=(self.connect_hemispheres and self.dynamics_mode != "full_induction"),
-                 m_imp_to_E_operator=self.m_imp_to_E_coeffs,
-             )
+        psi: Optional[np.ndarray] = None,
+    ) -> Tuple[Optional[np.ndarray], np.ndarray]:
+        """Advance model variables by one time step.
 
-        # For Exponential Integrator, we need linear operator and steady state
-        # The linear operator L for d(m)/dt = L m + K is:
-        # L = Scale * M_ind_to_E_df
-        # We need to construct this.
-        linear_operator = None
-        if isinstance(self.poloidal_integrator, ExponentialIntegrator):
-             scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
-             # induction_matrix is cached property m_ind_to_E_df_matrix
-             # L = scale * induction_matrix
-             linear_operator = scale * self.m_ind_to_E_df_matrix
-             
-        # Call Integrator
-        return self.poloidal_integrator.step(
-             y=m_ind,
-             dt=dt,
-             rates_func=rates_func,
-             linear_operator=linear_operator,
-             steady_state=steady_state_m_ind
-        )
-
-    def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculate the steady-state induced potential.
-
-        Delegates to self.poloidal_matrices.steady_state_m_ind().
+        Returns ``(psi, m_ind)`` where ``psi`` is ``None`` for legacy mode.
         """
-        return self.poloidal_matrices.steady_state_m_ind(
-            E_coeffs_noind=asarray(E_coeffs_noind),
-            induction_matrix=self.m_ind_to_E_df_matrix
+        if self.dynamics_mode == "full_induction":
+            if psi is None:
+                if self.psi is None:
+                    self.psi = xp.zeros((self.solution_basis.index_length,))
+                psi = self.psi
+
+            y = xp.stack([asarray(psi), asarray(m_ind)])
+            K = self.build_coupled_forcing(E_coeffs_noind)
+            if isinstance(self.poloidal_integrator, ExponentialIntegrator):
+                use_pinning = self.apply_psi_gauge
+                N = self.solution_basis.index_length
+                m = 2 * N
+
+                # Dense expm on a (2N x 2N) matrix can require several matrix-sized
+                # work buffers; guard against host OOM before allocation.
+                avail_bytes = _available_memory_bytes()
+                if avail_bytes is not None:
+                    matrix_bytes = int(m) * int(m) * np.dtype(float).itemsize
+                    estimated_peak_bytes = int(8 * matrix_bytes)
+                    if estimated_peak_bytes > int(0.80 * avail_bytes):
+                        need_gib = estimated_peak_bytes / float(1024 ** 3)
+                        avail_gib = avail_bytes / float(1024 ** 3)
+                        raise MemoryError(
+                            "Coupled exponential step would likely exceed available memory: "
+                            f"need ~{need_gib:.2f} GiB, available ~{avail_gib:.2f} GiB. "
+                            "Reduce resolution or use a non-exponential integrator for this run."
+                        )
+
+                coupled_dynamics_operator = self.get_coupled_operator_for_time_integration(
+                    use_dense=True,
+                    use_pinning=use_pinning,
+                )
+                L_dense = np.asarray(
+                    self._densify_linear_operator(coupled_dynamics_operator, m),
+                    dtype=float,
+                ).reshape(m, m)
+
+                forcing_flat = np.asarray(K).reshape(m)
+                if self.induction_null_diagnostics:
+                    diag_dense = None
+                    if self._coupled_null_basis is None or self._coupled_null_basis.shape[0] != m:
+                        if m <= 2000:
+                            diag_dense = np.asarray(
+                                self._densify_linear_operator(coupled_dynamics_operator, m)
+                            )
+                        if diag_dense is not None:
+                            self._update_coupled_null_basis(np.asarray(diag_dense))
+                    self._check_forcing_null_projection(np.asarray(forcing_flat))
+
+                y_new = self._evolve_linear_state(
+                    y=np.asarray(y).reshape(m),
+                    dt=float(dt),
+                    linear_operator=L_dense,
+                    forcing=np.asarray(K).reshape(m),
+                    exponential_kwargs={
+                        "max_step_scale": 10.0,
+                        "max_substeps": 32768,
+                    },
+                ).reshape(2, N)
+            else:
+                coupled_operator = self.get_coupled_operator_for_time_integration(
+                    use_dense=self.dense_full_operators,
+                    use_pinning=self.apply_psi_gauge,
+                )
+                y_new = self._evolve_linear_state(
+                    y=y,
+                    dt=dt,
+                    linear_operator=coupled_operator,
+                    forcing=K,
+                )
+            psi_new = asarray(y_new[0])
+            m_ind_new = asarray(y_new[1])
+            self.psi = psi_new
+            return psi_new, m_ind_new
+
+        use_dense_rate_operator = bool(
+            self.dense_full_operators or isinstance(self.poloidal_integrator, ExponentialIntegrator)
         )
-
-    def steady_state_coupled(
-        self,
-        K: np.ndarray,
-        coupled_operator: Any = None,
-        solver: str = "lsmr",
-    ) -> np.ndarray:
-        """Calculate the steady-state for the coupled [psi, m_ind] system.
-
-        Solves L @ y_ss = -K for y_ss where L is the coupled induction operator.
-        Supports both dense tensor and matrix-free (LinearMap) operators.
-
-        Parameters
-        ----------
-        K : np.ndarray
-            Forcing tensor of shape (2, N) where K[0] is psi forcing
-            and K[1] is m_ind forcing.
-        coupled_operator : np.ndarray or LinearMap, optional
-            Coupled system operator. If None, uses self.coupled_induction_tensor.
-            Can be dense array of shape (2, N, 2, N) or (2N, 2N), or a LinearMap.
-        solver : str, optional
-            Solver for matrix-free case: "lsmr" or "cg". Default "lsmr".
-
-        Returns
-        -------
-        np.ndarray
-            Steady-state y_ss of shape (2, N).
-        """
-        N = self.solution_basis.index_length
-        K_flat = asarray(K).reshape(2 * N)
-
-        if coupled_operator is None:
-            # Default to matrix-free operator for steady-state (more efficient)
-            coupled_operator = self.get_coupled_induction_operator(matrix_free=True, solver=solver)
-
-        # Check if operator supports matrix-free operation
-        if hasattr(coupled_operator, "matvec"):
-            # Matrix-free path: Use iterative LeastSquaresSolver
-            coupled_op = as_linear_map(coupled_operator)
-
-            problem = LeastSquaresProblem(
-                A=[coupled_op],
-                solution_shape=(2 * N,),
-                data_shapes=[(2 * N,)],
+        forcing = None
+        rates_func: Optional[Callable[[np.ndarray, float], np.ndarray]]
+        if use_dense_rate_operator:
+            scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
+            linear_operator = scale * asarray(self.m_ind_to_E_df_matrix)
+            E_noind_field = self.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(
+                E_coeffs_noind
             )
-
-            ls_solver = LeastSquaresSolver(solver=solver, tolerance=1e-10)
-            y_ss_flat = asarray(ls_solver.solve(problem, [-K_flat], maxiter=5000))
-            return y_ss_flat.reshape(2, N)
-
-        # Dense path
-        L = asarray(coupled_operator)
-        if L.ndim == 4:
-            L_flat = L.reshape(2 * N, 2 * N)
+            forcing = asarray(scale * E_noind_field)
+            rates_func = None
         else:
-            L_flat = L
+            linear_operator = None
 
-        # Use lstsq for numerical stability
-        result = xp.linalg.lstsq(L_flat, -K_flat, rcond=1e-13)
-        return result[0].reshape(2, N)
+            def rates_func(y, t):
+                return self.poloidal_matrices.compute_rates(
+                    m_ind=y,
+                    t=t,
+                    E_coeffs_noind=E_coeffs_noind,
+                    induction_matrix=None,
+                    m_ind_to_E_operator=self.m_ind_to_E_coeffs,
+                    problem=self.m_imp_problem,
+                    solver=self.m_imp_solver,
+                    preconditioner=self.m_imp_preconditioner,
+                    E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
+                    ih_constraint_scaling=self.ih_constraint_scaling,
+                    connect_hemispheres=(
+                        self.connect_hemispheres and self.dynamics_mode != "full_induction"
+                    ),
+                    m_imp_to_E_operator=self.m_imp_to_E_coeffs,
+                )
+
+        if isinstance(self.poloidal_integrator, ExponentialIntegrator) and linear_operator is None:
+            scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
+            linear_operator = scale * self.m_ind_to_E_df_matrix
+
+        m_ind_new = self._evolve_linear_state(
+            y=asarray(m_ind),
+            dt=dt,
+            linear_operator=linear_operator,
+            forcing=forcing,
+            rates_func=rates_func,
+            steady_state=asarray(steady_state_m_ind) if steady_state_m_ind is not None else None,
+        )
+        m_ind_new = self._apply_m_ind_gauge_projection(m_ind_new)
+        return None, asarray(m_ind_new)
 
     # -------------------------------------------------------------------------
     # Coupled Exponential Integrator
     # -------------------------------------------------------------------------
 
     @cached_property
-    def coupled_induction_tensor(self) -> np.ndarray:
-        """Build the (2, N, 2, N) coupled system tensor for [psi; m_ind].
-        
-        The tensor L satisfies:
-            dy/dt = einsum('ijkl,kl->ij', L, y) + K
-        where y[0] = psi, y[1] = m_ind, and K is the forcing.
-        
-        Block structure:
-            L[0, :, 0, :] = L_psi_psi   (psi → d(psi)/dt)
-            L[0, :, 1, :] = L_psi_mind  (m_ind → d(psi)/dt)
-            L[1, :, 0, :] = L_mind_psi  (psi → d(m_ind)/dt)
-            L[1, :, 1, :] = L_mind_mind (m_ind → d(m_ind)/dt)
-        
-        Returns
-        -------
-        np.ndarray
-            Tensor of shape (2, N, 2, N).
-        """
-        from pynamit.simulation.geometry_utils import to_dense
-        
-        N = self.solution_basis.index_length
-        # Note: L will be constructed by stacking blocks to avoid in-place assignment (JAX support)
-        
-        # Get the psi → E operator (psi contributes like m_imp)
-        psi_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_imp", mode=None))
-        
-        # Get m_ind → E operator  
-        mind_to_E = to_dense(self.geometry.get_potential_to_E_operator("m_ind", mode=None))
-        
-        # Block (0,0): L_psi_psi: psi → d(psi)/dt
-        # Uses toroidal system chain: psi → E_psi → K → dt_jr → d(psi)/dt
-        L_psi_psi = asarray(self.toroidal_matrices.build_psi_dynamics_matrix(
-            psi_to_E_operator=psi_to_E,
-            m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-        ))
-        
-        # Block (0,1): L_psi_mind: m_ind → d(psi)/dt
-        # Uses: m_ind → E_mind → K → dt_jr → d(psi)/dt
-        L_psi_mind = asarray(self.toroidal_matrices.build_psi_dynamics_matrix(
-            psi_to_E_operator=mind_to_E,  # Note: using m_ind → E here
-            m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-        ))
-        
-        # Block (1,0): L_mind_psi: psi → d(m_ind)/dt
-        # psi contributes to E_psi which affects m_ind evolution
-        # For now, subtract zero (Explicit coupling, handled in K)
-        L_mind_psi = xp.zeros_like(L_psi_psi)
-        
-        # Block (1,1): L_mind_mind: m_ind → d(m_ind)/dt
-        # This is the induction_matrix scaled by (1/RI)
-        scale = self.poloidal_matrices.E_df_to_d_m_ind_dt  # scalar = 1/RI
-        L_mind_mind = scale * asarray(self.m_ind_to_E_df_matrix)
-        
-        # Assemble 4D tensor (2, N, 2, N) by stacking
-        # Row 0 (Output: psi) -> Stack inputs (psi, m_ind) along axis 1 -> (N, 2, N)
-        L_row0 = xp.stack([L_psi_psi, L_psi_mind], axis=1)
-        
-        # Row 1 (Output: m_ind) -> Stack inputs (psi, m_ind) along axis 1 -> (N, 2, N)
-        L_row1 = xp.stack([L_mind_psi, L_mind_mind], axis=1)
-        
-        # Stack Rows along axis 0 -> (2, N, 2, N)
-        L = xp.stack([L_row0, L_row1], axis=0)
+    def coupled_operator_api(self) -> CoupledOperatorAPI:
+        """Internal coupled-operator assembly/exposure helper."""
+        return CoupledOperatorAPI(self)
 
-        return L
+    def get_coupled_induction_tensor(self, use_pinning: Optional[bool] = None) -> np.ndarray:
+        """Build the coupled tensor ``L_coupled`` with shape ``(2, N, 2, N)``."""
+        return self.coupled_operator_api.get_coupled_induction_tensor(use_pinning=use_pinning)
+
+    @cached_property
+    def coupled_induction_tensor(self) -> np.ndarray:
+        """Default coupled induction tensor (delegates to get_coupled_induction_tensor)."""
+        return self.coupled_operator_api.get_coupled_induction_tensor(use_pinning=self.apply_psi_gauge)
+
+    @cached_property
+    def coupled_induction_operator_sparse(self) -> "LinearMap":
+        """Cached matrix-free coupled operator for non-exponential stepping."""
+        solver = self.solver_type if self.solver_type in ("lsmr", "cg") else "lsmr"
+        return self.coupled_operator_api.get_coupled_induction_operator(
+            matrix_free=True,
+            solver=solver,
+            use_pinning=self.apply_psi_gauge,
+        )
+
+    @cached_property
+    def coupled_induction_matrix_dense(self) -> np.ndarray:
+        """Cached dense coupled operator matrix with shape ``(2N, 2N)``."""
+        N = self.solution_basis.index_length
+        return asarray(self.coupled_induction_tensor).reshape(2 * N, 2 * N)
+
+    @cached_property
+    def coupled_induction_blocks_dense(self) -> Dict[str, np.ndarray]:
+        """Cached dense coupled blocks keyed by physical role."""
+        return self.coupled_operator_api.get_coupled_induction_blocks(
+            source="dense",
+            use_pinning=self.apply_psi_gauge,
+        )
+
+    def _densify_linear_operator(self, operator: Any, n_total: int) -> np.ndarray:
+        """Convert a linear operator to dense ``(2N, 2N)``."""
+        return self.coupled_operator_api._densify_linear_operator(operator, n_total)
+
+    def get_coupled_induction_matrix(
+        self,
+        source: Literal["dense", "sparse", "auto"] = "auto",
+        flatten: bool = True,
+        use_pinning: Optional[bool] = None,
+    ) -> np.ndarray:
+        """Expose coupled operator matrix in dense form."""
+        return self.coupled_operator_api.get_coupled_induction_matrix(
+            source=source,
+            flatten=flatten,
+            use_pinning=use_pinning,
+        )
+
+    def get_coupled_induction_blocks(
+        self,
+        source: Literal["dense", "sparse", "auto"] = "auto",
+        use_pinning: Optional[bool] = None,
+    ) -> Dict[str, np.ndarray]:
+        """Expose coupled block matrices keyed by physical role."""
+        return self.coupled_operator_api.get_coupled_induction_blocks(
+            source=source,
+            use_pinning=use_pinning,
+        )
+
+    def get_coupled_operator_for_steady_state(
+        self,
+        *,
+        solver: Optional[str] = None,
+        use_pinning: Optional[bool] = None,
+    ) -> Any:
+        """Return coupled operator used by steady-state coupled solve."""
+        return self.coupled_operator_api.get_coupled_operator_for_steady_state(
+            solver=solver,
+            use_pinning=use_pinning,
+        )
+
+    def get_coupled_operator_for_time_integration(
+        self,
+        *,
+        use_dense: Optional[bool] = None,
+        use_pinning: Optional[bool] = None,
+    ) -> Any:
+        """Return coupled operator used by non-exponential full-induction stepping."""
+        return self.coupled_operator_api.get_coupled_operator_for_time_integration(
+            use_dense=use_dense,
+            use_pinning=use_pinning,
+        )
+
+    def _get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
+        """Return dense projector used by `_project_to_hl_modes`."""
+        return self.coupled_operator_api.get_hl_projection_matrix(n_coeffs)
+
+    def get_m_imp_from_jr_matrix(self, input_basis: Optional[Any] = None) -> np.ndarray:
+        """Expose dense linear map from input `jr` coefficients to imposed `m_imp`."""
+        return self.coupled_operator_api.get_m_imp_from_jr_matrix(input_basis=input_basis)
+
+    def get_external_forcing_matrices(self, input_basis_jr: Optional[Any] = None) -> Dict[str, np.ndarray]:
+        """Expose dense forcing maps for coupled rates from `u` and `jr`."""
+        return self.coupled_operator_api.get_external_forcing_matrices(
+            input_basis_jr=input_basis_jr
+        )
 
     def get_coupled_induction_operator(
         self,
-        L_psi_psi: Any = None,
-        L_psi_mind: Any = None,
-        L_mind_psi: Any = None,
-        L_mind_mind: Any = None,
+        dtpsi_from_psi: Any = None,
+        dtpsi_from_mind: Any = None,
+        dmind_from_psi: Any = None,
+        dmind_from_mind: Any = None,
         matrix_free: bool = False,
         solver: str = "lsmr",
+        use_pinning: Optional[bool] = None,
     ) -> "LinearMap":
-        """Build a matrix-free coupled induction operator.
-
-        Creates a BlockCoupledOperator that computes the coupled system
-        dynamics without materializing the full (2N, 2N) matrix. This is
-        useful for large systems where memory is a concern.
-
-        The operator represents:
-            [[L_psi_psi,   L_psi_mind ],
-             [L_mind_psi,  L_mind_mind]]
-
-        Parameters
-        ----------
-        L_psi_psi : np.ndarray or LinearMap, optional
-            Block (0,0): psi → d(psi)/dt. If None, uses default from toroidal.
-        L_psi_mind : np.ndarray or LinearMap, optional
-            Block (0,1): m_ind → d(psi)/dt. If None, uses default from toroidal.
-        L_mind_psi : np.ndarray or LinearMap, optional
-            Block (1,0): psi → d(m_ind)/dt. If None, uses zeros.
-        L_mind_mind : np.ndarray or LinearMap, optional
-            Block (1,1): m_ind → d(m_ind)/dt. If None, uses induction matrix.
-        matrix_free : bool, optional
-            If True, build truly matrix-free operators using iterative solves.
-            If False (default), use dense matrices for the blocks.
-        solver : str, optional
-            Iterative solver for matrix-free mode: "lsmr" or "cg". Default "lsmr".
-
-        Returns
-        -------
-        LinearMap
-            A matrix-free LinearMap representing the coupled operator.
-        """
-        from pynamit.simulation.operators import BlockCoupledOperator
-        from pynamit.simulation.geometry_utils import to_dense
-
-        N = self.solution_basis.index_length
-
-        # Build default blocks if not provided
-        if L_psi_psi is None or L_psi_mind is None:
-            psi_to_E = self.geometry.get_potential_to_E_operator("m_imp", mode=None)
-            mind_to_E = self.geometry.get_potential_to_E_operator("m_ind", mode=None)
-
-            if not matrix_free:
-                # Dense mode: convert to dense matrices
-                psi_to_E = to_dense(psi_to_E)
-                mind_to_E = to_dense(mind_to_E)
-
-            if L_psi_psi is None:
-                if matrix_free:
-                    L_psi_psi = self.toroidal_matrices.get_psi_dynamics_operator(
-                        psi_to_E_operator=psi_to_E,
-                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr,
-                        solver=solver,
-                    )
-                else:
-                    L_psi_psi = self.toroidal_matrices.build_psi_dynamics_matrix(
-                        psi_to_E_operator=psi_to_E,
-                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-                    )
-
-            if L_psi_mind is None:
-                if matrix_free:
-                    L_psi_mind = self.toroidal_matrices.get_psi_dynamics_operator(
-                        psi_to_E_operator=mind_to_E,
-                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr,
-                        solver=solver,
-                    )
-                else:
-                    L_psi_mind = self.toroidal_matrices.build_psi_dynamics_matrix(
-                        psi_to_E_operator=mind_to_E,
-                        m_imp_to_jr_operator=self.geometry.m_imp_to_jr
-                    )
-
-        if L_mind_psi is None:
-            L_mind_psi = None  # Zero block
-
-        if L_mind_mind is None:
-            scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
-            L_mind_mind = scale * asarray(self.m_ind_to_E_df_matrix)
-
-        # Create block operator and convert to LinearMap
-        block_op = BlockCoupledOperator(
-            L_00=L_psi_psi,
-            L_01=L_psi_mind,
-            L_10=L_mind_psi,
-            L_11=L_mind_mind,
-            n=N,
+        """Build coupled operator for ``y=[psi, m_ind]`` dynamics."""
+        return self.coupled_operator_api.get_coupled_induction_operator(
+            dtpsi_from_psi=dtpsi_from_psi,
+            dtpsi_from_mind=dtpsi_from_mind,
+            dmind_from_psi=dmind_from_psi,
+            dmind_from_mind=dmind_from_mind,
+            matrix_free=matrix_free,
+            solver=solver,
+            use_pinning=use_pinning,
         )
 
-        return block_op.to_linear_map()
+    def _update_coupled_null_basis(self, L_flat: np.ndarray) -> None:
+        """Build/update cached near-null basis for coupled-operator diagnostics."""
+        if not self.induction_null_diagnostics:
+            return
+        m = L_flat.shape[0]
+        if self._coupled_null_basis is not None and self._coupled_null_basis.shape[0] == m:
+            return
 
-    def evolve_coupled_induction(
-        self,
-        y: np.ndarray,
-        dt: float,
-        K: np.ndarray,
-        steady_state_y: Optional[np.ndarray] = None,
-        coupled_operator: Any = None,
-        solver: str = "lsmr",
-    ) -> np.ndarray:
-        """Evolve [psi; m_ind] together using full coupled exponential integrator.
+        _, svals, vt = np.linalg.svd(np.asarray(L_flat), full_matrices=False)
+        if svals.size == 0:
+            self._coupled_null_basis = np.zeros((m, 0), dtype=float)
+            self._coupled_null_threshold = 0.0
+            return
 
-        Uses the exponential integrator formula with the full coupled system:
-            y_new = y_ss + expm(L * dt) @ (y - y_ss)
+        threshold = float(self.induction_null_svd_rtol) * float(svals[0])
+        mask = svals < threshold
+        basis = vt[mask, :].T if np.any(mask) else np.zeros((m, 0), dtype=vt.dtype)
 
-        Note:
-            Matrix operations (lstsq, expm) may dispatch to CPU (SciPy/NumPy)
-            even when running with JAX backend, as dense matrix exponential support
-            is hardware-specific.
+        self._coupled_null_basis = basis
+        self._coupled_null_threshold = threshold
+        self._coupled_null_warned = False
+        logger.info(
+            "Coupled null diagnostic: s_max=%.3e, s_min=%.3e, near_null=%d (rtol=%.1e).",
+            float(svals[0]),
+            float(svals[-1]),
+            int(mask.sum()),
+            float(self.induction_null_svd_rtol),
+        )
 
-        Parameters
-        ----------
-        y : np.ndarray
-            State tensor of shape (2, N) where y[0]=psi, y[1]=m_ind.
-        dt : float
-            Time step.
-        K : np.ndarray
-            Forcing tensor of shape (2, N).
-        steady_state_y : np.ndarray, optional
-            Steady state of shape (2, N). If None, computed from full system.
-        coupled_operator : np.ndarray or LinearMap, optional
-            Coupled system operator. If None, uses self.coupled_induction_tensor.
-            Can be dense or matrix-free.
-        solver : str, optional
-            Solver for matrix-free steady-state: "lsmr" or "cg". Default "lsmr".
+    def _check_forcing_null_projection(self, K_flat: np.ndarray) -> None:
+        """Warn when forcing projects strongly onto coupled near-null subspace."""
+        if not self.induction_null_diagnostics or self._coupled_null_basis is None:
+            return
+        V = self._coupled_null_basis
+        if V.shape[1] == 0:
+            return
 
-        Returns
-        -------
-        np.ndarray
-            Updated state tensor of shape (2, N).
-        """
-        from scipy.linalg import expm
+        k = np.asarray(K_flat).reshape(-1)
+        k_norm = np.linalg.norm(k)
+        if k_norm <= 0:
+            return
+        proj = V @ (V.T @ k)
+        ratio = float(np.linalg.norm(proj) / k_norm)
 
-        N = self.solution_basis.index_length
-
-        # Get full coupled system matrix L
-        if coupled_operator is None:
-            L = self.coupled_induction_tensor  # (2, N, 2, N)
-        else:
-            L = coupled_operator
-
-        # Flatten L for matrix exponential (requires dense for expm)
-        if hasattr(L, "to_dense"):
-            L_flat = L.to_dense().reshape(2 * N, 2 * N)
-        elif hasattr(L, "toarray"):
-            L_flat = L.toarray().reshape(2 * N, 2 * N)
-        else:
-            L_arr = asarray(L)
-            L_flat = L_arr.reshape(2 * N, 2 * N)
-
-        y_flat = asarray(y).reshape(2 * N)
-
-        # Compute combined steady state: L @ y_ss = -K
-        if steady_state_y is not None:
-            y_ss_flat = asarray(steady_state_y).reshape(2 * N)
-        else:
-            # Use steady_state_coupled with the same operator used for expm
-            # (pass L, not coupled_operator, since L is already resolved)
-            y_ss = self.steady_state_coupled(K, coupled_operator=L, solver=solver)
-            y_ss_flat = y_ss.reshape(2 * N)
-        
-        # Full coupled exponential step
-        exp_L_dt = expm(np.asarray(L_flat) * dt)
-        y_new_flat = y_ss_flat + exp_L_dt @ (y_flat - y_ss_flat)
-        return y_new_flat.reshape(2, N)
+        if ratio >= self.induction_null_warn_ratio and not self._coupled_null_warned:
+            logger.warning(
+                "Coupled forcing projects strongly onto near-null modes: ratio=%.3f (warn>=%.3f).",
+                ratio,
+                float(self.induction_null_warn_ratio),
+            )
+            self._coupled_null_warned = True

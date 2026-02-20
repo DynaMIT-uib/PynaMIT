@@ -10,7 +10,9 @@ poloidal induction uses a constrained least-squares formulation.
 
 from __future__ import annotations
 import logging
-from typing import Any, Optional, TYPE_CHECKING
+import os
+import time
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 import numpy as np
 from functools import cached_property
@@ -19,6 +21,7 @@ from pynamit.utils import to_numpy, asarray, xp, tensor_pinv
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.math.constants import mu0
 from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.poloidal_closure import PoloidalClosureProjector, RMCouplingOperators
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 from pynamit.utils import use_jax
@@ -35,15 +38,35 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _timed_solve(label: str, solver: Any, *args: Any, **kwargs: Any) -> np.ndarray:
+    """Optionally time least-squares solves when PYNAMIT_TIMING_SOLVES is set."""
+    if os.getenv("PYNAMIT_TIMING_SOLVES", "").strip() in ("", "0"):
+        return solver.solve(*args, **kwargs)
+    t0 = time.perf_counter()
+    out = solver.solve(*args, **kwargs)
+    dt = time.perf_counter() - t0
+    solver_name = getattr(solver, "solver", "unknown")
+    print(f"TIMING solve[{label}] ({solver_name}): {dt:.3f}s", flush=True)
+    return out
+
+
 class PoloidalSystemMatrices:
     """Assembles system matrices for Poloidal Induction.
 
     Unlike ToroidalSystemMatrices which solves L*x=K directly,
     poloidal induction uses a constrained least-squares formulation.
 
-    The poloidal potential m_imp relates to:
+    Note on terminology:
+    - The variable `m_imp` is the toroidal magnetic scalar (T), since
+      jr = (RI/mu0) * Laplacian(m_imp).
+    - This module name ("poloidal") refers to the electrostatic/current-system
+      solve, not the magnetic-scalar naming convention.
+
+    The imposed toroidal magnetic potential m_imp relates to:
     - Radial current: jr = (RI/mu0) * Laplacian(m_imp)
-    - E-field: E = -grad(m_imp)/mu0 + Tor(Ve) via PFAC coupling
+    - Pre-resistivity vector (JS-like):
+        J = -grad(m_imp)/mu0 + Tor(Ve) via PFAC coupling
+      (Ve is a magnetic poloidal potential; resistivity maps J -> E)
 
     Parameters
     ----------
@@ -77,6 +100,21 @@ class PoloidalSystemMatrices:
         self.RI = RI
         self._pfac = pfac_integrator
 
+    @cached_property
+    def _poloidal_closure_projector(self) -> PoloidalClosureProjector:
+        """Closure-basis projector for poloidal RM/PFAC operators."""
+        return PoloidalClosureProjector(
+            solution_basis=self.solution_basis,
+            closure_basis=self._pfac.basis,
+            grid=self.grid,
+            pfac_integrator=self._pfac,
+        )
+
+    @cached_property
+    def _rm_coupling_solution_operators(self) -> Optional[RMCouplingOperators]:
+        """RM coupling operators represented in solution coefficient space."""
+        return self._poloidal_closure_projector.rm_coupling_solution_operators
+
     # -------------------------------------------------------------------------
     # Core Operators (Laplacian-based)
     # -------------------------------------------------------------------------
@@ -85,7 +123,8 @@ class PoloidalSystemMatrices:
     def m_imp_to_jr(self) -> np.ndarray:
         """Operator mapping m_imp to radial current jr.
 
-        Physics: jr = (RI/mu0) * Laplacian(m_imp)
+        Physics: jr = (RI/mu0) * Laplacian(m_imp).
+        (m_imp is the toroidal magnetic scalar T.)
 
         Returns
         -------
@@ -98,7 +137,8 @@ class PoloidalSystemMatrices:
     def m_ind_to_Br(self) -> np.ndarray:
         """Operator mapping induced potential m_ind to radial field Br.
 
-        Physics: Br = -(RI^2) * Laplacian(m_ind)
+        Physics: Br = -(RI^2) * Laplacian(m_ind).
+        (m_ind is the poloidal magnetic scalar P.)
 
         Returns
         -------
@@ -121,16 +161,16 @@ class PoloidalSystemMatrices:
         return 1.0 / self.RI
 
     # -------------------------------------------------------------------------
-    # E-field Operators
+    # JS-like Operators (Pre-Resistivity)
     # -------------------------------------------------------------------------
 
     @cached_property
-    def m_imp_to_E_coeffs_poloidal(self) -> np.ndarray:
-        """Operator mapping m_imp to poloidal E-field coefficients.
+    def m_imp_to_JS_coeffs_poloidal(self) -> np.ndarray:
+        """Operator mapping m_imp to poloidal JS-like coefficients.
 
-        Physics: E_p = -grad(m_imp)/mu0
+        Physics: J_p = -grad(m_imp)/mu0
 
-        The poloidal part of E from imposed potential is simply
+        The poloidal JS-like component from imposed potential is simply
         a scaled identity in coefficient space.
 
         Returns
@@ -142,36 +182,67 @@ class PoloidalSystemMatrices:
         return (1.0 / mu0) * np.eye(L)
 
     @cached_property
-    def m_imp_to_E_coeffs_toroidal(self) -> np.ndarray:
-        """Operator mapping m_imp to toroidal E-field coefficients via PFAC.
+    def m_imp_to_JS_coeffs_toroidal(self) -> np.ndarray:
+        """Operator mapping m_imp to toroidal JS-like coefficients via PFAC.
 
-        Physics: E_t = Tor(Ve) where Ve is computed from T_to_Ve mapping.
+        Physics: Ve is a magnetic poloidal potential derived from PFAC,
+        contributing to the toroidal component of the JS-like vector.
 
         Returns
         -------
         np.ndarray
-            Shape (L, L) operator mapping m_imp to toroidal E component.
+            Shape (L, L) operator mapping m_imp to toroidal JS-like component.
         """
-        return self.T_to_Ve
+        return self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
 
     @cached_property
-    def m_imp_to_E_coeffs(self) -> np.ndarray:
-        """Combined operator mapping m_imp to full E-field VSH coefficients.
+    def m_imp_to_JS_coeffs(self) -> np.ndarray:
+        """Combined operator mapping m_imp to full JS-like VSH coefficients.
 
-        Returns stacked [poloidal; toroidal] operator.
+        Returns stacked [poloidal; toroidal] operator. This is the pre-resistivity
+        vector used by the conductivity operator to obtain E.
 
         Returns
         -------
         np.ndarray
-            Shape (2*L, L) operator mapping m_imp to [E_p; E_t] coefficients.
+            Shape (2*L, L) operator mapping m_imp to [J_p; J_t] coefficients.
         """
-        p_op = self.m_imp_to_E_coeffs_poloidal
-        t_op = self.m_imp_to_E_coeffs_toroidal
+        p_op = self.m_imp_to_JS_coeffs_poloidal
+        t_op = self.m_imp_to_JS_coeffs_toroidal
         return np.vstack([p_op, t_op])
 
     # -------------------------------------------------------------------------
     # Sheet Current Operators
     # -------------------------------------------------------------------------
+
+    def _apply_rm_poloidal_closure(self, t_to_ve: np.ndarray) -> np.ndarray:
+        """Apply RM shielding closure operator in solution coefficient space."""
+        if self._pfac.RM is None:
+            return t_to_ve
+
+        try:
+            return self._poloidal_closure_projector.apply_rm_closure(t_to_ve)
+        except ValueError:
+            logger.warning(
+                "Skipping RM poloidal closure: operator mismatch (%s vs %s).",
+                np.asarray(self._rm_coupling_solution_operators.roundtrip_inv).shape
+                if self._rm_coupling_solution_operators is not None
+                else None,
+                t_to_ve.shape,
+            )
+            return t_to_ve
+
+    def _apply_imposed_toroidal_poloidal_lock(self, t_to_ve: np.ndarray) -> np.ndarray:
+        """Apply RM closure for imposed toroidal source (m_imp) unconditionally."""
+        return self._apply_rm_poloidal_closure(t_to_ve)
+
+    def _apply_dynamic_toroidal_poloidal_lock(self, t_to_ve: np.ndarray) -> np.ndarray:
+        """Apply RM closure for dynamic toroidal source (psi) when enabled."""
+        if not self._pfac.magnetospheric_poloidal_lock:
+            return t_to_ve
+        if not self._pfac.lock_toroidal_source_channels:
+            return t_to_ve
+        return self._apply_rm_poloidal_closure(t_to_ve)
 
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
@@ -191,7 +262,8 @@ class PoloidalSystemMatrices:
         G_total = to_dense(G_grad).reshape(2, -1, self.solution_basis.index_length)
 
         # Add PFAC coupling: JS += G_Ve_to_JS @ T_to_Ve @ m_imp
-        JS_coupling = np.tensordot(self.G_Ve_to_JS, self.T_to_Ve, axes=([2], [0]))
+        T_to_Ve_eff = self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
+        JS_coupling = np.tensordot(self.G_Ve_to_JS, T_to_Ve_eff, axes=([2], [0]))
         G_total = G_total + JS_coupling
 
         return G_total
@@ -229,23 +301,24 @@ class PoloidalSystemMatrices:
             Shape (L, L) operator mapping T to Ve.
         """
         # The PFAC integrator returns an xr.DataArray; extract values
-        T_to_Ve_da = self._pfac.compute_T_to_Ve(self.G_Ve_to_JS_sh, self.grid)
+        T_to_Ve_da = self._pfac.compute_T_to_Ve(self.G_Ve_to_JS_closure, self.grid)
         return T_to_Ve_da.values
 
     @cached_property
-    def G_Ve_to_JS_sh(self) -> np.ndarray:
-        """Spectral (SH) version of Ve-to-JS operator for PFAC integration.
+    def G_Ve_to_JS_closure(self) -> np.ndarray:
+        """Closure-basis version of Ve-to-JS operator for PFAC integration.
 
         Returns
         -------
         np.ndarray
-            Shape (2, N_grid, L_sh) operator using spectral basis.
+            Shape (2, N_grid, L_closure) operator using PFAC closure basis.
         """
-        scaling_op = self.basis.get_potential_scaling_operator()
-        curl_op = as_linear_map(self.basis.get_curl_matrix(self.grid))
+        closure_basis = self._poloidal_closure_projector.closure_basis
+        scaling_op = closure_basis.get_potential_scaling_operator()
+        curl_op = as_linear_map(closure_basis.get_curl_matrix(self.grid))
 
         G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
-        return to_dense(G_lin).reshape(2, -1, self.basis.index_length)
+        return to_dense(G_lin).reshape(2, -1, closure_basis.index_length)
 
     # -------------------------------------------------------------------------
     # Projection Operators
@@ -290,6 +363,7 @@ class PoloidalSystemMatrices:
         ih_constraint_scaling: float = 1.0,
         regularization_lambda: float = 0.0,
         use_pinning: bool = False,
+        weighting: str = "none",
     ) -> "LeastSquaresProblem":
         """Build the least-squares problem for m_imp.
 
@@ -328,6 +402,7 @@ class PoloidalSystemMatrices:
 
         operators = []
         data_shapes = []
+        sqrt_weights = []
 
         # 1. Radial current constraint: jr_map @ m_imp_to_jr @ m_imp = jr_data
         op_apex = as_linear_map(jr_map_operator)
@@ -337,31 +412,43 @@ class PoloidalSystemMatrices:
         operators.append(op_jr)
         data_shapes.append((op_jr.shape[0],))
 
+        # Calculate weights for the jr constraint (Br-based weighting to handle equatorial singularity)
+        jr_weight = None
+        if weighting != "none":
+            br = to_numpy(self.b_field.vec.r).flatten()
+            if weighting == "quadratic":
+                jr_weight = np.abs(br)  # sqrt(Br^2) = |Br|
+            elif weighting == "linear":
+                jr_weight = np.sqrt(np.abs(br))  # sqrt(|Br|)
+            # Normalize to avoid scaling rows too far from other constraint magnitudes
+            if jr_weight is not None and np.max(jr_weight) > 0:
+                jr_weight = jr_weight / np.max(jr_weight)
+        sqrt_weights.append(jr_weight)
+
         # 2. E-field mapping constraint (interhemispheric)
         if connect_hemispheres and E_constraint_operator is not None:
             op_E = E_constraint_operator.with_scaling(ih_constraint_scaling)
             operators.append(op_E)
             data_shapes.append((op_E.shape[0],))
+            sqrt_weights.append(None)  # No weighting for E-field constraint
 
         # 3. Pinning Constraint
         if use_pinning:
-            # m_imp[0] = 0.
-            # Create a 1-row operator: [1, 0, 0, ...]
-            # We can use a sparse matrix for efficiency or a DenseLinearMap
-            # For a single row, dense is fine, or sparse.
             n = self.solution_basis.index_length
-            row = np.zeros((1, n))
-            row[0, 0] = 1.0 # Pin first element
-            # Scale constraint to be strictly enforced (high weight)
-            # Though standard formulation effectively weights it by 1 unless scaled.
-            # Pinning should be "exact", so let's weight it high? 
-            # Or just rely on it being the only definition for this mode.
-            # Given the null space, any non-zero weight works.
-            # Let's use a modest scaling to avoid bad conditioning in the other direction?
-            # Actually, standard weight is usually fine if row is normalized.
+            if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
+                row = np.asarray(
+                    self.solution_basis.get_scalar_gauge_constraint_matrix(
+                        n_coeff=n,
+                        mode="mean_zero",
+                    )
+                )
+            else:
+                row = np.zeros((1, n))
+                row[0, 0] = 1.0
             op_pin = as_linear_map(row)
             operators.append(op_pin)
-            data_shapes.append((1,))
+            data_shapes.append((op_pin.shape[0],))
+            sqrt_weights.append(None)  # No weighting for pinning constraint
 
         # 4. Tikhonov regularization
         reg_ops = []
@@ -376,6 +463,7 @@ class PoloidalSystemMatrices:
             A=operators,
             solution_shape=self.solution_basis.index_length,
             data_shapes=data_shapes,
+            sqrt_weights=sqrt_weights,
             regularization_matrices=reg_ops,
             regularization_weights=reg_weights,
         )
@@ -426,20 +514,12 @@ class PoloidalSystemMatrices:
 
         G = self.G_Ve_to_JS.copy()
 
-        # Add magnetospheric coupling if RM is defined
-        if self._pfac.RM is not None:
-            br_shift_sh, vi_shift_sh, den = self._pfac.get_coupling_factors()
-            G_coupling_sh = self.G_Ve_to_JS_sh * (br_shift_sh * vi_shift_sh / den)
-
-            # Handle basis transformation if needed
-            if self.solution_basis is not self.basis:
-                # Build adapter for hybrid basis
-                E_sh = to_dense(self.basis.get_evaluation_matrix(self.grid))
-                E_sol = to_dense(self.solution_basis.get_evaluation_matrix(self.grid))
-                input_adapter = tensor_pinv(E_sol, rtol=1e-12) @ E_sh
-                G = G + np.tensordot(G_coupling_sh, input_adapter, axes=([2], [0]))
-            else:
-                G = G + G_coupling_sh
+        # Add magnetospheric coupling if RM is defined and lock is enabled
+        if self._pfac.RM is not None and self._pfac.magnetospheric_poloidal_lock:
+            ops = self._rm_coupling_solution_operators
+            if ops is not None:
+                rm_feedback_op = np.asarray(ops.feedback)
+                G = G + np.tensordot(self.G_Ve_to_JS, rm_feedback_op, axes=([2], [0]))
 
         return G
 
@@ -454,8 +534,8 @@ class PoloidalSystemMatrices:
         E_map_constraint_operator: Optional[Any] = None,
         ih_constraint_scaling: float = 1.0,
         connect_hemispheres: bool = True,
-        m_ind_to_E_operator: Optional[Any] = None,
-        m_imp_to_E_operator: Optional[Any] = None,
+        m_ind_to_E_operator: Any = None,
+        m_imp_to_E_operator: Any = None,
     ) -> np.ndarray:
         """Construct the dense matrix for the induction operator (m_ind -> E_df).
 
@@ -465,16 +545,10 @@ class PoloidalSystemMatrices:
         n = self.solution_basis.index_length
         
         # 1. Get Direct Contribution (m_ind -> E_ind)
-        # Use injected operator (legacy/grid) or fallback to internal exact spectral logic
-        if m_ind_to_E_operator is not None:
-             m_ind_to_E = m_ind_to_E_operator
-        else:
-             m_ind_to_E = self.get_potential_to_E_operator("m_ind")
+        if m_ind_to_E_operator is None:
+            raise ValueError("m_ind_to_E_operator is required")
+        m_ind_to_E = m_ind_to_E_operator
         
-        if m_ind_to_E is None:
-             # Should not happen if physics is active
-             return xp.zeros((n, n))
-
         E_direct_dense = asarray(m_ind_to_E.to_dense()).reshape(2, n, n)
         
         # 2. Compute Imposed Feedback (Constraint Response)
@@ -483,17 +557,16 @@ class PoloidalSystemMatrices:
         rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
 
         if connect_hemispheres and E_map_constraint_operator is not None:
-            # Op is ConstraintOperator (Rank agnostic)
+            # Canonical path: ConstraintOperator with rank-4 tensor semantics.
             E_map_op = E_map_constraint_operator
             
             if hasattr(E_map_op, "apply"):
                  term = E_map_op.apply(E_direct_dense)
             else:
-                 E_map_op = asarray(E_map_op)
-                 if E_map_op.ndim == 4:
-                      term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2, 3], [0, 1]))
-                 else:
-                      term = -xp.tensordot(E_map_op, E_direct_dense, axes=([2], [0]))
+                 raise TypeError(
+                     "E_map_constraint_operator must provide an 'apply' method "
+                     "(ConstraintOperator)."
+                 )
             
             # Reshape b_E_block from (2, Mask, Batch) to (2*Mask, Batch)
             # This matches the flattening logic used for the LHS operator.
@@ -532,10 +605,7 @@ class PoloidalSystemMatrices:
             )
 
         # Map imposed potential response back to E-field coefficients
-        if m_imp_to_E_operator is not None:
-             m_imp_to_E = as_linear_map(m_imp_to_E_operator)
-        else:
-             m_imp_to_E = as_linear_map(self.m_imp_to_E_coeffs)
+        m_imp_to_E = as_linear_map(m_imp_to_E_operator)
         
         m_imp_flat = asarray(m_imp_block)
         E_imp_flat = m_imp_to_E.matmat(m_imp_flat)
@@ -548,8 +618,121 @@ class PoloidalSystemMatrices:
         curled_scenarios = self.solution_basis.get_toroidal_potential_coeffs(total_E)
         
         logger.info("Dense induction operator built.")
-        
+
         return asarray(curled_scenarios)
+
+    def get_induction_operator(
+        self,
+        problem: "LeastSquaresProblem",
+        solver: Any,
+        preconditioner: Optional[Any] = None,
+        E_map_constraint_operator: Optional[Any] = None,
+        ih_constraint_scaling: float = 1.0,
+        connect_hemispheres: bool = True,
+        m_ind_to_E_operator: Any = None,
+        m_imp_to_E_operator: Any = None,
+    ) -> "LinearMap":
+        """Get matrix-free induction operator (m_ind -> E_df).
+
+        Returns a LinearMap that computes the divergence-free E-field
+        contribution from m_ind without materializing the full dense matrix.
+        Each matvec application solves for the m_imp feedback.
+
+        Note: The adjoint (rmatvec) requires the dense matrix, which is
+        cached on first use. For truly matrix-free operation, use CG solver
+        which only needs matvec (via normal equations).
+
+        Parameters
+        ----------
+        problem : LeastSquaresProblem
+            The m_imp least-squares problem.
+        solver : LeastSquaresSolver
+            Solver for the m_imp problem.
+        preconditioner : optional
+            Preconditioner for the solver.
+        E_map_constraint_operator : optional
+            Operator for interhemispheric constraint.
+        ih_constraint_scaling : float
+            Scaling for interhemispheric constraint.
+        connect_hemispheres : bool
+            Whether to include hemisphere coupling.
+        m_ind_to_E_operator : Any
+            Operator mapping m_ind to E coefficients (required).
+        m_imp_to_E_operator : Any
+            Operator mapping m_imp to E coefficients (required).
+
+        Returns
+        -------
+        LinearMap
+            Matrix-free operator for m_ind -> E_df.
+        """
+        if m_ind_to_E_operator is None:
+            raise ValueError("m_ind_to_E_operator is required")
+        if m_imp_to_E_operator is None:
+            raise ValueError("m_imp_to_E_operator is required")
+        n = self.solution_basis.index_length
+
+        # Get the m_ind -> E operator
+        m_ind_to_E = as_linear_map(m_ind_to_E_operator)
+
+        # Cache for dense matrix (built lazily for rmatvec)
+        _cache = {"dense_matrix": None}
+
+        def _get_dense():
+            """Get or build dense matrix (cached)."""
+            if _cache["dense_matrix"] is None:
+                _cache["dense_matrix"] = self.build_induction_matrix(
+                    problem=problem,
+                    solver=solver,
+                    E_map_constraint_operator=E_map_constraint_operator,
+                    ih_constraint_scaling=ih_constraint_scaling,
+                    connect_hemispheres=connect_hemispheres,
+                    m_ind_to_E_operator=m_ind_to_E_operator,
+                    m_imp_to_E_operator=m_imp_to_E_operator,
+                )
+            return _cache["dense_matrix"]
+
+        def matvec(m_ind_vec):
+            """Compute E_df = induction_operator @ m_ind."""
+            m_ind_vec = asarray(m_ind_vec).flatten()
+
+            # 1. Direct E from m_ind
+            E_ind_coeffs = m_ind_to_E.matvec(m_ind_vec).reshape(2, -1)
+
+            # 2. Add feedback (m_imp) if coupled
+            if connect_hemispheres and problem is not None:
+                _, E_imp = self.solve_for_m_imp(
+                    E_direct_coeffs=E_ind_coeffs,
+                    problem=problem,
+                    solver=solver,
+                    preconditioner=preconditioner,
+                    E_map_constraint_operator=E_map_constraint_operator,
+                    ih_constraint_scaling=ih_constraint_scaling,
+                    connect_hemispheres=connect_hemispheres,
+                    m_imp_to_E_operator=m_imp_to_E_operator,
+                )
+                E_ind_coeffs = E_ind_coeffs + E_imp
+
+            # 3. Extract toroidal potential (E_df)
+            E_df = self.solution_basis.get_toroidal_potential_coeffs(E_ind_coeffs)
+            return asarray(E_df).flatten()
+
+        def rmatvec(y):
+            """Compute adjoint: induction_operator.T @ y.
+
+            For LSMR we need rmatvec. Uses cached dense matrix.
+            """
+            dense_matrix = _get_dense()
+            return asarray(dense_matrix.T @ asarray(y).flatten())
+
+        return LinearMap(
+            shape=(n, n),
+            dtype=np.float64,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _to_dense=_get_dense,
+            source=None,
+        )
 
     def solve_for_m_imp(
          self,
@@ -560,7 +743,7 @@ class PoloidalSystemMatrices:
          E_map_constraint_operator: Optional[Any] = None,
          ih_constraint_scaling: float = 1.0,
          connect_hemispheres: bool = True,
-         m_imp_to_E_operator: Optional[Any] = None,
+         m_imp_to_E_operator: Any = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
          """Solve for m_imp given E_direct (e.g. from m_ind + E_noind).
          
@@ -575,26 +758,31 @@ class PoloidalSystemMatrices:
             if hasattr(E_map_op, "apply"):
                  b_E = E_map_op.apply(E_direct_input)
             else:
-                 E_map_op = asarray(E_map_op)
-                 if E_map_op.ndim == 4:
-                      b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2, 3], [0, 1]))
-                 else:
-                      b_E = -xp.tensordot(E_map_op, E_direct_input, axes=([2], [0]))
+                 raise TypeError(
+                     "E_map_constraint_operator must provide an 'apply' method "
+                     "(ConstraintOperator)."
+                 )
             
             if len(rhs_entries) > 1:
                 rhs_entries[1] = ih_constraint_scaling * xp.reshape(b_E, (-1,))
                 
-         solution = solver.solve(problem=problem, rhs=rhs_entries, preconditioner=preconditioner)
+         solution = _timed_solve(
+             "poloidal.m_imp",
+             solver,
+             problem=problem,
+             rhs=rhs_entries,
+             preconditioner=preconditioner,
+         )
          if solution is None:
              m_imp = xp.zeros(self.solution_basis.index_length)
          else:
              m_imp = asarray(solution)
              
+         if m_imp_to_E_operator is None:
+             raise ValueError("m_imp_to_E_operator is required")
+
          # Compute E_imp
-         if m_imp_to_E_operator is not None:
-             m_imp_to_E = as_linear_map(m_imp_to_E_operator)
-         else:
-             m_imp_to_E = as_linear_map(self.m_imp_to_E_coeffs)
+         m_imp_to_E = as_linear_map(m_imp_to_E_operator)
              
          E_imp = m_imp_to_E.matvec(m_imp).reshape(2, -1)
          return m_imp, E_imp
@@ -605,7 +793,7 @@ class PoloidalSystemMatrices:
         t: float,
         E_coeffs_noind: np.ndarray,
         induction_matrix: Optional[np.ndarray] = None,
-        m_ind_to_E_operator: Optional[Any] = None,
+        m_ind_to_E_operator: Any = None,
         # Solvers for implicit Feedback
         problem: Optional[Any] = None,
         solver: Optional[Any] = None,
@@ -613,9 +801,13 @@ class PoloidalSystemMatrices:
         E_map_constraint_operator: Optional[Any] = None,
         ih_constraint_scaling: float = 1.0,
         connect_hemispheres: bool = True,
-        m_imp_to_E_operator: Optional[Any] = None,
+        m_imp_to_E_operator: Any = None,
     ) -> np.ndarray:
         """Calculate d(m_ind)/dt rates."""
+        if m_ind_to_E_operator is None:
+            raise ValueError("m_ind_to_E_operator is required")
+        if m_imp_to_E_operator is None:
+            raise ValueError("m_imp_to_E_operator is required")
         # E_df_total = E_df_ind + E_df_noind
         # If we have the dense induction matrix (m_ind -> E_df), use it directly.
         # Otherwise, compute E_ind via operator.
@@ -632,11 +824,7 @@ class PoloidalSystemMatrices:
         else:
              # Explicit construction: Must manually solve for m_imp feedback
              # 1. Direct E from m_ind
-             if m_ind_to_E_operator is not None:
-                  m_ind_to_E = m_ind_to_E_operator
-             else:
-                  m_ind_to_E = self.get_potential_to_E_operator("m_ind")
-             
+             m_ind_to_E = m_ind_to_E_operator
              E_ind_coeffs = m_ind_to_E.matvec(backend_m_ind).reshape(2, -1)
              
              # 2. Add Feedback (m_imp) if coupled
@@ -663,17 +851,22 @@ class PoloidalSystemMatrices:
 
 
 
-    def get_potential_to_E_operator(self, potential_type: str) -> "LinearMap":
-        """Get spectral (VSH) E-field operator for given potential type.
+    def get_potential_to_JS_operator(self, potential_type: str) -> "LinearMap":
+        """Get spectral (VSH) pre-resistivity operator for given potential type.
         
-        Copied/Moved from Geometry._get_E_operator_spectral to centralize logic.
+        This operator maps magnetic scalars to the JS-like vector coefficients.
+        The resistivity operator (eta) is applied afterward to obtain E.
         """
         L = self.solution_basis.index_length
 
-        if potential_type == "m_imp":
-             # Poloidal part: E_p = (1/mu0) * m_imp
+        if potential_type in ("m_imp", "psi"):
+             # Poloidal part from toroidal magnetic scalar source.
             p_op = (1.0 / mu0) * np.eye(L)
-            t_op = self.T_to_Ve
+            # PFAC coupling contributes to toroidal component of JS-like vector.
+            if potential_type == "m_imp":
+                t_op = self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
+            else:
+                t_op = self._apply_dynamic_toroidal_poloidal_lock(self.T_to_Ve)
             return as_linear_map(np.vstack([p_op, t_op]))
 
         elif potential_type == "m_ind":
@@ -681,21 +874,33 @@ class PoloidalSystemMatrices:
             scaling = self.solution_basis.get_potential_scaling_operator()
             t_mat = (-1.0 / mu0) * to_dense(scaling)
 
-            if self._pfac.RM is not None:
-                br, vi, den = self._pfac.get_coupling_factors()
-                coupling = br * vi / den
-                t_mat = t_mat * (1.0 + coupling)
+            if self._pfac.RM is not None and self._pfac.magnetospheric_poloidal_lock:
+                ops = self._rm_coupling_solution_operators
+                if ops is not None:
+                    rm_feedback_op = np.asarray(ops.feedback)
+                    t_mat = t_mat @ (np.eye(L) + rm_feedback_op)
 
             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
             
         elif potential_type == "Br":
-             # Br path is purely toroidal
-            br_shift, vi_shift, den = self._pfac.get_coupling_factors()
-            L_op = np.diag(to_dense(self.basis.get_laplacian_operator(self.RI)))
-            m_ind_to_Br = -(self.RI**2) * L_op
+            # Br path is purely toroidal, represented in solution coefficient space.
+            ops = self._rm_coupling_solution_operators
+            if ops is None:
+                raise ValueError("Br pathway requires RM coupling operators when RM is configured.")
 
-            scaling = self.basis.get_potential_scaling_operator()
-            t_mat = (-1.0 / mu0) * to_dense(scaling) * (-br_shift / den / m_ind_to_Br)[:, None]
+            rm_to_ri = np.asarray(ops.rm_to_ri)
+            roundtrip_inv = np.asarray(ops.roundtrip_inv)
+            if self._pfac.magnetospheric_poloidal_lock:
+                br_factor_op = -(rm_to_ri @ roundtrip_inv)
+            else:
+                br_factor_op = -rm_to_ri
+
+            m_ind_to_Br = np.asarray(to_dense(self.m_ind_to_Br))
+            rcond = max(float(np.finfo(float).eps * max(m_ind_to_Br.shape)), 1e-15)
+            m_ind_to_Br_inv = np.linalg.pinv(m_ind_to_Br, rcond=rcond)
+
+            scaling = np.asarray(to_dense(self.solution_basis.get_potential_scaling_operator()))
+            t_mat = (-1.0 / mu0) * (scaling @ br_factor_op @ m_ind_to_Br_inv)
             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
 
         raise ValueError(f"Unknown potential_type: {potential_type}")
@@ -751,11 +956,16 @@ class PoloidalSystemMatrices:
             # Use LSMR or CG for the steady-state inversion
             # Increase maxiter for ill-conditioned systems
             ls_solver = LeastSquaresSolver(solver=solver, tolerance=1e-10)
-            return asarray(ls_solver.solve(problem, [vec_b], maxiter=5000))
+            return asarray(_timed_solve(
+                "poloidal.steady_state_m_ind",
+                ls_solver,
+                problem,
+                [vec_b],
+                maxiter=5000,
+            ))
 
         # Dense path: Use lstsq for numerical stability
         L = asarray(induction_matrix)
         # rcond=1e-13 filters out singular values below this relative threshold
         result = xp.linalg.lstsq(L, vec_b, rcond=1e-13)
         return result[0]
-

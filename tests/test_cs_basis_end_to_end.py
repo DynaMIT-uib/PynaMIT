@@ -91,12 +91,12 @@ def test_cs_basis_state_end_to_end():
     # After refactor, G_Ve_to_JS uses solution_basis (grid-native)
     assert state.geometry.G_Ve_to_JS.shape == (2, cs_basis.size, cs_basis.size)
     
-    # Verify Geometry initialized with correct matrix operators
-    assert state.geometry.m_imp_to_jr.shape == (cs_basis.size, cs_basis.size)
-    assert state.geometry.m_imp_to_jr.ndim == 2 # Should be matrix
+    # Verify Poloidal matrices initialized with correct operator
+    assert state.poloidal_matrices.m_imp_to_jr.shape == (cs_basis.size, cs_basis.size)
+    assert state.poloidal_matrices.m_imp_to_jr.ndim == 2  # Should be matrix
     
     # Verify m_imp_problem construction
-    # It accesses state.geometry.m_imp_to_jr
+    # It accesses state.poloidal_matrices.m_imp_to_jr
     problem = state.m_imp_problem
     assert problem.solution_size == cs_basis.size
     
@@ -141,7 +141,7 @@ def test_cs_basis_state_end_to_end():
 
     # Check solver residual: A x - b
     # Note: Use the solved m_imp and the operator A used by the state
-    A = state.geometry.m_imp_to_jr
+    A = state.poloidal_matrices.m_imp_to_jr
     b = vals_jr
     
     # Calculate A @ m_imp

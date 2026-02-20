@@ -235,6 +235,10 @@ class SHBasis(Basis):
     def minimum_phi_sampling(self, value):
         self._minimum_phi_sampling = value
 
+    def scalar_fields_are_mean_free_by_construction(self) -> bool:
+        """Return True when monopole is excluded from scalar coefficient space."""
+        return self.Nmin >= 1
+
     @cached_property
     def schmidt_factors(self) -> np.ndarray:
         """Return Schmidt quasi-normalization factors."""
@@ -566,6 +570,6 @@ class SHBasis(Basis):
         G_rxgrad = np.array([G_ph, -G_th])
         G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
 
-        pinv = tensor_pinv(G_helmholtz, n_leading_flattened=2)
-        shape = pinv.shape
-        return pinv.reshape(shape[0] * shape[1], shape[2] * shape[3])
+        # Return canonical Helmholtz analysis tensor:
+        # (potential_type, coeff_index, vector_component, grid_index).
+        return tensor_pinv(G_helmholtz, n_leading_flattened=2)

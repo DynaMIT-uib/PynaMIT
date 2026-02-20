@@ -48,7 +48,14 @@ class PFACIntegrator:
         Radial steps for FAC integration.
     ignore_PFAC : bool
         If True, return zero operator (radial field approximation).
+    magnetospheric_poloidal_lock : bool
+        If True, include RM shielding-style coupling between imposed Br and
+        induced m_ind pathways. If False, keep those pathways superposed but uncoupled.
+    lock_toroidal_source_channels : bool
+        If True, apply the RM poloidal lock to toroidal-source channels
+        (m_imp/psi PFAC branch) in addition to m_ind/Br pathways.
     """
+    _T_TO_VE_CACHE: dict[tuple[Any, ...], np.ndarray] = {}
 
     def __init__(
         self,
@@ -59,6 +66,8 @@ class PFACIntegrator:
         RM: Optional[float],
         FAC_integration_steps: Any,
         ignore_PFAC: bool = False,
+        magnetospheric_poloidal_lock: bool = True,
+        lock_toroidal_source_channels: bool = False,
     ) -> None:
         self.basis = basis
         self.solution_basis = solution_basis
@@ -67,18 +76,21 @@ class PFACIntegrator:
         self.RM = RM
         self.FAC_integration_steps = FAC_integration_steps
         self.ignore_PFAC = ignore_PFAC
+        self.magnetospheric_poloidal_lock = bool(magnetospheric_poloidal_lock)
+        self.lock_toroidal_source_channels = bool(lock_toroidal_source_channels)
 
     def get_coupling_factors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute magnetospheric coupling factors.
 
         Returns
         -------
-        br_shift : ndarray
-            Diagonal of external radial shift operator (RM -> RI).
-        vi_shift : ndarray
-            Diagonal of internal radial shift operator (RI -> RM).
-        den : ndarray
-            Resonance denominator (1 - br*vi).
+        br_rm_to_ri_shift : ndarray
+            Diagonal radial shift operator mapping RM response to RI.
+        br_ri_to_rm_shift : ndarray
+            Diagonal radial shift operator mapping RI response to RM.
+        rm_roundtrip_denominator : ndarray
+            Closure denominator ``1 - br_rm_to_ri_shift * br_ri_to_rm_shift``.
+            The locked transfer factor is ``1 / rm_roundtrip_denominator``.
 
         Raises
         ------
@@ -88,14 +100,19 @@ class PFACIntegrator:
         if self.RM is None:
             raise ValueError("Cannot compute coupling factors without RM.")
 
-        br_shift = get_radial_shift_diagonal(self.basis, self.RM, self.RI, kind="external")
-        vi_shift = get_radial_shift_diagonal(self.basis, self.RI, self.RM, kind="internal")
-        den = 1.0 - br_shift * vi_shift
-        return br_shift, vi_shift, den
+        br_rm_to_ri_shift = get_radial_shift_diagonal(
+            self.basis, self.RM, self.RI, kind="external"
+        )
+        br_ri_to_rm_shift = get_radial_shift_diagonal(
+            self.basis, self.RI, self.RM, kind="internal"
+        )
+        rm_roundtrip = br_rm_to_ri_shift * br_ri_to_rm_shift
+        rm_roundtrip_denominator = 1.0 - rm_roundtrip
+        return br_rm_to_ri_shift, br_ri_to_rm_shift, rm_roundtrip_denominator
 
     def compute_T_to_Ve(
         self,
-        G_Ve_to_JS_sh: np.ndarray,
+        G_Ve_to_JS_closure: np.ndarray,
         grid: Grid,
     ) -> xr.DataArray:
         """Construct the T_to_Ve operator by integrating radially.
@@ -111,8 +128,8 @@ class PFACIntegrator:
 
         Parameters
         ----------
-        G_Ve_to_JS_sh : np.ndarray
-            Spectral induction operator (SH basis).
+        G_Ve_to_JS_closure : np.ndarray
+            Closure-basis induction operator used for PFAC integration.
         grid : Grid
             The spatial grid for evaluation.
 
@@ -123,24 +140,56 @@ class PFACIntegrator:
         """
         n_sol = self.solution_basis.index_length
         n_sh = self.basis.index_length
-        T_to_Ve = xr.DataArray(
-            np.zeros((n_sol, n_sol)),
-            dims=("current_pot", "field_pot")
-        )
+        T_to_Ve = xr.DataArray(np.zeros((n_sol, n_sol)), dims=("current_pot", "field_pot"))
 
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
             return T_to_Ve
 
+        fac_steps = np.asarray(self.FAC_integration_steps, dtype=float)
+        fac_steps_key = tuple(np.round(fac_steps, 6).tolist())
+        cache_key = (
+            getattr(self.basis, "kind", None),
+            int(getattr(self.basis, "index_length", -1)),
+            int(getattr(self.basis, "Nmax", -1)),
+            int(getattr(self.basis, "Mmax", -1)),
+            getattr(self.solution_basis, "kind", None),
+            int(getattr(self.solution_basis, "index_length", -1)),
+            int(getattr(self.solution_basis, "N", -1)),
+            int(getattr(grid, "hash", id(grid))),
+            float(self.RI),
+            float(self.RM) if self.RM is not None else None,
+            getattr(self.mainfield, "kind", None),
+            int(getattr(self.mainfield, "epoch", 0)),
+            float(getattr(self.mainfield, "B0", 0.0) or 0.0),
+            fac_steps_key,
+        )
+        cached = PFACIntegrator._T_TO_VE_CACHE.get(cache_key)
+        if cached is not None:
+            return xr.DataArray(cached.copy(), dims=("current_pot", "field_pot"))
+
         # Radial steps
-        rk_steps = np.asarray(self.FAC_integration_steps)
+        rk_steps = fac_steps
         Delta_k = np.diff(rk_steps)
         rks = rk_steps[:-1] + 0.5 * Delta_k
 
         # Integration backbone (spectral space)
-        G_inv_sh = tensor_pinv(G_Ve_to_JS_sh, n_leading_flattened=2, rtol=1e-12).reshape(n_sh, -1)
+        G_inv_sh = tensor_pinv(G_Ve_to_JS_closure, n_leading_flattened=2, rtol=1e-12).reshape(n_sh, -1)
 
-        # Source operator factor: RI/mu0 * Laplacian
-        m_imp_to_jr_sh_op = (self.RI / mu0) * to_dense(self.basis.get_laplacian_operator(self.RI))
+        # Source operator factor in solution-basis coefficients: RI/mu0 * Laplacian
+        # (built once and reused for all radial quadrature steps).
+        L_sol = to_dense(self.solution_basis.get_laplacian_operator(self.RI))
+        m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
+        if getattr(self.solution_basis, "kind", "") in ("CS", "GRID"):
+            if hasattr(self.solution_basis, "get_mean_zero_projector"):
+                try:
+                    P_sol = np.asarray(
+                        self.solution_basis.get_mean_zero_projector(n_coeff=n_sol),
+                        dtype=float,
+                    )
+                    if P_sol.shape == (n_sol, n_sol):
+                        m_imp_to_jr_sol_op = m_imp_to_jr_sol_op @ P_sol
+                except Exception:
+                    pass
 
         # Is this a pure spectral simulation?
         is_pure_sh = (self.solution_basis is self.basis or self.solution_basis.kind == "SH")
@@ -150,7 +199,7 @@ class PFACIntegrator:
 
         for i, rk in enumerate(rks):
             step_mat = self._compute_integration_step(
-                rk, grid, G_inv_sh, m_imp_to_jr_sh_op, n_sol, n_sh
+                rk, grid, G_inv_sh, m_imp_to_jr_sol_op, n_sol, n_sh
             )
             T_accum += Delta_k[i] * step_mat
 
@@ -164,6 +213,19 @@ class PFACIntegrator:
             P_sol = tensor_pinv(E_sol, rtol=1e-12)
             T_to_Ve.values = (P_sol @ E_sh) @ T_accum
 
+        if getattr(self.solution_basis, "kind", "") in ("CS", "GRID"):
+            if hasattr(self.solution_basis, "get_mean_zero_projector"):
+                try:
+                    P_g = np.asarray(
+                        self.solution_basis.get_mean_zero_projector(n_coeff=n_sol),
+                        dtype=float,
+                    )
+                    if P_g.shape == (n_sol, n_sol):
+                        T_to_Ve.values = P_g @ T_to_Ve.values
+                except Exception:
+                    pass
+
+        PFACIntegrator._T_TO_VE_CACHE[cache_key] = T_to_Ve.values.copy()
         return T_to_Ve
 
     def _compute_integration_step(
@@ -171,7 +233,7 @@ class PFACIntegrator:
         rk: float,
         grid: Grid,
         G_inv_sh: np.ndarray,
-        m_imp_to_jr_sh_op: np.ndarray,
+        m_imp_to_jr_sol_op: np.ndarray,
         n_sol: int,
         n_sh: int,
     ) -> np.ndarray:
@@ -185,7 +247,7 @@ class PFACIntegrator:
             Spatial grid.
         G_inv_sh : np.ndarray
             Inverse of spectral induction operator.
-        m_imp_to_jr_sh_op : np.ndarray
+        m_imp_to_jr_sol_op : np.ndarray
             Source operator (Laplacian scaled).
         n_sol : int
             Solution basis size.
@@ -208,10 +270,6 @@ class PFACIntegrator:
         # Footprint evaluation of the driving potential (m_imp)
         M_source = to_dense(self.solution_basis.get_evaluation_matrix(m_grid))
 
-        # Laplacian on solution basis
-        L_sol = to_dense(self.solution_basis.get_laplacian_operator(self.RI))
-        m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
-
         # Source term mapping: m_imp_sol -> jr_grid -> JS_grid(rk)
         m_imp_to_JS_rk = np.einsum(
             "ij,jk->ijk",
@@ -233,12 +291,13 @@ class PFACIntegrator:
         else:
             factor_vec = -1.0 * np.ones(n_sh)
 
-        # Ve_coeffs += Prop(row) * G_inv * JS_grid * Factor(col)
+        # Ve_coeffs += diag(Prop * Factor) @ (G_inv @ JS_grid)
+        # Both Prop and Factor live in closure (SH) mode space, i.e. row scaling.
         step_mat = G_inv_sh @ m_imp_to_JS_rk
         step_mat = prop_vec[:, None] * step_mat
 
         if self.RM is not None:
-            step_mat = step_mat * factor_vec
+            step_mat = step_mat * factor_vec[:, None]
         else:
             step_mat = step_mat * -1.0
 

@@ -119,6 +119,14 @@ class Basis(ABC):
         """Return a basis extended to include lower-order terms if applicable."""
         pass
 
+    def scalar_fields_are_mean_free_by_construction(self) -> bool:
+        """Whether scalar coefficient spaces exclude the monopole by construction.
+
+        When this is ``True``, scalar gauge rows for mean/pinning are typically
+        unnecessary for those scalar fields.
+        """
+        return False
+
 
     @abstractmethod
     def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
@@ -258,7 +266,7 @@ class Basis(ABC):
         Returns
         -------
         matrix : array-like
-             Shape (2, N_grid, 2*N_coeffs) or similar.
+            Canonical Helmholtz tensor with shape ``(2, N_grid, 2, N_coeffs)``.
         """
         # Default: Stack [-Grad, Curl(T r)]
         # get_gradient_matrix returns Grad.
@@ -466,7 +474,21 @@ class Basis(ABC):
                 )
             solver = self._scalar_solvers[solver_type]
             problem = self.get_least_squares_problem(grid, weights, reg_lambda)
-            
+
+        # Basis-specific gauge constraints (e.g., CS Helmholtz constant-mode nulls).
+        if helmholtz and hasattr(self, "get_helmholtz_gauge_constraint_matrix"):
+            C = np.asarray(self.get_helmholtz_gauge_constraint_matrix())
+            if C.ndim == 1:
+                C = C.reshape(1, -1)
+            if C.ndim == 2 and C.shape[0] > 0:
+                return solver.solve(
+                    problem=problem,
+                    rhs=[values],
+                    equality_operator=C,
+                    equality_rhs=np.zeros(C.shape[0], dtype=C.dtype),
+                    elimination_rcond=pinv_rtol,
+                )
+
         return solver.solve(problem=problem, rhs=[values])
 
     def basis_to_grid(

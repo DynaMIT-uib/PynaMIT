@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+from pynamit.simulation.geometry_utils import canonicalize_vector_basis_matrix
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ConstraintOperator:
-    """Encapsulates the constraint tensor logic to abstract rank differences."""
+    """Applies canonical interhemispheric constraint tensors."""
     tensor: Any
 
     def __init__(self, tensor: Any):
@@ -37,58 +38,24 @@ class ConstraintOperator:
     def apply(self, coeffs: np.ndarray) -> np.ndarray:
         """Apply the operator to input coefficients."""
         from pynamit.utils import xp
-        
-
 
         # Ensure tensor is compatible with backend (e.g. JAX)
         t_in = xp.asarray(self.tensor)
         coeffs = xp.asarray(coeffs)
-        
-        # E_map_op: (2, Mask, [PolTor], L) or (2, Mask, L)
-        # coeffs: (N) or (N, Batch)
-        # N = 2*L for SH, or L for CS (usually)
-        
-        if t_in.ndim == 4:
-            # SH: (2, Mask, 2, L) -> Contract dims 2,3
-            # Input must be shaped (2, L) or (2, L, Batch)
-            
-            # If flat input (N) or (N, Batch), reshape to (2, L, ...)
-            if coeffs.ndim == 1:
-                # (2*L) -> (2, L)
-                coeffs = coeffs.reshape(2, -1)
-            elif coeffs.ndim == 2 and coeffs.shape[0] != 2:
-                # (2*L, Batch) -> (2, L, Batch)
-                # Note: If coeffs is naturally (2, L), shape[0]==2.
-                # If N=2, ambiguity exists, but L=1 is rare.
-                coeffs = coeffs.reshape(2, -1, coeffs.shape[1])
-                
-            return -xp.tensordot(t_in, coeffs, axes=([2, 3], [0, 1]))
 
+        # Canonical constraint tensor: (2, n_mask, 2, n_coeffs).
+        if t_in.ndim != 4:
+            raise ValueError(
+                f"Constraint tensor must be rank-4 canonical (2, n_mask, 2, n_coeffs), got {t_in.shape}."
+            )
 
+        # Input can be (2*n_coeffs,), (2*n_coeffs, batch), (2, n_coeffs), or (2, n_coeffs, batch).
+        if coeffs.ndim == 1:
+            coeffs = coeffs.reshape(2, -1)
+        elif coeffs.ndim == 2 and coeffs.shape[0] != 2:
+            coeffs = coeffs.reshape(2, -1, coeffs.shape[1])
 
-        else:
-            # CS: (2, Mask, N) -> Contract dim 2
-            # Input must be (N) or (N, Batch)
-            
-            # Use reshape to flatten stacked inputs if necessary (e.g. from state.py logic)
-            # If coeffs is (2, L, Batch), reshape to (2*L, Batch)
-            
-
-
-
-            if coeffs.ndim == 3 and coeffs.shape[0] == 2:
-                # (2, L, Batch) -> (2*L, Batch)
-                coeffs = coeffs.reshape(-1, coeffs.shape[2])
-            elif coeffs.ndim == 2 and coeffs.shape[0] == 2:
-                # (2, L) -> (2*L)
-                coeffs = coeffs.reshape(-1)
-            
-
-            # tensordot axes=([2], [0]) handles both (N) and (N, Batch) correctly
-
-            # tensordot axes=([2], [0]) handles both (N) and (N, Batch) correctly
-            # because dim 0 of coeffs matches dim 2 of tensor.
-            return -xp.tensordot(t_in, coeffs, axes=([2], [0]))
+        return -xp.tensordot(t_in, coeffs, axes=([2, 3], [0, 1]))
 
 
 # Register ConstraintOperator as a JAX PyTree node if JAX is available
@@ -112,6 +79,10 @@ class ConstraintMappings:
         Operator mapping radial current to apex current (spectral basis).
     jr_map_sim : np.ndarray
         Operator mapping radial current to apex current (simulation basis).
+    jr_map_apex_spectral : np.ndarray
+        Apex-current operator before LL conjugate-mismatch subtraction (spectral basis).
+    jr_map_apex_sim : np.ndarray
+        Apex-current operator before LL conjugate-mismatch subtraction (simulation basis).
     E_coeffs_to_E_apex_ll_diff : ConstraintOperator or None
         E-field difference operator for low-latitude interhemispheric constraint.
     ll_mask : np.ndarray
@@ -120,6 +91,8 @@ class ConstraintMappings:
 
     jr_map_spectral: np.ndarray
     jr_map_sim: np.ndarray
+    jr_map_apex_spectral: np.ndarray
+    jr_map_apex_sim: np.ndarray
     E_coeffs_to_E_apex_ll_diff: Optional[ConstraintOperator]
     ll_mask: np.ndarray
 
@@ -363,41 +336,21 @@ class ApexMapper:
         jr_op = self.basis.get_scaled_matrix(grid, radial_to_apex)
 
         # E_coeffs_to_E_apex
-        # E_coeffs_to_E_apex
-        # Robust construction:
         # horizontal_to_apex: (2, 2, N_grid) [i, j, k]
-        # vector_basis: (Comp, Spatial..., Coeffs)
-        # We need (Comp, N_grid, Coeffs) [j, k, l]
-        
-
-
-        G_raw = self.basis.get_vector_basis_matrix(grid)
-        if isinstance(G_raw, tuple): # Some bases return tuple
-             G_raw = np.array(G_raw)
-        
-        # Determine contraction string based on basis rank
-        # SHBasis: (Comp, Grid, PolTor, Coeffs) -> Rank 4
-        # CSBasis: (Comp, Grid, Coeffs) -> Rank 3
-        
-        if G_raw.ndim == 4:
-            einsum_str = "ijk,jkpq->ikpq"
-            G_in = G_raw
-        else:
-            einsum_str = "ijk,jkm->ikm"
-            G_in = G_raw
-
-        # Handle Component Dimension mismatch (legacy/robustness)
-        # horizontal_to_apex is (2, 2, N). Input dim 2 (theta, phi).
-        # G_in dim 0 is components. If 3 (r, th, ph), slice to 2.
-        if G_in.shape[0] == 3 and horizontal_to_apex.shape[1] == 2:
-             G_in = G_in[1:]
-
-        E_op = np.einsum(
-            einsum_str,
-            horizontal_to_apex,
-            G_in,
-            optimize=True,
+        # vector_basis: canonical (Comp, N_grid, PotentialType, Coeffs) [j, k, p, q]
+        G_in = canonicalize_vector_basis_matrix(
+            self.basis.get_vector_basis_matrix(grid),
+            basis_index_length=self.basis.index_length,
         )
+
+        if G_in.shape[0] != horizontal_to_apex.shape[1]:
+            raise ValueError(
+                "Apex mapping component mismatch: "
+                f"vector basis has {G_in.shape[0]} components, "
+                f"apex map expects {horizontal_to_apex.shape[1]}."
+            )
+
+        E_op = np.einsum("ijk,jkpq->ikpq", horizontal_to_apex, G_in, optimize=True)
         return jr_op, E_op
 
     def build_constraint_mappings(
@@ -433,6 +386,13 @@ class ApexMapper:
         """
         # Main Mapping (always needed for simulation physics)
         jr_map_spectral, E_coeffs_to_E_apex = self.create_apex_operators(b_field, grid)
+
+        # Preserve non-mismatch apex operator for concentration-mode splitting.
+        import scipy.sparse
+        if scipy.sparse.issparse(jr_map_spectral):
+            jr_map_apex_spectral = jr_map_spectral.copy()
+        else:
+            jr_map_apex_spectral = np.ascontiguousarray(np.array(jr_map_spectral, copy=True))
         
         # Initialize constraint container
         E_coeffs_to_E_apex_ll_diff = None
@@ -529,8 +489,7 @@ class ApexMapper:
                 # Modify jr_map_spectral on simulation grid (Legacy behavior maintained for Physics Map)
                 if cp_grid is not None and cp_b_field is not None:
                      jr_cp, _ = self.create_apex_operators(cp_b_field, cp_grid)
-                     
-                     import scipy.sparse
+
                      if scipy.sparse.issparse(jr_map_spectral):
                         jr_lil = jr_map_spectral.tolil()
                         jr_lil[ll_mask_sim] -= jr_cp[ll_mask_sim]
@@ -583,7 +542,6 @@ class ApexMapper:
                     )
         
                     # Apply correction in spectral domain
-                    import scipy.sparse
                     if scipy.sparse.issparse(jr_map_spectral):
                         jr_map_spectral_lil = jr_map_spectral.tolil()
                         jr_map_spectral_lil[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]
@@ -613,12 +571,16 @@ class ApexMapper:
         # Compute simulation operator
         if input_adapter is not None:
             jr_map_sim = jr_map_spectral @ input_adapter
+            jr_map_apex_sim = jr_map_apex_spectral @ input_adapter
         else:
             jr_map_sim = jr_map_spectral
+            jr_map_apex_sim = jr_map_apex_spectral
 
         return ConstraintMappings(
             jr_map_spectral=jr_map_spectral,
             jr_map_sim=jr_map_sim,
+            jr_map_apex_spectral=jr_map_apex_spectral,
+            jr_map_apex_sim=jr_map_apex_sim,
             E_coeffs_to_E_apex_ll_diff=E_op_obj,
             ll_mask=ll_mask, # Note: This corresponds to Sim Grid for Physics map usage
         )

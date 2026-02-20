@@ -46,6 +46,9 @@ class SimulationMode(str, Enum):
         Solver is spectral (Laplacian inverse).
         differentiation and products happen via Finite Differences on Cubed Sphere.
         Physics: Local, fast parallel, numerical dissipation.
+        In full_induction runs, toroidal closure assembly may use one
+        auxiliary SH basis for basis-consistent closure semantics while
+        retaining CS state/grid representation.
 
     SPECTRAL_TRANSFORM : str
         Alias for SPECTRAL_TRANSFORM_CS (backward compatibility).
@@ -120,8 +123,6 @@ class DynamicsSettings:
         Regularization parameter for imposed field.
     solution_basis_kind : str
         Basis for solution: "SH" or "CS".
-    pure_spectral : bool
-        Deprecated flag for pure spectral mode.
     """
 
     Nmax: int = 20
@@ -139,7 +140,10 @@ class DynamicsSettings:
     connect_hemispheres: bool = False
     latitude_boundary: float = 50.0
     ih_constraint_scaling: float = 1e-5
-    induction_constraint_scaling: float = 1.0
+    apply_psi_gauge: bool = True
+    apply_m_ind_gauge: bool = True
+    magnetospheric_toroidal_lock: bool = False
+    magnetospheric_poloidal_lock: bool = True
     northern_hemisphere_apex_constraints: bool = False
     vector_jr: bool = True
     vector_Br: bool = True
@@ -154,10 +158,19 @@ class DynamicsSettings:
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "cg"
     m_imp_regularization_lambda: float = 0.0
+    # Weighting strategies for handling equatorial singularity (Br -> 0)
+    toroidal_weighting: Literal["none", "linear", "quadratic"] = "none"
+    poloidal_weighting: Literal["none", "linear", "quadratic"] = "none"
+    # Preconditioner for least-squares solver
+    least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv"
+    # Tikhonov regularization for toroidal system (only used in full_induction mode)
+    toroidal_regularization_lambda: float = 1e-10
+    # Force dense assembly/use of full linear evolution operators for both
+    # legacy and full-induction dynamics paths.
+    dense_full_operators: bool = False
 
-    # Deprecated / Computed fields
+    # Computed fields
     solution_basis_kind: Literal["SH", "CS"] = "SH"
-    pure_spectral: bool = False
 
     def to_dataset(self) -> xr.Dataset:
         """Convert settings to an xarray Dataset for storage."""
@@ -173,14 +186,18 @@ class DynamicsSettings:
         attrs["vector_u"] = int(self.vector_u)
         attrs["save_steady_states"] = int(self.save_steady_states)
         attrs["northern_hemisphere_apex_constraints"] = int(self.northern_hemisphere_apex_constraints)
+        attrs["apply_psi_gauge"] = int(self.apply_psi_gauge)
+        attrs["apply_m_ind_gauge"] = int(self.apply_m_ind_gauge)
+        attrs["magnetospheric_toroidal_lock"] = int(self.magnetospheric_toroidal_lock)
+        attrs["magnetospheric_poloidal_lock"] = int(self.magnetospheric_poloidal_lock)
+        attrs["dense_full_operators"] = int(self.dense_full_operators)
 
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
         attrs["least_squares_solver"] = self.least_squares_solver
-
-        # Deprecated Serialization (for consistency)
-        attrs["pure_spectral"] = int(self.pure_spectral)
-
+        attrs["least_squares_preconditioner"] = self.least_squares_preconditioner
+        attrs["toroidal_weighting"] = self.toroidal_weighting
+        attrs["poloidal_weighting"] = self.poloidal_weighting
         # Remove backend as it is runtime configuration
         if "backend" in attrs:
             del attrs["backend"]
@@ -228,8 +245,13 @@ class DynamicsSettings:
             connect_hemispheres=bool(get("connect_hemispheres", defaults.connect_hemispheres)),
             latitude_boundary=get("latitude_boundary", defaults.latitude_boundary),
             ih_constraint_scaling=get("ih_constraint_scaling", defaults.ih_constraint_scaling),
-            induction_constraint_scaling=get(
-                "induction_constraint_scaling", defaults.induction_constraint_scaling
+            apply_psi_gauge=bool(get("apply_psi_gauge", defaults.apply_psi_gauge)),
+            apply_m_ind_gauge=bool(get("apply_m_ind_gauge", defaults.apply_m_ind_gauge)),
+            magnetospheric_toroidal_lock=bool(
+                get("magnetospheric_toroidal_lock", defaults.magnetospheric_toroidal_lock)
+            ),
+            magnetospheric_poloidal_lock=bool(
+                get("magnetospheric_poloidal_lock", defaults.magnetospheric_poloidal_lock)
             ),
             northern_hemisphere_apex_constraints=bool(
                 get("northern_hemisphere_apex_constraints", defaults.northern_hemisphere_apex_constraints)
@@ -246,5 +268,13 @@ class DynamicsSettings:
             backend=defaults.backend,
             filename_prefix=get("filename_prefix", defaults.filename_prefix),
             solution_basis_kind=get("solution_basis_kind", defaults.solution_basis_kind),
-            pure_spectral=bool(get("pure_spectral", defaults.pure_spectral)),
+            dynamics_mode=get("dynamics_mode", defaults.dynamics_mode),
+            toroidal_weighting=get("toroidal_weighting", defaults.toroidal_weighting),
+            poloidal_weighting=get("poloidal_weighting", defaults.poloidal_weighting),
+            least_squares_preconditioner=get("least_squares_preconditioner", defaults.least_squares_preconditioner),
+            m_imp_regularization_lambda=get("m_imp_regularization_lambda", defaults.m_imp_regularization_lambda),
+            toroidal_regularization_lambda=get("toroidal_regularization_lambda", defaults.toroidal_regularization_lambda),
+            dense_full_operators=bool(
+                get("dense_full_operators", defaults.dense_full_operators)
+            ),
         )

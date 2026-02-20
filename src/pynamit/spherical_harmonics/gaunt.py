@@ -79,13 +79,15 @@ class GauntEngine:
 
     def get_spin_evaluation_matrix(self, s):
         from pynamit.spherical_harmonics.wigner import wigner_small_d
-        L, Q = self.basis.index_length, self.quad_grid.size
+        # Spin-weighted analysis uses complex SH indexing:
+        # idx = l^2 + l + m for m in [-l, l]. This requires full m support
+        # regardless of the simulation basis truncation.
+        L, Q = (self.Nmax + 1) ** 2, self.quad_grid.size
         th, ph = np.deg2rad(self.quad_grid.theta), np.deg2rad(self.quad_grid.phi)
         G = np.zeros((Q, L), dtype=complex)
-        idx = 0
-        l_min = getattr(self.basis, "Nmin", 1)
-        for l in range(l_min, self.Nmax + 1):
+        for l in range(0, self.Nmax + 1):
             for m in range(-l, l + 1):
+                idx = l * l + l + m
                 if abs(s) <= l:
                     G[:, idx] = (
                         (-1) ** s
@@ -93,13 +95,30 @@ class GauntEngine:
                         * wigner_small_d(l, m, -s, th)
                         * np.exp(1j * m * ph)
                     )
-                idx += 1
         return G
 
     def analyze_spin_weighted(self, s, values):
         G_s = self.get_spin_evaluation_matrix(s)
         # Quadrature integration: c = sum_q W_q Y_q* v_q
         return (G_s.conj().T * self.weights) @ values
+
+    @staticmethod
+    def _truncate_complex_m(coeffs, nmax, mmax):
+        """Zero-out complex SH coefficients with |m| > mmax.
+
+        coeffs is assumed to follow the complex indexing:
+            idx = l^2 + l + m, with m in [-l, l].
+        """
+        if mmax >= nmax:
+            return coeffs
+        coeffs = np.asarray(coeffs).copy()
+        for l in range(nmax + 1):
+            if mmax >= l:
+                continue
+            for m in range(-l, l + 1):
+                if abs(m) > mmax:
+                    coeffs[l * l + l + m] = 0.0
+        return coeffs
 
     def _compute_projection_matrix_for_indices(self, idx_list):
         L_real, L_complex = len(idx_list), (self.Nmax + 1)**2
@@ -339,9 +358,15 @@ class GauntEngine:
 
         # 2. Analyze using Spin-Weighted Harmonics (Nmin=0)
         # Coupling of degree N1 and N2 requires Ls up to N1+N2 (2*Nmax).
+        # For analytic spin-weighted analysis, we need a full complex basis
+        # (Mmax=Nmax) to satisfy the idx = l^2 + l + m indexing.
+        # If the simulation basis is truncated in m, we zero out coefficients
+        # beyond the desired Mmax after analysis.
+        sigma_Nmax = 2 * self.Nmax
+        sigma_Mmax_trunc = min(2 * self.basis.Mmax, sigma_Nmax)
         sigma_basis = SHBasis(
-            2 * self.Nmax,
-            2 * self.basis.Mmax,
+            sigma_Nmax,
+            sigma_Nmax,
             Nmin=0,
             quasi_normalized=self.basis.is_normalized,
             backend=self.basis.backend
@@ -354,6 +379,12 @@ class GauntEngine:
         c_mm = sigma_engine.analyze_spin_weighted(0, val_0minus.flatten())
         c_pm = sigma_engine.analyze_spin_weighted(2, val_p2_gaunt.flatten())
         c_mp = sigma_engine.analyze_spin_weighted(-2, val_m2_gaunt.flatten())
+
+        if sigma_Mmax_trunc < sigma_Nmax:
+            c_pp = self._truncate_complex_m(c_pp, sigma_Nmax, sigma_Mmax_trunc)
+            c_mm = self._truncate_complex_m(c_mm, sigma_Nmax, sigma_Mmax_trunc)
+            c_pm = self._truncate_complex_m(c_pm, sigma_Nmax, sigma_Mmax_trunc)
+            c_mp = self._truncate_complex_m(c_mp, sigma_Nmax, sigma_Mmax_trunc)
 
         # 3. Pass Coefficients to Analytic Engine
         return self.get_general_analytic_interaction_matrix(

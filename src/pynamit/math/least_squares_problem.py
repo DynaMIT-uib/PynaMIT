@@ -179,6 +179,39 @@ class LeastSquaresProblem:
             return xp.zeros((0, self.solution_size), dtype=dtype)
         return xp.vstack(all_rows)
 
+    def get_normal_equation_components(
+        self,
+        *,
+        data_term_index: int = 0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Return ``(H, A_T_W)`` for a selected data term.
+
+        ``H`` is computed from the full stacked system matrix ``G`` as ``G^T G``.
+        ``A_T_W`` maps an unweighted data RHS ``b`` for the selected term to the
+        normal-equation right-hand side contribution ``g = A_T_W @ b``.
+        """
+        if data_term_index < 0 or data_term_index >= self.num_data_terms:
+            raise IndexError(
+                f"data_term_index {data_term_index} out of range for {self.num_data_terms} data terms."
+            )
+
+        G = asarray(self.dense_system_matrix)
+        H = asarray(G.T.conj() @ G)
+
+        A_item = self.A[data_term_index]
+        A_dense = asarray(self.densify_op(A_item))
+        w_item = self.sqrt_weights[data_term_index]
+        if w_item is None:
+            return H, asarray(A_dense.T.conj())
+
+        w_dense = asarray(self.densify_op(w_item))
+        if w_item.is_diagonal:
+            w_vec = w_dense.reshape(-1)
+            return H, asarray(A_dense.T.conj() * (w_vec**2))
+
+        W_eff = asarray(w_dense.T.conj() @ w_dense)
+        return H, asarray(A_dense.T.conj() @ W_eff)
+
     @cached_property
     def svd(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute the SVD of the dense system matrix."""
@@ -215,7 +248,7 @@ class LeastSquaresProblem:
         op_rows_reg = sum(
             L.num_rows
             for i, L in enumerate(self.regularization_matrices)
-            if i < len(active_lambdas) and L and active_lambdas[i] > 0
+            if i < len(active_lambdas) and L and active_lambdas[i] > 1e-12
         )
         op_rows = op_rows_data + op_rows_reg
 
@@ -279,7 +312,7 @@ class LeastSquaresProblem:
             op_rows_reg = sum(
                 L.num_rows
                 for i, L in enumerate(self.regularization_matrices)
-                if i < len(active_lambdas) and L and active_lambdas[i] > 0
+                if i < len(active_lambdas) and L and active_lambdas[i] > 1e-12
             )
         op_rows = op_rows_data + op_rows_reg
         dtype = self.A[0].dtype if self.A else np.float64
@@ -466,7 +499,7 @@ class LeastSquaresProblem:
             op_rows += sum(
                 L.num_rows
                 for i, L in enumerate(self.regularization_matrices)
-                if i < len(active_lambdas) and L and active_lambdas[i] > 0
+                if i < len(active_lambdas) and L and active_lambdas[i] > 1e-12
             )
         else:
             active_lambdas = []
@@ -481,7 +514,7 @@ class LeastSquaresProblem:
             output_blocks.append(res_block)
         if include_regularization and active_lambdas:
             for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
+                if i < len(active_lambdas) and L_item and active_lambdas[i] > 1e-12:
                     res_block = self.apply_linear_map_to_block(L_item.linear_map, block)
                     output_blocks.append(active_lambdas[i] * res_block)
         if not output_blocks:
@@ -505,7 +538,7 @@ class LeastSquaresProblem:
         if include_regularization:
             active_lambdas = self.scaled_lambdas
             for i, L_item in enumerate(self.regularization_matrices):
-                if i < len(active_lambdas) and L_item and active_lambdas[i] > 0:
+                if i < len(active_lambdas) and L_item and active_lambdas[i] > 1e-12:
                     num_rows = L_item.num_rows
                     part = block[row : row + num_rows, :]
                     accum = accum + active_lambdas[i] * self.apply_linear_map_T_to_block(

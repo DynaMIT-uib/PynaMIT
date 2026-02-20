@@ -22,7 +22,11 @@ from pynamit.utils import tensor_pinv
 from pynamit.primitives.basis import Basis
 from pynamit.math.linear_map import as_linear_map
 from pynamit.spherical_harmonics.gaunt import GauntEngine
-from pynamit.simulation.geometry_utils import to_dense, get_radial_shift_diagonal
+from pynamit.simulation.geometry_utils import (
+    to_dense,
+    get_radial_shift_diagonal,
+    canonicalize_vector_basis_matrix,
+)
 from pynamit.simulation.pfac import PFACIntegrator
 from pynamit.simulation.constraints import ApexMapper
 from pynamit.simulation.poloidal import PoloidalSystemMatrices
@@ -95,15 +99,24 @@ class Geometry:
         # Initialize hybrid adapter for basis transformation
         self.input_adapter = self._init_input_adapter()
 
+        # Select closure basis for PFAC/radial coupling semantics.
+        self.pfac_closure_basis = self._select_pfac_closure_basis(settings)
+
         # Initialize PFAC integrator
         self._pfac = PFACIntegrator(
-            basis=self.basis,
+            basis=self.pfac_closure_basis,
             solution_basis=self.solution_basis,
             mainfield=self.mainfield,
             RI=self.RI,
             RM=self.RM,
             FAC_integration_steps=self.FAC_integration_steps,
             ignore_PFAC=self.ignore_PFAC,
+            magnetospheric_poloidal_lock=bool(
+                getattr(settings, "magnetospheric_poloidal_lock", True)
+            ),
+            lock_toroidal_source_channels=(
+                getattr(settings, "dynamics_mode", "legacy") == "full_induction"
+            ),
         )
 
         # Initialize apex mapper and constraint mappings
@@ -119,6 +132,24 @@ class Geometry:
         # Initialize Poloidal System Matrices
         # Note: We defer initialization until after grid is set up
         self._poloidal_matrices: Optional[PoloidalSystemMatrices] = None
+
+    def _select_pfac_closure_basis(self, settings: Any) -> Basis:
+        """Select basis used for PFAC/radial closure operations.
+
+        For ``cs_dominant`` we keep CS as the solution/state basis but use
+        an auxiliary SH basis for PFAC/radial closure semantics.
+        """
+        mode = getattr(settings, "simulation_mode", None)
+        mode_value = getattr(mode, "value", mode)
+        sol_kind = getattr(self.solution_basis, "kind", "")
+        if sol_kind in ("CS", "GRID") and mode_value == "cs_dominant":
+            from pynamit.spherical_harmonics.sh_basis import SHBasis
+
+            logger.info(
+                "Using SH auxiliary closure basis for PFAC/radial coupling in cs_dominant."
+            )
+            return SHBasis(int(settings.Nmax), int(settings.Mmax))
+        return self.basis
 
     @property
     def poloidal_matrices(self) -> PoloidalSystemMatrices:
@@ -139,34 +170,6 @@ class Geometry:
                 pfac_integrator=self._pfac,
             )
         return self._poloidal_matrices
-
-    # -------------------------------------------------------------------------
-    # Backward-compatibility properties (delegate to poloidal_matrices)
-    # -------------------------------------------------------------------------
-
-    @property
-    def m_imp_to_jr(self) -> np.ndarray:
-        """Operator mapping m_imp to radial current jr.
-
-        Backward compatibility - delegates to poloidal_matrices.
-        """
-        return self.poloidal_matrices.m_imp_to_jr
-
-    @property
-    def m_ind_to_Br(self) -> np.ndarray:
-        """Operator mapping induced potential m_ind to radial field Br.
-
-        Backward compatibility - delegates to poloidal_matrices.
-        """
-        return self.poloidal_matrices.m_ind_to_Br
-
-    @property
-    def E_df_to_d_m_ind_dt(self) -> float:
-        """Scaling factor for induction equation.
-
-        Backward compatibility - delegates to poloidal_matrices.
-        """
-        return self.poloidal_matrices.E_df_to_d_m_ind_dt
 
     def _init_input_adapter(self) -> Optional[np.ndarray]:
         """Initialize hybrid basis adapter if needed.
@@ -216,20 +219,20 @@ class Geometry:
         res = xp.tensordot(G_quad, coeffs, axes=([1], [0]))
         return xp.moveaxis(res, 0, -1)
 
-    def get_potential_to_E_operator(
+    def get_potential_to_JS_operator(
         self,
         potential_type: str,
         mode: Optional[Any] = None
     ) -> "LinearMap":
-        """Get operator mapping potential coefficients to E-field representation.
+        """Get operator mapping potential coefficients to JS-like representation.
 
-        This method provides a unified interface for potential-to-E-field operators
-        across different simulation modes.
+        This is the pre-resistivity mapping. The resistivity tensor (eta) is applied
+        afterward to obtain the physical E-field.
 
         Parameters
         ----------
         potential_type : str
-            Type of potential: "m_imp", "m_ind", or "Br".
+            Type of potential: "m_imp", "psi", "m_ind", or "Br".
         mode : SimulationMode, optional
             Simulation mode. If None or PURE_SPECTRAL, returns VSH representation.
             For other modes, returns grid-based operator.
@@ -237,8 +240,8 @@ class Geometry:
         Returns
         -------
         LinearMap
-            For spectral mode: Operator mapping potential coeffs to VSH E-field coeffs.
-            For grid mode: Operator mapping potential coeffs to E-field on grid.
+            For spectral mode: Operator mapping potential coeffs to JS-like VSH coeffs.
+            For grid mode: Operator mapping potential coeffs to JS-like grid values.
         """
         from pynamit.simulation.dynamics import SimulationMode
 
@@ -246,22 +249,57 @@ class Geometry:
         use_spectral = (mode is None or mode == SimulationMode.PURE_SPECTRAL)
 
         if use_spectral:
-            return self._get_E_operator_spectral(potential_type)
+            return self._get_JS_operator_spectral(potential_type)
         else:
-            return self._get_E_operator_grid(potential_type)
+            return self._get_JS_operator_grid(potential_type)
 
-    def _get_E_operator_spectral(self, potential_type: str) -> "LinearMap":
-        """Get spectral (VSH) E-field operator for given potential type.
+    def _get_JS_operator_spectral(self, potential_type: str) -> "LinearMap":
+        """Get spectral (VSH) JS-like operator for given potential type.
         
         Delegates to PoloidalSystemMatrices.
         """
-        return self.poloidal_matrices.get_potential_to_E_operator(potential_type)
+        return self.poloidal_matrices.get_potential_to_JS_operator(potential_type)
 
-    def _get_E_operator_grid(self, potential_type: str) -> Optional["LinearMap"]:
-        """Get grid-based E-field operator for given potential type."""
-        G_grid = getattr(self, f"G_{potential_type}_to_JS", None)
+    def _get_JS_operator_grid(self, potential_type: str) -> Optional["LinearMap"]:
+        """Get grid-based JS-like operator for given potential type.
+
+        Preferred path uses precomputed grid operators ``G_<type>_to_JS``.
+        If unavailable (e.g., Br in CS_DOMINANT), fall back to evaluating the
+        spectral JS operator on the grid so downstream grid resistivity can be
+        applied consistently.
+        """
+        G_grid = None
+        # Route canonical poloidal operators explicitly through PoloidalSystemMatrices
+        # instead of relying on Geometry facade attributes.
+        if potential_type == "m_imp":
+            G_grid = self.poloidal_matrices.G_m_imp_to_JS
+        elif potential_type == "m_ind":
+            G_grid = self.poloidal_matrices.G_m_ind_to_JS
+        else:
+            G_grid = getattr(self, f"G_{potential_type}_to_JS", None)
         if G_grid is None:
-            return None
+            # Fallback: evaluate spectral JS coefficients on grid.
+            try:
+                op_js_coeff = self._get_JS_operator_spectral(potential_type)
+                G_vec = canonicalize_vector_basis_matrix(
+                    self.solution_basis.get_vector_basis_matrix(self.grid),
+                    basis_index_length=self.solution_basis.index_length,
+                )
+                # (2, N_grid, 2, N_coeffs) -> (2*N_grid, 2*N_coeffs)
+                op_eval = as_linear_map(
+                    G_vec.reshape(
+                        G_vec.shape[0] * G_vec.shape[1],
+                        G_vec.shape[2] * G_vec.shape[3],
+                    )
+                )
+                return op_eval @ op_js_coeff
+            except Exception as exc:
+                logger.warning(
+                    "Grid JS fallback failed for %s (%s).",
+                    potential_type,
+                    exc,
+                )
+                return None
         return as_linear_map(G_grid.reshape(-1, G_grid.shape[-1]))
 
     def get_conductivity_operator(
@@ -272,10 +310,10 @@ class Geometry:
         etaP: Optional[Any] = None,
         etaH: Optional[Any] = None
     ) -> "LinearMap":
-        """Construct a unified conductivity operator (Potential -> JS_coeffs).
+        """Construct a unified conductivity operator (Potential -> E_coeffs).
 
-        This operator maps potential coefficients to sheet current coefficients,
-        incorporating the resistivity tensor (η) which relates E-field to current.
+        This operator maps potential coefficients to E-field coefficients,
+        incorporating the resistivity tensor (η) which relates E = η·J.
 
         Parameters
         ----------
@@ -293,7 +331,7 @@ class Geometry:
         Returns
         -------
         LinearMap
-            Operator mapping potential coefficients to JS coefficients.
+            Operator mapping potential coefficients to E coefficients.
         """
         from pynamit.simulation.dynamics import SimulationMode
         from pynamit.utils import to_numpy
@@ -305,6 +343,23 @@ class Geometry:
         else:
             return self._get_conductivity_operator_grid(potential_type, eta_grid)
 
+    def get_potential_to_E_coeffs_operator(
+        self,
+        mode: Any,
+        potential_type: str,
+        eta_grid: np.ndarray,
+        etaP: Optional[Any] = None,
+        etaH: Optional[Any] = None,
+    ) -> "LinearMap":
+        """Explicit name for Potential -> E operator (post-resistivity)."""
+        return self.get_conductivity_operator(
+            mode=mode,
+            potential_type=potential_type,
+            eta_grid=eta_grid,
+            etaP=etaP,
+            etaH=etaH,
+        )
+
     def _get_conductivity_operator_spectral(
         self,
         potential_type: str,
@@ -315,13 +370,13 @@ class Geometry:
         """Build spectral (Galerkin) conductivity operator."""
         from pynamit.utils import to_numpy
 
-        # Get potential-to-E operator in VSH representation
-        op_E = self.get_potential_to_E_operator(potential_type, mode=None)
+        # Get potential-to-JS operator in VSH representation
+        op_JS = self.get_potential_to_JS_operator(potential_type, mode=None)
 
         # Build resistivity interaction matrix in VSH space
         M_vsh = self._build_resistivity_interaction_matrix(eta_grid, etaP, etaH)
 
-        return as_linear_map(M_vsh) @ op_E
+        return as_linear_map(M_vsh) @ op_JS
 
     def _get_conductivity_operator_grid(
         self,
@@ -331,9 +386,9 @@ class Geometry:
         """Build grid-based (transform) conductivity operator."""
         from pynamit.simulation.operators import ResistivityTensorOperator
 
-        # Get potential-to-E operator (grid representation)
-        op_E = self._get_E_operator_grid(potential_type)
-        if op_E is None:
+        # Get potential-to-JS operator (grid representation)
+        op_JS = self._get_JS_operator_grid(potential_type)
+        if op_JS is None:
             return None
 
         # Apply resistivity tensor and project back to coefficients
@@ -343,7 +398,7 @@ class Geometry:
         # DEBUG: Isolate backend divergence
 
 
-        return op_P @ op_eta @ op_E
+        return op_P @ op_eta @ op_JS
 
     def _build_resistivity_interaction_matrix(
         self,
@@ -490,6 +545,8 @@ class Geometry:
         self.ll_mask = mappings.ll_mask
         self.jr_map_spectral = mappings.jr_map_spectral
         self.jr_map_sim = mappings.jr_map_sim
+        self.jr_map_apex_spectral = mappings.jr_map_apex_spectral
+        self.jr_map_apex_sim = mappings.jr_map_apex_sim
         self.E_coeffs_to_E_apex_ll_diff = mappings.E_coeffs_to_E_apex_ll_diff
 
     def get_jr_operator(self, input_basis: Any = None) -> np.ndarray:
@@ -533,27 +590,7 @@ class Geometry:
     @cached_property
     def T_to_Ve(self) -> xr.DataArray:
         """Mapping external toroidal (T) to poloidal (Ve) potential."""
-        return self._pfac.compute_T_to_Ve(self.G_Ve_to_JS_sh, self.grid)
-
-    @cached_property
-    def G_m_imp_to_JS(self) -> np.ndarray:
-        """Operator mapping m_imp to sheet current on grid.
-
-        Backward compatibility - delegates to poloidal_matrices.
-        """
-        return self.poloidal_matrices.G_m_imp_to_JS
-
-    @cached_property
-    def G_m_ind_to_JS(self) -> Optional[np.ndarray]:
-        """Operator mapping m_ind to sheet current on grid.
-
-        Backward compatibility - delegates to poloidal_matrices.
-
-        This operator combines two physical effects:
-        1. Local "Vacuum" Induction: m_ind -> E -> J.
-        2. Gap Region / Magnetospheric Boundary Coupling: m_ind -> Coupling -> J.
-        """
-        return self.poloidal_matrices.G_m_ind_to_JS
+        return self._pfac.compute_T_to_Ve(self.G_Ve_to_JS_closure, self.grid)
 
     def _compute_vsh_operator(self, basis: Basis) -> np.ndarray:
         """Compute generic VSH induction operator (-1/mu0 * Curl @ Scaling)."""
@@ -564,9 +601,9 @@ class Geometry:
         return to_dense(G_lin).reshape(2, -1, basis.index_length)
 
     @cached_property
-    def G_Ve_to_JS_sh(self) -> np.ndarray:
-        """Spectral Induction operator (SH Basis)."""
-        return self._compute_vsh_operator(self.basis)
+    def G_Ve_to_JS_closure(self) -> np.ndarray:
+        """Closure-basis induction operator for PFAC/radial coupling."""
+        return self._compute_vsh_operator(self._pfac.basis)
 
     @cached_property
     def G_Ve_to_JS(self) -> np.ndarray:
@@ -581,6 +618,6 @@ class Geometry:
 
         # If SH basis (or fallback), reuse the SH operator
         if self.solution_basis is self.basis:
-            return self.G_Ve_to_JS_sh
+            return self.G_Ve_to_JS_closure
 
         return self._compute_vsh_operator(self.solution_basis)

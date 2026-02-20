@@ -87,6 +87,7 @@ class ExponentialIntegrator(Integrator):
         dt: float,
         linear_operator: Optional[np.ndarray] = None,
         steady_state: Optional[np.ndarray] = None,
+        forcing: Optional[np.ndarray] = None,
         **kwargs
     ) -> np.ndarray:
         if linear_operator is None:
@@ -108,21 +109,70 @@ class ExponentialIntegrator(Integrator):
         # Ensure we are working with standard numpy for scipy.linalg
         # (Unless we add JAX logic here)
         L_host = np.array(L_dense)
-        propagator = scipy.linalg.expm(L_host * dt)
-        propagator = asarray(propagator) # Move back to device/backend if needed
+        y_host = np.array(y)
+
+        max_step_scale = kwargs.get("max_step_scale", None)
+        max_substeps = int(kwargs.get("max_substeps", 512))
+        if max_step_scale is not None and float(max_step_scale) > 0.0:
+            spectral_scale = float(np.linalg.norm(L_host, ord=np.inf) * abs(float(dt)))
+            n_substeps = max(1, int(np.ceil(spectral_scale / float(max_step_scale))))
+            n_substeps = min(n_substeps, max_substeps)
+        else:
+            n_substeps = 1
+        forcing_arr = None if forcing is None else np.array(forcing).reshape(-1)
+
+        if forcing_arr is not None:
+             # Affine linear system:
+             #   y' = L y + K
+             # Exact one-step with pure expm via augmented matrix:
+             #   d/dt [y; 1] = [[L, K], [0, 0]] [y; 1]
+             # This remains valid even when L is singular / no exact steady state exists.
+             n = int(y_host.size)
+             if forcing_arr.size != n:
+                 raise ValueError(
+                     "forcing size mismatch in ExponentialIntegrator: "
+                     f"got {forcing_arr.size}, expected {n}."
+                 )
+             if n_substeps == 1:
+                 aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
+                 aug[:n, :n] = L_host
+                 aug[:n, n] = forcing_arr
+                 propagator = asarray(scipy.linalg.expm(aug * float(dt)))
+                 y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
+                 y_next_aug = propagator @ y_aug
+                 return asarray(y_next_aug[:n])
+
+             dt_sub = float(dt) / float(n_substeps)
+             aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
+             aug[:n, :n] = L_host
+             aug[:n, n] = forcing_arr
+             propagator = asarray(scipy.linalg.expm(aug * dt_sub))
+             y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
+             for _ in range(n_substeps):
+                 y_aug = propagator @ y_aug
+             return asarray(y_aug[:n])
 
         if steady_state is not None:
              # Form: y_next = y_ss + P @ (y - y_ss)
-             diff = asarray(y) - asarray(steady_state)
-             decayed = propagator @ diff
-             return asarray(steady_state) + decayed
+             y_ss = asarray(steady_state)
+             if n_substeps == 1:
+                 propagator = asarray(scipy.linalg.expm(L_host * float(dt)))
+                 diff = asarray(y) - y_ss
+                 decayed = propagator @ diff
+                 return y_ss + decayed
+
+             dt_sub = float(dt) / float(n_substeps)
+             propagator = asarray(scipy.linalg.expm(L_host * dt_sub))
+             y_curr = asarray(y_host)
+             for _ in range(n_substeps):
+                 diff = y_curr - y_ss
+                 y_curr = y_ss + propagator @ diff
+             return asarray(y_curr)
         else:
-             # Standard ETD1 form without pre-calculated steady state?
-             # Requires K (forcing vector).
-             # y(t+dt) = P y + (P - I) L^-1 K
-             # This path is less numerically stable if L is singular.
-             # We prioritize the steady_state form as established in PoloidalSystemMatrices.
-             raise ValueError("steady_state argument is currently required for Exponential integration.")
+             raise ValueError(
+                 "Exponential integration requires either forcing (affine form) "
+                 "or steady_state."
+             )
 
 
 class ScipySolveIVPIntegrator(Integrator):

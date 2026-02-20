@@ -66,7 +66,10 @@ class Dynamics:
         connect_hemispheres: bool = False,
         latitude_boundary: float = 50.0,
         ih_constraint_scaling: float = 1e-5,
-        induction_constraint_scaling: float = 1.0,
+        apply_psi_gauge: bool = True,
+        apply_m_ind_gauge: bool = True,
+        magnetospheric_toroidal_lock: bool = False,
+        magnetospheric_poloidal_lock: bool = True,
         northern_hemisphere_apex_constraints: bool = False,
         vector_jr: bool = True,
         vector_Br: bool = True,
@@ -77,20 +80,22 @@ class Dynamics:
         integrator: Literal["euler", "exponential"] = "euler",
         backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
         solution_basis_kind: Literal["SH", "CS"] = "SH",
-        pure_spectral: bool = False,
         simulation_mode: Optional[SimulationMode] = None,
         least_squares_solver: str = "cg",
         m_imp_regularization_lambda: float = 0.0,
         dynamics_mode: Literal["legacy", "full_induction"] = "legacy",
+        toroidal_weighting: Literal["none", "linear", "quadratic"] = "none",
+        poloidal_weighting: Literal["none", "linear", "quadratic"] = "none",
+        least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv",
+        toroidal_regularization_lambda: float = 1e-10,
+        dense_full_operators: bool = False,
+        benchmark_mode: bool = False,
     ):
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
             FAC_integration_steps = np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
             
-        if simulation_mode is None:
-             # Default fallback handled by Settings if pure_spectral is passed
-             pass
-        elif simulation_mode == SimulationMode.CS_DOMINANT:
+        if simulation_mode == SimulationMode.CS_DOMINANT:
             solution_basis_kind = "CS"
 
         initial_settings = DynamicsSettings(
@@ -107,7 +112,10 @@ class Dynamics:
             connect_hemispheres=connect_hemispheres,
             latitude_boundary=latitude_boundary,
             ih_constraint_scaling=ih_constraint_scaling,
-            induction_constraint_scaling=induction_constraint_scaling,
+            apply_psi_gauge=apply_psi_gauge,
+            apply_m_ind_gauge=apply_m_ind_gauge,
+            magnetospheric_toroidal_lock=magnetospheric_toroidal_lock,
+            magnetospheric_poloidal_lock=magnetospheric_poloidal_lock,
             northern_hemisphere_apex_constraints=northern_hemisphere_apex_constraints,
             vector_jr=vector_jr,
             vector_Br=vector_Br,
@@ -118,11 +126,15 @@ class Dynamics:
             integrator=integrator,
             backend=backend,
             solution_basis_kind=solution_basis_kind,
-            pure_spectral=pure_spectral,
             simulation_mode=SimulationMode.SPECTRAL_TRANSFORM if simulation_mode is None else simulation_mode,
             least_squares_solver=least_squares_solver,
             m_imp_regularization_lambda=m_imp_regularization_lambda,
             dynamics_mode=dynamics_mode,
+            toroidal_weighting=toroidal_weighting,
+            poloidal_weighting=poloidal_weighting,
+            least_squares_preconditioner=least_squares_preconditioner,
+            toroidal_regularization_lambda=toroidal_regularization_lambda,
+            dense_full_operators=dense_full_operators,
         )
         
         if simulation_mode is not None:
@@ -132,9 +144,12 @@ class Dynamics:
 
         self.filename_prefix = filename_prefix
         self.io = IO(filename_prefix)
+        self.benchmark_mode = bool(benchmark_mode)
 
         # Check if settings are consistent with previously saved runs.
-        settings_on_file = self.io.load_dataset("settings", print_info=True)
+        settings_on_file = None
+        if not self.benchmark_mode:
+            settings_on_file = self.io.load_dataset("settings", print_info=True)
 
         if settings_on_file is not None:
             if not self.settings.to_dataset().identical(settings_on_file):
@@ -142,7 +157,9 @@ class Dynamics:
                     "Mismatch between Dynamics object arguments and settings on file."
                 )
 
-        PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
+        PFAC_matrix_on_file = None
+        if not self.benchmark_mode:
+            PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
         sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, Nmin=0)
         sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
@@ -177,7 +194,8 @@ class Dynamics:
 
         self.input_timeseries = Timeseries(self.input_storage_bases, self.input_variables)
         self.input_manager = InputManager(self.input_timeseries, grid_basis, self.input_variables)
-        self.input_timeseries.load_all(self.io)
+        if not self.benchmark_mode:
+            self.input_timeseries.load_all(self.io)
 
         # Specify output format and load output data.
         self.output_variables = {
@@ -189,13 +207,9 @@ class Dynamics:
         if self.settings.solution_basis_kind == "CS":
             solution_basis = cs_basis
             state_output_basis = cs_basis
-            print(f"DEBUG: Selected CSBasis. Ncs={self.settings.Ncs}. Size={cs_basis.size if hasattr(cs_basis, 'size') else '?'}")
         else:
             solution_basis = sh_basis_zero_removed
             state_output_basis = sh_basis_zero_removed
-            print(f"DEBUG: Selected SHBasis. Nmax={self.settings.Nmax}. Size={sh_basis_zero_removed.size if hasattr(sh_basis_zero_removed, 'size') else '?'}")
-
-        print(f"DEBUG: Dynamics initialized. Mode={simulation_mode}. SolutionBasisKind={self.settings.solution_basis_kind}. Storage Basis Size={state_output_basis.size if hasattr(state_output_basis,'size') else '?'}")
 
         self.output_storage_bases = {
             "state": state_output_basis,
@@ -203,7 +217,8 @@ class Dynamics:
         }
 
         self.output_timeseries = Timeseries(self.output_storage_bases, self.output_variables)
-        self.output_timeseries.load_all(self.io)
+        if not self.benchmark_mode:
+            self.output_timeseries.load_all(self.io)
 
         self.interpolation_bases = {
             "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else grid_basis,
@@ -241,10 +256,10 @@ class Dynamics:
         if filename_prefix is None:
             self.io.filename_prefix = "simulation"
 
-        if settings_on_file is None:
+        if (not self.benchmark_mode) and settings_on_file is None:
             self.io.save_dataset(self.settings.to_dataset(), "settings", print_info=True)
 
-        if PFAC_matrix_on_file is None:
+        if (not self.benchmark_mode) and PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
 
     def evolve_to_time(
@@ -282,8 +297,10 @@ class Dynamics:
         else:
             if steady_state_initialization:
                 self.state.update(self.input_manager, self.current_time, interpolation=True)
-                E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
-                inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+                E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
+                psi, inductive_m_ind = self.state.solve_steady_state_model_variables(
+                    E_coeffs_noind,
+                )
             else:
                 self.current_time = np.float64(0)
                 zeros = xp.zeros((self.output_storage_bases["state"].index_length,))
@@ -301,29 +318,37 @@ class Dynamics:
             self.state.update(self.input_manager, self.current_time, interpolation=True)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
+            if self.settings.dynamics_mode == "full_induction":
+                psi = self.state.psi
 
             # Prepare data for logging/storage
             if self.settings.dynamics_mode == "full_induction":
-                 current_m_ind = inductive_m_ind
-                 current_psi = psi
-                 # Compute steady state if needed for exponential integrator
-                 if self.settings.integrator == "exponential" or (
-                    bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
-                 ):
-                    steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
-                 else:
+                current_m_ind = inductive_m_ind
+                current_psi = psi
+                if bool(self.settings.save_steady_states) and step % sampling_step_interval == 0:
+                    steady_state_psi, steady_state_m_ind = self.state.solve_steady_state_model_variables(
+                        E_coeffs_noind,
+                        update_state=False,
+                    )
+                    steady_state_psi = np.asarray(steady_state_psi)
+                    steady_state_m_ind = np.asarray(steady_state_m_ind)
+                else:
                     steady_state_m_ind = None
-                 steady_state_psi = None
+                    steady_state_psi = None
             else:
-                 current_m_ind = inductive_m_ind
-                 current_psi = None
-                 if self.settings.integrator == "exponential" or (
+                current_m_ind = inductive_m_ind
+                current_psi = None
+                if self.settings.integrator == "exponential" or (
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
-                 ):
-                    steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
-                 else:
+                ):
+                    steady_state_psi, steady_state_m_ind = self.state.solve_steady_state_model_variables(
+                        E_coeffs_noind,
+                        update_state=False,
+                    )
+                    steady_state_m_ind = np.asarray(steady_state_m_ind)
+                else:
                     steady_state_m_ind = None
-                 steady_state_psi = None
+                steady_state_psi = None
 
             if step % sampling_step_interval == 0:
                 self.add_state_to_timeseries("state", current_m_ind, E_coeffs_noind, m_imp_noind, psi=current_psi)
@@ -367,45 +392,16 @@ class Dynamics:
                     print("\n\n")
                 break
 
-            # Evolve State
+            # Evolve State (single-state or coupled-state handled by State).
+            psi_new, inductive_m_ind = self.state.evolve_model_variables(
+                m_ind=inductive_m_ind,
+                dt=dt,
+                E_coeffs_noind=E_coeffs_noind,
+                steady_state_m_ind=steady_state_m_ind,
+                psi=psi,
+            )
             if self.settings.dynamics_mode == "full_induction":
-                 if self.settings.integrator == "exponential":
-                     # Use coupled exponential integrator
-                     # Combine psi and m_ind into state tensor y[0]=psi, y[1]=m_ind
-                     y = xp.stack([asarray(psi), asarray(inductive_m_ind)])  # shape (2, N)
-                     
-                     # Compute forcing tensor K (from external sources, not self-feedback)
-                     # K[1]: m_ind forcing from E_noind
-                     scale = self.state.poloidal_matrices.E_df_to_d_m_ind_dt
-                     E_noind_field = self.state.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind)
-                     k1 = asarray(scale * E_noind_field)
-                     
-                     # K[0]: psi forcing from external E-field (d_psi_dt)
-                     if self.state.d_psi_dt is not None:
-                         k0 = asarray(self.state.d_psi_dt)
-                     else:
-                         k0 = xp.zeros_like(k1)
-                     
-                     K = xp.stack([k0, k1])
-                     
-                     # Evolve coupled system
-                     y_new = self.state.evolve_coupled_induction(y, dt, K)
-                     psi = y_new[0]
-                     inductive_m_ind = y_new[1]
-                     self.state.psi = psi
-                 else:
-                     # Split evolution (Euler or other)
-                     # 1. Evolve Toroidal field (psi)
-                     psi = self.state.evolve_psi(psi, dt)
-                     self.state.psi = psi
-                     # 2. Evolve Poloidal field (m_ind)
-                     inductive_m_ind = self.state.evolve_m_ind(
-                        inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
-                     )
-            else:
-                 inductive_m_ind = self.state.evolve_m_ind(
-                    inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
-                 )
+                psi = psi_new
             
             self.current_time = next_time
 
@@ -427,6 +423,10 @@ class Dynamics:
         psi : array-like, optional
             Toroidal Stream Function coefficients.
         """
+        # Include dynamic inductive toroidal residual contribution (psi -> E).
+        if psi is not None:
+            E_coeffs = np.asarray(E_coeffs) + self.state.calculate_psi_E_coeffs(np.asarray(psi))
+
         # Calculate full fields if needed (only if m_ind provided)
         # If full induction, m_ind might be None.
         if m_ind is not None:
@@ -554,7 +554,8 @@ class Dynamics:
             pinv_rtol=pinv_rtol,
         )
 
-        self.input_timeseries.save("jr", self.io)
+        if not self.benchmark_mode:
+            self.input_timeseries.save("jr", self.io)
 
     def set_Br(
         self,
@@ -606,7 +607,8 @@ class Dynamics:
             pinv_rtol=pinv_rtol,
         )
 
-        self.input_timeseries.save("Br", self.io)
+        if not self.benchmark_mode:
+            self.input_timeseries.save("Br", self.io)
 
     def set_conductance(
         self,
@@ -668,7 +670,8 @@ class Dynamics:
             pinv_rtol=pinv_rtol,
         )
 
-        self.input_timeseries.save("conductance", self.io)
+        if not self.benchmark_mode:
+            self.input_timeseries.save("conductance", self.io)
 
     def set_u(
         self,
@@ -721,7 +724,8 @@ class Dynamics:
             pinv_rtol=pinv_rtol,
         )
 
-        self.input_timeseries.save("u", self.io)
+        if not self.benchmark_mode:
+            self.input_timeseries.save("u", self.io)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import scipy.sparse
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis
@@ -90,3 +90,36 @@ def get_evaluation_matrix_dense(basis: "Basis", grid: "Grid") -> np.ndarray:
     """
     matrix = basis.get_evaluation_matrix(grid)
     return to_dense(matrix)
+
+
+def canonicalize_vector_basis_matrix(
+    matrix: Union[np.ndarray, "LinearMap", scipy.sparse.spmatrix],
+    basis_index_length: Optional[int] = None,
+) -> np.ndarray:
+    """Return vector basis matrix in canonical Helmholtz tensor form.
+
+    Canonical shape is ``(n_comp, n_grid, 2, n_coeffs)``:
+    - axis 0: vector components (typically theta/phi)
+    - axis 1: grid points
+    - axis 2: potential type (0=poloidal, 1=toroidal)
+    - axis 3: basis coefficient index
+
+    The input must already be in canonical rank-4 form.
+    """
+    arr = to_dense(matrix)
+    if arr.ndim != 4:
+        raise ValueError(
+            "Vector basis matrix must be rank-4 canonical tensor "
+            f"(n_comp, n_grid, 2, n_coeffs), got ndim={arr.ndim}."
+        )
+    if arr.shape[2] != 2:
+        raise ValueError(
+            "Vector basis matrix must have size 2 on potential-type axis "
+            f"(axis=2), got {arr.shape[2]}."
+        )
+    if basis_index_length is not None and arr.shape[3] != basis_index_length:
+        raise ValueError(
+            "Vector basis matrix coefficient size mismatch: "
+            f"expected {basis_index_length}, got {arr.shape[3]}."
+        )
+    return arr

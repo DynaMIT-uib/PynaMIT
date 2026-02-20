@@ -34,6 +34,7 @@ class CSBasis(GridBasis):
     This module provides an implementation of the cubed sphere grid
     system following methods from Yin et al. (2017).
     """
+    _GLOBAL_PROJECTION_CACHE: Dict[Tuple[int, int, int, str], Any] = {}
 
     def __init__(self, N: int):
         """Initialize the cubed sphere basis."""
@@ -66,6 +67,8 @@ class CSBasis(GridBasis):
         from pynamit.primitives.grid.interpolation import CSInterpolator
 
         self._interpolator = CSInterpolator(N)
+        self._mimetic_laplacian_cache: Dict[Tuple[int, float], np.ndarray] = {}
+        self._mimetic_laplacian_pinv_cache: Dict[Tuple[int, float, float], np.ndarray] = {}
 
     @property
     def kind(self) -> str:
@@ -104,51 +107,225 @@ class CSBasis(GridBasis):
         target_grid = grid if grid is not None else self.grid
         return as_linear_map(self._get_grid_divergence(target_grid, r=1.0))
 
-    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
-        """Extract toroidal potential coefficients using Helmholtz projection.
+    def _extract_helmholtz_channel(self, coeffs: np.ndarray, channel: int) -> np.ndarray:
+        """Extract a potential channel from canonical Helmholtz coefficients.
+
+        CSBasis now follows the same canonical coefficient convention as SHBasis:
+            coeffs[0] -> poloidal potential coefficients
+            coeffs[1] -> toroidal potential coefficients
+        """
+        coeffs = asarray(coeffs)
+        n = self.index_length
+
+        if coeffs.ndim >= 2 and coeffs.shape[0] == 2:
+            return coeffs[channel]
+
+        if coeffs.ndim >= 1 and coeffs.shape[0] == 2 * n:
+            if coeffs.ndim == 1:
+                return coeffs.reshape(2, n)[channel]
+            return coeffs.reshape((2, n) + coeffs.shape[1:])[channel]
+
+        raise ValueError(
+            "Full Helmholtz field must have leading size 2 or 2*Ncoeffs; "
+            f"got shape {coeffs.shape}."
+        )
+
+    @staticmethod
+    def _default_pinv_rcond(shape: Tuple[int, ...]) -> float:
+        """Return deterministic pseudo-inverse cutoff based on machine precision."""
+        dim_max = max(int(v) for v in shape) if len(shape) > 0 else 1
+        return float(np.finfo(float).eps * max(dim_max, 1))
+
+    @staticmethod
+    def _pinv_symmetric(a: np.ndarray, rcond: float) -> np.ndarray:
+        """Robust pseudoinverse for symmetric matrices using eigen decomposition."""
+        a_np = np.asarray(a)
+        if a_np.ndim != 2 or a_np.shape[0] != a_np.shape[1]:
+            return np.linalg.pinv(a_np, rcond=max(float(rcond), 0.0))
+
+        a_sym = 0.5 * (a_np + a_np.T.conj())
+        rcond = max(float(rcond), 0.0)
+        try:
+            eigvals, eigvecs = np.linalg.eigh(a_sym)
+        except np.linalg.LinAlgError:
+            return np.linalg.pinv(a_sym, rcond=rcond)
+
+        max_abs = float(np.max(np.abs(eigvals))) if eigvals.size > 0 else 0.0
+        if not np.isfinite(max_abs) or max_abs <= 0.0:
+            return np.zeros_like(a_sym)
+        cutoff = rcond * max_abs
+        inv_eigs = np.where(np.abs(eigvals) > cutoff, 1.0 / eigvals, 0.0)
+        return (eigvecs * inv_eigs) @ eigvecs.T.conj()
+
+    def get_constant_mode_vector(self, n_coeff: Optional[int] = None) -> np.ndarray:
+        """Return the canonical constant-mode vector in CS coefficient space."""
+        n = self.index_length if n_coeff is None else int(n_coeff)
+        return np.ones(n, dtype=float)
+
+    def get_mean_zero_projector(self, n_coeff: Optional[int] = None) -> np.ndarray:
+        """Return projector onto the mean-zero scalar subspace."""
+        z = self.get_constant_mode_vector(n_coeff).reshape(-1)
+        norm2 = float(np.dot(z, z))
+        if norm2 <= 0.0:
+            return np.eye(z.size, dtype=float)
+        return np.eye(z.size, dtype=float) - np.outer(z, z) / norm2
+
+    def get_helmholtz_gauge_constraint_matrix(self, n_coeff: Optional[int] = None) -> np.ndarray:
+        """Return hard gauge rows for Helmholtz inversion.
+
+        Enforces zero-mean poloidal and toroidal potentials independently.
+        """
+        n = self.index_length if n_coeff is None else int(n_coeff)
+        z = self.get_constant_mode_vector(n).reshape(-1)
+        z_norm = float(np.linalg.norm(z))
+        if z_norm <= 0.0:
+            z = np.zeros_like(z)
+        else:
+            z = z / z_norm
+        C = np.zeros((2, 2 * n), dtype=float)
+        C[0, :n] = z
+        C[1, n:] = z
+        return C
+
+    def get_scalar_gauge_constraint_matrix(
+        self,
+        n_coeff: Optional[int] = None,
+        mode: str = "pin_first",
+    ) -> np.ndarray:
+        """Return a single scalar gauge constraint row.
 
         Parameters
         ----------
-        coeffs : np.ndarray
-            Vector field coefficients with shape (2, N_coeffs, ...).
-        grid : optional
-            Target grid for projection. Defaults to self.grid.
-
-        Returns
-        -------
-        np.ndarray
-            Toroidal potential coefficients with shape (N_coeffs, ...).
+        n_coeff : int, optional
+            Number of coefficients; defaults to this basis size.
+        mode : str
+            Gauge row type:
+            - ``"pin_first"``: first coefficient is fixed to zero.
+            - ``"mean_zero"``: zero-mean constraint against constant mode.
         """
-        target_grid = grid if grid is not None else self.grid
-        # P has shape (2, N_coeffs, 2, N_grid) - P[1] is the toroidal operator
-        P = self.construct_projection_matrix(target_grid)
-        coeffs = asarray(coeffs)
+        n = self.index_length if n_coeff is None else int(n_coeff)
+        if mode == "mean_zero":
+            z = self.get_constant_mode_vector(n).astype(float, copy=False).reshape(1, -1)
+            z_norm = float(np.linalg.norm(z))
+            if z_norm > 0.0:
+                z = z / z_norm
+            return z
 
-        # P[1] has shape (N_coeffs, 2, N_grid), coeffs has shape (2, N_coeffs, ...)
-        return np.einsum('ijk,jk...->i...', P[1], coeffs)
+        row = np.zeros((1, n), dtype=float)
+        row[0, 0] = 1.0
+        return row
+
+    def get_scalar_gauge_projector_for_operator(
+        self,
+        operator: np.ndarray,
+        mode: str = "pin_first",
+        rcond: Optional[float] = None,
+    ) -> np.ndarray:
+        """Return projector that enforces scalar gauge while preserving operator image.
+
+        Parameters
+        ----------
+        operator : np.ndarray
+            Forward operator where gauge mode should lie in/near the null space.
+        mode : str
+            Gauge policy: ``"pin_first"`` or ``"mean_zero"``.
+        rcond : float, optional
+            Pseudoinverse cutoff for fallback null-space extraction.
+        """
+        A = np.asarray(operator)
+        n = int(A.shape[1])
+        I = np.eye(n, dtype=A.dtype)
+        if mode in ("none", "", None):
+            return I
+        if mode == "mean_zero":
+            return self.get_mean_zero_projector(n_coeff=n).astype(A.dtype, copy=False)
+
+        # pin_first: subtract only along null-space direction(s) so Ax is preserved.
+        z_const = self.get_constant_mode_vector(n_coeff=n).astype(A.dtype, copy=False).reshape(-1, 1)
+        rel_const_null = np.linalg.norm(A @ z_const) / max(
+            np.linalg.norm(A) * np.linalg.norm(z_const), 1e-30
+        )
+        if rel_const_null < 1e-6:
+            null_basis = z_const
+        else:
+            _, s_vals, vh = np.linalg.svd(A, full_matrices=False)
+            if s_vals.size == 0:
+                return I
+            if rcond is None:
+                rcond = self._default_pinv_rcond(A.shape)
+            cutoff = max(float(rcond), 0.0) * float(s_vals[0])
+            null_mask = s_vals <= cutoff
+            if not np.any(null_mask):
+                return I
+            null_basis = vh[null_mask].T
+
+        pin_row = np.zeros((1, n), dtype=A.dtype)
+        pin_row[0, 0] = 1.0
+        pin_on_null = pin_row @ null_basis
+        if np.linalg.norm(pin_on_null) <= 0:
+            return I
+        pin_on_null_pinv = np.linalg.pinv(pin_on_null, rcond=max(float(rcond or 0.0), 0.0))
+        return I - (null_basis @ pin_on_null_pinv @ pin_row)
+
+    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+        """Extract toroidal potential coefficients from Helmholtz coefficients."""
+        return self._extract_helmholtz_channel(coeffs, channel=1)
 
     def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
-        """Extract poloidal potential coefficients using Helmholtz projection.
+        """Extract poloidal potential coefficients from Helmholtz coefficients."""
+        return self._extract_helmholtz_channel(coeffs, channel=0)
 
-        Parameters
-        ----------
-        coeffs : np.ndarray
-            Vector field coefficients with shape (2, N_coeffs, ...).
-        grid : optional
-            Target grid for projection. Defaults to self.grid.
+    def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
+        """Evaluate coefficients on a grid.
 
-        Returns
-        -------
-        np.ndarray
-            Poloidal potential coefficients with shape (N_coeffs, ...).
+        For tangential vectors, CSBasis uses Helmholtz potentials as coefficients,
+        consistent with SHBasis and the rest of the induction operators.
         """
-        target_grid = grid if grid is not None else self.grid
-        # P has shape (2, N_coeffs, 2, N_grid) - P[0] is the poloidal operator
-        P = self.construct_projection_matrix(target_grid)
-        coeffs = asarray(coeffs)
+        if vector_type == "scalar":
+            return self.basis_to_grid(coeffs, grid, helmholtz=False)
+        if vector_type == "tangential":
+            if coeffs.ndim == 1:
+                coeffs = coeffs.reshape(2, -1)
+            return self.basis_to_grid(coeffs, grid, helmholtz=True)
+        raise ValueError(f"Unknown vector_type: {vector_type}")
 
-        # P[0] has shape (N_coeffs, 2, N_grid), coeffs has shape (2, N_coeffs, ...)
-        return np.einsum('ijk,jk...->i...', P[0], coeffs)
+    def from_grid_values(
+        self,
+        values: np.ndarray,
+        grid: Any,
+        vector_type: str,
+        **kwargs,
+    ) -> np.ndarray:
+        """Project grid values to CS coefficients.
+
+        For tangential vectors, returns Helmholtz potential coefficients.
+        """
+        weights = kwargs.get("weights")
+        reg_lambda = kwargs.get("reg_lambda")
+        pinv_rtol = kwargs.get("pinv_rtol", 1e-15)
+        solver_type = kwargs.get("solver_type", "svd")
+
+        if vector_type == "scalar":
+            return self.grid_to_basis(
+                values,
+                grid,
+                helmholtz=False,
+                weights=weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                solver_type=solver_type,
+            )
+        if vector_type == "tangential":
+            return self.grid_to_basis(
+                values,
+                grid,
+                helmholtz=True,
+                weights=weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                solver_type=solver_type,
+            )
+        raise ValueError(f"Unknown vector_type: {vector_type}")
 
     def get_radial_shift_operator(
         self, start_r: float, end_r: float, kind: str = "external"
@@ -169,9 +346,13 @@ class CSBasis(GridBasis):
         return diagonal_linear_map(np.ones(self.index_length) * factor)
 
     def get_potential_scaling_operator(self) -> "LinearMap":
-        """Get potential scaling operator. To be refined for CS geometry."""
+        """Get potential-to-surface scaling operator for CS scalar coefficients.
+
+        In CS basis the scalar coefficients are nodal values of the scalar
+        potential on the grid, so no additional spectral degree scaling is
+        applied here.
+        """
         from pynamit.math.linear_map import diagonal_linear_map
-        # SH uses (2n + 1). For grid, 1.0 is a safe identity stub if not doing induction.
         return diagonal_linear_map(np.ones(self.index_length))
 
     @property
@@ -312,11 +493,15 @@ class CSBasis(GridBasis):
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
         interpolation_points = np.arange(Ni).reshape((1, -1))
+        # Center interpolation stencil around the floating index.
+        # For even Ni, using ``-Ni//2`` gives the expected symmetric
+        # neighborhood around the floor/ceil pair; the previous ``-Ni//2-1``
+        # introduced a one-cell left shift and degraded cross-face accuracy.
         j_interpolation_points = constrain_values(
-            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
+            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2, 0, N - 1, axis=1
         )
         i_interpolation_points = constrain_values(
-            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
+            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2, 0, N - 1, axis=1
         )
 
         j_distances = j_floats - j_interpolation_points
@@ -355,6 +540,103 @@ class CSBasis(GridBasis):
         D.count_nonzero()
         return D
 
+    @staticmethod
+    def _safe_sin_theta(theta_deg: np.ndarray) -> np.ndarray:
+        """Return sin(theta) with pole-safe floor for metric scaling."""
+        theta_rad = np.deg2rad(np.asarray(theta_deg).flatten())
+        sin_th = np.sin(theta_rad)
+        epsilon = 1e-10
+        return np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+
+    def _is_grid_compatible(self, grid: Any) -> bool:
+        """Check whether grid ordering matches this native CS basis ordering."""
+        if grid is self:
+            return True
+        if hasattr(grid, "kind") and grid.kind == "CS" and getattr(grid, "N", -1) == self.N:
+            return True
+        if hasattr(grid, "theta") and hasattr(grid, "phi"):
+            return grid == self.grid
+        return False
+
+    def _get_native_derivative_bundle(self) -> Dict[str, Any]:
+        """Build native CS angular derivative operators and metric scalings."""
+        bundle = self._cache.get("_native_derivative_bundle")
+        if bundle is not None:
+            return bundle
+
+        import scipy.sparse
+
+        Dxi, Deta = self.get_Diff(self.N, coordinate="both", Ns=1, Ni=4, order=1)
+        dxi_dth, dxi_dph, deta_dth, deta_dph = cs_math.get_coordinate_derivatives(
+            self.arr_xi, self.arr_eta, r=1.0, block=self.arr_block
+        )
+
+        D_theta = (
+            scipy.sparse.diags(dxi_dth.flatten()) @ Dxi
+            + scipy.sparse.diags(deta_dth.flatten()) @ Deta
+        )
+        D_phi_unscaled = (
+            scipy.sparse.diags(dxi_dph.flatten()) @ Dxi
+            + scipy.sparse.diags(deta_dph.flatten()) @ Deta
+        )
+
+        sin_th_safe = self._safe_sin_theta(self.arr_theta)
+        sin_th = scipy.sparse.diags(sin_th_safe)
+        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
+        inv_sin2_th = scipy.sparse.diags(1.0 / (sin_th_safe**2))
+        D_phi_scaled = inv_sin_th @ D_phi_unscaled
+
+        bundle = {
+            "D_theta": D_theta,
+            "D_phi_unscaled": D_phi_unscaled,
+            "D_phi_scaled": D_phi_scaled,
+            "sin_th": sin_th,
+            "inv_sin_th": inv_sin_th,
+            "inv_sin2_th": inv_sin2_th,
+        }
+        self._cache["_native_derivative_bundle"] = bundle
+        return bundle
+
+    def _get_grid_derivative_bundle(self, grid: Any) -> Dict[str, Any]:
+        """Return angular derivative bundle on arbitrary grid.
+
+        Public phi-derivative semantics remain SH-compatible:
+        ``D_phi_scaled`` represents ``(1/sin(theta)) * d/dphi``.
+        ``D_phi_unscaled`` is used internally for Laplacian/div/curl assembly.
+        """
+        if self._is_grid_compatible(grid):
+            return self._get_native_derivative_bundle()
+
+        grid_key = getattr(grid, "hash", id(grid))
+        grid_cache = self._cache.setdefault(grid_key, {})
+        if "derivative_bundle" in grid_cache:
+            return grid_cache["derivative_bundle"]
+
+        import scipy.sparse
+
+        native = self._get_native_derivative_bundle()
+        interpolation_matrix = self._get_arbitrary_interpolation_matrix(grid, Ni=4)
+        D_theta = interpolation_matrix @ native["D_theta"]
+        D_phi_unscaled = interpolation_matrix @ native["D_phi_unscaled"]
+
+        sin_th_safe = self._safe_sin_theta(grid.theta)
+        sin_th = scipy.sparse.diags(sin_th_safe)
+        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
+        inv_sin2_th = scipy.sparse.diags(1.0 / (sin_th_safe**2))
+        D_phi_scaled = inv_sin_th @ D_phi_unscaled
+
+        bundle = {
+            "D_theta": D_theta,
+            "D_phi_unscaled": D_phi_unscaled,
+            "D_phi_scaled": D_phi_scaled,
+            "sin_th": sin_th,
+            "inv_sin_th": inv_sin_th,
+            "inv_sin2_th": inv_sin2_th,
+            "interpolation_matrix": interpolation_matrix,
+        }
+        grid_cache["derivative_bundle"] = bundle
+        return bundle
+
     def get_G(self, grid, derivative=None):
         """Get evaluation or differentiation matrix on the grid.
 
@@ -370,90 +652,30 @@ class CSBasis(GridBasis):
         G : sparse matrix
             Evaluation or differentiation matrix.
         """
-        # Relaxed check: if grid is self (evaluating basis on itself), it's CSBasis.
-        # Or if it has 'kind' == 'CS' and same N.
-        is_compatible = (
-            (grid is self) or 
-            (hasattr(grid, "kind") and grid.kind == "CS" and getattr(grid, "N", -1) == self.N)
-        )
-        if not is_compatible and hasattr(grid, "theta") and hasattr(grid, "phi"):
-             # Check if coordinates match
-             if grid == self.grid:
-                   is_compatible = True
-        
-        if grid is not None and not is_compatible:
-             # Evaluate basis on arbitrary grid (Interpolation)
-             if derivative is not None:
-                  # Compute derivative on native grid first, then interpolate
-                  D_native = self.get_G(self, derivative=derivative)
-                  I_interp = self._get_arbitrary_interpolation_matrix(grid, Ni=4)
-                  return I_interp @ D_native
-             
-             return self._get_arbitrary_interpolation_matrix(grid, Ni=4)
+        import scipy.sparse
 
-        # 1. Check final operator cache
-        if hasattr(grid, "hash"):
-            grid_key = grid.hash
-            if grid_key in self._cache:
-                if derivative in self._cache[grid_key]:
-                    return self._cache[grid_key][derivative]
-            else:
-                self._cache[grid_key] = {}
-        
-        N = self.N
+        target_grid = self if grid is None else grid
+        is_compatible = self._is_grid_compatible(target_grid)
+
         if derivative is None:
-             from scipy.sparse import identity
-             res = identity(6 * N * N, format="csr")
+            if is_compatible:
+                return scipy.sparse.identity(6 * self.N * self.N, format="csr")
 
-        elif derivative in ["theta", "phi"]:
-             # 2. Get/Cache Logical Differentiation Operators (Depends only on Resolution N)
-             if "_Dxi" not in self._cache:
-                 Dxi, Deta = self.get_Diff(N, coordinate="both", Ns=1, Ni=4, order=1)
-                 self._cache["_Dxi"] = Dxi
-                 self._cache["_Deta"] = Deta
-             
-             Dxi, Deta = self._cache["_Dxi"], self._cache["_Deta"]
+            grid_key = getattr(target_grid, "hash", id(target_grid))
+            grid_cache = self._cache.setdefault(grid_key, {})
+            if "interpolation_matrix" not in grid_cache:
+                grid_cache["interpolation_matrix"] = self._get_arbitrary_interpolation_matrix(
+                    target_grid, Ni=4
+                )
+            return grid_cache["interpolation_matrix"]
 
-             # 3. Get/Cache Chain Rule Factors (Depends on Grid Coordinates)
-             # Note: These are specific to the grid/resolution mapping. 
-             # In CSBasis, coordinates are typically native, but we follow the per-grid pattern.
-             cache_entry = self._cache[grid.hash] if hasattr(grid, "hash") else {}
-             if "coord_derivs" not in cache_entry:
-                  cache_entry["coord_derivs"] = cs_math.get_coordinate_derivatives(
-                      self.arr_xi, self.arr_eta, r=1.0, block=self.arr_block
-                  )
-             
-             dxi_dth, dxi_dph, deta_dth, deta_dph = cache_entry["coord_derivs"]
+        if derivative not in ("theta", "phi"):
+            raise ValueError(f"Unknown derivative: {derivative}")
 
-             from scipy.sparse import diags
-             if derivative == "theta":
-                 M_dxi_dth = diags(dxi_dth.flatten())
-                 M_deta_dth = diags(deta_dth.flatten())
-                 res = M_dxi_dth.dot(Dxi) + M_deta_dth.dot(Deta)
-             elif derivative == "phi":
-                 # Apply 1/sin(theta) scaling to match SHBasis convention.
-                 # This makes G_ph represent (1/sin θ) d/dφ, which is the
-                 # physical gradient component in spherical coordinates.
-                 sin_th = np.sin(np.deg2rad(grid.theta)).reshape(dxi_dph.shape)
-                 epsilon = 1e-10
-                 sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
-                 inv_sin_th = 1.0 / sin_th_safe
-
-                 dxi_dph_scaled = dxi_dph * inv_sin_th
-                 deta_dph_scaled = deta_dph * inv_sin_th
-
-                 M_dxi_dph = diags(dxi_dph_scaled.flatten())
-                 M_deta_dph = diags(deta_dph_scaled.flatten())
-                 res = M_dxi_dph.dot(Dxi) + M_deta_dph.dot(Deta)
-        
-        else:
-             raise ValueError(f"Unknown derivative: {derivative}")
-
-        # 4. Store final operator in cache
-        if hasattr(grid, "hash"):
-            self._cache[grid.hash][derivative] = res
-            
-        return res
+        bundle = self._get_grid_derivative_bundle(target_grid)
+        if derivative == "theta":
+            return bundle["D_theta"]
+        return bundle["D_phi_scaled"]
 
     def _get_arbitrary_interpolation_matrix(self, grid, Ni=4):
         """Construct interpolation matrix for arbitrary target points (2D Tensor Product)."""
@@ -616,31 +838,67 @@ class CSBasis(GridBasis):
         L : scipy.sparse.spmatrix
             Sparse matrix representing the Laplacian operator.
         """
-        import scipy.sparse
-        G_th = self.get_G(self, derivative="theta")
-        G_ph = self.get_G(self, derivative="phi")
+        bundle = self._get_native_derivative_bundle()
 
-        theta_rad = np.deg2rad(self.arr_theta)
-        sin_th = np.sin(theta_rad)
+        # Strong-form scalar Laplacian:
+        #   Δf = (1/sinθ) dθ(sinθ dθ f) + (1/sin²θ) d²φ f
+        # Public phi derivative is scaled as (1/sinθ) d/dφ, but this term must
+        # be assembled from the unscaled d/dφ operator to avoid extra metric
+        # scaling in the discrete CS operator.
+        term1 = bundle["inv_sin_th"] @ bundle["D_theta"] @ bundle["sin_th"] @ bundle["D_theta"]
+        term2 = (
+            bundle["inv_sin2_th"]
+            @ bundle["D_phi_unscaled"]
+            @ bundle["D_phi_unscaled"]
+        )
+        return (term1 + term2) / (r**2)
 
-        # Avoid division by zero at poles
-        epsilon = 1e-10
-        sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
+    def get_mimetic_laplacian_operator(self, grid: Optional[Any] = None, r: float = 1.0) -> np.ndarray:
+        """Return scalar Laplacian from discrete div/grad composition.
 
-        # Diagonal matrices for metric terms
-        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
-        sin_th_mat = scipy.sparse.diags(sin_th)
+        Uses:
+            ``Delta = -Div @ Grad``
+        with the same CS vector operators used throughout the code path.
+        """
+        target_grid = self.grid if grid is None else grid
+        grid_key = int(getattr(target_grid, "hash", id(target_grid)))
+        key = (grid_key, float(r))
+        cached = self._mimetic_laplacian_cache.get(key)
+        if cached is not None:
+            return cached
 
-        # Term 1: (1/sin(theta)) * d/dtheta (sin(theta) d/dtheta)
-        term1 = inv_sin_th @ G_th @ sin_th_mat @ G_th
+        div_op = np.asarray(self.get_vector_divergence_operator(target_grid).to_dense())
+        grad_op = np.asarray(self._get_grid_gradient_operator(target_grid, r=r).to_dense())
+        lap = -(div_op @ grad_op)
+        lap = np.asarray(0.5 * (lap + lap.T))
+        self._mimetic_laplacian_cache[key] = lap
+        return lap
 
-        # Term 2: (1/sin^2(theta)) * d^2/dphi^2
-        # G_ph already includes 1/sin(theta), so G_ph @ G_ph = (1/sin²θ) d²/dφ²
-        term2 = G_ph @ G_ph
+    def get_mimetic_laplacian_pinv(
+        self,
+        grid: Optional[Any] = None,
+        r: float = 1.0,
+        rcond: Optional[float] = None,
+    ) -> np.ndarray:
+        """Return mean-zero gauge-fixed pseudoinverse of mimetic Laplacian."""
+        lap = np.asarray(self.get_mimetic_laplacian_operator(grid=grid, r=r))
+        if rcond is None:
+            rcond = self._default_pinv_rcond(lap.shape)
+        key = (
+            int(getattr(grid if grid is not None else self.grid, "hash", id(grid if grid is not None else self.grid))),
+            float(r),
+            float(max(rcond, 0.0)),
+        )
+        cached = self._mimetic_laplacian_pinv_cache.get(key)
+        if cached is not None:
+            return cached
 
-        # Combine
-        L = (term1 + term2) / (r**2)
-        return L
+        P = self.get_mean_zero_projector(n_coeff=lap.shape[0]).astype(lap.dtype, copy=False)
+        lap_proj = P @ lap @ P
+        lap_proj_pinv = self._pinv_symmetric(lap_proj, rcond=max(float(rcond), 0.0))
+        lap_pinv = P @ lap_proj_pinv @ P
+        self._mimetic_laplacian_pinv_cache[key] = lap_pinv
+        return lap_pinv
 
     # Methods block, geo2cube, interpolate_scalar, interpolate_vector_components inherited
 
@@ -662,7 +920,7 @@ class CSBasis(GridBasis):
             u_e, u_n, _ = self.interpolate_vector_components(
                 u_east, u_north, u_r, theta, phi, self.arr_theta, self.arr_phi
             )
-            return np.hstack((-u_n, u_e))
+            return np.vstack((-u_n, u_e))
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
@@ -723,7 +981,7 @@ class CSBasis(GridBasis):
                 target_grid.theta,
                 target_grid.phi,
             )
-            grid_values = np.hstack((-u_north_int, u_east_int))
+            grid_values = np.vstack((-u_north_int, u_east_int))
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
@@ -749,98 +1007,123 @@ class CSBasis(GridBasis):
         scalar potentials. This matrix performs Helmholtz decomposition
         on the grid to extract them.
 
-        Uses direct pseudo-inverse of the forward Helmholtz mapping (like SHBasis)
-        rather than Laplacian inversion, which avoids numerical instability from
-        the Laplacian's null space (constant functions).
+        Uses an exact equality-constrained least-squares solve with
+        basis-level gauge constraints.
         """
-        # 1. Check Cache
+        # 1. Check cache (mode-aware)
         grid_key = getattr(grid, "hash", id(grid))
-        if grid_key in self._cache and "projection_matrix" in self._cache[grid_key]:
-            return self._cache[grid_key]["projection_matrix"]
+        solver_kind = os.getenv("PYNAMIT_CS_PROJECTION_SOLVER", "normal").strip().lower()
+        if solver_kind not in {"normal", "cg", "lsmr", "svd"}:
+            solver_kind = "normal"
+        mode_key = f"constrained:{solver_kind}"
 
-        import scipy.sparse
-        from pynamit.utils import tensor_pinv
+        grid_cache = self._cache.setdefault(grid_key, {})
+        by_mode = grid_cache.setdefault("projection_matrix_by_mode", {})
+        if mode_key in by_mode:
+            return by_mode[mode_key]
+
+        global_key = (int(self.N), int(getattr(grid, "size", 0)), int(grid_key), mode_key)
+        if global_key in CSBasis._GLOBAL_PROJECTION_CACHE:
+            res = CSBasis._GLOBAL_PROJECTION_CACHE[global_key]
+            by_mode[mode_key] = res
+            grid_cache["projection_matrix"] = res
+            return res
 
         # Get gradient operators
         G_th = self.get_G(grid, derivative="theta")
         G_ph = self.get_G(grid, derivative="phi")
 
-        # Convert to dense if sparse
-        if scipy.sparse.issparse(G_th):
+        if hasattr(G_th, "toarray"):
             G_th = G_th.toarray()
-        if scipy.sparse.issparse(G_ph):
+        if hasattr(G_ph, "toarray"):
             G_ph = G_ph.toarray()
 
-        # Build forward Helmholtz mapping: coeffs -> grid vectors
-        # G_grad: E = -grad(phi) = (-d_th phi, -(1/sin th) d_ph phi)
-        # G_rxgrad: E = r x grad(psi) = ((1/sin th) d_ph psi, -d_th psi)
-        # G_ph already includes 1/sin(th) factor from get_G().
+        n_grid, n_coeff = G_th.shape
+
+        # Build forward Helmholtz mapping using the canonical tensor layout.
+        # This keeps flattening/ordering identical to the legacy tensor_pinv path.
         G_grad = np.array([-G_th, -G_ph])
         G_rxgrad = np.array([G_ph, -G_th])
-
-        # G_helmholtz: (2, N_grid, 2, N_coeffs)
-        # Potential types: 0=poloidal, 1=toroidal
         G_helmholtz = np.stack([G_grad, G_rxgrad], axis=2)
+        A = G_helmholtz.reshape(2 * n_grid, 2 * n_coeff)
 
-        # Use proper pseudo-inverse via SVD (handles rank deficiency gracefully)
-        # This avoids the numerical instability of inverting the singular Laplacian
-        # pinv shape: (2, N_coeffs, 2, N_grid)
-        # Index 0: potential type (0=poloidal, 1=toroidal)
-        # Index 1: coefficient index
-        # Index 2: vector component (0=theta, 1=phi)
-        # Index 3: grid point
-        res = tensor_pinv(G_helmholtz, n_leading_flattened=2)
-        
+        # Equality-constrained solve with hard gauge rows.
+        if n_coeff <= 0:
+            raise ValueError(
+                f"Cannot construct CS Helmholtz projection with n_coeff={n_coeff}."
+            )
+
+        n_total = 2 * n_coeff
+        m_total = 2 * n_grid
+
+        from pynamit.math.least_squares_problem import LeastSquaresProblem
+        from pynamit.math.least_squares_solver import LeastSquaresSolver
+
+        C = self.get_helmholtz_gauge_constraint_matrix(n_coeff=n_coeff)
+        problem = LeastSquaresProblem(
+            A=[A],
+            solution_shape=(n_total,),
+            data_shapes=[(m_total,)],
+            matrix_free=False,
+        )
+        try:
+            ls_solver = LeastSquaresSolver(solver=solver_kind, tolerance=1e-15)
+            rhs = np.eye(m_total, dtype=float)
+            sol = ls_solver.solve(
+                problem,
+                [rhs],
+                equality_operator=C,
+                equality_rhs=np.zeros((2, m_total), dtype=float),
+                elimination_rcond=1e-15,
+            )
+            P_flat = np.asarray(sol).reshape(n_total, m_total)
+            if P_flat.shape != (n_total, m_total):
+                raise RuntimeError(
+                    "Unexpected constrained projection shape: "
+                    f"{P_flat.shape}, expected {(n_total, m_total)}."
+                )
+            res = P_flat.reshape(2, n_coeff, 2, n_grid)
+        except Exception as exc:
+            raise RuntimeError(
+                "CS constrained Helmholtz projection solve failed. "
+                "No unconstrained fallback is enabled."
+            ) from exc
+
         # 2. Store in Cache
-        if grid_key not in self._cache:
-            self._cache[grid_key] = {}
-        self._cache[grid_key]["projection_matrix"] = res
-        
+        by_mode[mode_key] = res
+        grid_cache["projection_matrix"] = res
+        CSBasis._GLOBAL_PROJECTION_CACHE[global_key] = res
+
         return res
 
     def _get_grid_divergence(self, grid: Any, r: float = 1.0) -> Any:
         """Get the discrete divergence operator matrix on the grid."""
         import scipy.sparse
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
-
-        theta_rad = np.deg2rad(self.arr_theta)
-        sin_th = np.sin(theta_rad)
-
-        epsilon = 1e-10
-        sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
-        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
-        sin_th_mat = scipy.sparse.diags(sin_th)
+        bundle = self._get_grid_derivative_bundle(grid)
 
         # Div = (1/r sin th) [ d_th (E_th sin th) + d_ph E_ph ]
-        # G_ph already includes 1/sin(th), so:
-        # Div_th = (1/r sin th) @ G_th @ sin_th = (1/r) @ inv_sin_th @ G_th @ sin_th
-        # Div_ph = (1/r sin th) @ d_ph = (1/r) @ G_ph
-        D_th = inv_sin_th @ G_th @ sin_th_mat
-        D_ph = G_ph
+        #
+        # The phi block is assembled as
+        #   (1/sin²θ) d/dphi [sinθ * E_phi]
+        # which is algebraically equivalent to (1/sinθ) d/dphi(E_phi) when
+        # sin(theta) is phi-independent. This form keeps the discrete CS
+        # div/grad/curl operators consistent with the Laplacian assembly.
+        D_th = bundle["inv_sin_th"] @ bundle["D_theta"] @ bundle["sin_th"]
+        D_ph = bundle["inv_sin2_th"] @ bundle["D_phi_unscaled"] @ bundle["sin_th"]
 
         return scipy.sparse.hstack([D_th, D_ph]) / r
 
     def _get_grid_curl(self, grid: Any, r: float = 1.0) -> Any:
         """Get the discrete radial curl operator matrix on the grid."""
         import scipy.sparse
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
-
-        theta_rad = np.deg2rad(self.arr_theta)
-        sin_th = np.sin(theta_rad)
-
-        epsilon = 1e-10
-        sin_th_safe = np.where(np.abs(sin_th) < epsilon, epsilon, sin_th)
-        inv_sin_th = scipy.sparse.diags(1.0 / sin_th_safe)
-        sin_th_mat = scipy.sparse.diags(sin_th)
+        bundle = self._get_grid_derivative_bundle(grid)
 
         # Curl_r = (1/r sin th) [ d_th (E_ph sin th) - d_ph E_th ]
-        # G_ph already includes 1/sin(th), so:
-        # C_th (acting on E_th) = -(1/r sin th) @ d_ph = -(1/r) @ G_ph
-        # C_ph (acting on E_ph) = (1/r sin th) @ G_th @ sin_th = (1/r) @ inv_sin_th @ G_th @ sin_th
-        C_th = -G_ph
-        C_ph = inv_sin_th @ G_th @ sin_th_mat
+        #
+        # Use the same phi block form as divergence to preserve consistency with
+        # the scalar Laplacian when composing curl(curl psi).
+        C_th = -(bundle["inv_sin2_th"] @ bundle["D_phi_unscaled"] @ bundle["sin_th"])
+        C_ph = bundle["inv_sin_th"] @ bundle["D_theta"] @ bundle["sin_th"]
 
         return scipy.sparse.hstack([C_th, C_ph]) / r
 
@@ -851,13 +1134,12 @@ class CSBasis(GridBasis):
         The returned operator maps from scalar coefficients to stacked vector components.
         """
         from pynamit.math.linear_map import as_linear_map, BlockLinearMap
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
+        bundle = self._get_grid_derivative_bundle(grid)
         
         # E = -grad(phi) = (-d_th phi, -1/sin_th * d_ph phi) / r
-        # G_ph already includes 1/sin_th factor.
-        op_phi_th = as_linear_map(G_th) * (-1.0 / r)
-        op_phi_ph = as_linear_map(G_ph) * (-1.0 / r)
+        # D_phi_scaled already includes 1/sin(theta) scaling.
+        op_phi_th = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
+        op_phi_ph = as_linear_map(bundle["D_phi_scaled"]) * (-1.0 / r)
         
         return BlockLinearMap([[op_phi_th], [op_phi_ph]])
 
@@ -868,13 +1150,12 @@ class CSBasis(GridBasis):
         The returned operator maps from scalar coefficients to stacked vector components.
         """
         from pynamit.math.linear_map import as_linear_map, BlockLinearMap
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
+        bundle = self._get_grid_derivative_bundle(grid)
         
         # E = -r x grad(psi) = (1/sin_th * d_ph psi, -d_th psi) / r
-        # G_ph already includes 1/sin_th factor.
-        op_psi_th = as_linear_map(G_ph) * (1.0 / r)
-        op_psi_ph = as_linear_map(G_th) * (-1.0 / r)
+        # D_phi_scaled already includes 1/sin(theta) scaling.
+        op_psi_th = as_linear_map(bundle["D_phi_scaled"]) * (1.0 / r)
+        op_psi_ph = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
         
         return BlockLinearMap([[op_psi_th], [op_psi_ph]])
 
@@ -898,6 +1179,11 @@ class CSBasis(GridBasis):
         This method returns the matrix G such that E_grid = G @ [phi_coeffs; psi_coeffs].
         G = [ G_pol, G_tor ] where G_pol maps potential to -grad(phi)
         and G_tor maps potential to -r x grad(psi).
+
+        Returns
+        -------
+        np.ndarray
+            Canonical Helmholtz tensor with shape ``(2, N_grid, 2, N_coeffs)``.
         """
         from pynamit.math.linear_map import BlockLinearMap
         # Use our grid-based Helmholtz operators (at r=1.0 for the basis definition)
@@ -907,8 +1193,7 @@ class CSBasis(GridBasis):
         # Combine into [G_pol, G_tor]
         G_vec = BlockLinearMap([[G_pol, G_tor]])
 
-        # Return as dense matrix with shape (2, N_grid, 2*L)
+        # Return canonical Helmholtz tensor (2, N_grid, 2, N_coeffs)
         G_dense = G_vec.to_dense()
         n_grid = grid.size if hasattr(grid, "size") else self.arr_theta.size
-        return G_dense.reshape(2, n_grid, 2 * self.index_length)
-
+        return G_dense.reshape(2, n_grid, 2, self.index_length)
