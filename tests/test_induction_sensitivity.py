@@ -1,5 +1,5 @@
 
-def test_induction_sensitivity():
+def test_induction_sensitivity(tmp_path):
     """Test to verify sensitivity to induction terms (K and D1) in isolation.
     
     This test runs with:
@@ -16,6 +16,7 @@ def test_induction_sensitivity():
     # use_jr=False -> Zero Driver
     # wind=True -> Built-in Wind (HWM14)
     dynamics = run_pynamit(
+        filename_prefix=str(tmp_path / "induction_sensitivity"),
         final_time=10.0,
         dt=10.0,
         Nmax=5, Mmax=2,
@@ -32,8 +33,8 @@ def test_induction_sensitivity():
     psi_norm = np.linalg.norm(psi)
     
     print(f"DEBUG: Sensitivity Test (Runner) |psi| = {psi_norm:.8e}")
-    # Baseline updated after unified state/steady-state orchestration cleanup.
-    expected_psi_norm = 3.0216074654620424e-10
+    # Baseline updated 2026-02-21 after toroidal Er weak-form projection update.
+    expected_psi_norm = 1.0095158752051418e-08
     import pytest
     assert psi_norm == pytest.approx(expected_psi_norm, rel=1e-8), \
         f"Induction response changed! Expected {expected_psi_norm}, got {psi_norm}"

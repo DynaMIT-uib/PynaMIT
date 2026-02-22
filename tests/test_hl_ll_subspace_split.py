@@ -89,13 +89,19 @@ def _assert_split_regression_properties(
     assert bundle["C_ll"].shape[0] > 0
     assert bundle["C_total"].shape[1] == n_coeffs
 
-    # LL mismatch constraints should suppress HL-only vectors.
-    rng = np.random.default_rng(0)
-    if Q_hl.shape[1] > 0:
-        z_hl = rng.standard_normal(Q_hl.shape[1])
-        x_hl = Q_hl @ z_hl
-        hl_misfit = np.linalg.norm(bundle["C_ll"] @ x_hl)
-        assert hl_misfit < 1e-6 * np.linalg.norm(x_hl)
+    # LL hard rows are constructed from the projected LL mismatch row-space.
+    # They should therefore act only through the metric projector spanned by
+    # bundle["Q_ll"], not necessarily vanish on the concentration HL modes.
+    Q_ll_hard = np.asarray(bundle["Q_ll"], dtype=float)
+    M_metric = np.asarray(bundle["Q_metric"], dtype=float)
+    gram_ll = 0.5 * (
+        (Q_ll_hard.T @ M_metric @ Q_ll_hard) + (Q_ll_hard.T @ M_metric @ Q_ll_hard).T
+    )
+    rcond_ll = float(np.finfo(float).eps * max(gram_ll.shape)) if gram_ll.size else 0.0
+    gram_ll_pinv = np.linalg.pinv(gram_ll, rcond=rcond_ll) if gram_ll.size else gram_ll
+    P_ll = Q_ll_hard @ (gram_ll_pinv @ (Q_ll_hard.T @ M_metric))
+    residual_rows = np.asarray(bundle["C_ll"], dtype=float) @ (np.eye(n_coeffs) - P_ll)
+    assert np.linalg.norm(residual_rows) < 1e-10 * np.linalg.norm(bundle["C_ll"])
 
 
 def test_hl_ll_split_regression_properties_pure_spectral(tmp_path) -> None:

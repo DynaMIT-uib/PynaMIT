@@ -308,6 +308,32 @@ class CoupledOperatorAPI:
         # stabilization against near-null directions.
         return min(runtime_lambda, 1e-12)
 
+    def _stabilize_poloidal_self_block(self, l11: np.ndarray) -> np.ndarray:
+        """Enforce dissipative self-block semantics for CS-dominant full induction.
+
+        The CS-dominant poloidal self block can contain a tiny anti-diffusive
+        numerical mode at high spectral-to-grid ratios. We keep the skew part
+        unchanged and clip only positive eigenvalues of the symmetric part so
+        `Re(lambda) <= 0` by construction.
+        """
+        st = self.state
+        mode = getattr(st, "mode", None)
+        if not str(mode).lower().endswith("cs_dominant"):
+            return np.asarray(l11)
+        if getattr(st, "dynamics_mode", "") != "full_induction":
+            return np.asarray(l11)
+
+        a = np.asarray(l11, dtype=float)
+        if a.ndim != 2 or a.shape[0] != a.shape[1]:
+            return a
+
+        sym = 0.5 * (a + a.T)
+        skew = a - sym
+        evals, evecs = np.linalg.eigh(sym)
+        evals_clipped = np.minimum(evals, 0.0)
+        sym_stable = (evecs * evals_clipped) @ evecs.T
+        return np.asarray(skew + sym_stable, dtype=float)
+
     def get_coupled_induction_tensor(self, use_pinning: Optional[bool] = None) -> np.ndarray:
         """Build the coupled tensor ``L_coupled`` with shape ``(2, N, 2, N)``."""
         st = self.state
@@ -352,6 +378,7 @@ class CoupledOperatorAPI:
         e_df_extract = asarray(st.E_coeffs_to_E_df_matrix)
         dmind_from_psi = scale_pol * (e_df_extract @ asarray(toroidal_to_E))
         dmind_from_mind = scale_pol * asarray(st.m_ind_to_E_df_matrix)
+        dmind_from_mind = self._stabilize_poloidal_self_block(dmind_from_mind)
 
         top_row = xp.stack([dtpsi_from_psi, dtpsi_from_mind], axis=1)
         bottom_row = xp.stack([dmind_from_psi, dmind_from_mind], axis=1)
@@ -459,6 +486,7 @@ class CoupledOperatorAPI:
         if dmind_from_mind is None:
             scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
             dmind_from_mind = scale * asarray(st.m_ind_to_E_df_matrix)
+            dmind_from_mind = self._stabilize_poloidal_self_block(dmind_from_mind)
 
         block_op = BlockCoupledOperator(
             L_00=dtpsi_from_psi,

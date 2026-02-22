@@ -19,7 +19,8 @@ def _run_exponential_integrator_test(
     expected_mind_norm, 
     rel_tol=1e-4, 
     test_name="sim",
-    northern_apex_constraints=False
+    northern_apex_constraints=False,
+    filename_prefix=None,
 ):
     """Helper to run the exponential integrator test using run_pynamit defaults."""
     from pynamit.simulation.runner import run_pynamit
@@ -27,6 +28,7 @@ def _run_exponential_integrator_test(
     # Run using the default runner with multi_data=True
     # Using 'svd' solver for maximum precision
     sim = run_pynamit(
+        filename_prefix=filename_prefix,
         final_time=2.0,
         dt=1.0,
         plotsteps=1, 
@@ -73,61 +75,63 @@ def _run_exponential_integrator_test(
     assert actual_mind_norm == pytest.approx(expected_mind_norm, rel=rel_tol)
 
 
-def test_exponential_integrator_pure_spectral():
+def test_exponential_integrator_pure_spectral(tmp_path):
     """Test exponential integrator with pure spectral mode.
     
     This verifies the matrix densification path works for SH basis.
     """
-    # Baselines updated 2026-02-20 after affine expm stepping for full induction.
-    expected_psi_norm = 1.7997413683476614e-08
-    expected_mind_norm = 3.376627581325625e-09
+    # Baselines updated 2026-02-21 after toroidal Er weak-form projection update.
+    expected_psi_norm = 1.666062794615512e-08
+    expected_mind_norm = 3.7325462062802384e-09
     
     _run_exponential_integrator_test(
         SimulationMode.PURE_SPECTRAL,
         expected_psi_norm,
         expected_mind_norm,
         rel_tol=1e-4,  # Relaxed slightly for physics changes
-        test_name="exp_pure_spectral"
+        test_name="exp_pure_spectral",
+        filename_prefix=str(tmp_path / "exp_pure_spectral"),
     )
 
-def test_exponential_integrator_spectral_transform_gl():
+def test_exponential_integrator_spectral_transform_gl(tmp_path):
     """Test exponential integrator with spectral_transform (GL grid)."""
-    # Baselines updated 2026-02-20 after affine expm stepping for full induction.
-    expected_psi_norm = 1.8008887048492457e-08
-    expected_mind_norm = 4.067094982748926e-09
+    # Baselines updated 2026-02-21 after toroidal Er weak-form projection update.
+    expected_psi_norm = 1.6688556859408716e-08
+    expected_mind_norm = 4.163679191563547e-09
     
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
         expected_psi_norm,
         expected_mind_norm,
         rel_tol=1e-4,
-        test_name="exp_spec_trans_gl"
+        test_name="exp_spec_trans_gl",
+        filename_prefix=str(tmp_path / "exp_spec_trans_gl"),
     )
 
-def test_exponential_integrator_spectral_transform_cs():
+def test_exponential_integrator_spectral_transform_cs(tmp_path):
     """Test exponential integrator with spectral_transform (CS grid)."""
-    # Baselines updated 2026-02-20 after affine expm stepping for full induction.
-    expected_psi_norm = 9.130515936293893e-09
-    expected_mind_norm = 1.8220631527925785e-09
+    # Baselines updated 2026-02-21 after toroidal Er weak-form projection update.
+    expected_psi_norm = 8.668242304224515e-09
+    expected_mind_norm = 1.4815413113580669e-09
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
         expected_psi_norm,
         expected_mind_norm,
         rel_tol=1e-4,
-        test_name="exp_spec_trans_cs"
+        test_name="exp_spec_trans_cs",
+        filename_prefix=str(tmp_path / "exp_spec_trans_cs"),
     )
 
-def test_exponential_integrator_cs_dominant():
+def test_exponential_integrator_cs_dominant(tmp_path):
     """Test exponential integrator with CS dominant mode.
 
     This verifies the matrix densification path works for CS basis
     with finite differences.
     """
-    # Baselines updated 2026-02-20 after coupled-operator toroidal feedback
-    # regularization split and fixed-step exponential integration checks.
-    expected_psi_norm = 8.65753066917622e-08
-    expected_mind_norm = 7.977838754768042e-08
+    # Baselines updated 2026-02-21 after toroidal Er weak-form projection update.
+    expected_psi_norm = 8.53887553915013e-08
+    expected_mind_norm = 7.930918893572826e-08
 
     _run_exponential_integrator_test(
         SimulationMode.CS_DOMINANT,
@@ -135,5 +139,6 @@ def test_exponential_integrator_cs_dominant():
         expected_mind_norm,
         rel_tol=1e-2,
         test_name="exp_cs_dom",
-        northern_apex_constraints=True
+        northern_apex_constraints=True,
+        filename_prefix=str(tmp_path / "exp_cs_dom"),
     )

@@ -13,11 +13,13 @@ def _run_dynamic_ramp_test(
     rel_tol=1e-4,
     test_name="sim",
     northern_apex_constraints=False,
+    filename_prefix=None,
 ):
     """Run full-induction simulation and compare t=1.0s state norms."""
     from pynamit.simulation.runner import run_pynamit
 
     sim = run_pynamit(
+        filename_prefix=filename_prefix,
         final_time=2.0,
         dt=1.0,
         plotsteps=1,
@@ -60,12 +62,12 @@ def _run_dynamic_ramp_test(
     assert actual_mind_norm == pytest.approx(expected_mind_norm, rel=rel_tol)
 
 
-def test_dynamic_ramp_pure_spectral():
+def test_dynamic_ramp_pure_spectral(tmp_path):
     """Test pure spectral mode with dual induction."""
-    # Baselines updated 2026-02-20 after affine full-induction exponential/euler
-    # consistency fixes and constrained toroidal solve refactor.
-    expected_psi_norm = 1.7997413683476614e-08
-    expected_mind_norm = 3.4980635934853076e-09
+    # Baselines updated 2026-02-22 after unified weak-form Br branch selector
+    # (Er closure + jr->alpha) and Schur toroidal runtime path.
+    expected_psi_norm = 1.6660627946155062e-08
+    expected_mind_norm = 3.8616641412461525e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.PURE_SPECTRAL,
@@ -73,15 +75,16 @@ def test_dynamic_ramp_pure_spectral():
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="sim_pure_spectral",
+        filename_prefix=str(tmp_path / "sim_pure_spectral"),
     )
 
 
-def test_dynamic_ramp_spectral_transform_gl():
+def test_dynamic_ramp_spectral_transform_gl(tmp_path):
     """Test spectral transform GL mode with dual induction."""
-    # Baselines updated 2026-02-20 after affine full-induction exponential/euler
-    # consistency fixes and constrained toroidal solve refactor.
-    expected_psi_norm = 1.8008887048492457e-08
-    expected_mind_norm = 4.161023844266195e-09
+    # Baselines updated 2026-02-22 after unified weak-form Br branch selector
+    # (Er closure + jr->alpha) and Schur toroidal runtime path.
+    expected_psi_norm = 1.668855685940866e-08
+    expected_mind_norm = 4.278509748100405e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -89,15 +92,16 @@ def test_dynamic_ramp_spectral_transform_gl():
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="sim_st_gl",
+        filename_prefix=str(tmp_path / "sim_st_gl"),
     )
 
 
-def test_dynamic_ramp_spectral_transform_cs():
+def test_dynamic_ramp_spectral_transform_cs(tmp_path):
     """Test spectral transform CS mode with dual induction."""
-    # Baselines updated 2026-02-20 after affine full-induction exponential/euler
-    # consistency fixes and constrained toroidal solve refactor.
-    expected_psi_norm = 9.130515936293891e-09
-    expected_mind_norm = 1.8982964798057234e-09
+    # Baselines updated 2026-02-22 after unified weak-form Br branch selector
+    # (Er closure + jr->alpha) and Schur toroidal runtime path.
+    expected_psi_norm = 8.668242304224552e-09
+    expected_mind_norm = 1.5449275500366944e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
@@ -105,10 +109,11 @@ def test_dynamic_ramp_spectral_transform_cs():
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="sim_st_cs",
+        filename_prefix=str(tmp_path / "sim_st_cs"),
     )
 
 
-def test_dynamic_ramp_cs_dominant(backend: str):
+def test_dynamic_ramp_cs_dominant(backend: str, tmp_path):
     """Test CS dominant mode with dual induction."""
     # Baselines updated 2026-02-20 after affine full-induction exponential/euler
     # consistency fixes and constrained toroidal solve refactor.
@@ -123,4 +128,5 @@ def test_dynamic_ramp_cs_dominant(backend: str):
         rel_tol=rel_tol,
         test_name="sim_cs_dom",
         northern_apex_constraints=True,
+        filename_prefix=str(tmp_path / "sim_cs_dom"),
     )

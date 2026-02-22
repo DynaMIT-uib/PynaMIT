@@ -163,6 +163,16 @@ class DynamicsSettings:
     poloidal_weighting: Literal["none", "linear", "quadratic"] = "none"
     # Preconditioner for least-squares solver
     least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv"
+    # Conductance input interpolation policy:
+    # - legacy_eta_linear: convert Sigma->eta first, then interpolate eta (legacy behavior)
+    # - sigma_linear: interpolate Sigma directly, then convert to eta at state update
+    # - sigma_log: interpolate log(Sigma + floor), then convert to eta at state update
+    conductance_interpolation_mode: Literal[
+        "legacy_eta_linear", "sigma_linear", "sigma_log"
+    ] = "legacy_eta_linear"
+    # Floor used for sigma_log encoding and for robust Sigma->eta conversion in
+    # non-legacy modes (denominator floor uses floor^2).
+    conductance_interpolation_floor: float = 1e-3
     # Tikhonov regularization for toroidal system (only used in full_induction mode)
     toroidal_regularization_lambda: float = 1e-10
     # Force dense assembly/use of full linear evolution operators for both
@@ -198,6 +208,8 @@ class DynamicsSettings:
         attrs["least_squares_preconditioner"] = self.least_squares_preconditioner
         attrs["toroidal_weighting"] = self.toroidal_weighting
         attrs["poloidal_weighting"] = self.poloidal_weighting
+        attrs["conductance_interpolation_mode"] = self.conductance_interpolation_mode
+        attrs["conductance_interpolation_floor"] = self.conductance_interpolation_floor
         # Remove backend as it is runtime configuration
         if "backend" in attrs:
             del attrs["backend"]
@@ -272,6 +284,14 @@ class DynamicsSettings:
             toroidal_weighting=get("toroidal_weighting", defaults.toroidal_weighting),
             poloidal_weighting=get("poloidal_weighting", defaults.poloidal_weighting),
             least_squares_preconditioner=get("least_squares_preconditioner", defaults.least_squares_preconditioner),
+            conductance_interpolation_mode=get(
+                "conductance_interpolation_mode",
+                defaults.conductance_interpolation_mode,
+            ),
+            conductance_interpolation_floor=get(
+                "conductance_interpolation_floor",
+                defaults.conductance_interpolation_floor,
+            ),
             m_imp_regularization_lambda=get("m_imp_regularization_lambda", defaults.m_imp_regularization_lambda),
             toroidal_regularization_lambda=get("toroidal_regularization_lambda", defaults.toroidal_regularization_lambda),
             dense_full_operators=bool(

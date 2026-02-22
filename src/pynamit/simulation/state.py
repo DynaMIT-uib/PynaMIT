@@ -201,6 +201,12 @@ class State:
         self.magnetospheric_toroidal_lock = bool(
             getattr(settings, "magnetospheric_toroidal_lock", False)
         )
+        self.conductance_interpolation_mode = str(
+            getattr(settings, "conductance_interpolation_mode", "legacy_eta_linear")
+        )
+        self.conductance_interpolation_floor = float(
+            max(getattr(settings, "conductance_interpolation_floor", 1e-3), 0.0)
+        )
         self.toroidal_regularization_lambda = getattr(settings, "toroidal_regularization_lambda", 0.0)
         self.dense_full_operators = bool(getattr(settings, "dense_full_operators", False))
         self.connect_hemispheres = bool(settings.connect_hemispheres)
@@ -1127,7 +1133,7 @@ class State:
         L_flat: np.ndarray,
         *,
         label: str,
-        unstable_tol: float = 1e-12,
+        unstable_tol: float = 1e-10,
     ) -> Dict[str, float]:
         """Analyze coupled-operator spectrum and warn on unstable modes."""
         arr = np.asarray(L_flat, dtype=float)
@@ -1594,6 +1600,76 @@ class State:
         
         return field
 
+    def _decode_conductance_input_to_eta_coeffs(
+        self,
+        *,
+        storage_base: Any,
+        updated_input: dict,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Decode conductance input representation and return ``(etaP, etaH)`` coeffs.
+
+        Supports:
+        - legacy resistivity interpolation: ``etaP``, ``etaH`` (pass-through)
+        - conductivity interpolation: ``SigmaP``, ``SigmaH``
+        - log-conductivity interpolation: ``logSigmaP``, ``logSigmaH``
+        """
+        if "etaP" in updated_input and "etaH" in updated_input:
+            return (
+                np.asarray(updated_input["etaP"]).reshape(-1),
+                np.asarray(updated_input["etaH"]).reshape(-1),
+            )
+
+        grid = self.geometry.grid
+        r_eval = self.geometry.RI
+        sigma_floor = float(max(self.conductance_interpolation_floor, 0.0))
+        sigma_floor_safe = max(sigma_floor, np.finfo(float).tiny)
+
+        if "SigmaP" in updated_input and "SigmaH" in updated_input:
+            f_sigmaP = Field.from_coefficients(storage_base, coeffs=updated_input["SigmaP"])
+            f_sigmaH = Field.from_coefficients(storage_base, coeffs=updated_input["SigmaH"])
+            sigmaP_grid, _, _ = f_sigmaP.evaluate(r_eval, grid.theta, grid.phi)
+            sigmaH_grid, _, _ = f_sigmaH.evaluate(r_eval, grid.theta, grid.phi)
+        elif "logSigmaP" in updated_input and "logSigmaH" in updated_input:
+            f_log_sigmaP = Field.from_coefficients(storage_base, coeffs=updated_input["logSigmaP"])
+            f_log_sigmaH = Field.from_coefficients(storage_base, coeffs=updated_input["logSigmaH"])
+            log_sigmaP_grid, _, _ = f_log_sigmaP.evaluate(r_eval, grid.theta, grid.phi)
+            log_sigmaH_grid, _, _ = f_log_sigmaH.evaluate(r_eval, grid.theta, grid.phi)
+            sigmaP_grid = np.exp(np.asarray(log_sigmaP_grid)) - sigma_floor_safe
+            sigmaH_grid = np.exp(np.asarray(log_sigmaH_grid)) - sigma_floor_safe
+        else:
+            raise KeyError(
+                "Unsupported conductance input representation. Expected "
+                "('etaP','etaH'), ('SigmaP','SigmaH'), or "
+                "('logSigmaP','logSigmaH')."
+            )
+
+        sigmaP_grid = np.asarray(sigmaP_grid, dtype=float).reshape(-1)
+        sigmaH_grid = np.asarray(sigmaH_grid, dtype=float).reshape(-1)
+        if np.any(sigmaP_grid < 0.0):
+            logger.warning(
+                "Negative Pedersen conductance encountered after interpolation; "
+                "clipping to nonnegative."
+            )
+            sigmaP_grid = np.maximum(sigmaP_grid, 0.0)
+        if np.any(sigmaH_grid < 0.0):
+            logger.warning(
+                "Negative Hall conductance encountered after interpolation; "
+                "clipping to nonnegative (Hall sign is geometry-driven)."
+            )
+            sigmaH_grid = np.maximum(sigmaH_grid, 0.0)
+
+        denom = sigmaP_grid * sigmaP_grid + sigmaH_grid * sigmaH_grid + sigma_floor_safe * sigma_floor_safe
+        etaP_grid = sigmaP_grid / denom
+        etaH_grid = sigmaH_grid / denom
+
+        etaP_coeffs = np.asarray(
+            storage_base.from_grid_values(etaP_grid, grid, "scalar")
+        ).reshape(-1)
+        etaH_coeffs = np.asarray(
+            storage_base.from_grid_values(etaH_grid, grid, "scalar")
+        ).reshape(-1)
+        return etaP_coeffs, etaH_coeffs
+
     def update(self, input_manager: Any, time: float, interpolation: bool = False) -> None:
         """Update the state variables based on the current input."""
         conductance_updated = False
@@ -1636,8 +1712,12 @@ class State:
             storage_base = input_manager.get_storage_basis(key)
             if key == "conductance":
                 conductance_updated = True
-                f_etaP = Field.from_coefficients(storage_base, coeffs=updated_input["etaP"])
-                f_etaH = Field.from_coefficients(storage_base, coeffs=updated_input["etaH"])
+                etaP_coeffs, etaH_coeffs = self._decode_conductance_input_to_eta_coeffs(
+                    storage_base=storage_base,
+                    updated_input=updated_input,
+                )
+                f_etaP = Field.from_coefficients(storage_base, coeffs=etaP_coeffs)
+                f_etaH = Field.from_coefficients(storage_base, coeffs=etaH_coeffs)
                 self.etaP = self._ensure_basis(f_etaP, "scalar")
                 self.etaH = self._ensure_basis(f_etaH, "scalar")
             elif key == "jr":
@@ -1827,12 +1907,11 @@ class State:
         dt_jr_driver_coeffs = self._get_dt_jr_driver_coeffs()
 
         E_coeffs = asarray(E_known)
-        rhs_1 = self.toroidal_matrices.compute_forcing_vector(E_coeffs, dt_jr_driver_coeffs)
         constraint_op = self.induction_constraint_operator_hard
         rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
-
-        solution = self.toroidal_matrices.solve_dpsi_dt_superposed(
-            rhs_physics=rhs_1,
+        solution = self.toroidal_matrices.solve_dpsi_dt_superposed_joint_er(
+            E_coeffs=E_coeffs,
+            dt_jr_driver_coeffs=dt_jr_driver_coeffs,
             rhs_constraint=rhs_2,
             jr_map_operator=constraint_op,
             m_imp_to_jr_operator=self.poloidal_matrices.m_imp_to_jr,

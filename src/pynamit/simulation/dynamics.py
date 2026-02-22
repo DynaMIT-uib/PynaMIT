@@ -5,6 +5,7 @@ coupling.
 """
 
 from __future__ import annotations
+import logging
 from typing import Any, List, Optional, Union, Literal
 
 import numpy as np
@@ -26,6 +27,9 @@ from pynamit.simulation.settings import (
     DynamicsSettings,
     FLOAT_ERROR_MARGIN,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class Dynamics:
@@ -87,6 +91,10 @@ class Dynamics:
         toroidal_weighting: Literal["none", "linear", "quadratic"] = "none",
         poloidal_weighting: Literal["none", "linear", "quadratic"] = "none",
         least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv",
+        conductance_interpolation_mode: Literal[
+            "legacy_eta_linear", "sigma_linear", "sigma_log"
+        ] = "legacy_eta_linear",
+        conductance_interpolation_floor: float = 1e-3,
         toroidal_regularization_lambda: float = 1e-10,
         dense_full_operators: bool = False,
         benchmark_mode: bool = False,
@@ -133,6 +141,8 @@ class Dynamics:
             toroidal_weighting=toroidal_weighting,
             poloidal_weighting=poloidal_weighting,
             least_squares_preconditioner=least_squares_preconditioner,
+            conductance_interpolation_mode=conductance_interpolation_mode,
+            conductance_interpolation_floor=conductance_interpolation_floor,
             toroidal_regularization_lambda=toroidal_regularization_lambda,
             dense_full_operators=dense_full_operators,
         )
@@ -178,10 +188,25 @@ class Dynamics:
             grid_basis = cs_basis
 
         # Specify input format and load input data.
+        conductance_mode = getattr(
+            self.settings, "conductance_interpolation_mode", "legacy_eta_linear"
+        )
+        if conductance_mode == "legacy_eta_linear":
+            conductance_vars = {"etaP": "scalar", "etaH": "scalar"}
+        elif conductance_mode == "sigma_linear":
+            conductance_vars = {"SigmaP": "scalar", "SigmaH": "scalar"}
+        elif conductance_mode == "sigma_log":
+            conductance_vars = {"logSigmaP": "scalar", "logSigmaH": "scalar"}
+        else:
+            raise ValueError(
+                "Invalid conductance_interpolation_mode="
+                f"{conductance_mode!r}. "
+                "Valid modes: 'legacy_eta_linear', 'sigma_linear', 'sigma_log'."
+            )
         self.input_variables = {
             "jr": {"jr": "scalar"},
             "Br": {"Br": "scalar"},
-            "conductance": {"etaP": "scalar", "etaH": "scalar"},
+            "conductance": conductance_vars,
             "u": {"u": "tangential"},
         }
 
@@ -646,15 +671,53 @@ class Dynamics:
         """
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
+        mode = getattr(self.settings, "conductance_interpolation_mode", "legacy_eta_linear")
+        sigma_floor = float(
+            max(getattr(self.settings, "conductance_interpolation_floor", 1e-3), 0.0)
+        )
 
-        input_data = {"etaP": np.empty_like(Pedersen), "etaH": np.empty_like(Hall)}
+        if mode == "legacy_eta_linear":
+            input_data = {"etaP": np.empty_like(Pedersen), "etaH": np.empty_like(Hall)}
 
-        # Convert conductances to resistances for all time points.
-        for i in range(max(input_data["etaP"].shape[0], 1)):
-            input_data["etaP"][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+            # Legacy behavior: convert conductances to resistivities first, then
+            # interpolate in eta-space.
+            for i in range(max(input_data["etaP"].shape[0], 1)):
+                input_data["etaP"][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        for i in range(max(input_data["etaH"].shape[0], 1)):
-            input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+            for i in range(max(input_data["etaH"].shape[0], 1)):
+                input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+        else:
+            ped = np.asarray(Pedersen, dtype=float)
+            hall = np.asarray(Hall, dtype=float)
+            if np.any(ped < 0.0):
+                logger.warning(
+                    "Negative Pedersen conductance supplied; clipping to nonnegative "
+                    "for conductance_interpolation_mode=%s.",
+                    mode,
+                )
+                ped = np.maximum(ped, 0.0)
+            if np.any(hall < 0.0):
+                logger.warning(
+                    "Negative Hall conductance supplied; clipping to nonnegative "
+                    "for conductance_interpolation_mode=%s (Hall sign is geometry-driven).",
+                    mode,
+                )
+                hall = np.maximum(hall, 0.0)
+
+            if mode == "sigma_linear":
+                input_data = {"SigmaP": ped, "SigmaH": hall}
+            elif mode == "sigma_log":
+                floor = max(sigma_floor, np.finfo(float).tiny)
+                input_data = {
+                    "logSigmaP": np.log(ped + floor),
+                    "logSigmaH": np.log(hall + floor),
+                }
+            else:
+                raise ValueError(
+                    "Invalid conductance_interpolation_mode="
+                    f"{mode!r}. "
+                    "Valid modes: 'legacy_eta_linear', 'sigma_linear', 'sigma_log'."
+                )
 
         self.input_manager.interpolate_and_add_entry(
             "conductance",
