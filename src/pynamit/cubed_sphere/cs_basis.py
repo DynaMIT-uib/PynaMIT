@@ -1012,9 +1012,9 @@ class CSBasis(GridBasis):
         """
         # 1. Check cache (mode-aware)
         grid_key = getattr(grid, "hash", id(grid))
-        solver_kind = os.getenv("PYNAMIT_CS_PROJECTION_SOLVER", "normal").strip().lower()
-        if solver_kind not in {"normal", "cg", "lsmr", "svd"}:
-            solver_kind = "normal"
+        solver_kind = os.getenv("PYNAMIT_CS_PROJECTION_SOLVER", "normal_eq").strip().lower()
+        if solver_kind not in {"normal_eq", "cgls", "lsmr", "svd"}:
+            solver_kind = "normal_eq"
         mode_key = f"constrained:{solver_kind}"
 
         grid_cache = self._cache.setdefault(grid_key, {})

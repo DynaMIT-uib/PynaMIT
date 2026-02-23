@@ -519,10 +519,6 @@ class SHBasis(Basis):
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
-    def to_grid_values(self, coeffs, evaluator, vector_type):
-        """Deprecated compatibility wrapper."""
-        return self.evaluate(coeffs, evaluator.grid, vector_type)
-
     def regularization_term(self, coeffs, grid, vector_type, reg_lambda=None):
         """Compute regularization penalty term."""
         return super().regularization_term(coeffs, grid, vector_type, reg_lambda=reg_lambda)

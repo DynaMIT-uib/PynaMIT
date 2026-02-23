@@ -33,8 +33,8 @@ def test_induction_sensitivity(tmp_path):
     psi_norm = np.linalg.norm(psi)
     
     print(f"DEBUG: Sensitivity Test (Runner) |psi| = {psi_norm:.8e}")
-    # Baseline updated 2026-02-21 after toroidal Er weak-form projection update.
-    expected_psi_norm = 1.0095158752051418e-08
+    # Baseline updated 2026-02-23 after coupled steady-state projected Tikhonov solve refactor.
+    expected_psi_norm = 3.02160609422578e-10
     import pytest
     assert psi_norm == pytest.approx(expected_psi_norm, rel=1e-8), \
         f"Induction response changed! Expected {expected_psi_norm}, got {psi_norm}"

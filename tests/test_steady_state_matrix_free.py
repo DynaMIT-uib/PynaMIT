@@ -81,7 +81,7 @@ class TestSteadyStateMatrixFree:
 
         # Compute using matrix-free CG solver
         result_cg = solve_steady_state_matrix_free(
-            vec_b, induction_matrix_lm, n, solver="cg"
+            vec_b, induction_matrix_lm, n, solver="cgls"
         )
 
         # Results should match within tolerance
@@ -222,7 +222,7 @@ class TestCoupledSteadyStateMatrixFree:
             solution_shape=(size,),
             data_shapes=[(size,)],
         )
-        ls_solver = LeastSquaresSolver(solver="cg", tolerance=1e-10)
+        ls_solver = LeastSquaresSolver(solver="cgls", tolerance=1e-10)
         result_cg = asarray(ls_solver.solve(problem, [-K_flat], maxiter=5000))
 
         np.testing.assert_allclose(

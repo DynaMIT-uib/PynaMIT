@@ -85,7 +85,7 @@ class Dynamics:
         backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
         solution_basis_kind: Literal["SH", "CS"] = "SH",
         simulation_mode: Optional[SimulationMode] = None,
-        least_squares_solver: str = "cg",
+        least_squares_solver: str = "lsmr",
         m_imp_regularization_lambda: float = 0.0,
         dynamics_mode: Literal["legacy", "full_induction"] = "legacy",
         toroidal_weighting: Literal["none", "linear", "quadratic"] = "none",
@@ -134,7 +134,9 @@ class Dynamics:
             integrator=integrator,
             backend=backend,
             solution_basis_kind=solution_basis_kind,
-            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM if simulation_mode is None else simulation_mode,
+            simulation_mode=(
+                SimulationMode.SPECTRAL_TRANSFORM_CS if simulation_mode is None else simulation_mode
+            ),
             least_squares_solver=least_squares_solver,
             m_imp_regularization_lambda=m_imp_regularization_lambda,
             dynamics_mode=dynamics_mode,

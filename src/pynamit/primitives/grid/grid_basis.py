@@ -171,15 +171,6 @@ class GridBasis(Basis, ABC):
         else:
             raise ValueError(f"Unknown field type: {vector_type}")
 
-    def to_grid_values(
-        self,
-        coeffs: np.ndarray,
-        grid: Any,
-        vector_type: str = "scalar",
-    ) -> np.ndarray:
-        """Deprecated compatibility wrapper."""
-        return self.evaluate(coeffs, grid, vector_type)
-
     def from_grid_values(
         self,
         values: np.ndarray,

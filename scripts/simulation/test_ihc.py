@@ -136,8 +136,8 @@ if PLOT_WIND:
         vector_type="scalar",
     )
 
-    u_theta_int = u_theta_field.to_grid_values(dynamics.state.geometry.grid)
-    u_phi_int = u_phi_field.to_grid_values(dynamics.state.geometry.grid)
+    u_theta_int = u_theta_field.evaluate_on_grid(dynamics.state.geometry.grid)
+    u_phi_int = u_phi_field.evaluate_on_grid(dynamics.state.geometry.grid)
 
     fig, ax = plt.subplots(
         figsize=(10, 7), subplot_kw={"projection": ccrs.PlateCarree(central_longitude=lon0)}

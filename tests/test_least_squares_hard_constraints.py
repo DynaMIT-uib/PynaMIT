@@ -29,9 +29,9 @@ def _kkt_reference(
     "solver_name, tol_x",
     [
         ("svd", 1e-8),
-        ("normal", 1e-8),
+        ("normal_eq", 1e-8),
         ("lsmr", 1e-6),
-        ("cg", 1e-6),
+        ("cgls", 1e-6),
     ],
 )
 def test_equality_constrained_solve_matches_kkt_reference(solver_name: str, tol_x: float) -> None:

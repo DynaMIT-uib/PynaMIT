@@ -62,7 +62,6 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
         multi_data=True,
         simulation_mode="cs_dominant",
         northern_hemisphere_apex_constraints=True,
-        # CG solver works well with balanced resolution (near-full rank)
     )
 
     # Assert.

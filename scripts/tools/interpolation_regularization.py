@@ -188,7 +188,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.coeffs))
             sh_norms.append(np.linalg.norm(input_sh.regularization_term()))
-            input_sh_on_input_grid = input_sh.to_grid_values(input_grid)
+            input_sh_on_input_grid = input_sh.evaluate_on_grid(input_grid)
             sh_resiudal_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
                 / np.linalg.norm(input_grid_values)
@@ -196,7 +196,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if GRID_COMPARISON:
             cs_interpolated_output = interpolated_data
-            sh_interpolated_output = input_sh.to_grid_values(output_grid)
+            sh_interpolated_output = input_sh.evaluate_on_grid(output_grid)
             relative_grid_errors.append(
                 np.linalg.norm(cs_interpolated_output - sh_interpolated_output)
                 / np.linalg.norm(cs_interpolated_output)

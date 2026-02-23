@@ -50,15 +50,11 @@ class SimulationMode(str, Enum):
         auxiliary SH basis for basis-consistent closure semantics while
         retaining CS state/grid representation.
 
-    SPECTRAL_TRANSFORM : str
-        Alias for SPECTRAL_TRANSFORM_CS (backward compatibility).
     """
     PURE_SPECTRAL = "pure_spectral"
     SPECTRAL_TRANSFORM_CS = "spectral_transform_cs"
     SPECTRAL_TRANSFORM_GL = "spectral_transform_gl"
     CS_DOMINANT = "cs_dominant"
-    # Backward compatibility alias
-    SPECTRAL_TRANSFORM = "spectral_transform_cs"
 
 
 # Safety margin for floating point errors
@@ -156,7 +152,7 @@ class DynamicsSettings:
     filename_prefix: str = "simulation"
     dynamics_mode: Literal["legacy", "full_induction"] = "legacy"
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
-    least_squares_solver: str = "cg"
+    least_squares_solver: str = "lsmr"
     m_imp_regularization_lambda: float = 0.0
     # Weighting strategies for handling equatorial singularity (Br -> 0)
     toroidal_weighting: Literal["none", "linear", "quadratic"] = "none"

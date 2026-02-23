@@ -38,7 +38,7 @@ def run_pynamit(
     multi_data: bool = False,
     solution_basis_kind: str = "SH",
     simulation_mode: Optional[str] = None,
-    least_squares_solver: str = "cg",
+    least_squares_solver: str = "lsmr",
     m_imp_regularization_lambda: float = 0.0,
     mainfield_B0: Optional[float] = None,
     dynamics_mode: str = "legacy",

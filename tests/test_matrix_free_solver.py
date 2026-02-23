@@ -5,7 +5,7 @@ import numpy as np
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.dynamics import SimulationMode
 
-@pytest.mark.parametrize("solver", ["lsmr", "cg"])
+@pytest.mark.parametrize("solver", ["lsmr", "cgls"])
 def test_full_induction_iterative_solvers(solver):
     """Verify that full induction runs successfully with iterative solvers.
     
@@ -52,3 +52,68 @@ def test_full_induction_iterative_solvers(solver):
     assert nm_mind < 1e-3
     # psi can be zero if no toroidal driving force exists
     assert nm_psi < 1e-1
+
+
+@pytest.mark.filterwarnings("error:LSMR may not have converged.*:RuntimeWarning")
+@pytest.mark.filterwarnings("error:Projected Tikhonov CG may not have converged.*:RuntimeWarning")
+def test_full_induction_coupled_column_scale_cache(tmp_path):
+    """Coupled steady-state iterative solve caches/reuses column scales and clears on invalidate.
+
+    The conductance-update path clears this cache via ``State._invalidate_caches()``.
+    """
+    sim = run_pynamit(
+        final_time=0.0,
+        dt=1.0,
+        plotsteps=1,
+        Nmax=8,
+        Mmax=4,
+        Ncs=10,
+        dynamics_mode="full_induction",
+        simulation_mode=SimulationMode.PURE_SPECTRAL.value,
+        ignore_PFAC=False,
+        mainfield_kind="igrf",
+        connect_hemispheres=True,
+        multi_data=True,
+        least_squares_solver="lsmr",
+        least_squares_preconditioner=None,
+        dense_full_operators=False,
+        benchmark_mode=True,
+        filename_prefix=str(tmp_path / "coupled_scale_cache"),
+    )
+
+    st = sim.state
+    cache = getattr(st, "_coupled_steady_state_column_scale_cache")
+    n = st.solution_basis.index_length
+    key = (bool(st.apply_psi_gauge), int(n))
+    cache_key = key
+    if cache_key not in cache:
+        for suffix in ("projected_tikhonov", "projected_gmres"):
+            candidate = (bool(st.apply_psi_gauge), int(n), suffix)
+            if candidate in cache:
+                cache_key = candidate
+                break
+
+    assert cache_key in cache
+    col_scale_0 = np.asarray(cache[cache_key])
+    assert col_scale_0.shape == (2 * n,)
+    assert np.all(np.isfinite(col_scale_0))
+    assert np.all(col_scale_0 > 0)
+    first_id = id(cache[cache_key])
+
+    # Repeat the same coupled steady-state solve and verify the cached scale is reused.
+    forcing = st.build_coupled_forcing(np.zeros((2, n), dtype=float))
+    _ = st._solve_linear_steady_state(
+        linear_operator=None,
+        forcing=forcing,
+        solution_shape=(2, n),
+        solver="lsmr",
+        preconditioner=None,
+        use_pinning=st.apply_psi_gauge,
+    )
+    cache_after = getattr(st, "_coupled_steady_state_column_scale_cache")
+    assert cache_key in cache_after
+    assert id(cache_after[cache_key]) == first_id
+
+    # Conductance updates clear this via State._invalidate_caches(); test the clear directly.
+    st._invalidate_caches()
+    assert getattr(st, "_coupled_steady_state_column_scale_cache") == {}

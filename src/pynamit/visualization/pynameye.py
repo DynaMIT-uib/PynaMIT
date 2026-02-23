@@ -244,7 +244,7 @@ class PynamEye(object):
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
         self.u = Field.from_coefficients(self.basis, coeffs=self.u_coeffs, field_type="tangential")
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(
-            self.u.to_grid_values(self.num_grid), 2
+            self.u.evaluate_on_grid(self.num_grid), 2
         )
 
         uxB_theta = self.u_phi_on_grid * self.b_evaluator.Br
@@ -512,7 +512,7 @@ class PynamEye(object):
         e_coeffs = Field.from_coefficients(
             self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
         )
-        field = e_coeffs.to_grid_values(self.grids[region]) / self.RI
+        field = e_coeffs.evaluate_on_grid(self.grids[region]) / self.RI
         print("todo: is the scaling as expected?")
 
         # Calculate current.

@@ -1897,7 +1897,7 @@ class ToroidalSystemMatrices:
         )
         preconditioner = None
         preconditioner_type = self.dtjr_preconditioner
-        if preconditioner_type is None and self.dtjr_solver in ("cg", "normal"):
+        if preconditioner_type is None and self.dtjr_solver in ("cgls", "normal_eq"):
             # Direct dpsi solves are often substantially stiffer than dt_jr solves.
             # Use a deterministic Jacobi preconditioner by default for normal/CG.
             preconditioner_type = "jacobi"

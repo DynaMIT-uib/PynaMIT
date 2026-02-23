@@ -131,7 +131,7 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            Br_expansion.to_grid_values(plt_grid).reshape(plt_lon.shape),
+            Br_expansion.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
             title="Br at 1.5 RI",
@@ -152,7 +152,7 @@ for step in range(0, nstep):
     #    )
 
     dynamics.set_Br(
-        Br_expansion.to_grid_values(dynamics.state.geometry.grid),
+        Br_expansion.evaluate_on_grid(dynamics.state.geometry.grid),
         theta=dynamics.state.geometry.grid.theta,
         phi=dynamics.state.geometry.grid.phi,
         time=dt * step,
@@ -318,7 +318,7 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            dynamics.state.jr.to_grid_values(plt_grid).reshape(plt_lon.shape),
+            dynamics.state.jr.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
             title="jr",
@@ -328,7 +328,7 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            dynamics.state.etaP.to_grid_values(plt_grid).reshape(plt_lon.shape),
+            dynamics.state.etaP.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
             cmap=plt.cm.viridis,
             extend="both",
             title="etaP",
@@ -337,7 +337,7 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            dynamics.state.etaH.to_grid_values(plt_grid).reshape(plt_lon.shape),
+            dynamics.state.etaH.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
             cmap=plt.cm.viridis,
             extend="both",
             title="etaH",
@@ -471,7 +471,7 @@ for step in range(0, nstep):
         lat, lon = np.meshgrid(lat, lon)
         plt_grid = pynamit.Grid(lat=lat, lon=lon)
         dynamics.set_state_variables("jr")
-        jr_interpolated = dynamics.state.jr.to_grid_values(plt_grid)
+        jr_interpolated = dynamics.state.jr.evaluate_on_grid(plt_grid)
 
         # jr interpolated:
         contours_interpolated = {}

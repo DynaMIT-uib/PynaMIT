@@ -8,9 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import warnings
 from typing import Any, Callable, Dict, Optional, Literal
 
 import numpy as np
+from scipy.sparse.linalg import (
+    lsmr as scipy_lsmr,
+    LinearOperator as ScipyLinearOperator,
+)
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
@@ -33,6 +38,10 @@ class CoupledSteadyStateSolver:
     psi_gauge_row_builder: PsiGaugeRowBuilder
     m_ind_gauge_row_builder: PsiGaugeRowBuilder
     timed_solve: TimedSolveFn
+    column_scale_cache: Optional[Dict[tuple[Any, ...], np.ndarray]] = None
+    exact_column_scale_dim_limit: int = 2000
+    solver_tolerance: float = 1e-13
+    steady_state_regularization_lambda: float = 1e-10
 
     def solve(
         self,
@@ -42,6 +51,7 @@ class CoupledSteadyStateSolver:
         solver: str,
         preconditioner: Optional[LinearMap],
         use_pinning: bool,
+        column_scale_cache_key: Optional[tuple[Any, ...]] = None,
     ) -> np.ndarray:
         """Solve `L y = -forcing` for flattened coupled state `y`."""
         n_total = 2 * self.n_scalar
@@ -59,10 +69,55 @@ class CoupledSteadyStateSolver:
         else:
             operator_map = coupled_map
 
+        # Medium-term iterative path: solve the gauge-projected Tikhonov normal
+        # equations. This provides an explicit branch selector for near-singular
+        # coupled steady-state operators and avoids LSMR-specific conlim stops.
+        if (
+            solver in ("lsmr", "cgls")
+            and preconditioner is None
+            and self.preconditioner_type is None
+        ):
+            y_reduced = self._solve_projected_tikhonov_iterative(
+                coupled_map=coupled_map,
+                selector=selector,
+                forcing=forcing,
+                cache_key=(
+                    (*column_scale_cache_key, "projected_tikhonov")
+                    if column_scale_cache_key is not None
+                    else None
+                ),
+            )
+            if n_reduced == n_total:
+                return asarray(y_reduced)
+            return asarray(selector @ y_reduced)
+
+        if solver in ("svd", "normal_eq"):
+            y_reduced = self._solve_projected_tikhonov_dense(
+                coupled_map=coupled_map,
+                selector=selector,
+                forcing=forcing,
+                cache_key=(
+                    (*column_scale_cache_key, "projected_tikhonov")
+                    if column_scale_cache_key is not None
+                    else None
+                ),
+            )
+            if n_reduced == n_total:
+                return asarray(y_reduced)
+            return asarray(selector @ y_reduced)
+
+        column_scale = self._maybe_get_exact_column_scale(
+            operator_map=operator_map,
+            solver=solver,
+            preconditioner=preconditioner,
+            cache_key=column_scale_cache_key,
+        )
+
         problem = LeastSquaresProblem(
             A=[operator_map],
             solution_shape=(n_reduced,),
             data_shapes=[(n_total,)],
+            column_scale=column_scale,
         )
         ls_solver = LeastSquaresSolver(
             solver=solver,
@@ -91,13 +146,270 @@ class CoupledSteadyStateSolver:
                 problem,
                 [-forcing],
                 preconditioner=preconditioner_to_use,
-                maxiter=5000,
             )
         ).reshape(-1)
 
         if n_reduced == n_total:
             return asarray(y_reduced)
         return asarray(selector @ y_reduced)
+
+    def _solve_projected_tikhonov_iterative(
+        self,
+        *,
+        coupled_map: LinearMap,
+        selector: np.ndarray,
+        forcing: np.ndarray,
+        cache_key: Optional[tuple[Any, ...]],
+    ) -> np.ndarray:
+        """Solve projected coupled steady-state with explicit Tikhonov branch selection.
+
+        Solves in reduced coordinates ``z``:
+            min ||A z - b||^2 + lambda ||z||^2,
+            A = S^T L S,  b = -S^T f
+        using LSMR on the augmented least-squares system
+            [A          ] z ~= [b]
+            [sqrt(l) * I]      [0]
+        This avoids the conditioning loss from CG on normal equations.
+        """
+        s = np.asarray(selector, dtype=float)
+        n_total, n_reduced = int(s.shape[0]), int(s.shape[1])
+        rhs = np.asarray(-(s.T @ np.asarray(forcing).reshape(n_total)), dtype=float).reshape(-1)
+        reg_lambda = float(self.steady_state_regularization_lambda)
+
+        def _proj_matvec(x: np.ndarray) -> np.ndarray:
+            x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
+            return (
+                np.asarray(s.T @ coupled_map.matvec(s @ x_arr), dtype=float)
+                .reshape(n_reduced)
+                .copy()
+            )
+
+        def _proj_rmatvec(x: np.ndarray) -> np.ndarray:
+            x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
+            return (
+                np.asarray(s.T @ coupled_map.rmatvec(s @ x_arr), dtype=float)
+                .reshape(n_reduced)
+                .copy()
+            )
+
+        op_proj: ScipyLinearOperator = ScipyLinearOperator(
+            shape=(n_reduced, n_reduced),
+            matvec=_proj_matvec,
+            rmatvec=_proj_rmatvec,
+            dtype=np.float64,
+        )
+
+        inv_col_scale = self._get_projected_column_equilibration_inverse(
+            coupled_map=coupled_map,
+            selector=s,
+            cache_key=cache_key,
+            reg_lambda=reg_lambda,
+        )
+        sqrt_reg = float(np.sqrt(max(reg_lambda, 0.0)))
+        aug_rows = n_reduced + n_reduced
+
+        def _aug_matvec(w: np.ndarray) -> np.ndarray:
+            w_arr = np.asarray(w, dtype=float).reshape(n_reduced)
+            z = w_arr if inv_col_scale is None else (inv_col_scale * w_arr)
+            top = np.asarray(op_proj.matvec(z), dtype=float).reshape(n_reduced)
+            if sqrt_reg > 0.0:
+                bot = sqrt_reg * z
+            else:
+                bot = np.zeros_like(z)
+            return np.concatenate([top, bot]).astype(float, copy=False)
+
+        def _aug_rmatvec(v: np.ndarray) -> np.ndarray:
+            v_arr = np.asarray(v, dtype=float).reshape(aug_rows)
+            top = v_arr[:n_reduced]
+            bot = v_arr[n_reduced:]
+            out = np.asarray(op_proj.rmatvec(top), dtype=float).reshape(n_reduced)
+            if sqrt_reg > 0.0:
+                out = out + sqrt_reg * bot
+            if inv_col_scale is not None:
+                out = inv_col_scale * out
+            return out.astype(float, copy=False)
+
+        aug_op = ScipyLinearOperator(
+            shape=(aug_rows, n_reduced),
+            matvec=_aug_matvec,
+            rmatvec=_aug_rmatvec,
+            dtype=np.float64,
+        )
+        aug_rhs = np.concatenate([rhs, np.zeros(n_reduced, dtype=float)])
+        maxiter = max(1, 20 * n_reduced)
+        # Use LSMR on the augmented Tikhonov system; this preserves the explicit
+        # branch selector while avoiding normal-equation conditioning blow-up.
+        lsmr_out = scipy_lsmr(
+            aug_op,
+            aug_rhs,
+            atol=0.0,
+            btol=float(self.solver_tolerance),
+            maxiter=maxiter,
+        )
+        w = np.asarray(lsmr_out[0], dtype=float).reshape(n_reduced)
+        istop = int(lsmr_out[1])
+        if istop not in (0, 1, 2, 4, 5):
+            warnings.warn(
+                f"Projected Tikhonov LSMR may not have converged (istop={istop}).",
+                RuntimeWarning,
+            )
+        if inv_col_scale is None:
+            return w
+        return inv_col_scale * w
+
+    def _solve_projected_tikhonov_dense(
+        self,
+        *,
+        coupled_map: LinearMap,
+        selector: np.ndarray,
+        forcing: np.ndarray,
+        cache_key: Optional[tuple[Any, ...]],
+    ) -> np.ndarray:
+        """Dense projected Tikhonov solve matching the iterative branch selector."""
+        s = np.asarray(selector, dtype=float)
+        n_total, n_reduced = int(s.shape[0]), int(s.shape[1])
+        rhs = np.asarray(-(s.T @ np.asarray(forcing).reshape(n_total)), dtype=float).reshape(-1)
+        reg_lambda = float(self.steady_state_regularization_lambda)
+
+        dense = np.asarray(coupled_map.to_dense(), dtype=float)
+        if dense.ndim != 2:
+            dense = dense.reshape(int(coupled_map.shape[0]), int(coupled_map.shape[1]))
+        a = np.asarray(s.T @ dense @ s, dtype=float)
+        inv_col_scale = self._get_projected_column_equilibration_inverse(
+            coupled_map=coupled_map,
+            selector=s,
+            cache_key=cache_key,
+            reg_lambda=reg_lambda,
+        )
+        sqrt_reg = float(np.sqrt(max(reg_lambda, 0.0)))
+        eye = np.eye(n_reduced, dtype=float)
+
+        if inv_col_scale is None:
+            a_aug = np.vstack([a, sqrt_reg * eye]) if sqrt_reg > 0.0 else a
+            b_aug = (
+                np.concatenate([rhs, np.zeros(n_reduced, dtype=float)])
+                if sqrt_reg > 0.0
+                else rhs
+            )
+            x, *_ = np.linalg.lstsq(a_aug, b_aug, rcond=max(float(self.solver_tolerance), 1e-15))
+            return np.asarray(x, dtype=float).reshape(n_reduced)
+
+        d_inv = np.asarray(inv_col_scale, dtype=float).reshape(-1)
+        a_aug_scaled = np.vstack(
+            [
+                a * d_inv[None, :],
+                (sqrt_reg * d_inv)[:, None] * eye,
+            ]
+        ) if sqrt_reg > 0.0 else (a * d_inv[None, :])
+        b_aug = (
+            np.concatenate([rhs, np.zeros(n_reduced, dtype=float)])
+            if sqrt_reg > 0.0
+            else rhs
+        )
+        w, *_ = np.linalg.lstsq(
+            a_aug_scaled,
+            b_aug,
+            rcond=max(float(self.solver_tolerance), 1e-15),
+        )
+        return d_inv * w
+
+    def _get_projected_column_equilibration_inverse(
+        self,
+        *,
+        coupled_map: LinearMap,
+        selector: np.ndarray,
+        cache_key: Optional[tuple[Any, ...]],
+        reg_lambda: float = 0.0,
+    ) -> Optional[np.ndarray]:
+        """Exact column equilibration for projected square GMRES system."""
+        n_reduced = int(selector.shape[1])
+        if n_reduced <= 0 or n_reduced > int(self.exact_column_scale_dim_limit):
+            return None
+
+        if cache_key is not None and self.column_scale_cache is not None:
+            cached = self.column_scale_cache.get(cache_key)
+            if cached is not None and int(np.asarray(cached).size) == n_reduced:
+                col = np.asarray(cached, dtype=float).reshape(-1)
+                return self._column_scale_to_inverse(col)
+
+        try:
+            dense = np.asarray(coupled_map.to_dense(), dtype=float)
+        except Exception:
+            return None
+        if dense.ndim != 2:
+            dense = dense.reshape(int(coupled_map.shape[0]), int(coupled_map.shape[1]))
+        s = np.asarray(selector, dtype=float)
+        dense_proj = s.T @ dense @ s
+        col_scale_sq = np.sum(dense_proj * dense_proj, axis=0, dtype=float)
+        if reg_lambda > 0.0:
+            col_scale_sq = col_scale_sq + float(reg_lambda)
+        col_scale = np.sqrt(col_scale_sq).astype(float, copy=False)
+
+        if cache_key is not None and self.column_scale_cache is not None:
+            self.column_scale_cache[cache_key] = col_scale
+        return self._column_scale_to_inverse(col_scale)
+
+    @staticmethod
+    def _column_scale_to_inverse(col_scale: np.ndarray) -> Optional[np.ndarray]:
+        col = np.asarray(col_scale, dtype=float).reshape(-1)
+        if col.size == 0:
+            return None
+        finite = np.isfinite(col)
+        if not np.any(finite):
+            return None
+        max_col = float(np.max(np.abs(col[finite])))
+        if not np.isfinite(max_col) or max_col <= 0.0:
+            return None
+        floor = np.sqrt(np.finfo(float).eps) * max_col
+        denom = np.where(np.abs(col) > floor, col, 1.0)
+        inv = 1.0 / denom
+        inv[~finite] = 1.0
+        return inv.astype(float, copy=False)
+
+    def _maybe_get_exact_column_scale(
+        self,
+        *,
+        operator_map: LinearMap,
+        solver: str,
+        preconditioner: Optional[LinearMap],
+        cache_key: Optional[tuple[Any, ...]],
+    ) -> Optional[np.ndarray]:
+        """Return cached exact column norms for iterative coupled steady-state solves.
+
+        This is a semantics-preserving right scaling (change of variables) used by
+        iterative least-squares solvers. We intentionally skip it when a
+        preconditioner is active because `LeastSquaresSolver` currently disables
+        simultaneous right-scaling + preconditioning.
+        """
+        if solver not in ("lsmr", "cgls"):
+            return None
+        if preconditioner is not None or self.preconditioner_type is not None:
+            return None
+
+        n_cols = int(operator_map.shape[1])
+        if n_cols <= 0 or n_cols > int(self.exact_column_scale_dim_limit):
+            return None
+
+        if cache_key is not None and self.column_scale_cache is not None:
+            cached = self.column_scale_cache.get(cache_key)
+            if cached is not None and int(np.asarray(cached).size) == n_cols:
+                return np.asarray(cached, dtype=float).reshape(-1)
+
+        try:
+            dense = operator_map.to_dense()
+        except Exception:
+            return None
+
+        dense_arr = np.asarray(dense)
+        if dense_arr.ndim != 2:
+            dense_arr = dense_arr.reshape(operator_map.shape[0], operator_map.shape[1])
+        if dense_arr.shape[1] != n_cols:
+            return None
+
+        col_scale = np.linalg.norm(dense_arr, axis=0).astype(float, copy=False)
+        if cache_key is not None and self.column_scale_cache is not None:
+            self.column_scale_cache[cache_key] = col_scale
+        return col_scale
 
     def _as_2d_linear_map(self, coupled_operator: Any, *, n_total: int) -> LinearMap:
         """Return operator as `LinearMap` with explicit `(2N, 2N)` dense fallback."""
@@ -284,6 +596,57 @@ class CoupledOperatorAPI:
 
     def __init__(self, state: Any) -> None:
         self.state = state
+        self._dtpsi_from_E_dense_cache: Dict[bool, np.ndarray] = {}
+        self._dmind_from_E_dense_cache: Optional[np.ndarray] = None
+
+    def _dense_E_coeff_operator_matrix(self, op: Any) -> np.ndarray:
+        """Return dense ``(2N, N)`` matrix for a coefficient->E operator."""
+        st = self.state
+        n = st.solution_basis.index_length
+        arr = np.asarray(to_dense(op))
+        if arr.ndim == 3:
+            arr = arr.reshape(2 * n, n)
+        elif arr.ndim != 2:
+            arr = arr.reshape(2 * n, n)
+        return np.asarray(arr, dtype=float)
+
+    def _get_dtpsi_from_E_dense(self, *, use_pinning: bool) -> np.ndarray:
+        """Dense conductance-independent map ``E_coeffs -> dpsi/dt``."""
+        cached = self._dtpsi_from_E_dense_cache.get(bool(use_pinning))
+        if cached is not None:
+            return cached
+
+        st = self.state
+        n = st.solution_basis.index_length
+        constraint_op = st.induction_constraint_operator_hard
+        feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
+        dtpsi_from_E = np.asarray(
+            st.toroidal_matrices.build_psi_dynamics_matrix(
+                psi_to_E_operator=np.eye(2 * n, dtype=float),
+                m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
+                jr_map_operator=constraint_op,
+                weighting=st.toroidal_weighting,
+                regularization_lambda=feedback_reg_lambda,
+                penalty_operator=None,
+                penalty_scaling=0.0,
+                hinv_rtol=0.0,
+                use_pinning=use_pinning,
+            ),
+            dtype=float,
+        )
+        self._dtpsi_from_E_dense_cache[bool(use_pinning)] = dtpsi_from_E
+        return dtpsi_from_E
+
+    def _get_dmind_from_E_dense(self) -> np.ndarray:
+        """Dense conductance-independent map ``E_coeffs -> dm_ind/dt``."""
+        if self._dmind_from_E_dense_cache is None:
+            st = self.state
+            scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
+            self._dmind_from_E_dense_cache = np.asarray(
+                scale * np.asarray(st.E_coeffs_to_E_df_matrix),
+                dtype=float,
+            )
+        return self._dmind_from_E_dense_cache
 
     def _toroidal_feedback_regularization_lambda(self) -> float:
         """Regularization used when assembling the coupled linear feedback operator.
@@ -341,43 +704,16 @@ class CoupledOperatorAPI:
         if use_pinning is None:
             use_pinning = st.apply_psi_gauge
 
-        constraint_op = st.induction_constraint_operator_hard
-        feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
+        dtpsi_from_E = self._get_dtpsi_from_E_dense(use_pinning=bool(use_pinning))
+        toroidal_to_E = self._dense_E_coeff_operator_matrix(st.toroidal_to_E_coeffs)
+        mind_to_E = self._dense_E_coeff_operator_matrix(st.m_ind_to_E_coeffs)
 
-        mind_to_E = to_dense(st.m_ind_to_E_coeffs)
-        toroidal_to_E = to_dense(st.toroidal_to_E_coeffs)
-        dtpsi_from_psi = asarray(
-            st.toroidal_matrices.build_psi_dynamics_matrix(
-                psi_to_E_operator=toroidal_to_E,
-                m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                jr_map_operator=constraint_op,
-                weighting=st.toroidal_weighting,
-                regularization_lambda=feedback_reg_lambda,
-                penalty_operator=None,
-                penalty_scaling=0.0,
-                hinv_rtol=0.0,
-                use_pinning=use_pinning,
-            )
-        )
+        dtpsi_from_psi = asarray(dtpsi_from_E @ toroidal_to_E)
+        dtpsi_from_mind = asarray(dtpsi_from_E @ mind_to_E)
 
-        dtpsi_from_mind = asarray(
-            st.toroidal_matrices.build_psi_dynamics_matrix(
-                psi_to_E_operator=mind_to_E,
-                m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                jr_map_operator=constraint_op,
-                weighting=st.toroidal_weighting,
-                regularization_lambda=feedback_reg_lambda,
-                penalty_operator=None,
-                penalty_scaling=0.0,
-                hinv_rtol=0.0,
-                use_pinning=use_pinning,
-            )
-        )
-
-        scale_pol = st.poloidal_matrices.E_df_to_d_m_ind_dt
-        e_df_extract = asarray(st.E_coeffs_to_E_df_matrix)
-        dmind_from_psi = scale_pol * (e_df_extract @ asarray(toroidal_to_E))
-        dmind_from_mind = scale_pol * asarray(st.m_ind_to_E_df_matrix)
+        dmind_from_E = self._get_dmind_from_E_dense()
+        dmind_from_psi = asarray(dmind_from_E @ toroidal_to_E)
+        dmind_from_mind = asarray(dmind_from_E @ mind_to_E)
         dmind_from_mind = self._stabilize_poloidal_self_block(dmind_from_mind)
 
         top_row = xp.stack([dtpsi_from_psi, dtpsi_from_mind], axis=1)
@@ -413,79 +749,37 @@ class CoupledOperatorAPI:
         if st.dense_full_operators and matrix_free:
             matrix_free = False
 
-        constraint_op = st.induction_constraint_operator_hard
-        feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
-
         if dtpsi_from_psi is None or dtpsi_from_mind is None:
             psi_to_E_coeffs = st.toroidal_to_E_coeffs
             mind_to_E_coeffs = st.m_ind_to_E_coeffs
             if not matrix_free:
-                psi_to_E_coeffs = to_dense(psi_to_E_coeffs)
-                mind_to_E_coeffs = to_dense(mind_to_E_coeffs)
+                psi_to_E_coeffs = self._dense_E_coeff_operator_matrix(psi_to_E_coeffs)
+                mind_to_E_coeffs = self._dense_E_coeff_operator_matrix(mind_to_E_coeffs)
+
+            dtpsi_from_E_dense = self._get_dtpsi_from_E_dense(use_pinning=bool(use_pinning))
+            dtpsi_from_E_map = as_linear_map(dtpsi_from_E_dense)
 
             if dtpsi_from_psi is None:
                 if matrix_free:
-                    dtpsi_from_psi = st.toroidal_matrices.get_psi_dynamics_operator(
-                        psi_to_E_operator=psi_to_E_coeffs,
-                        m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                        jr_map_operator=constraint_op,
-                        solver=solver,
-                        weighting=st.toroidal_weighting,
-                        regularization_lambda=feedback_reg_lambda,
-                        penalty_operator=None,
-                        penalty_scaling=0.0,
-                        hinv_rtol=0.0,
-                        use_pinning=use_pinning,
-                    )
+                    dtpsi_from_psi = dtpsi_from_E_map @ as_linear_map(psi_to_E_coeffs)
                 else:
-                    dtpsi_from_psi = st.toroidal_matrices.build_psi_dynamics_matrix(
-                        psi_to_E_operator=psi_to_E_coeffs,
-                        m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                        jr_map_operator=constraint_op,
-                        weighting=st.toroidal_weighting,
-                        regularization_lambda=feedback_reg_lambda,
-                        penalty_operator=None,
-                        penalty_scaling=0.0,
-                        hinv_rtol=0.0,
-                        use_pinning=use_pinning,
-                    )
+                    dtpsi_from_psi = dtpsi_from_E_dense @ np.asarray(psi_to_E_coeffs, dtype=float)
 
             if dtpsi_from_mind is None:
                 if matrix_free:
-                    dtpsi_from_mind = st.toroidal_matrices.get_psi_dynamics_operator(
-                        psi_to_E_operator=mind_to_E_coeffs,
-                        m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                        jr_map_operator=constraint_op,
-                        solver=solver,
-                        weighting=st.toroidal_weighting,
-                        regularization_lambda=feedback_reg_lambda,
-                        penalty_operator=None,
-                        penalty_scaling=0.0,
-                        hinv_rtol=0.0,
-                        use_pinning=use_pinning,
-                    )
+                    dtpsi_from_mind = dtpsi_from_E_map @ as_linear_map(mind_to_E_coeffs)
                 else:
-                    dtpsi_from_mind = st.toroidal_matrices.build_psi_dynamics_matrix(
-                        psi_to_E_operator=mind_to_E_coeffs,
-                        m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                        jr_map_operator=constraint_op,
-                        weighting=st.toroidal_weighting,
-                        regularization_lambda=feedback_reg_lambda,
-                        penalty_operator=None,
-                        penalty_scaling=0.0,
-                        hinv_rtol=0.0,
-                        use_pinning=use_pinning,
-                    )
+                    dtpsi_from_mind = dtpsi_from_E_dense @ np.asarray(mind_to_E_coeffs, dtype=float)
 
         if dmind_from_psi is None:
-            scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-            e_df_extract = asarray(st.E_coeffs_to_E_df_matrix)
-            toroidal_to_E = to_dense(st.toroidal_to_E_coeffs)
-            dmind_from_psi = scale * (e_df_extract @ toroidal_to_E)
+            dmind_from_E = self._get_dmind_from_E_dense()
+            toroidal_to_E = self._dense_E_coeff_operator_matrix(st.toroidal_to_E_coeffs)
+            dmind_from_psi = np.asarray(dmind_from_E @ toroidal_to_E, dtype=float)
 
         if dmind_from_mind is None:
-            scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-            dmind_from_mind = scale * asarray(st.m_ind_to_E_df_matrix)
+            dmind_from_E = self._get_dmind_from_E_dense()
+            mind_to_E = self._dense_E_coeff_operator_matrix(st.m_ind_to_E_coeffs)
+            dmind_from_mind = np.asarray(dmind_from_E @ mind_to_E, dtype=float)
             dmind_from_mind = self._stabilize_poloidal_self_block(dmind_from_mind)
 
         block_op = BlockCoupledOperator(
@@ -537,7 +831,7 @@ class CoupledOperatorAPI:
             if use_pinning == st.apply_psi_gauge:
                 op = st.coupled_induction_operator_sparse
             else:
-                solver = st.solver_type if st.solver_type in ("lsmr", "cg") else "lsmr"
+                solver = st.solver_type if st.solver_type in ("lsmr", "cgls") else "lsmr"
                 op = self.get_coupled_induction_operator(
                     matrix_free=True,
                     solver=solver,
@@ -586,7 +880,7 @@ class CoupledOperatorAPI:
                 return st.coupled_induction_tensor
             return self.get_coupled_induction_tensor(use_pinning=use_pinning)
 
-        matrix_free_solver = solver if solver in ("lsmr", "cg") else "lsmr"
+        matrix_free_solver = solver if solver in ("lsmr", "cgls") else "lsmr"
         return self.get_coupled_induction_operator(
             matrix_free=True,
             solver=matrix_free_solver,
@@ -614,7 +908,7 @@ class CoupledOperatorAPI:
         if use_pinning == st.apply_psi_gauge:
             return st.coupled_induction_operator_sparse
 
-        solver = st.solver_type if st.solver_type in ("lsmr", "cg") else "lsmr"
+        solver = st.solver_type if st.solver_type in ("lsmr", "cgls") else "lsmr"
         return self.get_coupled_induction_operator(
             matrix_free=True,
             solver=solver,
@@ -677,21 +971,10 @@ class CoupledOperatorAPI:
         feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
 
         dtpsi_from_E = np.asarray(
-            st.toroidal_matrices.build_psi_dynamics_matrix(
-                psi_to_E_operator=np.eye(n2, dtype=float),
-                m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                jr_map_operator=st.induction_constraint_operator_hard,
-                weighting=st.toroidal_weighting,
-                regularization_lambda=feedback_reg_lambda,
-                penalty_operator=None,
-                penalty_scaling=0.0,
-                hinv_rtol=0.0,
-                use_pinning=st.apply_psi_gauge,
-            )
+            self._get_dtpsi_from_E_dense(use_pinning=bool(st.apply_psi_gauge)),
+            dtype=float,
         )
-        dmind_from_E = np.asarray(
-            st.poloidal_matrices.E_df_to_d_m_ind_dt * np.asarray(st.E_coeffs_to_E_df_matrix)
-        )
+        dmind_from_E = np.asarray(self._get_dmind_from_E_dense(), dtype=float)
 
         e_from_u = np.asarray(to_dense(as_linear_map(st.u_coeffs_to_E_coeffs)))
         m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=input_basis_jr))

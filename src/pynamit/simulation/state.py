@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 def _timed_solve(label: str, solver: LeastSquaresSolver, *args: Any, **kwargs: Any) -> np.ndarray:
     """Optionally time least-squares solves when PYNAMIT_TIMING_SOLVES is set."""
+    kwargs.setdefault("warning_label", label)
     if os.getenv("PYNAMIT_TIMING_SOLVES", "").strip() in ("", "0"):
         return solver.solve(*args, **kwargs)
     t0 = time.perf_counter()
@@ -185,7 +186,7 @@ class State:
         self.Nmax = int(getattr(settings, "Nmax", 0))
         self.Mmax = int(getattr(settings, "Mmax", 0))
         self.Ncs = int(getattr(settings, "Ncs", 0))
-        self.solver_type = getattr(settings, "least_squares_solver", "cg")
+        self.solver_type = getattr(settings, "least_squares_solver", "cgls")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.static_preconditioner = getattr(settings, "static_preconditioner", False)
         self.integrator = settings.integrator
@@ -221,7 +222,9 @@ class State:
         else:
             # Legacy Fallback
             pure = getattr(settings, "pure_spectral", False)
-            self.mode = SimulationMode.PURE_SPECTRAL if pure else SimulationMode.SPECTRAL_TRANSFORM
+            self.mode = (
+                SimulationMode.PURE_SPECTRAL if pure else SimulationMode.SPECTRAL_TRANSFORM_CS
+            )
 
         # Map mode to legacy flags for internal checks (if any remain)
         self.pure_spectral = (self.mode == SimulationMode.PURE_SPECTRAL)
@@ -376,6 +379,9 @@ class State:
                 pass
         self._operator_linear_map_cache: Dict[
             Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
+        ] = {}
+        self._coupled_steady_state_column_scale_cache: Dict[
+            Tuple[bool, int], np.ndarray
         ] = {}
         self._coupled_null_basis = None
         self._coupled_null_threshold = None
@@ -2151,7 +2157,9 @@ class State:
                 solver = self.solver_type
 
             coupled_operator = linear_operator
+            using_default_coupled_operator = False
             if coupled_operator is None:
+                using_default_coupled_operator = True
                 coupled_operator = self.get_coupled_operator_for_steady_state(
                     solver=solver,
                     use_pinning=use_pinning,
@@ -2163,13 +2171,23 @@ class State:
                 psi_gauge_row_builder=self._get_psi_gauge_row,
                 m_ind_gauge_row_builder=self._get_m_ind_gauge_row,
                 timed_solve=_timed_solve,
+                column_scale_cache=self._coupled_steady_state_column_scale_cache,
+                solver_tolerance=float(getattr(self.m_imp_solver, "tolerance", 1e-13)),
+                steady_state_regularization_lambda=1e-10,
             )
+            column_scale_cache_key = None
+            if using_default_coupled_operator:
+                column_scale_cache_key = (
+                    bool(use_pinning),
+                    int(self.solution_basis.index_length),
+                )
             y_ss_flat = steady_solver.solve(
                 coupled_operator=coupled_operator,
                 forcing_flat=rhs,
                 solver=solver,
                 preconditioner=preconditioner,
                 use_pinning=bool(use_pinning),
+                column_scale_cache_key=column_scale_cache_key,
             )
             return asarray(y_ss_flat).reshape(solution_shape)
 
@@ -2204,7 +2222,6 @@ class State:
         )
         solve_kwargs: Dict[str, Any] = {
             "preconditioner": preconditioner if equality_operator is None else None,
-            "maxiter": 5000,
         }
         if equality_operator is not None:
             solve_kwargs["equality_operator"] = equality_operator
@@ -2260,7 +2277,7 @@ class State:
             linear_operator=self.m_ind_to_E_df_matrix,
             forcing=k_legacy,
             solution_shape=(N,),
-            solver="lsmr",
+            solver=self.solver_type,
         )
         return None, asarray(m_ss)
 
@@ -2422,7 +2439,7 @@ class State:
     @cached_property
     def coupled_induction_operator_sparse(self) -> "LinearMap":
         """Cached matrix-free coupled operator for non-exponential stepping."""
-        solver = self.solver_type if self.solver_type in ("lsmr", "cg") else "lsmr"
+        solver = self.solver_type if self.solver_type in ("lsmr", "cgls") else "lsmr"
         return self.coupled_operator_api.get_coupled_induction_operator(
             matrix_free=True,
             solver=solver,

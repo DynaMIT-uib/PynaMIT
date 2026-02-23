@@ -52,6 +52,7 @@ class LeastSquaresProblem:
         regularization_weights: Optional[List[float]] = None,
         regularization_matrices: Optional[List[Optional[OperatorInput]]] = None,
         matrix_free: bool = True,
+        column_scale: Optional[Any] = None,
     ):
         self.matrix_free = matrix_free
         self.solution_shape = (
@@ -100,6 +101,14 @@ class LeastSquaresProblem:
         self._scenario_operator_cache: dict[Tuple[bool, int], LinearOperator] = {}
         self._system_linear_map_cache: dict[bool, LinearMap] = {}
         self._scenario_linear_map_cache: dict[Tuple[bool, int], LinearMap] = {}
+        self._column_scale: Optional[np.ndarray] = None
+        if column_scale is not None:
+            col = np.asarray(column_scale).reshape(-1)
+            if col.size != self.solution_size:
+                raise ValueError(
+                    f"column_scale length {col.size} != solution_size {self.solution_size}"
+                )
+            self._column_scale = col.astype(float, copy=False)
 
     @staticmethod
     def _backend_module():
@@ -216,6 +225,25 @@ class LeastSquaresProblem:
     def svd(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute the SVD of the dense system matrix."""
         return xp.linalg.svd(self.dense_system_matrix, full_matrices=False)
+
+    def get_column_scale(self, *, include_regularization: bool = True) -> Optional[np.ndarray]:
+        """Return optional column scaling vector for iterative solvers.
+
+        If an explicit scale was provided at construction time, return it.
+        Otherwise, for non-matrix-free problems we can compute an exact dense
+        column norm scaling cheaply. Matrix-free problems return ``None`` unless
+        an explicit scale is provided.
+        """
+        if self._column_scale is not None:
+            return self._column_scale
+        if self.matrix_free:
+            return None
+        G = np.asarray(
+            self.dense_system_matrix if include_regularization else self.data_operator.linear_map.to_dense()
+        )
+        if G.ndim != 2 or G.shape[1] != self.solution_size:
+            return None
+        return np.linalg.norm(G, axis=0)
 
     def assemble_rhs_block(
         self, b: Union[Any, List[Any]]
@@ -354,25 +382,29 @@ class LeastSquaresProblem:
         base_out = base_map.shape[0]
         dtype = base_map.dtype
 
-        def _apply(block: np.ndarray) -> np.ndarray:
+        def _apply(block: Any) -> Any:
             cols = block.shape[1]
-            result = np.zeros((base_out * num_scenarios, cols), dtype=block.dtype)
+            if cols == 0:
+                return xp.zeros((base_out * num_scenarios, 0), dtype=block.dtype)
+            col_results = []
             for j in range(cols):
                 vec = block[:, j]
                 scenario_block = vec.reshape(base_in, num_scenarios)
                 res = base_map.matmat(scenario_block)
-                result[:, j] = np.asarray(res).reshape(-1)
-            return result
+                col_results.append(asarray(res).reshape(-1, 1))
+            return xp.concatenate(col_results, axis=1)
 
-        def _apply_T(block: np.ndarray) -> np.ndarray:
+        def _apply_T(block: Any) -> Any:
             cols = block.shape[1]
-            result = np.zeros((base_in * num_scenarios, cols), dtype=block.dtype)
+            if cols == 0:
+                return xp.zeros((base_in * num_scenarios, 0), dtype=block.dtype)
+            col_results = []
             for j in range(cols):
                 vec = block[:, j]
                 scenario_block = vec.reshape(base_out, num_scenarios)
                 res = base_map.rmatmat(scenario_block)
-                result[:, j] = np.asarray(res).reshape(-1)
-            return result
+                col_results.append(asarray(res).reshape(-1, 1))
+            return xp.concatenate(col_results, axis=1)
 
         def matmat(block: Any) -> Any:
             block_arr = asarray(block).reshape(base_in * num_scenarios, -1)

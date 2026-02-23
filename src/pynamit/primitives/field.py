@@ -7,6 +7,7 @@ This module contains the consolidated Field abstraction:
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from functools import cached_property
 from typing import Tuple, Any, Optional, Literal, TYPE_CHECKING, Union
 import numpy as np
 
@@ -213,6 +214,94 @@ class _ComponentImpl(_FieldImpl):
 class Field(ABC):
     """Unified Field class utilizing the Bridge pattern for implementation."""
 
+    @staticmethod
+    def _detect_construction_modes(
+        *,
+        grid: Optional[Grid],
+        v1,
+        v2,
+        v3,
+        basis: Optional[Any],
+        coeffs,
+        parent_field,
+        component_index,
+    ) -> list[str]:
+        modes: list[str] = []
+        has_discrete_args = grid is not None or any(v is not None for v in (v1, v2, v3))
+        has_expansion_args = basis is not None or coeffs is not None
+        has_component_args = parent_field is not None or component_index is not None
+
+        if has_discrete_args:
+            if grid is None or v1 is None:
+                raise ValueError("Discrete Field construction requires both 'grid' and 'v1'.")
+            modes.append("discrete")
+
+        if has_expansion_args:
+            if basis is None or coeffs is None:
+                raise ValueError("Expansion Field construction requires both 'basis' and 'coeffs'.")
+            modes.append("expansion")
+
+        if has_component_args:
+            if parent_field is None or component_index is None:
+                raise ValueError(
+                    "Component Field construction requires both 'parent_field' and 'component_index'."
+                )
+            modes.append("component")
+
+        return modes
+
+    @staticmethod
+    def _build_impl_from_args(
+        *,
+        grid: Optional[Grid],
+        v1,
+        v2,
+        v3,
+        basis: Optional[Any],
+        coeffs,
+        field_type: str,
+        parent_field,
+        component_index,
+        weights,
+        reg_lambda,
+        pinv_rtol: float,
+    ) -> Optional[_FieldImpl]:
+        modes = Field._detect_construction_modes(
+            grid=grid,
+            v1=v1,
+            v2=v2,
+            v3=v3,
+            basis=basis,
+            coeffs=coeffs,
+            parent_field=parent_field,
+            component_index=component_index,
+        )
+
+        if len(modes) > 1:
+            raise ValueError(
+                "Field construction arguments specify multiple modes "
+                f"({', '.join(modes)}). Use exactly one mode."
+            )
+        if not modes:
+            return None
+
+        mode = modes[0]
+        if mode == "discrete":
+            return _DiscreteImpl(grid, v1, v2, v3)
+        if mode == "expansion":
+            return _ExpansionImpl(
+                basis,
+                coeffs,
+                field_type,
+                weights=weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+        if mode == "component":
+            return _ComponentImpl(parent_field, component_index)
+
+        raise RuntimeError(f"Unexpected Field construction mode: {mode}")
+
     def __init__(
         self,
         # Discrete args
@@ -244,23 +333,32 @@ class Field(ABC):
         self._reg_lambda = reg_lambda
         self._pinv_rtol = pinv_rtol
 
-        # Determine strategy
-        if v1 is not None and grid is not None:
-            # Discrete case
-            self._impl = _DiscreteImpl(grid, v1, v2, v3)
+        if kwargs and type(self) is Field:
+            unknown_keys = ", ".join(sorted(kwargs))
+            raise TypeError(f"Unexpected Field constructor keyword arguments: {unknown_keys}")
 
-        elif coeffs is not None and basis is not None:
-            # Standard Expansion
-            self._impl = _ExpansionImpl(
-                basis, coeffs, field_type, 
-                weights=weights, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
+        self._impl = self._build_impl_from_args(
+            grid=grid,
+            v1=v1,
+            v2=v2,
+            v3=v3,
+            basis=basis,
+            coeffs=coeffs,
+            field_type=field_type,
+            parent_field=parent_field,
+            component_index=component_index,
+            weights=weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+        if self._impl is None and type(self) is Field:
+            raise ValueError(
+                "Invalid Field construction. Use one of: "
+                "(grid, v1[, v2, v3]), (basis, coeffs), or (parent_field, component_index)."
             )
 
-        elif parent_field is not None:
-            # Component
-            self._impl = _ComponentImpl(parent_field, component_index)
-
-    @property
+    @cached_property
     def vec(self) -> "VectorAccessor":
         return VectorAccessor(self)
 
@@ -269,13 +367,25 @@ class Field(ABC):
         return self.vec.v1
 
     # --- Property Delegation ---
+    @cached_property
+    def _expansion_impl(self) -> Optional[_ExpansionImpl]:
+        return self._impl if isinstance(self._impl, _ExpansionImpl) else None
+
+    @cached_property
+    def _discrete_impl(self) -> Optional[_DiscreteImpl]:
+        return self._impl if isinstance(self._impl, _DiscreteImpl) else None
+
+    @cached_property
+    def _component_impl(self) -> Optional[_ComponentImpl]:
+        return self._impl if isinstance(self._impl, _ComponentImpl) else None
+
     @property
     def grid(self):
-        # Check if impl has direct grid (Discrete)
-        if hasattr(self._impl, "grid"):
-            return self._impl.grid
-        # Check if impl has basis with grid (Expansion)
-        return getattr(getattr(self._impl, "basis", None), "grid", None)
+        if self._discrete_impl is not None:
+            return self._discrete_impl.grid
+        if self._expansion_impl is not None:
+            return getattr(self._expansion_impl.basis, "grid", None)
+        return None
 
     @property
     def v1(self):
@@ -378,18 +488,18 @@ class Field(ABC):
 
     # --- Core Methods ---
     def evaluate(self, r: Any, theta: Any, phi: Any) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if self._impl:
-            return self._impl.evaluate(r, theta, phi)
-        raise NotImplementedError("evaluate() called on Field with no implementation.")
+        return self._impl.evaluate(r, theta, phi)
 
     def basis_vectors(self, r: Any, theta: Any, phi: Any):
         if self.source_field:
             return self.source_field.basis_vectors(r, theta, phi)
-        if self._impl:
-            return self._impl.basis_vectors(r, theta, phi)
-        raise NotImplementedError("basis_vectors() called on Field with no implementation.")
+        return self._impl.basis_vectors(r, theta, phi)
 
     def discretize(self, grid: Any, r: Any) -> "Field":
+        """Sample the field on ``grid`` at radius ``r`` and return a discrete Field.
+
+        This is a convenience wrapper used extensively in geometry/mainfield code.
+        """
         v1, v2, v3 = self.evaluate(r, grid.theta, grid.phi)
         return Field.from_values(
             grid,
@@ -400,82 +510,75 @@ class Field(ABC):
             source_field=self,
         )
 
-    def to_grid_values(self, grid: Grid):
-        """Evaluate the field on a grid."""
-        if hasattr(self._impl, "basis") and self._impl.basis:
-            return self._impl.basis.evaluate(
-                self._impl.coeffs, 
+    def evaluate_on_grid(self, grid: Grid, r: Optional[Any] = None):
+        """Evaluate an expansion field on a grid.
+
+        Parameters
+        ----------
+        grid : Grid
+            Target grid.
+        r : Any, optional
+            Reserved for API symmetry with ``evaluate(r, theta, phi)``.
+            Expansion-backed fields are defined on the associated shell basis,
+            so this argument is currently ignored in this method.
+        """
+        expansion_impl = self._expansion_impl
+        if expansion_impl is not None and expansion_impl.basis is not None:
+            return expansion_impl.basis.evaluate(
+                expansion_impl.coeffs,
                 grid, 
-                self._impl.field_type,
+                expansion_impl.field_type,
             )
-        raise NotImplementedError("to_grid_values valid only for Expansion fields.")
+        raise NotImplementedError("evaluate_on_grid valid only for Expansion fields.")
 
     def regularization_term(self, grid: Grid):
         """Compute the regularization penalty term."""
-        if hasattr(self._impl, "basis") and self._impl.basis:
-            return self._impl.basis.regularization_term(
-                self._impl.coeffs, 
+        expansion_impl = self._expansion_impl
+        if expansion_impl is not None and expansion_impl.basis is not None:
+            return expansion_impl.basis.regularization_term(
+                expansion_impl.coeffs,
                 grid, 
-                self._impl.field_type,
+                expansion_impl.field_type,
                 reg_lambda=self.reg_lambda,
             )
         raise NotImplementedError("regularization_term valid only for Expansion fields.")
 
+    @staticmethod
+    def _from_expansion_result(res_impl: _ExpansionImpl) -> "Field":
+        return Field.from_coefficients(
+            basis=res_impl.basis,
+            coeffs=res_impl.coeffs,
+            field_type=res_impl.field_type,
+            weights=res_impl.weights,
+            reg_lambda=res_impl.reg_lambda,
+            pinv_rtol=res_impl.pinv_rtol,
+        )
+
+    def _require_expansion_impl(self, op_name: str) -> _ExpansionImpl:
+        expansion_impl = self._expansion_impl
+        if expansion_impl is None:
+            raise NotImplementedError(f"{op_name}() only supported for Expansion fields for now.")
+        return expansion_impl
+
     def curl(self) -> "Field":
         """Compute the radial curl of the field."""
-        if hasattr(self._impl, "curl"):
-            res_impl = self._impl.curl()
-            return Field.from_coefficients(
-                basis=res_impl.basis,
-                coeffs=res_impl.coeffs,
-                field_type=res_impl.field_type,
-                weights=res_impl.weights,
-                reg_lambda=res_impl.reg_lambda,
-                pinv_rtol=res_impl.pinv_rtol
-            )
-        raise NotImplementedError("curl() only supported for Expansion fields for now.")
+        res_impl = self._require_expansion_impl("curl").curl()
+        return self._from_expansion_result(res_impl)
 
     def div(self) -> "Field":
         """Compute the divergence of the field."""
-        if hasattr(self._impl, "div"):
-            res_impl = self._impl.div()
-            return Field.from_coefficients(
-                basis=res_impl.basis,
-                coeffs=res_impl.coeffs,
-                field_type=res_impl.field_type,
-                weights=res_impl.weights,
-                reg_lambda=res_impl.reg_lambda,
-                pinv_rtol=res_impl.pinv_rtol
-            )
-        raise NotImplementedError("div() only supported for Expansion fields for now.")
+        res_impl = self._require_expansion_impl("div").div()
+        return self._from_expansion_result(res_impl)
 
     def toroidal_potential(self) -> "Field":
         """Extract the toroidal potential of the field."""
-        if hasattr(self._impl, "toroidal_potential"):
-            res_impl = self._impl.toroidal_potential()
-            return Field.from_coefficients(
-                basis=res_impl.basis,
-                coeffs=res_impl.coeffs,
-                field_type=res_impl.field_type,
-                weights=res_impl.weights,
-                reg_lambda=res_impl.reg_lambda,
-                pinv_rtol=res_impl.pinv_rtol
-            )
-        raise NotImplementedError("toroidal_potential() only supported for Expansion fields for now.")
+        res_impl = self._require_expansion_impl("toroidal_potential").toroidal_potential()
+        return self._from_expansion_result(res_impl)
 
     def poloidal_potential(self) -> "Field":
         """Extract the poloidal potential of the field."""
-        if hasattr(self._impl, "poloidal_potential"):
-            res_impl = self._impl.poloidal_potential()
-            return Field.from_coefficients(
-                basis=res_impl.basis,
-                coeffs=res_impl.coeffs,
-                field_type=res_impl.field_type,
-                weights=res_impl.weights,
-                reg_lambda=res_impl.reg_lambda,
-                pinv_rtol=res_impl.pinv_rtol
-            )
-        raise NotImplementedError("poloidal_potential() only supported for Expansion fields for now.")
+        res_impl = self._require_expansion_impl("poloidal_potential").poloidal_potential()
+        return self._from_expansion_result(res_impl)
 
 
 class VectorAccessor:

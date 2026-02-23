@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 def _timed_solve(label: str, solver: Any, *args: Any, **kwargs: Any) -> np.ndarray:
     """Optionally time least-squares solves when PYNAMIT_TIMING_SOLVES is set."""
+    kwargs.setdefault("warning_label", label)
     if os.getenv("PYNAMIT_TIMING_SOLVES", "").strip() in ("", "0"):
         return solver.solve(*args, **kwargs)
     t0 = time.perf_counter()
@@ -926,7 +927,7 @@ class PoloidalSystemMatrices:
             Induction matrix mapping m_ind -> E_df. Can be a dense array
             or a LinearMap for matrix-free operation.
         solver : str, optional
-            Solver to use for matrix-free case: "lsmr" or "cg". Default "lsmr".
+            Solver to use for matrix-free case: "lsmr" or "cgls". Default "lsmr".
             For dense matrices, lstsq is always used regardless of this parameter.
 
         Returns
