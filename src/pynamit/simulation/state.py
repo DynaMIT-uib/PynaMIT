@@ -30,6 +30,7 @@ from pynamit.math.constants import mu0
 from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 from pynamit.simulation.toroidal import ToroidalSystemMatrices
 from pynamit.simulation.geometry_utils import to_dense, canonicalize_vector_basis_matrix
+from pynamit.simulation.state_constraints import StateConstraints
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,16 @@ class State:
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(
             basis, grid_basis, mainfield, settings, PFAC_matrix, solution_basis=self.solution_basis
+        )
+
+        self.constraints = StateConstraints(
+            geometry=self.geometry,
+            solution_basis=self.solution_basis,
+            dynamics_mode=self.dynamics_mode,
+            connect_hemispheres=self.connect_hemispheres,
+            magnetospheric_toroidal_lock=self.magnetospheric_toroidal_lock,
+            apply_psi_gauge=self.apply_psi_gauge,
+            apply_m_ind_gauge=self.apply_m_ind_gauge,
         )
 
         # Initialize Toroidal System Matrices if in full_induction mode
@@ -199,6 +210,7 @@ class State:
         self.induction_null_svd_rtol = 1e-8
         self.induction_null_warn_ratio = 0.5
         self.apply_m_ind_gauge = bool(getattr(settings, "apply_m_ind_gauge", True))
+        self.apply_m_imp_gauge = bool(getattr(settings, "apply_m_imp_gauge", True))
         self.magnetospheric_toroidal_lock = bool(
             getattr(settings, "magnetospheric_toroidal_lock", False)
         )
@@ -400,7 +412,7 @@ class State:
             raise RuntimeError("Toroidal matrices required for dt_jr problem.")
         
         return self.toroidal_matrices.build_least_squares_problem(
-            jr_map_operator=self.induction_constraint_operator_hard,
+            jr_map_operator=self.constraints.induction_constraint_operator_hard,
             constraint_scaling=0.0,
             regularization_lambda=self.toroidal_regularization_lambda,
             weighting=self.toroidal_weighting,
@@ -420,14 +432,6 @@ class State:
             cached = as_linear_map(op, input_shape=input_shape, output_shape=output_shape)
             self._operator_linear_map_cache[cache_key] = cached
         return cached
-
-    def _extract_ll_constraint_rows(self) -> Any:
-        """Extract low-latitude (LL) rows from the jr-map operator."""
-        op = self.geometry.jr_map_sim
-        if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
-            return op
-
-        ll_mask = getattr(self.geometry, "ll_mask", None)
         if ll_mask is None:
             raise RuntimeError(
                 "LL mask is required for full_induction with connect_hemispheres=True."
@@ -523,616 +527,9 @@ class State:
         C_use = C[keep] / row_norm[keep].reshape(-1, 1)
         return np.ascontiguousarray(C_use)
 
-    def _basis_has_mean_free_scalar_space(self) -> bool:
-        """Return whether solution-basis scalar coefficients are mean-free by construction."""
-        if not hasattr(self.solution_basis, "scalar_fields_are_mean_free_by_construction"):
-            return False
-        try:
-            return bool(self.solution_basis.scalar_fields_are_mean_free_by_construction())
-        except Exception:
-            return False
 
-    def _get_psi_gauge_row(self, n_coeff: int) -> np.ndarray:
-        """Return scalar gauge row for psi coefficients.
 
-        Policy:
-        - Use basis-provided mean-zero gauge when available.
-        - If basis declares scalar mean-free coefficient space by construction,
-          no scalar gauge row is added.
-        - Fall back to first-coefficient pinning for bases without a
-          dedicated scalar gauge interface.
-        """
-        if self._basis_has_mean_free_scalar_space():
-            return np.zeros((0, n_coeff), dtype=float)
-        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
-            try:
-                row = np.asarray(
-                    self.solution_basis.get_scalar_gauge_constraint_matrix(
-                        n_coeff=n_coeff,
-                        mode="mean_zero",
-                    )
-                )
-                if row.ndim == 1:
-                    row = row.reshape(1, -1)
-                if row.ndim == 2 and row.shape[1] == n_coeff and row.shape[0] > 0:
-                    return row.astype(float, copy=False)
-            except Exception:
-                pass
-        row = np.zeros((1, n_coeff), dtype=float)
-        row[0, 0] = 1.0
-        return row
 
-    def _get_m_ind_gauge_row(self, n_coeff: int) -> np.ndarray:
-        """Return scalar gauge row for m_ind coefficients."""
-        if self._basis_has_mean_free_scalar_space():
-            return np.zeros((0, n_coeff), dtype=float)
-        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
-            try:
-                row = np.asarray(
-                    self.solution_basis.get_scalar_gauge_constraint_matrix(
-                        n_coeff=n_coeff,
-                        mode="mean_zero",
-                    )
-                )
-                if row.ndim == 1:
-                    row = row.reshape(1, -1)
-                if row.ndim == 2 and row.shape[1] == n_coeff and row.shape[0] > 0:
-                    return row.astype(float, copy=False)
-            except Exception:
-                pass
-        row = np.zeros((1, n_coeff), dtype=float)
-        row[0, 0] = 1.0
-        return row
-
-    def _get_m_imp_gauge_row(self, n_coeff: int) -> np.ndarray:
-        """Return scalar gauge row for m_imp coefficients."""
-        if self._basis_has_mean_free_scalar_space():
-            return np.zeros((0, n_coeff), dtype=float)
-        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
-            try:
-                row = np.asarray(
-                    self.solution_basis.get_scalar_gauge_constraint_matrix(
-                        n_coeff=n_coeff,
-                        mode="mean_zero",
-                    )
-                )
-                if row.ndim == 1:
-                    row = row.reshape(1, -1)
-                if row.ndim == 2 and row.shape[1] == n_coeff and row.shape[0] > 0:
-                    return row.astype(float, copy=False)
-            except Exception:
-                pass
-        row = np.zeros((1, n_coeff), dtype=float)
-        row[0, 0] = 1.0
-        return row
-
-    @cached_property
-    def m_ind_gauge_projector(self) -> np.ndarray:
-        """Dense scalar gauge projector for legacy m_ind evolution.
-
-        Applied only for CS-like solution bases to avoid changing SH pathways.
-        """
-        n = self.solution_basis.index_length
-        kind = getattr(self.solution_basis, "kind", "")
-        if not self.apply_m_ind_gauge or kind not in ("CS", "GRID"):
-            return np.eye(n, dtype=float)
-
-        row = np.asarray(self._get_m_ind_gauge_row(n), dtype=float)
-        if row.ndim == 1:
-            row = row.reshape(1, -1)
-        if row.ndim != 2 or row.shape[1] != n or row.shape[0] == 0:
-            return np.eye(n, dtype=float)
-
-        C = row
-        CCt = C @ C.T
-        if CCt.size == 0:
-            return np.eye(n, dtype=float)
-        rcond = max(float(np.finfo(float).eps * max(CCt.shape)), 1e-15)
-        CCt_pinv = np.linalg.pinv(CCt, rcond=rcond)
-        P = np.eye(n, dtype=float) - C.T @ CCt_pinv @ C
-        return np.asarray(0.5 * (P + P.T), dtype=float)
-
-    @cached_property
-    def m_imp_gauge_projector(self) -> np.ndarray:
-        """Dense scalar gauge projector for imposed toroidal scalar m_imp."""
-        n = self.solution_basis.index_length
-        kind = getattr(self.solution_basis, "kind", "")
-        if kind not in ("CS", "GRID"):
-            return np.eye(n, dtype=float)
-
-        row = np.asarray(self._get_m_imp_gauge_row(n), dtype=float)
-        if row.ndim == 1:
-            row = row.reshape(1, -1)
-        if row.ndim != 2 or row.shape[1] != n or row.shape[0] == 0:
-            return np.eye(n, dtype=float)
-
-        C = row
-        CCt = C @ C.T
-        if CCt.size == 0:
-            return np.eye(n, dtype=float)
-        rcond = max(float(np.finfo(float).eps * max(CCt.shape)), 1e-15)
-        CCt_pinv = np.linalg.pinv(CCt, rcond=rcond)
-        P = np.eye(n, dtype=float) - C.T @ CCt_pinv @ C
-        return np.asarray(0.5 * (P + P.T), dtype=float)
-
-    def _apply_m_ind_gauge_projection(self, coeffs: np.ndarray) -> np.ndarray:
-        """Project scalar coefficients onto configured m_ind gauge subspace."""
-        arr = np.asarray(asarray(coeffs)).reshape(-1)
-        P = np.asarray(self.m_ind_gauge_projector)
-        if P.shape != (arr.size, arr.size):
-            return asarray(arr)
-        return asarray(P @ arr)
-
-    def _apply_m_imp_gauge_projection(self, coeffs: np.ndarray) -> np.ndarray:
-        """Project scalar coefficients onto configured m_imp gauge subspace."""
-        arr = np.asarray(asarray(coeffs)).reshape(-1)
-        P = np.asarray(self.m_imp_gauge_projector)
-        if P.shape != (arr.size, arr.size):
-            return asarray(arr)
-        return asarray(P @ arr)
-
-    def _compress_constraint_rows(self, C: np.ndarray, rtol: float) -> np.ndarray:
-        """Compress row-space of C into a compact full-row-rank basis."""
-        C = np.asarray(C, dtype=float)
-        if C.ndim != 2 or C.size == 0:
-            n_cols = C.shape[1] if C.ndim == 2 else 0
-            return np.zeros((0, n_cols), dtype=float)
-        row_norm = np.linalg.norm(C, axis=1)
-        keep_rows = row_norm > 0
-        if not np.any(keep_rows):
-            return np.zeros((0, C.shape[1]), dtype=float)
-        C_use = C[keep_rows]
-        _, s, vh = np.linalg.svd(C_use, full_matrices=False)
-        if s.size == 0 or s[0] <= 0:
-            return np.zeros((0, C.shape[1]), dtype=float)
-        if rtol <= 0:
-            rtol = self._resolve_constraint_rank_rtol(
-                spectrum=s,
-                label="LL row compression",
-            )
-        thresh = max(float(rtol), 0.0) * float(s[0])
-        keep = s > thresh
-        if not np.any(keep):
-            return np.zeros((0, C.shape[1]), dtype=float)
-        return np.ascontiguousarray(vh[keep, :])
-
-    @staticmethod
-    def _auto_relative_cutoff_from_spectrum(
-        spectrum: np.ndarray,
-        *,
-        default_rtol: float = 1e-8,
-        min_rel: float = 1e-12,
-        max_rel: float = 1e-2,
-        gap_min_decades: float = 1.0,
-    ) -> float:
-        """Pick a relative rank cutoff from the largest spectral gap.
-
-        Uses ``default_rtol`` when no clear gap exists.
-        """
-        vals = np.asarray(spectrum, dtype=float).reshape(-1)
-        if vals.size == 0:
-            return float(np.clip(default_rtol, min_rel, max_rel))
-
-        vals = vals[np.isfinite(vals)]
-        if vals.size == 0:
-            return float(np.clip(default_rtol, min_rel, max_rel))
-        vals = np.sort(vals)[::-1]
-
-        s_max = float(vals[0])
-        if s_max <= 0:
-            return float(np.clip(default_rtol, min_rel, max_rel))
-
-        rel = vals / s_max
-        rel = rel[np.isfinite(rel) & (rel > min_rel)]
-        if rel.size < 2:
-            return float(np.clip(default_rtol, min_rel, max_rel))
-
-        log_rel = np.log10(rel)
-        gaps = log_rel[:-1] - log_rel[1:]
-        if gaps.size == 0:
-            return float(np.clip(default_rtol, min_rel, max_rel))
-
-        idx = int(np.argmax(gaps))
-        if gaps[idx] < gap_min_decades:
-            return float(np.clip(default_rtol, min_rel, max_rel))
-
-        rtol = float(rel[idx + 1])
-        return float(np.clip(rtol, min_rel, max_rel))
-
-    def _resolve_constraint_rank_rtol(self, spectrum: np.ndarray, label: str) -> float:
-        """Resolve rank cutoff for HL/LL constraint decomposition."""
-        auto = self._auto_relative_cutoff_from_spectrum(spectrum)
-        logger.info("Auto %s rank rtol from spectral gap: %.3e", label, auto)
-        return auto
-
-    def _build_energy_metric_pair(
-        self,
-        ll_mask: np.ndarray,
-        weights: np.ndarray,
-        n_coeffs: int,
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Build global and HL magnetic-energy metrics in coefficient space.
-
-        Uses derivative operators so concentration is based on magnetic-field
-        energy rather than coefficient amplitude.
-        """
-        # Use the toroidal surface operator directly to avoid any ambiguity in
-        # sign convention. For quadratic energy, ± toroidal conventions are
-        # equivalent, but this keeps the implementation explicit.
-        try:
-            curl = np.asarray(self.solution_basis.get_curl_matrix(self.geometry.grid), dtype=float)
-        except Exception:
-            logger.warning("Energy-metric split: curl operator unavailable.", exc_info=True)
-            return None, None
-
-        if curl.ndim != 3 or curl.shape[0] != 2:
-            logger.warning(
-                "Energy-metric split skipped: unexpected curl shape %s (expected (2, N_grid, N_coeffs)).",
-                tuple(curl.shape),
-            )
-            return None, None
-        G_th = curl[0]
-        G_ph = curl[1]
-
-        if (
-            G_th.ndim != 2
-            or G_ph.ndim != 2
-            or G_th.shape != G_ph.shape
-            or G_th.shape[0] != ll_mask.size
-            or G_th.shape[1] != n_coeffs
-        ):
-            logger.warning(
-                "Energy-metric split skipped: derivative shapes incompatible (G_th=%s, G_ph=%s, expected=(%d,%d)).",
-                tuple(G_th.shape),
-                tuple(G_ph.shape),
-                int(ll_mask.size),
-                int(n_coeffs),
-            )
-            return None, None
-
-        hl_mask = ~ll_mask
-        sqrt_w = np.sqrt(weights)
-        sqrt_w_hl = np.sqrt(weights * hl_mask.astype(float))
-
-        Gth_w = sqrt_w.reshape(-1, 1) * G_th
-        Gph_w = sqrt_w.reshape(-1, 1) * G_ph
-        M = (Gth_w.T @ Gth_w) + (Gph_w.T @ Gph_w)
-
-        Gth_w_hl = sqrt_w_hl.reshape(-1, 1) * G_th
-        Gph_w_hl = sqrt_w_hl.reshape(-1, 1) * G_ph
-        M_hl = (Gth_w_hl.T @ Gth_w_hl) + (Gph_w_hl.T @ Gph_w_hl)
-
-        M = 0.5 * (M + M.T)
-        M_hl = 0.5 * (M_hl + M_hl.T)
-        return M, M_hl
-
-    def _build_apex_metric_pair(
-        self,
-        ll_mask: np.ndarray,
-        weights: np.ndarray,
-        n_coeffs: int,
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Build global and HL Gram metrics in apex sample space.
-
-        The split is built from the non-mismatch apex map ``A_apex``:
-            B = A_apex^T W A_apex
-            B_hl = A_apex^T W_hl A_apex
-        so concentration is defined directly in apex-coordinate sample space.
-        """
-        apex_op = getattr(self.geometry, "jr_map_apex_sim", None)
-        if apex_op is None:
-            apex_op = self.geometry.jr_map_sim
-
-        A_apex = np.asarray(to_dense(as_linear_map(apex_op)), dtype=float)
-        if A_apex.ndim != 2:
-            logger.warning(
-                "Apex-metric split skipped: unexpected apex map shape %s.",
-                tuple(A_apex.shape),
-            )
-            return None, None
-        if A_apex.shape[0] != ll_mask.size or A_apex.shape[1] != n_coeffs:
-            logger.warning(
-                "Apex-metric split skipped: apex map shape %s incompatible with "
-                "mask size %d and n_coeffs %d.",
-                tuple(A_apex.shape),
-                int(ll_mask.size),
-                int(n_coeffs),
-            )
-            return None, None
-
-        hl_mask = ~ll_mask
-        sqrt_w = np.sqrt(weights).reshape(-1, 1)
-        sqrt_w_hl = np.sqrt(weights * hl_mask.astype(float)).reshape(-1, 1)
-
-        A_w = sqrt_w * A_apex
-        A_w_hl = sqrt_w_hl * A_apex
-        B = A_w.T @ A_w
-        B_hl = A_w_hl.T @ A_w_hl
-        B = 0.5 * (B + B.T)
-        B_hl = 0.5 * (B_hl + B_hl.T)
-        return B, B_hl
-
-    def _build_hl_ll_subspaces(self, n_coeffs: int, ll_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Build compact HL/LL dominant subspaces in coefficient space.
-
-        Uses apex-space concentration so CS-dominant and transform/SH pathways
-        share the same split semantics for driver and LL mismatch constraints.
-        """
-        ll_mask = np.asarray(ll_mask, dtype=bool).reshape(-1)
-        hl_mask = ~ll_mask
-        if not np.any(ll_mask) or not np.any(hl_mask):
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-
-        weights = np.asarray(self.geometry.grid.weights).reshape(-1)
-        if weights.size != ll_mask.size:
-            weights = np.ones(ll_mask.size, dtype=float)
-        weights = np.maximum(weights, 0.0)
-        wsum = float(np.sum(weights))
-        if not np.isfinite(wsum) or wsum <= 0:
-            weights = np.ones_like(weights) / max(weights.size, 1)
-        else:
-            weights = weights / wsum
-
-        # All modes: use apex-space concentration based on the non-mismatch map.
-        M, M_hl = self._build_apex_metric_pair(ll_mask=ll_mask, weights=weights, n_coeffs=n_coeffs)
-        if M is None or M_hl is None:
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-
-        U, svals, _ = np.linalg.svd(M, full_matrices=False)
-        if svals.size == 0 or svals[0] <= 0:
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-        rtol = self._resolve_constraint_rank_rtol(
-            spectrum=svals,
-            label="HL/LL split",
-        )
-        keep_s = svals > (rtol * float(svals[0]))
-        if not np.any(keep_s):
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-        U_r = U[:, keep_s]
-        s_r = svals[keep_s]
-        S_inv_half = U_r / np.sqrt(s_r).reshape(1, -1)
-
-        B = S_inv_half.T @ M_hl @ S_inv_half
-        B = 0.5 * (B + B.T)
-        evals, evecs = np.linalg.eigh(B)
-        order = np.argsort(evals)[::-1]
-        lambda_desc = np.clip(np.asarray(evals[order], dtype=float), 0.0, 1.0)
-        V_desc = S_inv_half @ evecs[:, order]
-
-        # Shannon-anchored two-sided gap split:
-        # - K ~ expected HL information dimension (Shannon number)
-        # - find strongest HL-side gap on [0, K-1]
-        # - find strongest LL-side gap on [K, N-2]
-        # - define HL/LL from index ranges so a middle band is guaranteed.
-        n_modes = int(lambda_desc.size)
-        if n_modes < 3:
-            # Degenerate spectra cannot support an explicit middle band.
-            # Keep a minimal split for robustness.
-            hl_idx_raw = np.array([0], dtype=int) if n_modes > 0 else np.zeros(0, dtype=int)
-            ll_idx_raw = (
-                np.array([n_modes - 1], dtype=int)
-                if n_modes > 1
-                else np.zeros(0, dtype=int)
-            )
-            shannon_hl = int(np.rint(float(np.sum(lambda_desc)))) if n_modes > 0 else 0
-            K = int(np.clip(shannon_hl, 0, max(n_modes - 1, 0)))
-            hl_cut = float(lambda_desc[0]) if n_modes > 0 else 0.0
-            ll_cut = float(lambda_desc[-1]) if n_modes > 0 else 0.0
-        else:
-            shannon_hl = int(np.rint(float(np.sum(lambda_desc))))
-            K = int(np.clip(shannon_hl, 1, n_modes - 2))
-            gaps = lambda_desc[:-1] - lambda_desc[1:]
-
-            idx_h = int(np.argmax(gaps[:K]))  # in [0, K-1]
-            idx_l = int(K + np.argmax(gaps[K:]))  # in [K, N-2]
-
-            # Safety guard for pathological numerical ties; preserve non-empty middle.
-            if idx_h >= idx_l:
-                idx_h = max(0, K - 1)
-                idx_l = min(n_modes - 2, K)
-
-            hl_idx_raw = np.arange(0, idx_h + 1, dtype=int)
-            ll_idx_raw = np.arange(idx_l + 1, n_modes, dtype=int)
-
-            hl_cut = float(0.5 * (lambda_desc[idx_h] + lambda_desc[idx_h + 1]))
-            ll_cut = float(0.5 * (lambda_desc[idx_l] + lambda_desc[idx_l + 1]))
-
-        hl_sel = np.zeros_like(lambda_desc, dtype=bool)
-        ll_sel = np.zeros_like(lambda_desc, dtype=bool)
-        hl_sel[hl_idx_raw] = True
-        ll_sel[ll_idx_raw] = True
-
-        Q_hl = (
-            self._m_orthonormalize_columns(V_desc[:, hl_sel], metric=M, rtol=rtol)
-            if np.any(hl_sel)
-            else np.zeros((n_coeffs, 0), dtype=float)
-        )
-        Q_ll = (
-            self._m_orthonormalize_columns(V_desc[:, ll_sel], metric=M, rtol=rtol)
-            if np.any(ll_sel)
-            else np.zeros((n_coeffs, 0), dtype=float)
-        )
-
-        n_modes = int(V_desc.shape[1])
-        n_hl = int(Q_hl.shape[1])
-        n_ll = int(Q_ll.shape[1])
-        hl_conc = float(np.mean(lambda_desc[hl_sel])) if np.any(hl_sel) else 0.0
-        ll_conc = float(np.mean(1.0 - lambda_desc[ll_sel])) if np.any(ll_sel) else 0.0
-        logger.info(
-            "Energy split (shannon-two-gap): n=%d, K=%d, hl=%d, ll=%d, mid=%d, hl_raw=%d, ll_raw=%d, hl_cut=%.3f, ll_cut=%.3f, mean_hl=%.3f, mean_ll=%.3f",
-            n_modes,
-            int(K),
-            n_hl,
-            n_ll,
-            int(max(n_modes - n_hl - n_ll, 0)),
-            int(hl_idx_raw.size),
-            int(ll_idx_raw.size),
-            float(hl_cut),
-            float(ll_cut),
-            hl_conc,
-            ll_conc,
-        )
-        return Q_hl, Q_ll
-
-    def _get_ll_constraint_row_weights(self, n_rows: int, dtype: Any) -> np.ndarray:
-        """Area weights aligned with LL constraint rows."""
-        ll_mask = getattr(self.geometry, "ll_mask", None)
-        weights_all = np.asarray(self.geometry.grid.weights).reshape(-1)
-
-        if ll_mask is None:
-            raise RuntimeError("LL mask is required for LL hard-constraint row weights.")
-        ll_idx = np.asarray(ll_mask, dtype=bool).reshape(-1)
-        if weights_all.size != ll_idx.size:
-            raise RuntimeError(
-                "LL mask/grid weight size mismatch while building LL hard-constraint row weights."
-            )
-        w = weights_all[ll_idx].astype(dtype, copy=False)
-        if w.size != n_rows:
-            raise RuntimeError(
-                "LL row-weight size mismatch while building LL hard-constraint rows: "
-                f"expected {int(n_rows)}, got {int(w.size)}."
-            )
-
-        w = np.maximum(w, 0.0)
-        w_sum = float(np.sum(w))
-        if not np.isfinite(w_sum) or w_sum <= 0:
-            raise RuntimeError(
-                "Non-positive LL row-weight sum while building LL hard-constraint rows."
-            )
-        return w / w_sum
-
-    @cached_property
-    def induction_constraint_bundle_hard(self) -> Optional[Dict[str, np.ndarray]]:
-        """Build compact hard-constraint blocks for LL symmetry and optional HL lock.
-
-        In full-induction mode we enforce hard LL conjugacy constraints on the
-        total dt_jr. Optional HL residual locking can be enabled via
-        ``magnetospheric_toroidal_lock``.
-        """
-        if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
-            return None
-
-        ll_op = self._extract_ll_constraint_rows()
-        C_ll_raw = np.asarray(to_dense(as_linear_map(ll_op)), dtype=float)
-        if C_ll_raw.ndim != 2:
-            C_ll_raw = C_ll_raw.reshape(C_ll_raw.shape[0], -1)
-        if C_ll_raw.shape[0] == 0:
-            return None
-
-        ll_mask = getattr(self.geometry, "ll_mask", None)
-        if ll_mask is None:
-            raise RuntimeError(
-                "LL mask is required to build hard induction constraints "
-                "for full_induction with connect_hemispheres=True."
-            )
-
-        ll_mask_np = np.asarray(ll_mask, dtype=bool).reshape(-1)
-        if ll_mask_np.size != self.geometry.grid.size:
-            raise RuntimeError(
-                "LL mask/grid size mismatch for hard split: "
-                f"mask={int(ll_mask_np.size)} grid={int(self.geometry.grid.size)}."
-            )
-
-        Q_hl, Q_ll = self._build_hl_ll_subspaces(C_ll_raw.shape[1], ll_mask_np)
-        weights = np.asarray(self.geometry.grid.weights).reshape(-1)
-        if weights.size != ll_mask_np.size:
-            weights = np.ones(ll_mask_np.size, dtype=float)
-        weights = np.maximum(weights, 0.0)
-        wsum = float(np.sum(weights))
-        if not np.isfinite(wsum) or wsum <= 0:
-            weights = np.ones_like(weights) / max(weights.size, 1)
-        else:
-            weights = weights / wsum
-        M_total, _ = self._build_apex_metric_pair(
-            ll_mask=ll_mask_np,
-            weights=weights,
-            n_coeffs=C_ll_raw.shape[1],
-        )
-        if M_total is None or M_total.shape != (C_ll_raw.shape[1], C_ll_raw.shape[1]):
-            raise RuntimeError(
-                "Failed to build apex metric for hard induction constraints."
-            )
-
-        # Single coherent hard-constraint framework:
-        # 1) LL hard constraints are defined by the LL mismatch row-space.
-        # 2) HL concentration modes are kept only in the metric-orthogonal
-        #    complement of the LL hard subspace.
-        ll_anchor_rtol = max(float(np.finfo(float).eps * max(M_total.shape)), 0.0)
-        Q_ll_anchor = self._m_orthonormalize_columns(
-            C_ll_raw.T,
-            metric=M_total,
-            rtol=ll_anchor_rtol,
-        )
-        if Q_ll_anchor.shape[1] == 0:
-            raise RuntimeError(
-                "LL hard-constraint subspace is empty: unable to build "
-                "metric-orthonormal LL mismatch row-space basis."
-            )
-
-        gram_ll = 0.5 * ((Q_ll_anchor.T @ M_total @ Q_ll_anchor) + (Q_ll_anchor.T @ M_total @ Q_ll_anchor).T)
-        rcond_ll = float(np.finfo(float).eps * max(gram_ll.shape))
-        gram_ll_pinv = np.linalg.pinv(gram_ll, rcond=rcond_ll)
-        P_ll = Q_ll_anchor @ (gram_ll_pinv @ (Q_ll_anchor.T @ M_total))
-
-        C_ll_mode = C_ll_raw @ P_ll
-        w_ll = self._get_ll_constraint_row_weights(C_ll_mode.shape[0], float)
-        C_ll_mode = np.sqrt(w_ll).reshape(-1, 1) * C_ll_mode
-        C_ll = self._normalize_constraint_rows(C_ll_mode)
-        C_ll = self._compress_constraint_rows(C_ll, rtol=0.0)
-        if C_ll.shape[0] == 0:
-            raise RuntimeError(
-                "LL hard-constraint row set is empty after LL row-space projection."
-            )
-
-        # Keep HL driver-lock modes in complement of LL hard subspace.
-        q_hl_raw = np.asarray(Q_hl, dtype=float)
-        if q_hl_raw.ndim == 2 and q_hl_raw.shape[1] > 0:
-            Q_hl = self._m_orthonormalize_columns(
-                q_hl_raw - (P_ll @ q_hl_raw),
-                metric=M_total,
-                rtol=ll_anchor_rtol,
-            )
-        else:
-            Q_hl = np.zeros((C_ll_raw.shape[1], 0), dtype=float)
-
-        Q_ll = Q_ll_anchor
-
-        if self.magnetospheric_toroidal_lock and Q_hl.shape[1] > 0:
-            C_hl = self._normalize_constraint_rows(Q_hl.T @ M_total)
-        else:
-            C_hl = np.zeros((0, C_ll_raw.shape[1]), dtype=float)
-        C_total = np.ascontiguousarray(np.vstack([C_ll, C_hl]))
-        return {
-            "C_total": C_total,
-            "C_ll": C_ll,
-            "C_hl": C_hl,
-            "Q_ll": Q_ll,
-            "Q_hl": Q_hl,
-            "Q_metric": np.asarray(M_total, dtype=float),
-        }
-
-    @cached_property
-    def induction_constraint_operator_hard(self) -> Any:
-        """Hard constraint operator for LL symmetry and optional HL lock.
-
-        Returns
-        -------
-        Any
-            - ``None`` for full-induction runs without IH coupling.
-            - Compact hard-constraint rows for full-induction IH runs.
-            - Legacy ``jr_map_sim`` operator for non-full-induction paths.
-        """
-        if self.dynamics_mode == "full_induction" and not self.connect_hemispheres:
-            return None
-        if self.dynamics_mode != "full_induction":
-            return self.geometry.jr_map_sim
-
-        bundle = self.induction_constraint_bundle_hard
-        if bundle is None or bundle["C_total"].shape[0] == 0:
-            raise RuntimeError(
-                "Hard induction constraint bundle is missing or empty."
-            )
-        return bundle["C_total"]
 
     def _analyze_coupled_stability(
         self,
@@ -1208,7 +605,7 @@ class State:
 
     def _build_dt_jr_constraint_rhs(self, dt_jr_driver_coeffs: Optional[np.ndarray]) -> np.ndarray:
         """Build hard-constraint RHS for residual dt_jr solve."""
-        constraint_op = self.induction_constraint_operator_hard
+        constraint_op = self.constraints.induction_constraint_operator_hard
         if constraint_op is None:
             return xp.zeros(0)
         constraint_lm = as_linear_map(constraint_op)
@@ -1219,7 +616,7 @@ class State:
             return xp.zeros(n_rows)
 
         driver = np.asarray(dt_jr_driver_coeffs).reshape(-1)
-        bundle = self.induction_constraint_bundle_hard
+        bundle = self.constraints.induction_constraint_bundle_hard
         if bundle is None:
             if constraint_lm.shape[1] != driver.size and float(np.linalg.norm(driver)) == 0.0:
                 driver = np.zeros(int(constraint_lm.shape[1]), dtype=float)
@@ -1255,7 +652,7 @@ class State:
     def _project_to_hl_modes(self, values: np.ndarray) -> np.ndarray:
         """Project coefficient-space vector onto the HL mode subspace."""
         vec = np.asarray(values).reshape(-1)
-        bundle = self.induction_constraint_bundle_hard
+        bundle = self.constraints.induction_constraint_bundle_hard
         if bundle is None:
             return asarray(vec)
 
@@ -1499,7 +896,7 @@ class State:
             input_basis = self.jr.basis if self.jr is not None else None
             m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=input_basis))
             jr_vec = np.asarray(jr_coeffs).reshape(-1)
-            return self._apply_m_imp_gauge_projection(m_imp_from_jr @ jr_vec)
+            return self.constraints.apply_m_imp_gauge_projection(m_imp_from_jr @ jr_vec)
 
         # Legacy mode: when IH E-constraint is active we still solve m_imp even if
         # jr is unavailable, because the E-constraint contributes RHS information.
@@ -1541,7 +938,7 @@ class State:
         )
         if solution is None:
             solution = xp.zeros(n)
-        return self._apply_m_imp_gauge_projection(solution)
+        return self.constraints.apply_m_imp_gauge_projection(solution)
 
     def _map_dt_jr_driver_to_dt_m_imp(
         self,
@@ -1557,7 +954,7 @@ class State:
             )
         dt_m_imp = m_imp_from_jr @ dt_jr_vec
         dt_m_imp = self._project_to_hl_modes(dt_m_imp)
-        return self._apply_m_imp_gauge_projection(dt_m_imp)
+        return self.constraints.apply_m_imp_gauge_projection(dt_m_imp)
 
     # ----- State Update -----
 
@@ -1889,7 +1286,7 @@ class State:
         # Constraint RHS for residual solve:
         # For x = d(jr_ind)/dt and d(jr_tot)/dt = d(jr_imp)/dt + x:
         # enforce LL coupling as C_LL x = -C_LL d(jr_imp)/dt.
-        constraint_op = self.induction_constraint_operator_hard
+        constraint_op = self.constraints.induction_constraint_operator_hard
         rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
 
         solution = self.toroidal_matrices.solve_dt_jr_superposed(
@@ -1913,7 +1310,7 @@ class State:
         dt_jr_driver_coeffs = self._get_dt_jr_driver_coeffs()
 
         E_coeffs = asarray(E_known)
-        constraint_op = self.induction_constraint_operator_hard
+        constraint_op = self.constraints.induction_constraint_operator_hard
         rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
         solution = self.toroidal_matrices.solve_dpsi_dt_superposed_joint_er(
             E_coeffs=E_coeffs,
@@ -2168,8 +1565,8 @@ class State:
                 n_scalar=self.solution_basis.index_length,
                 apply_m_ind_gauge=self.apply_m_ind_gauge,
                 preconditioner_type=self.preconditioner,
-                psi_gauge_row_builder=self._get_psi_gauge_row,
-                m_ind_gauge_row_builder=self._get_m_ind_gauge_row,
+                psi_gauge_row_builder=self.constraints.get_psi_gauge_row,
+                m_ind_gauge_row_builder=self.constraints.get_m_ind_gauge_row,
                 timed_solve=_timed_solve,
                 column_scale_cache=self._coupled_steady_state_column_scale_cache,
                 solver_tolerance=float(getattr(self.m_imp_solver, "tolerance", 1e-13)),
@@ -2204,7 +1601,7 @@ class State:
         equality_operator = None
         equality_rhs = None
         if self.apply_m_ind_gauge:
-            gauge_row = np.asarray(self._get_m_ind_gauge_row(n_total), dtype=float)
+            gauge_row = np.asarray(self.constraints.get_m_ind_gauge_row(n_total), dtype=float)
             if gauge_row.ndim == 1:
                 gauge_row = gauge_row.reshape(1, -1)
             if gauge_row.ndim == 2 and gauge_row.shape[1] == n_total and gauge_row.shape[0] > 0:
@@ -2415,7 +1812,7 @@ class State:
             rates_func=rates_func,
             steady_state=asarray(steady_state_m_ind) if steady_state_m_ind is not None else None,
         )
-        m_ind_new = self._apply_m_ind_gauge_projection(m_ind_new)
+        m_ind_new = self.constraints.apply_m_ind_gauge_projection(m_ind_new)
         return None, asarray(m_ind_new)
 
     # -------------------------------------------------------------------------

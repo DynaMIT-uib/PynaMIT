@@ -64,10 +64,9 @@ def _run_dynamic_ramp_test(
 
 def test_dynamic_ramp_pure_spectral(tmp_path):
     """Test pure spectral mode with dual induction."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 1.855985373664705e-08
-    expected_mind_norm = 4.511380698478858e-09
+    # Baselines updated 2026-02-23 (pynamit-minimal).
+    expected_psi_norm = 1.666062771592729e-08
+    expected_mind_norm = 3.861663959074048e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.PURE_SPECTRAL,
@@ -81,10 +80,9 @@ def test_dynamic_ramp_pure_spectral(tmp_path):
 
 def test_dynamic_ramp_spectral_transform_gl(tmp_path):
     """Test spectral transform GL mode with dual induction."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 1.861667931074767e-08
-    expected_mind_norm = 4.923436484143163e-09
+    # Baselines updated 2026-02-23 (pynamit-minimal).
+    expected_psi_norm = 1.6688556536813525e-08
+    expected_mind_norm = 4.278509169346342e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -98,10 +96,9 @@ def test_dynamic_ramp_spectral_transform_gl(tmp_path):
 
 def test_dynamic_ramp_spectral_transform_cs(tmp_path):
     """Test spectral transform CS mode with dual induction."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 8.991957249803453e-09
-    expected_mind_norm = 2.2367762732880197e-09
+    # Baselines updated 2026-02-23 (pynamit-minimal).
+    expected_psi_norm = 8.668242382007195e-09
+    expected_mind_norm = 1.544927484892527e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,

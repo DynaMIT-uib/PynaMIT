@@ -169,10 +169,6 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
 
 def test_toroidal_stage_parity_converges_with_resolution(tmp_path) -> None:
     """CS-dominant stage operators should approach ST-CS as resolution increases."""
-    from pynamit.utils import use_jax
-
-    if use_jax():
-        pytest.skip("Stage parity convergence is validated in NumPy backend.")
 
     # Keep Nmax/Ncs below Nyquist warning threshold to avoid alias-dominated runs.
     low = _stage_errors(

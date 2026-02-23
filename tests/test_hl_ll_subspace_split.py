@@ -51,7 +51,7 @@ def _assert_split_regression_properties(
     state = dynamics.state
     ll_mask = np.asarray(state.geometry.ll_mask, dtype=bool).reshape(-1)
     n_coeffs = int(state.geometry.jr_map_sim.shape[1])
-    Q_hl, Q_ll = state._build_hl_ll_subspaces(n_coeffs=n_coeffs, ll_mask=ll_mask)
+    Q_hl, Q_ll = state.constraints._build_hl_ll_subspaces(n_coeffs=n_coeffs, ll_mask=ll_mask)
 
     # Stable mode counts for the reference setup (Nmax=10, Mmax=5, lat boundary=50 deg).
     assert Q_hl.shape == (n_coeffs, expected_hl_modes)
@@ -62,7 +62,7 @@ def _assert_split_regression_properties(
     weights = np.asarray(state.geometry.grid.weights).reshape(-1)
     weights = np.maximum(weights, 0.0)
     weights = weights / np.sum(weights)
-    M_total, M_hl = state._build_apex_metric_pair(ll_mask=ll_mask, weights=weights, n_coeffs=n_coeffs)
+    M_total, M_hl = state.constraints._build_apex_metric_pair(ll_mask=ll_mask, weights=weights, n_coeffs=n_coeffs)
     assert M_total is not None
     assert M_hl is not None
     M_total = np.asarray(M_total)
@@ -82,7 +82,7 @@ def _assert_split_regression_properties(
     assert hl_frac > hl_frac_min
     assert ll_frac > ll_frac_min
 
-    bundle = state.induction_constraint_bundle_hard
+    bundle = state.constraints.induction_constraint_bundle_hard
     assert bundle is not None
     # HL residual lock is intentionally disabled; only LL hard constraints remain.
     assert bundle["C_hl"].shape[0] == 0

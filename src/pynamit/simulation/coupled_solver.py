@@ -618,7 +618,7 @@ class CoupledOperatorAPI:
 
         st = self.state
         n = st.solution_basis.index_length
-        constraint_op = st.induction_constraint_operator_hard
+        constraint_op = st.constraints.induction_constraint_operator_hard
         feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
         dtpsi_from_E = np.asarray(
             st.toroidal_matrices.build_psi_dynamics_matrix(
@@ -917,7 +917,7 @@ class CoupledOperatorAPI:
 
     def get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
         """Return dense projector used by high-lat mode projection."""
-        bundle = self.state.induction_constraint_bundle_hard
+        bundle = self.state.constraints.induction_constraint_bundle_hard
         if bundle is None:
             return np.eye(n_coeffs, dtype=float)
         q_hl = np.asarray(bundle.get("Q_hl", np.zeros((n_coeffs, 0), dtype=float)))
@@ -956,7 +956,7 @@ class CoupledOperatorAPI:
         )
         if st.dynamics_mode == "full_induction":
             m_imp_from_jr = self.get_hl_projection_matrix(m_imp_from_jr.shape[0]) @ m_imp_from_jr
-        p = np.asarray(st.m_imp_gauge_projector)
+        p = np.asarray(st.constraints.m_imp_gauge_projector)
         if p.shape == (m_imp_from_jr.shape[0], m_imp_from_jr.shape[0]):
             m_imp_from_jr = p @ m_imp_from_jr
         return asarray(m_imp_from_jr)

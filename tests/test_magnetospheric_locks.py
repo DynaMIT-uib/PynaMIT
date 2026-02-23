@@ -64,7 +64,7 @@ def test_full_induction_magnetospheric_locks(
     n_coeffs = basis.index_length
 
     # --- Toroidal lock: optional HL hard rows in constraint bundle ---
-    bundle = state.induction_constraint_bundle_hard
+    bundle = state.constraints.induction_constraint_bundle_hard
     assert bundle is not None
     assert bundle["C_ll"].shape[1] == n_coeffs
     assert bundle["C_hl"].shape[1] == n_coeffs
@@ -167,7 +167,7 @@ def test_full_induction_lock_numeric_snapshot(tmp_path, poloidal_lock: bool) -> 
     geometry = state.geometry
     n_coeffs = state.basis.index_length
 
-    bundle = state.induction_constraint_bundle_hard
+    bundle = state.constraints.induction_constraint_bundle_hard
     assert bundle is not None
     # LL hard constraints are expressed in mismatch space projected to LL modes.
     assert bundle["C_ll"].shape[0] > 0
