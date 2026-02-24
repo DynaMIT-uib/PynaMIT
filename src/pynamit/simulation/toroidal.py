@@ -145,7 +145,7 @@ class ToroidalSystemMatrices:
         closure_derivative_basis: Optional[Any] = None,
         forcing_derivative_basis: Optional[Any] = None,
         radial_derivative_basis: Optional[Any] = None,
-        dtjr_solver: str = "svd",
+        dtjr_solver: str = "normal_eq",
         dtjr_preconditioner: Optional[str] = None,
         dtjr_tolerance: float = 1e-13,
     ):

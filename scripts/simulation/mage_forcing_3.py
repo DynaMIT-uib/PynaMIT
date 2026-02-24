@@ -14,7 +14,7 @@ PLOT = True
 
 # Regularization parameters
 BR_LAMBDA = 0.1
-CONDUCTANCE_LAMBDA = 2.5
+CONDUCTANCE_LAMBDA = 3
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
 
@@ -45,8 +45,8 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
     return rk, angles
 
 
-filename_prefix = "results_mage_2011"
-Nmax, Mmax, Ncs = 80, 60, 60
+filename_prefix = "results_mage_2011_full_induction"
+Nmax, Mmax, Ncs = 30, 30, 30
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -85,14 +85,19 @@ dynamics = pynamit.Dynamics(
     ignore_PFAC=False,
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
-    ih_constraint_scaling=1e-5,
+    dynamics_mode="full_induction",
+    northern_hemisphere_apex_constraints=True,
+    # Induced channels are unlocked; imposed m_imp closure remains locked by design.
+    magnetospheric_toroidal_lock=False,
+    magnetospheric_poloidal_lock=False,
+    least_squares_solver="normal_eq",
     t0=str(date),
-    integrator="exponential",
+    integrator="DOP853",
 )
 
-FAC_b_evaluator = pynamit.FieldEvaluator(
-    dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
-)
+#FAC_b_evaluator = pynamit.FieldEvaluator(
+#    dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
+#)
 
 plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
@@ -148,6 +153,8 @@ for step in range(0, nstep):
     if np.any(np.isnan(FAC)):
         print("FAC input contains NaN values. Setting to 0.")
         FAC[np.isnan(FAC)] = 0
+
+#    jr = FAC.flatten() * FAC_b_evaluator.br
 
     FAC[ionosphere_lat.flatten() > 0] *= -1
 
@@ -241,14 +248,14 @@ if PLOT:
 
     pynamit.visualization.plot_input_vs_interpolated(
         h5_filepath="mage_2011/data_H_int.h5",
-        interpolated_filename_prefix="results_mage_2011",
+        interpolated_filename_prefix=filename_prefix,
         timesteps_to_plot=timesteps_for_figure,
         data_types_to_plot=data_types_for_figure,
         input_dt=10,
         noon_longitude=0,
         vmin_percentile=0,
         vmax_percentile=95,
-        output_filename="input_vs_fitted_comparison.png",  # Optional
+        output_filename="input_vs_fitted_comparison_full_induction.png",  # Optional
     )
 
 

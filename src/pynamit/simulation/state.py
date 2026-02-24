@@ -153,7 +153,7 @@ class State:
                     self.solver_type,
                 )
                 self.toroidal_matrices.configure_dtjr_solver(
-                    solver="svd",
+                    solver="normal_eq",
                     preconditioner=self.preconditioner,
                     tolerance=1e-13,
                 )

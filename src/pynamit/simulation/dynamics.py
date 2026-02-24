@@ -93,7 +93,7 @@ class Dynamics:
         least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv",
         conductance_interpolation_mode: Literal[
             "legacy_eta_linear", "sigma_linear", "sigma_log"
-        ] = "legacy_eta_linear",
+        ] = "sigma_log",
         conductance_interpolation_floor: float = 1e-3,
         toroidal_regularization_lambda: float = 1e-10,
         dense_full_operators: bool = False,
@@ -523,7 +523,7 @@ class Dynamics:
         )
 
         self.set_jr(
-            FAC * FAC_b_field.vec.r / FAC_b_field.magnitude,
+            FAC.flatten() * FAC_b_field.vec.r / FAC_b_field.magnitude,
             lat=lat,
             lon=lon,
             theta=theta,

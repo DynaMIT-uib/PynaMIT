@@ -303,7 +303,7 @@ class CSBasis(GridBasis):
         weights = kwargs.get("weights")
         reg_lambda = kwargs.get("reg_lambda")
         pinv_rtol = kwargs.get("pinv_rtol", 1e-15)
-        solver_type = kwargs.get("solver_type", "svd")
+        solver_type = kwargs.get("solver_type", "normal_eq")
 
         if vector_type == "scalar":
             return self.grid_to_basis(

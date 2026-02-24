@@ -14,8 +14,33 @@ import cartopy.crs as ccrs
 from pynamit.primitives.grid import Grid
 
 from pynamit.primitives.field import Field
+from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.math.constants import RE
+from pynamit.primitives.io import IO
+from pynamit.primitives.timeseries import Timeseries
+from pynamit.primitives.mainfield import Mainfield
 
-# ... (rest of imports)
+
+def _get_setting_attr(settings: Any, key: str, default: Any) -> Any:
+    """Read a settings value from xarray attrs or dataset-style attribute access."""
+    if hasattr(settings, "attrs") and key in settings.attrs:
+        return settings.attrs[key]
+    return getattr(settings, key, default)
+
+
+def _conductance_timeseries_vars_for_mode(mode: str) -> dict[str, str]:
+    """Return conductance variable names stored in Timeseries for the interpolation mode."""
+    if mode == "legacy_eta_linear":
+        return {"etaP": "scalar", "etaH": "scalar"}
+    if mode == "sigma_linear":
+        return {"SigmaP": "scalar", "SigmaH": "scalar"}
+    if mode == "sigma_log":
+        return {"logSigmaP": "scalar", "logSigmaH": "scalar"}
+    raise ValueError(
+        "Unsupported conductance_interpolation_mode="
+        f"{mode!r}. Expected 'legacy_eta_linear', 'sigma_linear', or 'sigma_log'."
+    )
 
 
 def _evaluate_scalar_coeffs_to_grid(
@@ -48,6 +73,61 @@ def _evaluate_tangential_coeffs_to_grid_components(
     field_t_2d = v_theta.reshape(target_shape)
     field_p_2d = v_phi.reshape(target_shape)
     return field_t_2d, field_p_2d
+
+
+def _decode_conductance_timeseries_entry_to_grids(
+    timeseries_entry: dict[str, np.ndarray],
+    storage_basis: Any,
+    grid: Grid,
+    target_shape: Tuple[int, ...],
+    sigma_floor: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return ``(SigmaP, SigmaH, etaP, etaH)`` on the target grid from a conductance entry."""
+    sigma_floor_safe = max(float(sigma_floor), np.finfo(float).tiny)
+
+    if "SigmaP" in timeseries_entry and "SigmaH" in timeseries_entry:
+        sigmaP_f = _evaluate_scalar_coeffs_to_grid(
+            timeseries_entry.get("SigmaP"), storage_basis, grid, target_shape
+        )
+        sigmaH_f = _evaluate_scalar_coeffs_to_grid(
+            timeseries_entry.get("SigmaH"), storage_basis, grid, target_shape
+        )
+    elif "logSigmaP" in timeseries_entry and "logSigmaH" in timeseries_entry:
+        logSigmaP_f = _evaluate_scalar_coeffs_to_grid(
+            timeseries_entry.get("logSigmaP"), storage_basis, grid, target_shape
+        )
+        logSigmaH_f = _evaluate_scalar_coeffs_to_grid(
+            timeseries_entry.get("logSigmaH"), storage_basis, grid, target_shape
+        )
+        sigmaP_f = np.exp(logSigmaP_f) - sigma_floor_safe
+        sigmaH_f = np.exp(logSigmaH_f) - sigma_floor_safe
+        sigmaP_f = np.maximum(sigmaP_f, 0.0)
+        sigmaH_f = np.maximum(sigmaH_f, 0.0)
+    elif "etaP" in timeseries_entry and "etaH" in timeseries_entry:
+        etaP_f = _evaluate_scalar_coeffs_to_grid(
+            timeseries_entry.get("etaP"), storage_basis, grid, target_shape
+        )
+        etaH_f = _evaluate_scalar_coeffs_to_grid(
+            timeseries_entry.get("etaH"), storage_basis, grid, target_shape
+        )
+        den = etaP_f**2 + etaH_f**2
+        sigmaH_f = np.full_like(etaH_f, np.nan)
+        sigmaP_f = np.full_like(etaP_f, np.nan)
+        valid = den > 1e-12
+        if np.any(valid):
+            sigmaH_f[valid] = etaH_f[valid] / den[valid]
+            sigmaP_f[valid] = etaP_f[valid] / den[valid]
+        return sigmaP_f, sigmaH_f, etaP_f, etaH_f
+    else:
+        raise KeyError(
+            "Unsupported conductance entry representation. Expected "
+            "('etaP','etaH'), ('SigmaP','SigmaH'), or ('logSigmaP','logSigmaH')."
+        )
+
+    denom = sigmaP_f**2 + sigmaH_f**2 + sigma_floor_safe**2
+    etaP_f = sigmaP_f / denom
+    etaH_f = sigmaH_f / denom
+    return sigmaP_f, sigmaH_f, etaP_f, etaH_f
 
 
 def plot_scalar_map_on_ax(
@@ -136,11 +216,17 @@ def plot_input_vs_interpolated(
     cs_basis = CSBasis(int(settings.Ncs))
     sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), Nmin=0)
     sh_basis_zero_removed = SHBasis(int(settings.Nmax), int(settings.Mmax))
+    conductance_mode = str(
+        _get_setting_attr(settings, "conductance_interpolation_mode", "legacy_eta_linear")
+    )
+    conductance_floor = float(
+        _get_setting_attr(settings, "conductance_interpolation_floor", 1e-3)
+    )
 
     input_vars_pynamit = {
         "jr": {"jr": "scalar"},
         "Br": {"Br": "scalar"},
-        "conductance": {"etaP": "scalar", "etaH": "scalar"},
+        "conductance": _conductance_timeseries_vars_for_mode(conductance_mode),
         "u": {"u": "tangential"},
     }
     input_storage_bases = {
@@ -215,7 +301,7 @@ def plot_input_vs_interpolated(
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_field = mainfield.discretize(ionosphere_grid, ri_value)
 
-    ionosphere_br = ionosphere_b_field.vec.r / ionosphere_b_field.magnitude
+    ionosphere_br_2d = (ionosphere_b_field.vec.r / ionosphere_b_field.magnitude).reshape(ionosphere_lat.shape)
 
     print("Starting Pass 1: Collecting and Caching data for global vmin/vmax...")
     all_data_for_scaling = {
@@ -279,24 +365,13 @@ def plot_input_vs_interpolated(
                         coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                 elif pynamit_ts_key == "conductance":
-                    etaP_coeffs, etaH_coeffs = (
-                        timeseries_entry.get("etaP"),
-                        timeseries_entry.get("etaH"),
+                    sP_f, sH_f, _, _ = _decode_conductance_timeseries_entry_to_grids(
+                        timeseries_entry,
+                        storage_basis,
+                        current_grid,
+                        target_shape_pass1,
+                        sigma_floor=conductance_floor,
                     )
-                    etaP_f = _evaluate_scalar_coeffs_to_grid(
-                        etaP_coeffs, storage_basis, current_grid, target_shape_pass1
-                    )
-                    etaH_f = _evaluate_scalar_coeffs_to_grid(
-                        etaH_coeffs, storage_basis, current_grid, target_shape_pass1
-                    )
-                    den = etaP_f**2 + etaH_f**2
-                    sH_f, sP_f = np.full_like(etaH_f, np.nan), np.full_like(etaP_f, np.nan)
-                    valid = den > 1e-12
-                    if np.any(valid):
-                        sH_f[valid], sP_f[valid] = (
-                            etaH_f[valid] / den[valid],
-                            etaP_f[valid] / den[valid],
-                        )
                     if data_type_str == "SH":
                         calculated_interpolated_data_2d = sH_f
                     elif data_type_str == "SP":

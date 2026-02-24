@@ -376,6 +376,18 @@ class SHBasis(Basis):
         cache_entry["G"][derivative] = G
         return G
 
+    def get_rxgrad_matrix(self, grid) -> np.ndarray:
+        """Return the tangential ``r x grad`` operator evaluation tensor on ``grid``.
+
+        Returns the canonical coefficient-to-grid tensor with component ordering
+        ``(theta, phi)``:
+            [ d/dphi, -d/dtheta ]
+        using the same derivative conventions as :meth:`get_G`.
+        """
+        G_th = self.get_G(grid, derivative="theta")
+        G_ph = self.get_G(grid, derivative="phi")
+        return np.array([G_ph, -G_th])
+
     def get_evaluation_matrix(self, grid: Any, derivative: str = None) -> np.ndarray:
         """Get matrix evaluating basis (or derivatives) on a grid. Alias for get_G."""
         return self.get_G(grid, derivative=derivative)
@@ -504,7 +516,7 @@ class SHBasis(Basis):
         weights = kwargs.get("weights")
         reg_lambda = kwargs.get("reg_lambda")
         pinv_rtol = kwargs.get("pinv_rtol", 1e-15)
-        solver_type = kwargs.get("solver_type", "svd")
+        solver_type = kwargs.get("solver_type", "normal_eq")
 
         if vector_type == "scalar":
             return self.grid_to_basis(
