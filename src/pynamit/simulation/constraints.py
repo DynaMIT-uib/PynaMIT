@@ -254,11 +254,11 @@ class ApexMapper:
         b_field : Field
             Main hemisphere magnetic field.
         RI : float
-            Ionosphere radius.
+            Radius of the shell where operators are evaluated (m).
         cp_grid : Grid, optional
-            Conjugate hemisphere grid.
+            Conjugate hemisphere grid on the same shell.
         cp_b_field : Field, optional
-            Conjugate hemisphere magnetic field.
+            Conjugate hemisphere magnetic field on the same shell.
         input_adapter : np.ndarray, optional
             Adapter for hybrid basis transformation.
 
@@ -266,192 +266,94 @@ class ApexMapper:
         -------
         ConstraintMappings
             Container with all constraint operators.
+
+        Notes
+        -----
+        In `northern_hemisphere_apex_constraints=True` mode, the returned `ll_mask`
+        still refers to the *simulation grid* (used for jr-map modification), while
+        the E-field constraint operator is defined on a separate custom northern-apex
+        constraint grid and is already "pre-sliced" to that grid.
         """
-        # Main Mapping (always needed for simulation physics)
+        import scipy.sparse as sp
+
+        def _subtract_rows_inplace(lhs, rhs, row_mask):
+            """Subtract rhs[row_mask] from lhs[row_mask], preserving sparse format."""
+            if lhs is None or rhs is None:
+                return lhs
+            if sp.issparse(lhs):
+                lhs_lil = lhs.tolil()
+                lhs_lil[row_mask] -= rhs[row_mask]
+                return lhs_lil.tocsr()
+            lhs[row_mask] -= rhs[row_mask]
+            return lhs
+
+        # Main (simulation-grid) apex operators
         jr_map_spectral, E_coeffs_to_E_apex = self.create_apex_operators(b_field, grid)
 
-        # Preserve non-mismatch apex operator for concentration-mode splitting.
-        import scipy.sparse
-        if scipy.sparse.issparse(jr_map_spectral):
+        # Preserve the non-mismatch apex current operator (before LL conjugate subtraction)
+        if sp.issparse(jr_map_spectral):
             jr_map_apex_spectral = jr_map_spectral.copy()
         else:
             jr_map_apex_spectral = np.ascontiguousarray(np.array(jr_map_spectral, copy=True))
-        
-        # Initialize constraint container
+
+        # Defaults
         E_coeffs_to_E_apex_ll_diff = None
-        ll_mask = None
-        
-        # ---- Constraint Construction Logic ----
-        
+        ll_mask = np.zeros(grid.size, dtype=bool)
+
+        # Optional conjugate operators (only if both are provided)
+        have_cp = (cp_grid is not None) and (cp_b_field is not None)
+
         if self.connect_hemispheres:
-            
             if self.northern_hemisphere_apex_constraints:
-                # === NEW MODE: Northern Apex Constraints ===
-                # 1. Generate Custom Grids
-                # We need to pass RI to helper (refactor helper to take RI)
-                # Helper update: Passing RI dynamically
+                # --- New mode: define E-constraint on a custom northern-apex grid ---
                 g_north, g_south = self._create_northern_apex_grids_with_RI(grid, RI)
-                
-                # 2. Evaluate Field on these grids
+
                 b_north = self.mainfield.discretize(g_north, RI)
                 b_south = self.mainfield.discretize(g_south, RI)
-                
-                # 3. Create Operators
-                # We only need E-field operators for the constraint.
-                # jr is not mapped FROM this grid, so we ignore the jr_op return.
+
                 _, E_op_north = self.create_apex_operators(b_north, g_north)
                 _, E_op_south = self.create_apex_operators(b_south, g_south)
-                
-                # 4. Difference Operator
-                # The grids are constructed to be index-matched (point i in N corresponds to point i in S).
-                # So we can directly subtract the matrices.
-                E_diff_raw = E_op_north - E_op_south
-                
-                # 5. Mask
-                # The entire grid is the constraint region.
-                # Mask is all-True.
-                ll_mask = np.ones(g_north.size, dtype=bool)
-                
-                # 6. Store
-                # Shape: (2, N_points, Coeffs)
-                # To match expected shape (2, Mask, 2, L) or (2, Mask, L)?
-                # Legacy code handles shape variations.
-                # Let's provide (2, N_points, Coeffs) directly.
-                # But wait, `E_op` from create_apex_operators is (2, N, Coeffs) [Vectors(2) x Grid(N) x Coeffs]
-                # Actually `create_apex_operators` returns:
-                # E_op = einsum("ijk,jkpq->ikpq") -> (2, Grid, PolTor, Coeffs) [Rank 4]
-                # OR (2, Grid, Coeffs) [Rank 3] depending on basis.
-                
-                # If Rank 4 SH: (2, Grid, 2, L).
-                # Subtracting works fine.
-                
-                # Important: Apply LL Mask? 
-                # Since mask is all-True, we just keep the whole thing.
-                # But for consistency with downstream which might slice by mask:
-                E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(E_diff_raw)
-                
-                # Legacy mask for simulation grid interactions (e.g. subtracting CP contribution)?
-                # "jr_map_spectral[ll_mask] -= ..." logic modifies the MAIN simulation operator.
-                # This logic assumes `ll_mask` refers to the SIMULATION grid.
-                # BUT we just defined `ll_mask` for our CUSTOM grid!
-                # Conflict: The legacy logic MIXES the "Simulation Physics Modification" (jr subtraction)
-                # with the "Constraint Definition" (E_diff).
-                
-                # CRITICAL FIX: Separating Constraint vs Physics modification.
-                
-                # The "jr_map_spectral" modification puts the interhemispheric current continuity 
-                # into the main linear operator (implicit handling).
-                # This requires `jr_map_spectral` (on SIM GRID) to be modified.
-                # Does the "Northern Constraint" mode imply we STOP doing the implicit jr modification on the sim grid?
-                # The prompt says: "constraints are instead defined on Northern low latitude points... double counting...".
-                # This implies we REPLACE the old constraint mechanism.
-                # The old mechanism had TWO parts:
-                # A. Enforcing E_north = E_south (Constraint Equation)
-                # B. Enforcing J_r_north + J_r_south = 0 (Implicitly or explicitly?)
-                
-                # Actually, `jr_map_spectral[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]`
-                # This line modifies the operator that computes "Mapped Apex Current".
-                # J_apex = J_r_north - J_r_south.
-                # This is the quantity that enters the solver as "Source".
-                # So physically, we define J_apex = divergence of current systems.
-                # If we move the *Constraints* (E-field match) to a new grid,
-                # do we still map currents from the Simulation Grid?
-                # Yes, the Physics is still solved on the Simulation Grid.
-                # The "Constraint" is an additional equation block added to the Least Squares system.
-                
-                # So:
-                # 1. We still need `ll_mask` for the SIMULATION GRID to know where to subtract J_south?
-                # Actually, if we use Northern Apex Constraints, we might not need the `jr` modification on the sim grid?
-                # No, the `jr` modification is part of the DEFINITION of the current system at low latitudes.
-                # We likely still want `jr_map_sim` to represent "Dual Hemisphere Current" at low latitudes.
-                
-                # Let's calculate the SIMULATION GRID mask as usual for the purpose of `jr` mapping.
-                ll_mask_sim = self._compute_ll_mask(grid, RI)
-                ll_mask = ll_mask_sim # Return this so other things work
-                
-                # Modify jr_map_spectral on simulation grid (Legacy behavior maintained for Physics Map)
-                if cp_grid is not None and cp_b_field is not None:
-                     jr_cp, _ = self.create_apex_operators(cp_b_field, cp_grid)
 
-                     if scipy.sparse.issparse(jr_map_spectral):
-                        jr_lil = jr_map_spectral.tolil()
-                        jr_lil[ll_mask_sim] -= jr_cp[ll_mask_sim]
-                        jr_map_spectral = jr_lil.tocsr()
-                     else:
-                        jr_map_spectral[ll_mask_sim] -= jr_cp[ll_mask_sim]
-                
-                # NOW: We assign the CUSTOM E-field difference operator.
-                # This operator does NOT live on the simulation grid.
-                # It lives on the Custom Constraint Grid.
-                # So its 2nd dimension (Grid points) will be N_custom, not N_sim_masked.
-                # The Solver doesn't care about spatial correspondence, just row correspondence.
-                # As long as `E_coeffs_to_E_apex_ll_diff` provides rows that are added to the LS matrix, it's fine.
-                
-                # So we simply override the constraint operator with our custom one.
-                # Note: We must ensure it is shaped (2, N_points, ...) so that flatten matches 2*N_points rows.
-                
-                # Masking logic in `state.py`:
-                # "E_coeffs_to_E_apex_ll_diff[:, ll_mask]"
-                # It tries to SLICE the operator using `ll_mask`.
-                # If we provide a pre-sliced/pre-ready operator, we must trick `state.py` or wrap it.
-                # If we attach a ConstraintOperator that claims to be ready, `state.py` might still try to slice it?
-                
-                # Let's check `state.py`:
-                # "op_obj = self.geometry.E_coeffs_to_E_apex_ll_diff"
-                # "if hasattr(op_obj, "tensor"): outer_t = ...Op wrapped..."
-                # "return op_outer @ op_inner"
-                # It does NOT re-slice in `E_map_constraint_operator` property!
-                # BUT, in `_solve_for_m_imp`:
-                # "E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff" (Raw array or wrapped)
-                # Wait, where is the slicing?
-                # In `build_constraint_mappings` (THIS function), the LEGACY code did:
-                # "E_op_diff = (E - E_cp)[:, ll_mask]"
-                # So the object returned by this function is ALREADY SLICED.
-                
-                # So for our New Mode:
-                # We return `E_diff_raw` (which acts as the "Sliced" operator because it's defined on the constraint set).
-                # We do NOT slice it with `ll_mask_sim` (shapes don't match).
-                E_coeffs_to_E_apex_ll_diff = E_diff_raw
-                
-            else:
-                # === LEGACY MODE ===
-                # Compute low-latitude mask on SIMULATION Grid
+                # Constraint operator lives on the custom constraint grid (already "sliced")
+                E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(E_op_north - E_op_south)
+
+                # Simulation-grid LL mask is still used for jr-map physics modification
                 ll_mask = self._compute_ll_mask(grid, RI)
-                
-                if cp_grid is not None and cp_b_field is not None:
-                    # Conjugate hemisphere operators
-                    jr_coeffs_to_j_apex_cp, E_coeffs_to_E_apex_cp = self.create_apex_operators(
-                        cp_b_field, cp_grid
-                    )
-        
-                    # Apply correction in spectral domain
-                    if scipy.sparse.issparse(jr_map_spectral):
-                        jr_map_spectral_lil = jr_map_spectral.tolil()
-                        jr_map_spectral_lil[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]
-                        jr_map_spectral = jr_map_spectral_lil.tocsr()
-                    else:
-                        jr_map_spectral[ll_mask] -= jr_coeffs_to_j_apex_cp[ll_mask]
-        
-                    # Create E-field mapping difference operator for constraint (SLICED)
+
+                if have_cp:
+                    jr_cp, _ = self.create_apex_operators(cp_b_field, cp_grid)
+                    jr_map_spectral = _subtract_rows_inplace(jr_map_spectral, jr_cp, ll_mask)
+
+            else:
+                # --- Legacy mode: constraints defined on simulation-grid low latitudes ---
+                ll_mask = self._compute_ll_mask(grid, RI)
+
+                if have_cp:
+                    jr_cp, E_cp = self.create_apex_operators(cp_b_field, cp_grid)
+
+                    # Modify apex current map on low-lat simulation rows
+                    jr_map_spectral = _subtract_rows_inplace(jr_map_spectral, jr_cp, ll_mask)
+
+                    # Constraint operator is the LL-sliced E-field mismatch on the simulation grid
                     E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
-                        (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, ll_mask]
+                        (E_coeffs_to_E_apex - E_cp)[:, ll_mask]
                     )
 
-        # Common Processing
-        if E_coeffs_to_E_apex_ll_diff is not None:
-             if input_adapter is not None:
-                 # Pre-compose with analysis matrix (SH->Grid)
-                 logger.info("Pre-composing hybrid constraint operator (SH->Grid)...")
-                 E_coeffs_to_E_apex_ll_diff = np.tensordot(
-                     E_coeffs_to_E_apex_ll_diff, input_adapter, axes=([-1], [0])
-                 )
-        
-        # Wrap in ConstraintOperator
-        E_op_obj = None
-        if E_coeffs_to_E_apex_ll_diff is not None:
-             E_op_obj = ConstraintOperator(E_coeffs_to_E_apex_ll_diff)
+        # Optional hybrid pre-composition (SH -> analysis/grid basis)
+        if E_coeffs_to_E_apex_ll_diff is not None and input_adapter is not None:
+            logger.info("Pre-composing hybrid constraint operator (SH->Grid)...")
+            E_coeffs_to_E_apex_ll_diff = np.tensordot(
+                E_coeffs_to_E_apex_ll_diff, input_adapter, axes=([-1], [0])
+            )
 
-        # Compute simulation operator
+        # Wrap constraint operator
+        E_op_obj = (
+            ConstraintOperator(E_coeffs_to_E_apex_ll_diff)
+            if E_coeffs_to_E_apex_ll_diff is not None
+            else None
+        )
+
+        # Simulation-space operators (possibly adapted)
         if input_adapter is not None:
             jr_map_sim = jr_map_spectral @ input_adapter
             jr_map_apex_sim = jr_map_apex_spectral @ input_adapter
@@ -465,7 +367,7 @@ class ApexMapper:
             jr_map_apex_spectral=jr_map_apex_spectral,
             jr_map_apex_sim=jr_map_apex_sim,
             E_coeffs_to_E_apex_ll_diff=E_op_obj,
-            ll_mask=ll_mask, # Note: This corresponds to Sim Grid for Physics map usage
+            ll_mask=ll_mask,
         )
     
     def _create_northern_apex_grids_with_RI(self, grid_ref: "Grid", RI: float) -> tuple["Grid", "Grid"]:
