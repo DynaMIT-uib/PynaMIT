@@ -193,123 +193,6 @@ class ApexMapper:
         )
 
         return radial_to_apex, horizontal_to_apex
-    
-    def _create_northern_apex_grids(self, grid_ref: "Grid") -> tuple["Grid", "Grid"]:
-        """Create Northern and Conjugate (Southern) grids based on Apex coordinates.
-        
-        Generates a grid uniform in Apex coordinates (MLat 0-Boundary, MLon 0-360)
-        and maps it to geographic coordinates for both hemispheres.
-        
-        Parameters
-        ----------
-        grid_ref : Grid
-            Reference grid to determine resolution (approximate density).
-            
-        Returns
-        -------
-        grid_north : Grid
-            Geographic grid corresponding to the Northern Apex mesh.
-        grid_south : Grid
-            Geographic grid corresponding to the Southern (Conjugate) Apex mesh.
-        """
-        from pynamit.primitives.grid import Grid
-        
-        # Determine resolution based on ref grid size or explicit Ncs logic
-        # Square root of size gives rough N side length
-        N_side = int(np.sqrt(grid_ref.size))
-        
-        # We want coverage of [0, lat_boundary] in MLat
-        # and [0, 360] in MLon
-        
-        # N_lat proportional to boundary fraction of 90 deg? 
-        # Or just use N_side/2 to be safe/dense enough.
-        n_lat = max(10, N_side // 2)
-        n_lon = max(20, N_side)
-        
-        # Create Apex Mesh
-        # mlat: 0 to latitude_boundary (Northern Hemisphere)
-        # Avoid 0 exactly if singularity? Apex coords at equator are fine usually.
-        mlats = np.linspace(0.1, self.latitude_boundary, n_lat)
-        mlons = np.linspace(0, 360, n_lon, endpoint=False)
-        
-        mlat_mesh, mlon_mesh = np.meshgrid(mlats, mlons, indexing='ij')
-        
-        # Flatten
-        mlat_flat = mlat_mesh.flatten()
-        mlon_flat = mlon_mesh.flatten()
-        
-        # height for mapping (Ionosphere)
-        h_km = (self.mainfield.apx.refh if hasattr(self.mainfield, "apx") else 110.0) # Fallback? 
-        # Actually Apex class has refh. Or we use (RI - RE)/1km.
-        # But we need the Apex object to do apex2geo.
-        
-        if self.mainfield.apx is not None:
-            # IGRF/Apex case
-            # North: mlat positive
-            glat_n, glon_n, _ = self.mainfield.apx.apex2geo(mlat_flat, mlon_flat, 0.0) # Height 0 or RefH? 
-            # Usually simulation is at RI. 
-            # If we map AT altitude RI:
-            h_sim = (self.measure_RI() - 6371e3) / 1000.0 # m to km
-            
-            glat_n, glon_n, _ = self.mainfield.apx.apex2geo(mlat_flat, mlon_flat, h_sim)
-            grid_north = Grid(lat=glat_n, lon=glon_n)
-            
-            # South: mlat negative (conjugate)
-            # Conjugate of Mlat X is -X.
-            # But wait, we want the point that maps to the SAME Apex coords?
-            # No, we want the OTHER hemisphere point on the same field line.
-            # Field line is defined by (Apex Lat, Apex Lon).
-            # North footpoint: (+MLat, MLon). South footpoint: (-MLat, MLon) or similar?
-            # "Conjugate point" usually means "Other end of field line".
-            # For Apex, +/- MLat defines the two hemispheres.
-            
-            glat_s, glon_s, _ = self.mainfield.apx.apex2geo(-mlat_flat, mlon_flat, h_sim)
-            grid_south = Grid(lat=glat_s, lon=glon_s)
-            
-        elif self.mainfield.kind == "dipole":
-            # Analytical Dipole Mapping
-            # MLat = Lat in Dipole (approx, if axis aligned)
-            # If Dipole, Geo ~= Apex (rotated).
-            # Assuming aligned dipole for simplicity or using Dipole impl logic?
-            # Mainfield Dipole implementation has map_coords but not explicit apex2geo.
-            # But Dipole is symmetric.
-            # Let's assume standard Dipole coordinates.
-            # Grid North = (MLat, MLon) (interpreted as Geo Lat/Lon relative to pole)
-            # For strict Dipole, let's just use the Geo Grid directly?
-            # Or better, rely on existing conjugate logic?
-            # "Conjugate" tells us S from N.
-            # So if we define N grid, we can get S grid via `conjugate_coordinates`.
-            
-            # 1. Define North Geo Grid (Approximation: Uniform Geo Lat/Lon in North)
-            # Since Dipole Apex ~ Geo, a uniform Geo grid is also uniform Apex.
-            lats = np.linspace(0.1, self.latitude_boundary, n_lat)
-            lons = np.linspace(0, 360, n_lon, endpoint=False)
-            ll_mesh, lo_mesh = np.meshgrid(lats, lons, indexing='ij')
-            
-            grid_north = Grid(lat=ll_mesh.flatten(), lon=lo_mesh.flatten())
-            
-            # 2. Get Conjugate (South)
-            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
-                self.measure_RI(), grid_north.theta, grid_north.phi
-            )
-            grid_south = Grid(theta=cp_theta, phi=cp_phi)
-            
-        else:
-             # Radial or other: No constraints
-             # Return dummy 1-point grids
-             grid_north = Grid(lat=[10], lon=[0])
-             grid_south = Grid(lat=[-10], lon=[0])
-             
-        return grid_north, grid_south
-
-    def measure_RI(self) -> float:
-        """Helper to get RI from existing context if possible, else Default."""
-        # We don't have RI stored in ApexMapper directly, but we pass it to build methods.
-        # But we need it for grid generation inside this method?
-        # Let's look at where we call this. `build_constraint_mappings` has RI.
-        # So pass RI to this method.
-        return 6371e3 + 110e3 # Fallback default
-
 
     def create_apex_operators(
         self, field: "Field", grid: "Grid"
@@ -586,64 +469,99 @@ class ApexMapper:
         )
     
     def _create_northern_apex_grids_with_RI(self, grid_ref: "Grid", RI: float) -> tuple["Grid", "Grid"]:
-        """Helper to create grids with explicit RI passing."""
-        # This re-implements _create_northern_apex_grids but uses the passed RI
-        # To avoid changing the signature of the other method if cached/used elsewhere,
-        # or just updating the main one. The main one was added just now, so I can fix it.
-        # But for safety, I will inline the logic or call a refined version.
-        
-        # Actually, let's just make the previously added method accept RI? 
-        # I can't restart the file edit, but I can add this new method.
-        # Or I can just put the logic here.
-        
-        # Using the logic from previous step, but ensuring RI is used.
-        
-        from pynamit.primitives.grid import Grid
-        N_side = int(np.sqrt(grid_ref.size))
-        n_lat = max(10, N_side // 2)
-        n_lon = max(20, N_side)
-        
-        h_sim = (RI - 6371e3) / 1000.0 # m to km
-        
-        # Calculate minimum safe Apex Latitude
-        min_mlat = 0.1
-        if self.mainfield.apx is not None:
-            # Need to ensure field line reaches h_sim
-            # cos^2(lat) = (Re + href) / (Re + hsim)
-            # Re ~ 6371 km
-            Re = 6371.0
-            href = self.mainfield.apx.refh
-            if h_sim > href:
-                val = (Re + href) / (Re + h_sim)
-                if val < 1.0:
-                    min_rad = np.arccos(np.sqrt(val))
-                    min_mlat = np.degrees(min_rad) + 0.1 # Add buffer
-        
-        mlats = np.linspace(min_mlat, self.latitude_boundary, n_lat)
-        mlons = np.linspace(0, 360, n_lon, endpoint=False)
-        mlat_mesh, mlon_mesh = np.meshgrid(mlats, mlons, indexing='ij')
-        
-        mlat_flat, mlon_flat = mlat_mesh.flatten(), mlon_mesh.flatten()
+        """Create Northern and conjugate (Southern) grids from an Apex-like mesh at a given RI.
 
-        if self.mainfield.apx is not None:
-            glat_n, glon_n, _ = self.mainfield.apx.apex2geo(mlat_flat, mlon_flat, h_sim)
-            glat_s, glon_s, _ = self.mainfield.apx.apex2geo(-mlat_flat, mlon_flat, h_sim)
-            return Grid(lat=glat_n, lon=glon_n), Grid(lat=glat_s, lon=glon_s)
-            
+        The mesh is built uniformly in magnetic/apex-like coordinates and mapped to geographic
+        coordinates on the simulation shell RI.
+
+        - IGRF/Apex: true Apex mesh (MLat, MLon) -> apex2geo(...)
+        - Dipole:    dipole-consistent "apex-like" mesh defined on a reference shell, then
+                     mapped with Mainfield.map_coords(...)
+
+        The southern grid is obtained from Mainfield.conjugate_coordinates(...), which keeps
+        conjugate logic centralized in the mainfield implementation.
+        """
+        from pynamit.primitives.grid import Grid
+        from pynamit.math.constants import RE
+
+        # Resolution heuristic from reference grid size (rough square side length)
+        n_side = max(1, int(np.sqrt(grid_ref.size)))
+        n_lat = max(10, n_side // 2)
+        n_lon = max(20, n_side)
+
+        h_sim_km = (RI - RE) / 1000.0  # apexpy uses km altitude
+
+        def _uniform_mesh(lat_min: float, lat_max: float, nlat: int, nlon: int):
+            """Flattened mesh with lon in [0, 360)."""
+            lats = np.linspace(lat_min, lat_max, nlat)
+            lons = np.linspace(0.0, 360.0, nlon, endpoint=False)
+            lat_mesh, lon_mesh = np.meshgrid(lats, lons, indexing="ij")
+            return lat_mesh.ravel(), lon_mesh.ravel()
+
+        def _min_reachable_lat_deg(r_ref_m: float, r_dest_m: float, buffer_deg: float = 0.1) -> float:
+            """Conservative minimum |magnetic latitude| so field lines from r_ref can reach r_dest.
+
+            Dipole-like estimate:
+                cos^2(lambda) = r_ref / r_dest
+            Only relevant when r_dest > r_ref.
+            """
+            if r_dest_m <= r_ref_m:
+                return 0.1
+            val = np.clip(r_ref_m / r_dest_m, 0.0, 1.0)
+            return float(np.degrees(np.arccos(np.sqrt(val))) + buffer_deg)
+
+        apx = getattr(self.mainfield, "apx", None)
+
+        # --- IGRF/Apex case: true Apex-uniform northern mesh -------------------------
+        if apx is not None:
+            # Some low-|MLat| field lines may not reach the requested altitude.
+            # Compute a conservative minimum Apex latitude when h_sim > apex ref height.
+            r_ref_apex = RE + float(apx.refh) * 1000.0
+            min_mlat = _min_reachable_lat_deg(r_ref_apex, RI)
+
+            mlat_max = max(min_mlat, float(self.latitude_boundary))
+            mlat_flat, mlon_flat = _uniform_mesh(min_mlat, mlat_max, n_lat, n_lon)
+
+            # North footpoints are +MLat
+            glat_n, glon_n, _ = apx.apex2geo(mlat_flat, mlon_flat, h_sim_km)
+            grid_north = Grid(lat=glat_n, lon=glon_n)
+
+        # --- Dipole case: exact dipole-consistent Apex-like construction -------------
         elif self.mainfield.kind == "dipole":
-             # Dipole Approx
-            lats = np.linspace(0.1, self.latitude_boundary, n_lat)
-            lons = np.linspace(0, 360, n_lon, endpoint=False)
-            ll_mesh, lo_mesh = np.meshgrid(lats, lons, indexing='ij')
-            g_north = Grid(lat=ll_mesh.flatten(), lon=lo_mesh.flatten())
-            
-            cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
-                RI, g_north.theta, g_north.phi
+            # Define a reference shell (analog of Apex refh) on which the mesh is uniform in
+            # "magnetic latitude" and longitude. Then map along dipole field lines to RI.
+            #
+            # If you have a preferred project-wide value, expose it as an attribute and override:
+            #   self.dipole_apex_refh_km = ...
+            dipole_refh_km = float(getattr(self, "dipole_apex_refh_km", 110.0))
+            r_ref = RE + dipole_refh_km * 1000.0
+
+            # Ensure field lines from the reference shell can reach RI
+            min_mlat = _min_reachable_lat_deg(r_ref, RI)
+            mlat_max = max(min_mlat, float(self.latitude_boundary))
+
+            # Uniform dipole "magnetic" mesh on the reference shell
+            mlat_flat, mlon_flat = _uniform_mesh(min_mlat, mlat_max, n_lat, n_lon)
+            theta_ref = 90.0 - mlat_flat
+            phi_ref = mlon_flat
+
+            # Map north grid from reference shell to the requested shell RI
+            theta_n, phi_n = self.mainfield.map_coords(
+                RI, np.full_like(theta_ref, r_ref, dtype=float), theta_ref, phi_ref
             )
-            g_south = Grid(theta=cp_theta, phi=cp_phi)
-            return g_north, g_south
+            grid_north = Grid(theta=theta_n, phi=phi_n)
+
+        # --- Fallback (e.g. radial): no meaningful conjugate/Apex construction -------
         else:
-             return Grid(lat=[10], lon=[0]), Grid(lat=[-10], lon=[0])
+            return Grid(lat=[10.0], lon=[0.0]), Grid(lat=[-10.0], lon=[0.0])
+
+        # Use Mainfield implementation for conjugate mapping (IGRF and dipole)
+        cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
+            RI, grid_north.theta, grid_north.phi
+        )
+        grid_south = Grid(theta=cp_theta, phi=cp_phi)
+
+        return grid_north, grid_south
 
     def _compute_ll_mask(self, grid: "Grid", RI: float) -> np.ndarray:
         """Compute low-latitude mask based on mainfield type.
@@ -660,12 +578,13 @@ class ApexMapper:
         np.ndarray
             Boolean mask for low-latitude points.
         """
+        from pynamit.math.constants import RE
         kind = self.mainfield.kind
         if kind == "dipole":
             return np.abs(grid.lat) < self.latitude_boundary
         elif kind == "igrf":
             mlat, _ = self.mainfield.apx.geo2apex(
-                grid.lat, grid.lon, (RI - 6371e3) * 1e-3
+                grid.lat, grid.lon, (RI - RE) * 1e-3
             )
             return np.abs(mlat) < self.latitude_boundary
         else:
