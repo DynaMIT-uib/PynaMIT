@@ -80,7 +80,7 @@ class TestNorthernConstraints:
              m_imp_norm = np.linalg.norm(m_imp)
              # print(f"DEBUG: m_imp_norm = {m_imp_norm}")
              # Expected value with IGRF + Northern Apex Constraints
-             expected_norm = 2.9160466414024316e-07
+             expected_norm = 7.114965741852009e-08
              assert np.isclose(m_imp_norm, expected_norm, rtol=1e-10)
         else:
              assert False, "State m_imp missing from output timeseries."

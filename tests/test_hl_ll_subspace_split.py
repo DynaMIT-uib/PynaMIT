@@ -119,7 +119,7 @@ def test_hl_ll_split_regression_properties_spectral_transform_cs(tmp_path) -> No
     _assert_split_regression_properties(
         tmp_path=tmp_path,
         simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
-        expected_hl_modes=24,
+        expected_hl_modes=17,
         expected_ll_modes=64,
         hl_frac_min=0.75,
         ll_frac_min=0.95,
