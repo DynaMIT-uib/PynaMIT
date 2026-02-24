@@ -23,9 +23,9 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
     # Expected values averaged between numpy and JAX backends
     # Updated after vector representation change (from component-based to Helmholtz potential-based)
     # Updated 2026-02-18 after CS PFAC/m_ind gauge consistency updates.
-    expected_coeff_norm = 6.559042524383692e-07
-    expected_coeff_max = 1.3403860700076768e-07
-    expected_coeff_min = -1.2825823168797662e-07
+    expected_coeff_norm = 5.258656946893447e-07
+    expected_coeff_max = 1.2355339124854004e-07
+    expected_coeff_min = -1.1836803058734055e-07
     expected_n_coeffs = 768
 
     # Using Northern Apex Constraints improved values (slightly higher energy due to different constraint)
