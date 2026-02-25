@@ -35,6 +35,66 @@ class InputManager:
         self.simulation_basis = simulation_basis
         self.variables = variables_dict
 
+    @staticmethod
+    def _extract_tangential_components(raw_values, n_points):
+        """Extract two tangential components from common container layouts.
+
+        Supports:
+        - tuple/list: (u_theta, u_phi)
+        - ndarray shaped (2, N) or (N, 2)
+        - ndarray shaped (2, N_theta, N_phi) or (N_theta, N_phi, 2)
+        """
+        if isinstance(raw_values, (tuple, list)) and len(raw_values) == 2:
+            comp0, comp1 = raw_values
+        else:
+            arr = np.asarray(raw_values)
+            if arr.ndim == 2 and arr.shape[0] == 2:
+                comp0, comp1 = arr[0], arr[1]
+            elif arr.ndim == 2 and arr.shape[1] == 2:
+                comp0, comp1 = arr[:, 0], arr[:, 1]
+            elif arr.ndim == 3 and arr.shape[0] == 2:
+                comp0, comp1 = arr[0], arr[1]
+            elif arr.ndim == 3 and arr.shape[-1] == 2:
+                comp0, comp1 = arr[..., 0], arr[..., 1]
+            else:
+                return None
+
+        comp0 = np.asarray(comp0)
+        comp1 = np.asarray(comp1)
+        if comp0.size != n_points or comp1.size != n_points:
+            return None
+        return comp0.reshape(-1), comp1.reshape(-1)
+
+    @staticmethod
+    def _extract_fast_weight_points(sqrt_weights, n_points, is_vector):
+        """Extract point-wise weights for fast path from scalar/vector layouts."""
+        arr = np.asarray(sqrt_weights)
+
+        if not is_vector:
+            if arr.ndim == 1:
+                return arr
+            return arr.reshape(-1)
+
+        # Common vector-weight layouts: duplicated component axis.
+        if arr.ndim == 2 and arr.shape[0] == 2 and arr.shape[1] == n_points:
+            if np.allclose(arr[0], arr[1]):
+                return arr[0]
+            return None
+        if arr.ndim == 3 and arr.shape[0] == 2 and arr.shape[1] * arr.shape[2] == n_points:
+            if np.allclose(arr[0], arr[1]):
+                return arr[0].reshape(-1)
+            return None
+        if arr.ndim == 1 and arr.size == 2 * n_points:
+            a0, a1 = arr[:n_points], arr[n_points:]
+            if np.allclose(a0, a1):
+                return a0
+            return None
+
+        # Already point-wise (same as scalar case).
+        if arr.size == n_points:
+            return arr.reshape(-1)
+        return None
+
     def interpolate_and_add_entry(
         self,
         key,
@@ -152,57 +212,49 @@ class InputManager:
                     # -------------------------------------
                     weights_1d = None
                     if sqrt_weights is not None:
-                         # sqrt_weights is flattened (N_theta * N_phi)
-                         # We assume it's separable: W(theta, phi) = W_th(theta) * W_ph(phi)
-                         # PynaMIT typically uses sqrt(sin(theta)) weights which are pure theta.
-                         # Check separability:
+                         # sqrt_weights may be point-wise scalar weights (N),
+                         # or duplicated vector weights (2, N) / (2*N) for tangential fields.
+                         # We reduce to point-wise weights, then require zonal separability
+                         # for the fast per-m solver.
                          try:
-                             W_2d = sqrt_weights.reshape(N_theta_in, N_phi_in)
-                             if np.allclose(W_2d[:, 0:1], W_2d):
-                                  weights_1d = W_2d[:, 0]
+                             n_points = N_theta_in * N_phi_in
+                             w_points = self._extract_fast_weight_points(
+                                 sqrt_weights, n_points, is_vector
+                             )
+                             if w_points is None:
+                                 use_fast_path = False
+                                 raise ValueError("Unsupported vector weight layout for fast path")
+
+                             # Allow directly provided theta-only weights as a convenience.
+                             if w_points.size == N_theta_in:
+                                 weights_1d = w_points
+                                 W_2d = None
                              else:
-                                  # Weights not purely zonal?
-                                  # If they vary in phi, we can't efficiently use the 1D stacked solver per m
-                                  # (coupling m modes).
-                                  # Fallback to slow path if complex weights are present.
-                                  use_fast_path = False
+                                 W_2d = w_points.reshape(N_theta_in, N_phi_in)
+                             if W_2d is not None:
+                                 if np.allclose(W_2d[:, 0:1], W_2d):
+                                      weights_1d = W_2d[:, 0]
+                                 else:
+                                      # Weights not purely zonal?
+                                      # If they vary in phi, we can't efficiently use the 1D stacked solver per m
+                                      # (coupling m modes).
+                                      # Fallback to slow path if complex weights are present.
+                                      use_fast_path = False
                          except ValueError:
                              use_fast_path = False
 
                     if use_fast_path:
                         if is_vector:
-                            # For vectors, we need input_data to be a tuple (u_theta, u_phi)
-                            # But input_data[var] is just one component?
-                            # Usually 'u' key has sub-vars 'u_theta', 'u_phi'.
-                            # Wait, 'interpolate_and_add_entry' is called per KEY (e.g. 'u').
-                            # It loops over 'var' in variables_dict['u'].
-                            # 'variables_dict' maps key -> {var_name: vector_type}.
-                            # If vector_type is tangential, does 'var' hold both components?
-                            # Standard PynaMIT usage: variables['u'] = {'u': 'tangential'}?
-                            # Or variables['u'] = {'u_theta': 'scalar', 'u_phi': 'scalar'}?
-                            
-                            # Let's check mage_forcing_2.py.
-                            # variables={'u': {'u_theta': 'scalar', 'u_phi': 'scalar'}} usually implies treated as scalars?
-                            # No, usually vector quantities are bundled or handled distinctly.
-                            # If InputManager iterates variables, it treats them individually.
-                            # IF they are individual scalars in the dict, vector_type is 'scalar'.
-                            # IF vector_type is 'tangential', input_data[var] must be a tuple/object.
-                            
-                            # However, in PynaMIT vector fields are often stored as coefficients of Pol/Tor.
-                            # If the input is raw grid data, we need 2 components to fit Pol/Tor.
-                            # If 'var' refers to a composite field, raw_values should be (u_th, u_ph).
-                            # If raw_values is a single array, it can't be tangent vector project.
-                            
-                            # Logic:
-                            # If vector_type == 'tangential':
-                            #    Assumes raw_values is a tuple (data_th, data_ph)
-                            if isinstance(raw_values, (tuple, list)) and len(raw_values) == 2:
-                                u_th = raw_values[0].reshape(N_theta_in, N_phi_in)
-                                u_ph = raw_values[1].reshape(N_theta_in, N_phi_in)
-                                data_in = (u_th, u_ph)
-                            else:
-                                # Data doesn't match vector expectation -> Fallback
+                            # Accept tuple/list pairs and ndarray packings such as
+                            # (2, N) produced by Dynamics.set_u after time slicing.
+                            n_points = N_theta_in * N_phi_in
+                            comps = self._extract_tangential_components(raw_values, n_points)
+                            if comps is None:
                                 use_fast_path = False
+                            else:
+                                u_th = comps[0].reshape(N_theta_in, N_phi_in)
+                                u_ph = comps[1].reshape(N_theta_in, N_phi_in)
+                                data_in = (u_th, u_ph)
 
                         else:
                             # Scalar

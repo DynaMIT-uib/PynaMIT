@@ -106,6 +106,69 @@ def test_fast_input_vector(setup_manager):
     norm_tor = np.linalg.norm(coeffs[c_tor_start:])
     assert norm_tor < 1e-10
 
+
+def test_fast_input_vector_ndarray_packed_time_slice(setup_manager):
+    """Verify fast vector path accepts ndarray packing from Dynamics.set_u (shape (T,2,N))."""
+    manager, basis, ts = setup_manager(var_type='tangential', var_name='u', key='wind')
+
+    u_th = np.sin(tt)
+    u_ph = np.zeros_like(tt)
+    npts = u_th.size
+
+    # Mimic Dynamics.set_u storage after np.moveaxis(...): (time, 2, N)
+    packed = np.zeros((1, 2, npts))
+    packed[0, 0] = u_th.flatten()
+    packed[0, 1] = u_ph.flatten()
+    input_data = {'u': packed}
+
+    manager.interpolate_and_add_entry(
+        key='wind',
+        input_data=input_data,
+        time=np.array([0.0]),
+        projection_basis=basis,
+        lat=lat_mesh.flatten(),
+        lon=lon_mesh.flatten()
+    )
+
+    coeffs = ts.get_entry('wind', 0.0)['u']
+    c_pol_10 = coeffs[1]
+    c_tor_start = basis.index_length
+    norm_tor = np.linalg.norm(coeffs[c_tor_start:])
+
+    assert np.abs(c_pol_10 - 1.0) < 1e-10
+    assert norm_tor < 1e-10
+
+
+def test_fast_input_vector_ndarray_packed_time_slice_with_stacked_weights(setup_manager):
+    """Fast vector path should also accept duplicated component weights (2, N)."""
+    manager, basis, ts = setup_manager(var_type='tangential', var_name='u', key='wind')
+
+    u_th = np.sin(tt)
+    u_ph = np.zeros_like(tt)
+    npts = u_th.size
+    packed = np.zeros((1, 2, npts))
+    packed[0, 0] = u_th.flatten()
+    packed[0, 1] = u_ph.flatten()
+    input_data = {'u': packed}
+
+    w_theta = np.sin(theta)
+    w_points = np.repeat(w_theta[:, None], N_lon, axis=1).reshape(-1)
+    w_stacked = np.vstack([w_points, w_points])  # Matches mage_forcing_3 pattern (2, N)
+
+    manager.interpolate_and_add_entry(
+        key='wind',
+        input_data=input_data,
+        time=np.array([0.0]),
+        projection_basis=basis,
+        lat=lat_mesh.flatten(),
+        lon=lon_mesh.flatten(),
+        sqrt_weights=w_stacked,
+    )
+
+    coeffs = ts.get_entry('wind', 0.0)['u']
+    assert np.abs(coeffs[1] - 1.0) < 1e-10
+    assert np.linalg.norm(coeffs[basis.index_length:]) < 1e-10
+
 def test_fast_input_regularization(setup_manager):
     """Verify Regularization Damping."""
     manager, basis, ts = setup_manager()
