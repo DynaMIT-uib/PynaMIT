@@ -127,3 +127,128 @@ def constrain_values(arr, vmin, vmax, axis):
     a_shifted = arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
 
     return a_shifted
+
+
+def _unit_vectors_from_latlon(lat_deg, lon_deg):
+    """Convert latitude/longitude arrays (degrees) to unit vectors."""
+    lat_rad = np.deg2rad(lat_deg)
+    lon_rad = np.deg2rad(lon_deg)
+    cos_lat = np.cos(lat_rad)
+    return np.stack(
+        [
+            cos_lat * np.cos(lon_rad),
+            cos_lat * np.sin(lon_rad),
+            np.sin(lat_rad),
+        ],
+        axis=-1,
+    )
+
+
+def _spherical_triangle_area(a, b, c):
+    """Area of spherical triangles on the unit sphere.
+
+    Parameters
+    ----------
+    a, b, c : ndarray
+        Arrays of unit vectors with common trailing dimension 3.
+
+    Returns
+    -------
+    ndarray
+        Triangle areas on the unit sphere.
+    """
+    cross_bc = np.cross(b, c)
+    numer = np.abs(np.einsum("...i,...i->...", a, cross_bc))
+    denom = (
+        1.0
+        + np.einsum("...i,...i->...", a, b)
+        + np.einsum("...i,...i->...", b, c)
+        + np.einsum("...i,...i->...", c, a)
+    )
+    return 2.0 * np.arctan2(numer, denom)
+
+
+def compute_structured_spherical_point_areas(
+    lat,
+    lon,
+    *,
+    periodic_lon=True,
+    normalize_mean=True,
+):
+    """Estimate point-area weights for a structured curvilinear spherical grid.
+
+    The input grid is assumed to be structured in array index space (2D arrays),
+    but not necessarily separable in latitude/longitude. Cell areas are computed
+    on the unit sphere by splitting each quadrilateral into two spherical
+    triangles. Cell areas are then distributed equally to the four corner points.
+
+    Parameters
+    ----------
+    lat, lon : array-like
+        2D latitude/longitude arrays in degrees with identical shape.
+    periodic_lon : bool, optional
+        Whether the last longitude column wraps to the first. Defaults to True.
+    normalize_mean : bool, optional
+        If True, normalize point areas to have mean 1. This keeps weighting
+        scale comparable to unweighted least-squares when regularization is used.
+
+    Returns
+    -------
+    ndarray
+        Point-area weights with the same 2D shape as ``lat``/``lon``.
+
+    Raises
+    ------
+    ValueError
+        If inputs are not matching 2D arrays, or if the computed weights are
+        non-finite/non-positive.
+    """
+    lat = np.asarray(lat, dtype=float)
+    lon = np.asarray(lon, dtype=float)
+
+    if lat.shape != lon.shape or lat.ndim != 2:
+        raise ValueError("lat and lon must be matching 2D arrays.")
+    if min(lat.shape) < 2:
+        raise ValueError("Structured spherical point areas require at least a 2x2 grid.")
+
+    v = _unit_vectors_from_latlon(lat, lon)
+    n_row, n_col = lat.shape
+
+    if periodic_lon:
+        v_right = np.roll(v, -1, axis=1)
+        v00 = v[:-1, :]
+        v10 = v[1:, :]
+        v01 = v_right[:-1, :]
+        v11 = v_right[1:, :]
+    else:
+        v00 = v[:-1, :-1]
+        v10 = v[1:, :-1]
+        v01 = v[:-1, 1:]
+        v11 = v[1:, 1:]
+
+    cell_area = _spherical_triangle_area(v00, v10, v11) + _spherical_triangle_area(v00, v11, v01)
+    point_area = np.zeros((n_row, n_col), dtype=float)
+
+    if periodic_lon:
+        point_area[:-1, :] += 0.25 * cell_area  # top-left
+        point_area[1:, :] += 0.25 * cell_area   # bottom-left
+        cell_area_prev = np.roll(cell_area, 1, axis=1)
+        point_area[:-1, :] += 0.25 * cell_area_prev  # top-right
+        point_area[1:, :] += 0.25 * cell_area_prev   # bottom-right
+    else:
+        point_area[:-1, :-1] += 0.25 * cell_area
+        point_area[1:, :-1] += 0.25 * cell_area
+        point_area[:-1, 1:] += 0.25 * cell_area
+        point_area[1:, 1:] += 0.25 * cell_area
+
+    if normalize_mean:
+        mean_area = np.mean(point_area)
+        if mean_area > 0:
+            point_area = point_area / mean_area
+
+    if not np.all(np.isfinite(point_area)):
+        raise ValueError("Computed point-area weights contain non-finite values.")
+    if np.any(point_area <= 0):
+        raise ValueError("Computed point-area weights must be strictly positive.")
+
+    return point_area

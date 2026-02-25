@@ -1520,6 +1520,24 @@ class State:
         else:
             rates = rates_func
 
+        # scipy.solve_ivp requires a 1-D state vector. Full-induction and other
+        # stacked-state paths may pass higher-rank tensors (e.g. (2, N)), so
+        # flatten here and reshape inside the rates wrapper.
+        if isinstance(self.poloidal_integrator, ScipySolveIVPIntegrator):
+            y0_flat = asarray(y_arr).reshape(-1)
+
+            def scipy_rates(y_curr: np.ndarray, t_curr: float) -> np.ndarray:
+                y_curr_shaped = asarray(y_curr).reshape(y_shape)
+                rates_curr = asarray(rates(y_curr_shaped, t_curr)).reshape(y_shape)
+                return asarray(rates_curr).reshape(-1)
+
+            y_next_flat = self.poloidal_integrator.step(
+                y=y0_flat,
+                dt=dt,
+                rates_func=scipy_rates,
+            )
+            return asarray(y_next_flat).reshape(y_shape)
+
         return asarray(
             self.poloidal_integrator.step(
                 y=y_arr,

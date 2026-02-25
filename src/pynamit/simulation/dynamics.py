@@ -317,10 +317,27 @@ class Dynamics:
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
-            inductive_m_ind = self.output_timeseries.get_entry(
+            state_entry = self.output_timeseries.get_entry(
                 "state", self.current_time, interpolation=False
-            )["m_ind"]
+            )
+            inductive_m_ind = state_entry["m_ind"]
             inductive_m_ind = asarray(inductive_m_ind)
+            if self.settings.dynamics_mode == "full_induction" and state_entry is not None:
+                psi_entry = state_entry.get("psi")
+                if psi_entry is not None:
+                    self.state.psi = asarray(psi_entry)
+            m_ind_finite = bool(np.all(np.isfinite(np.asarray(inductive_m_ind))))
+            psi_finite = True
+            if self.settings.dynamics_mode == "full_induction" and self.state.psi is not None:
+                psi_finite = bool(np.all(np.isfinite(np.asarray(self.state.psi))))
+            if not (m_ind_finite and psi_finite):
+                prefix = getattr(self.settings, "filename_prefix", "<unknown>")
+                raise ValueError(
+                    "Non-finite values found in saved state used for resume "
+                    f"(filename_prefix={prefix!r}, time={float(self.current_time):.3f}s). "
+                    "Delete the saved state/steady_state output files for this prefix "
+                    "or use a new filename_prefix to start from a clean initialization."
+                )
         else:
             if steady_state_initialization:
                 self.state.update(self.input_manager, self.current_time, interpolation=True)

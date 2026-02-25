@@ -70,12 +70,37 @@ def grid_to_basis_fast(
     if len(theta) != N_theta:
         raise ValueError(f"Theta shape {theta.shape} mismatch with data rows {N_theta}")
 
-    # FFT in Longitude
+    # FFT in Longitude (index-space periodic ordering)
     if is_vector:
         fft_th = np.fft.fft(d_th_in, axis=1) / N_phi
         fft_ph = np.fft.fft(d_ph_in, axis=1) / N_phi
     else:
         fft_scalar = np.fft.fft(d_in, axis=1) / N_phi
+
+    # Correct FFT phase when the longitude samples are uniformly spaced but
+    # start at phi0 != 0 (e.g. [-180, 180) grids starting at 180 deg).
+    # The FFT is taken over sample index j; if phi_j = phi0 + j * 2*pi/N (mod 2*pi),
+    # then mode m picks up a factor exp(+i m phi0). We remove that so the per-m
+    # targets match the real SH basis convention in actual longitude phi.
+    if phi is not None:
+        phi_arr = np.asarray(phi, dtype=float).reshape(-1)
+        if phi_arr.size != N_phi:
+            raise ValueError(f"Phi shape {phi_arr.shape} mismatch with data cols {N_phi}")
+        if N_phi > 1:
+            phi_unwrapped = np.unwrap(phi_arr)
+            dphi = np.diff(phi_unwrapped)
+            dphi_ref = 2 * np.pi / N_phi
+            if np.allclose(dphi, dphi[0], rtol=0.0, atol=1e-10) and np.isclose(abs(dphi[0]), dphi_ref, rtol=0.0, atol=1e-10):
+                phase_sign = 1.0 if dphi[0] > 0 else -1.0
+                m_idx = np.arange(N_phi, dtype=float)
+                phase = np.exp(-1j * phase_sign * m_idx * phi_unwrapped[0])
+                if is_vector:
+                    fft_th = fft_th * phase[None, :]
+                    fft_ph = fft_ph * phase[None, :]
+                else:
+                    fft_scalar = fft_scalar * phase[None, :]
+            # If the grid is not the expected uniform periodic grid, we silently skip
+            # phase correction and rely on the caller's fast-path regularity checks.
 
     # Pre-compute 1D Legendre Matrices
     theta_deg = np.rad2deg(theta)

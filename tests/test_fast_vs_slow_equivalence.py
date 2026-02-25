@@ -4,7 +4,8 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
 
 @pytest.mark.parametrize("N, M", [(5, 5), (10, 5), (15, 0)])
-def test_fast_vs_slow_equivalence_scalar(N, M):
+@pytest.mark.parametrize("phi_offset", [0.0, np.pi])
+def test_fast_vs_slow_equivalence_scalar(N, M, phi_offset):
     import pynamit
     print(f"DEBUG: PynaMIT Path: {pynamit.__file__}")
     """
@@ -17,8 +18,9 @@ def test_fast_vs_slow_equivalence_scalar(N, M):
     N_lat = 2 * N + 4
     N_lon = 2 * M + 4 if M > 0 else 4
     theta = np.linspace(0.1, 3.0, N_lat)
-    phi = np.linspace(0, 2*np.pi, N_lon, endpoint=False)
-    tt, pp = np.meshgrid(theta, phi, indexing='ij')
+    phi = phi_offset + np.linspace(0, 2*np.pi, N_lon, endpoint=False)
+    phi_wrapped = (phi + np.pi) % (2 * np.pi) - np.pi
+    tt, pp = np.meshgrid(theta, phi_wrapped, indexing='ij')
     grid = Grid(theta=np.rad2deg(tt).flatten(), phi=np.rad2deg(pp).flatten())
     
     # Random Data
@@ -32,12 +34,12 @@ def test_fast_vs_slow_equivalence_scalar(N, M):
     
     # Solve Lambda=0
     c_slow = basis.grid_to_basis(data_flat, grid, weights=weights_flat, reg_lambda=0)
-    c_fast = basis.grid_to_basis_fast(data_2d, theta, phi, weights=weights_th, reg_lambda=0, vector_type='scalar')
+    c_fast = basis.grid_to_basis_fast(data_2d, theta, phi_wrapped, weights=weights_th, reg_lambda=0, vector_type='scalar')
     
     diff = c_fast - c_slow.flatten()
     rel_err = np.linalg.norm(diff) / (np.linalg.norm(c_slow) + 1e-15)
     
-    print(f"Scalar N={N} M={M} Rel: {rel_err}")
+    print(f"Scalar N={N} M={M} phi0={phi_offset:.3f} Rel: {rel_err}")
     
     # Scalar should be perfect
     assert rel_err < 1e-13, f"Scalar Identity Failed: {rel_err}"

@@ -20,6 +20,7 @@ from .grid_utils import (
     get_3D_determinants,
     invert_3D_matrices,
     constrain_values,
+    compute_structured_spherical_point_areas,
 )
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "get_3D_determinants",
     "invert_3D_matrices",
     "constrain_values",
+    "compute_structured_spherical_point_areas",
 ]

@@ -5,6 +5,7 @@ import pynamit
 import dipole
 import datetime
 import h5py as h5
+from pynamit.primitives.grid import compute_structured_spherical_point_areas
 
 RE = 6381e3
 RI = 6.5e6
@@ -71,6 +72,19 @@ magnetosphere_lon = file["Blon"][:]
 
 magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
+# Magnetosphere grid is curvilinear in geographic coordinates (not a separable
+# lat/lon tensor grid), so SH exact theta quadrature weights are not valid.
+# Use geometry-based point-area weights on the sphere instead.
+Br_point_weights = compute_structured_spherical_point_areas(
+    magnetosphere_lat,
+    magnetosphere_lon,
+    periodic_lon=True,
+    normalize_mean=True,
+)
+sqrt_weights_mag_geom = np.sqrt(Br_point_weights).flatten()
+if np.any(~np.isfinite(sqrt_weights_mag_geom)) or np.any(sqrt_weights_mag_geom <= 0):
+    raise ValueError("Magnetosphere Br sqrt_weights are non-finite/non-positive.")
+
 print("Setting up simulation object")
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
@@ -133,17 +147,12 @@ for step in range(0, nstep):
         f"{np.max(np.abs(delta_Br))})"
     )
 
-    theta_mag_1d = np.deg2rad(90 - magnetosphere_lat[:, 0])
-    weights_mag_1d = pynamit.SHBasis.compute_exact_weights(theta_mag_1d, Nmax)
-    weights_mag_2d = np.tile(weights_mag_1d[:, None], (1, magnetosphere_lon.shape[1]))
-    sqrt_weights_mag_exact = np.sqrt(weights_mag_2d).flatten()
-
     dynamics.set_Br(
         delta_Br,
         lat=magnetosphere_lat,
         lon=magnetosphere_lon,
         time=dt * step,
-        sqrt_weights=sqrt_weights_mag_exact, # Use exact weights for Regular Magnetosphere Grid
+        sqrt_weights=sqrt_weights_mag_geom,  # Geometry-based weights for curvilinear grid
         reg_lambda=BR_LAMBDA,
     )
 
@@ -154,9 +163,7 @@ for step in range(0, nstep):
         print("FAC input contains NaN values. Setting to 0.")
         FAC[np.isnan(FAC)] = 0
 
-#    jr = FAC.flatten() * FAC_b_evaluator.br
-
-    FAC[ionosphere_lat.flatten() > 0] *= -1
+    FAC[ionosphere_lat > 0] *= -1
 
     print("Setting FAC with (abs. min, RMS, abs. max):")
     print(f"\t({np.min(np.abs(FAC))}, {np.sqrt(np.mean(FAC**2))}, {np.max(np.abs(FAC))})")
