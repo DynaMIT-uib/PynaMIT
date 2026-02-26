@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, TypeAlias
 from scipy.sparse.linalg import LinearOperator
 
-from pynamit.utils import get_array_module, use_jax, vmap
+from pynamit.utils import asarray, get_array_module, use_jax, vmap
 
 try:  # pragma: no cover - optional optimisation dependency
     from opt_einsum import contract_expression
@@ -46,7 +46,10 @@ class TensorChain:
     @functools.cached_property
     def dtype(self):
         """Data type of the operator, given by its component tensors."""
-        return np.result_type(*[arr.dtype for arr in self.component_arrays])
+        return np.result_type(
+            *[arr.dtype for arr in self.component_arrays],
+            np.asarray(self.scaling_factor).dtype,
+        )
 
     def __mul__(self, other: Any) -> TensorChain:
         """Scalar multiplication."""
@@ -66,6 +69,42 @@ class TensorChain:
     def __rmul__(self, other: Any) -> TensorChain:
         return self.__mul__(other)
 
+    def to_linear_map(self):
+        """Convert this tensor chain to a generic ``LinearMap``."""
+        # Local import avoids a module-import cycle (linear_map imports TensorChain).
+        from pynamit.math.linear_map import LinearMap
+
+        flat_out = math.prod(self.output_shape)
+        flat_in = math.prod(self.input_shape)
+
+        def matvec(vec: Any) -> Any:
+            arr = asarray(vec)
+            return self.matvec(arr)
+
+        def rmatvec(vec: Any) -> Any:
+            arr = asarray(vec)
+            return self.rmatvec(arr)
+
+        def matmat(block: Any) -> Any:
+            return self.matmat(block)
+
+        def rmatmat(block: Any) -> Any:
+            return self.rmatmat(block)
+
+        def to_dense() -> np.ndarray:
+            return self.to_dense()
+
+        return LinearMap(
+            shape=(flat_out, flat_in),
+            dtype=self.dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _to_dense=to_dense,
+            source=self,
+        )
+
     def to_dense(self) -> np.ndarray:
         """Return dense matrix representation of the operator."""
         dense_matrix = np.einsum(self.einsum_string_dense, *self.component_arrays, optimize=True)
@@ -74,8 +113,8 @@ class TensorChain:
         )
 
     @functools.cached_property
-    def as_linear_operator(self) -> LinearOperator:
-        """Return a matrix-free LinearOperator representation."""
+    def _cached_linear_operator(self) -> LinearOperator:
+        """Return a cached matrix-free ``LinearOperator`` representation."""
         flat_out = math.prod(self.output_shape)
         flat_in = math.prod(self.input_shape)
 
@@ -103,6 +142,10 @@ class TensorChain:
         )
         setattr(lin_op, "_tensor_chain", self)
         return lin_op
+
+    def as_linear_operator(self) -> LinearOperator:
+        """Return a matrix-free ``LinearOperator`` representation (cached internally)."""
+        return self._cached_linear_operator
 
     @functools.cached_property
     def component_arrays(self) -> list[np.ndarray]:

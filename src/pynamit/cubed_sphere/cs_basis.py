@@ -1133,7 +1133,7 @@ class CSBasis(GridBasis):
         Returns a LinearMap that computes E = -grad(φ) = (-d_θ φ, -(1/sin θ) d_φ φ) / r
         The returned operator maps from scalar coefficients to stacked vector components.
         """
-        from pynamit.math.linear_map import as_linear_map, BlockLinearMap
+        from pynamit.math.linear_map import as_linear_map, block_linear_map
         bundle = self._get_grid_derivative_bundle(grid)
         
         # E = -grad(phi) = (-d_th phi, -1/sin_th * d_ph phi) / r
@@ -1141,7 +1141,7 @@ class CSBasis(GridBasis):
         op_phi_th = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
         op_phi_ph = as_linear_map(bundle["D_phi_scaled"]) * (-1.0 / r)
         
-        return BlockLinearMap([[op_phi_th], [op_phi_ph]])
+        return block_linear_map([[op_phi_th], [op_phi_ph]])
 
     def _get_grid_curl_operator(self, grid: Any, r: float = 1.0) -> "LinearMap":
         """Get curl operator mapping spectral potential to vector grid field.
@@ -1149,7 +1149,7 @@ class CSBasis(GridBasis):
         Returns a LinearMap that computes E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
         The returned operator maps from scalar coefficients to stacked vector components.
         """
-        from pynamit.math.linear_map import as_linear_map, BlockLinearMap
+        from pynamit.math.linear_map import as_linear_map, block_linear_map
         bundle = self._get_grid_derivative_bundle(grid)
         
         # E = -r x grad(psi) = (1/sin_th * d_ph psi, -d_th psi) / r
@@ -1157,7 +1157,7 @@ class CSBasis(GridBasis):
         op_psi_th = as_linear_map(bundle["D_phi_scaled"]) * (1.0 / r)
         op_psi_ph = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
         
-        return BlockLinearMap([[op_psi_th], [op_psi_ph]])
+        return block_linear_map([[op_psi_th], [op_psi_ph]])
 
     def get_extended_basis(self) -> "CSBasis":
         """Return a basis extended to include the monopole term.
@@ -1181,13 +1181,13 @@ class CSBasis(GridBasis):
         np.ndarray
             Canonical Helmholtz tensor with shape ``(2, N_grid, 2, N_coeffs)``.
         """
-        from pynamit.math.linear_map import BlockLinearMap
+        from pynamit.math.linear_map import block_linear_map
         # Use our grid-based Helmholtz operators (at r=1.0 for the basis definition)
         G_pol = self._get_grid_gradient_operator(grid, r=1.0)
         G_tor = self._get_grid_curl_operator(grid, r=1.0)
 
         # Combine into [G_pol, G_tor]
-        G_vec = BlockLinearMap([[G_pol, G_tor]])
+        G_vec = block_linear_map([[G_pol, G_tor]])
 
         # Return canonical Helmholtz tensor (2, N_grid, 2, N_coeffs)
         G_dense = G_vec.to_dense()

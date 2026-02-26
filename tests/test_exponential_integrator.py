@@ -44,6 +44,8 @@ def _run_exponential_integrator_test(
         connect_hemispheres=True,
         least_squares_solver="svd",
         integrator="exponential",
+        dense_full_operators=True,
+        exponential_solver="expm",
         northern_hemisphere_apex_constraints=northern_apex_constraints,
     )
 

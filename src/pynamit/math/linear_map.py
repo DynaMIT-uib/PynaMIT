@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Tuple, TypeAlias
+from typing import Any, Callable, Optional, TypeAlias
 
 import numpy as np
 import scipy
@@ -12,29 +12,29 @@ import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
 from scipy.sparse.linalg import aslinearoperator
 
-from pynamit.utils import asarray, get_array_module, xp
+from pynamit.utils import asarray, get_array_module
 from pynamit.math.tensor_chain import TensorChain
 
 
-Shape: TypeAlias = Tuple[int, int]
-MapFunc: TypeAlias = Callable[[Any], Any]
+MatrixShape: TypeAlias = tuple[int, int]
+VectorizedMapFunc: TypeAlias = Callable[[Any], Any]
 
 
 @dataclass(frozen=True)
 class LinearMap:
     """Backend-agnostic linear map on flattened vectors."""
 
-    shape: Shape
+    shape: MatrixShape
     dtype: Any
 
     @property
     def ndim(self) -> int:
         """Dimensionality of the linear map (always 2)."""
         return 2
-    _matvec: MapFunc
-    _rmatvec: MapFunc
-    _matmat: Optional[MapFunc] = None
-    _rmatmat: Optional[MapFunc] = None
+    _matvec: VectorizedMapFunc
+    _rmatvec: VectorizedMapFunc
+    _matmat: Optional[VectorizedMapFunc] = None
+    _rmatmat: Optional[VectorizedMapFunc] = None
     _to_dense: Optional[Callable[[], np.ndarray]] = None
     source: Any = None
 
@@ -71,45 +71,45 @@ class LinearMap:
 
     def __matmul__(self, other: Any) -> Any:
         """Matrix-vector product (if other is array) or Composition (if other is manager)."""
-        # If other is an array, perform matvec/matmat for better drop-in compatibility
-        if isinstance(other, (np.ndarray, list)) or (hasattr(other, "shape") and not hasattr(other, "matvec")):
-             arr = asarray(other)
-             if arr.ndim == 1:
-                  return self.matvec(arr)
-             if arr.ndim == 2:
-                  return self.matmat(arr)
+        # Allow array operands so the class behaves like a matrix in most call sites.
+        if isinstance(other, (np.ndarray, list)) or (
+            hasattr(other, "shape") and not hasattr(other, "matvec")
+        ):
+            arr = asarray(other)
+            if arr.ndim == 1:
+                return self.matvec(arr)
+            if arr.ndim == 2:
+                return self.matmat(arr)
 
         other_map = as_linear_map(other)
         if self.shape[1] != other_map.shape[0]:
             raise ValueError(
                 f"Dimension mismatch for composition: {self.shape} @ {other_map.shape}"
             )
-        
+
         flat_out = self.shape[0]
         flat_in = other_map.shape[1]
         dtype = np.promote_types(self.dtype, other_map.dtype)
-        
-        def matvec(x): return self.matvec(other_map.matvec(x))
-        def rmatvec(y): return other_map.rmatvec(self.rmatvec(y))
-        
-        def matmat(x): return self.matvec(other_map.matmat(x)) if other_map._matmat else self.matmat(other_map.matvec(x))
-        def rmatmat(y): return other_map.rmatvec(self.rmatmat(y)) if self._matmat else other_map.rmatmat(self.rmatvec(y))
+
+        def matvec(x):
+            return self.matvec(other_map.matvec(x))
+
+        def rmatvec(y):
+            return other_map.rmatvec(self.rmatvec(y))
 
         # Better matmat: use optimized matmats if available
         def matmat_opt(x):
             return self.matmat(other_map.matmat(x))
+
         def rmatmat_opt(y):
             return other_map.rmatmat(self.rmatmat(y))
 
         def to_dense():
-             # Dense composition: A @ B
-             # If B is dense available, compute A.matmat(B.to_dense())
-             # If A is dense available, compute rmatmat on A.T... wait.
-             # Easiest: A.matmat(B_dense)
-             if other_map._to_dense is not None:
-                 return self.matmat(other_map.to_dense())
-             raise ValueError("Cannot densify composition without dense right-hand side.")
-        
+            # Dense composition: A @ B. Easiest route is applying A to the dense columns of B.
+            if other_map._to_dense is not None:
+                return self.matmat(other_map.to_dense())
+            raise ValueError("Cannot densify composition without dense right-hand side.")
+
         return LinearMap(
             shape=(flat_out, flat_in),
             dtype=dtype,
@@ -118,59 +118,78 @@ class LinearMap:
             _matmat=matmat_opt,
             _rmatmat=rmatmat_opt,
             _to_dense=to_dense,
-            source=(self, other_map)
+            source=(self, other_map),
         )
 
     def __add__(self, other: Any) -> LinearMap:
         """Add two linear maps."""
         other_map = as_linear_map(other)
         if self.shape != other_map.shape:
-             raise ValueError(f"Shape mismatch for addition: {self.shape} + {other_map.shape}")
-        
-        def matvec(x): return self.matvec(x) + other_map.matvec(x)
-        def rmatvec(y): return self.rmatvec(y) + other_map.rmatvec(y)
-        def matmat(x): return self.matmat(x) + other_map.matmat(x)
-        def rmatmat(y): return self.rmatmat(y) + other_map.rmatmat(y)
-        def to_dense(): return self.to_dense() + other_map.to_dense()
+            raise ValueError(f"Shape mismatch for addition: {self.shape} + {other_map.shape}")
+
+        def matvec(x):
+            return self.matvec(x) + other_map.matvec(x)
+
+        def rmatvec(y):
+            return self.rmatvec(y) + other_map.rmatvec(y)
+
+        def matmat(x):
+            return self.matmat(x) + other_map.matmat(x)
+
+        def rmatmat(y):
+            return self.rmatmat(y) + other_map.rmatmat(y)
+
+        def to_dense():
+            return self.to_dense() + other_map.to_dense()
 
         return LinearMap(
             shape=self.shape,
-            dtype=self.dtype,
+            dtype=np.promote_types(self.dtype, other_map.dtype),
             _matvec=matvec,
             _rmatvec=rmatvec,
             _matmat=matmat,
             _rmatmat=rmatmat,
-            _to_dense=to_dense if self._to_dense and other_map._to_dense else None,
-            source=(self, other_map)
+            _to_dense=to_dense if self._to_dense is not None and other_map._to_dense is not None else None,
+            source=(self, other_map),
         )
 
     def __mul__(self, other: Any) -> LinearMap:
         """Scalar multiplication."""
         if not np.isscalar(other):
-             return NotImplemented
+            return NotImplemented
         scalar = other
-        
-        def matvec(x): return self.matvec(x) * scalar
-        def rmatvec(y): return self.rmatvec(y) * np.conj(scalar)
-        def matmat(x): return self.matmat(x) * scalar
-        def rmatmat(y): return self.rmatmat(y) * np.conj(scalar)
-        def to_dense(): return self.to_dense() * scalar
+
+        def matvec(x):
+            return self.matvec(x) * scalar
+
+        def rmatvec(y):
+            return self.rmatvec(y) * np.conj(scalar)
+
+        def matmat(x):
+            return self.matmat(x) * scalar
+
+        def rmatmat(y):
+            return self.rmatmat(y) * np.conj(scalar)
+
+        def to_dense():
+            return self.to_dense() * scalar
 
         return LinearMap(
             shape=self.shape,
-            dtype=self.dtype,
+            dtype=np.result_type(self.dtype, scalar),
             _matvec=matvec,
             _rmatvec=rmatvec,
             _matmat=matmat,
             _rmatmat=rmatmat,
             _to_dense=to_dense if self._to_dense else None,
-            source=(self, scalar)
+            source=(self, scalar),
         )
-        
+
     def __rmul__(self, other: Any) -> LinearMap:
         return self.__mul__(other)
     
     def as_linear_operator(self) -> ScipyLinearOperator:
+        """Return a SciPy ``LinearOperator`` view of this map."""
         if isinstance(self.source, ScipyLinearOperator) and self.source.shape == self.shape:
             return self.source
 
@@ -186,40 +205,6 @@ class LinearMap:
         return ScipyLinearOperator(
             self.shape, matvec=matvec_np, rmatvec=rmatvec_np, matmat=matmat_np, dtype=self.dtype
         )
-
-
-def _linear_map_from_tensor_chain(chain: TensorChain) -> LinearMap:
-    flat_out = math.prod(chain.output_shape)
-    flat_in = math.prod(chain.input_shape)
-
-    def matvec(vec: Any) -> Any:
-        arr = asarray(vec)
-        return chain.matvec(arr)
-
-    def rmatvec(vec: Any) -> Any:
-        arr = asarray(vec)
-        return chain.rmatvec(arr)
-
-    def matmat(block: Any) -> Any:
-        return chain.matmat(block)
-
-    def rmatmat(block: Any) -> Any:
-        return chain.rmatmat(block)
-
-    def to_dense() -> np.ndarray:
-        return chain.to_dense()
-
-    return LinearMap(
-        shape=(flat_out, flat_in),
-        dtype=chain.dtype,
-        _matvec=matvec,
-        _rmatvec=rmatvec,
-        _matmat=matmat,
-        _rmatmat=rmatmat,
-        _to_dense=to_dense,
-        source=chain,
-    )
-
 
 def _linear_map_from_dense(matrix: Any) -> LinearMap:
     mat_backend = asarray(matrix)
@@ -407,7 +392,7 @@ def as_linear_map(
     if isinstance(op, LinearMap):
         return op
     if isinstance(op, TensorChain):
-        return _linear_map_from_tensor_chain(op)
+        return op.to_linear_map()
     
     # Check for JAX sparse matrix (BCOO/BCSR)
     # Generic check to avoid importing jax if not present
@@ -418,7 +403,7 @@ def as_linear_map(
     if isinstance(op, ScipyLinearOperator):
         chain = getattr(op, "_tensor_chain", None)
         if isinstance(chain, TensorChain):
-            return _linear_map_from_tensor_chain(chain)
+            return chain.to_linear_map()
         return _linear_map_from_linear_operator(op)
     if scipy.sparse.issparse(op):
          # If using JAX, convert Scipy sparse to BCOO automatically
@@ -481,14 +466,12 @@ def as_linear_map(
     raise TypeError(f"Unsupported operator type '{type(op)}' for LinearMap conversion.")
 
 
-def BlockLinearMap(blocks: List[List[Any]]) -> LinearMap:
+def block_linear_map(blocks: list[list[Any]]) -> LinearMap:
     """
-    Create a LinearMap from a block-matrix of operators.
+    Create a ``LinearMap`` from a block matrix of operators.
     
     blocks[i][j] is the operator mapping from component j to component i.
     """
-    from pynamit.math.linear_map import as_linear_map
-    
     # Convert all blocks to LinearMaps
     lm_blocks = [[as_linear_map(b) for b in row] for row in blocks]
     
@@ -503,8 +486,12 @@ def BlockLinearMap(blocks: List[List[Any]]) -> LinearMap:
     total_width = sum(col_widths)
     
     dtype = lm_blocks[0][0].dtype
+    for row in lm_blocks:
+        for block in row:
+            dtype = np.promote_types(dtype, block.dtype)
     
     def matvec(x):
+        x_mod = get_array_module(x)
         # x: (total_width)
         # Partition x into column components
         x_parts = []
@@ -522,9 +509,10 @@ def BlockLinearMap(blocks: List[List[Any]]) -> LinearMap:
                 row_sum = term if row_sum is None else row_sum + term
             res_parts.append(row_sum)
             
-        return xp.concatenate(res_parts, axis=0)
+        return x_mod.concatenate(res_parts, axis=0)
 
     def rmatvec(y):
+        y_mod = get_array_module(y)
         # y: (total_height)
         y_parts = []
         curr = 0
@@ -540,20 +528,20 @@ def BlockLinearMap(blocks: List[List[Any]]) -> LinearMap:
                 col_sum = term if col_sum is None else col_sum + term
             res_parts.append(col_sum)
             
-        return xp.concatenate(res_parts, axis=0)
+        return y_mod.concatenate(res_parts, axis=0)
 
     def to_dense():
         rows = []
         for i in range(num_rows):
-            row_dense = xp.concatenate([b.to_dense() for b in lm_blocks[i]], axis=1)
+            row_dense = np.concatenate([np.asarray(b.to_dense()) for b in lm_blocks[i]], axis=1)
             rows.append(row_dense)
-        return xp.concatenate(rows, axis=0)
+        return np.concatenate(rows, axis=0)
 
     return LinearMap(
         shape=(total_height, total_width),
         dtype=dtype,
         _matvec=matvec,
         _rmatvec=rmatvec,
-        _to_dense=to_dense if all(b._to_dense for row in lm_blocks for b in row) else None,
-        source=lm_blocks
+        _to_dense=to_dense if all(b._to_dense is not None for row in lm_blocks for b in row) else None,
+        source=lm_blocks,
     )

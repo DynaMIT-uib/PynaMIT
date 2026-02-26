@@ -177,6 +177,12 @@ class DynamicsSettings:
     # Use SH fast input projection path on regular lat/lon grids when available.
     # Disabled by default to preserve legacy baseline behavior.
     enable_fast_input_path: bool = False
+    # Exponential affine-step implementation (when integrator="exponential").
+    # "expm" uses a dense matrix exponential on the augmented affine system and
+    # therefore requires ``dense_full_operators=True`` when ``integrator="exponential"``.
+    # "expm_multiply" uses expm_multiply. Combined with ``dense_full_operators``,
+    # this yields either dense-action or matrix-free-action stepping.
+    exponential_solver: Literal["expm", "expm_multiply"] = "expm"
 
     # Computed fields
     solution_basis_kind: Literal["SH", "CS"] = "SH"
@@ -201,6 +207,7 @@ class DynamicsSettings:
         attrs["magnetospheric_poloidal_lock"] = int(self.magnetospheric_poloidal_lock)
         attrs["dense_full_operators"] = int(self.dense_full_operators)
         attrs["enable_fast_input_path"] = int(self.enable_fast_input_path)
+        attrs["exponential_solver"] = self.exponential_solver
 
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
@@ -233,6 +240,10 @@ class DynamicsSettings:
             sim_mode = SimulationMode(mode_str)
         except ValueError:
             sim_mode = defaults.simulation_mode
+
+        exp_solver = get("exponential_solver", defaults.exponential_solver)
+        if exp_solver == "dense_expm":
+            exp_solver = "expm"
 
         return DynamicsSettings(
             simulation_mode=sim_mode,
@@ -295,4 +306,5 @@ class DynamicsSettings:
             enable_fast_input_path=bool(
                 get("enable_fast_input_path", defaults.enable_fast_input_path)
             ),
+            exponential_solver=exp_solver,
         )

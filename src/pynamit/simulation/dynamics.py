@@ -102,6 +102,7 @@ class Dynamics:
         toroidal_regularization_lambda: float = 1e-10,
         dense_full_operators: bool = False,
         enable_fast_input_path: bool = False,
+        exponential_solver: Literal["expm", "expm_multiply"] = "expm",
         benchmark_mode: bool = False,
     ):
         """Initialize the Dynamics class."""
@@ -153,6 +154,7 @@ class Dynamics:
             toroidal_regularization_lambda=toroidal_regularization_lambda,
             dense_full_operators=dense_full_operators,
             enable_fast_input_path=enable_fast_input_path,
+            exponential_solver=exponential_solver,
         )
         
         if simulation_mode is not None:

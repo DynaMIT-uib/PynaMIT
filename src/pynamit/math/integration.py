@@ -10,9 +10,9 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Any, Union
 import numpy as np
 import scipy.linalg
-from scipy.sparse.linalg import expm_multiply
+from scipy.sparse.linalg import expm_multiply, LinearOperator as ScipyLinearOperator
 from scipy.integrate import solve_ivp
-from pynamit.utils import asarray, xp, to_numpy
+from pynamit.utils import asarray, xp, to_numpy, use_jax
 
 class Integrator(ABC):
     """Abstract Base Class for Time Integrators."""
@@ -111,6 +111,11 @@ class ExponentialIntegrator(Integrator):
         if mode == "dense":
             return False
         if mode == "action":
+            if use_jax():
+                raise NotImplementedError(
+                    "Exponential affine solver 'expm_multiply' is not supported with the JAX backend. "
+                    "Use exponential_solver='expm' or a non-exponential integrator."
+                )
             return True
         threshold = int(kwargs.get("affine_action_dim_threshold", 512))
         return int(n) >= max(1, threshold)
@@ -146,7 +151,7 @@ class ExponentialIntegrator(Integrator):
     @staticmethod
     def _affine_step_expm_multiply_augmented(
         *,
-        L_host: np.ndarray,
+        linear_operator: Any,
         y_host: np.ndarray,
         forcing_arr: np.ndarray,
         dt: float,
@@ -158,18 +163,81 @@ class ExponentialIntegrator(Integrator):
         the dense matrix exponential (which can dominate memory use).
         """
         n = int(y_host.size)
-        aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
-        aug[:n, :n] = L_host
-        aug[:n, n] = forcing_arr
+
+        if hasattr(linear_operator, "as_linear_operator"):
+            base_op = linear_operator.as_linear_operator()
+        elif isinstance(linear_operator, ScipyLinearOperator):
+            base_op = linear_operator
+        else:
+            base_op = None
+
+        if base_op is None:
+            L_host = np.asarray(linear_operator)
+            aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
+            aug[:n, :n] = L_host
+            aug[:n, n] = forcing_arr
+            augmented_op: Any = aug
+        else:
+            forcing_np = np.asarray(forcing_arr)
+            dtype = np.result_type(getattr(base_op, "dtype", np.float64), forcing_np.dtype, np.float64)
+
+            def aug_matvec(v: np.ndarray) -> np.ndarray:
+                v_arr = np.asarray(v, dtype=dtype).reshape(n + 1)
+                top = np.asarray(base_op.matvec(v_arr[:n]), dtype=dtype).reshape(n)
+                top = top + forcing_np * v_arr[n]
+                return np.concatenate([top, np.zeros(1, dtype=dtype)])
+
+            def aug_rmatvec(v: np.ndarray) -> np.ndarray:
+                v_arr = np.asarray(v, dtype=dtype).reshape(n + 1)
+                if hasattr(base_op, "rmatvec"):
+                    top = np.asarray(base_op.rmatvec(v_arr[:n]), dtype=dtype).reshape(n)
+                else:
+                    raise TypeError("matrix-free expm_multiply requires rmatvec on the base operator.")
+                bottom = np.array([np.dot(forcing_np.conj(), v_arr[:n])], dtype=dtype)
+                return np.concatenate([top, bottom])
+
+            def aug_matmat(V: np.ndarray) -> np.ndarray:
+                V_arr = np.asarray(V, dtype=dtype).reshape(n + 1, -1)
+                if hasattr(base_op, "matmat"):
+                    top = np.asarray(base_op.matmat(V_arr[:n]), dtype=dtype)
+                else:
+                    top = np.column_stack(
+                        [np.asarray(base_op.matvec(V_arr[:n, j]), dtype=dtype) for j in range(V_arr.shape[1])]
+                    )
+                top = top + forcing_np[:, None] * V_arr[n : n + 1, :]
+                bottom = np.zeros((1, V_arr.shape[1]), dtype=dtype)
+                return np.vstack([top, bottom])
+
+            def aug_rmatmat(V: np.ndarray) -> np.ndarray:
+                V_arr = np.asarray(V, dtype=dtype).reshape(n + 1, -1)
+                if hasattr(base_op, "rmatmat"):
+                    top = np.asarray(base_op.rmatmat(V_arr[:n]), dtype=dtype)
+                elif hasattr(base_op, "rmatvec"):
+                    top = np.column_stack(
+                        [np.asarray(base_op.rmatvec(V_arr[:n, j]), dtype=dtype) for j in range(V_arr.shape[1])]
+                    )
+                else:
+                    raise TypeError("matrix-free expm_multiply requires rmatmat or rmatvec on the base operator.")
+                bottom = np.sum(forcing_np[:, None].conj() * V_arr[:n, :], axis=0, keepdims=True)
+                return np.vstack([top, bottom])
+
+            augmented_op = ScipyLinearOperator(
+                shape=(n + 1, n + 1),
+                matvec=aug_matvec,
+                rmatvec=aug_rmatvec,
+                matmat=aug_matmat,
+                rmatmat=aug_rmatmat,
+                dtype=dtype,
+            )
 
         y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
         if n_substeps == 1:
-            y_next_aug = expm_multiply(aug * float(dt), y_aug)
+            y_next_aug = expm_multiply(augmented_op * float(dt), y_aug)
             return asarray(y_next_aug[:n])
 
         dt_sub = float(dt) / float(n_substeps)
         for _ in range(n_substeps):
-            y_aug = expm_multiply(aug * dt_sub, y_aug)
+            y_aug = expm_multiply(augmented_op * dt_sub, y_aug)
         return asarray(y_aug[:n])
 
     def step(
@@ -187,22 +255,7 @@ class ExponentialIntegrator(Integrator):
         # Calculate propagator exp(L * dt)
         # Note: For large sparse matrices, dense expm is expensive.
         # This assumes the system size is manageable (spectral coefficients).
-        if hasattr(linear_operator, "toarray"):
-            L_dense = linear_operator.toarray()
-        else:
-            L_dense = asarray(linear_operator)
-
-        # Handle JAX/Numpy dispatch for expm if needed, or stick to scipy
-        # For now, using scipy.linalg.expm on CPU (standard numpy)
-        # If input is JAX array, we might need jax.scipy.linalg.expm
-        import scipy.linalg
-        
-        # Ensure we are working with standard numpy for scipy.linalg
-        # (Unless we add JAX logic here)
-        L_host = np.array(L_dense)
         y_host = np.array(y)
-
-        n_substeps = self._compute_substeps(L_host, dt, kwargs)
         forcing_arr = None if forcing is None else np.array(forcing).reshape(-1)
 
         if forcing_arr is not None:
@@ -218,12 +271,24 @@ class ExponentialIntegrator(Integrator):
                  )
              if self._should_use_affine_expm_action(n, kwargs):
                  return self._affine_step_expm_multiply_augmented(
-                     L_host=L_host,
+                     linear_operator=linear_operator,
                      y_host=y_host,
                      forcing_arr=forcing_arr,
                      dt=float(dt),
-                     n_substeps=n_substeps,
+                     n_substeps=self._compute_substeps(
+                         np.array(asarray(linear_operator.toarray() if hasattr(linear_operator, "toarray") else linear_operator)),
+                         dt,
+                         kwargs,
+                     )
+                     if not hasattr(linear_operator, "matvec")
+                     else 1,
                  )
+             if hasattr(linear_operator, "toarray"):
+                 L_dense = linear_operator.toarray()
+             else:
+                 L_dense = asarray(linear_operator)
+             L_host = np.array(L_dense)
+             n_substeps = self._compute_substeps(L_host, dt, kwargs)
              return self._affine_step_dense_augmented(
                  L_host=L_host,
                  y_host=y_host,
@@ -233,6 +298,12 @@ class ExponentialIntegrator(Integrator):
              )
 
         if steady_state is not None:
+             if hasattr(linear_operator, "toarray"):
+                 L_dense = linear_operator.toarray()
+             else:
+                 L_dense = asarray(linear_operator)
+             L_host = np.array(L_dense)
+             n_substeps = self._compute_substeps(L_host, dt, kwargs)
              # Form: y_next = y_ss + P @ (y - y_ss)
              y_ss = asarray(steady_state)
              if n_substeps == 1:

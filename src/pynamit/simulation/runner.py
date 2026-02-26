@@ -58,6 +58,7 @@ def run_pynamit(
     toroidal_regularization_lambda: float = 0.0,
     dense_full_operators: bool = False,
     enable_fast_input_path: bool = False,
+    exponential_solver: str = "expm",
     benchmark_mode: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
@@ -170,6 +171,7 @@ def run_pynamit(
         toroidal_regularization_lambda=toroidal_regularization_lambda,
         dense_full_operators=dense_full_operators,
         enable_fast_input_path=enable_fast_input_path,
+        exponential_solver=exponential_solver,
         benchmark_mode=benchmark_mode,
     )
 

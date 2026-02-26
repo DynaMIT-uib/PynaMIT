@@ -226,6 +226,7 @@ class State:
         )
         self.toroidal_regularization_lambda = getattr(settings, "toroidal_regularization_lambda", 0.0)
         self.dense_full_operators = bool(getattr(settings, "dense_full_operators", False))
+        self.exponential_solver = str(getattr(settings, "exponential_solver", "expm"))
         self.connect_hemispheres = bool(settings.connect_hemispheres)
         self.dynamics_mode = getattr(settings, "dynamics_mode", "legacy")
         self.toroidal_weighting = getattr(settings, "toroidal_weighting", "none")
@@ -272,6 +273,20 @@ class State:
                 )
 
         if self.integrator == "exponential":
+             if self.exponential_solver not in {"expm", "expm_multiply"}:
+                 raise ValueError(
+                     "exponential_solver must be one of {'expm', 'expm_multiply'}, "
+                     f"got {self.exponential_solver!r}."
+                 )
+             if (
+                 self.dynamics_mode == "full_induction"
+                 and self.exponential_solver == "expm"
+                 and not self.dense_full_operators
+             ):
+                 raise ValueError(
+                     "dynamics_mode='full_induction' with integrator='exponential' and "
+                     "exponential_solver='expm' requires dense_full_operators=True."
+                 )
              self.poloidal_integrator = ExponentialIntegrator()
         elif self.integrator == "euler":
              self.poloidal_integrator = EulerIntegrator()
@@ -1441,17 +1456,41 @@ class State:
             if linear_operator is None:
                 raise ValueError("Exponential integration requires linear_operator.")
 
-            n_total = int(y_arr.size)
-            if hasattr(linear_operator, "matvec"):
-                L_dense = self._densify_linear_operator(linear_operator, n_total)
-            else:
-                L_arr = asarray(linear_operator)
-                if L_arr.ndim == 4:
-                    L_dense = asarray(L_arr).reshape(n_total, n_total)
-                else:
-                    L_dense = asarray(L_arr).reshape(n_total, n_total)
-
             step_kwargs: Dict[str, Any] = dict(exponential_kwargs or {})
+            if "affine_expm_mode" not in step_kwargs:
+                if self.exponential_solver == "expm":
+                    step_kwargs["affine_expm_mode"] = "dense"
+                elif self.exponential_solver == "expm_multiply":
+                    step_kwargs["affine_expm_mode"] = "action"
+                else:
+                    raise ValueError(
+                        "Unknown exponential_solver setting: "
+                        f"{self.exponential_solver!r}"
+                    )
+            affine_mode = str(step_kwargs.get("affine_expm_mode", "auto")).lower()
+
+            n_total = int(y_arr.size)
+            linear_operator_for_step: Any
+            if forcing is not None and affine_mode == "action":
+                if hasattr(linear_operator, "matvec"):
+                    linear_operator_for_step = linear_operator
+                else:
+                    L_arr = asarray(linear_operator)
+                    if getattr(L_arr, "ndim", None) == 4:
+                        linear_operator_for_step = np.asarray(L_arr, dtype=float).reshape(n_total, n_total)
+                    else:
+                        linear_operator_for_step = np.asarray(L_arr, dtype=float).reshape(n_total, n_total)
+            else:
+                if hasattr(linear_operator, "matvec"):
+                    L_dense = self._densify_linear_operator(linear_operator, n_total)
+                else:
+                    L_arr = asarray(linear_operator)
+                    if L_arr.ndim == 4:
+                        L_dense = asarray(L_arr).reshape(n_total, n_total)
+                    else:
+                        L_dense = asarray(L_arr).reshape(n_total, n_total)
+                linear_operator_for_step = np.asarray(L_dense, dtype=float)
+
             forcing_flat = None
             if forcing is not None:
                 forcing_flat = np.asarray(asarray(forcing_arr), dtype=float).reshape(n_total)
@@ -1465,7 +1504,7 @@ class State:
             y_next_flat = self.poloidal_integrator.step(
                 y=np.asarray(y_arr, dtype=float).reshape(n_total),
                 dt=float(dt),
-                linear_operator=np.asarray(L_dense, dtype=float),
+                linear_operator=linear_operator_for_step,
                 forcing=forcing_flat,
                 steady_state=steady_state_flat,
                 **step_kwargs,
@@ -1693,18 +1732,25 @@ class State:
                 exp_kwargs = {
                     "max_step_scale": 10.0,
                     "max_substeps": 32768,
-                    # Use low-memory affine exponential action for larger coupled
-                    # systems while retaining the dense expm path for smaller ones.
-                    "affine_expm_mode": "auto",
-                    "affine_action_dim_threshold": 512,
                 }
+                if self.exponential_solver == "expm":
+                    exp_kwargs["affine_expm_mode"] = "dense"
+                elif self.exponential_solver == "expm_multiply":
+                    exp_kwargs["affine_expm_mode"] = "action"
+                else:
+                    raise ValueError(
+                        "Unknown exponential_solver setting: "
+                        f"{self.exponential_solver!r}"
+                    )
 
-                # Dense expm on a (2N x 2N) matrix can require several matrix-sized
-                # work buffers; guard against host OOM before allocation.
+                use_dense_coupled_operator = bool(self.dense_full_operators)
+
+                # Dense coupled operator allocation can require several matrix-sized
+                # work buffers; guard against host OOM before densification.
                 avail_bytes = _available_memory_bytes()
-                if avail_bytes is not None:
+                if use_dense_coupled_operator and avail_bytes is not None:
                     matrix_bytes = int(m) * int(m) * np.dtype(float).itemsize
-                    uses_affine_action = m >= int(exp_kwargs["affine_action_dim_threshold"])
+                    uses_affine_action = self.exponential_solver == "expm_multiply"
                     peak_factor = 3 if uses_affine_action else 8
                     estimated_peak_bytes = int(peak_factor * matrix_bytes)
                     if estimated_peak_bytes > int(0.80 * avail_bytes):
@@ -1717,13 +1763,9 @@ class State:
                         )
 
                 coupled_dynamics_operator = self.get_coupled_operator_for_time_integration(
-                    use_dense=True,
+                    use_dense=use_dense_coupled_operator,
                     use_pinning=use_pinning,
                 )
-                L_dense = np.asarray(
-                    self._densify_linear_operator(coupled_dynamics_operator, m),
-                    dtype=float,
-                ).reshape(m, m)
 
                 forcing_flat = np.asarray(K).reshape(m)
                 if self.induction_null_diagnostics:
@@ -1740,7 +1782,7 @@ class State:
                 y_new = self._evolve_linear_state(
                     y=np.asarray(y).reshape(m),
                     dt=float(dt),
-                    linear_operator=L_dense,
+                    linear_operator=coupled_dynamics_operator,
                     forcing=np.asarray(K).reshape(m),
                     exponential_kwargs=exp_kwargs,
                 ).reshape(2, N)

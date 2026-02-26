@@ -174,10 +174,10 @@ def build_gradient_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
     LinearMap
         Block linear map of shape (2L, L).
     """
-    from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+    from pynamit.math.linear_map import diagonal_linear_map, block_linear_map
     ident = diagonal_linear_map(xp.ones(basis.index_length) / r)
     zeros = diagonal_linear_map(xp.zeros(basis.index_length))
-    return BlockLinearMap([[ident], [zeros]])
+    return block_linear_map([[ident], [zeros]])
 
 
 def build_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
@@ -197,10 +197,10 @@ def build_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
     LinearMap
         Block linear map of shape (2L, L).
     """
-    from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+    from pynamit.math.linear_map import diagonal_linear_map, block_linear_map
     zeros = diagonal_linear_map(xp.zeros(basis.index_length))
     ident = diagonal_linear_map(xp.ones(basis.index_length) / r)
-    return BlockLinearMap([[zeros], [ident]])
+    return block_linear_map([[zeros], [ident]])
 
 
 def build_divergence_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
@@ -222,11 +222,11 @@ def build_divergence_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
     LinearMap
         Block linear map of shape (L, 2L).
     """
-    from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+    from pynamit.math.linear_map import diagonal_linear_map, block_linear_map
     factors = basis.n * (basis.n + 1) / r
     op_pol = diagonal_linear_map(factors)
     op_tor = diagonal_linear_map(xp.zeros(basis.index_length))
-    return BlockLinearMap([[op_pol, op_tor]])
+    return block_linear_map([[op_pol, op_tor]])
 
 
 def build_vector_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
@@ -248,11 +248,11 @@ def build_vector_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
     LinearMap
         Block linear map of shape (L, 2L).
     """
-    from pynamit.math.linear_map import diagonal_linear_map, BlockLinearMap
+    from pynamit.math.linear_map import diagonal_linear_map, block_linear_map
     factors = basis.n * (basis.n + 1) / r
     op_pol = diagonal_linear_map(xp.zeros(basis.index_length))
     op_tor = diagonal_linear_map(factors)
-    return BlockLinearMap([[op_pol, op_tor]])
+    return block_linear_map([[op_pol, op_tor]])
 
 
 def build_product_operator(
