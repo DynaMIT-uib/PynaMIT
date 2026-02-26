@@ -295,7 +295,7 @@ def build_product_operator(
     a_grid = basis.evaluate(coeffs_a, grid, vector_type="scalar")
 
     # Build the Transform-Product-Project operator: P @ diag(a) @ G
-    G_mat = basis.get_G(grid)
+    G_mat = basis.get_evaluation_matrix(grid)
     P_mat = grid.get_projection_matrix(basis)
 
     op_G = as_linear_map(G_mat)

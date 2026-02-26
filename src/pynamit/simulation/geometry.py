@@ -481,8 +481,8 @@ class Geometry:
         where W = diag(weights) accounts for the quadrature measure.
         """
         # Get gradient operators from the spectral basis
-        G_th = self.basis.get_G(self.grid, derivative="theta")
-        G_ph = self.basis.get_G(self.grid, derivative="phi")
+        G_th = self.basis.get_evaluation_matrix(self.grid, derivative="theta")
+        G_ph = self.basis.get_evaluation_matrix(self.grid, derivative="phi")
 
         # Convert to dense if sparse
         G_th = to_dense(G_th)

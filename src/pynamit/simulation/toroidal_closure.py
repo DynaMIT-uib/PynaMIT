@@ -45,7 +45,7 @@ class ToroidalClosureProjector:
         """Map state scalar coefficients -> closure scalar coefficients."""
         if not self.uses_auxiliary_basis:
             raise RuntimeError("State->closure map requested without auxiliary closure basis.")
-        G_state = np.asarray(to_dense(self.state_basis.get_G(self.grid)))
+        G_state = np.asarray(to_dense(self.state_basis.get_evaluation_matrix(self.grid)))
         P_closure = np.asarray(
             to_dense(self.closure_basis.construct_scalar_projection_matrix(self.grid))
         )
@@ -56,7 +56,7 @@ class ToroidalClosureProjector:
         """Map closure scalar coefficients -> state scalar coefficients."""
         if not self.uses_auxiliary_basis:
             raise RuntimeError("Closure->state map requested without auxiliary closure basis.")
-        G_closure = np.asarray(to_dense(self.closure_basis.get_G(self.grid)))
+        G_closure = np.asarray(to_dense(self.closure_basis.get_evaluation_matrix(self.grid)))
         P_state = np.asarray(
             to_dense(self.state_basis.construct_scalar_projection_matrix(self.grid))
         )

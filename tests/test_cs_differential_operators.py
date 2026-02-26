@@ -76,8 +76,8 @@ def test_cs_derivative_converges_for_nonzonal_harmonics(name: str) -> None:
         phi = np.deg2rad(basis.phi)
         f, d_theta_true, d_phi_scaled_true, _ = _harmonic_case(name, theta, phi)
 
-        d_theta_num = np.asarray(basis.get_G(basis, derivative="theta") @ f)
-        d_phi_scaled_num = np.asarray(basis.get_G(basis, derivative="phi") @ f)
+        d_theta_num = np.asarray(basis.get_evaluation_matrix(basis, derivative="theta") @ f)
+        d_phi_scaled_num = np.asarray(basis.get_evaluation_matrix(basis, derivative="phi") @ f)
 
         err_theta.append(_rel_rms(d_theta_num - d_theta_true, d_theta_true))
         err_phi_scaled.append(_rel_rms(d_phi_scaled_num - d_phi_scaled_true, d_phi_scaled_true))

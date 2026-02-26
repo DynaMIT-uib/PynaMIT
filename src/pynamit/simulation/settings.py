@@ -174,6 +174,9 @@ class DynamicsSettings:
     # Force dense assembly/use of full linear evolution operators for both
     # legacy and full-induction dynamics paths.
     dense_full_operators: bool = False
+    # Use SH fast input projection path on regular lat/lon grids when available.
+    # Disabled by default to preserve legacy baseline behavior.
+    enable_fast_input_path: bool = False
 
     # Computed fields
     solution_basis_kind: Literal["SH", "CS"] = "SH"
@@ -197,6 +200,7 @@ class DynamicsSettings:
         attrs["magnetospheric_toroidal_lock"] = int(self.magnetospheric_toroidal_lock)
         attrs["magnetospheric_poloidal_lock"] = int(self.magnetospheric_poloidal_lock)
         attrs["dense_full_operators"] = int(self.dense_full_operators)
+        attrs["enable_fast_input_path"] = int(self.enable_fast_input_path)
 
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
@@ -229,11 +233,6 @@ class DynamicsSettings:
             sim_mode = SimulationMode(mode_str)
         except ValueError:
             sim_mode = defaults.simulation_mode
-
-        # Handle legacy pure_spectral override if present and mode not explicitly set
-        if "pure_spectral" in attrs and "simulation_mode" not in attrs:
-            if bool(attrs["pure_spectral"]):
-                sim_mode = SimulationMode.PURE_SPECTRAL
 
         return DynamicsSettings(
             simulation_mode=sim_mode,
@@ -292,5 +291,8 @@ class DynamicsSettings:
             toroidal_regularization_lambda=get("toroidal_regularization_lambda", defaults.toroidal_regularization_lambda),
             dense_full_operators=bool(
                 get("dense_full_operators", defaults.dense_full_operators)
+            ),
+            enable_fast_input_path=bool(
+                get("enable_fast_input_path", defaults.enable_fast_input_path)
             ),
         )

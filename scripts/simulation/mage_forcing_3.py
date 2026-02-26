@@ -5,7 +5,7 @@ import pynamit
 import dipole
 import datetime
 import h5py as h5
-from pynamit.primitives.grid import compute_structured_spherical_point_areas
+from pynamit.simulation.input_weighting import compute_spherical_input_sqrt_weights
 
 RE = 6381e3
 RI = 6.5e6
@@ -18,6 +18,12 @@ BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 3
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
+
+# Input-fit weighting policies.
+# Regular ionosphere-grid inputs support unit/sin_theta/mw.
+IONOSPHERE_WEIGHTING = "mw"
+# Magnetosphere Br grid is curvilinear in geographic coordinates.
+BR_WEIGHTING = "geom_area"
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -72,18 +78,29 @@ magnetosphere_lon = file["Blon"][:]
 
 magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
-# Magnetosphere grid is curvilinear in geographic coordinates (not a separable
-# lat/lon tensor grid), so SH exact theta quadrature weights are not valid.
-# Use geometry-based point-area weights on the sphere instead.
-Br_point_weights = compute_structured_spherical_point_areas(
+# Build reusable projection weights.
+# Ionosphere grid is regular in geographic lat/lon, so exact SH theta weights are valid.
+sqrt_weights_iono_scalar = compute_spherical_input_sqrt_weights(
+    ionosphere_lat,
+    ionosphere_lon,
+    weighting=IONOSPHERE_WEIGHTING,
+    nmax=Nmax,
+)
+sqrt_weights_iono_vector = compute_spherical_input_sqrt_weights(
+    ionosphere_lat,
+    ionosphere_lon,
+    weighting=IONOSPHERE_WEIGHTING,
+    nmax=Nmax,
+    vector=True,
+)
+# Magnetosphere Br grid is curvilinear in geographic coordinates (not a separable
+# lat/lon tensor grid), so use geometry-based point-area weights.
+sqrt_weights_mag_geom = compute_spherical_input_sqrt_weights(
     magnetosphere_lat,
     magnetosphere_lon,
+    weighting=BR_WEIGHTING,
     periodic_lon=True,
-    normalize_mean=True,
 )
-sqrt_weights_mag_geom = np.sqrt(Br_point_weights).flatten()
-if np.any(~np.isfinite(sqrt_weights_mag_geom)) or np.any(sqrt_weights_mag_geom <= 0):
-    raise ValueError("Magnetosphere Br sqrt_weights are non-finite/non-positive.")
 
 print("Setting up simulation object")
 # Set up simulation object.
@@ -107,6 +124,9 @@ dynamics = pynamit.Dynamics(
     least_squares_solver="normal_eq",
     t0=str(date),
     integrator="DOP853",
+    # Enable SH fast input projection for regular ionosphere-grid inputs (jr/SP/SH/u).
+    # Br remains on the curvilinear magnetosphere grid and will use the slow path.
+    enable_fast_input_path=True,
 )
 
 #FAC_b_evaluator = pynamit.FieldEvaluator(
@@ -128,17 +148,6 @@ for step in range(0, nstep):
 
     if np.any(np.isnan(delta_Br)):
         raise ValueError("Br input contains NaN values.")
-
-    theta_1d = np.deg2rad(90 - ionosphere_lat[:, 0]) # 1D colatitude
-    # Nmax defined above as 80. Grid has 144 lats.
-    # Compute Exact Quadrature Weights for this grid
-    weights_1d = pynamit.SHBasis.compute_exact_weights(theta_1d, Nmax)
-    
-    # Broadcast to 2D grid (lat, lon)
-    # weights_1d is shape (N_lat,). Grid is (N_lat, N_lon).
-    # Provide sqrt weights for Least Squares solver.
-    weights_2d = np.tile(weights_1d[:, None], (1, ionosphere_lon.shape[1]))
-    sqrt_weights_exact = np.sqrt(weights_2d).flatten()
 
     print("Setting Delta Br with (abs. min, RMS, abs. max):")
     print(
@@ -173,7 +182,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        sqrt_weights=sqrt_weights_exact, # Use exact weights
+        sqrt_weights=sqrt_weights_iono_scalar,
         reg_lambda=JR_LAMBDA,
     )
 
@@ -209,7 +218,7 @@ for step in range(0, nstep):
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
-        sqrt_weights=sqrt_weights_exact, # Use exact weights
+        sqrt_weights=sqrt_weights_iono_scalar,
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
@@ -238,13 +247,7 @@ for step in range(0, nstep):
         lat=u_lat,
         lon=u_lon,
         time=dt * step,
-        sqrt_weights=np.tile(sqrt_weights_exact, (2, 1)).flatten().reshape(2, -1), # Stack for vector
-        # Wait, set_u likely takes (2, N) or (2*N,)?
-        # Original: np.tile(np.sqrt(np.sin...), (2, 1)).
-        # Flattened? set_u signature usually expects 1D or matched shape.
-        # Let's assume passed shape should match.
-        # Original was tile -> (2, N_points).
-        # We pass the same shape.
+        sqrt_weights=sqrt_weights_iono_vector,
         reg_lambda=U_LAMBDA,
     )
 

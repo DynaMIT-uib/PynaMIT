@@ -32,7 +32,7 @@ class GauntEngine:
         from pynamit.primitives.grid import Grid
         self.quad_grid = Grid(theta=np.rad2deg(th_mesh.flatten()), phi=np.rad2deg(ph_mesh.flatten()))
         self.weights = (np.tile(self.w_theta[:, None], (1, 2 * res + 1)) * self.w_phi).flatten()
-        self.G_scalar = self.basis.get_G(self.quad_grid).reshape(self.quad_grid.size, -1).T
+        self.G_scalar = self.basis.get_evaluation_matrix(self.quad_grid).reshape(self.quad_grid.size, -1).T
         self.D_scalar = self.G_scalar @ (self.weights[:, None] * self.G_scalar.T)
         self.D_scalar_inv = np.linalg.inv(self.D_scalar)
         
@@ -43,8 +43,8 @@ class GauntEngine:
             return indices[0] if m >= 0 else indices[1]
         ii, ij, ik = get_idx(li, mi), get_idx(lj, mj), get_idx(lk, mk)
         if ii == -1 or ij == -1 or ik == -1: return 0.0
-        G_th = self.basis.get_G(self.quad_grid, derivative="theta")
-        G_ph = self.basis.get_G(self.quad_grid, derivative="phi")
+        G_th = self.basis.get_evaluation_matrix(self.quad_grid, derivative="theta")
+        G_ph = self.basis.get_evaluation_matrix(self.quad_grid, derivative="phi")
         # Integral Y_i (dTh_j dPh_k - dPh_j dTh_k) sin theta
         # This is exactly E_ijk
         return np.sum(self.G_scalar[ii,:] * (G_th[:,ij]*G_ph[:,ik] - G_ph[:,ij]*G_th[:,ik]) * self.weights)

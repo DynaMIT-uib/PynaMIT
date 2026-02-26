@@ -43,7 +43,7 @@ def run_pynamit(
     mainfield_B0: Optional[float] = None,
     dynamics_mode: str = "legacy",
     mainfield_epoch: int = 2020,
-    use_exact_weights: bool = False,
+    input_weighting: Optional[str] = None,
     filename_prefix: Optional[str] = None,
     use_jr: bool = True,
     apply_psi_gauge: bool = True,
@@ -57,6 +57,7 @@ def run_pynamit(
     conductance_interpolation_floor: float = 1e-3,
     toroidal_regularization_lambda: float = 0.0,
     dense_full_operators: bool = False,
+    enable_fast_input_path: bool = False,
     benchmark_mode: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
@@ -74,58 +75,60 @@ def run_pynamit(
 
     from pynamit.math.constants import RE
     from pynamit.simulation.dynamics import Dynamics, SimulationMode
+    from pynamit.simulation.input_weighting import compute_spherical_input_sqrt_weights
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
-    from pynamit.spherical_harmonics.sh_basis import SHBasis
 
-    # Helper for weight generation
-    def _get_weights(lat, lon, Nmax, use_exact):
-        if not use_exact:
+    def _infer_structured_shape(lat_arr: np.ndarray, lon_arr: np.ndarray) -> Optional[tuple[int, int]]:
+        """Infer a structured 2D shape from flattened lat/lon arrays."""
+        lat_flat = np.asarray(lat_arr)
+        lon_flat = np.asarray(lon_arr)
+        if lat_flat.shape != lon_flat.shape:
             return None
-            
-        # Check for regularity (Iso-Latitude)
-        # 1D Unique Latitudes
-        unique_lats = np.unique(lat)
-        n_lat = len(unique_lats)
-        if n_lat < 2: return None # Robustness
-        
-        # Check if grid size matches N_lat * N_lon roughly
-        # Or simply: can we construct a 2D mesh?
-        # Assuming lat/lon are flattened.
-        if lat.size % n_lat != 0:
-            # Not a simple product grid?
-            # Fallback
+        if lat_flat.ndim == 2:
+            return lat_flat.shape
+        if lat_flat.ndim != 1 or lat_flat.size == 0:
             return None
-            
-        n_lon = lat.size // n_lat
-        
-        # Compute exact weights for unique lats
-        # Sort descending (90 to -90) or however they appear?
-        # compute_exact_weights takes theta in radians.
-        # Ensure unique_lats are sorted as they appear in the grid?
-        # If grid is (lat, lon) meshgrid, lats are block constants.
-        
-        # We assume standard meshgrid order or consistent blocks.
-        # Let's verify separability more strictly if needed, but for now specific to regular grids.
-        
-        theta_1d = np.deg2rad(90 - unique_lats)
-        # Note: compute_exact_weights requires theta to be sorted? 
-        # Integration depends on points. Order implies output order.
-        # If unique_lats is sorted (np.unique does), theta_1d is sorted (0 to pi).
-        
-        weights_1d = SHBasis.compute_exact_weights(theta_1d, Nmax)
-        
-        # We need to map these 1D weights back to the full grid (lat, lon).
-        # We can use a lookup or broadcast if we know the shape.
-        # Safe way: interp? Or lookup.
-        
-        # Create a map lat -> weight
-        w_map = {l: w for l, w in zip(unique_lats, weights_1d)}
-        
-        # Map to full grid
-        # Only works if lat contains EXACTLY the unique values (it does by definition).
-        weights_full = np.array([w_map[l] for l in lat.flatten()])
-        
-        return np.sqrt(weights_full) # Return sqrt weights for solver
+        unique_lats = np.unique(lat_flat)
+        n_lat = unique_lats.size
+        if n_lat == 0 or lat_flat.size % n_lat != 0:
+            return None
+        n_lon = lat_flat.size // n_lat
+        return (n_lat, n_lon)
+
+    def _get_sqrt_weights(
+        lat,
+        lon,
+        *,
+        weighting: Optional[str],
+        nmax: int,
+        vector: bool = False,
+        strict: bool = True,
+    ):
+        if weighting in (None, "unit"):
+            return None
+
+        lat_arr = np.asarray(lat)
+        lon_arr = np.asarray(lon)
+        shape_2d = _infer_structured_shape(lat_arr, lon_arr)
+        if shape_2d is None:
+            if strict:
+                raise ValueError("Could not infer structured lat/lon shape for weighting.")
+            return None
+
+        try:
+            lat_2d = lat_arr.reshape(shape_2d)
+            lon_2d = lon_arr.reshape(shape_2d)
+            return compute_spherical_input_sqrt_weights(
+                lat_2d,
+                lon_2d,
+                weighting=weighting,
+                nmax=nmax,
+                vector=vector,
+            )
+        except ValueError:
+            if strict:
+                raise
+            return None
 
     # Initialize the 2D ionosphere object.
     if RI is None:
@@ -166,6 +169,7 @@ def run_pynamit(
         conductance_interpolation_floor=conductance_interpolation_floor,
         toroidal_regularization_lambda=toroidal_regularization_lambda,
         dense_full_operators=dense_full_operators,
+        enable_fast_input_path=enable_fast_input_path,
         benchmark_mode=benchmark_mode,
     )
 
@@ -177,11 +181,20 @@ def run_pynamit(
     conductance_lat = dynamics.state.geometry.grid.lat
     conductance_lon = dynamics.state.geometry.grid.lon
 
+    # Weighting policy for regular ionosphere-grid inputs (jr, conductance, u).
+    ionosphere_input_weighting = input_weighting
+
     hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
         date, conductance_lat, conductance_lon, time
     )
     
-    w_cond = _get_weights(conductance_lat, conductance_lon, Nmax, use_exact_weights)
+    w_cond = _get_sqrt_weights(
+        conductance_lat,
+        conductance_lon,
+        weighting=ionosphere_input_weighting,
+        nmax=Nmax,
+        strict=(input_weighting is not None),
+    )
 
     jr_lat = dynamics.state.geometry.grid.lat
     jr_lon = dynamics.state.geometry.grid.lon
@@ -189,21 +202,29 @@ def run_pynamit(
     if not use_jr:
         jr = np.zeros_like(jr)
     
-    w_jr = _get_weights(jr_lat, jr_lon, Nmax, use_exact_weights)
+    w_jr = _get_sqrt_weights(
+        jr_lat,
+        jr_lon,
+        weighting=ionosphere_input_weighting,
+        nmax=Nmax,
+        strict=(input_weighting is not None),
+    )
 
     wind_inputs = get_wind_inputs(date, wind=wind, time=time)
 
     if wind_inputs is not None:
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
-        if use_exact_weights:
-             w_u = _get_weights(u_lat, u_lon, Nmax, True)
-             if w_u is not None:
-                 weights = np.tile(w_u, (2, 1)).flatten().reshape(2, -1) # Vector weighting?
-                 # Or just pass flat? set_u expects...
-                 # set_u signature: sqrt_weights.
-                 # Usually expects 1D or matched to input.
-                 # The default `weights` from input is None?
-                 pass
+        if ionosphere_input_weighting is not None:
+            w_u = _get_sqrt_weights(
+                u_lat,
+                u_lon,
+                weighting=ionosphere_input_weighting,
+                nmax=Nmax,
+                vector=True,
+                strict=(input_weighting is not None),
+            )
+            if w_u is not None:
+                weights = w_u
 
     dynamics.set_conductance(
         hall,

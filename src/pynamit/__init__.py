@@ -33,7 +33,6 @@ from .primitives import (
     IO,
     Mainfield,
     Timeseries,
-    interpolation,  # Re-export for backwards compatibility
 )
 from .simulation import Dynamics, State, run_pynamit
 try:

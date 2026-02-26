@@ -19,7 +19,14 @@ class InputManager:
     and tracks changes in input data to optimize updates.
     """
 
-    def __init__(self, timeseries: Timeseries, simulation_basis, variables_dict):
+    def __init__(
+        self,
+        timeseries: Timeseries,
+        simulation_basis,
+        variables_dict,
+        *,
+        enable_fast_path: bool = True,
+    ):
         """Initialize the InputManager.
 
         Parameters
@@ -34,6 +41,7 @@ class InputManager:
         self.timeseries = timeseries
         self.simulation_basis = simulation_basis
         self.variables = variables_dict
+        self.enable_fast_path = bool(enable_fast_path)
 
     @staticmethod
     def _extract_tangential_components(raw_values, n_points):
@@ -152,7 +160,7 @@ class InputManager:
                 
                 # Check regularity based on lat/lon or theta/phi from the Grid object
                 # (which contains valid flattened arrays)
-                if hasattr(target_basis, 'grid_to_basis_fast'):
+                if self.enable_fast_path and hasattr(target_basis, 'grid_to_basis_fast'):
                     # Heuristic: Check if grid corresponds to tensor product of unique values
                     # We use limited precision for uniqueness to handle float noise
                     u_lat = np.unique(np.round(input_grid.lat, 6))

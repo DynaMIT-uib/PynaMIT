@@ -48,8 +48,11 @@ class TensorChain:
         """Data type of the operator, given by its component tensors."""
         return np.result_type(*[arr.dtype for arr in self.component_arrays])
 
-    def with_scaling(self, factor: float) -> TensorChain:
-        """Return a scaled TensorChain instance."""
+    def __mul__(self, other: Any) -> TensorChain:
+        """Scalar multiplication."""
+        if not np.isscalar(other):
+            return NotImplemented
+        factor = other
         return TensorChain(
             component_tensors=self.component_tensors,
             einsum_string_dense=self.einsum_string_dense,
@@ -59,6 +62,9 @@ class TensorChain:
             input_shape=self.input_shape,
             scaling_factor=self.scaling_factor * factor,
         )
+
+    def __rmul__(self, other: Any) -> TensorChain:
+        return self.__mul__(other)
 
     def to_dense(self) -> np.ndarray:
         """Return dense matrix representation of the operator."""

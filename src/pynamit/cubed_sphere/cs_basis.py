@@ -637,7 +637,7 @@ class CSBasis(GridBasis):
         grid_cache["derivative_bundle"] = bundle
         return bundle
 
-    def get_G(self, grid, derivative=None):
+    def get_evaluation_matrix(self, grid, derivative=None):
         """Get evaluation or differentiation matrix on the grid.
 
         Parameters
@@ -1030,8 +1030,8 @@ class CSBasis(GridBasis):
             return res
 
         # Get gradient operators
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
+        G_th = self.get_evaluation_matrix(grid, derivative="theta")
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi")
 
         if hasattr(G_th, "toarray"):
             G_th = G_th.toarray()
@@ -1165,10 +1165,6 @@ class CSBasis(GridBasis):
         For CSBasis, the basis already includes all grid points.
         """
         return self
-
-    def get_evaluation_matrix(self, grid: Any, derivative: str = None) -> Any:
-        """Get matrix evaluating basis (or derivatives) on a grid. Alias for get_G."""
-        return self.get_G(grid, derivative=derivative)
 
     def get_vector_basis_matrix(self, grid: Any) -> Any:
         """Get vector basis evaluation matrix.

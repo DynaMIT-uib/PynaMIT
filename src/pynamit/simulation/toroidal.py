@@ -268,8 +268,8 @@ class ToroidalSystemMatrices:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Build grid-space operators (D_theta, D_phi_scaled, Laplacian) for CS."""
         if deriv_basis is self.basis:
-            D_th = self.basis.get_G(self.grid, derivative="theta")
-            D_ph = self.basis.get_G(self.grid, derivative="phi")
+            D_th = self.basis.get_evaluation_matrix(self.grid, derivative="theta")
+            D_ph = self.basis.get_evaluation_matrix(self.grid, derivative="phi")
             # Build Laplacian from the discrete vector identities to keep the
             # native CS path aligned with the same div/grad operators used
             # elsewhere (mimetic-consistent discrete calculus).
@@ -285,9 +285,9 @@ class ToroidalSystemMatrices:
         # Spectral-on-grid derivative backend:
         #   D = G_deriv @ P
         #   Lap = G @ Lap_coeff @ P
-        G = np.asarray(to_dense(deriv_basis.get_G(self.grid)))
-        G_th = np.asarray(to_dense(deriv_basis.get_G(self.grid, derivative="theta")))
-        G_ph = np.asarray(to_dense(deriv_basis.get_G(self.grid, derivative="phi")))
+        G = np.asarray(to_dense(deriv_basis.get_evaluation_matrix(self.grid)))
+        G_th = np.asarray(to_dense(deriv_basis.get_evaluation_matrix(self.grid, derivative="theta")))
+        G_ph = np.asarray(to_dense(deriv_basis.get_evaluation_matrix(self.grid, derivative="phi")))
         P = np.asarray(to_dense(deriv_basis.construct_scalar_projection_matrix(self.grid)))
         L_coeff = np.asarray(to_dense(deriv_basis.get_laplacian_operator(r=1.0)))
 
@@ -475,7 +475,7 @@ class ToroidalSystemMatrices:
 
         # Spectral residual rows: build effective metric in coefficient space,
         # then provide its matrix square-root to LeastSquaresProblem.
-        G_scalar = np.asarray(to_dense(self.basis.get_G(self.grid)))
+        G_scalar = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         w_eff = q_weights * (w_base**2)
         W_coeff = (G_scalar.T * w_eff) @ G_scalar
         W_coeff = 0.5 * (W_coeff + W_coeff.T)
@@ -589,7 +589,7 @@ class ToroidalSystemMatrices:
     @cached_property
     def _br_constraint_solver(self) -> _BrConstraintSolver:
         """Build cached weak-form solver for ``Br * x = rhs``."""
-        G = np.asarray(to_dense(self.basis.get_G(self.grid)))
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
         n_grid = int(G.shape[0])
         if hasattr(self.grid, "weights") and self.grid.weights is not None:
@@ -640,7 +640,7 @@ class ToroidalSystemMatrices:
         # projection/evaluation matrices in coefficient space.
         # For constant factors this yields a scalar-identity (up to quadrature
         # precision), which is the expected inertia behavior.
-        G = np.asarray(to_dense(self.basis.get_G(self.grid)))
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         P = np.asarray(to_dense(self.projection_matrix))
         factor_vec = np.asarray(to_numpy(factor)).reshape(-1)
         if factor_vec.size != G.shape[0]:
@@ -672,7 +672,7 @@ class ToroidalSystemMatrices:
         if self.is_cs:
             return asarray(np.diag(mu0 * factor))
 
-        G = np.asarray(to_dense(self.basis.get_G(self.grid)))
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         P = np.asarray(to_dense(self.projection_matrix))
         if factor.size != G.shape[0]:
             raise ValueError(
@@ -746,9 +746,9 @@ class ToroidalSystemMatrices:
         bphi_grid = to_numpy(self.b_field.vec.phi).flatten()
 
         scalar_projection_matrix = to_dense(self.projection_matrix)
-        scalar_evaluation_matrix = to_dense(self.basis.get_G(self.grid))
-        gradient_theta_operator = to_dense(self.basis.get_G(self.grid, derivative="theta"))
-        gradient_phi_operator = to_dense(self.basis.get_G(self.grid, derivative="phi"))
+        scalar_evaluation_matrix = to_dense(self.basis.get_evaluation_matrix(self.grid))
+        gradient_theta_operator = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
+        gradient_phi_operator = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
 
         btheta_coeffs = scalar_projection_matrix @ btheta_grid
         bphi_coeffs = scalar_projection_matrix @ bphi_grid
@@ -836,12 +836,12 @@ class ToroidalSystemMatrices:
             return asarray(dtalpha_closure_grid_operator)
 
         scalar_projection_matrix = np.asarray(to_dense(self.projection_matrix))
-        scalar_evaluation_matrix = np.asarray(to_dense(self.basis.get_G(self.grid)))
+        scalar_evaluation_matrix = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         gradient_theta_operator = np.asarray(
-            to_dense(self.basis.get_G(self.grid, derivative="theta"))
+            to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
         )
         gradient_phi_operator = np.asarray(
-            to_dense(self.basis.get_G(self.grid, derivative="phi"))
+            to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
         )
 
         btheta_coeffs = scalar_projection_matrix @ btheta_grid
@@ -971,9 +971,9 @@ class ToroidalSystemMatrices:
             return asarray(P @ S_from_Er)
 
         if getattr(self.basis, "kind", "") == "SH":
-            G = np.asarray(to_dense(self.basis.get_G(self.grid)))
-            G_th = np.asarray(to_dense(self.basis.get_G(self.grid, derivative="theta")))
-            G_ph = np.asarray(to_dense(self.basis.get_G(self.grid, derivative="phi")))
+            G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
+            G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
+            G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
             l_arr = np.asarray(to_numpy(self.basis.n)).reshape(-1)
             ll1 = l_arr * (l_arr + 1.0)
             P_Er = P
@@ -1031,9 +1031,9 @@ class ToroidalSystemMatrices:
         N = self.basis.index_length
 
         # Scalar basis matrices on the simulation grid.
-        G = np.asarray(to_dense(self.basis.get_G(self.grid)))
-        G_th = np.asarray(to_dense(self.basis.get_G(self.grid, derivative="theta")))
-        G_ph = np.asarray(to_dense(self.basis.get_G(self.grid, derivative="phi")))
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
+        G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
+        G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
         P = np.asarray(to_dense(self.projection_matrix))
 
         # Vector basis tensor: (2, N_grid, 2, N_coeff).
@@ -1252,9 +1252,9 @@ class ToroidalSystemMatrices:
         inv_Rb2 = 1.0 / (Rb**2)
         
         # 2. Get evaluation and projection matrices (Cached)
-        G = to_dense(self.basis.get_G(self.grid))
-        G_th = to_dense(self.basis.get_G(self.grid, derivative="theta"))
-        G_ph = to_dense(self.basis.get_G(self.grid, derivative="phi"))
+        G = to_dense(self.basis.get_evaluation_matrix(self.grid))
+        G_th = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
+        G_ph = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
         P = to_dense(self.projection_matrix)
 
         # 3. Evaluate E_S and Er on grid
@@ -1396,9 +1396,9 @@ class ToroidalSystemMatrices:
         weights = self.grid.weights
         W_diag = xp.diag(weights)
         
-        G = to_numpy(self.basis.get_G(self.grid))
-        G_th = to_numpy(self.basis.get_G(self.grid, derivative="theta"))
-        G_ph = to_numpy(self.basis.get_G(self.grid, derivative="phi"))
+        G = to_numpy(self.basis.get_evaluation_matrix(self.grid))
+        G_th = to_numpy(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
+        G_ph = to_numpy(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
         
         B_theta = to_numpy(self.b_field.vec.theta)
         B_phi = to_numpy(self.b_field.vec.phi)
@@ -1461,7 +1461,7 @@ class ToroidalSystemMatrices:
         ``A_grid = R_grid @ L_alpha``.
         """
         L_alpha = np.asarray(to_numpy(self.dtalpha_physics_operator))
-        R_grid = to_dense(self.basis.get_G(self.grid))
+        R_grid = to_dense(self.basis.get_evaluation_matrix(self.grid))
         if scipy.sparse.issparse(R_grid):
             R_grid = R_grid.toarray()
         R_grid = np.asarray(R_grid)
@@ -1491,7 +1491,7 @@ class ToroidalSystemMatrices:
         In coefficient space this is assembled in weak form:
             ``T_alpha_to_jr = P @ diag(Br_grid) @ G``.
         """
-        G = np.asarray(to_dense(self.basis.get_G(self.grid)))
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         P = np.asarray(to_dense(self.projection_matrix))
         Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
         if Br.size != G.shape[0]:
@@ -1609,7 +1609,7 @@ class ToroidalSystemMatrices:
 
         # 2. Apex current constraint (interhemispheric + driver matching)
         op_constraint = as_linear_map(jr_map_operator)
-        op_constraint = op_constraint.with_scaling(constraint_scaling)
+        op_constraint = op_constraint * constraint_scaling
         operators.append(op_constraint)
         data_shapes.append((op_constraint.shape[0],))
         sqrt_weights.append(None)  # No weighting for constraint
@@ -1703,7 +1703,7 @@ class ToroidalSystemMatrices:
         sqrt_weights = [physics_weight]
 
         if penalty_operator is not None and penalty_scaling > 0:
-            op_penalty = as_linear_map(penalty_operator).with_scaling(penalty_scaling)
+            op_penalty = as_linear_map(penalty_operator) * penalty_scaling
             operators.append(op_penalty)
             data_shapes.append((op_penalty.shape[0],))
             sqrt_weights.append(None)
@@ -1712,8 +1712,8 @@ class ToroidalSystemMatrices:
         # in absolute physical units (avoid automatic rescaling in
         # LeastSquaresProblem.regularization_weights).
         if regularization_lambda > 0:
-            op_reg = diagonal_linear_map(np.ones(n_coeff)).with_scaling(
-                float(np.sqrt(max(regularization_lambda, 0.0)))
+            op_reg = diagonal_linear_map(np.ones(n_coeff)) * float(
+                np.sqrt(max(regularization_lambda, 0.0))
             )
             operators.append(op_reg)
             data_shapes.append((op_reg.shape[0],))
@@ -1820,8 +1820,8 @@ class ToroidalSystemMatrices:
                     "Penalty operator width mismatch for direct dpsi solve: "
                     f"penalty={op_penalty_base.shape}, n={n_coeff}."
                 )
-            op_penalty = (op_penalty_base @ as_linear_map(psi_to_alpha)).with_scaling(
-                float(penalty_scaling)
+            op_penalty = (op_penalty_base @ as_linear_map(psi_to_alpha)) * float(
+                penalty_scaling
             )
             operators.append(op_penalty)
             data_shapes.append((op_penalty.shape[0],))
@@ -1830,8 +1830,8 @@ class ToroidalSystemMatrices:
         # Keep regularization in absolute dt_alpha units:
         #   lambda * ||dt_alpha||^2 = lambda * ||T_psi_to_alpha dpsi||^2.
         if regularization_lambda > 0:
-            op_reg = as_linear_map(psi_to_alpha).with_scaling(
-                float(np.sqrt(max(regularization_lambda, 0.0)))
+            op_reg = as_linear_map(psi_to_alpha) * float(
+                np.sqrt(max(regularization_lambda, 0.0))
             )
             operators.append(op_reg)
             data_shapes.append((op_reg.shape[0],))
@@ -3026,15 +3026,15 @@ class ToroidalSystemMatrices:
             )
         if gauge_row is None:
             # Generic gauge: enforce weighted grid-mean potential = 0.
-            if not hasattr(self.basis, "get_G"):
+            if not hasattr(self.basis, "get_evaluation_matrix"):
                 raise RuntimeError(
                     "Scalar gauge projector requested, but basis does not provide "
-                    "get_scalar_gauge_constraint_matrix() or get_G(grid)."
+                    "get_scalar_gauge_constraint_matrix() or get_evaluation_matrix(grid)."
                 )
-            g_mat = np.asarray(to_dense(as_linear_map(self.basis.get_G(self.grid))))
+            g_mat = np.asarray(to_dense(as_linear_map(self.basis.get_evaluation_matrix(self.grid))))
             if g_mat.ndim != 2 or g_mat.shape[1] != n:
                 raise RuntimeError(
-                    "Failed to build generic scalar gauge row from basis.get_G(grid)."
+                    "Failed to build generic scalar gauge row from basis.get_evaluation_matrix(grid)."
                 )
             if hasattr(self.grid, "weights") and self.grid.weights is not None:
                 w = np.asarray(to_numpy(self.grid.weights)).reshape(-1)
@@ -3252,8 +3252,6 @@ class ToroidalSystemMatrices:
         psi_to_E_operator: Any,
         m_imp_to_jr_operator: Any,
         jr_map_operator: Any = None,
-        solver: str = "lsmr",
-        solver_tol: float = 1e-10,
         dense: bool = False,
         weighting: str = "none",
         regularization_lambda: float = 0.0,
@@ -3269,8 +3267,6 @@ class ToroidalSystemMatrices:
         """
         from pynamit.math.linear_map import LinearMap, as_linear_map
 
-        # API compatibility: solver options are accepted but not used in this path.
-        _ = (solver, solver_tol)
         N = self.basis.index_length
 
         if dense or jr_map_operator is not None:

@@ -147,7 +147,7 @@ class GLBasis(GridBasis):
             Analysis matrix of shape (N_sh, N_grid).
         """
         # G: (N_grid, N_sh) - evaluation matrix (SH -> Grid)
-        G = sh_basis.get_G(self.grid)
+        G = sh_basis.get_evaluation_matrix(self.grid)
         if hasattr(G, "toarray"):
             G = G.toarray()
 
@@ -175,7 +175,7 @@ class GLBasis(GridBasis):
         G : ndarray
             Synthesis matrix of shape (N_grid, N_sh).
         """
-        G = sh_basis.get_G(self.grid)
+        G = sh_basis.get_evaluation_matrix(self.grid)
         if hasattr(G, "toarray"):
             G = G.toarray()
         return G
@@ -216,9 +216,6 @@ class GLBasis(GridBasis):
             "GLBasis.get_evaluation_matrix to different grid requires interpolation. "
             "Consider using evaluate() method instead."
         )
-
-    # Alias for backwards compatibility
-    get_G = get_evaluation_matrix
 
     def project_to_basis(
         self,

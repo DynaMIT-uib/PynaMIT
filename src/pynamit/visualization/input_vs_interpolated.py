@@ -20,6 +20,10 @@ from pynamit.math.constants import RE
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.primitives.mainfield import Mainfield
+from pynamit.simulation.conductance_representation import (
+    conductance_timeseries_vars_for_mode,
+    decode_conductance_representation_to_grids,
+)
 
 
 def _get_setting_attr(settings: Any, key: str, default: Any) -> Any:
@@ -27,20 +31,6 @@ def _get_setting_attr(settings: Any, key: str, default: Any) -> Any:
     if hasattr(settings, "attrs") and key in settings.attrs:
         return settings.attrs[key]
     return getattr(settings, key, default)
-
-
-def _conductance_timeseries_vars_for_mode(mode: str) -> dict[str, str]:
-    """Return conductance variable names stored in Timeseries for the interpolation mode."""
-    if mode == "legacy_eta_linear":
-        return {"etaP": "scalar", "etaH": "scalar"}
-    if mode == "sigma_linear":
-        return {"SigmaP": "scalar", "SigmaH": "scalar"}
-    if mode == "sigma_log":
-        return {"logSigmaP": "scalar", "logSigmaH": "scalar"}
-    raise ValueError(
-        "Unsupported conductance_interpolation_mode="
-        f"{mode!r}. Expected 'legacy_eta_linear', 'sigma_linear', or 'sigma_log'."
-    )
 
 
 def _evaluate_scalar_coeffs_to_grid(
@@ -83,51 +73,14 @@ def _decode_conductance_timeseries_entry_to_grids(
     sigma_floor: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return ``(SigmaP, SigmaH, etaP, etaH)`` on the target grid from a conductance entry."""
-    sigma_floor_safe = max(float(sigma_floor), np.finfo(float).tiny)
+    def _eval(coeffs: np.ndarray) -> np.ndarray:
+        return _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, grid, target_shape)
 
-    if "SigmaP" in timeseries_entry and "SigmaH" in timeseries_entry:
-        sigmaP_f = _evaluate_scalar_coeffs_to_grid(
-            timeseries_entry.get("SigmaP"), storage_basis, grid, target_shape
-        )
-        sigmaH_f = _evaluate_scalar_coeffs_to_grid(
-            timeseries_entry.get("SigmaH"), storage_basis, grid, target_shape
-        )
-    elif "logSigmaP" in timeseries_entry and "logSigmaH" in timeseries_entry:
-        logSigmaP_f = _evaluate_scalar_coeffs_to_grid(
-            timeseries_entry.get("logSigmaP"), storage_basis, grid, target_shape
-        )
-        logSigmaH_f = _evaluate_scalar_coeffs_to_grid(
-            timeseries_entry.get("logSigmaH"), storage_basis, grid, target_shape
-        )
-        sigmaP_f = np.exp(logSigmaP_f) - sigma_floor_safe
-        sigmaH_f = np.exp(logSigmaH_f) - sigma_floor_safe
-        sigmaP_f = np.maximum(sigmaP_f, 0.0)
-        sigmaH_f = np.maximum(sigmaH_f, 0.0)
-    elif "etaP" in timeseries_entry and "etaH" in timeseries_entry:
-        etaP_f = _evaluate_scalar_coeffs_to_grid(
-            timeseries_entry.get("etaP"), storage_basis, grid, target_shape
-        )
-        etaH_f = _evaluate_scalar_coeffs_to_grid(
-            timeseries_entry.get("etaH"), storage_basis, grid, target_shape
-        )
-        den = etaP_f**2 + etaH_f**2
-        sigmaH_f = np.full_like(etaH_f, np.nan)
-        sigmaP_f = np.full_like(etaP_f, np.nan)
-        valid = den > 1e-12
-        if np.any(valid):
-            sigmaH_f[valid] = etaH_f[valid] / den[valid]
-            sigmaP_f[valid] = etaP_f[valid] / den[valid]
-        return sigmaP_f, sigmaH_f, etaP_f, etaH_f
-    else:
-        raise KeyError(
-            "Unsupported conductance entry representation. Expected "
-            "('etaP','etaH'), ('SigmaP','SigmaH'), or ('logSigmaP','logSigmaH')."
-        )
-
-    denom = sigmaP_f**2 + sigmaH_f**2 + sigma_floor_safe**2
-    etaP_f = sigmaP_f / denom
-    etaH_f = sigmaH_f / denom
-    return sigmaP_f, sigmaH_f, etaP_f, etaH_f
+    return decode_conductance_representation_to_grids(
+        data=timeseries_entry,
+        eval_scalar_coeffs_to_grid=_eval,
+        sigma_floor=sigma_floor,
+    )
 
 
 def plot_scalar_map_on_ax(
@@ -226,7 +179,7 @@ def plot_input_vs_interpolated(
     input_vars_pynamit = {
         "jr": {"jr": "scalar"},
         "Br": {"Br": "scalar"},
-        "conductance": _conductance_timeseries_vars_for_mode(conductance_mode),
+        "conductance": conductance_timeseries_vars_for_mode(conductance_mode),
         "u": {"u": "tangential"},
     }
     input_storage_bases = {

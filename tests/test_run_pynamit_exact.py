@@ -8,8 +8,8 @@ from pynamit.utils import set_backend
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
 
-def test_run_pynamit_exact_weights_option():
-    """Test run_pynamit with use_exact_weights=True using GL grid (regular)."""
+def test_run_pynamit_mw_weighting_option():
+    """Test run_pynamit with input_weighting='mw' using GL grid (regular)."""
     set_backend("numpy")
     
     # Mock data getters to return dummy data matching input grid shape
@@ -41,7 +41,7 @@ def test_run_pynamit_exact_weights_option():
             Nmax=4,
             Mmax=4,
             simulation_mode="spectral_transform_gl", # Ensures Regular Grid
-            use_exact_weights=True,
+            input_weighting="mw",
             mainfield_kind="dipole"
         )
         pass
@@ -56,7 +56,7 @@ def test_run_pynamit_exact_weights_option():
 @patch("pynamit.data.get_wind_inputs")
 def test_run_pynamit_passes_weights(mock_wind, mock_jr, mock_cond, 
                                     mock_set_cond, mock_set_jr, mock_set_u, mock_evolve):
-    """Verify that run_pynamit passes sqrt_weights when use_exact_weights=True."""
+    """Verify that run_pynamit passes sqrt_weights when input_weighting='mw'."""
     
     # Mock Data
     def side_effect_cond(date, lat, lon, time):
@@ -82,7 +82,7 @@ def test_run_pynamit_passes_weights(mock_wind, mock_jr, mock_cond,
         final_time=1.0,
         Nmax=4, 
         simulation_mode="spectral_transform_gl",
-        use_exact_weights=True,
+        input_weighting="mw",
         mainfield_kind="dipole",
         wind=True
     )
@@ -108,7 +108,7 @@ def test_run_pynamit_passes_weights(mock_wind, mock_jr, mock_cond,
     print("Verified: sqrt_weights passed to all setters.")
 
 def test_numerical_exactness_verified():
-    """Verify that use_exact_weights=True actually results in exact coefficient recovery."""
+    """Verify that input_weighting='mw' results in exact coefficient recovery."""
     set_backend("numpy")
     
     # 1. Setup a controlled input signal: Real Spherical Harmonic Y_2,2
@@ -169,7 +169,7 @@ def test_numerical_exactness_verified():
             final_time=1e-3,
             Nmax=Nmax,
             simulation_mode="spectral_transform_gl",
-            use_exact_weights=True,
+            input_weighting="mw",
             mainfield_kind="dipole"
         )
         

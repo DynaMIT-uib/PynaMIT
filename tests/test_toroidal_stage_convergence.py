@@ -76,9 +76,9 @@ def _scalar_transfer_operators(state, sh_basis):
     grid = state.geometry.grid
     sol = state.solution_basis
 
-    g_sol = np.asarray(to_dense(sol.get_G(grid)))
+    g_sol = np.asarray(to_dense(sol.get_evaluation_matrix(grid)))
     p_sol = np.asarray(to_dense(sol.construct_scalar_projection_matrix(grid)))
-    g_sh = np.asarray(to_dense(sh_basis.get_G(grid)))
+    g_sh = np.asarray(to_dense(sh_basis.get_evaluation_matrix(grid)))
     p_sh = np.asarray(to_dense(sh_basis.construct_scalar_projection_matrix(grid)))
 
     # SH analysis coefficients -> solution coefficients

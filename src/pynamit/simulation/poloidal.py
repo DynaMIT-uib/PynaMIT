@@ -340,7 +340,7 @@ class PoloidalSystemMatrices:
         if hasattr(self.grid, "weights"):
             # Exact quadrature projection
             weights = self.grid.weights
-            G = to_numpy(self.solution_basis.get_G(self.grid))
+            G = to_numpy(self.solution_basis.get_evaluation_matrix(self.grid))
 
             # Weighted least-squares: P = (G^T W G)^{-1} G^T W
             GtW = G.T * weights
@@ -428,7 +428,7 @@ class PoloidalSystemMatrices:
 
         # 2. E-field mapping constraint (interhemispheric)
         if connect_hemispheres and E_constraint_operator is not None:
-            op_E = E_constraint_operator.with_scaling(ih_constraint_scaling)
+            op_E = E_constraint_operator * ih_constraint_scaling
             operators.append(op_E)
             data_shapes.append((op_E.shape[0],))
             sqrt_weights.append(None)  # No weighting for E-field constraint

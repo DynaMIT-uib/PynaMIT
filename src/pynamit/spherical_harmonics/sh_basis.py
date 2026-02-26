@@ -287,8 +287,8 @@ class SHBasis(Basis):
 
     # --- Basis Function Evaluation ---
 
-    def get_G(self, grid, derivative: Optional[str] = None) -> np.ndarray:
-        """Compute basis functions G on the provided grid.
+    def get_evaluation_matrix(self, grid, derivative: Optional[str] = None) -> np.ndarray:
+        """Compute basis evaluation (or derivative) matrix on the provided grid.
 
         Parameters
         ----------
@@ -300,7 +300,7 @@ class SHBasis(Basis):
         Returns
         -------
         np.ndarray
-            Basis function matrix.
+            Basis evaluation matrix.
         """
         phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
 
@@ -382,15 +382,11 @@ class SHBasis(Basis):
         Returns the canonical coefficient-to-grid tensor with component ordering
         ``(theta, phi)``:
             [ d/dphi, -d/dtheta ]
-        using the same derivative conventions as :meth:`get_G`.
+        using the same derivative conventions as :meth:`get_evaluation_matrix`.
         """
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
+        G_th = self.get_evaluation_matrix(grid, derivative="theta")
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi")
         return np.array([G_ph, -G_th])
-
-    def get_evaluation_matrix(self, grid: Any, derivative: str = None) -> np.ndarray:
-        """Get matrix evaluating basis (or derivatives) on a grid. Alias for get_G."""
-        return self.get_G(grid, derivative=derivative)
 
     # --- Operator Factors ---
 
@@ -569,8 +565,8 @@ class SHBasis(Basis):
 
     def construct_projection_matrix(self, grid) -> np.ndarray:
         """Construct the projection matrix mapping Grid Vector -> SH Coefficients."""
-        G_th = self.get_G(grid, derivative="theta")
-        G_ph = self.get_G(grid, derivative="phi")
+        G_th = self.get_evaluation_matrix(grid, derivative="theta")
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi")
 
         G_th = G_th.toarray() if scipy.sparse.issparse(G_th) else G_th
         G_ph = G_ph.toarray() if scipy.sparse.issparse(G_ph) else G_ph

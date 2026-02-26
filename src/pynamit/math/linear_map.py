@@ -170,10 +170,6 @@ class LinearMap:
     def __rmul__(self, other: Any) -> LinearMap:
         return self.__mul__(other)
     
-    def with_scaling(self, scalar: float) -> LinearMap:
-        """Alias for scalar multiplication to maintain API compatibility."""
-        return self * scalar
-
     def as_linear_operator(self) -> ScipyLinearOperator:
         if isinstance(self.source, ScipyLinearOperator) and self.source.shape == self.shape:
             return self.source

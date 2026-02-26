@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Any, Union
 import numpy as np
 import scipy.linalg
+from scipy.sparse.linalg import expm_multiply
 from scipy.integrate import solve_ivp
 from pynamit.utils import asarray, xp, to_numpy
 
@@ -81,6 +82,96 @@ class ExponentialIntegrator(Integrator):
     y(t+dt) = y_ss + exp(L dt) * (y(t) - y_ss)
     """
 
+    @staticmethod
+    def _compute_substeps(L_host: np.ndarray, dt: float, kwargs: dict[str, Any]) -> int:
+        """Return number of affine/exponential substeps for stiff dense systems."""
+        max_step_scale = kwargs.get("max_step_scale", None)
+        max_substeps = int(kwargs.get("max_substeps", 512))
+        if max_step_scale is not None and float(max_step_scale) > 0.0:
+            spectral_scale = float(np.linalg.norm(L_host, ord=np.inf) * abs(float(dt)))
+            n_substeps = max(1, int(np.ceil(spectral_scale / float(max_step_scale))))
+            return min(n_substeps, max_substeps)
+        return 1
+
+    @staticmethod
+    def _should_use_affine_expm_action(n: int, kwargs: dict[str, Any]) -> bool:
+        """Choose a low-memory affine exponential step implementation.
+
+        The action method is mathematically equivalent to the `phi1` formulation
+        for affine systems, but is implemented via `expm_multiply` on the
+        augmented operator to keep the code path compact and avoid building a
+        dense matrix exponential for large systems.
+        """
+        mode = str(kwargs.get("affine_expm_mode", "auto")).lower()
+        if mode not in ("auto", "dense", "action"):
+            raise ValueError(
+                "affine_expm_mode must be one of {'auto', 'dense', 'action'}, "
+                f"got {mode!r}."
+            )
+        if mode == "dense":
+            return False
+        if mode == "action":
+            return True
+        threshold = int(kwargs.get("affine_action_dim_threshold", 512))
+        return int(n) >= max(1, threshold)
+
+    @staticmethod
+    def _affine_step_dense_augmented(
+        *,
+        L_host: np.ndarray,
+        y_host: np.ndarray,
+        forcing_arr: np.ndarray,
+        dt: float,
+        n_substeps: int,
+    ) -> np.ndarray:
+        """Exact affine step using dense matrix exponential on augmented system."""
+        n = int(y_host.size)
+        aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
+        aug[:n, :n] = L_host
+        aug[:n, n] = forcing_arr
+
+        if n_substeps == 1:
+            propagator = asarray(scipy.linalg.expm(aug * float(dt)))
+            y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
+            y_next_aug = propagator @ y_aug
+            return asarray(y_next_aug[:n])
+
+        dt_sub = float(dt) / float(n_substeps)
+        propagator = asarray(scipy.linalg.expm(aug * dt_sub))
+        y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
+        for _ in range(n_substeps):
+            y_aug = propagator @ y_aug
+        return asarray(y_aug[:n])
+
+    @staticmethod
+    def _affine_step_expm_multiply_augmented(
+        *,
+        L_host: np.ndarray,
+        y_host: np.ndarray,
+        forcing_arr: np.ndarray,
+        dt: float,
+        n_substeps: int,
+    ) -> np.ndarray:
+        """Exact affine step via `expm_multiply` on the augmented operator.
+
+        This is equivalent to the `expm + phi1` affine update, but avoids forming
+        the dense matrix exponential (which can dominate memory use).
+        """
+        n = int(y_host.size)
+        aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
+        aug[:n, :n] = L_host
+        aug[:n, n] = forcing_arr
+
+        y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
+        if n_substeps == 1:
+            y_next_aug = expm_multiply(aug * float(dt), y_aug)
+            return asarray(y_next_aug[:n])
+
+        dt_sub = float(dt) / float(n_substeps)
+        for _ in range(n_substeps):
+            y_aug = expm_multiply(aug * dt_sub, y_aug)
+        return asarray(y_aug[:n])
+
     def step(
         self,
         y: np.ndarray,
@@ -111,46 +202,35 @@ class ExponentialIntegrator(Integrator):
         L_host = np.array(L_dense)
         y_host = np.array(y)
 
-        max_step_scale = kwargs.get("max_step_scale", None)
-        max_substeps = int(kwargs.get("max_substeps", 512))
-        if max_step_scale is not None and float(max_step_scale) > 0.0:
-            spectral_scale = float(np.linalg.norm(L_host, ord=np.inf) * abs(float(dt)))
-            n_substeps = max(1, int(np.ceil(spectral_scale / float(max_step_scale))))
-            n_substeps = min(n_substeps, max_substeps)
-        else:
-            n_substeps = 1
+        n_substeps = self._compute_substeps(L_host, dt, kwargs)
         forcing_arr = None if forcing is None else np.array(forcing).reshape(-1)
 
         if forcing_arr is not None:
              # Affine linear system:
              #   y' = L y + K
-             # Exact one-step with pure expm via augmented matrix:
-             #   d/dt [y; 1] = [[L, K], [0, 0]] [y; 1]
-             # This remains valid even when L is singular / no exact steady state exists.
+             # We evaluate the exact affine step on the augmented operator. The
+             # low-memory action path is equivalent to an `expm + phi1` update.
              n = int(y_host.size)
              if forcing_arr.size != n:
                  raise ValueError(
                      "forcing size mismatch in ExponentialIntegrator: "
                      f"got {forcing_arr.size}, expected {n}."
                  )
-             if n_substeps == 1:
-                 aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
-                 aug[:n, :n] = L_host
-                 aug[:n, n] = forcing_arr
-                 propagator = asarray(scipy.linalg.expm(aug * float(dt)))
-                 y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
-                 y_next_aug = propagator @ y_aug
-                 return asarray(y_next_aug[:n])
-
-             dt_sub = float(dt) / float(n_substeps)
-             aug = np.zeros((n + 1, n + 1), dtype=L_host.dtype)
-             aug[:n, :n] = L_host
-             aug[:n, n] = forcing_arr
-             propagator = asarray(scipy.linalg.expm(aug * dt_sub))
-             y_aug = np.concatenate([y_host, np.array([1.0], dtype=y_host.dtype)])
-             for _ in range(n_substeps):
-                 y_aug = propagator @ y_aug
-             return asarray(y_aug[:n])
+             if self._should_use_affine_expm_action(n, kwargs):
+                 return self._affine_step_expm_multiply_augmented(
+                     L_host=L_host,
+                     y_host=y_host,
+                     forcing_arr=forcing_arr,
+                     dt=float(dt),
+                     n_substeps=n_substeps,
+                 )
+             return self._affine_step_dense_augmented(
+                 L_host=L_host,
+                 y_host=y_host,
+                 forcing_arr=forcing_arr,
+                 dt=float(dt),
+                 n_substeps=n_substeps,
+             )
 
         if steady_state is not None:
              # Form: y_next = y_ss + P @ (y - y_ss)

@@ -106,11 +106,11 @@ def grid_to_basis_fast(
     theta_deg = np.rad2deg(theta)
     grid_1d = Grid(theta=theta_deg, phi=np.zeros(N_theta))
 
-    G_0 = basis.get_G(grid_1d, derivative=None)
+    G_0 = basis.get_evaluation_matrix(grid_1d, derivative=None)
 
     if is_vector:
-        G_th = basis.get_G(grid_1d, derivative='theta')
-        G_ph = basis.get_G(grid_1d, derivative='phi')
+        G_th = basis.get_evaluation_matrix(grid_1d, derivative='theta')
+        G_ph = basis.get_evaluation_matrix(grid_1d, derivative='phi')
 
     # Regularization Setup
     reg_L = None

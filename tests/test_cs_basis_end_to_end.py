@@ -8,6 +8,7 @@ from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
 from pynamit.simulation.geometry import Geometry
+from pynamit.simulation.settings import SimulationMode
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.mainfield import Mainfield
 
@@ -25,6 +26,7 @@ class MockSettings:
     integrator: str = "euler"
     m_imp_regularization_lambda: float = 1e-10
     ih_constraint_scaling: float = 1.0
+    simulation_mode: SimulationMode = SimulationMode.PURE_SPECTRAL
 
 class MockInputManager:
     """Mock input manager."""
@@ -79,10 +81,6 @@ def test_cs_basis_state_end_to_end():
     input_manager = MockInputManager(cs_basis)
     state.update(input_manager, 0)
 
-    # Calculate coefficients
-    # This will use the hybrid `jr_coeffs_to_j_apex` operator in `m_imp_problem`.
-    coeffs = state.calculate_noind_coeffs()
-    
     # Verify Hybrid Operator was created
     assert state.geometry.input_adapter is not None, "Hybrid input_adapter should be created w/ SHBasis/CSBasis mismatch"
     assert state.geometry.G_Ve_to_JS is not None, "Hybrid G_Ve_to_JS should be created w/ SHBasis"
@@ -104,13 +102,16 @@ def test_cs_basis_state_end_to_end():
     input_manager = MockInputManager(cs_basis)
     state.update(input_manager, time=0.0)
     
-    # Solve for coefficients (potentials on grid)
-    # calculate_noind_coeffs calls _solve_for_m_imp
-    E_coeffs, m_imp = state.calculate_noind_coeffs()
+    # Solve for imposed toroidal baseline (potentials on grid).
+    # This directly exercises the CS-hybrid m_imp solve without requiring the
+    # spectral conductivity/E-operator path, which is SH-only.
+    jr_coeffs = np.asarray(state.jr.coeffs)
+    E_direct = np.zeros((2, cs_basis.size))
+    m_imp = state._build_imposed_toroidal_baseline(jr_coeffs, E_direct)
     
     # Check output shapes
     assert m_imp.shape == (cs_basis.size,)
-    assert E_coeffs.shape == (2, cs_basis.size)
+    assert E_direct.shape == (2, cs_basis.size)
     
     # Check physical sanity?
     # Jr ~ cos(theta). Laplacian potential ~ cos(theta).

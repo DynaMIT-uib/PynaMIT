@@ -171,33 +171,13 @@ class CoupledSteadyStateSolver:
             [sqrt(l) * I]      [0]
         This avoids the conditioning loss from CG on normal equations.
         """
-        s = np.asarray(selector, dtype=float)
-        n_total, n_reduced = int(s.shape[0]), int(s.shape[1])
-        rhs = np.asarray(-(s.T @ np.asarray(forcing).reshape(n_total)), dtype=float).reshape(-1)
-        reg_lambda = float(self.steady_state_regularization_lambda)
-
-        def _proj_matvec(x: np.ndarray) -> np.ndarray:
-            x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
-            return (
-                np.asarray(s.T @ coupled_map.matvec(s @ x_arr), dtype=float)
-                .reshape(n_reduced)
-                .copy()
-            )
-
-        def _proj_rmatvec(x: np.ndarray) -> np.ndarray:
-            x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
-            return (
-                np.asarray(s.T @ coupled_map.rmatvec(s @ x_arr), dtype=float)
-                .reshape(n_reduced)
-                .copy()
-            )
-
-        op_proj: ScipyLinearOperator = ScipyLinearOperator(
-            shape=(n_reduced, n_reduced),
-            matvec=_proj_matvec,
-            rmatvec=_proj_rmatvec,
-            dtype=np.float64,
+        s, rhs, reg_lambda = self._prepare_projected_tikhonov_system(
+            coupled_map=coupled_map,
+            selector=selector,
+            forcing=forcing,
         )
+        n_reduced = int(s.shape[1])
+        op_proj = self._build_projected_square_operator(coupled_map=coupled_map, selector=s)
 
         inv_col_scale = self._get_projected_column_equilibration_inverse(
             coupled_map=coupled_map,
@@ -266,10 +246,12 @@ class CoupledSteadyStateSolver:
         cache_key: Optional[tuple[Any, ...]],
     ) -> np.ndarray:
         """Dense projected Tikhonov solve matching the iterative branch selector."""
-        s = np.asarray(selector, dtype=float)
-        n_total, n_reduced = int(s.shape[0]), int(s.shape[1])
-        rhs = np.asarray(-(s.T @ np.asarray(forcing).reshape(n_total)), dtype=float).reshape(-1)
-        reg_lambda = float(self.steady_state_regularization_lambda)
+        s, rhs, reg_lambda = self._prepare_projected_tikhonov_system(
+            coupled_map=coupled_map,
+            selector=selector,
+            forcing=forcing,
+        )
+        n_reduced = int(s.shape[1])
 
         dense = np.asarray(coupled_map.to_dense(), dtype=float)
         if dense.ndim != 2:
@@ -313,6 +295,54 @@ class CoupledSteadyStateSolver:
         )
         return d_inv * w
 
+    def _prepare_projected_tikhonov_system(
+        self,
+        *,
+        coupled_map: LinearMap,
+        selector: np.ndarray,
+        forcing: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, float]:
+        """Prepare projected Tikhonov system components shared by dense/iterative solves."""
+        del coupled_map  # Included for signature symmetry; no operator eval required here.
+        s = np.asarray(selector, dtype=float)
+        n_total = int(s.shape[0])
+        rhs = np.asarray(-(s.T @ np.asarray(forcing).reshape(n_total)), dtype=float).reshape(-1)
+        reg_lambda = float(self.steady_state_regularization_lambda)
+        return s, rhs, reg_lambda
+
+    def _build_projected_square_operator(
+        self,
+        *,
+        coupled_map: LinearMap,
+        selector: np.ndarray,
+    ) -> ScipyLinearOperator:
+        """Build the projected square operator ``S^T L S`` as a SciPy LinearOperator."""
+        s = np.asarray(selector, dtype=float)
+        n_reduced = int(s.shape[1])
+
+        def _proj_matvec(x: np.ndarray) -> np.ndarray:
+            x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
+            return (
+                np.asarray(s.T @ coupled_map.matvec(s @ x_arr), dtype=float)
+                .reshape(n_reduced)
+                .copy()
+            )
+
+        def _proj_rmatvec(x: np.ndarray) -> np.ndarray:
+            x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
+            return (
+                np.asarray(s.T @ coupled_map.rmatvec(s @ x_arr), dtype=float)
+                .reshape(n_reduced)
+                .copy()
+            )
+
+        return ScipyLinearOperator(
+            shape=(n_reduced, n_reduced),
+            matvec=_proj_matvec,
+            rmatvec=_proj_rmatvec,
+            dtype=np.float64,
+        )
+
     def _get_projected_column_equilibration_inverse(
         self,
         *,
@@ -321,7 +351,7 @@ class CoupledSteadyStateSolver:
         cache_key: Optional[tuple[Any, ...]],
         reg_lambda: float = 0.0,
     ) -> Optional[np.ndarray]:
-        """Exact column equilibration for projected square GMRES system."""
+        """Exact column equilibration for the projected square Tikhonov system."""
         n_reduced = int(selector.shape[1])
         if n_reduced <= 0 or n_reduced > int(self.exact_column_scale_dim_limit):
             return None

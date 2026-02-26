@@ -31,6 +31,10 @@ from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 from pynamit.simulation.toroidal import ToroidalSystemMatrices
 from pynamit.simulation.geometry_utils import to_dense, canonicalize_vector_basis_matrix
 from pynamit.simulation.state_constraints import StateConstraints
+from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.conductance_representation import (
+    decode_conductance_representation_to_grids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,18 +232,7 @@ class State:
         self.poloidal_weighting = getattr(settings, "poloidal_weighting", "none")
 
         # Mode Handling
-        from pynamit.simulation.settings import SimulationMode
-        if hasattr(settings, "simulation_mode"):
-            self.mode = settings.simulation_mode
-        else:
-            # Legacy Fallback
-            pure = getattr(settings, "pure_spectral", False)
-            self.mode = (
-                SimulationMode.PURE_SPECTRAL if pure else SimulationMode.SPECTRAL_TRANSFORM_CS
-            )
-
-        # Map mode to legacy flags for internal checks (if any remain)
-        self.pure_spectral = (self.mode == SimulationMode.PURE_SPECTRAL)
+        self.mode = settings.simulation_mode
 
         # Default to regularization for CS_DOMINANT to handle equatorial singularity in electrostatic problem
         if self.mode == SimulationMode.CS_DOMINANT:
@@ -1025,45 +1018,21 @@ class State:
         grid = self.geometry.grid
         r_eval = self.geometry.RI
         sigma_floor = float(max(self.conductance_interpolation_floor, 0.0))
-        sigma_floor_safe = max(sigma_floor, np.finfo(float).tiny)
+        target_shape = tuple(np.asarray(grid.theta).shape)
 
-        if "SigmaP" in updated_input and "SigmaH" in updated_input:
-            f_sigmaP = Field.from_coefficients(storage_base, coeffs=updated_input["SigmaP"])
-            f_sigmaH = Field.from_coefficients(storage_base, coeffs=updated_input["SigmaH"])
-            sigmaP_grid, _, _ = f_sigmaP.evaluate(r_eval, grid.theta, grid.phi)
-            sigmaH_grid, _, _ = f_sigmaH.evaluate(r_eval, grid.theta, grid.phi)
-        elif "logSigmaP" in updated_input and "logSigmaH" in updated_input:
-            f_log_sigmaP = Field.from_coefficients(storage_base, coeffs=updated_input["logSigmaP"])
-            f_log_sigmaH = Field.from_coefficients(storage_base, coeffs=updated_input["logSigmaH"])
-            log_sigmaP_grid, _, _ = f_log_sigmaP.evaluate(r_eval, grid.theta, grid.phi)
-            log_sigmaH_grid, _, _ = f_log_sigmaH.evaluate(r_eval, grid.theta, grid.phi)
-            sigmaP_grid = np.exp(np.asarray(log_sigmaP_grid)) - sigma_floor_safe
-            sigmaH_grid = np.exp(np.asarray(log_sigmaH_grid)) - sigma_floor_safe
-        else:
-            raise KeyError(
-                "Unsupported conductance input representation. Expected "
-                "('etaP','etaH'), ('SigmaP','SigmaH'), or "
-                "('logSigmaP','logSigmaH')."
-            )
+        def _eval_scalar(coeffs: np.ndarray) -> np.ndarray:
+            field = Field.from_coefficients(storage_base, coeffs=coeffs)
+            vals, _, _ = field.evaluate(r_eval, grid.theta, grid.phi)
+            return np.asarray(vals, dtype=float).reshape(target_shape)
 
-        sigmaP_grid = np.asarray(sigmaP_grid, dtype=float).reshape(-1)
-        sigmaH_grid = np.asarray(sigmaH_grid, dtype=float).reshape(-1)
-        if np.any(sigmaP_grid < 0.0):
-            logger.warning(
-                "Negative Pedersen conductance encountered after interpolation; "
-                "clipping to nonnegative."
-            )
-            sigmaP_grid = np.maximum(sigmaP_grid, 0.0)
-        if np.any(sigmaH_grid < 0.0):
-            logger.warning(
-                "Negative Hall conductance encountered after interpolation; "
-                "clipping to nonnegative (Hall sign is geometry-driven)."
-            )
-            sigmaH_grid = np.maximum(sigmaH_grid, 0.0)
-
-        denom = sigmaP_grid * sigmaP_grid + sigmaH_grid * sigmaH_grid + sigma_floor_safe * sigma_floor_safe
-        etaP_grid = sigmaP_grid / denom
-        etaH_grid = sigmaH_grid / denom
+        _, _, etaP_grid, etaH_grid = decode_conductance_representation_to_grids(
+            data=updated_input,
+            eval_scalar_coeffs_to_grid=_eval_scalar,
+            sigma_floor=sigma_floor,
+            logger=logger,
+        )
+        etaP_grid = np.asarray(etaP_grid, dtype=float).reshape(-1)
+        etaH_grid = np.asarray(etaH_grid, dtype=float).reshape(-1)
 
         etaP_coeffs = np.asarray(
             storage_base.from_grid_values(etaP_grid, grid, "scalar")
@@ -1721,13 +1690,23 @@ class State:
                 use_pinning = self.apply_psi_gauge
                 N = self.solution_basis.index_length
                 m = 2 * N
+                exp_kwargs = {
+                    "max_step_scale": 10.0,
+                    "max_substeps": 32768,
+                    # Use low-memory affine exponential action for larger coupled
+                    # systems while retaining the dense expm path for smaller ones.
+                    "affine_expm_mode": "auto",
+                    "affine_action_dim_threshold": 512,
+                }
 
                 # Dense expm on a (2N x 2N) matrix can require several matrix-sized
                 # work buffers; guard against host OOM before allocation.
                 avail_bytes = _available_memory_bytes()
                 if avail_bytes is not None:
                     matrix_bytes = int(m) * int(m) * np.dtype(float).itemsize
-                    estimated_peak_bytes = int(8 * matrix_bytes)
+                    uses_affine_action = m >= int(exp_kwargs["affine_action_dim_threshold"])
+                    peak_factor = 3 if uses_affine_action else 8
+                    estimated_peak_bytes = int(peak_factor * matrix_bytes)
                     if estimated_peak_bytes > int(0.80 * avail_bytes):
                         need_gib = estimated_peak_bytes / float(1024 ** 3)
                         avail_gib = avail_bytes / float(1024 ** 3)
@@ -1763,10 +1742,7 @@ class State:
                     dt=float(dt),
                     linear_operator=L_dense,
                     forcing=np.asarray(K).reshape(m),
-                    exponential_kwargs={
-                        "max_step_scale": 10.0,
-                        "max_substeps": 32768,
-                    },
+                    exponential_kwargs=exp_kwargs,
                 ).reshape(2, N)
             else:
                 coupled_operator = self.get_coupled_operator_for_time_integration(

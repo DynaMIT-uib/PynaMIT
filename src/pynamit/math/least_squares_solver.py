@@ -257,13 +257,7 @@ class LeastSquaresSolver:
                 lsmr_result = lsmr(A_eff, b_red[:, j], **lsmr_kwargs)
                 y_j = lsmr_result[0]
                 istop = int(lsmr_result[1])
-                if not self._lsmr_stop_is_acceptable(
-                    lsmr_result,
-                    normb=float(np.linalg.norm(b_red[:, j])),
-                    atol=self.tolerance,
-                    btol=self.tolerance,
-                    practical_tol_floor=1e-10,
-                ):
+                if not self._lsmr_stop_is_acceptable(istop):
                     warnings.warn(
                         self._format_warning_message(
                             warning_label,
@@ -333,20 +327,8 @@ class LeastSquaresSolver:
         return a_np * inv_col_scale[None, :], inv_col_scale
 
     @staticmethod
-    def _lsmr_stop_is_acceptable(
-        lsmr_result: tuple,
-        *,
-        normb: float,
-        atol: float,
-        btol: float,
-        practical_tol_floor: float = 0.0,
-    ) -> bool:
-        """Accept only SciPy LSMR success terminations.
-
-        Extra keyword arguments are kept for call-site compatibility with the
-        previous practical-convergence policy.
-        """
-        istop = int(lsmr_result[1])
+    def _lsmr_stop_is_acceptable(istop: int) -> bool:
+        """Accept only SciPy LSMR success terminations."""
         return istop in (0, 1, 2, 4, 5)
 
     def build_preconditioner(
@@ -537,12 +519,7 @@ class LeastSquaresSolver:
         lsmr_result = lsmr(op_to_solve, rhs_block.flatten(), **lsmr_kwargs)
         sol_y_flat = lsmr_result[0]
         istop = int(lsmr_result[1])
-        if not self._lsmr_stop_is_acceptable(
-            lsmr_result,
-            normb=float(np.linalg.norm(rhs_block)),
-            atol=self.tolerance,
-            btol=self.tolerance,
-        ):
+        if not self._lsmr_stop_is_acceptable(istop):
             warnings.warn(
                 self._format_warning_message(
                     warning_label,
@@ -790,7 +767,7 @@ class LeastSquaresSolver:
 
         if p_type == "pinv":
             u, vt, s_pinv, _ = self._get_pinv_components(
-                problem, self.tolerance, pinv_rcond=pinv_rcond, return_u=True
+                problem, self.tolerance, pinv_rcond=pinv_rcond
             )
             if pinv_mode not in ("symmetric", "true"):
                 raise ValueError("pinv_mode must be 'symmetric' or 'true'.")
@@ -834,13 +811,9 @@ class LeastSquaresSolver:
         tol: float,
         *,
         pinv_rcond: Optional[float] = None,
-        return_u: bool = False,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         u, s, vt = problem.svd
         s_pinv = xp.zeros_like(s)
         cutoff = (pinv_rcond if pinv_rcond is not None else tol) * (s[0] if s.size > 0 else 0)
         s_pinv = xp.where(s > cutoff, 1.0 / s, s_pinv)  # Safe generic assignment
-        if not return_u:
-            # Maintain backward compatibility for callers that ignore U
-            u = xp.zeros((0, 0), dtype=vt.dtype)
         return u, vt, s_pinv, s_pinv**2

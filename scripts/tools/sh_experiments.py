@@ -35,7 +35,7 @@ hall, pedersen = conductance.hardy_EUV(
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 
-G = cbasis.get_G(pynamit.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
+G = cbasis.get_evaluation_matrix(pynamit.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
 d = etaH
 
 m_plain = np.linalg.lstsq(G, d, rcond=0)[0]
@@ -74,7 +74,7 @@ if False:
 
     ugrid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
-    Gphi, Gtheta = (ubasis.get_G(ugrid, derivative="phi"), ubasis.get_G(ugrid, derivative="theta"))
+    Gphi, Gtheta = (ubasis.get_evaluation_matrix(ugrid, derivative="phi"), ubasis.get_evaluation_matrix(ugrid, derivative="theta"))
     G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
     G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()
 
