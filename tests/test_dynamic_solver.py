@@ -64,10 +64,10 @@ def _run_dynamic_ramp_test(
 
 def test_dynamic_ramp_pure_spectral(tmp_path):
     """Test pure spectral mode with dual induction."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 1.855985373664705e-08
-    expected_mind_norm = 4.511380698478858e-09
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 7.464954996137682e-09
+    expected_mind_norm = 1.6353647404569216e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.PURE_SPECTRAL,
@@ -81,10 +81,10 @@ def test_dynamic_ramp_pure_spectral(tmp_path):
 
 def test_dynamic_ramp_spectral_transform_gl(tmp_path):
     """Test spectral transform GL mode with dual induction."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 1.861667931074767e-08
-    expected_mind_norm = 4.923436484143163e-09
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 7.457633137292927e-09
+    expected_mind_norm = 1.7240888292763683e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -98,10 +98,10 @@ def test_dynamic_ramp_spectral_transform_gl(tmp_path):
 
 def test_dynamic_ramp_spectral_transform_cs(tmp_path):
     """Test spectral transform CS mode with dual induction."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 8.022390477117027e-09
-    expected_mind_norm = 1.9769085065985536e-09
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 4.420999665124596e-09
+    expected_mind_norm = 7.017429642552317e-10
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
@@ -115,10 +115,10 @@ def test_dynamic_ramp_spectral_transform_cs(tmp_path):
 
 def test_dynamic_ramp_cs_dominant(backend: str, tmp_path):
     """Test CS dominant mode with dual induction."""
-    # Baselines updated 2026-02-23 after coupled-operator refactor cleanup and
-    # CS-dominant full-induction stabilization changes.
-    expected_psi_norm = 2.481844448216916e-07
-    expected_mind_norm = 2.2003977096218905e-07
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 2.0203700322434142e-07
+    expected_mind_norm = 1.9512331416159726e-07
     rel_tol = 1e-2
 
     _run_dynamic_ramp_test(

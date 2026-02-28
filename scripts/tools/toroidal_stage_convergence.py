@@ -252,10 +252,10 @@ def compute_stage_errors(
         if probe_mode == "dense":
             _log("[e_to_forcing] densify operators...")
             e_to_forcing_st = np.asarray(
-                to_dense(as_linear_map(state_st.toroidal_matrices.E_to_dtjr_forcing_matrix))
+                to_dense(as_linear_map(state_st.toroidal_matrices.toroidal_forcing_from_E_operator))
             )
             e_to_forcing_cs = np.asarray(
-                to_dense(as_linear_map(state_cs.toroidal_matrices.E_to_dtjr_forcing_matrix))
+                to_dense(as_linear_map(state_cs.toroidal_matrices.toroidal_forcing_from_E_operator))
             )
             e_to_forcing_st = e_to_forcing_st.reshape(e_to_forcing_st.shape[0], -1)
             e_to_forcing_cs = e_to_forcing_cs.reshape(e_to_forcing_cs.shape[0], -1)
@@ -274,12 +274,12 @@ def compute_stage_errors(
 
             def _apply_e_to_forcing_st(v_sh2):
                 x = (a2_st @ v_sh2).reshape(2, -1)
-                y = state_st.toroidal_matrices.compute_dtjr_forcing_from_E(x)
+                y = state_st.toroidal_matrices.compute_toroidal_forcing_from_E(x)
                 return b_st @ np.asarray(y)
 
             def _apply_e_to_forcing_cs(v_sh2):
                 x = (a2_cs @ v_sh2).reshape(2, -1)
-                y = state_cs.toroidal_matrices.compute_dtjr_forcing_from_E(x)
+                y = state_cs.toroidal_matrices.compute_toroidal_forcing_from_E(x)
                 return b_cs @ np.asarray(y)
 
         _log("[e_to_forcing] probe...")
@@ -333,7 +333,7 @@ def compute_stage_errors(
 
             def _apply_dtjr_from_k_st(v_sh):
                 x = a_st @ v_sh
-                y = state_st.toroidal_matrices.solve_dt_jr_physics(
+                y = state_st.toroidal_matrices.solve_toroidal_dtjr_physics(
                     rhs_physics=x,
                     weighting="none",
                     regularization_lambda=0.0,
@@ -345,7 +345,7 @@ def compute_stage_errors(
 
             def _apply_dtjr_from_k_cs(v_sh):
                 x = a_cs @ v_sh
-                y = state_cs.toroidal_matrices.solve_dt_jr_physics(
+                y = state_cs.toroidal_matrices.solve_toroidal_dtjr_physics(
                     rhs_physics=x,
                     weighting="none",
                     regularization_lambda=0.0,

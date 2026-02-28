@@ -1,6 +1,6 @@
 
 def test_induction_sensitivity(tmp_path):
-    """Test to verify sensitivity to induction terms (K and D1) in isolation.
+    """Test to verify sensitivity to toroidal forcing and radial-closure terms in isolation.
     
     This test runs with:
     1. Zero Magnetospheric Driver (jr = 0) -> Eliminates overwhelming constraint.

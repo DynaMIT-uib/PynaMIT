@@ -1,9 +1,7 @@
-"""Toroidal system assembly for the dt_jr evolution equation.
+"""Toroidal system assembly for the dt_alpha evolution equation.
 
 The assembled operator has the form:
-    L_dtjr * dt_jr = forcing_dtjr
-with
-    L_dtjr = C + M0 + M1 @ radial_closure_dtjr
+    L_dtalpha * dt_alpha = forcing_toroidal
 
 Design note for CS-dominant full induction:
     - The toroidal closure operator is assembled in one auxiliary SH basis
@@ -17,14 +15,13 @@ state representation.
 
 from __future__ import annotations
 import logging
-from dataclasses import dataclass
-from typing import Any, Tuple, Optional, Callable
+from typing import Any, Tuple, Optional
 
 import numpy as np
 import scipy.sparse
 from functools import cached_property
 
-from pynamit.utils import to_numpy, asarray, xp, tensor_pinv
+from pynamit.utils import to_numpy, asarray, tensor_pinv
 from pynamit.simulation.geometry_utils import to_dense
 from pynamit.math.linear_map import as_linear_map
 from pynamit.math.constants import mu0
@@ -35,91 +32,13 @@ from pynamit.simulation.toroidal_closure import ToroidalClosureProjector
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class _BrConstraintSolver:
-    """Regularized weak-form solver for ``Br * x = rhs`` in the scalar basis.
-
-    Solves the grid relation
-        ``Br * x = rhs``
-    in a projected weak form over scalar basis coefficients, using the
-    regularized weighted minimum-norm problem
-        ``argmin_c ||W^(1/2)(diag(Br) G c - rhs)||^2 + floor^2 ||W^(1/2) G c||^2``
-    with ``x = G c``.
-
-    This single helper is reused for all ``1/Br``-type inversions (e.g. the
-    ideal-closure ``E_r`` reconstruction and ``j_r -> alpha`` mapping) so the
-    equatorial branch-selection policy stays consistent.
-    """
-
-    G: np.ndarray
-    Br: np.ndarray
-    weights: np.ndarray
-    floor: float
-    pinv_symmetric: Callable[[np.ndarray, float], np.ndarray]
-    default_pinv_rcond: Callable[[Any], float]
-
-    def __post_init__(self) -> None:
-        self.G = np.asarray(self.G, dtype=float)
-        self.Br = np.asarray(self.Br, dtype=float).reshape(-1)
-        self.weights = np.asarray(self.weights, dtype=float).reshape(-1)
-        self.floor = float(max(self.floor, 0.0))
-
-        if self.G.ndim != 2:
-            self.G = self.G.reshape(self.G.shape[0], -1)
-        n_grid = int(self.G.shape[0])
-        if self.Br.size != n_grid:
-            raise ValueError(
-                "BrConstraintSolver size mismatch: "
-                f"Br={self.Br.shape}, G={self.G.shape}."
-            )
-        if self.weights.size != n_grid:
-            raise ValueError(
-                "BrConstraintSolver weight size mismatch: "
-                f"weights={self.weights.shape}, G={self.G.shape}."
-            )
-        self.weights = np.maximum(self.weights, 0.0)
-        if float(np.sum(self.weights)) <= 0.0:
-            self.weights = np.ones(n_grid, dtype=float)
-
-    @cached_property
-    def constraint_operator_grid(self) -> np.ndarray:
-        """Return the explicit grid constraint operator ``diag(Br) @ G``."""
-        return self.Br[:, None] * self.G
-
-    @cached_property
-    def regularized_normal_matrix(self) -> np.ndarray:
-        """Return ``G^T W (Br^2 + floor^2) G``."""
-        w_scale = self.weights * (self.Br * self.Br + self.floor * self.floor)
-        lhs = (self.G.T * w_scale) @ self.G
-        return 0.5 * (lhs + lhs.T)
-
-    @cached_property
-    def rhs_lift_operator(self) -> np.ndarray:
-        """Return ``G^T W Br`` mapping grid rhs to coefficient-space RHS."""
-        w_br = self.weights * self.Br
-        return self.G.T * w_br
-
-    @cached_property
-    def rhs_to_coeff_operator(self) -> np.ndarray:
-        """Return cached map from grid RHS to scalar coefficients."""
-        lhs = self.regularized_normal_matrix
-        rcond = float(self.default_pinv_rcond(lhs.shape))
-        lhs_pinv = self.pinv_symmetric(lhs, rcond=rcond)
-        return lhs_pinv @ self.rhs_lift_operator
-
-    @cached_property
-    def rhs_to_grid_operator(self) -> np.ndarray:
-        """Return cached map from grid RHS to grid ``E_r``."""
-        return self.G @ self.rhs_to_coeff_operator
-
-
 class ToroidalSystemMatrices:
     """Assembles system matrices for Toroidal Induction.
 
     Handles the construction of:
-    - Mass Matrix (C)
-    - Advection Coupling Matrices (M0, M1)
-    - dt_jr Radial-Closure Operator
+    - alpha-space mass matrix (``mass_dtalpha``)
+    - field-line mapping blocks (``fieldline_mapping_dtjr_blocks``)
+    - alpha-space radial closure (``radial_closure_dtalpha``)
 
     Parameters
     ----------
@@ -130,7 +49,7 @@ class ToroidalSystemMatrices:
     b_field : Any
         The background magnetic field evaluated on the grid.
         Components used throughout this class are from this background
-        field: ``Br = b_field.vec.r`` and
+        field: ``B0r = b_field.vec.r`` and
         ``B_s = (b_field.vec.theta, b_field.vec.phi)``.
     RI : float
         Radius of the ionosphere.
@@ -145,9 +64,9 @@ class ToroidalSystemMatrices:
         closure_derivative_basis: Optional[Any] = None,
         forcing_derivative_basis: Optional[Any] = None,
         radial_derivative_basis: Optional[Any] = None,
-        dtjr_solver: str = "normal_eq",
-        dtjr_preconditioner: Optional[str] = None,
-        dtjr_tolerance: float = 1e-13,
+        toroidal_solver: str = "normal_eq",
+        toroidal_preconditioner: Optional[str] = None,
+        toroidal_tolerance: float = 1e-13,
     ):
         self.basis = basis
         self.grid = grid
@@ -178,23 +97,17 @@ class ToroidalSystemMatrices:
         self._jr_to_psi_cache: dict[tuple[int, bool], np.ndarray] = {}
         # Cache for explicit gauge projector applied after MP inversion.
         self._psi_gauge_projector_cache: dict[tuple[int, bool, str], np.ndarray] = {}
-        # Cache for weighted dt_jr least-squares problems.
-        self._dtjr_problem_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        # Cache for weighted toroidal least-squares problems.
+        self._toroidal_problem_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
         # Cached linear maps for repeated dt_jr solves.
         self._dtjr_unconstrained_map_cache: dict[tuple[Any, ...], np.ndarray] = {}
         self._dtalpha_unconstrained_map_cache: dict[tuple[Any, ...], np.ndarray] = {}
-        self._dtjr_constrained_maps_cache: dict[tuple[Any, ...], dict[str, np.ndarray]] = {}
-        # Cached linear maps for repeated direct dpsi/dt solves.
-        self._dpsi_problem_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
-        self._dpsi_unconstrained_map_cache: dict[tuple[Any, ...], np.ndarray] = {}
-        self._dpsi_constrained_maps_cache: dict[tuple[Any, ...], dict[str, np.ndarray]] = {}
-        self._dtalpha_er_joint_problem_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
-        self._dtalpha_er_schur_bundle_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._dtalpha_constrained_maps_cache: dict[tuple[Any, ...], dict[str, np.ndarray]] = {}
         self._dtalpha_to_dpsi_map_cache: dict[tuple[Any, ...], np.ndarray] = {}
-        self.configure_dtjr_solver(
-            solver=dtjr_solver,
-            preconditioner=dtjr_preconditioner,
-            tolerance=dtjr_tolerance,
+        self.configure_toroidal_solver(
+            solver=toroidal_solver,
+            preconditioner=toroidal_preconditioner,
+            tolerance=toroidal_tolerance,
         )
 
     def _build_auxiliary_toroidal_matrices(self, closure_basis: Any) -> "ToroidalSystemMatrices":
@@ -207,9 +120,9 @@ class ToroidalSystemMatrices:
             closure_derivative_basis=closure_basis,
             forcing_derivative_basis=closure_basis,
             radial_derivative_basis=closure_basis,
-            dtjr_solver=self.dtjr_solver,
-            dtjr_preconditioner=self.dtjr_preconditioner,
-            dtjr_tolerance=self.dtjr_tolerance,
+            toroidal_solver=self.toroidal_solver,
+            toroidal_preconditioner=self.toroidal_preconditioner,
+            toroidal_tolerance=self.toroidal_tolerance,
         )
 
     @cached_property
@@ -222,14 +135,14 @@ class ToroidalSystemMatrices:
             build_auxiliary_assembler=self._build_auxiliary_toroidal_matrices,
         )
 
-    def configure_dtjr_solver(
+    def configure_toroidal_solver(
         self,
         *,
         solver: str,
         preconditioner: Optional[str],
         tolerance: float,
     ) -> None:
-        """Configure solver policy for dt_jr least-squares solves."""
+        """Configure solver policy for toroidal least-squares solves."""
         from pynamit.math.least_squares_solver import LeastSquaresSolver
 
         if solver not in LeastSquaresSolver.VALID_SOLVERS:
@@ -242,25 +155,21 @@ class ToroidalSystemMatrices:
                 f"Invalid dt_jr preconditioner '{preconditioner}'. Valid options: "
                 f"{LeastSquaresSolver.VALID_PRECONDITIONERS}."
             )
-        self.dtjr_solver = str(solver)
-        self.dtjr_preconditioner = preconditioner
-        self.dtjr_tolerance = float(max(tolerance, 1e-15))
+        self.toroidal_solver = str(solver)
+        self.toroidal_preconditioner = preconditioner
+        self.toroidal_tolerance = float(max(tolerance, 1e-15))
         # Cached linear maps depend on the solve policy.
         self._dtjr_unconstrained_map_cache.clear()
         self._dtalpha_unconstrained_map_cache.clear()
-        self._dtjr_constrained_maps_cache.clear()
-        self._dpsi_unconstrained_map_cache.clear()
-        self._dpsi_constrained_maps_cache.clear()
-        self._dtalpha_er_joint_problem_cache.clear()
-        self._dtalpha_er_schur_bundle_cache.clear()
+        self._dtalpha_constrained_maps_cache.clear()
         self._dtalpha_to_dpsi_map_cache.clear()
 
-    def _dtjr_solver_signature(self) -> tuple[Any, ...]:
+    def _toroidal_solver_signature(self) -> tuple[Any, ...]:
         """Return cache signature for the configured dt_jr solver policy."""
         return (
-            self.dtjr_solver,
-            self.dtjr_preconditioner,
-            float(self.dtjr_tolerance),
+            self.toroidal_solver,
+            self.toroidal_preconditioner,
+            float(self.toroidal_tolerance),
         )
 
     def _build_cs_grid_derivative_operators(
@@ -356,7 +265,7 @@ class ToroidalSystemMatrices:
 
     @property
     def cs_grid_derivative_operators(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Return CS derivative operators used in L_dtjr assembly."""
+        """Return CS derivative operators used in toroidal operator assembly."""
         if not self.is_cs:
             raise RuntimeError("cs_grid_derivative_operators is only valid for CS basis.")
         return self._get_cs_grid_derivative_operators(self.closure_derivative_basis)
@@ -382,7 +291,7 @@ class ToroidalSystemMatrices:
 
     @cached_property
     def cs_laplacian_inverse(self) -> np.ndarray:
-        """Return gauge-fixed inverse Laplacian for CS advection assembly.
+        """Return gauge-fixed inverse Laplacian for CS mapping assembly.
 
         The scalar CS Laplacian has a constant null mode. We remove that mode
         explicitly and invert only the mean-zero subspace, then project the
@@ -448,8 +357,8 @@ class ToroidalSystemMatrices:
             - grid-native rows: ``diag(q * w_base^2)``
             - spectral rows: ``G^T diag(q * w_base^2) G``
         where ``w_base`` follows the configured strategy:
-            - ``linear``: ``sqrt(|Br|)``
-            - ``quadratic``: ``|Br|``
+            - ``linear``: ``sqrt(|B0r|)``
+            - ``quadratic``: ``|B0r|``
         """
         if weighting == "none":
             return None
@@ -483,10 +392,10 @@ class ToroidalSystemMatrices:
 
     @cached_property
     def inverse_radial_field_floor(self) -> float:
-        """Automatic pseudo-inverse floor for ``1/Br`` stabilization.
+        """Automatic pseudo-inverse floor for ``1/B0r`` stabilization.
 
-        We regularize near magnetic equator where ``Br -> 0`` by selecting a
-        robust lower-tail scale from ``|Br|``. This avoids extreme amplification
+        We regularize near magnetic equator where ``B0r -> 0`` by selecting a
+        robust lower-tail scale from ``|B0r|``. This avoids extreme amplification
         of small E-field discrepancies in forcing/closure terms.
         """
         br = np.abs(np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1))
@@ -574,100 +483,36 @@ class ToroidalSystemMatrices:
 
     @cached_property
     def inverse_radial_field(self) -> np.ndarray:
-        """Compute stabilized pseudo-inverse ``1/Br`` on the grid.
+        """Compute stabilized pseudo-inverse ``1/B0r`` on the grid.
 
-        Uses ``Br / (Br^2 + floor^2)`` with an automatic floor derived from the
-        lower tail of ``|Br|`` to reduce near-equatorial singular amplification.
+        Uses ``B0r / (B0r^2 + floor^2)`` with an automatic floor derived from the
+        lower tail of ``|B0r|`` to reduce near-equatorial singular amplification.
         """
-        Br = np.asarray(to_numpy(self.b_field.vec.r))
+        B0r = np.asarray(to_numpy(self.b_field.vec.r))
         floor = float(self.inverse_radial_field_floor)
         if floor <= 0.0:
-            return asarray(1.0 / Br)
-        inv = Br / (Br * Br + floor * floor)
+            return asarray(1.0 / B0r)
+        inv = B0r / (B0r * B0r + floor * floor)
         return asarray(inv)
 
     @cached_property
-    def _br_constraint_solver(self) -> _BrConstraintSolver:
-        """Build cached weak-form solver for ``Br * x = rhs``."""
-        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
-        Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-        n_grid = int(G.shape[0])
-        if hasattr(self.grid, "weights") and self.grid.weights is not None:
-            weights = np.asarray(to_numpy(self.grid.weights)).reshape(-1)
-            if weights.size != n_grid:
-                weights = np.ones(n_grid, dtype=float)
-        else:
-            weights = np.ones(n_grid, dtype=float)
-
-        return _BrConstraintSolver(
-            G=G,
-            Br=Br,
-            weights=weights,
-            floor=float(self.inverse_radial_field_floor),
-            pinv_symmetric=self._pinv_symmetric,
-            default_pinv_rcond=self._default_pinv_rcond,
-        )
-
-    @cached_property
-    def er_rhs_to_grid_operator(self) -> np.ndarray:
-        """Return projected linear map ``rhs -> E_r`` for ideal closure.
-
-        Delegates to ``_BrConstraintSolver`` so the regularized constraint
-        semantics remain explicit in one place.
-        """
-        return asarray(self._br_constraint_solver.rhs_to_grid_operator)
-
-    @cached_property
-    def inertia_matrix(self) -> np.ndarray:
-        """Construct Inertia Matrix C.
-        
-        C_lm,l'm' = mu0 * Integral [ Y_lm * (|B0|^2 / B0r) * Y_l'm' ]
-        """
-        logger.info("Building Toroidal Inertia Matrix...")
-
-        if self._use_auxiliary_closure_basis:
-            aux = self._auxiliary_closure_matrices
-            return asarray(self._project_aux_square_operator_to_state(aux.inertia_matrix))
-        
-        B2 = self.b_field.magnitude**2
-        factor = B2 * self.inverse_radial_field
-        
-        if self.is_cs:
-            # Native CS collocation form.
-            return xp.diag(mu0 * factor)
-
-        # SH/grid-transform path: build multiplication operator directly from
-        # projection/evaluation matrices in coefficient space.
-        # For constant factors this yields a scalar-identity (up to quadrature
-        # precision), which is the expected inertia behavior.
-        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
-        P = np.asarray(to_dense(self.projection_matrix))
-        factor_vec = np.asarray(to_numpy(factor)).reshape(-1)
-        if factor_vec.size != G.shape[0]:
-            raise ValueError(
-                "Inertia factor/grid size mismatch: "
-                f"factor={factor_vec.shape}, G={G.shape}."
-            )
-        M_factor = P @ (factor_vec[:, None] * G)
-        return mu0 * asarray(M_factor)
-
-    @cached_property
-    def inertia_matrix_alpha(self) -> np.ndarray:
+    def mass_dtalpha(self) -> np.ndarray:
         """Construct alpha-space inertia matrix.
 
-        For unknown ``dt_alpha`` (with ``dt_jr = Br * dt_alpha``), the inertia
+        For unknown ``dt_alpha`` (with ``dt_jr = B0r * dt_alpha``), the inertia
         block is:
-            ``C_alpha = mu0 * <Y, |B0|^2 Y>``.
-        This avoids explicit ``1/Br`` factors in the solved physics operator.
+            ``C_alpha = mu0 * <Y, |B0s|^2 Y>``.
+        This avoids explicit ``1/B0r`` factors in the solved physics operator.
         """
         logger.info("Building Toroidal Alpha-Space Inertia Matrix...")
 
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices
-            return asarray(self._project_aux_square_operator_to_state(aux.inertia_matrix_alpha))
+            return asarray(self._project_aux_square_operator_to_state(aux.mass_dtalpha))
 
         B2 = self.b_field.magnitude**2
-        factor = np.asarray(to_numpy(B2)).reshape(-1)
+        Br2 = self.b_field.vec.r**2
+        factor = np.asarray(to_numpy(B2 - Br2)).reshape(-1)
 
         if self.is_cs:
             return asarray(np.diag(mu0 * factor))
@@ -680,131 +525,22 @@ class ToroidalSystemMatrices:
                 f"factor={factor.shape}, G={G.shape}."
             )
         M_factor = P @ (factor[:, None] * G)
+        M_factor = 0.5 * (M_factor + M_factor.T)
         return mu0 * asarray(M_factor)
 
     @cached_property
-    def dtjr_radial_closure_operator(self) -> np.ndarray:
-        """Construct the dt_jr radial-closure operator.
-
-        Maps ``dt_jr`` to the radial-derivative closure term in the toroidal
-        physics operator.
-
-        Decomposition:
-        - ``br_divergence_scale_term``: ``(d_r Br / Br) * f``
-        - ``br_weighted_horizontal_advection_term``: ``-(1/R) * (1/Br) * (B_s · grad f)``
-        - ``inv_br_gradient_correction_term``: ``-(1/R) * (B_s · grad(1/Br)) * f``
-        """
-        logger.info("Building dt_jr radial-closure operator...")
-
-        if self._use_auxiliary_closure_basis:
-            aux = self._auxiliary_closure_matrices
-            return asarray(self._project_aux_square_operator_to_state(aux.dtjr_radial_closure_operator))
-
-        if self.is_cs:
-            inv_Rb = 1.0 / self.RI
-            br_grid = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-            btheta_grid = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-            bphi_grid = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-            inv_br_grid = np.asarray(to_numpy(self.inverse_radial_field)).reshape(-1)
-
-            # Horizontal advection of the state variable uses the configured
-            # primary derivative basis.
-            D_th_h, D_ph_h, _ = self.cs_grid_derivative_operators
-            # Radial-closure coefficients can use a dedicated derivative basis
-            # (defaults to the same primary basis).
-            D_th_r, D_ph_r, _ = self.cs_radial_derivative_operators
-
-            # div_Omega(B_s) = d/dtheta B_theta + cot(theta) B_theta + d/dphi B_phi
-            theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
-            cot_th = 1.0 / np.tan(theta_rad)
-            horizontal_field_divergence = (D_th_r @ btheta_grid) + cot_th * btheta_grid + (D_ph_r @ bphi_grid)
-
-            radial_field_radial_derivative = -inv_Rb * (2.0 * br_grid + horizontal_field_divergence)
-            inv_br_gradient_theta = D_th_r @ inv_br_grid
-            inv_br_gradient_phi = D_ph_r @ inv_br_grid
-
-            inv_br_gradient_correction_factor = -inv_Rb * (
-                btheta_grid * inv_br_gradient_theta + bphi_grid * inv_br_gradient_phi
-            )
-            inv_br_advection_scale = -inv_Rb * inv_br_grid
-
-            horizontal_B_dot_grad_operator = (
-                np.diag(btheta_grid) @ D_th_h
-            ) + (np.diag(bphi_grid) @ D_ph_h)
-
-            dtjr_closure_grid_operator = (
-                np.diag(radial_field_radial_derivative * inv_br_grid)
-                + np.diag(inv_br_gradient_correction_factor)
-                + (np.diag(inv_br_advection_scale) @ horizontal_B_dot_grad_operator)
-            )
-            return np.asarray(dtjr_closure_grid_operator)
-
-        # SH implementation
-        inv_Rb = 1.0 / self.RI
-        br_grid = to_numpy(self.b_field.vec.r).flatten()
-        btheta_grid = to_numpy(self.b_field.vec.theta).flatten()
-        bphi_grid = to_numpy(self.b_field.vec.phi).flatten()
-
-        scalar_projection_matrix = to_dense(self.projection_matrix)
-        scalar_evaluation_matrix = to_dense(self.basis.get_evaluation_matrix(self.grid))
-        gradient_theta_operator = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
-        gradient_phi_operator = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
-
-        btheta_coeffs = scalar_projection_matrix @ btheta_grid
-        bphi_coeffs = scalar_projection_matrix @ bphi_grid
-
-        theta_rad = np.deg2rad(to_numpy(self.grid.theta)).flatten()
-        cot_th = 1.0 / np.tan(theta_rad)
-        horizontal_field_divergence = (
-            gradient_theta_operator @ btheta_coeffs
-        ) + cot_th * btheta_grid + (gradient_phi_operator @ bphi_coeffs)
-
-        radial_field_radial_derivative = -inv_Rb * (2.0 * br_grid + horizontal_field_divergence)
-        inv_br_grid = to_numpy(self.inverse_radial_field).flatten()
-
-        inv_br_coeffs = self.basis.from_grid_values(inv_br_grid, self.grid, "scalar")
-        inv_br_gradient_theta = gradient_theta_operator @ inv_br_coeffs
-        inv_br_gradient_phi = gradient_phi_operator @ inv_br_coeffs
-
-        br_divergence_scale_term = (
-            radial_field_radial_derivative * inv_br_grid
-        )[:, None] * scalar_evaluation_matrix
-
-        inv_br_gradient_correction_factor = -inv_Rb * (
-            btheta_grid * inv_br_gradient_theta + bphi_grid * inv_br_gradient_phi
-        )
-        inv_br_gradient_correction_term = (
-            inv_br_gradient_correction_factor
-        )[:, None] * scalar_evaluation_matrix
-
-        inv_br_advection_scale = -inv_Rb * inv_br_grid
-        br_weighted_horizontal_advection_term = inv_br_advection_scale[:, None] * (
-            btheta_grid[:, None] * gradient_theta_operator
-            + bphi_grid[:, None] * gradient_phi_operator
-        )
-
-        dtjr_closure_grid_operator = (
-            br_divergence_scale_term
-            + br_weighted_horizontal_advection_term
-            + inv_br_gradient_correction_term
-        )
-
-        # Project grid-operator back to coefficient space.
-        return asarray(scalar_projection_matrix @ dtjr_closure_grid_operator)
-
-    @cached_property
-    def dtalpha_radial_closure_operator(self) -> np.ndarray:
+    def radial_closure_dtalpha(self) -> np.ndarray:
         """Construct radial-closure map from ``dt_alpha`` to ``d_r(dt_jr)``.
 
-        Using ``dt_jr = Br * dt_alpha`` and
-            ``d_r(dt_jr) = (d_r Br) * dt_alpha - (1/R) * (B_s · grad(dt_alpha))``.
+        Using ``dt_jr = B0r * dt_alpha`` and
+            ``d_r(dt_jr) = (d_r B0r) * dt_alpha - (1/R) * (B_s · grad(dt_alpha))``.
         """
         logger.info("Building dt_alpha radial-closure operator...")
 
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices
             return asarray(
-                self._project_aux_square_operator_to_state(aux.dtalpha_radial_closure_operator)
+                self._project_aux_square_operator_to_state(aux.radial_closure_dtalpha)
             )
 
         inv_Rb = 1.0 / self.RI
@@ -865,10 +601,10 @@ class ToroidalSystemMatrices:
         return asarray(scalar_projection_matrix @ dtalpha_closure_grid_operator)
 
     @cached_property
-    def E_to_dtjr_forcing_matrix(self) -> np.ndarray:
+    def toroidal_forcing_from_E_operator(self) -> np.ndarray:
         """Build matrix mapping E coefficients to dt_jr forcing.
 
-        Since ``compute_dtjr_forcing_from_E`` is linear in ``E_coeffs``, we can
+        Since ``compute_toroidal_forcing_from_E`` is linear in ``E_coeffs``, we can
         represent it as:
             forcing = E_to_dtjr_forcing @ E_coeffs.flatten()
 
@@ -879,20 +615,20 @@ class ToroidalSystemMatrices:
         """
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices
-            F_aux = np.asarray(aux.E_to_dtjr_forcing_matrix)
+            F_aux = np.asarray(aux.toroidal_forcing_from_E_operator)
             return asarray(
                 self._toroidal_closure_projector.project_vector_forcing_operator_to_state(F_aux)
             )
 
         if self.is_cs:
-            return asarray(self._build_cs_E_to_dtjr_forcing_matrix())
+            return asarray(self._build_cs_toroidal_forcing_from_E_operator())
 
         if (not self.is_cs) and (getattr(self.basis, "kind", "") == "SH"):
-            return asarray(self._build_sh_E_to_dtjr_forcing_matrix())
+            return asarray(self._build_sh_toroidal_forcing_from_E_operator())
 
         N = self.basis.index_length
         # E_coeffs has shape (2, N) - [poloidal, toroidal] potentials
-        # Build matrix by applying compute_dtjr_forcing_from_E to each basis vector.
+        # Build matrix by applying compute_toroidal_forcing_from_E to each basis vector.
         
         E_to_dtjr_forcing = np.zeros((N, 2 * N))
         
@@ -903,140 +639,150 @@ class ToroidalSystemMatrices:
             E_i = e_i.reshape(2, N)
             
             # Apply the linear map
-            forcing_i = self.compute_dtjr_forcing_from_E(E_i)
+            forcing_i = self.compute_toroidal_forcing_from_E(E_i)
             E_to_dtjr_forcing[:, i] = to_numpy(forcing_i)
         
         return asarray(E_to_dtjr_forcing)
 
-    @cached_property
-    def E_to_er_rhs_matrix(self) -> np.ndarray:
-        """Return grid map ``E_coeffs_flat -> rhs_Er = -(B_s . E_s)``."""
-        N = self.basis.index_length
-        G_vec = np.asarray(to_dense(self.basis.get_vector_basis_matrix(self.grid)))
-        if G_vec.ndim != 4 or G_vec.shape[0] != 2 or G_vec.shape[2] != 2 or G_vec.shape[3] != N:
-            raise ValueError(
-                "Unexpected vector basis shape for E->Er RHS map: "
-                f"{G_vec.shape}, expected (2, N_grid, 2, {N})."
-            )
-        V_th = np.hstack([G_vec[0, :, 0, :], G_vec[0, :, 1, :]])
-        V_ph = np.hstack([G_vec[1, :, 0, :], G_vec[1, :, 1, :]])
-        Bth = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        Bph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-        if Bth.size != V_th.shape[0] or Bph.size != V_ph.shape[0]:
-            raise ValueError("Grid field sizes are inconsistent in E->Er RHS map assembly.")
-        return asarray(-((Bth[:, None] * V_th) + (Bph[:, None] * V_ph)))
+    def _normalize_tangential_grid_vector(
+        self,
+        value: Any,
+        *,
+        name: str,
+    ) -> np.ndarray:
+        """Return tangential grid vector with canonical shape ``(2, n_grid)``."""
+        n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
+        if isinstance(value, (tuple, list)):
+            if len(value) != 2:
+                raise ValueError(f"{name} must have two components (theta, phi).")
+            comp_th = np.asarray(to_numpy(value[0])).reshape(-1)
+            comp_ph = np.asarray(to_numpy(value[1])).reshape(-1)
+            arr = np.vstack([comp_th, comp_ph])
+        else:
+            arr = np.asarray(to_numpy(value))
+            if arr.ndim == 1:
+                if arr.size == 2 * n_grid:
+                    arr = arr.reshape(2, n_grid)
+                else:
+                    raise ValueError(
+                        f"{name} 1D input must have size 2*n_grid={2*n_grid}, got {arr.size}."
+                    )
+            elif arr.ndim == 2:
+                if arr.shape == (2, n_grid):
+                    pass
+                elif arr.shape == (n_grid, 2):
+                    arr = arr.T
+                else:
+                    raise ValueError(
+                        f"{name} must have shape (2, n_grid) or (n_grid, 2), got {arr.shape}."
+                    )
+            else:
+                raise ValueError(f"{name} must be tuple/list or 2D array, got ndim={arr.ndim}.")
 
-    @cached_property
-    def Er_grid_to_dtjr_forcing_matrix(self) -> np.ndarray:
-        """Return grid map ``E_r(grid) -> dt_jr forcing(coeffs)``.
+        if arr.shape != (2, n_grid):
+            raise ValueError(f"{name} normalized shape mismatch: got {arr.shape}, expected (2, {n_grid}).")
+        return np.asarray(arr, dtype=float)
 
-        This isolates the ``E_r``-dependent subset of the toroidal forcing
-        assembly. It enables joint ``(dt_alpha, E_r)`` least-squares solves
-        without double-counting terms already embedded in ``L_alpha``.
+    def _build_u_known_forcing_operator(self) -> np.ndarray:
+        """Build dense map ``[u, dr_u]_grid -> forcing_dtjr_coeffs``.
+
+        Returns a matrix ``K_u`` with shape ``(N_coeff, 4*N_grid)`` such that
+            ``forcing_u = K_u @ [u_theta, u_phi, dr_u_theta, dr_u_phi]``.
         """
-        if self._use_auxiliary_closure_basis:
-            aux = self._auxiliary_closure_matrices
-            K_aux = np.asarray(aux.Er_grid_to_dtjr_forcing_matrix)
-            c2s = np.asarray(self._toroidal_closure_projector.closure_to_state_scalar_map)
-            return asarray(c2s @ K_aux)
+        B0r = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
+        theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
+        sin_th = np.sin(theta_rad)
+        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
+        cot_th = np.cos(theta_rad) / sin_th_safe
+        inv_Rb = 1.0 / float(self.RI)
 
-        Rb = float(self.RI)
-        inv_Rb = 1.0 / Rb
-        inv_Rb2 = 1.0 / (Rb**2)
-
-        P = np.asarray(to_dense(self.projection_matrix))
-        Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-        Bth = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        Bph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
+        n_grid = int(theta_rad.size)
+        if B0r.size != n_grid or B0th.size != n_grid or B0ph.size != n_grid:
+            raise ValueError(
+                "Grid field sizes are inconsistent in u-known forcing map assembly: "
+                f"B0r={B0r.size}, B0th={B0th.size}, B0ph={B0ph.size}, n_grid={n_grid}."
+            )
 
         if self.is_cs:
-            D_th_r, D_ph_r, L_grid_r = self.cs_radial_derivative_operators
-            D_th_r = np.asarray(D_th_r)
-            D_ph_r = np.asarray(D_ph_r)
-            L_grid_r = np.asarray(L_grid_r)
-            n_grid = int(D_th_r.shape[0])
-            if (
-                Br.size != n_grid
-                or Bth.size != n_grid
-                or Bph.size != n_grid
-                or L_grid_r.shape[0] != n_grid
-            ):
-                raise ValueError("Grid field sizes are inconsistent in CS Er forcing map assembly.")
-
-            S_from_Er = (
-                (Br[:, None] * (inv_Rb + inv_Rb2)) * L_grid_r
-                + (2.0 * inv_Rb2 * Bth[:, None]) * D_th_r
-                + (2.0 * inv_Rb2 * Bph[:, None]) * D_ph_r
-            )
-            return asarray(P @ S_from_Er)
-
-        if getattr(self.basis, "kind", "") == "SH":
-            G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
+            D_th, D_ph, _ = self.cs_forcing_derivative_operators
+            D_th = np.asarray(D_th, dtype=float)
+            D_ph = np.asarray(D_ph, dtype=float)
+            div_u_theta = D_th + np.diag(cot_th)
+            div_u_phi = D_ph
+        else:
+            P = np.asarray(to_dense(self.projection_matrix), dtype=float)
             G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
             G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
-            l_arr = np.asarray(to_numpy(self.basis.n)).reshape(-1)
-            ll1 = l_arr * (l_arr + 1.0)
-            P_Er = P
-            dEr_th_op = G_th @ P_Er
-            dEr_ph_op = G_ph @ P_Er
-            lap_Er_op = G @ ((-ll1)[:, None] * P_Er)
-            S_from_Er = (
-                (Br[:, None] * (inv_Rb + inv_Rb2)) * lap_Er_op
-                + (2.0 * inv_Rb2 * Bth[:, None]) * dEr_th_op
-                + (2.0 * inv_Rb2 * Bph[:, None]) * dEr_ph_op
-            )
-            return asarray(P @ S_from_Er)
+            div_u_theta = (G_th @ P) + np.diag(cot_th)
+            div_u_phi = G_ph @ P
 
-        raise NotImplementedError(
-            "Er_grid_to_dtjr_forcing_matrix is not implemented for basis "
-            f"{getattr(self.basis, 'kind', type(self.basis).__name__)}."
-        )
+        # S_u = (B0r/Rb) div(u) + B0th*(-u_th/Rb - dr_u_th) + B0ph*(-u_ph/Rb - dr_u_ph)
+        br_div_scale = np.diag(B0r * inv_Rb)
+        s_u_th = (br_div_scale @ div_u_theta) + np.diag(-inv_Rb * B0th)
+        s_u_ph = (br_div_scale @ div_u_phi) + np.diag(-inv_Rb * B0ph)
+        s_dr_u_th = np.diag(-B0th)
+        s_dr_u_ph = np.diag(-B0ph)
+        s_op = np.hstack([s_u_th, s_u_ph, s_dr_u_th, s_dr_u_ph])
 
-    def compute_forcing_vector_split(
+        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
+        return asarray(P @ s_op)
+
+    @cached_property
+    def u_known_forcing_operator(self) -> np.ndarray:
+        """Dense map ``[u, dr_u]_grid -> forcing_dtjr_coeffs``."""
+        return self._build_u_known_forcing_operator()
+
+    def _compute_u_known_forcing_coeffs(
         self,
-        E_coeffs: np.ndarray,
-        dt_jr_driver_coeffs: Optional[np.ndarray] = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return split toroidal forcing ``(rhs_no_er, er_rhs_grid)``.
+        *,
+        u_known_grid: Any,
+        dr_u_known_grid: Any,
+    ) -> np.ndarray:
+        """Project ``u``-known forcing contribution to coefficient space.
 
-        The full coefficient-space physics RHS is represented as
-            ``rhs = rhs_no_er + K_er @ e_r``,
-        where ``e_r`` is constrained by the ideal-closure relation
-            ``Br * e_r = er_rhs_grid``.
-
-        ``rhs_no_er`` already includes any driver subtraction ``-L * dt_jr_driver``.
+        Implements:
+            S_u = (B0r/Rb) div_Omega(u)
+                  + B0th * (-(1/Rb) u_th - dr_u_th)
+                  + B0ph * (-(1/Rb) u_ph - dr_u_ph)
+            K_u = P @ S_u
         """
-        E_flat = np.asarray(E_coeffs).reshape(-1)
-        forcing_total = np.asarray(to_numpy(self.compute_dtjr_forcing_from_E(E_coeffs))).reshape(-1)
-        er_rhs_grid = np.asarray(to_numpy(self.E_to_er_rhs_matrix @ E_flat)).reshape(-1)
-        er_grid_particular = np.asarray(to_numpy(self.er_rhs_to_grid_operator @ er_rhs_grid)).reshape(-1)
-        forcing_er_particular = np.asarray(
-            to_numpy(self.Er_grid_to_dtjr_forcing_matrix @ er_grid_particular)
-        ).reshape(-1)
+        u_known = self._normalize_tangential_grid_vector(u_known_grid, name="u_known_grid")
+        dr_u_known = self._normalize_tangential_grid_vector(dr_u_known_grid, name="dr_u_known_grid")
+        n_grid = u_known.shape[1]
+        forcing_op = np.asarray(to_numpy(self.u_known_forcing_operator))
+        if forcing_op.shape[1] != 4 * n_grid:
+            raise ValueError(
+                "u-known forcing operator width mismatch: "
+                f"K_u={forcing_op.shape}, n_grid={n_grid}."
+            )
+        stacked = np.concatenate(
+            [
+                np.asarray(u_known[0]).reshape(-1),
+                np.asarray(u_known[1]).reshape(-1),
+                np.asarray(dr_u_known[0]).reshape(-1),
+                np.asarray(dr_u_known[1]).reshape(-1),
+            ],
+            axis=0,
+        )
+        return asarray(forcing_op @ stacked)
 
-        rhs_no_er = forcing_total - forcing_er_particular
-        if dt_jr_driver_coeffs is not None:
-            dtjr_operator = np.asarray(to_numpy(self.dtjr_physics_operator))
-            rhs_no_er = rhs_no_er - dtjr_operator @ np.asarray(to_numpy(dt_jr_driver_coeffs)).reshape(-1)
+    def _build_sh_toroidal_forcing_from_E_operator(self) -> np.ndarray:
+        """Build SH toroidal forcing map ``E_coeffs -> forcing_dtjr``.
 
-        return asarray(rhs_no_er), asarray(er_rhs_grid)
-
-    def _build_sh_E_to_dtjr_forcing_matrix(self) -> np.ndarray:
-        """Build analytic SH forcing map ``E_coeffs -> forcing_dtjr``.
-
-        This path keeps the derivative chain linear in coefficient space as far
-        as possible (notably for ``div(E)`` / ``grad(div(E))``), and only uses
-        grid projection where field products require it.
+        Uses the Er-free one-sided curlcurl projection:
+            c = curl_Omega(E_S)
+            S = (1/R^2) * [ B_theta * D_phi(c) - B_phi * D_theta(c) ]
+            K = P @ S
+        with ``D_phi = (1/sin(theta)) d/dphi``.
         """
         N = self.basis.index_length
-
-        # Scalar basis matrices on the simulation grid.
-        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
+        P = np.asarray(to_dense(self.projection_matrix))
         G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
         G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
-        P = np.asarray(to_dense(self.projection_matrix))
 
-        # Vector basis tensor: (2, N_grid, 2, N_coeff).
+        # Vector basis tensor: (component, grid, potential_type, coeff)
         G_vec = np.asarray(to_dense(self.basis.get_vector_basis_matrix(self.grid)))
         if G_vec.ndim != 4 or G_vec.shape[0] != 2 or G_vec.shape[2] != 2 or G_vec.shape[3] != N:
             raise ValueError(
@@ -1049,99 +795,44 @@ class ToroidalSystemMatrices:
         V_th = np.hstack([G_vec[0, :, 0, :], G_vec[0, :, 1, :]])  # (N_grid, 2N)
         V_ph = np.hstack([G_vec[1, :, 0, :], G_vec[1, :, 1, :]])  # (N_grid, 2N)
 
-        # Geometry and metric factors on grid.
-        Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-        Bth = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        Bph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
         theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
         sin_th = np.sin(theta_rad)
         sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
         cot_th = np.cos(theta_rad) / sin_th_safe
-        inv_sin2 = 1.0 / (sin_th_safe**2)
-
-        if (
-            Br.size != n_grid
-            or Bth.size != n_grid
-            or Bph.size != n_grid
-            or cot_th.size != n_grid
-            or inv_sin2.size != n_grid
-        ):
+        if B0th.size != n_grid or B0ph.size != n_grid or cot_th.size != n_grid:
             raise ValueError("Grid field sizes are inconsistent in SH forcing map assembly.")
 
-        # SH scalar Laplacian factor at r=1: Delta_Omega Y = -l(l+1) Y.
-        l_arr = np.asarray(to_numpy(self.basis.n)).reshape(-1)
-        ll1 = l_arr * (l_arr + 1.0)
+        # c = curl_Omega(E_S) = d_theta E_phi + cot(theta) E_phi - d_phi E_theta
+        dEth_ph_op = G_ph @ (P @ V_th)
+        dEph_th_op = G_th @ (P @ V_ph)
+        curlE_op = dEph_th_op + (cot_th[:, None] * V_ph) - dEth_ph_op
 
-        # Helper projections for component derivatives / Laplacians.
-        P_V_th = P @ V_th  # (N, 2N)
-        P_V_ph = P @ V_ph  # (N, 2N)
-        dEth_ph_op = G_ph @ P_V_th
-        dEph_ph_op = G_ph @ P_V_ph
-        lap_Eth_op = G @ ((-ll1)[:, None] * P_V_th)
-        lap_Eph_op = G @ ((-ll1)[:, None] * P_V_ph)
+        dth_curlE_op = G_th @ (P @ curlE_op)
+        dph_curlE_op = G_ph @ (P @ curlE_op)
 
-        # Solve Br * Er = -(B_theta E_theta + B_phi E_phi) in weak form.
-        rhs_Er_op = -((Bth[:, None] * V_th) + (Bph[:, None] * V_ph))
-        Er_op = np.asarray(to_numpy(self.er_rhs_to_grid_operator)) @ rhs_Er_op
-        P_Er = P @ Er_op
-        dEr_th_op = G_th @ P_Er
-        dEr_ph_op = G_ph @ P_Er
-        lap_Er_op = G @ ((-ll1)[:, None] * P_Er)
-
-        # Exact SH divergence in coefficient space, then evaluate gradients on grid.
-        div_coeff_op = np.hstack([np.diag(ll1), np.zeros((N, N), dtype=float)])  # (N, 2N)
-        div_E_op = G @ div_coeff_op
-        grad_div_E_th_op = G_th @ div_coeff_op
-        grad_div_E_ph_op = G_ph @ div_coeff_op
-
-        # Vector Laplacian components (same formulas as the grid path).
-        vec_lap_Eth_op = lap_Eth_op - (inv_sin2[:, None] * V_th) - (2.0 * cot_th[:, None] * dEph_ph_op)
-        vec_lap_Eph_op = lap_Eph_op - (inv_sin2[:, None] * V_ph) + (2.0 * cot_th[:, None] * dEth_ph_op)
-
-        # Assemble S_known operator: S = S_op @ E_coeffs_flat.
-        Rb = float(self.RI)
-        inv_Rb = 1.0 / Rb
-        inv_Rb2 = 1.0 / (Rb**2)
-
-        radial_field_coupling_op = Br[:, None] * (
-            inv_Rb * div_E_op + (inv_Rb + inv_Rb2) * lap_Er_op
+        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
+        S_op = inv_Rb2 * (
+            (B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op)
         )
-        tangential_bracket_theta_op = inv_Rb2 * (
-            2.0 * dEr_th_op + grad_div_E_th_op - 2.0 * V_th - vec_lap_Eth_op
-        )
-        tangential_bracket_phi_op = inv_Rb2 * (
-            2.0 * dEr_ph_op + grad_div_E_ph_op - 2.0 * V_ph - vec_lap_Eph_op
-        )
-        tangential_field_coupling_op = (
-            Bth[:, None] * tangential_bracket_theta_op
-            + Bph[:, None] * tangential_bracket_phi_op
-        )
-        S_op = radial_field_coupling_op + tangential_field_coupling_op
-
-        # Project back to scalar coefficients.
         return asarray(P @ S_op)
 
-    def _build_cs_E_to_dtjr_forcing_matrix(self) -> np.ndarray:
-        """Build analytic CS forcing map ``E_coeffs -> forcing_dtjr``.
+    def _build_cs_toroidal_forcing_from_E_operator(self) -> np.ndarray:
+        """Build CS toroidal forcing map ``E_coeffs -> forcing_dtjr``.
 
-        This mirrors ``compute_dtjr_forcing_from_E`` algebra in one direct
-        linear assembly pass, avoiding per-column basis probing.
+        Uses the same Er-free one-sided curlcurl projection as the SH path:
+            c = curl_Omega(E_S)
+            S = (1/R^2) * [ B_theta * D_phi(c) - B_phi * D_theta(c) ]
+            K = P @ S
+        where CS ``D_phi`` already includes ``1/sin(theta)`` scaling.
         """
         N = self.basis.index_length
 
-        # Horizontal derivatives/laplacian use the configured forcing
-        # derivative basis.
-        D_th_h, D_ph_h, L_grid_h = self.cs_forcing_derivative_operators
+        # Horizontal derivatives use the configured forcing derivative basis.
+        D_th_h, D_ph_h, _ = self.cs_forcing_derivative_operators
         D_th_h = np.asarray(D_th_h)
         D_ph_h = np.asarray(D_ph_h)
-        L_grid_h = np.asarray(L_grid_h)
-        # Radial-closure derivatives (Er and related closures) may use an
-        # explicit radial derivative basis on the same grid.
-        D_th_r, D_ph_r, L_grid_r = self.cs_radial_derivative_operators
-        D_th_r = np.asarray(D_th_r)
-        D_ph_r = np.asarray(D_ph_r)
-        L_grid_r = np.asarray(L_grid_r)
         P = np.asarray(to_dense(self.projection_matrix))
 
         # Vector basis tensor: (2, N_grid, 2, N_coeff).
@@ -1157,74 +848,37 @@ class ToroidalSystemMatrices:
         V_th = np.hstack([G_vec[0, :, 0, :], G_vec[0, :, 1, :]])  # (N_grid, 2N)
         V_ph = np.hstack([G_vec[1, :, 0, :], G_vec[1, :, 1, :]])  # (N_grid, 2N)
 
-        # Geometry and metric factors on grid.
-        Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-        Bth = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        Bph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
         theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
         sin_th = np.sin(theta_rad)
         sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
         cot_th = np.cos(theta_rad) / sin_th_safe
-        inv_sin2 = 1.0 / (sin_th_safe**2)
-
-        if (
-            Br.size != n_grid
-            or Bth.size != n_grid
-            or Bph.size != n_grid
-            or cot_th.size != n_grid
-            or inv_sin2.size != n_grid
-        ):
+        if B0th.size != n_grid or B0ph.size != n_grid or cot_th.size != n_grid:
             raise ValueError("Grid field sizes are inconsistent in CS forcing map assembly.")
 
-        # Solve Br * Er = -(B_theta E_theta + B_phi E_phi) in weak form.
-        rhs_Er_op = -((Bth[:, None] * V_th) + (Bph[:, None] * V_ph))
-        Er_op = np.asarray(to_numpy(self.er_rhs_to_grid_operator)) @ rhs_Er_op
-
-        # Derivative / Laplacian chain.
-        # - Er-related operators are radial-closure terms.
-        # - E_s horizontal operators remain CS-native.
-        dEr_th_op = D_th_r @ Er_op
-        dEr_ph_op = D_ph_r @ Er_op
-        lap_Er_op = L_grid_r @ Er_op
-
-        dEth_th_op = D_th_h @ V_th
+        # c = curl_Omega(E_S) = d_theta E_phi + cot(theta) E_phi - d_phi E_theta
         dEth_ph_op = D_ph_h @ V_th
-        dEph_ph_op = D_ph_h @ V_ph
-        lap_Eth_op = L_grid_h @ V_th
-        lap_Eph_op = L_grid_h @ V_ph
+        dEph_th_op = D_th_h @ V_ph
+        curlE_op = dEph_th_op + (cot_th[:, None] * V_ph) - dEth_ph_op
 
-        # D_ph_h already carries 1/sin(theta) scaling on CS basis.
-        div_E_s_op = dEth_th_op + (cot_th[:, None] * V_th) + dEph_ph_op
-        grad_div_E_th_op = D_th_h @ div_E_s_op
-        grad_div_E_ph_op = D_ph_h @ div_E_s_op
+        dth_curlE_op = D_th_h @ curlE_op
+        dph_curlE_op = D_ph_h @ curlE_op
 
-        vec_lap_Eth_op = lap_Eth_op - (inv_sin2[:, None] * V_th) - (2.0 * cot_th[:, None] * dEph_ph_op)
-        vec_lap_Eph_op = lap_Eph_op - (inv_sin2[:, None] * V_ph) + (2.0 * cot_th[:, None] * dEth_ph_op)
-
-        # Assemble S_known operator: S = S_op @ E_coeffs_flat.
-        Rb = float(self.RI)
-        inv_Rb = 1.0 / Rb
-        inv_Rb2 = 1.0 / (Rb**2)
-
-        radial_field_coupling_op = Br[:, None] * (
-            inv_Rb * div_E_s_op + (inv_Rb + inv_Rb2) * lap_Er_op
+        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
+        S_op = inv_Rb2 * (
+            (B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op)
         )
-        tangential_bracket_theta_op = inv_Rb2 * (
-            2.0 * dEr_th_op + grad_div_E_th_op - 2.0 * V_th - vec_lap_Eth_op
-        )
-        tangential_bracket_phi_op = inv_Rb2 * (
-            2.0 * dEr_ph_op + grad_div_E_ph_op - 2.0 * V_ph - vec_lap_Eph_op
-        )
-        tangential_field_coupling_op = (
-            Bth[:, None] * tangential_bracket_theta_op
-            + Bph[:, None] * tangential_bracket_phi_op
-        )
-        S_op = radial_field_coupling_op + tangential_field_coupling_op
-
         return asarray(P @ S_op)
 
-    def compute_dtjr_forcing_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
+    def compute_toroidal_forcing_from_E(
+        self,
+        E_coeffs: np.ndarray,
+        *,
+        u_known_grid: Optional[Any] = None,
+        dr_u_known_grid: Optional[Any] = None,
+        allow_missing_dr_u_known: bool = False,
+    ) -> np.ndarray:
         """Compute dt_jr forcing from known E-field coefficients.
 
         Computes:
@@ -1232,135 +886,125 @@ class ToroidalSystemMatrices:
         where ``S_known`` is derived from Faraday and Gauss identities after
         eliminating radial derivatives of ``E``.
 
+        Optional additive known-term support:
+            ``K_total = K_E + K_u``
+        where ``K_u`` uses ``u_known_grid`` and ``dr_u_known_grid`` as
+        externally provided one-sided closure inputs.
+
+        Parameters
+        ----------
+        E_coeffs : np.ndarray
+            Tangential electric-field potential coefficients.
+        u_known_grid : optional
+            Known tangential ``u`` on the grid (theta/phi components), as
+            ``(u_theta, u_phi)`` or array shape ``(2, n_grid)``.
+        dr_u_known_grid : optional
+            One-sided radial derivative of ``u_known_grid`` with matching shape.
+        allow_missing_dr_u_known : bool, optional
+            If ``True`` and ``u_known_grid`` is provided without
+            ``dr_u_known_grid``, use ``dr_u_known = 0``.
+
         Notes
         -----
         The sign convention is inherited from the basis projection operator.
         In this code path we apply the basis projection directly:
             ``K = P @ S_known``.
         """
+        if u_known_grid is None and dr_u_known_grid is not None:
+            raise ValueError(
+                "dr_u_known_grid was provided without u_known_grid. "
+                "Provide both, or neither."
+            )
+        if u_known_grid is not None and dr_u_known_grid is None:
+            if not allow_missing_dr_u_known:
+                raise ValueError(
+                    "u_known_grid was provided without dr_u_known_grid. "
+                    "Provide dr_u_known_grid explicitly, or set "
+                    "allow_missing_dr_u_known=True to assume dr_u_known=0."
+                )
+            n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
+            dr_u_known_grid = np.zeros((2, n_grid), dtype=float)
+
+        forcing_u = None
+        if u_known_grid is not None:
+            forcing_u = np.asarray(
+                to_numpy(
+                    self._compute_u_known_forcing_coeffs(
+                        u_known_grid=u_known_grid,
+                        dr_u_known_grid=dr_u_known_grid,
+                    )
+                )
+            ).reshape(-1)
+
         if self.is_cs:
             E_flat = np.asarray(E_coeffs).reshape(-1)
-            return asarray(self.E_to_dtjr_forcing_matrix @ E_flat)
+            forcing_e = np.asarray(to_numpy(self.toroidal_forcing_from_E_operator @ E_flat)).reshape(-1)
+            if forcing_u is not None:
+                forcing_e = forcing_e + forcing_u
+            return asarray(forcing_e)
 
         if (not self.is_cs) and (getattr(self.basis, "kind", "") == "SH"):
             E_flat = np.asarray(E_coeffs).reshape(-1)
-            return asarray(self.E_to_dtjr_forcing_matrix @ E_flat)
+            forcing_e = np.asarray(to_numpy(self.toroidal_forcing_from_E_operator @ E_flat)).reshape(-1)
+            if forcing_u is not None:
+                forcing_e = forcing_e + forcing_u
+            return asarray(forcing_e)
 
-        # 1. Setup constants
-        Rb = self.RI
-        inv_Rb = 1.0 / Rb
-        inv_Rb2 = 1.0 / (Rb**2)
-        
-        # 2. Get evaluation and projection matrices (Cached)
-        G = to_dense(self.basis.get_evaluation_matrix(self.grid))
+        # Generic fallback (non-SH/non-CS): apply the same Er-free forcing
+        # formula used in the specialized builders.
+        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
+
+        # 1. Get evaluation and projection matrices (Cached)
         G_th = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
         G_ph = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
         P = to_dense(self.projection_matrix)
 
-        # 3. Evaluate E_S and Er on grid
+        # 2. Evaluate E_S on grid
         # E_coeffs contains [Poloidal, Toroidal] potentials
         Eth_grid, Eph_grid = self.basis.evaluate(E_coeffs, self.grid, vector_type="tangential")
-        
-        # Solve Br * Er = -(B_s . E_s) in weak form.
-        Br = to_numpy(self.b_field.vec.r)
-        Bth = to_numpy(self.b_field.vec.theta)
-        Bph = to_numpy(self.b_field.vec.phi)
-        rhs_Er = -(Bth * Eth_grid + Bph * Eph_grid)
-        Er_grid = np.asarray(to_numpy(self.er_rhs_to_grid_operator)) @ np.asarray(rhs_Er).reshape(-1)
-        
-        # 4. Helpers for grid derivatives via spectral projection
+
+        B0th = to_numpy(self.b_field.vec.theta)
+        B0ph = to_numpy(self.b_field.vec.phi)
+
+        # 3. Helpers for grid derivatives via spectral projection
         def get_derivs(f_val):
             c = P @ f_val
             return G_th @ c, G_ph @ c
 
-        def get_laplacian(f_val):
-            c = P @ f_val
-            # SH laplacian factor -l(l+1)
-            l_arr = to_numpy(self.basis.n).flatten()
-            c_lap = -l_arr * (l_arr + 1.0) * c
-            return G @ c_lap
-
-        # 5. Compute differentiated terms on grid
-        dEr_th, dEr_ph = get_derivs(Er_grid)
-        lap_Er = get_laplacian(Er_grid)
-        
-        dEth_th, dEth_ph = get_derivs(Eth_grid)
-        dEph_th, dEph_ph = get_derivs(Eph_grid)
-        
-        # div_Omega E_S = d/dth E_th + cot(th) E_th + (1/sin th) d/dph E_ph
+        # 4. Compute unit-sphere curl and its derivatives on grid
+        _, dEth_ph = get_derivs(Eth_grid)
+        dEph_th, _ = get_derivs(Eph_grid)
         theta_rad = np.deg2rad(to_numpy(self.grid.theta)).flatten()
-        cot_th = 1.0 / np.tan(theta_rad)
-        # Note: G_ph already includes 1/sin(theta) factor for SHBasis
-        div_E_S = dEth_th + cot_th * Eth_grid + dEph_ph
-        
-        # gradient of div_Omega E_S
-        grad_div_E_th, grad_div_E_ph = get_derivs(div_E_S)
-        
-        # Vector Laplacian components (Angular part)
-        # Delta_Omega E_S = [ lap E_th - E_th/sin^2 - 2 cot/sin dE_ph/dph , ... ]
-        inv_sin2 = 1.0 / (np.sin(theta_rad)**2)
-        # 2 cot/sin dE_ph/dph = 2 cot * (G_ph @ c_Eph) = 2 cot * dEph_ph
-        vec_lap_Eth = get_laplacian(Eth_grid) - inv_sin2 * Eth_grid - 2.0 * cot_th * dEph_ph
-        vec_lap_Eph = get_laplacian(Eph_grid) - inv_sin2 * Eph_grid + 2.0 * cot_th * dEth_ph
+        sin_th = np.sin(theta_rad)
+        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
+        cot_th = np.cos(theta_rad) / sin_th_safe
+        curlE = dEph_th + cot_th * Eph_grid - dEth_ph
+        dcurl_th, dcurl_ph = get_derivs(curlE)
 
-        # 6. Assemble S_known scalar field
-        # S_known = Br [ 1/Rb div_E_S + (1/Rb + 1/Rb^2) lap_Er ] + B_s · bracket
-        radial_field_coupling_term = Br * (
-            inv_Rb * div_E_S + (inv_Rb + inv_Rb2) * lap_Er
-        )
-
-        tangential_bracket_theta = inv_Rb2 * (
-            2.0 * dEr_th + grad_div_E_th - 2.0 * Eth_grid - vec_lap_Eth
-        )
-        tangential_bracket_phi = inv_Rb2 * (
-            2.0 * dEr_ph + grad_div_E_ph - 2.0 * Eph_grid - vec_lap_Eph
-        )
-        tangential_field_coupling_term = (
-            Bth * tangential_bracket_theta + Bph * tangential_bracket_phi
-        )
-
-        S_known = radial_field_coupling_term + tangential_field_coupling_term
-        
-        # 7. Project forcing scalar field to basis coefficients.
-        #
-        # Use the basis projection operator directly so both SH and CS follow the
-        # same coefficient convention:
-        #   K = P @ S_known
-        #
-        # For SH with exact quadrature this is equivalent to the integral form.
-        # For CS nodal bases this avoids an extra area-weight scaling that can
-        # otherwise suppress forcing as resolution increases.
-        K = P @ S_known
-        
-        return asarray(K)
+        S_known = inv_Rb2 * (B0th * dcurl_ph - B0ph * dcurl_th)
+        forcing_e = np.asarray(to_numpy(P @ S_known)).reshape(-1)
+        if forcing_u is not None:
+            forcing_e = forcing_e + forcing_u
+        return asarray(forcing_e)
 
     @cached_property
-    def advection_matrices(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Construct Advection Matrices M0 and M1.
-        
-        M0_lm,l'm' = Integrate[ Y_lm * (B0s . grad Y_l'm') * (2 mu0 / (l'(l'+1))) ]
-        M1_lm,l'm' = Integrate[ Y_lm * (B0s . grad Y_l'm') * (-mu0 Rb / (l'(l'+1))) ]
-        
-        Both share the integral structure:
-           Int = Integrate[ Y_lm * (B0s . grad Y_l'm') ]
-        
-        And then scaling depends on column index l'.
-        """
-        logger.info("Building Advection Matrices M0 and M1...")
+    def fieldline_mapping_dtjr_blocks(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Construct mapping blocks ``(mapping_dtjr, mapping_dr_dtjr)``."""
+        logger.info("Building dt_jr mapping blocks...")
 
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices
-            M0_aux, M1_aux = aux.advection_matrices
-            M0 = self._project_aux_square_operator_to_state(np.asarray(M0_aux))
-            M1 = self._project_aux_square_operator_to_state(np.asarray(M1_aux))
-            return asarray(M0), asarray(M1)
+            mapping_aux, mapping_dr_aux = aux.fieldline_mapping_dtjr_blocks
+            mapping_dtjr = self._project_aux_square_operator_to_state(np.asarray(mapping_aux))
+            mapping_dr_dtjr = self._project_aux_square_operator_to_state(np.asarray(mapping_dr_aux))
+            return asarray(mapping_dtjr), asarray(mapping_dr_dtjr)
         
         if self.is_cs:
             # CS Implementation:
-            # M0 = 2 mu0 * (Laplacian^-1) @ advection_matrix
-            # M1 = -mu0 Rb * (Laplacian^-1) @ advection_matrix
+            # mapping_dtjr    = -2 mu0  * (Laplacian^-1) @ mapping_matrix
+            # mapping_dr_dtjr = -mu0 Rb * (Laplacian^-1) @ mapping_matrix
 
-            # 1. Build advection operator directly in collocation form.
+            # 1. Build horizontal mapping operator directly in collocation form.
             D_th, D_ph, _ = self.cs_grid_derivative_operators
             
             B_theta = to_numpy(self.b_field.vec.theta).flatten()
@@ -1370,7 +1014,7 @@ class ToroidalSystemMatrices:
                 np.diag(B_theta) @ D_th
             ) + (np.diag(B_phi) @ D_ph)
 
-            horizontal_advection_matrix = horizontal_B_dot_grad_operator
+            horizontal_mapping_matrix = horizontal_B_dot_grad_operator
             
             # 2. Gauge-fixed Laplacian inverse (mean-zero subspace)
             L_inv = self.cs_laplacian_inverse
@@ -1379,13 +1023,13 @@ class ToroidalSystemMatrices:
             Inv_Lap_Op = -L_inv
             
             # Combine
-            scale_M0 = 2.0 * mu0
-            scale_M1 = -mu0 * self.RI
-            
-            M0 = scale_M0 * (Inv_Lap_Op @ horizontal_advection_matrix)
-            M1 = scale_M1 * (Inv_Lap_Op @ horizontal_advection_matrix)
-            
-            return asarray(M0), asarray(M1)
+            mapping_scale_dtjr = -2.0 * mu0
+            mapping_scale_dr_dtjr = -mu0 * self.RI
+
+            mapping_dtjr = mapping_scale_dtjr * (Inv_Lap_Op @ horizontal_mapping_matrix)
+            mapping_dr_dtjr = mapping_scale_dr_dtjr * (Inv_Lap_Op @ horizontal_mapping_matrix)
+
+            return asarray(mapping_dtjr), asarray(mapping_dr_dtjr)
 
         # --- SH Implementation ---
         # 1. Build Advection Matrix A: A_ij = Int[ Y_i * (B0s . grad Y_j) ]
@@ -1394,8 +1038,6 @@ class ToroidalSystemMatrices:
             raise RuntimeError("Grid weights required for stiffness matrix construction.")
             
         weights = self.grid.weights
-        W_diag = xp.diag(weights)
-        
         G = to_numpy(self.basis.get_evaluation_matrix(self.grid))
         G_th = to_numpy(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
         G_ph = to_numpy(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
@@ -1410,48 +1052,39 @@ class ToroidalSystemMatrices:
         # Integrate against Y_i
         # Matrix = G^T @ W @ horizontal_B_dot_grad_operator
         # Optimize: (G^T * w) @ horizontal_B_dot_grad_operator
-        weighted_horizontal_advection_matrix = (G.T * weights) @ horizontal_B_dot_grad_operator
+        weighted_horizontal_mapping_matrix = (G.T * weights) @ horizontal_B_dot_grad_operator
         
         # 2. Apply Column Scalings
         l_arr = to_numpy(self.basis.n).flatten()
-        ll1 = l_arr * (l_arr + 1.0)
+        laplacian_eigenvalues = l_arr * (l_arr + 1.0)
         # Avoid division by zero for l=0 (monopole has no stiffness/current)
-        ll1_inv = np.zeros_like(ll1)
-        ll1_inv[ll1 > 0] = 1.0 / ll1[ll1 > 0]
+        inverse_laplacian_eigenvalues = np.zeros_like(laplacian_eigenvalues)
+        mask_nonzero_modes = laplacian_eigenvalues > 0
+        inverse_laplacian_eigenvalues[mask_nonzero_modes] = 1.0 / laplacian_eigenvalues[mask_nonzero_modes]
         
-        scale_M0 = 2.0 * mu0 * ll1_inv
-        scale_M1 = -mu0 * self.RI * ll1_inv
-        
-        M0 = weighted_horizontal_advection_matrix * scale_M0[None, :]
-        M1 = weighted_horizontal_advection_matrix * scale_M1[None, :]
-        
-        return asarray(M0), asarray(M1)
+        mapping_scale_dtjr = -2.0 * mu0 * inverse_laplacian_eigenvalues
+        mapping_scale_dr_dtjr = -mu0 * self.RI * inverse_laplacian_eigenvalues
+
+        mapping_dtjr = weighted_horizontal_mapping_matrix * mapping_scale_dtjr[None, :]
+        mapping_dr_dtjr = weighted_horizontal_mapping_matrix * mapping_scale_dr_dtjr[None, :]
+
+        return asarray(mapping_dtjr), asarray(mapping_dr_dtjr)
 
     @cached_property
-    def dtjr_physics_operator(self) -> np.ndarray:
-        """Assemble the dt_jr physics operator ``L = C + M0 + M1 @ closure``."""
-        M0, M1 = self.advection_matrices
-        closure = to_numpy(self.dtjr_radial_closure_operator)
-        C = to_numpy(self.inertia_matrix)
-
-        coupling_from_closure = M1 @ closure
-        return asarray(C + M0 + coupling_from_closure)
-
-    @cached_property
-    def dtalpha_physics_operator(self) -> np.ndarray:
+    def dtalpha_operator(self) -> np.ndarray:
         """Assemble the alpha-space physics operator ``L_alpha``.
 
         Unknown is ``dt_alpha``. The assembled operator corresponds to:
-            ``(C_alpha + M0 @ T_alpha_to_jr + M1 @ D1_alpha) @ dt_alpha = K``.
+            ``(mass_dtalpha + mapping_dtjr @ T_alpha_to_jr + mapping_dr_dtjr @ D_r_alpha) @ dt_alpha = K``.
         """
-        M0, M1 = self.advection_matrices
-        C_alpha = np.asarray(to_numpy(self.inertia_matrix_alpha))
+        mapping_dtjr, mapping_dr_dtjr = self.fieldline_mapping_dtjr_blocks
+        mass_dtalpha = np.asarray(to_numpy(self.mass_dtalpha))
         alpha_to_jr = np.asarray(to_numpy(self.alpha_to_jr_coeff_operator))
-        closure_alpha = np.asarray(to_numpy(self.dtalpha_radial_closure_operator))
+        radial_closure_dtalpha = np.asarray(to_numpy(self.radial_closure_dtalpha))
 
-        coupling_from_jr = np.asarray(to_numpy(M0)) @ alpha_to_jr
-        coupling_from_closure = np.asarray(to_numpy(M1)) @ closure_alpha
-        return asarray(C_alpha + coupling_from_jr + coupling_from_closure)
+        mapping_from_jr = np.asarray(to_numpy(mapping_dtjr)) @ alpha_to_jr
+        mapping_from_closure = np.asarray(to_numpy(mapping_dr_dtjr)) @ radial_closure_dtalpha
+        return asarray(mass_dtalpha + mapping_from_jr + mapping_from_closure)
 
     @cached_property
     def _dtalpha_grid_residual_maps(self) -> tuple[np.ndarray, np.ndarray]:
@@ -1460,7 +1093,7 @@ class ToroidalSystemMatrices:
         Unknown ``x`` is ``dt_alpha`` in coefficient space, with
         ``A_grid = R_grid @ L_alpha``.
         """
-        L_alpha = np.asarray(to_numpy(self.dtalpha_physics_operator))
+        L_alpha = np.asarray(to_numpy(self.dtalpha_operator))
         R_grid = to_dense(self.basis.get_evaluation_matrix(self.grid))
         if scipy.sparse.issparse(R_grid):
             R_grid = R_grid.toarray()
@@ -1486,42 +1119,64 @@ class ToroidalSystemMatrices:
     def alpha_to_jr_coeff_operator(self) -> np.ndarray:
         """Coefficient-space map from ``alpha`` to ``jr``.
 
-        For ``alpha = jr / Br`` and static background field,
-            ``jr = Br * alpha`` pointwise on the grid.
+        For ``alpha = jr / B0r`` and static background field,
+            ``jr = B0r * alpha`` pointwise on the grid.
         In coefficient space this is assembled in weak form:
             ``T_alpha_to_jr = P @ diag(Br_grid) @ G``.
         """
         G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         P = np.asarray(to_dense(self.projection_matrix))
-        Br = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-        if Br.size != G.shape[0]:
+        B0r = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
+        if B0r.size != G.shape[0]:
             raise ValueError(
                 "alpha_to_jr assembly mismatch: "
-                f"Br={Br.shape}, G={G.shape}."
+                f"B0r={B0r.shape}, G={G.shape}."
             )
-        return asarray(P @ (Br[:, None] * G))
+        return asarray(P @ (B0r[:, None] * G))
 
     @cached_property
     def jr_to_alpha_coeff_operator(self) -> np.ndarray:
         """Coefficient-space map from ``jr`` to ``alpha``.
 
-        For ``Br * alpha = jr`` we use the same weak-form minimum-norm branch
-        selector as the ``E_r`` closure:
-            ``argmin_alpha ||W^(1/2)(Br*alpha - jr)||^2 + floor^2 ||W^(1/2)alpha||^2``.
-        The returned coefficient-space map composes the cached grid-``jr`` to
-        coefficient-``alpha`` map with the basis evaluation matrix for ``jr``.
+        For ``B0r * alpha = jr`` we use a weak-form minimum-norm branch selector:
+            ``argmin_alpha ||W^(1/2)(B0r*alpha - jr)||^2 + floor^2 ||W^(1/2)alpha||^2``.
+        The returned coefficient-space map is
+            ``T_jr_to_alpha = (H^+) @ (G^T W B0r) @ G``
+        where
+            ``H = G^T W (B0r^2 + floor^2) G``.
         """
-        br_solver = self._br_constraint_solver
-        G = np.asarray(br_solver.G)
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
         if G.ndim != 2:
             G = G.reshape(G.shape[0], -1)
-        T_grid_to_alpha = np.asarray(br_solver.rhs_to_coeff_operator)
-        if T_grid_to_alpha.ndim != 2 or T_grid_to_alpha.shape[1] != G.shape[0]:
+        n_grid = int(G.shape[0])
+
+        B0r = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
+        if B0r.size != n_grid:
             raise ValueError(
                 "jr_to_alpha assembly mismatch: "
-                f"T_grid_to_alpha={T_grid_to_alpha.shape}, G={G.shape}."
+                f"B0r={B0r.shape}, G={G.shape}."
             )
-        return asarray(T_grid_to_alpha @ G)
+
+        if hasattr(self.grid, "weights") and self.grid.weights is not None:
+            weights = np.asarray(to_numpy(self.grid.weights)).reshape(-1)
+            if weights.size != n_grid:
+                weights = np.ones(n_grid, dtype=float)
+        else:
+            weights = np.ones(n_grid, dtype=float)
+        weights = np.maximum(weights, 0.0)
+        if float(np.sum(weights)) <= 0.0:
+            weights = np.ones(n_grid, dtype=float)
+
+        floor = float(max(self.inverse_radial_field_floor, 0.0))
+        w_scale = weights * (B0r * B0r + floor * floor)
+        lhs = (G.T * w_scale) @ G
+        lhs = 0.5 * (lhs + lhs.T)
+        rcond = float(self._default_pinv_rcond(lhs.shape))
+        lhs_pinv = self._pinv_symmetric(lhs, rcond=rcond)
+
+        rhs_lift = G.T * (weights * B0r)
+        t_grid_to_alpha = lhs_pinv @ rhs_lift
+        return asarray(t_grid_to_alpha @ G)
 
     def _get_cs_psi_gauge_rows(self, n_coeff: int, use_pinning: bool) -> np.ndarray:
         """Return hard psi gauge rows for direct dpsi solves.
@@ -1551,126 +1206,7 @@ class ToroidalSystemMatrices:
             row = row / norm
         return row
 
-    # -------------------------------------------------------------------------
-    # Least-Squares Problem Construction (aligned with PoloidalSystemMatrices)
-    # -------------------------------------------------------------------------
-
-    def build_least_squares_problem(
-        self,
-        jr_map_operator: np.ndarray,
-        constraint_scaling: float = 1.0,
-        regularization_lambda: float = 0.0,
-        weighting: str = "none",
-    ) -> "LeastSquaresProblem":
-        """Build the least-squares problem for dt_jr (toroidal induction).
-
-        The problem structure is:
-            minimize || A @ dt_jr - b ||^2
-
-        Where A consists of:
-            1. Physics equation: L_dtjr @ dt_jr = forcing_dtjr
-            2. Apex current constraint: jr_map @ dt_jr = driver_rate
-            3. Tikhonov regularization (if lambda > 0)
-
-        This is analogous to PoloidalSystemMatrices.build_least_squares_problem().
-
-        Parameters
-        ----------
-        jr_map_operator : np.ndarray
-            Operator mapping jr coefficients to apex current (jr_map_sim).
-        constraint_scaling : float
-            Scaling factor for the apex current constraint (penalty weight).
-        regularization_lambda : float
-            Tikhonov regularization weight.
-        weighting : str
-            Weighting strategy for handling equatorial singularity (Br -> 0).
-            Options: "none", "linear" (sqrt|Br|), "quadratic" (|Br|).
-
-        Returns
-        -------
-        LeastSquaresProblem
-            The assembled least-squares problem.
-        """
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
-        from pynamit.math.linear_map import as_linear_map
-
-        operators = []
-        data_shapes = []
-        sqrt_weights = []
-
-        # 1. Physics equation: L_dtjr @ dt_jr = forcing_dtjr
-        op_L = as_linear_map(self.dtjr_physics_operator)
-        operators.append(op_L)
-        data_shapes.append((op_L.shape[0],))
-
-        # Calculate sqrt-weights for physics equation (Br-based weighting).
-        physics_weight = self._build_physics_sqrt_weight(op_L.shape[0], weighting)
-        sqrt_weights.append(physics_weight)
-
-        # 2. Apex current constraint (interhemispheric + driver matching)
-        op_constraint = as_linear_map(jr_map_operator)
-        op_constraint = op_constraint * constraint_scaling
-        operators.append(op_constraint)
-        data_shapes.append((op_constraint.shape[0],))
-        sqrt_weights.append(None)  # No weighting for constraint
-
-        # 3. Tikhonov regularization
-        reg_ops = []
-        reg_weights = []
-        if regularization_lambda > 0:
-            n = self.basis.index_length
-            identity_op = diagonal_linear_map(xp.ones(n))
-            reg_ops.append(identity_op)
-            reg_weights.append(regularization_lambda)
-
-        return LeastSquaresProblem(
-            A=operators,
-            solution_shape=self.basis.index_length,
-            data_shapes=data_shapes,
-            sqrt_weights=sqrt_weights,
-            regularization_matrices=reg_ops,
-            regularization_weights=reg_weights,
-        )
-
-    def compute_forcing_vector(
-        self,
-        E_coeffs: np.ndarray,
-        dt_jr_driver_coeffs: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Compute RHS for the physics equation term.
-
-        RHS = forcing - L_dtjr @ dt_jr_driver
-        
-        Where forcing is computed from E-field and L_dtjr @ dt_jr_driver accounts
-        for the known driver contribution.
-
-        This is analogous to PoloidalSystemMatrices.compute_rhs_from_jr().
-
-        Parameters
-        ----------
-        E_coeffs : np.ndarray
-            E-field coefficients for computing K.
-        dt_jr_driver_coeffs : np.ndarray, optional
-            Driver rate coefficients. If None, assumes zero driver.
-
-        Returns
-        -------
-        np.ndarray
-            RHS vector for the physics term.
-        """
-        # Compute forcing from E-field
-        forcing = self.compute_dtjr_forcing_from_E(E_coeffs)
-        forcing = to_numpy(forcing)
-
-        # Subtract driver contribution if present
-        if dt_jr_driver_coeffs is not None:
-            dtjr_operator = to_numpy(self.dtjr_physics_operator)
-            L_driver = dtjr_operator @ to_numpy(dt_jr_driver_coeffs)
-            forcing = forcing - L_driver
-
-        return asarray(forcing)
-
-    def _get_dtjr_problem_bundle(
+    def _get_toroidal_problem_bundle(
         self,
         weighting: str,
         regularization_lambda: float,
@@ -1684,14 +1220,14 @@ class ToroidalSystemMatrices:
             id(penalty_operator) if penalty_operator is not None else 0,
             float(penalty_scaling),
         )
-        cached = self._dtjr_problem_cache.get(cache_key)
+        cached = self._toroidal_problem_cache.get(cache_key)
         if cached is not None:
             return cached
 
         from pynamit.math.least_squares_problem import LeastSquaresProblem
         from pynamit.math.linear_map import as_linear_map, diagonal_linear_map
 
-        dtalpha_operator = np.asarray(to_numpy(self.dtalpha_physics_operator))
+        dtalpha_operator = np.asarray(to_numpy(self.dtalpha_operator))
         n_coeff = dtalpha_operator.shape[0]
         R_grid, A_grid = self._dtalpha_grid_residual_maps
         alpha_to_jr = np.asarray(to_numpy(self.alpha_to_jr_coeff_operator))
@@ -1732,10 +1268,10 @@ class ToroidalSystemMatrices:
             "n_coeff": int(n_coeff),
             "grid_rows": int(op_A_grid.shape[0]),
         }
-        self._dtjr_problem_cache[cache_key] = bundle
+        self._toroidal_problem_cache[cache_key] = bundle
         return bundle
 
-    def _resolve_dtjr_rcond(self, n_coeff: int, hinv_rtol: float) -> float:
+    def _resolve_toroidal_rcond(self, n_coeff: int, hinv_rtol: float) -> float:
         """Resolve pseudoinverse cutoff used by constrained elimination."""
         if hinv_rtol > 0:
             return max(float(hinv_rtol), 0.0)
@@ -1755,170 +1291,7 @@ class ToroidalSystemMatrices:
         rhs_2d = rhs_arr.reshape(rhs_arr.shape[0], -1)
         return R_grid @ rhs_2d
 
-    def _get_dpsi_problem_bundle(
-        self,
-        *,
-        m_imp_to_jr_operator: Any,
-        weighting: str,
-        regularization_lambda: float,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-    ) -> dict[str, Any]:
-        """Build/fetch weighted LS bundle for unknown ``dpsi/dt``.
-
-        Residual physics is kept in ``dt_alpha``-grid space:
-            ``A_grid_psi * dpsi_dt - R_grid * rhs_physics``.
-        """
-        cache_key = (
-            id(m_imp_to_jr_operator),
-            weighting,
-            float(regularization_lambda),
-            id(penalty_operator) if penalty_operator is not None else 0,
-            float(penalty_scaling),
-        )
-        cached = self._dpsi_problem_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
-        from pynamit.math.linear_map import as_linear_map
-
-        m_to_jr = np.asarray(to_dense(as_linear_map(m_imp_to_jr_operator)))
-        if m_to_jr.ndim != 2:
-            m_to_jr = m_to_jr.reshape(m_to_jr.shape[0], -1)
-
-        n_coeff = int(m_to_jr.shape[1])
-        if m_to_jr.shape[0] != n_coeff:
-            raise ValueError(
-                "m_imp_to_jr operator must be square in coefficient space for direct dpsi solve: "
-                f"shape={m_to_jr.shape}."
-            )
-
-        jr_to_alpha = np.asarray(to_numpy(self.jr_to_alpha_coeff_operator))
-        if jr_to_alpha.shape != (n_coeff, n_coeff):
-            raise ValueError(
-                "jr_to_alpha size mismatch in direct dpsi bundle: "
-                f"T={jr_to_alpha.shape}, n={n_coeff}."
-            )
-        psi_to_alpha = jr_to_alpha @ m_to_jr
-
-        R_grid, _ = self._dtalpha_grid_residual_maps
-        L_alpha = np.asarray(to_numpy(self.dtalpha_physics_operator))
-        A_grid_psi = np.asarray(R_grid) @ (L_alpha @ psi_to_alpha)
-
-        op_A_grid = as_linear_map(A_grid_psi)
-        physics_weight = self._build_physics_sqrt_weight(op_A_grid.shape[0], weighting)
-
-        operators = [op_A_grid]
-        data_shapes = [(op_A_grid.shape[0],)]
-        sqrt_weights = [physics_weight]
-
-        if penalty_operator is not None and penalty_scaling > 0:
-            op_penalty_base = as_linear_map(penalty_operator)
-            if int(op_penalty_base.shape[1]) != n_coeff:
-                raise ValueError(
-                    "Penalty operator width mismatch for direct dpsi solve: "
-                    f"penalty={op_penalty_base.shape}, n={n_coeff}."
-                )
-            op_penalty = (op_penalty_base @ as_linear_map(psi_to_alpha)) * float(
-                penalty_scaling
-            )
-            operators.append(op_penalty)
-            data_shapes.append((op_penalty.shape[0],))
-            sqrt_weights.append(None)
-
-        # Keep regularization in absolute dt_alpha units:
-        #   lambda * ||dt_alpha||^2 = lambda * ||T_psi_to_alpha dpsi||^2.
-        if regularization_lambda > 0:
-            op_reg = as_linear_map(psi_to_alpha) * float(
-                np.sqrt(max(regularization_lambda, 0.0))
-            )
-            operators.append(op_reg)
-            data_shapes.append((op_reg.shape[0],))
-            sqrt_weights.append(None)
-
-        problem = LeastSquaresProblem(
-            A=operators,
-            solution_shape=n_coeff,
-            data_shapes=data_shapes,
-            sqrt_weights=sqrt_weights,
-        )
-        bundle = {
-            "problem": problem,
-            "R_grid": np.asarray(R_grid),
-            "n_coeff": n_coeff,
-            "m_to_jr": np.asarray(m_to_jr),
-        }
-        self._dpsi_problem_cache[cache_key] = bundle
-        return bundle
-
-    def _solve_dpsi_problem(
-        self,
-        *,
-        rhs_physics_coeffs: np.ndarray,
-        m_imp_to_jr_operator: Any,
-        weighting: str,
-        regularization_lambda: float,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-        equality_operator: Any = None,
-        equality_rhs: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Solve weighted direct dpsi LS problem with optional exact equalities."""
-        from pynamit.math.least_squares_solver import LeastSquaresSolver
-
-        bundle = self._get_dpsi_problem_bundle(
-            m_imp_to_jr_operator=m_imp_to_jr_operator,
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        problem = bundle["problem"]
-        R_grid = np.asarray(bundle["R_grid"])
-        n_coeff = int(bundle["n_coeff"])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
-
-        rhs_grid = self._coeff_rhs_to_grid_rhs(R_grid, rhs_physics_coeffs)
-        rhs_grid_arr = np.asarray(rhs_grid)
-        if rhs_grid_arr.ndim == 1:
-            rhs_grid_arr = rhs_grid_arr.reshape(-1, 1)
-        n_scenarios = int(rhs_grid_arr.shape[1])
-        rhs_terms = [rhs_grid_arr]
-        for term_index in range(1, int(problem.num_data_terms)):
-            n_rows = int(problem.A[term_index].num_rows)
-            rhs_terms.append(np.zeros((n_rows, n_scenarios), dtype=rhs_grid_arr.dtype))
-
-        solver = LeastSquaresSolver(
-            solver=self.dtjr_solver,
-            tolerance=max(rcond, self.dtjr_tolerance),
-            preconditioner=self.dtjr_preconditioner,
-        )
-        preconditioner = None
-        preconditioner_type = self.dtjr_preconditioner
-        if preconditioner_type is None and self.dtjr_solver in ("cgls", "normal_eq"):
-            # Direct dpsi solves are often substantially stiffer than dt_jr solves.
-            # Use a deterministic Jacobi preconditioner by default for normal/CG.
-            preconditioner_type = "jacobi"
-        if equality_operator is None and preconditioner_type is not None:
-            preconditioner = solver.build_preconditioner(
-                problem=problem,
-                preconditioner_type=preconditioner_type,
-                num_scenarios=n_scenarios,
-                pinv_rcond=rcond,
-            )
-        sol = solver.solve(
-            problem,
-            rhs_terms,
-            preconditioner=preconditioner,
-            equality_operator=equality_operator,
-            equality_rhs=equality_rhs,
-            elimination_rcond=rcond,
-        )
-        return np.asarray(sol)
-
-    def _solve_dtjr_problem(
+    def _solve_toroidal_problem(
         self,
         rhs_physics_coeffs: np.ndarray,
         *,
@@ -1933,7 +1306,7 @@ class ToroidalSystemMatrices:
         """Solve weighted dt_jr LS problem with optional exact equalities."""
         from pynamit.math.least_squares_solver import LeastSquaresSolver
 
-        bundle = self._get_dtjr_problem_bundle(
+        bundle = self._get_toroidal_problem_bundle(
             weighting=weighting,
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
@@ -1942,7 +1315,7 @@ class ToroidalSystemMatrices:
         problem = bundle["problem"]
         R_grid = bundle["R_grid"]
         n_coeff = int(bundle["n_coeff"])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
+        rcond = self._resolve_toroidal_rcond(n_coeff, hinv_rtol)
 
         rhs_grid = self._coeff_rhs_to_grid_rhs(R_grid, rhs_physics_coeffs)
         rhs_grid_arr = np.asarray(rhs_grid)
@@ -1955,15 +1328,15 @@ class ToroidalSystemMatrices:
             rhs_terms.append(np.zeros((n_rows, n_scenarios), dtype=rhs_grid_arr.dtype))
 
         solver = LeastSquaresSolver(
-            solver=self.dtjr_solver,
-            tolerance=max(rcond, self.dtjr_tolerance),
-            preconditioner=self.dtjr_preconditioner,
+            solver=self.toroidal_solver,
+            tolerance=max(rcond, self.toroidal_tolerance),
+            preconditioner=self.toroidal_preconditioner,
         )
         preconditioner = None
-        if equality_operator is None and self.dtjr_preconditioner is not None:
+        if equality_operator is None and self.toroidal_preconditioner is not None:
             preconditioner = solver.build_preconditioner(
                 problem=problem,
-                preconditioner_type=self.dtjr_preconditioner,
+                preconditioner_type=self.toroidal_preconditioner,
                 num_scenarios=n_scenarios,
                 pinv_rcond=rcond,
             )
@@ -1987,7 +1360,7 @@ class ToroidalSystemMatrices:
         hinv_rtol: float = 0.0,
     ) -> np.ndarray:
         """Return cached dense map ``rhs_physics -> dt_jr`` (unconstrained)."""
-        bundle = self._get_dtjr_problem_bundle(
+        bundle = self._get_toroidal_problem_bundle(
             weighting=weighting,
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
@@ -1995,14 +1368,14 @@ class ToroidalSystemMatrices:
         )
         n_coeff = int(bundle["n_coeff"])
         alpha_to_jr = np.asarray(bundle["alpha_to_jr"])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
+        rcond = self._resolve_toroidal_rcond(n_coeff, hinv_rtol)
         key = (
             weighting,
             float(regularization_lambda),
             id(penalty_operator) if penalty_operator is not None else 0,
             float(penalty_scaling),
             float(rcond),
-            self._dtjr_solver_signature(),
+            self._toroidal_solver_signature(),
         )
         cached = self._dtjr_unconstrained_map_cache.get(key)
         if cached is not None:
@@ -2028,28 +1401,28 @@ class ToroidalSystemMatrices:
         hinv_rtol: float = 0.0,
     ) -> np.ndarray:
         """Return cached dense map ``rhs_physics -> dt_alpha`` (unconstrained)."""
-        bundle = self._get_dtjr_problem_bundle(
+        bundle = self._get_toroidal_problem_bundle(
             weighting=weighting,
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
             penalty_scaling=penalty_scaling,
         )
         n_coeff = int(bundle["n_coeff"])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
+        rcond = self._resolve_toroidal_rcond(n_coeff, hinv_rtol)
         key = (
             weighting,
             float(regularization_lambda),
             id(penalty_operator) if penalty_operator is not None else 0,
             float(penalty_scaling),
             float(rcond),
-            self._dtjr_solver_signature(),
+            self._toroidal_solver_signature(),
         )
         cached = self._dtalpha_unconstrained_map_cache.get(key)
         if cached is not None:
             return cached
         rhs_physics_basis = np.eye(n_coeff, dtype=float)
         alpha_map = np.asarray(
-            self._solve_dtjr_problem(
+            self._solve_toroidal_problem(
                 rhs_physics_coeffs=rhs_physics_basis,
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
@@ -2061,722 +1434,84 @@ class ToroidalSystemMatrices:
         self._dtalpha_unconstrained_map_cache[key] = alpha_map
         return alpha_map
 
-    def _get_constrained_dtjr_maps(
+    def _get_constrained_dtalpha_maps(
         self,
         *,
-        jr_map_operator: Any,
+        alpha_map_operator: Any,
         weighting: str,
         regularization_lambda: float,
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
         hinv_rtol: float = 0.0,
     ) -> dict[str, np.ndarray]:
-        """Return cached constrained maps for one-shot hard-constrained solves.
+        """Return cached constrained maps for direct ``dt_alpha`` constraints.
 
         Returns dense matrices:
-            ``M_phys_alpha``: physics RHS -> constrained homogeneous ``dt_alpha`` response
-            ``M_corr_alpha``: constraint RHS -> constrained inhomogeneous ``dt_alpha`` response
-            ``M_phys``: physics RHS -> constrained homogeneous response
-            ``M_corr``: constraint RHS -> constrained inhomogeneous response
-            ``C``: primary hard constraint operator used by RHS ``d``
+            ``M_phys_dtalpha``: physics RHS -> constrained homogeneous ``dt_alpha`` response
+            ``M_corr_dtalpha``: constraint RHS -> constrained inhomogeneous ``dt_alpha`` response
+            ``C_dtalpha``: hard-constraint operator in solve space
 
         The constrained solution is represented as:
-            x = M_phys @ rhs_physics + M_corr @ rhs_constraint
-        with hard equalities enforced on ``C x``.
+            ``dt_alpha = M_phys_dtalpha @ rhs_physics + M_corr_dtalpha @ rhs_constraint``
+        with hard equalities enforced on ``C_dtalpha @ dt_alpha``.
         """
-        C = np.asarray(to_dense(as_linear_map(jr_map_operator)))
-        if C.ndim != 2:
-            C = C.reshape(C.shape[0], -1)
-        n_coeff = int(C.shape[1])
-        alpha_to_jr = np.asarray(to_numpy(self.alpha_to_jr_coeff_operator))
-        if alpha_to_jr.shape != (n_coeff, n_coeff):
-            raise ValueError(
-                "alpha_to_jr size mismatch in constrained dt_jr maps: "
-                f"T={alpha_to_jr.shape}, n={n_coeff}."
-            )
-        m_constraints = int(C.shape[0])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
+        C_dtalpha = np.asarray(to_dense(as_linear_map(alpha_map_operator)))
+        if C_dtalpha.ndim != 2:
+            C_dtalpha = C_dtalpha.reshape(C_dtalpha.shape[0], -1)
+        n_coeff = int(C_dtalpha.shape[1])
+        m_constraints = int(C_dtalpha.shape[0])
+        rcond = self._resolve_toroidal_rcond(n_coeff, hinv_rtol)
         key = (
-            id(jr_map_operator),
+            id(alpha_map_operator),
             weighting,
             float(regularization_lambda),
             id(penalty_operator) if penalty_operator is not None else 0,
             float(penalty_scaling),
             float(rcond),
-            self._dtjr_solver_signature(),
+            self._toroidal_solver_signature(),
         )
-        cached = self._dtjr_constrained_maps_cache.get(key)
+        cached = self._dtalpha_constrained_maps_cache.get(key)
         if cached is not None:
             return cached
 
-        C_alpha = C @ alpha_to_jr
-
-        M_phys_alpha = np.asarray(
-            self._solve_dtjr_problem(
+        M_phys_dtalpha = np.asarray(
+            self._solve_toroidal_problem(
                 rhs_physics_coeffs=np.eye(n_coeff, dtype=float),
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,
                 penalty_scaling=penalty_scaling,
                 hinv_rtol=hinv_rtol,
-                equality_operator=C_alpha,
+                equality_operator=C_dtalpha,
                 equality_rhs=np.zeros(m_constraints, dtype=float),
             )
         ).reshape(n_coeff, n_coeff)
-        M_phys = alpha_to_jr @ M_phys_alpha
 
         if m_constraints > 0:
-            M_corr_alpha = np.asarray(
-                self._solve_dtjr_problem(
+            M_corr_dtalpha = np.asarray(
+                self._solve_toroidal_problem(
                     rhs_physics_coeffs=np.zeros((n_coeff, m_constraints), dtype=float),
                     weighting=weighting,
                     regularization_lambda=regularization_lambda,
                     penalty_operator=penalty_operator,
                     penalty_scaling=penalty_scaling,
                     hinv_rtol=hinv_rtol,
-                    equality_operator=C_alpha,
+                    equality_operator=C_dtalpha,
                     equality_rhs=np.eye(m_constraints, dtype=float),
                 )
             ).reshape(n_coeff, m_constraints)
-            M_corr = alpha_to_jr @ M_corr_alpha
         else:
-            M_corr_alpha = np.zeros((n_coeff, 0), dtype=float)
-            M_corr = np.zeros((n_coeff, 0), dtype=float)
+            M_corr_dtalpha = np.zeros((n_coeff, 0), dtype=float)
 
         maps = {
-            "C": C,
-            "C_alpha": C_alpha,
-            "M_phys_alpha": np.asarray(M_phys_alpha),
-            "M_corr_alpha": np.asarray(M_corr_alpha),
-            "M_phys": np.asarray(M_phys),
-            "M_corr": np.asarray(M_corr),
+            "C_dtalpha": C_dtalpha,
+            "M_phys_dtalpha": np.asarray(M_phys_dtalpha),
+            "M_corr_dtalpha": np.asarray(M_corr_dtalpha),
         }
-        self._dtjr_constrained_maps_cache[key] = maps
+        self._dtalpha_constrained_maps_cache[key] = maps
         return maps
 
-    def _get_unconstrained_dpsi_map_cached(
-        self,
-        *,
-        m_imp_to_jr_operator: Any,
-        weighting: str,
-        regularization_lambda: float,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
-    ) -> np.ndarray:
-        """Return cached dense map ``rhs_physics -> dpsi/dt`` (unconstrained)."""
-        bundle = self._get_dpsi_problem_bundle(
-            m_imp_to_jr_operator=m_imp_to_jr_operator,
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        n_coeff = int(bundle["n_coeff"])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
-        key = (
-            id(m_imp_to_jr_operator),
-            weighting,
-            float(regularization_lambda),
-            id(penalty_operator) if penalty_operator is not None else 0,
-            float(penalty_scaling),
-            float(rcond),
-            bool(use_pinning),
-            self._dtjr_solver_signature(),
-        )
-        cached = self._dpsi_unconstrained_map_cache.get(key)
-        if cached is not None:
-            return cached
-
-        gauge_rows = self._get_cs_psi_gauge_rows(n_coeff, use_pinning)
-        equality_operator = gauge_rows if gauge_rows.shape[0] > 0 else None
-        equality_rhs = np.zeros(gauge_rows.shape[0], dtype=float) if gauge_rows.shape[0] > 0 else None
-
-        rhs_physics_basis = np.eye(n_coeff, dtype=float)
-        dpsi_map = np.asarray(
-            self._solve_dpsi_problem(
-                rhs_physics_coeffs=rhs_physics_basis,
-                m_imp_to_jr_operator=m_imp_to_jr_operator,
-                weighting=weighting,
-                regularization_lambda=regularization_lambda,
-                penalty_operator=penalty_operator,
-                penalty_scaling=penalty_scaling,
-                hinv_rtol=hinv_rtol,
-                equality_operator=equality_operator,
-                equality_rhs=equality_rhs,
-            )
-        ).reshape(n_coeff, n_coeff)
-        self._dpsi_unconstrained_map_cache[key] = dpsi_map
-        return dpsi_map
-
-    def _get_joint_dtalpha_er_problem_bundle(
-        self,
-        *,
-        weighting: str,
-        regularization_lambda: float,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-    ) -> dict[str, Any]:
-        """Build/fetch joint LS bundle for unknowns ``[dt_alpha, E_r_coeff]``.
-
-        Physics residual is posed in the same weighted grid residual space as the
-        standard ``dt_alpha`` solve, while the ideal ``E_r`` closure is added as
-        explicit weighted rows in the same least-squares problem.
-        """
-        cache_key = (
-            weighting,
-            float(regularization_lambda),
-            id(penalty_operator) if penalty_operator is not None else 0,
-            float(penalty_scaling),
-        )
-        cached = self._dtalpha_er_joint_problem_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
-        from pynamit.math.linear_map import as_linear_map, diagonal_linear_map
-
-        dtjr_bundle = self._get_dtjr_problem_bundle(
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        R_grid = np.asarray(dtjr_bundle["R_grid"])
-        n_alpha = int(dtjr_bundle["n_coeff"])
-        A_grid = np.asarray(self._dtalpha_grid_residual_maps[1])
-        alpha_to_jr = np.asarray(dtjr_bundle["alpha_to_jr"])
-
-        er_solver = self._br_constraint_solver
-        G_er = np.asarray(er_solver.G)
-        n_er = int(G_er.shape[1])
-        n_grid = int(G_er.shape[0])
-        if R_grid.shape[0] != n_grid:
-            raise ValueError(
-                "Joint dtalpha/Er bundle grid-size mismatch: "
-                f"R_grid={R_grid.shape}, G_er={G_er.shape}."
-            )
-
-        K_er_grid = np.asarray(to_numpy(self.Er_grid_to_dtjr_forcing_matrix))
-        if K_er_grid.shape[1] != n_grid or K_er_grid.shape[0] != n_alpha:
-            raise ValueError(
-                "Er forcing map size mismatch in joint bundle: "
-                f"K_er_grid={K_er_grid.shape}, n_alpha={n_alpha}, n_grid={n_grid}."
-            )
-        K_er_coeff = K_er_grid @ G_er
-
-        # Physics residual rows (weighted by the usual toroidal weighting policy).
-        A_phys_joint = np.hstack([A_grid, -(R_grid @ K_er_coeff)])
-        op_phys = as_linear_map(A_phys_joint)
-        physics_weight = self._build_physics_sqrt_weight(op_phys.shape[0], weighting)
-
-        operators = [op_phys]
-        data_shapes = [(op_phys.shape[0],)]
-        sqrt_weights = [physics_weight]
-
-        # Weighted ideal-closure rows for E_r coefficients:
-        #   sqrt(w) * (diag(Br) G e - rhs) = 0
-        # plus weak regularization floor:
-        #   floor * sqrt(w) * (G e) = 0
-        sqrt_w = np.sqrt(np.maximum(np.asarray(er_solver.weights).reshape(-1), 0.0))
-        C_er_grid = np.asarray(er_solver.constraint_operator_grid)
-        A_er_closure = np.hstack(
-            [
-                np.zeros((n_grid, n_alpha), dtype=float),
-                sqrt_w[:, None] * C_er_grid,
-            ]
-        )
-        operators.append(as_linear_map(A_er_closure))
-        data_shapes.append((n_grid,))
-        sqrt_weights.append(None)
-
-        has_er_reg_row = float(er_solver.floor) > 0.0
-        if has_er_reg_row:
-            A_er_reg = np.hstack(
-                [
-                    np.zeros((n_grid, n_alpha), dtype=float),
-                    (float(er_solver.floor) * sqrt_w)[:, None] * G_er,
-                ]
-            )
-            operators.append(as_linear_map(A_er_reg))
-            data_shapes.append((n_grid,))
-            sqrt_weights.append(None)
-
-        # Optional penalty on dt_alpha only.
-        if penalty_operator is not None and penalty_scaling > 0:
-            P_dtalpha = np.asarray(to_dense(as_linear_map(penalty_operator)))
-            if P_dtalpha.ndim != 2:
-                P_dtalpha = P_dtalpha.reshape(P_dtalpha.shape[0], -1)
-            if P_dtalpha.shape[1] != n_alpha:
-                raise ValueError(
-                    "Penalty operator width mismatch in joint dtalpha/Er bundle: "
-                    f"penalty={P_dtalpha.shape}, n_alpha={n_alpha}."
-                )
-            A_penalty_joint = np.hstack(
-                [
-                    float(penalty_scaling) * P_dtalpha,
-                    np.zeros((P_dtalpha.shape[0], n_er), dtype=float),
-                ]
-            )
-            operators.append(as_linear_map(A_penalty_joint))
-            data_shapes.append((P_dtalpha.shape[0],))
-            sqrt_weights.append(None)
-
-        # Tikhonov on dt_alpha only, in absolute dt_alpha units.
-        if regularization_lambda > 0:
-            reg_scale = float(np.sqrt(max(regularization_lambda, 0.0)))
-            A_reg_joint = np.hstack(
-                [
-                    reg_scale * np.eye(n_alpha, dtype=float),
-                    np.zeros((n_alpha, n_er), dtype=float),
-                ]
-            )
-            operators.append(as_linear_map(A_reg_joint))
-            data_shapes.append((n_alpha,))
-            sqrt_weights.append(None)
-
-        problem = LeastSquaresProblem(
-            A=operators,
-            solution_shape=(n_alpha + n_er),
-            data_shapes=data_shapes,
-            sqrt_weights=sqrt_weights,
-        )
-
-        bundle = {
-            "problem": problem,
-            "R_grid": np.asarray(R_grid),
-            "alpha_to_jr": np.asarray(alpha_to_jr),
-            "n_alpha": int(n_alpha),
-            "n_er": int(n_er),
-            "sqrt_w_er": np.asarray(sqrt_w),
-            "K_er_coeff": np.asarray(K_er_coeff),
-            "has_er_reg_row": bool(has_er_reg_row),
-        }
-        self._dtalpha_er_joint_problem_cache[cache_key] = bundle
-        return bundle
-
-    def _solve_joint_dtalpha_er_problem(
-        self,
-        *,
-        rhs_physics_no_er_coeffs: np.ndarray,
-        er_rhs_grid: np.ndarray,
-        weighting: str,
-        regularization_lambda: float,
-        jr_map_operator: Any = None,
-        rhs_constraint: Optional[np.ndarray] = None,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Solve joint ``(dt_alpha, E_r_coeff)`` LS problem."""
-        from pynamit.math.least_squares_solver import LeastSquaresSolver
-
-        bundle = self._get_joint_dtalpha_er_problem_bundle(
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        problem = bundle["problem"]
-        R_grid = np.asarray(bundle["R_grid"])
-        n_alpha = int(bundle["n_alpha"])
-        n_er = int(bundle["n_er"])
-        sqrt_w_er = np.asarray(bundle["sqrt_w_er"]).reshape(-1)
-        has_er_reg_row = bool(bundle.get("has_er_reg_row", False))
-        n_joint = n_alpha + n_er
-        rcond = self._resolve_dtjr_rcond(n_joint, hinv_rtol)
-
-        rhs_phys_grid = self._coeff_rhs_to_grid_rhs(R_grid, rhs_physics_no_er_coeffs)
-        rhs_phys_grid = np.asarray(rhs_phys_grid).reshape(-1)
-        rhs_er = np.asarray(to_numpy(er_rhs_grid)).reshape(-1)
-        if rhs_er.size != sqrt_w_er.size:
-            raise ValueError(
-                "Joint dtalpha/Er RHS size mismatch: "
-                f"er_rhs={rhs_er.shape}, sqrt_w={sqrt_w_er.shape}."
-            )
-
-        rhs_terms = [rhs_phys_grid, sqrt_w_er * rhs_er]
-
-        # E_r regularization row RHS (if present) is zero.
-        if has_er_reg_row:
-            rhs_terms.append(np.zeros(rhs_er.size, dtype=float))
-
-        # Remaining rows (penalty / dtalpha regularization) also have zero RHS.
-        while len(rhs_terms) < int(problem.num_data_terms):
-            n_rows = int(problem.A[len(rhs_terms)].num_rows)
-            rhs_terms.append(np.zeros(n_rows, dtype=float))
-
-        equality_operator = None
-        equality_rhs = None
-        if jr_map_operator is not None:
-            C = np.asarray(to_dense(as_linear_map(jr_map_operator)))
-            if C.ndim != 2:
-                C = C.reshape(C.shape[0], -1)
-            alpha_to_jr = np.asarray(bundle["alpha_to_jr"])
-            C_alpha = C @ alpha_to_jr
-            C_joint = np.hstack([C_alpha, np.zeros((C_alpha.shape[0], n_er), dtype=float)])
-            equality_operator = C_joint
-            rhs_c = np.zeros(C_joint.shape[0], dtype=float) if rhs_constraint is None else np.asarray(
-                to_numpy(rhs_constraint)
-            ).reshape(-1)
-            if rhs_c.size != C_joint.shape[0]:
-                raise ValueError(
-                    "Joint dtalpha/Er constraint RHS mismatch: "
-                    f"rhs={rhs_c.shape}, C={C_joint.shape}."
-                )
-            equality_rhs = rhs_c
-
-        solver = LeastSquaresSolver(
-            solver=self.dtjr_solver,
-            tolerance=max(rcond, self.dtjr_tolerance),
-            preconditioner=self.dtjr_preconditioner,
-        )
-        preconditioner = None
-        if equality_operator is None and self.dtjr_preconditioner is not None:
-            # Joint problem supports preconditioners, but we keep this conservative:
-            # reuse the generic builder only when no equality elimination is used.
-            preconditioner = solver.build_preconditioner(
-                problem=problem,
-                preconditioner_type=self.dtjr_preconditioner,
-                num_scenarios=1,
-                pinv_rcond=rcond,
-            )
-
-        sol = np.asarray(
-            solver.solve(
-                problem,
-                rhs_terms,
-                preconditioner=preconditioner,
-                equality_operator=equality_operator,
-                equality_rhs=equality_rhs,
-                elimination_rcond=rcond,
-            )
-        ).reshape(-1)
-
-        if sol.size != n_joint:
-            raise RuntimeError(
-                "Joint dtalpha/Er solve returned unexpected solution size: "
-                f"{sol.shape} (expected {n_joint})."
-            )
-        return sol[:n_alpha], sol[n_alpha:]
-
-    def _get_joint_dtalpha_er_schur_bundle(
-        self,
-        *,
-        weighting: str,
-        regularization_lambda: float,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-    ) -> dict[str, Any]:
-        """Build/fetch Schur-ready dense blocks for joint ``(dt_alpha, E_r)`` solve."""
-        cache_key = (
-            weighting,
-            float(regularization_lambda),
-            id(penalty_operator) if penalty_operator is not None else 0,
-            float(penalty_scaling),
-        )
-        cached = self._dtalpha_er_schur_bundle_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        dtjr_bundle = self._get_dtjr_problem_bundle(
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        R_grid = np.asarray(dtjr_bundle["R_grid"], dtype=float)
-        alpha_to_jr = np.asarray(dtjr_bundle["alpha_to_jr"], dtype=float)
-        n_alpha = int(dtjr_bundle["n_coeff"])
-        A_phys = np.asarray(self._dtalpha_grid_residual_maps[1], dtype=float)
-
-        er_solver = self._br_constraint_solver
-        G_er = np.asarray(er_solver.G, dtype=float)
-        C_er = np.asarray(er_solver.constraint_operator_grid, dtype=float)
-        sqrt_w_er = np.sqrt(np.maximum(np.asarray(er_solver.weights, dtype=float).reshape(-1), 0.0))
-        n_grid = int(G_er.shape[0])
-        n_er = int(G_er.shape[1])
-        if A_phys.shape[0] != n_grid or R_grid.shape[0] != n_grid:
-            raise ValueError(
-                "Joint dtalpha/Er Schur bundle grid-size mismatch: "
-                f"A_phys={A_phys.shape}, R_grid={R_grid.shape}, G_er={G_er.shape}."
-            )
-
-        K_er_grid = np.asarray(to_numpy(self.Er_grid_to_dtjr_forcing_matrix), dtype=float)
-        if K_er_grid.shape != (n_alpha, n_grid):
-            raise ValueError(
-                "Er forcing map size mismatch in Schur bundle: "
-                f"K_er_grid={K_er_grid.shape}, expected ({n_alpha}, {n_grid})."
-            )
-        K_er_coeff = K_er_grid @ G_er
-        B_phys = np.asarray(R_grid @ K_er_coeff, dtype=float)
-
-        physics_sqrt_weight = self._build_physics_sqrt_weight(A_phys.shape[0], weighting)
-        if physics_sqrt_weight is None:
-            w_phys = np.ones(A_phys.shape[0], dtype=float)
-        else:
-            w_phys_arr = np.asarray(physics_sqrt_weight, dtype=float)
-            if w_phys_arr.ndim != 1 or w_phys_arr.size != A_phys.shape[0]:
-                raise NotImplementedError(
-                    "Schur-condensed joint dtalpha/Er solve currently requires "
-                    "grid-row diagonal physics weights."
-                )
-            w_phys = w_phys_arr * w_phys_arr
-
-        P_dtalpha = None
-        if penalty_operator is not None and penalty_scaling > 0.0:
-            P_dtalpha = np.asarray(to_dense(as_linear_map(penalty_operator)), dtype=float)
-            if P_dtalpha.ndim != 2:
-                P_dtalpha = P_dtalpha.reshape(P_dtalpha.shape[0], -1)
-            if P_dtalpha.shape[1] != n_alpha:
-                raise ValueError(
-                    "Penalty operator width mismatch in Schur bundle: "
-                    f"penalty={P_dtalpha.shape}, n_alpha={n_alpha}."
-                )
-            P_dtalpha = float(penalty_scaling) * P_dtalpha
-
-        reg_scale = float(np.sqrt(max(regularization_lambda, 0.0)))
-        floor_er = float(er_solver.floor)
-        has_er_reg = bool(floor_er > 0.0)
-
-        Aw = A_phys.T * w_phys
-        Bw = B_phys.T * w_phys
-        Haa = Aw @ A_phys
-        Hae = -(Aw @ B_phys)
-        Hea = Hae.T
-        Hee = Bw @ B_phys
-
-        if P_dtalpha is not None:
-            Haa = Haa + P_dtalpha.T @ P_dtalpha
-        if reg_scale > 0.0:
-            Haa = Haa + (reg_scale * reg_scale) * np.eye(n_alpha, dtype=float)
-
-        Cw = sqrt_w_er[:, None] * C_er
-        Hee = Hee + Cw.T @ Cw
-        if has_er_reg:
-            Rer = (floor_er * sqrt_w_er)[:, None] * G_er
-            Hee = Hee + Rer.T @ Rer
-        else:
-            Rer = None
-
-        bundle = {
-            "n_alpha": n_alpha,
-            "n_er": n_er,
-            "R_grid": R_grid,
-            "alpha_to_jr": alpha_to_jr,
-            "sqrt_w_er": np.asarray(sqrt_w_er, dtype=float),
-            "Haa": 0.5 * (np.asarray(Haa, dtype=float) + np.asarray(Haa, dtype=float).T),
-            "Hae": np.asarray(Hae, dtype=float),
-            "Hea": np.asarray(Hea, dtype=float),
-            "Hee": 0.5 * (np.asarray(Hee, dtype=float) + np.asarray(Hee, dtype=float).T),
-            "G_ba": np.asarray(Aw, dtype=float),
-            "G_be": np.asarray(-Bw, dtype=float),
-            "G_d": np.asarray(Cw.T, dtype=float),
-            "A_phys": np.asarray(A_phys, dtype=float),
-            "B_phys": np.asarray(B_phys, dtype=float),
-            "Cw": np.asarray(Cw, dtype=float),
-            "Rer": None if Rer is None else np.asarray(Rer, dtype=float),
-            "has_er_reg": has_er_reg,
-        }
-        self._dtalpha_er_schur_bundle_cache[cache_key] = bundle
-        return bundle
-
-    def _solve_joint_dtalpha_er_problem_schur(
-        self,
-        *,
-        rhs_physics_no_er_coeffs: np.ndarray,
-        er_rhs_grid: np.ndarray,
-        weighting: str,
-        regularization_lambda: float,
-        jr_map_operator: Any = None,
-        rhs_constraint: Optional[np.ndarray] = None,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Solve joint ``(dt_alpha, E_r_coeff)`` via Schur condensation."""
-        bundle = self._get_joint_dtalpha_er_schur_bundle(
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        n_alpha = int(bundle["n_alpha"])
-        n_er = int(bundle["n_er"])
-        R_grid = np.asarray(bundle["R_grid"])
-        sqrt_w_er = np.asarray(bundle["sqrt_w_er"]).reshape(-1)
-
-        rhs_phys_grid = self._coeff_rhs_to_grid_rhs(R_grid, rhs_physics_no_er_coeffs)
-        rhs_phys_grid = np.asarray(rhs_phys_grid, dtype=float).reshape(-1)
-        rhs_er = np.asarray(to_numpy(er_rhs_grid), dtype=float).reshape(-1)
-        if rhs_er.size != sqrt_w_er.size:
-            raise ValueError(
-                "Schur joint solve Er RHS size mismatch: "
-                f"rhs_er={rhs_er.shape}, sqrt_w_er={sqrt_w_er.shape}."
-            )
-        d_weighted = sqrt_w_er * rhs_er
-
-        rcond = self._resolve_dtjr_rcond(n_alpha + n_er, hinv_rtol)
-        rcond_eff = max(float(rcond), float(self.dtjr_tolerance))
-        Haa = np.asarray(bundle["Haa"])
-        Hae = np.asarray(bundle["Hae"])
-        Hea = np.asarray(bundle["Hea"])
-        Hee = np.asarray(bundle["Hee"])
-        G_ba = np.asarray(bundle["G_ba"])
-        G_be = np.asarray(bundle["G_be"])
-        G_d = np.asarray(bundle["G_d"])
-
-        Hee_pinv = self._pinv_symmetric(Hee, rcond=rcond_eff)
-        ga = G_ba @ rhs_phys_grid
-        ge = G_be @ rhs_phys_grid + G_d @ d_weighted
-
-        schur_left = Hae @ Hee_pinv
-        Hred = Haa - schur_left @ Hea
-        Hred = 0.5 * (Hred + Hred.T)
-        gred = ga - schur_left @ ge
-
-        if jr_map_operator is None:
-            dtalpha = self._pinv_symmetric(Hred, rcond=rcond_eff) @ gred
-        else:
-            C = np.asarray(to_dense(as_linear_map(jr_map_operator)), dtype=float)
-            if C.ndim != 2:
-                C = C.reshape(C.shape[0], -1)
-            alpha_to_jr = np.asarray(bundle["alpha_to_jr"])
-            C_alpha = C @ alpha_to_jr
-            rhs_c = (
-                np.zeros(C_alpha.shape[0], dtype=float)
-                if rhs_constraint is None
-                else np.asarray(to_numpy(rhs_constraint), dtype=float).reshape(-1)
-            )
-            if rhs_c.size != C_alpha.shape[0]:
-                raise ValueError(
-                    "Schur joint solve constraint RHS mismatch: "
-                    f"rhs={rhs_c.shape}, C_alpha={C_alpha.shape}."
-                )
-            if C_alpha.shape[0] == 0:
-                dtalpha = self._pinv_symmetric(Hred, rcond=rcond_eff) @ gred
-            else:
-                KKT = np.block(
-                    [
-                        [Hred, C_alpha.T],
-                        [C_alpha, np.zeros((C_alpha.shape[0], C_alpha.shape[0]), dtype=float)],
-                    ]
-                )
-                rhs_kkt = np.concatenate([gred, rhs_c])
-                # Use a symmetric pseudoinverse directly to select the same
-                # minimum-norm KKT branch as the explicit constrained LS path
-                # in near-singular cases.
-                sol = self._pinv_symmetric(KKT, rcond=rcond_eff) @ rhs_kkt
-                dtalpha = np.asarray(sol[:n_alpha], dtype=float)
-
-        er_coeffs = Hee_pinv @ (ge - Hea @ np.asarray(dtalpha).reshape(-1))
-        return np.asarray(dtalpha).reshape(-1), np.asarray(er_coeffs).reshape(-1)
-
-    def _get_constrained_dpsi_maps(
-        self,
-        *,
-        jr_map_operator: Any,
-        m_imp_to_jr_operator: Any,
-        weighting: str,
-        regularization_lambda: float,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
-    ) -> dict[str, np.ndarray]:
-        """Return cached constrained maps for one-shot hard-constrained dpsi solves.
-
-        Returns dense matrices:
-            ``M_phys``: physics RHS -> constrained homogeneous response
-            ``M_corr``: constraint RHS -> constrained inhomogeneous response
-            ``C``: primary hard-constraint rows on ``dt_jr``.
-        """
-        C = np.asarray(to_dense(as_linear_map(jr_map_operator)))
-        if C.ndim != 2:
-            C = C.reshape(C.shape[0], -1)
-        n_coeff = int(C.shape[1])
-        m_constraints = int(C.shape[0])
-        rcond = self._resolve_dtjr_rcond(n_coeff, hinv_rtol)
-        key = (
-            id(jr_map_operator),
-            id(m_imp_to_jr_operator),
-            weighting,
-            float(regularization_lambda),
-            id(penalty_operator) if penalty_operator is not None else 0,
-            float(penalty_scaling),
-            float(rcond),
-            bool(use_pinning),
-            self._dtjr_solver_signature(),
-        )
-        cached = self._dpsi_constrained_maps_cache.get(key)
-        if cached is not None:
-            return cached
-
-        bundle = self._get_dpsi_problem_bundle(
-            m_imp_to_jr_operator=m_imp_to_jr_operator,
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-        )
-        m_to_jr = np.asarray(bundle["m_to_jr"])
-        if m_to_jr.shape != (n_coeff, n_coeff):
-            raise ValueError(
-                "m_to_jr size mismatch in constrained dpsi maps: "
-                f"map={m_to_jr.shape}, n={n_coeff}."
-            )
-
-        C_psi = C @ m_to_jr
-        gauge_rows = self._get_cs_psi_gauge_rows(n_coeff, use_pinning)
-        if gauge_rows.shape[0] > 0:
-            C_eq = np.vstack([C_psi, gauge_rows])
-        else:
-            C_eq = C_psi
-        m_total = int(C_eq.shape[0])
-
-        M_phys = np.asarray(
-            self._solve_dpsi_problem(
-                rhs_physics_coeffs=np.eye(n_coeff, dtype=float),
-                m_imp_to_jr_operator=m_imp_to_jr_operator,
-                weighting=weighting,
-                regularization_lambda=regularization_lambda,
-                penalty_operator=penalty_operator,
-                penalty_scaling=penalty_scaling,
-                hinv_rtol=hinv_rtol,
-                equality_operator=C_eq,
-                equality_rhs=np.zeros(m_total, dtype=float),
-            )
-        ).reshape(n_coeff, n_coeff)
-
-        if m_constraints > 0:
-            rhs_eq = np.zeros((m_total, m_constraints), dtype=float)
-            rhs_eq[:m_constraints, :] = np.eye(m_constraints, dtype=float)
-            M_corr = np.asarray(
-                self._solve_dpsi_problem(
-                    rhs_physics_coeffs=np.zeros((n_coeff, m_constraints), dtype=float),
-                    m_imp_to_jr_operator=m_imp_to_jr_operator,
-                    weighting=weighting,
-                    regularization_lambda=regularization_lambda,
-                    penalty_operator=penalty_operator,
-                    penalty_scaling=penalty_scaling,
-                    hinv_rtol=hinv_rtol,
-                    equality_operator=C_eq,
-                    equality_rhs=rhs_eq,
-                )
-            ).reshape(n_coeff, m_constraints)
-        else:
-            M_corr = np.zeros((n_coeff, 0), dtype=float)
-
-        maps = {
-            "C": C,
-            "M_phys": np.asarray(M_phys),
-            "M_corr": np.asarray(M_corr),
-        }
-        self._dpsi_constrained_maps_cache[key] = maps
-        return maps
-
-    def solve_dt_jr_physics(
+    def solve_toroidal_dtjr_physics(
         self,
         rhs_physics: np.ndarray,
         weighting: str = "none",
@@ -2796,7 +1531,7 @@ class ToroidalSystemMatrices:
         rhs = np.asarray(to_numpy(rhs_physics)).reshape(-1)
         return asarray(M @ rhs)
 
-    def _build_unconstrained_dtjr_map(
+    def _build_unconstrained_toroidal_dtjr_map(
         self,
         weighting: str = "none",
         regularization_lambda: float = 0.0,
@@ -2815,53 +1550,11 @@ class ToroidalSystemMatrices:
             )
         )
 
-    def solve_dt_jr_superposed(
-        self,
-        rhs_physics: np.ndarray,
-        rhs_constraint: np.ndarray,
-        jr_map_operator: Any,
-        weighting: str = "none",
-        regularization_lambda: float = 0.0,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-    ) -> np.ndarray:
-        """Solve dt_jr in one-shot constrained form.
-
-        This is the primary runtime path:
-            minimize ||A x - rhs_physics|| subject to C x = rhs_constraint
-        """
-        if jr_map_operator is None:
-            # No hard constraints: return unconstrained physics solve.
-            return self.solve_dt_jr_physics(
-                rhs_physics=rhs_physics,
-                weighting=weighting,
-                regularization_lambda=regularization_lambda,
-                penalty_operator=penalty_operator,
-                penalty_scaling=penalty_scaling,
-                hinv_rtol=hinv_rtol,
-            )
-
-        maps = self._get_constrained_dtjr_maps(
-            jr_map_operator=jr_map_operator,
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-            hinv_rtol=hinv_rtol,
-        )
-        rhs_p = np.asarray(to_numpy(rhs_physics)).reshape(-1)
-        rhs_c = np.asarray(to_numpy(rhs_constraint)).reshape(-1)
-        x = maps["M_phys"] @ rhs_p
-        if maps["M_corr"].shape[1] > 0:
-            x = x + maps["M_corr"] @ rhs_c
-        return asarray(x.reshape(-1))
-
     def solve_dpsi_dt_superposed(
         self,
         rhs_physics: np.ndarray,
         rhs_constraint: np.ndarray,
-        jr_map_operator: Any,
+        constraint_operator: Any,
         m_imp_to_jr_operator: Any,
         weighting: str = "none",
         regularization_lambda: float = 0.0,
@@ -2882,7 +1575,7 @@ class ToroidalSystemMatrices:
             use_pinning=use_pinning,
         )
 
-        if jr_map_operator is None:
+        if constraint_operator is None:
             M_alpha = self._get_unconstrained_dtalpha_map_cached(
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
@@ -2893,8 +1586,8 @@ class ToroidalSystemMatrices:
             dtalpha = M_alpha @ rhs_p
             return asarray((dtalpha_to_dpsi @ dtalpha).reshape(-1))
 
-        maps = self._get_constrained_dtjr_maps(
-            jr_map_operator=jr_map_operator,
+        maps = self._get_constrained_dtalpha_maps(
+            alpha_map_operator=constraint_operator,
             weighting=weighting,
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
@@ -2902,54 +1595,10 @@ class ToroidalSystemMatrices:
             hinv_rtol=hinv_rtol,
         )
         rhs_c = np.asarray(to_numpy(rhs_constraint)).reshape(-1)
-        dtalpha = maps["M_phys_alpha"] @ rhs_p
-        if maps["M_corr_alpha"].shape[1] > 0:
-            dtalpha = dtalpha + maps["M_corr_alpha"] @ rhs_c
+        dtalpha = maps["M_phys_dtalpha"] @ rhs_p
+        if maps["M_corr_dtalpha"].shape[1] > 0:
+            dtalpha = dtalpha + maps["M_corr_dtalpha"] @ rhs_c
         dpsi = dtalpha_to_dpsi @ dtalpha
-        return asarray(dpsi.reshape(-1))
-
-    def solve_dpsi_dt_superposed_joint_er(
-        self,
-        *,
-        E_coeffs: np.ndarray,
-        dt_jr_driver_coeffs: Optional[np.ndarray],
-        rhs_constraint: np.ndarray,
-        jr_map_operator: Any,
-        m_imp_to_jr_operator: Any,
-        weighting: str = "none",
-        regularization_lambda: float = 0.0,
-        penalty_operator: Any = None,
-        penalty_scaling: float = 0.0,
-        hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
-    ) -> np.ndarray:
-        """Solve ``dpsi/dt`` via joint ``(dt_alpha, E_r)`` least-squares.
-
-        This keeps the standard ``dt_alpha`` physics operator ``L_alpha`` but
-        avoids pre-eliminating the ideal-closure ``E_r`` in the forcing. Instead
-        ``E_r`` is solved simultaneously with ``dt_alpha`` through explicit
-        weighted closure rows.
-        """
-        rhs_no_er, er_rhs_grid = self.compute_forcing_vector_split(
-            E_coeffs=E_coeffs,
-            dt_jr_driver_coeffs=dt_jr_driver_coeffs,
-        )
-        dtalpha, _er_coeffs = self._solve_joint_dtalpha_er_problem_schur(
-            rhs_physics_no_er_coeffs=rhs_no_er,
-            er_rhs_grid=er_rhs_grid,
-            weighting=weighting,
-            regularization_lambda=regularization_lambda,
-            jr_map_operator=jr_map_operator,
-            rhs_constraint=rhs_constraint,
-            penalty_operator=penalty_operator,
-            penalty_scaling=penalty_scaling,
-            hinv_rtol=hinv_rtol,
-        )
-        dtalpha_to_dpsi = self._get_dtalpha_to_dpsi_map_cached(
-            m_imp_to_jr_operator=m_imp_to_jr_operator,
-            use_pinning=use_pinning,
-        )
-        dpsi = dtalpha_to_dpsi @ np.asarray(dtalpha).reshape(-1)
         return asarray(dpsi.reshape(-1))
 
     # -------------------------------------------------------------------------
@@ -3156,11 +1805,10 @@ class ToroidalSystemMatrices:
         d_psi_dt = gauge_projector @ (jr_to_m_dense @ asarray(dt_jr))
         return asarray(d_psi_dt)
 
-    def build_psi_dynamics_matrix(
+    def build_dpsi_from_toroidal_forcing_matrix(
         self,
-        psi_to_E_operator: np.ndarray,
         m_imp_to_jr_operator: Any,
-        jr_map_operator: Any = None,
+        constraint_operator: Any = None,
         weighting: str = "none",
         regularization_lambda: float = 0.0,
         penalty_operator: Any = None,
@@ -3168,64 +1816,20 @@ class ToroidalSystemMatrices:
         hinv_rtol: float = 0.0,
         use_pinning: bool = False,
     ) -> np.ndarray:
-        """Build the linear operator: psi → d(psi)/dt.
+        """Build dense map ``forcing_dtjr -> dpsi/dt``.
 
-        This constructs the full chain:
-            psi → E_psi → K → dt_jr → d(psi)/dt
-
-        Each step is linear, so the composition is also linear:
-            d(psi)/dt = L_psi_psi @ psi + (other contributions)
-
-        Parameters
-        ----------
-        psi_to_E_operator : np.ndarray
-            Operator mapping psi to E_coeffs contribution.
-            Shape (2*N, N) or (2, N, N).
-        m_imp_to_jr_operator : Any
-            Operator mapping potential psi to jr.
-        jr_map_operator : Any, optional
-            Operator mapping jr to hard linear constraints.
-        regularization_lambda : float
-            Tikhonov regularization weight for the system inversion.
-        penalty_operator : Any, optional
-            Additional soft penalty operator applied to dt_jr.
-        penalty_scaling : float, optional
-            Scaling for the additional soft penalty operator.
-        use_pinning : bool
-            Whether to apply scalar gauge fixing (for CSBasis compatibility).
-
-        Returns
-        -------
-        np.ndarray
-            Matrix L_psi_psi of shape (N, N).
+        This is the ``K -> dpsi`` block used by all toroidal linear chains.
         """
-        from pynamit.simulation.geometry_utils import to_dense
-
-        N = self.basis.index_length
-
-        # Step 1: map E coefficients to dt_jr forcing.
-        E_to_dtjr_forcing = to_numpy(self.E_to_dtjr_forcing_matrix)  # (N, 2*N)
-
-        # Step 2: psi → E_psi (reshape if needed)
-        # NOTE: psi_to_E is post-resistivity (physical E). No additional scaling here.
-        if hasattr(psi_to_E_operator, "to_dense"):
-             psi_to_E = psi_to_E_operator.to_dense()
-        else:
-             psi_to_E = to_numpy(psi_to_E_operator)
-        if psi_to_E.ndim == 3:  # shape (2, N, N)
-            psi_to_E = psi_to_E.reshape(2 * N, N)
-        
-        # Step 3: forcing_dtjr -> dt_alpha via one-shot constrained solve maps.
-        if jr_map_operator is not None:
-            maps = self._get_constrained_dtjr_maps(
-                jr_map_operator=jr_map_operator,
+        if constraint_operator is not None:
+            maps = self._get_constrained_dtalpha_maps(
+                alpha_map_operator=constraint_operator,
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,
                 penalty_scaling=penalty_scaling,
                 hinv_rtol=hinv_rtol,
             )
-            dtalpha_from_K = maps["M_phys_alpha"]
+            dtalpha_from_K = maps["M_phys_dtalpha"]
         else:
             dtalpha_from_K = self._get_unconstrained_dtalpha_map_cached(
                 weighting=weighting,
@@ -3240,7 +1844,54 @@ class ToroidalSystemMatrices:
             m_imp_to_jr_operator=m_imp_to_jr_operator,
             use_pinning=use_pinning,
         )
-        dpsi_from_K = dtalpha_to_dpsi @ dtalpha_from_K
+        return asarray(dtalpha_to_dpsi @ dtalpha_from_K)
+
+    def build_psi_dynamics_matrix(
+        self,
+        psi_to_E_operator: np.ndarray,
+        m_imp_to_jr_operator: Any,
+        constraint_operator: Any = None,
+        weighting: str = "none",
+        regularization_lambda: float = 0.0,
+        penalty_operator: Any = None,
+        penalty_scaling: float = 0.0,
+        hinv_rtol: float = 0.0,
+        use_pinning: bool = False,
+    ) -> np.ndarray:
+        """Build the linear operator: psi → d(psi)/dt.
+
+        This constructs the full chain:
+            psi → E_psi → K → dpsi/dt
+
+        Each step is linear, so the composition is also linear:
+            d(psi)/dt = L_psi_psi @ psi + (other contributions)
+        """
+        from pynamit.simulation.geometry_utils import to_dense
+
+        N = self.basis.index_length
+
+        # Step 1: map E coefficients to dt_jr forcing.
+        E_to_dtjr_forcing = to_numpy(self.toroidal_forcing_from_E_operator)  # (N, 2*N)
+
+        # Step 2: psi → E_psi (reshape if needed)
+        # NOTE: psi_to_E is post-resistivity (physical E). No additional scaling here.
+        if hasattr(psi_to_E_operator, "to_dense"):
+             psi_to_E = psi_to_E_operator.to_dense()
+        else:
+             psi_to_E = to_numpy(psi_to_E_operator)
+        if psi_to_E.ndim == 3:  # shape (2, N, N)
+            psi_to_E = psi_to_E.reshape(2 * N, N)
+
+        dpsi_from_K = self.build_dpsi_from_toroidal_forcing_matrix(
+            m_imp_to_jr_operator=m_imp_to_jr_operator,
+            constraint_operator=constraint_operator,
+            weighting=weighting,
+            regularization_lambda=regularization_lambda,
+            penalty_operator=penalty_operator,
+            penalty_scaling=penalty_scaling,
+            hinv_rtol=hinv_rtol,
+            use_pinning=use_pinning,
+        )
 
         # Final chain: psi -> E -> forcing_dtjr -> dt_alpha -> dpsi/dt.
         L_psi_psi = (dpsi_from_K @ E_to_dtjr_forcing) @ psi_to_E
@@ -3251,7 +1902,7 @@ class ToroidalSystemMatrices:
         self,
         psi_to_E_operator: Any,
         m_imp_to_jr_operator: Any,
-        jr_map_operator: Any = None,
+        constraint_operator: Any = None,
         dense: bool = False,
         weighting: str = "none",
         regularization_lambda: float = 0.0,
@@ -3269,11 +1920,11 @@ class ToroidalSystemMatrices:
 
         N = self.basis.index_length
 
-        if dense or jr_map_operator is not None:
+        if dense or constraint_operator is not None:
             L_dense = self.build_psi_dynamics_matrix(
                 psi_to_E_operator,
                 m_imp_to_jr_operator,
-                jr_map_operator=jr_map_operator,
+                constraint_operator=constraint_operator,
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,
@@ -3291,7 +1942,7 @@ class ToroidalSystemMatrices:
                 psi_to_E_arr = psi_to_E_arr.reshape(2 * N, N)
             psi_to_E_op = as_linear_map(psi_to_E_arr)
 
-        E_to_dtjr_forcing_op = as_linear_map(np.asarray(to_numpy(self.E_to_dtjr_forcing_matrix)))
+        E_to_dtjr_forcing_op = as_linear_map(np.asarray(to_numpy(self.toroidal_forcing_from_E_operator)))
         dtalpha_from_K_op = as_linear_map(
             self._get_unconstrained_dtalpha_map_cached(
                 weighting=weighting,
@@ -3326,7 +1977,7 @@ class ToroidalSystemMatrices:
             return self.build_psi_dynamics_matrix(
                 psi_to_E_operator,
                 m_imp_to_jr_operator,
-                jr_map_operator=jr_map_operator,
+                constraint_operator=constraint_operator,
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,

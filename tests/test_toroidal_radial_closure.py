@@ -33,32 +33,21 @@ def _build_radial_isotropic_state():
     return dynamics.state
 
 
-def test_radial_isotropic_inertia_is_positive_scalar_identity() -> None:
-    """For radial main field, inertia matrix should reduce to scalar identity."""
+def test_radial_isotropic_inertia_vanishes_for_pure_radial_field() -> None:
+    """For pure radial background field, |B_s|^2=0 so inertia must vanish."""
     state = _build_radial_isotropic_state()
-    C = np.asarray(state.toroidal_matrices.inertia_matrix, dtype=float)
-
-    diag = np.diag(C)
-    offdiag = C - np.diag(diag)
-
-    offdiag_rel = np.linalg.norm(offdiag) / max(np.linalg.norm(C), 1e-30)
-    diag_rel_std = np.std(diag) / max(np.mean(np.abs(diag)), 1e-30)
-
-    assert np.min(diag) > 0.0
-    assert offdiag_rel < 1e-10
-    assert diag_rel_std < 1e-10
+    mass_dtalpha = np.asarray(state.toroidal_matrices.mass_dtalpha, dtype=float)
+    assert np.linalg.norm(mass_dtalpha) < 1e-12
 
 
 def test_radial_isotropic_toroidal_closure_is_diffusive() -> None:
     """Stripped radial/isotropic toroidal self-feedback must be non-growing."""
     state = _build_radial_isotropic_state()
-    N = state.solution_basis.index_length
 
-    forcing = np.asarray(state.toroidal_matrices.E_to_dtjr_forcing_matrix, dtype=float)
-    forcing_pol = forcing[:, :N]
-    forcing_tor = forcing[:, N:]
-    forcing_tor_rel = np.linalg.norm(forcing_tor) / max(np.linalg.norm(forcing_pol), 1e-30)
-    assert forcing_tor_rel < 1e-12
+    forcing = np.asarray(state.toroidal_matrices.toroidal_forcing_from_E_operator, dtype=float)
+    # For a purely radial background field (B_theta = B_phi = 0), the
+    # Er-free toroidal forcing projection vanishes identically.
+    assert np.linalg.norm(forcing) < 1e-12
 
     a00 = np.asarray(
         state.get_coupled_induction_blocks(source="dense", use_pinning=True)["dtpsi_from_psi"],

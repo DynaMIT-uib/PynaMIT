@@ -50,7 +50,7 @@ def _assert_split_regression_properties(
 
     state = dynamics.state
     ll_mask = np.asarray(state.geometry.ll_mask, dtype=bool).reshape(-1)
-    n_coeffs = int(state.geometry.jr_map_sim.shape[1])
+    n_coeffs = int(state.geometry.constraint_scalar_map_sim.shape[1])
     Q_hl, Q_ll = state.constraints._build_hl_ll_subspaces(n_coeffs=n_coeffs, ll_mask=ll_mask)
 
     # Stable mode counts for the reference setup (Nmax=10, Mmax=5, lat boundary=50 deg).
@@ -108,8 +108,8 @@ def test_hl_ll_split_regression_properties_pure_spectral(tmp_path) -> None:
     _assert_split_regression_properties(
         tmp_path=tmp_path,
         simulation_mode=SimulationMode.PURE_SPECTRAL,
-        expected_hl_modes=21,
-        expected_ll_modes=64,
+        expected_hl_modes=26,
+        expected_ll_modes=63,
         hl_frac_min=0.75,
         ll_frac_min=0.95,
     )
@@ -119,8 +119,8 @@ def test_hl_ll_split_regression_properties_spectral_transform_cs(tmp_path) -> No
     _assert_split_regression_properties(
         tmp_path=tmp_path,
         simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
-        expected_hl_modes=17,
-        expected_ll_modes=64,
+        expected_hl_modes=26,
+        expected_ll_modes=59,
         hl_frac_min=0.75,
         ll_frac_min=0.95,
     )

@@ -100,6 +100,10 @@ class Dynamics:
         ] = "sigma_log",
         conductance_interpolation_floor: float = 1e-3,
         toroidal_regularization_lambda: float = 1e-10,
+        use_toroidal_u_known_from_poloidal: bool = False,
+        toroidal_u_known_radial_model: Literal[
+            "none", "external_lplus2", "internal_lminus1"
+        ] = "none",
         dense_full_operators: bool = False,
         enable_fast_input_path: bool = False,
         exponential_solver: Literal["expm", "expm_multiply"] = "expm",
@@ -152,6 +156,8 @@ class Dynamics:
             conductance_interpolation_mode=conductance_interpolation_mode,
             conductance_interpolation_floor=conductance_interpolation_floor,
             toroidal_regularization_lambda=toroidal_regularization_lambda,
+            use_toroidal_u_known_from_poloidal=use_toroidal_u_known_from_poloidal,
+            toroidal_u_known_radial_model=toroidal_u_known_radial_model,
             dense_full_operators=dense_full_operators,
             enable_fast_input_path=enable_fast_input_path,
             exponential_solver=exponential_solver,

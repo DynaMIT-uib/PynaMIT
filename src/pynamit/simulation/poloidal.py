@@ -161,6 +161,148 @@ class PoloidalSystemMatrices:
         """
         return 1.0 / self.RI
 
+    def _project_scalar_coeffs_to_basis(
+        self,
+        coeffs: np.ndarray,
+        target_basis: Any,
+    ) -> np.ndarray:
+        """Project scalar coefficients to ``target_basis`` through grid values."""
+        coeffs = np.asarray(to_numpy(coeffs)).reshape(-1)
+        if target_basis is self.solution_basis and coeffs.size == int(self.solution_basis.index_length):
+            return coeffs
+
+        G_src = np.asarray(to_dense(self.solution_basis.get_evaluation_matrix(self.grid)))
+        P_tgt = np.asarray(to_dense(target_basis.construct_scalar_projection_matrix(self.grid)))
+        if coeffs.size != G_src.shape[1]:
+            raise ValueError(
+                "Scalar coefficient size mismatch for projection: "
+                f"coeffs={coeffs.shape}, G_src={G_src.shape}."
+            )
+        return np.asarray(P_tgt @ (G_src @ coeffs), dtype=float).reshape(-1)
+
+    def build_toroidal_u_known_terms_from_dm_ind_dt(
+        self,
+        dm_ind_dt_coeffs: np.ndarray,
+        *,
+        analysis_basis: Optional[Any] = None,
+        radial_model: str = "none",
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build ``(u_known_grid, dr_u_known_grid)`` from ``dm_ind_dt``.
+
+        Uses the thin-shell relation
+            ``u = -(1/RI) * rhat x grad_Omega(dm_ind_dt)``
+        on the analysis basis/grid used by the toroidal forcing assembly.
+
+        Parameters
+        ----------
+        dm_ind_dt_coeffs : np.ndarray
+            Scalar ``dm_ind_dt`` coefficients in ``solution_basis``.
+        analysis_basis : optional
+            Scalar basis used for derivative evaluation. Defaults to
+            ``solution_basis``.
+        radial_model : str, optional
+            Radial continuation for ``dr_u``:
+            - ``"none"``: ``dr_u = 0``.
+            - ``"external_lplus2"``: mode-wise ``dr_u = -((l+2)/RI) * u``.
+            - ``"internal_lminus1"``: mode-wise ``dr_u = +((l-1)/RI) * u``.
+            The ``l``-scaled options require ``analysis_basis.n``.
+        """
+        dm_coeffs = np.asarray(to_numpy(dm_ind_dt_coeffs)).reshape(-1)
+        U_op, DRU_op = self.build_toroidal_u_known_operators_from_dm_ind_dt(
+            analysis_basis=analysis_basis,
+            radial_model=radial_model,
+        )
+        if dm_coeffs.size != U_op.shape[1]:
+            raise ValueError(
+                "dm_ind_dt coefficient size mismatch for u-known operator: "
+                f"dm={dm_coeffs.shape}, U_op={U_op.shape}."
+            )
+        u_flat = U_op @ dm_coeffs
+        dr_u_flat = DRU_op @ dm_coeffs
+        n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
+        return (
+            np.asarray(u_flat, dtype=float).reshape(2, n_grid),
+            np.asarray(dr_u_flat, dtype=float).reshape(2, n_grid),
+        )
+
+    def build_toroidal_u_known_operators_from_dm_ind_dt(
+        self,
+        *,
+        analysis_basis: Optional[Any] = None,
+        radial_model: str = "none",
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build linear operators ``dm_ind_dt -> (u_known, dr_u_known)``.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray]
+            ``(U_op, DRU_op)`` where both have shape ``(2*n_grid, n_solution)`` and
+            map ``dm_ind_dt`` coefficients in ``solution_basis`` to flattened
+            ``[u_theta, u_phi]`` and ``[dr_u_theta, dr_u_phi]`` on ``self.grid``.
+        """
+        if analysis_basis is None:
+            analysis_basis = self.solution_basis
+
+        n_sol = int(self.solution_basis.index_length)
+        n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
+        inv_R = 1.0 / float(self.RI)
+
+        G_sol = np.asarray(to_dense(self.solution_basis.get_evaluation_matrix(self.grid)))
+        P_ana = np.asarray(to_dense(analysis_basis.construct_scalar_projection_matrix(self.grid)))
+        T_sol_to_ana = np.asarray(P_ana @ G_sol, dtype=float)
+        if T_sol_to_ana.shape[1] != n_sol:
+            raise ValueError(
+                "dm_ind_dt projection map size mismatch: "
+                f"T={T_sol_to_ana.shape}, n_sol={n_sol}."
+            )
+
+        G_th = np.asarray(to_dense(analysis_basis.get_evaluation_matrix(self.grid, derivative="theta")))
+        G_ph = np.asarray(to_dense(analysis_basis.get_evaluation_matrix(self.grid, derivative="phi")))
+        if G_th.shape[0] != n_grid or G_ph.shape[0] != n_grid:
+            raise ValueError(
+                "Analysis derivative operator/grid mismatch: "
+                f"G_th={G_th.shape}, G_ph={G_ph.shape}, n_grid={n_grid}."
+            )
+
+        # u = -(1/R) rhat x grad(dm) with component convention:
+        #   u_theta = +(1/R) D_phi(dm),  u_phi = -(1/R) D_theta(dm)
+        u_theta_op = inv_R * (G_ph @ T_sol_to_ana)
+        u_phi_op = -inv_R * (G_th @ T_sol_to_ana)
+        U_op = np.vstack([u_theta_op, u_phi_op])
+
+        model = str(radial_model).lower()
+        if model == "none":
+            DRU_op = np.zeros_like(U_op)
+            return np.asarray(U_op, dtype=float), np.asarray(DRU_op, dtype=float)
+
+        if not hasattr(analysis_basis, "n"):
+            raise ValueError(
+                "Requested radial_model requires harmonic degree array `analysis_basis.n`, "
+                f"but basis {type(analysis_basis).__name__} does not expose it."
+            )
+        l_arr = np.asarray(to_numpy(analysis_basis.n)).reshape(-1)
+        if l_arr.size != T_sol_to_ana.shape[0]:
+            raise ValueError(
+                "analysis_basis.n size mismatch for radial model: "
+                f"n={l_arr.shape}, n_analysis={T_sol_to_ana.shape[0]}."
+            )
+
+        if model == "external_lplus2":
+            beta = -((l_arr + 2.0) / float(self.RI))
+        elif model == "internal_lminus1":
+            beta = +((l_arr - 1.0) / float(self.RI))
+        else:
+            raise ValueError(
+                "Unknown radial_model for u-known terms: "
+                f"{radial_model!r}. Expected 'none', 'external_lplus2', or 'internal_lminus1'."
+            )
+
+        T_beta = beta[:, None] * T_sol_to_ana
+        dr_u_theta_op = inv_R * (G_ph @ T_beta)
+        dr_u_phi_op = -inv_R * (G_th @ T_beta)
+        DRU_op = np.vstack([dr_u_theta_op, dr_u_phi_op])
+        return np.asarray(U_op, dtype=float), np.asarray(DRU_op, dtype=float)
+
     # -------------------------------------------------------------------------
     # JS-like Operators (Pre-Resistivity)
     # -------------------------------------------------------------------------
@@ -358,7 +500,7 @@ class PoloidalSystemMatrices:
 
     def build_least_squares_problem(
         self,
-        jr_map_operator: np.ndarray,
+        constraint_scalar_operator: np.ndarray,
         E_constraint_operator: Optional[LinearMap] = None,
         connect_hemispheres: bool = True,
         ih_constraint_scaling: float = 1.0,
@@ -379,8 +521,8 @@ class PoloidalSystemMatrices:
 
         Parameters
         ----------
-        jr_map_operator : np.ndarray
-            Operator mapping jr coefficients to apex current (jr_map_sim).
+        constraint_scalar_operator : np.ndarray
+            Operator mapping coefficients to the configured constraint scalar.
         E_constraint_operator : LinearMap, optional
             Operator enforcing E-field mapping at low latitudes.
         connect_hemispheres : bool
@@ -406,7 +548,7 @@ class PoloidalSystemMatrices:
         sqrt_weights = []
 
         # 1. Radial current constraint: jr_map @ m_imp_to_jr @ m_imp = jr_data
-        op_apex = as_linear_map(jr_map_operator)
+        op_apex = as_linear_map(constraint_scalar_operator)
         op_m_to_jr = as_linear_map(self.m_imp_to_jr)
         op_jr = op_apex @ op_m_to_jr
 
@@ -472,7 +614,7 @@ class PoloidalSystemMatrices:
     def compute_rhs_from_jr(
         self,
         jr_coeffs: np.ndarray,
-        jr_map_operator: np.ndarray,
+        constraint_scalar_operator: np.ndarray,
     ) -> np.ndarray:
         """Compute RHS vector for the least-squares problem from jr data.
 
@@ -482,15 +624,15 @@ class PoloidalSystemMatrices:
         ----------
         jr_coeffs : np.ndarray
             Radial current coefficients (input data).
-        jr_map_operator : np.ndarray
-            Operator mapping jr to apex current (jr_map_spectral or jr_map_sim).
+        constraint_scalar_operator : np.ndarray
+            Operator mapping coefficients to the configured constraint scalar.
 
         Returns
         -------
         np.ndarray
             RHS vector for the jr constraint term.
         """
-        op_rhs = as_linear_map(jr_map_operator)
+        op_rhs = as_linear_map(constraint_scalar_operator)
         return op_rhs.matvec(asarray(jr_coeffs).reshape(-1))
 
     # -------------------------------------------------------------------------

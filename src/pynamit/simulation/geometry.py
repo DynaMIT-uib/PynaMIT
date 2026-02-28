@@ -126,6 +126,7 @@ class Geometry:
             latitude_boundary=self.latitude_boundary,
             connect_hemispheres=self.connect_hemispheres,
             northern_hemisphere_apex_constraints=self.northern_hemisphere_apex_constraints,
+            dynamics_mode=getattr(settings, "dynamics_mode", "legacy"),
         )
         self._init_constraint_mappings()
 
@@ -543,14 +544,16 @@ class Geometry:
         )
 
         self.ll_mask = mappings.ll_mask
-        self.jr_map_spectral = mappings.jr_map_spectral
-        self.jr_map_sim = mappings.jr_map_sim
-        self.jr_map_apex_spectral = mappings.jr_map_apex_spectral
-        self.jr_map_apex_sim = mappings.jr_map_apex_sim
+        self.constraint_scalar_map_spectral = mappings.constraint_scalar_map_spectral
+        self.constraint_scalar_map_sim = mappings.constraint_scalar_map_sim
+        self.constraint_scalar_map_reference_spectral = (
+            mappings.constraint_scalar_map_reference_spectral
+        )
+        self.constraint_scalar_map_reference_sim = mappings.constraint_scalar_map_reference_sim
         self.E_coeffs_to_E_apex_ll_diff = mappings.E_coeffs_to_E_apex_ll_diff
 
-    def get_jr_operator(self, input_basis: Any = None) -> np.ndarray:
-        """Get the operator mapping jr to J_apex suitable for the input basis.
+    def get_constraint_scalar_operator(self, input_basis: Any = None) -> np.ndarray:
+        """Get the operator mapping coefficients to the configured constraint scalar.
 
         If input basis kind matches the Physics basis kind (e.g. SH), use the
         Physics/Spectral operator. Otherwise, use the Simulation operator
@@ -560,9 +563,9 @@ class Geometry:
         input_kind = getattr(input_basis, "kind", None)
 
         if input_basis is None or input_kind == physics_kind:
-            return self.jr_map_spectral
+            return self.constraint_scalar_map_spectral
 
-        return self.jr_map_sim
+        return self.constraint_scalar_map_sim
 
     @cached_property
     def bP(self) -> np.ndarray:

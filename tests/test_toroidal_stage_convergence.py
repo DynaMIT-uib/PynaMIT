@@ -120,14 +120,14 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
     psi_to_e_cs_sh = b2_cs @ psi_to_e_cs @ a_cs
 
     # Stage 2: E -> dt_jr forcing
-    e_to_forcing_st = np.asarray(state_st.toroidal_matrices.E_to_dtjr_forcing_matrix)
-    e_to_forcing_cs = np.asarray(state_cs.toroidal_matrices.E_to_dtjr_forcing_matrix)
+    e_to_forcing_st = np.asarray(state_st.toroidal_matrices.toroidal_forcing_from_E_operator)
+    e_to_forcing_cs = np.asarray(state_cs.toroidal_matrices.toroidal_forcing_from_E_operator)
     e_to_forcing_st_sh = b_st @ e_to_forcing_st @ a2_st
     e_to_forcing_cs_sh = b_cs @ e_to_forcing_cs @ a2_cs
 
     # Stage 3: forcing -> dt_jr
     dtjr_from_k_st = np.asarray(
-        state_st.toroidal_matrices._build_unconstrained_dtjr_map(
+        state_st.toroidal_matrices._build_unconstrained_toroidal_dtjr_map(
             weighting="none",
             regularization_lambda=0.0,
             penalty_operator=None,
@@ -136,7 +136,7 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
         )
     )
     dtjr_from_k_cs = np.asarray(
-        state_cs.toroidal_matrices._build_unconstrained_dtjr_map(
+        state_cs.toroidal_matrices._build_unconstrained_toroidal_dtjr_map(
             weighting="none",
             regularization_lambda=0.0,
             penalty_operator=None,

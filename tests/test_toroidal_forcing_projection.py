@@ -57,7 +57,7 @@ def _forcing_rms_for_smooth_psi(
 
     psi_to_E = np.asarray(to_dense(state.toroidal_to_E_coeffs)).reshape(2 * n, n)
     E_coeffs = (psi_to_E @ psi_coeffs).reshape(2, n)
-    forcing_coeffs = np.asarray(state.toroidal_matrices.E_to_dtjr_forcing_matrix) @ E_coeffs.reshape(-1)
+    forcing_coeffs = np.asarray(state.toroidal_matrices.toroidal_forcing_from_E_operator) @ E_coeffs.reshape(-1)
     forcing_grid = np.asarray(basis.evaluate(forcing_coeffs, grid, vector_type="scalar")).reshape(-1)
     return _weighted_rms(forcing_grid, weights)
 

@@ -82,10 +82,10 @@ def test_exponential_integrator_pure_spectral(tmp_path):
     
     This verifies the matrix densification path works for SH basis.
     """
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 1.8559853736647053e-08
-    expected_mind_norm = 4.392833770783568e-09
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 7.464954996137682e-09
+    expected_mind_norm = 1.5879583264324897e-09
     
     _run_exponential_integrator_test(
         SimulationMode.PURE_SPECTRAL,
@@ -98,10 +98,10 @@ def test_exponential_integrator_pure_spectral(tmp_path):
 
 def test_exponential_integrator_spectral_transform_gl(tmp_path):
     """Test exponential integrator with spectral_transform (GL grid)."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 1.861667931074767e-08
-    expected_mind_norm = 4.812792431839813e-09
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 7.457633137292927e-09
+    expected_mind_norm = 1.6802615704577925e-09
     
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -114,10 +114,10 @@ def test_exponential_integrator_spectral_transform_gl(tmp_path):
 
 def test_exponential_integrator_spectral_transform_cs(tmp_path):
     """Test exponential integrator with spectral_transform (CS grid)."""
-    # Baselines updated 2026-02-23 (pynamit-minimal) after unified weak-form Br
-    # branch selector and shared Br-constrained jr->alpha mapping.
-    expected_psi_norm = 8.022390229820783e-09
-    expected_mind_norm = 1.9284074289408195e-09
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 4.420999665124596e-09
+    expected_mind_norm = 6.805854023322583e-10
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
@@ -134,10 +134,10 @@ def test_exponential_integrator_cs_dominant(tmp_path):
     This verifies the matrix densification path works for CS basis
     with finite differences.
     """
-    # Baselines updated 2026-02-23 after coupled-operator refactor cleanup and
-    # CS-dominant full-induction stabilization changes.
-    expected_psi_norm = 2.481844448216916e-07
-    expected_mind_norm = 2.1994620444111382e-07
+    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
+    # alpha-space HL/LL hard-constraint mapping.
+    expected_psi_norm = 2.0203700322434142e-07
+    expected_mind_norm = 1.9506414012554734e-07
 
     _run_exponential_integrator_test(
         SimulationMode.CS_DOMINANT,

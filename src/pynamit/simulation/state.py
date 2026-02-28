@@ -146,17 +146,18 @@ class State:
                 radial_derivative_basis=closure_basis,
             )
             try:
-                self.toroidal_matrices.configure_dtjr_solver(
+                self.toroidal_matrices.configure_toroidal_solver(
                     solver=self.solver_type,
                     preconditioner=self.preconditioner,
                     tolerance=1e-13,
                 )
             except ValueError:
                 logger.warning(
-                    "Invalid least_squares_solver=%r for toroidal dt_jr; falling back to 'svd'.",
+                    "Invalid least_squares_solver=%r for toroidal solver; "
+                    "falling back to 'normal_eq'.",
                     self.solver_type,
                 )
-                self.toroidal_matrices.configure_dtjr_solver(
+                self.toroidal_matrices.configure_toroidal_solver(
                     solver="normal_eq",
                     preconditioner=self.preconditioner,
                     tolerance=1e-13,
@@ -225,6 +226,12 @@ class State:
             max(getattr(settings, "conductance_interpolation_floor", 1e-3), 0.0)
         )
         self.toroidal_regularization_lambda = getattr(settings, "toroidal_regularization_lambda", 0.0)
+        self.use_toroidal_u_known_from_poloidal = bool(
+            getattr(settings, "use_toroidal_u_known_from_poloidal", False)
+        )
+        self.toroidal_u_known_radial_model = str(
+            getattr(settings, "toroidal_u_known_radial_model", "none")
+        )
         self.dense_full_operators = bool(getattr(settings, "dense_full_operators", False))
         self.exponential_solver = str(getattr(settings, "exponential_solver", "expm"))
         self.connect_hemispheres = bool(settings.connect_hemispheres)
@@ -408,27 +415,6 @@ class State:
         self._coupled_null_warned = False
         self._coupled_stability_warned_keys.clear()
 
-    @cached_property
-    def dt_jr_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for `dt_jr` (Dynamic).
-
-        Delegates to ToroidalSystemMatrices.build_least_squares_problem()
-        with parameters from the current state.
-        """
-        logger.info("Defining new least-squares problem for dt_jr.")
-        if self.toroidal_matrices is None:
-            raise RuntimeError("Toroidal matrices required for dt_jr problem.")
-        
-        return self.toroidal_matrices.build_least_squares_problem(
-            jr_map_operator=self.constraints.induction_constraint_operator_hard,
-            constraint_scaling=0.0,
-            regularization_lambda=self.toroidal_regularization_lambda,
-            weighting=self.toroidal_weighting,
-        )
-
-
-
-
     def _get_linear_map(
         self, op: Any, input_shape: Tuple[int, ...], output_shape: Tuple[int, ...]
     ) -> LinearMap:
@@ -611,49 +597,75 @@ class State:
             label=f"{source}:pinning={int(bool(use_pinning))}",
         )
 
-    def _build_dt_jr_constraint_rhs(self, dt_jr_driver_coeffs: Optional[np.ndarray]) -> np.ndarray:
-        """Build hard-constraint RHS for residual dt_jr solve."""
+    @cached_property
+    def dt_alpha_constraint_operator_hard(self) -> Optional[np.ndarray]:
+        """Hard-constraint operator represented in ``dt_alpha`` solve space."""
         constraint_op = self.constraints.induction_constraint_operator_hard
         if constraint_op is None:
+            return None
+        C_alpha = np.asarray(to_dense(as_linear_map(constraint_op)), dtype=float)
+        if C_alpha.ndim != 2:
+            C_alpha = C_alpha.reshape(C_alpha.shape[0], -1)
+        return C_alpha
+
+    def _get_dt_alpha_driver_coeffs(self) -> Optional[np.ndarray]:
+        """Return ``dt_alpha`` driver projected to HL modes."""
+        if self.dynamics_mode != "full_induction" or self.dt_m_imp_driver is None:
+            return None
+        dt_m_imp = np.asarray(asarray(self.dt_m_imp_driver.coeffs).reshape(-1))
+        dt_m_imp = np.asarray(self._project_to_hl_modes(dt_m_imp)).reshape(-1)
+        m_imp_to_jr = as_linear_map(self.poloidal_matrices.m_imp_to_jr)
+        jr_to_alpha = as_linear_map(self.toroidal_matrices.jr_to_alpha_coeff_operator)
+        return asarray(jr_to_alpha.matvec(m_imp_to_jr.matvec(dt_m_imp))).reshape(-1)
+
+    def _build_dt_alpha_constraint_rhs(
+        self,
+        dt_alpha_driver_coeffs: Optional[np.ndarray],
+    ) -> np.ndarray:
+        """Build hard-constraint RHS for residual ``dt_alpha`` solve."""
+        constraint_op = self.dt_alpha_constraint_operator_hard
+        if constraint_op is None:
             return xp.zeros(0)
+
         constraint_lm = as_linear_map(constraint_op)
         n_rows = int(constraint_lm.shape[0])
         if n_rows <= 0:
             return xp.zeros(0)
-        if dt_jr_driver_coeffs is None:
+        if dt_alpha_driver_coeffs is None:
             return xp.zeros(n_rows)
 
-        driver = np.asarray(dt_jr_driver_coeffs).reshape(-1)
+        driver = np.asarray(dt_alpha_driver_coeffs).reshape(-1)
         bundle = self.constraints.induction_constraint_bundle_hard
         if bundle is None:
             if constraint_lm.shape[1] != driver.size and float(np.linalg.norm(driver)) == 0.0:
                 driver = np.zeros(int(constraint_lm.shape[1]), dtype=float)
             if constraint_lm.shape[1] != driver.size:
                 raise RuntimeError(
-                    "Constraint RHS assembly mismatch for non-bundled constraints: "
+                    "Constraint RHS assembly mismatch for non-bundled alpha constraints: "
                     "constraint operator columns do not match driver dimension."
                 )
             return -asarray(constraint_lm.matvec(driver))
 
-        if bundle is not None and bundle["C_total"].shape[1] != driver.size:
-            n_cols = int(bundle["C_total"].shape[1])
-            if float(np.linalg.norm(driver)) == 0.0:
-                # Zero driver is representation-invariant for the hard-constraint RHS.
-                driver = np.zeros(n_cols, dtype=float)
+        C_ll_alpha = np.asarray(bundle["C_ll"], dtype=float)
+        C_hl_alpha = np.asarray(bundle["C_hl"], dtype=float)
+        C_total_alpha = np.vstack([C_ll_alpha, C_hl_alpha])
 
-        if (
-            bundle is not None
-            and bundle["C_total"].shape[0] == n_rows
-            and bundle["C_total"].shape[1] == driver.size
-        ):
-            C_ll = bundle["C_ll"]
-            C_hl = bundle["C_hl"]
-            rhs_ll = -C_ll @ driver if C_ll.shape[0] > 0 else np.zeros(0, dtype=float)
-            rhs_hl = np.zeros(C_hl.shape[0], dtype=float)
+        if C_total_alpha.shape[1] != driver.size:
+            if float(np.linalg.norm(driver)) == 0.0:
+                driver = np.zeros(int(C_total_alpha.shape[1]), dtype=float)
+            else:
+                raise RuntimeError(
+                    "Constraint RHS assembly mismatch: alpha bundle columns do not "
+                    "match dt_alpha driver dimension."
+                )
+
+        if C_total_alpha.shape[0] == n_rows and C_total_alpha.shape[1] == driver.size:
+            rhs_ll = -C_ll_alpha @ driver if C_ll_alpha.shape[0] > 0 else np.zeros(0, dtype=float)
+            rhs_hl = np.zeros(C_hl_alpha.shape[0], dtype=float)
             return asarray(np.concatenate([rhs_ll, rhs_hl]))
 
         raise RuntimeError(
-            "Constraint RHS assembly mismatch: bundle rows/cols do not match "
+            "Constraint RHS assembly mismatch: alpha bundle rows/cols do not match "
             "constraint operator and driver dimensions."
         )
 
@@ -839,11 +851,13 @@ class State:
         ):
             E_constraint_op = self.E_map_constraint_operator
 
-        # Keep lhs/rhs apex operator basis-consistent for legacy m_imp solves.
-        jr_map_operator = self.geometry.get_jr_operator(self.jr.basis if self.jr else None)
+        # Keep lhs/rhs constraint-scalar operator basis-consistent for legacy m_imp solves.
+        constraint_scalar_operator = self.geometry.get_constraint_scalar_operator(
+            self.jr.basis if self.jr else None
+        )
 
         return self.geometry.poloidal_matrices.build_least_squares_problem(
-            jr_map_operator=jr_map_operator,
+            constraint_scalar_operator=constraint_scalar_operator,
             E_constraint_operator=E_constraint_op,
             connect_hemispheres=(E_constraint_op is not None),
             ih_constraint_scaling=self.ih_constraint_scaling,
@@ -857,11 +871,6 @@ class State:
         """Preconditioner for the m_imp least-squares problem."""
         logger.info("Building new preconditioner for m_imp solver.")
         return self.m_imp_solver.build_preconditioner(problem=self.m_imp_problem, num_scenarios=1)
-
-    @cached_property
-    def dt_jr_preconditioner(self) -> Optional[LinearMap]:
-        """Preconditioner for the dt_jr (toroidal) least-squares problem."""
-        return None
 
     @cached_property
     def coupled_preconditioner(self) -> Optional[LinearMap]:
@@ -917,7 +926,9 @@ class State:
 
         rhs_entries: List[Optional[Any]] = [None] * problem.num_data_terms
         if jr_coeffs is not None:
-            op_rhs = self.geometry.get_jr_operator(self.jr.basis if self.jr else None)
+            op_rhs = self.geometry.get_constraint_scalar_operator(
+                self.jr.basis if self.jr else None
+            )
             rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
 
         if use_e_constraint:
@@ -1250,57 +1261,43 @@ class State:
         # from (psi, m_ind) are applied in the coupled dynamics path.
         return E_noninductive, asarray(m_imp_curr)
 
-    def solve_dt_jr(self, E_known: np.ndarray) -> np.ndarray:
-        """Solve constrained system for dt_jr.
-
-        Uses ToroidalSystemMatrices.compute_forcing_vector() for the physics RHS
-        and assembles the constraint RHS from driver data.
-        """
-        dt_jr_driver_coeffs = self._get_dt_jr_driver_coeffs()
-
-        # Term 1 (Physics): K - L * dt_jr_driver
-        # Driver remains an external forcing. Hard LL symmetry is enforced on the
-        # total derivative via the constraint RHS below.
-        # Delegate to toroidal_matrices.
-        E_coeffs = asarray(E_known)
-        rhs_1 = self.toroidal_matrices.compute_forcing_vector(E_coeffs, dt_jr_driver_coeffs)
-
-        # Term 2 (Constraint): hard LL symmetry constraints on residual solve.
-        # We want (C_ll @ x) = rhs_ll for x = dt_jr_residual.
-        # Constraint RHS for residual solve:
-        # For x = d(jr_ind)/dt and d(jr_tot)/dt = d(jr_imp)/dt + x:
-        # enforce LL coupling as C_LL x = -C_LL d(jr_imp)/dt.
-        constraint_op = self.constraints.induction_constraint_operator_hard
-        rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
-
-        solution = self.toroidal_matrices.solve_dt_jr_superposed(
-            rhs_physics=rhs_1,
-            rhs_constraint=rhs_2,
-            jr_map_operator=constraint_op,
-            weighting=self.toroidal_weighting,
-            regularization_lambda=self.toroidal_regularization_lambda,
-            penalty_operator=None,
-            penalty_scaling=0.0,
-            hinv_rtol=0.0,
-        )
-
-        if solution is None:
-            raise RuntimeError("Toroidal superposed dt_jr solve returned no solution.")
-
-        return asarray(solution)
-
     def solve_dpsi_dt(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dpsi/dt."""
-        dt_jr_driver_coeffs = self._get_dt_jr_driver_coeffs()
+        dt_alpha_driver_coeffs = self._get_dt_alpha_driver_coeffs()
+        u_known_grid = None
+        dr_u_known_grid = None
+        if self.use_toroidal_u_known_from_poloidal:
+            try:
+                u_known_grid, dr_u_known_grid = self._build_toroidal_u_known_terms_from_poloidal(E_known)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to build toroidal u-known forcing terms from poloidal branch: %s",
+                    exc,
+                )
+                u_known_grid, dr_u_known_grid = None, None
 
         E_coeffs = asarray(E_known)
-        constraint_op = self.constraints.induction_constraint_operator_hard
-        rhs_2 = self._build_dt_jr_constraint_rhs(dt_jr_driver_coeffs)
-        solution = self.toroidal_matrices.solve_dpsi_dt_superposed_joint_er(
-            E_coeffs=E_coeffs,
-            dt_jr_driver_coeffs=dt_jr_driver_coeffs,
+        rhs_1 = self.toroidal_matrices.compute_toroidal_forcing_from_E(
+            E_coeffs,
+            u_known_grid=u_known_grid,
+            dr_u_known_grid=dr_u_known_grid,
+            allow_missing_dr_u_known=False,
+        )
+        if dt_alpha_driver_coeffs is not None:
+            L_alpha = np.asarray(
+                to_numpy(self.toroidal_matrices.dtalpha_operator),
+                dtype=float,
+            )
+            rhs_1 = np.asarray(rhs_1).reshape(-1) - L_alpha @ np.asarray(
+                dt_alpha_driver_coeffs
+            ).reshape(-1)
+
+        constraint_op = self.dt_alpha_constraint_operator_hard
+        rhs_2 = self._build_dt_alpha_constraint_rhs(dt_alpha_driver_coeffs)
+        solution = self.toroidal_matrices.solve_dpsi_dt_superposed(
+            rhs_physics=rhs_1,
             rhs_constraint=rhs_2,
-            jr_map_operator=constraint_op,
+            constraint_operator=constraint_op,
             m_imp_to_jr_operator=self.poloidal_matrices.m_imp_to_jr,
             weighting=self.toroidal_weighting,
             regularization_lambda=self.toroidal_regularization_lambda,
@@ -1313,14 +1310,26 @@ class State:
             raise RuntimeError("Toroidal superposed dpsi/dt solve returned no solution.")
         return asarray(solution)
 
-    def _get_dt_jr_driver_coeffs(self) -> Optional[np.ndarray]:
-        """Return ``dt_jr`` driver mapped into the solution basis, then HL-projected."""
-        if self.dynamics_mode != "full_induction" or self.dt_m_imp_driver is None:
-            return None
-        dt_m_imp = np.asarray(asarray(self.dt_m_imp_driver.coeffs).reshape(-1))
-        dt_m_imp = np.asarray(self._project_to_hl_modes(dt_m_imp)).reshape(-1)
-        m_imp_to_jr = as_linear_map(self.poloidal_matrices.m_imp_to_jr)
-        return asarray(m_imp_to_jr.matvec(dt_m_imp)).reshape(-1)
+    def _build_toroidal_u_known_terms_from_poloidal(
+        self,
+        E_known: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Build optional ``(u_known_grid, dr_u_known_grid)`` for toroidal forcing.
+
+        The source is the poloidal branch's known ``dm_ind_dt`` implied by
+        ``E_known``:
+            ``dm_ind_dt_known = (1/RI) * E_df_known``.
+        These coefficients are converted to tangential ``u`` terms by
+        ``PoloidalSystemMatrices.build_toroidal_u_known_terms_from_dm_ind_dt``.
+        """
+        E_df_known = asarray(self.solution_basis.get_toroidal_potential_coeffs(E_known))
+        dm_ind_dt_known = asarray(self.poloidal_matrices.E_df_to_d_m_ind_dt * E_df_known)
+        analysis_basis = getattr(self.toroidal_matrices, "forcing_derivative_basis", self.solution_basis)
+        return self.poloidal_matrices.build_toroidal_u_known_terms_from_dm_ind_dt(
+            dm_ind_dt_known,
+            analysis_basis=analysis_basis,
+            radial_model=self.toroidal_u_known_radial_model,
+        )
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""

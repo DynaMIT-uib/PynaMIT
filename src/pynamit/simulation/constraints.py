@@ -75,24 +75,27 @@ class ConstraintMappings:
 
     Attributes
     ----------
-    jr_map_spectral : np.ndarray
-        Operator mapping radial current to apex current (spectral basis).
-    jr_map_sim : np.ndarray
-        Operator mapping radial current to apex current (simulation basis).
-    jr_map_apex_spectral : np.ndarray
-        Apex-current operator before LL conjugate-mismatch subtraction (spectral basis).
-    jr_map_apex_sim : np.ndarray
-        Apex-current operator before LL conjugate-mismatch subtraction (simulation basis).
+    constraint_scalar_map_spectral : np.ndarray
+        Operator mapping coefficients to the constraint scalar (spectral basis).
+        In ``full_induction`` this is direct alpha sample-space mapping.
+    constraint_scalar_map_sim : np.ndarray
+        Operator mapping coefficients to the constraint scalar (simulation basis).
+    constraint_scalar_map_reference_spectral : np.ndarray
+        Constraint-scalar map before LL conjugate-mismatch subtraction
+        (spectral basis).
+    constraint_scalar_map_reference_sim : np.ndarray
+        Constraint-scalar map before LL conjugate-mismatch subtraction
+        (simulation basis).
     E_coeffs_to_E_apex_ll_diff : ConstraintOperator or None
         E-field difference operator for low-latitude interhemispheric constraint.
     ll_mask : np.ndarray
         Boolean mask for low-latitude points.
     """
 
-    jr_map_spectral: np.ndarray
-    jr_map_sim: np.ndarray
-    jr_map_apex_spectral: np.ndarray
-    jr_map_apex_sim: np.ndarray
+    constraint_scalar_map_spectral: np.ndarray
+    constraint_scalar_map_sim: np.ndarray
+    constraint_scalar_map_reference_spectral: np.ndarray
+    constraint_scalar_map_reference_sim: np.ndarray
     E_coeffs_to_E_apex_ll_diff: Optional[ConstraintOperator]
     ll_mask: np.ndarray
 
@@ -123,12 +126,14 @@ class ApexMapper:
         latitude_boundary: float,
         connect_hemispheres: bool,
         northern_hemisphere_apex_constraints: bool = False,
+        dynamics_mode: str = "legacy",
     ) -> None:
         self.mainfield = mainfield
         self.basis = basis
         self.latitude_boundary = latitude_boundary
         self.connect_hemispheres = connect_hemispheres
         self.northern_hemisphere_apex_constraints = northern_hemisphere_apex_constraints
+        self.dynamics_mode = str(dynamics_mode)
 
     def get_transformation_matrices(
         self, dfield: "Field"
@@ -208,15 +213,23 @@ class ApexMapper:
 
         Returns
         -------
-        jr_op : np.ndarray
-            Operator mapping radial current coefficients to apex current.
+        constraint_scalar_op : np.ndarray
+            Operator mapping coefficients to the configured constraint scalar:
+            - ``full_induction``: direct ``alpha`` sample-space mismatch map
+              (no ``Br`` reweighting inside the hard-constraint rows).
+            - other modes: legacy apex-current mapping.
         E_op : np.ndarray
             Operator mapping E-field coefficients to apex E-field.
         """
-        radial_to_apex, horizontal_to_apex = self.get_transformation_matrices(field)
+        _, horizontal_to_apex = self.get_transformation_matrices(field)
 
-        # jr_coeffs_to_j_apex
-        jr_op = self.basis.get_scaled_matrix(grid, radial_to_apex)
+        # Full-induction constraints use direct alpha sample-space mismatch.
+        # Legacy path keeps the historical d3/apex mapping.
+        if self.dynamics_mode == "full_induction":
+            radial_to_apex = np.ones(grid.size, dtype=float)
+        else:
+            radial_to_apex, _ = self.get_transformation_matrices(field)
+        constraint_scalar_op = self.basis.get_scaled_matrix(grid, radial_to_apex)
 
         # E_coeffs_to_E_apex
         # horizontal_to_apex: (2, 2, N_grid) [i, j, k]
@@ -234,7 +247,7 @@ class ApexMapper:
             )
 
         E_op = np.einsum("ijk,jkpq->ikpq", horizontal_to_apex, G_in, optimize=True)
-        return jr_op, E_op
+        return constraint_scalar_op, E_op
 
     def build_constraint_mappings(
         self,
@@ -288,13 +301,17 @@ class ApexMapper:
             return lhs
 
         # Main (simulation-grid) apex operators
-        jr_map_spectral, E_coeffs_to_E_apex = self.create_apex_operators(b_field, grid)
+        constraint_scalar_map_spectral, E_coeffs_to_E_apex = self.create_apex_operators(
+            b_field, grid
+        )
 
         # Preserve the non-mismatch apex current operator (before LL conjugate subtraction)
-        if sp.issparse(jr_map_spectral):
-            jr_map_apex_spectral = jr_map_spectral.copy()
+        if sp.issparse(constraint_scalar_map_spectral):
+            constraint_scalar_map_reference_spectral = constraint_scalar_map_spectral.copy()
         else:
-            jr_map_apex_spectral = np.ascontiguousarray(np.array(jr_map_spectral, copy=True))
+            constraint_scalar_map_reference_spectral = np.ascontiguousarray(
+                np.array(constraint_scalar_map_spectral, copy=True)
+            )
 
         # Defaults
         E_coeffs_to_E_apex_ll_diff = None
@@ -321,18 +338,24 @@ class ApexMapper:
                 ll_mask = self._compute_ll_mask(grid, RI)
 
                 if have_cp:
-                    jr_cp, _ = self.create_apex_operators(cp_b_field, cp_grid)
-                    jr_map_spectral = _subtract_rows_inplace(jr_map_spectral, jr_cp, ll_mask)
+                    cp_constraint_scalar_map, _ = self.create_apex_operators(cp_b_field, cp_grid)
+                    constraint_scalar_map_spectral = _subtract_rows_inplace(
+                        constraint_scalar_map_spectral, cp_constraint_scalar_map, ll_mask
+                    )
 
             else:
                 # --- Legacy mode: constraints defined on simulation-grid low latitudes ---
                 ll_mask = self._compute_ll_mask(grid, RI)
 
                 if have_cp:
-                    jr_cp, E_cp = self.create_apex_operators(cp_b_field, cp_grid)
+                    cp_constraint_scalar_map, E_cp = self.create_apex_operators(
+                        cp_b_field, cp_grid
+                    )
 
                     # Modify apex current map on low-lat simulation rows
-                    jr_map_spectral = _subtract_rows_inplace(jr_map_spectral, jr_cp, ll_mask)
+                    constraint_scalar_map_spectral = _subtract_rows_inplace(
+                        constraint_scalar_map_spectral, cp_constraint_scalar_map, ll_mask
+                    )
 
                     # Constraint operator is the LL-sliced E-field mismatch on the simulation grid
                     E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
@@ -355,17 +378,19 @@ class ApexMapper:
 
         # Simulation-space operators (possibly adapted)
         if input_adapter is not None:
-            jr_map_sim = jr_map_spectral @ input_adapter
-            jr_map_apex_sim = jr_map_apex_spectral @ input_adapter
+            constraint_scalar_map_sim = constraint_scalar_map_spectral @ input_adapter
+            constraint_scalar_map_reference_sim = (
+                constraint_scalar_map_reference_spectral @ input_adapter
+            )
         else:
-            jr_map_sim = jr_map_spectral
-            jr_map_apex_sim = jr_map_apex_spectral
+            constraint_scalar_map_sim = constraint_scalar_map_spectral
+            constraint_scalar_map_reference_sim = constraint_scalar_map_reference_spectral
 
         return ConstraintMappings(
-            jr_map_spectral=jr_map_spectral,
-            jr_map_sim=jr_map_sim,
-            jr_map_apex_spectral=jr_map_apex_spectral,
-            jr_map_apex_sim=jr_map_apex_sim,
+            constraint_scalar_map_spectral=constraint_scalar_map_spectral,
+            constraint_scalar_map_sim=constraint_scalar_map_sim,
+            constraint_scalar_map_reference_spectral=constraint_scalar_map_reference_spectral,
+            constraint_scalar_map_reference_sim=constraint_scalar_map_reference_sim,
             E_coeffs_to_E_apex_ll_diff=E_op_obj,
             ll_mask=ll_mask,
         )
