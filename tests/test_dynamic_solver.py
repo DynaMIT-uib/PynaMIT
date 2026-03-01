@@ -66,8 +66,8 @@ def test_dynamic_ramp_pure_spectral(tmp_path):
     """Test pure spectral mode with dual induction."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
     # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 7.464954996137682e-09
-    expected_mind_norm = 1.6353647404569216e-09
+    expected_psi_norm = 8.255493120634494e-09
+    expected_mind_norm = 1.0382374674678734e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.PURE_SPECTRAL,
@@ -83,8 +83,8 @@ def test_dynamic_ramp_spectral_transform_gl(tmp_path):
     """Test spectral transform GL mode with dual induction."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
     # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 7.457633137292927e-09
-    expected_mind_norm = 1.7240888292763683e-09
+    expected_psi_norm = 8.25732003096468e-09
+    expected_mind_norm = 1.0576189485121287e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -100,8 +100,8 @@ def test_dynamic_ramp_spectral_transform_cs(tmp_path):
     """Test spectral transform CS mode with dual induction."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
     # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 4.420999665124596e-09
-    expected_mind_norm = 7.017429642552317e-10
+    expected_psi_norm = 4.1153778728659436e-09
+    expected_mind_norm = 9.87049993973558e-10
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,

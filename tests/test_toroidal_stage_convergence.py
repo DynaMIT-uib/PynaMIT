@@ -119,15 +119,15 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
     psi_to_e_st_sh = b2_st @ psi_to_e_st @ a_st
     psi_to_e_cs_sh = b2_cs @ psi_to_e_cs @ a_cs
 
-    # Stage 2: E -> dt_jr forcing
-    e_to_forcing_st = np.asarray(state_st.toroidal_matrices.toroidal_forcing_from_E_operator)
-    e_to_forcing_cs = np.asarray(state_cs.toroidal_matrices.toroidal_forcing_from_E_operator)
-    e_to_forcing_st_sh = b_st @ e_to_forcing_st @ a2_st
-    e_to_forcing_cs_sh = b_cs @ e_to_forcing_cs @ a2_cs
+    # Stage 2: E -> toroidal RHS
+    e_to_rhs_st = np.asarray(state_st.toroidal_matrices.toroidal_rhs_from_E_operator)
+    e_to_rhs_cs = np.asarray(state_cs.toroidal_matrices.toroidal_rhs_from_E_operator)
+    e_to_rhs_st_sh = b_st @ e_to_rhs_st @ a2_st
+    e_to_rhs_cs_sh = b_cs @ e_to_rhs_cs @ a2_cs
 
-    # Stage 3: forcing -> dt_jr
-    dtjr_from_k_st = np.asarray(
-        state_st.toroidal_matrices._build_unconstrained_toroidal_dtjr_map(
+    # Stage 3: toroidal RHS -> dt_alpha
+    dtalpha_from_rhs_st = np.asarray(
+        state_st.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
             weighting="none",
             regularization_lambda=0.0,
             penalty_operator=None,
@@ -135,8 +135,8 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
             hinv_rtol=0.0,
         )
     )
-    dtjr_from_k_cs = np.asarray(
-        state_cs.toroidal_matrices._build_unconstrained_toroidal_dtjr_map(
+    dtalpha_from_rhs_cs = np.asarray(
+        state_cs.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
             weighting="none",
             regularization_lambda=0.0,
             penalty_operator=None,
@@ -144,26 +144,30 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
             hinv_rtol=0.0,
         )
     )
-    dtjr_from_k_st_sh = b_st @ dtjr_from_k_st @ a_st
-    dtjr_from_k_cs_sh = b_cs @ dtjr_from_k_cs @ a_cs
+    dtalpha_from_rhs_st_sh = b_st @ dtalpha_from_rhs_st @ a_st
+    dtalpha_from_rhs_cs_sh = b_cs @ dtalpha_from_rhs_cs @ a_cs
 
-    # Stage 4: jr -> psi
+    # Stage 4: dt_alpha -> dpsi
     m_imp_to_jr_st = state_st.geometry.get_potential_to_JS_operator("m_imp", mode=None)
     m_imp_to_jr_cs = state_cs.geometry.get_potential_to_JS_operator("m_imp", mode=None)
-    jr_to_psi_st = np.asarray(
-        state_st.toroidal_matrices._get_jr_to_psi_dense(m_imp_to_jr_st, use_pinning=False)
+    dtalpha_to_dt_psi_st = np.asarray(
+        state_st.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+            m_imp_to_jr_operator=m_imp_to_jr_st, use_pinning=False
+        )
     )
-    jr_to_psi_cs = np.asarray(
-        state_cs.toroidal_matrices._get_jr_to_psi_dense(m_imp_to_jr_cs, use_pinning=False)
+    dtalpha_to_dt_psi_cs = np.asarray(
+        state_cs.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+            m_imp_to_jr_operator=m_imp_to_jr_cs, use_pinning=False
+        )
     )
-    jr_to_psi_st_sh = b_st @ jr_to_psi_st @ a2_st
-    jr_to_psi_cs_sh = b_cs @ jr_to_psi_cs @ a2_cs
+    dtalpha_to_dt_psi_st_sh = b_st @ dtalpha_to_dt_psi_st @ a_st
+    dtalpha_to_dt_psi_cs_sh = b_cs @ dtalpha_to_dt_psi_cs @ a_cs
 
     return {
         "psi_to_e": _rel_fro(psi_to_e_cs_sh, psi_to_e_st_sh),
-        "e_to_forcing": _rel_fro(e_to_forcing_cs_sh, e_to_forcing_st_sh),
-        "dtjr_from_k": _rel_fro(dtjr_from_k_cs_sh, dtjr_from_k_st_sh),
-        "jr_to_psi": _rel_fro(jr_to_psi_cs_sh, jr_to_psi_st_sh),
+        "e_to_rhs": _rel_fro(e_to_rhs_cs_sh, e_to_rhs_st_sh),
+        "dtalpha_from_rhs": _rel_fro(dtalpha_from_rhs_cs_sh, dtalpha_from_rhs_st_sh),
+        "dtalpha_to_dt_psi": _rel_fro(dtalpha_to_dt_psi_cs_sh, dtalpha_to_dt_psi_st_sh),
     }
 
 
@@ -186,19 +190,19 @@ def test_toroidal_stage_parity_converges_with_resolution(tmp_path) -> None:
 
     # For the dominant discrepancy stages, require clear improvement.
     assert high["psi_to_e"] < low["psi_to_e"] * 0.95
-    # If E->forcing parity is already at numerical precision, don't enforce
+    # If E->RHS parity is already at numerical precision, don't enforce
     # monotonic "improvement" against roundoff.
-    if low["e_to_forcing"] > 1e-12:
-        assert high["e_to_forcing"] < low["e_to_forcing"] * 0.95
+    if low["e_to_rhs"] > 1e-12:
+        assert high["e_to_rhs"] < low["e_to_rhs"] * 0.95
     else:
-        assert high["e_to_forcing"] < 1e-12
+        assert high["e_to_rhs"] < 1e-12
 
-    # CS-native dt_jr and jr->psi stages can converge non-monotonically against
+    # The alpha-solve and alpha->psi stages can converge non-monotonically against
     # ST-CS at modest resolutions; guard against blow-up while allowing drift.
-    assert np.isfinite(high["dtjr_from_k"])
-    assert np.isfinite(high["jr_to_psi"])
-    assert high["dtjr_from_k"] < low["dtjr_from_k"] * 2.5
-    assert high["jr_to_psi"] < low["jr_to_psi"] * 2.5
+    assert np.isfinite(high["dtalpha_from_rhs"])
+    assert np.isfinite(high["dtalpha_to_dt_psi"])
+    assert high["dtalpha_from_rhs"] < low["dtalpha_from_rhs"] * 2.5
+    assert high["dtalpha_to_dt_psi"] < low["dtalpha_to_dt_psi"] * 2.5
 
     # Absolute sanity bounds at the higher resolution point.
     assert high["psi_to_e"] < 0.20

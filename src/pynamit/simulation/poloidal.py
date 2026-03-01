@@ -180,14 +180,14 @@ class PoloidalSystemMatrices:
             )
         return np.asarray(P_tgt @ (G_src @ coeffs), dtype=float).reshape(-1)
 
-    def build_toroidal_u_known_terms_from_dm_ind_dt(
+    def build_toroidal_twist_rate_known_terms_from_dt_m_ind(
         self,
         dm_ind_dt_coeffs: np.ndarray,
         *,
         analysis_basis: Optional[Any] = None,
         radial_model: str = "none",
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Build ``(u_known_grid, dr_u_known_grid)`` from ``dm_ind_dt``.
+        """Build ``(twist_rate_known_grid, dr_twist_rate_known_grid)`` from ``dm_ind_dt``.
 
         Uses the thin-shell relation
             ``u = -(1/RI) * rhat x grad_Omega(dm_ind_dt)``
@@ -208,7 +208,7 @@ class PoloidalSystemMatrices:
             The ``l``-scaled options require ``analysis_basis.n``.
         """
         dm_coeffs = np.asarray(to_numpy(dm_ind_dt_coeffs)).reshape(-1)
-        U_op, DRU_op = self.build_toroidal_u_known_operators_from_dm_ind_dt(
+        U_op, DRU_op = self.build_toroidal_twist_rate_known_operators_from_dt_m_ind(
             analysis_basis=analysis_basis,
             radial_model=radial_model,
         )
@@ -225,13 +225,13 @@ class PoloidalSystemMatrices:
             np.asarray(dr_u_flat, dtype=float).reshape(2, n_grid),
         )
 
-    def build_toroidal_u_known_operators_from_dm_ind_dt(
+    def build_toroidal_twist_rate_known_operators_from_dt_m_ind(
         self,
         *,
         analysis_basis: Optional[Any] = None,
         radial_model: str = "none",
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Build linear operators ``dm_ind_dt -> (u_known, dr_u_known)``.
+        """Build linear operators ``dm_ind_dt -> (u_known, dr_twist_rate_known)``.
 
         Returns
         -------

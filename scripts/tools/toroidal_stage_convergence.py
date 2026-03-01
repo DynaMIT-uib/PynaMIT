@@ -34,18 +34,18 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 @dataclass(frozen=True)
 class StageErrors:
     psi_to_e: float
-    e_to_forcing: float
-    dtjr_from_k: float
-    jr_to_psi: float
+    e_to_rhs: float
+    dtalpha_from_rhs: float
+    dtalpha_to_dt_psi: float
 
 
 @dataclass(frozen=True)
 class StageTimings:
     build_states: float
     psi_to_e: float
-    e_to_forcing: float
-    dtjr_from_k: float
-    jr_to_psi: float
+    e_to_rhs: float
+    dtalpha_from_rhs: float
+    dtalpha_to_dt_psi: float
 
 
 def _lift_two_channel(op: np.ndarray) -> np.ndarray:
@@ -247,61 +247,61 @@ def compute_stage_errors(
         _log(f"[psi_to_e] done in {t_psi_to_e:.2f}s (err={psi_to_e_err:.4e})")
 
     t2 = time.perf_counter()
-    e_to_forcing_err = np.nan
-    if "e_to_forcing" in stages:
+    e_to_rhs_err = np.nan
+    if "e_to_rhs" in stages:
         if probe_mode == "dense":
-            _log("[e_to_forcing] densify operators...")
-            e_to_forcing_st = np.asarray(
-                to_dense(as_linear_map(state_st.toroidal_matrices.toroidal_forcing_from_E_operator))
+            _log("[e_to_rhs] densify operators...")
+            e_to_rhs_st = np.asarray(
+                to_dense(as_linear_map(state_st.toroidal_matrices.toroidal_rhs_from_E_operator))
             )
-            e_to_forcing_cs = np.asarray(
-                to_dense(as_linear_map(state_cs.toroidal_matrices.toroidal_forcing_from_E_operator))
+            e_to_rhs_cs = np.asarray(
+                to_dense(as_linear_map(state_cs.toroidal_matrices.toroidal_rhs_from_E_operator))
             )
-            e_to_forcing_st = e_to_forcing_st.reshape(e_to_forcing_st.shape[0], -1)
-            e_to_forcing_cs = e_to_forcing_cs.reshape(e_to_forcing_cs.shape[0], -1)
+            e_to_rhs_st = e_to_rhs_st.reshape(e_to_rhs_st.shape[0], -1)
+            e_to_rhs_cs = e_to_rhs_cs.reshape(e_to_rhs_cs.shape[0], -1)
 
-            def _apply_e_to_forcing_st(v_sh2):
+            def _apply_e_to_rhs_st(v_sh2):
                 x = a2_st @ v_sh2
-                y = e_to_forcing_st @ x
+                y = e_to_rhs_st @ x
                 return b_st @ y
 
-            def _apply_e_to_forcing_cs(v_sh2):
+            def _apply_e_to_rhs_cs(v_sh2):
                 x = a2_cs @ v_sh2
-                y = e_to_forcing_cs @ x
+                y = e_to_rhs_cs @ x
                 return b_cs @ y
         else:
-            _log("[e_to_forcing] matrix-free operators...")
+            _log("[e_to_rhs] matrix-free operators...")
 
-            def _apply_e_to_forcing_st(v_sh2):
+            def _apply_e_to_rhs_st(v_sh2):
                 x = (a2_st @ v_sh2).reshape(2, -1)
-                y = state_st.toroidal_matrices.compute_toroidal_forcing_from_E(x)
+                y = state_st.toroidal_matrices.compute_toroidal_rhs_from_E(x)
                 return b_st @ np.asarray(y)
 
-            def _apply_e_to_forcing_cs(v_sh2):
+            def _apply_e_to_rhs_cs(v_sh2):
                 x = (a2_cs @ v_sh2).reshape(2, -1)
-                y = state_cs.toroidal_matrices.compute_toroidal_forcing_from_E(x)
+                y = state_cs.toroidal_matrices.compute_toroidal_rhs_from_E(x)
                 return b_cs @ np.asarray(y)
 
-        _log("[e_to_forcing] probe...")
+        _log("[e_to_rhs] probe...")
 
-        e_to_forcing_err = _probe_rel_error(
-            _apply_e_to_forcing_st,
-            _apply_e_to_forcing_cs,
+        e_to_rhs_err = _probe_rel_error(
+            _apply_e_to_rhs_st,
+            _apply_e_to_rhs_cs,
             input_size=n_sh2,
             n_probe=probe_vectors,
             seed=probe_seed + 211,
         )
-    t_e_to_forcing = time.perf_counter() - t2
-    if "e_to_forcing" in stages:
-        _log(f"[e_to_forcing] done in {t_e_to_forcing:.2f}s (err={e_to_forcing_err:.4e})")
+    t_e_to_rhs = time.perf_counter() - t2
+    if "e_to_rhs" in stages:
+        _log(f"[e_to_rhs] done in {t_e_to_rhs:.2f}s (err={e_to_rhs_err:.4e})")
 
     t3 = time.perf_counter()
-    dtjr_from_k_err = np.nan
-    if "dtjr_from_k" in stages:
+    dtalpha_from_rhs_err = np.nan
+    if "dtalpha_from_rhs" in stages:
         if probe_mode == "dense":
-            _log("[dtjr_from_k] build dense maps...")
-            dtjr_from_k_st_map = np.asarray(
-                state_st.toroidal_matrices._get_unconstrained_dtjr_map_cached(
+            _log("[dtalpha_from_rhs] build dense maps...")
+            dtalpha_from_rhs_st_map = np.asarray(
+                state_st.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
@@ -309,8 +309,8 @@ def compute_stage_errors(
                     hinv_rtol=0.0,
                 )
             )
-            dtjr_from_k_cs_map = np.asarray(
-                state_cs.toroidal_matrices._get_unconstrained_dtjr_map_cached(
+            dtalpha_from_rhs_cs_map = np.asarray(
+                state_cs.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
@@ -319,125 +319,131 @@ def compute_stage_errors(
                 )
             )
 
-            def _apply_dtjr_from_k_st(v_sh):
+            def _apply_dtalpha_from_rhs_st(v_sh):
                 x = a_st @ v_sh
-                y = dtjr_from_k_st_map @ x
+                y = dtalpha_from_rhs_st_map @ x
                 return b_st @ np.asarray(y)
 
-            def _apply_dtjr_from_k_cs(v_sh):
+            def _apply_dtalpha_from_rhs_cs(v_sh):
                 x = a_cs @ v_sh
-                y = dtjr_from_k_cs_map @ x
+                y = dtalpha_from_rhs_cs_map @ x
                 return b_cs @ np.asarray(y)
         else:
-            _log("[dtjr_from_k] matrix-free solves...")
+            _log("[dtalpha_from_rhs] matrix-free solves...")
 
-            def _apply_dtjr_from_k_st(v_sh):
+            def _apply_dtalpha_from_rhs_st(v_sh):
                 x = a_st @ v_sh
-                y = state_st.toroidal_matrices.solve_toroidal_dtjr_physics(
-                    rhs_physics=x,
+                y = state_st.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
                     penalty_scaling=0.0,
                     hinv_rtol=0.0,
-                )
+                ) @ x
                 return b_st @ np.asarray(y)
 
-            def _apply_dtjr_from_k_cs(v_sh):
+            def _apply_dtalpha_from_rhs_cs(v_sh):
                 x = a_cs @ v_sh
-                y = state_cs.toroidal_matrices.solve_toroidal_dtjr_physics(
-                    rhs_physics=x,
+                y = state_cs.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
                     penalty_scaling=0.0,
                     hinv_rtol=0.0,
-                )
+                ) @ x
                 return b_cs @ np.asarray(y)
 
-        _log("[dtjr_from_k] probe...")
+        _log("[dtalpha_from_rhs] probe...")
 
-        dtjr_from_k_err = _probe_rel_error(
-            _apply_dtjr_from_k_st,
-            _apply_dtjr_from_k_cs,
+        dtalpha_from_rhs_err = _probe_rel_error(
+            _apply_dtalpha_from_rhs_st,
+            _apply_dtalpha_from_rhs_cs,
             input_size=n_sh,
             n_probe=probe_vectors,
             seed=probe_seed + 307,
         )
-    t_dtjr_from_k = time.perf_counter() - t3
-    if "dtjr_from_k" in stages:
-        _log(f"[dtjr_from_k] done in {t_dtjr_from_k:.2f}s (err={dtjr_from_k_err:.4e})")
+    t_dtalpha_from_rhs = time.perf_counter() - t3
+    if "dtalpha_from_rhs" in stages:
+        _log(
+            f"[dtalpha_from_rhs] done in {t_dtalpha_from_rhs:.2f}s "
+            f"(err={dtalpha_from_rhs_err:.4e})"
+        )
 
     t4 = time.perf_counter()
-    jr_to_psi_err = np.nan
-    if "jr_to_psi" in stages:
+    dtalpha_to_dt_psi_err = np.nan
+    if "dtalpha_to_dt_psi" in stages:
         m_imp_to_jr_st = state_st.geometry.get_potential_to_JS_operator("m_imp", mode=None)
         m_imp_to_jr_cs = state_cs.geometry.get_potential_to_JS_operator("m_imp", mode=None)
         if probe_mode == "dense":
-            _log("[jr_to_psi] build dense maps...")
-            jr_to_psi_st_map = np.asarray(
-                state_st.toroidal_matrices._get_jr_to_psi_dense(m_imp_to_jr_st, use_pinning=False)
+            _log("[dtalpha_to_dt_psi] build dense maps...")
+            dtalpha_to_dt_psi_st_map = np.asarray(
+                state_st.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                    m_imp_to_jr_operator=m_imp_to_jr_st, use_pinning=False
+                )
             )
-            jr_to_psi_cs_map = np.asarray(
-                state_cs.toroidal_matrices._get_jr_to_psi_dense(m_imp_to_jr_cs, use_pinning=False)
+            dtalpha_to_dt_psi_cs_map = np.asarray(
+                state_cs.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                    m_imp_to_jr_operator=m_imp_to_jr_cs, use_pinning=False
+                )
             )
 
-            def _apply_jr_to_psi_st(v_sh):
-                x = a2_st @ v_sh
-                y = jr_to_psi_st_map @ x
+            def _apply_dtalpha_to_dt_psi_st(v_sh):
+                x = a_st @ v_sh
+                y = dtalpha_to_dt_psi_st_map @ x
                 return b_st @ np.asarray(y)
 
-            def _apply_jr_to_psi_cs(v_sh):
-                x = a2_cs @ v_sh
-                y = jr_to_psi_cs_map @ x
+            def _apply_dtalpha_to_dt_psi_cs(v_sh):
+                x = a_cs @ v_sh
+                y = dtalpha_to_dt_psi_cs_map @ x
                 return b_cs @ np.asarray(y)
         else:
-            _log("[jr_to_psi] matrix-free maps...")
+            _log("[dtalpha_to_dt_psi] matrix-free maps...")
 
-            def _apply_jr_to_psi_st(v_sh):
-                x = a2_st @ v_sh
-                y = state_st.toroidal_matrices.compute_rates(
-                    x,
-                    m_imp_to_jr_st,
+            def _apply_dtalpha_to_dt_psi_st(v_sh):
+                x = a_st @ v_sh
+                y = state_st.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                    m_imp_to_jr_operator=m_imp_to_jr_st,
                     use_pinning=False,
-                )
+                ) @ x
                 return b_st @ np.asarray(y)
 
-            def _apply_jr_to_psi_cs(v_sh):
-                x = a2_cs @ v_sh
-                y = state_cs.toroidal_matrices.compute_rates(
-                    x,
-                    m_imp_to_jr_cs,
+            def _apply_dtalpha_to_dt_psi_cs(v_sh):
+                x = a_cs @ v_sh
+                y = state_cs.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                    m_imp_to_jr_operator=m_imp_to_jr_cs,
                     use_pinning=False,
-                )
+                ) @ x
                 return b_cs @ np.asarray(y)
 
-        _log("[jr_to_psi] probe...")
+        _log("[dtalpha_to_dt_psi] probe...")
 
-        jr_to_psi_err = _probe_rel_error(
-            _apply_jr_to_psi_st,
-            _apply_jr_to_psi_cs,
-            input_size=n_sh2,
+        dtalpha_to_dt_psi_err = _probe_rel_error(
+            _apply_dtalpha_to_dt_psi_st,
+            _apply_dtalpha_to_dt_psi_cs,
+            input_size=n_sh,
             n_probe=probe_vectors,
             seed=probe_seed + 401,
         )
-    t_jr_to_psi = time.perf_counter() - t4
-    if "jr_to_psi" in stages:
-        _log(f"[jr_to_psi] done in {t_jr_to_psi:.2f}s (err={jr_to_psi_err:.4e})")
+    t_dtalpha_to_dt_psi = time.perf_counter() - t4
+    if "dtalpha_to_dt_psi" in stages:
+        _log(
+            f"[dtalpha_to_dt_psi] done in {t_dtalpha_to_dt_psi:.2f}s "
+            f"(err={dtalpha_to_dt_psi_err:.4e})"
+        )
 
     return (
         StageErrors(
             psi_to_e=psi_to_e_err,
-            e_to_forcing=e_to_forcing_err,
-            dtjr_from_k=dtjr_from_k_err,
-            jr_to_psi=jr_to_psi_err,
+            e_to_rhs=e_to_rhs_err,
+            dtalpha_from_rhs=dtalpha_from_rhs_err,
+            dtalpha_to_dt_psi=dtalpha_to_dt_psi_err,
         ),
         StageTimings(
             build_states=t_build,
             psi_to_e=t_psi_to_e,
-            e_to_forcing=t_e_to_forcing,
-            dtjr_from_k=t_dtjr_from_k,
-            jr_to_psi=t_jr_to_psi,
+            e_to_rhs=t_e_to_rhs,
+            dtalpha_from_rhs=t_dtalpha_from_rhs,
+            dtalpha_to_dt_psi=t_dtalpha_to_dt_psi,
         ),
     )
 
@@ -463,7 +469,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--stages",
-        default="psi_to_e,e_to_forcing,dtjr_from_k,jr_to_psi",
+        default="psi_to_e,e_to_rhs,dtalpha_from_rhs,dtalpha_to_dt_psi",
         help="Comma-separated stages to run.",
     )
     parser.add_argument(
@@ -532,8 +538,8 @@ def main() -> None:
 
     stages = {stage.strip() for stage in args.stages.split(",") if stage.strip()}
 
-    print("N  M  Ncs  psi_to_e  e_to_forcing  dtjr_from_k  jr_to_psi")
-    print("-- -- ---- --------  ------------  -----------  ---------")
+    print("N  M  Ncs  psi_to_e  e_to_rhs  dtalpha_from_rhs  dtalpha_to_dt_psi")
+    print("-- -- ---- --------  --------  ----------------  ----------------")
     for nmax in nmax_values:
         mmax = nmax
         ncs = max(args.ncs_min, int(np.ceil(args.ncs_ratio * nmax)))
@@ -556,17 +562,17 @@ def main() -> None:
         )
         print(
             f"{nmax:2d} {mmax:2d} {ncs:4d} "
-            f"{errors.psi_to_e:8.4f}  {errors.e_to_forcing:12.4f}  "
-            f"{errors.dtjr_from_k:11.4f}  {errors.jr_to_psi:9.4f}"
+            f"{errors.psi_to_e:8.4f}  {errors.e_to_rhs:8.4f}  "
+            f"{errors.dtalpha_from_rhs:16.4f}  {errors.dtalpha_to_dt_psi:16.4f}"
         )
         if args.timings:
             print(
                 "  timings[s]: "
                 f"build={timings.build_states:.2f}, "
                 f"psi_to_e={timings.psi_to_e:.2f}, "
-                f"e_to_forcing={timings.e_to_forcing:.2f}, "
-                f"dtjr_from_k={timings.dtjr_from_k:.2f}, "
-                f"jr_to_psi={timings.jr_to_psi:.2f}"
+                f"e_to_rhs={timings.e_to_rhs:.2f}, "
+                f"dtalpha_from_rhs={timings.dtalpha_from_rhs:.2f}, "
+                f"dtalpha_to_dt_psi={timings.dtalpha_to_dt_psi:.2f}"
             )
 
 

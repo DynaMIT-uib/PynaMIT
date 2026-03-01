@@ -142,7 +142,7 @@ class State:
                 b_field=self.geometry.b_field,
                 RI=self.RI,
                 closure_derivative_basis=closure_basis,
-                forcing_derivative_basis=closure_basis,
+                rhs_derivative_basis=closure_basis,
                 radial_derivative_basis=closure_basis,
             )
             try:
@@ -226,11 +226,11 @@ class State:
             max(getattr(settings, "conductance_interpolation_floor", 1e-3), 0.0)
         )
         self.toroidal_regularization_lambda = getattr(settings, "toroidal_regularization_lambda", 0.0)
-        self.use_toroidal_u_known_from_poloidal = bool(
-            getattr(settings, "use_toroidal_u_known_from_poloidal", False)
+        self.use_toroidal_twist_rate_known_from_poloidal = bool(
+            getattr(settings, "use_toroidal_twist_rate_known_from_poloidal", False)
         )
-        self.toroidal_u_known_radial_model = str(
-            getattr(settings, "toroidal_u_known_radial_model", "none")
+        self.toroidal_twist_rate_known_radial_model = str(
+            getattr(settings, "toroidal_twist_rate_known_radial_model", "none")
         )
         self.dense_full_operators = bool(getattr(settings, "dense_full_operators", False))
         self.exponential_solver = str(getattr(settings, "exponential_solver", "expm"))
@@ -1255,33 +1255,33 @@ class State:
 
         # Solve directly for dpsi/dt for non-inductive forcing. Coupled
         # self-feedback from (psi, m_ind) is handled in coupled operator blocks.
-        self.d_psi_dt = self.solve_dpsi_dt(E_noninductive)
+        self.d_psi_dt = self.solve_dt_psi(E_noninductive)
 
         # Return only non-inductive E coefficients here; inductive contributions
         # from (psi, m_ind) are applied in the coupled dynamics path.
         return E_noninductive, asarray(m_imp_curr)
 
-    def solve_dpsi_dt(self, E_known: np.ndarray) -> np.ndarray:
+    def solve_dt_psi(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dpsi/dt."""
         dt_alpha_driver_coeffs = self._get_dt_alpha_driver_coeffs()
-        u_known_grid = None
-        dr_u_known_grid = None
-        if self.use_toroidal_u_known_from_poloidal:
+        twist_rate_known_grid = None
+        dr_twist_rate_known_grid = None
+        if self.use_toroidal_twist_rate_known_from_poloidal:
             try:
-                u_known_grid, dr_u_known_grid = self._build_toroidal_u_known_terms_from_poloidal(E_known)
+                twist_rate_known_grid, dr_twist_rate_known_grid = self._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
             except Exception as exc:
                 logger.warning(
-                    "Failed to build toroidal u-known forcing terms from poloidal branch: %s",
+                    "Failed to build toroidal u-known RHS terms from poloidal branch: %s",
                     exc,
                 )
-                u_known_grid, dr_u_known_grid = None, None
+                twist_rate_known_grid, dr_twist_rate_known_grid = None, None
 
         E_coeffs = asarray(E_known)
-        rhs_1 = self.toroidal_matrices.compute_toroidal_forcing_from_E(
+        rhs_1 = self.toroidal_matrices.compute_toroidal_rhs_from_E(
             E_coeffs,
-            u_known_grid=u_known_grid,
-            dr_u_known_grid=dr_u_known_grid,
-            allow_missing_dr_u_known=False,
+            twist_rate_known_grid=twist_rate_known_grid,
+            dr_twist_rate_known_grid=dr_twist_rate_known_grid,
+            allow_missing_dr_twist_rate_known=False,
         )
         if dt_alpha_driver_coeffs is not None:
             L_alpha = np.asarray(
@@ -1294,7 +1294,7 @@ class State:
 
         constraint_op = self.dt_alpha_constraint_operator_hard
         rhs_2 = self._build_dt_alpha_constraint_rhs(dt_alpha_driver_coeffs)
-        solution = self.toroidal_matrices.solve_dpsi_dt_superposed(
+        solution = self.toroidal_matrices.solve_dt_psi_superposed(
             rhs_physics=rhs_1,
             rhs_constraint=rhs_2,
             constraint_operator=constraint_op,
@@ -1310,25 +1310,25 @@ class State:
             raise RuntimeError("Toroidal superposed dpsi/dt solve returned no solution.")
         return asarray(solution)
 
-    def _build_toroidal_u_known_terms_from_poloidal(
+    def _build_toroidal_twist_rate_known_terms_from_poloidal(
         self,
         E_known: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Build optional ``(u_known_grid, dr_u_known_grid)`` for toroidal forcing.
+        """Build optional ``(twist_rate_known_grid, dr_twist_rate_known_grid)`` for toroidal forcing.
 
         The source is the poloidal branch's known ``dm_ind_dt`` implied by
         ``E_known``:
             ``dm_ind_dt_known = (1/RI) * E_df_known``.
         These coefficients are converted to tangential ``u`` terms by
-        ``PoloidalSystemMatrices.build_toroidal_u_known_terms_from_dm_ind_dt``.
+        ``PoloidalSystemMatrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind``.
         """
         E_df_known = asarray(self.solution_basis.get_toroidal_potential_coeffs(E_known))
         dm_ind_dt_known = asarray(self.poloidal_matrices.E_df_to_d_m_ind_dt * E_df_known)
-        analysis_basis = getattr(self.toroidal_matrices, "forcing_derivative_basis", self.solution_basis)
-        return self.poloidal_matrices.build_toroidal_u_known_terms_from_dm_ind_dt(
+        analysis_basis = getattr(self.toroidal_matrices, "rhs_derivative_basis", self.solution_basis)
+        return self.poloidal_matrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind(
             dm_ind_dt_known,
             analysis_basis=analysis_basis,
-            radial_model=self.toroidal_u_known_radial_model,
+            radial_model=self.toroidal_twist_rate_known_radial_model,
         )
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -1963,27 +1963,27 @@ class State:
         return self.coupled_operator_api.get_m_imp_from_jr_matrix(input_basis=input_basis)
 
     def get_external_forcing_matrices(self, input_basis_jr: Optional[Any] = None) -> Dict[str, np.ndarray]:
-        """Expose dense forcing maps for coupled rates from `u` and `jr`."""
+        """Expose dense rate maps from `u` and `jr` into the coupled system."""
         return self.coupled_operator_api.get_external_forcing_matrices(
             input_basis_jr=input_basis_jr
         )
 
     def get_coupled_induction_operator(
         self,
-        dtpsi_from_psi: Any = None,
-        dtpsi_from_mind: Any = None,
-        dmind_from_psi: Any = None,
-        dmind_from_mind: Any = None,
+        dt_psi_from_psi: Any = None,
+        dt_psi_from_m_ind: Any = None,
+        dt_m_ind_from_psi: Any = None,
+        dt_m_ind_from_m_ind: Any = None,
         matrix_free: bool = False,
         solver: str = "lsmr",
         use_pinning: Optional[bool] = None,
     ) -> "LinearMap":
         """Build coupled operator for ``y=[psi, m_ind]`` dynamics."""
         return self.coupled_operator_api.get_coupled_induction_operator(
-            dtpsi_from_psi=dtpsi_from_psi,
-            dtpsi_from_mind=dtpsi_from_mind,
-            dmind_from_psi=dmind_from_psi,
-            dmind_from_mind=dmind_from_mind,
+            dt_psi_from_psi=dt_psi_from_psi,
+            dt_psi_from_m_ind=dt_psi_from_m_ind,
+            dt_m_ind_from_psi=dt_m_ind_from_psi,
+            dt_m_ind_from_m_ind=dt_m_ind_from_m_ind,
             matrix_free=matrix_free,
             solver=solver,
             use_pinning=use_pinning,

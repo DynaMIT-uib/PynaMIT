@@ -44,13 +44,13 @@ def test_radial_isotropic_toroidal_closure_is_diffusive() -> None:
     """Stripped radial/isotropic toroidal self-feedback must be non-growing."""
     state = _build_radial_isotropic_state()
 
-    forcing = np.asarray(state.toroidal_matrices.toroidal_forcing_from_E_operator, dtype=float)
+    forcing = np.asarray(state.toroidal_matrices.toroidal_rhs_from_E_operator, dtype=float)
     # For a purely radial background field (B_theta = B_phi = 0), the
     # Er-free toroidal forcing projection vanishes identically.
     assert np.linalg.norm(forcing) < 1e-12
 
     a00 = np.asarray(
-        state.get_coupled_induction_blocks(source="dense", use_pinning=True)["dtpsi_from_psi"],
+        state.get_coupled_induction_blocks(source="dense", use_pinning=True)["dt_psi_from_psi"],
         dtype=float,
     )
     max_real_a00 = float(np.max(np.linalg.eigvals(a00).real))

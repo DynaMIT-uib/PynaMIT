@@ -73,8 +73,8 @@ class ToroidalClosureProjector:
             @ self.state_to_closure_scalar_map
         )
 
-    def project_vector_forcing_operator_to_state(self, operator: np.ndarray) -> np.ndarray:
-        """Project forcing map from closure basis to state basis.
+    def project_vector_rhs_operator_to_state(self, operator: np.ndarray) -> np.ndarray:
+        """Project vector-valued RHS map from closure basis to state basis.
 
         Input/output operator shapes:
         - closure: (n_closure, 2*n_closure)
@@ -91,4 +91,3 @@ class ToroidalClosureProjector:
         t_in[:n_closure, :n_state] = s2c
         t_in[n_closure:, n_state:] = s2c
         return np.asarray(c2s @ op @ t_in)
-

@@ -172,8 +172,8 @@ class DynamicsSettings:
     # Tikhonov regularization for toroidal system (only used in full_induction mode)
     toroidal_regularization_lambda: float = 1e-10
     # Optional toroidal known-term injection from poloidal dm_ind/dt branch.
-    use_toroidal_u_known_from_poloidal: bool = False
-    toroidal_u_known_radial_model: Literal[
+    use_toroidal_twist_rate_known_from_poloidal: bool = False
+    toroidal_twist_rate_known_radial_model: Literal[
         "none", "external_lplus2", "internal_lminus1"
     ] = "none"
     # Force dense assembly/use of full linear evolution operators for both
@@ -213,10 +213,10 @@ class DynamicsSettings:
         attrs["dense_full_operators"] = int(self.dense_full_operators)
         attrs["enable_fast_input_path"] = int(self.enable_fast_input_path)
         attrs["exponential_solver"] = self.exponential_solver
-        attrs["use_toroidal_u_known_from_poloidal"] = int(
-            self.use_toroidal_u_known_from_poloidal
+        attrs["use_toroidal_twist_rate_known_from_poloidal"] = int(
+            self.use_toroidal_twist_rate_known_from_poloidal
         )
-        attrs["toroidal_u_known_radial_model"] = self.toroidal_u_known_radial_model
+        attrs["toroidal_twist_rate_known_radial_model"] = self.toroidal_twist_rate_known_radial_model
 
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
@@ -309,15 +309,15 @@ class DynamicsSettings:
             ),
             m_imp_regularization_lambda=get("m_imp_regularization_lambda", defaults.m_imp_regularization_lambda),
             toroidal_regularization_lambda=get("toroidal_regularization_lambda", defaults.toroidal_regularization_lambda),
-            use_toroidal_u_known_from_poloidal=bool(
+            use_toroidal_twist_rate_known_from_poloidal=bool(
                 get(
-                    "use_toroidal_u_known_from_poloidal",
-                    defaults.use_toroidal_u_known_from_poloidal,
+                    "use_toroidal_twist_rate_known_from_poloidal",
+                    defaults.use_toroidal_twist_rate_known_from_poloidal,
                 )
             ),
-            toroidal_u_known_radial_model=get(
-                "toroidal_u_known_radial_model",
-                defaults.toroidal_u_known_radial_model,
+            toroidal_twist_rate_known_radial_model=get(
+                "toroidal_twist_rate_known_radial_model",
+                defaults.toroidal_twist_rate_known_radial_model,
             ),
             dense_full_operators=bool(
                 get("dense_full_operators", defaults.dense_full_operators)

@@ -230,12 +230,12 @@ def test_exposed_coupled_matrices_and_blocks(tmp_path: Path) -> None:
         np.testing.assert_allclose(dense_4d.reshape(2 * n, 2 * n), dense_2d, rtol=0.0, atol=0.0)
 
         blocks = state.get_coupled_induction_blocks(source="dense")
-        required = ("dtpsi_from_psi", "dtpsi_from_mind", "dmind_from_psi", "dmind_from_mind")
+        required = ("dt_psi_from_psi", "dt_psi_from_m_ind", "dt_m_ind_from_psi", "dt_m_ind_from_m_ind")
         for key in required:
             block = np.asarray(blocks[key])
             assert block.shape == (n, n)
-        np.testing.assert_allclose(blocks["dtpsi_from_psi"], dense_4d[0, :, 0, :], rtol=0.0, atol=0.0)
-        np.testing.assert_allclose(blocks["dmind_from_mind"], dense_4d[1, :, 1, :], rtol=0.0, atol=0.0)
+        np.testing.assert_allclose(blocks["dt_psi_from_psi"], dense_4d[0, :, 0, :], rtol=0.0, atol=0.0)
+        np.testing.assert_allclose(blocks["dt_m_ind_from_m_ind"], dense_4d[1, :, 1, :], rtol=0.0, atol=0.0)
     finally:
         os.chdir(previous_cwd)
 
@@ -284,7 +284,7 @@ def test_exposed_coupled_matrix_sparse_dense_parity_all_modes(
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
 def test_exposed_external_forcing_matrices(tmp_path: Path) -> None:
-    """Exposed dtpsi/dmind forcing maps from u and jr should be internally consistent."""
+    """Exposed dtpsi/dmind rate maps from u and jr should be internally consistent."""
     previous_cwd = Path.cwd()
     os.chdir(tmp_path)
     try:
@@ -305,12 +305,12 @@ def test_exposed_external_forcing_matrices(tmp_path: Path) -> None:
         mats = state.get_external_forcing_matrices()
 
         required = (
-            "dtpsi_from_u",
-            "dtpsi_from_jr",
-            "dmind_from_u",
-            "dmind_from_jr",
-            "dtpsi_from_E",
-            "dmind_from_E",
+            "dt_psi_from_u",
+            "dt_psi_from_jr",
+            "dt_m_ind_from_u",
+            "dt_m_ind_from_jr",
+            "dt_psi_from_E",
+            "dt_m_ind_from_E",
             "E_from_u",
             "E_from_jr",
             "m_imp_from_jr",
@@ -319,32 +319,32 @@ def test_exposed_external_forcing_matrices(tmp_path: Path) -> None:
             assert key in mats
 
         n = state.solution_basis.index_length
-        assert mats["dtpsi_from_u"].shape[0] == n
-        assert mats["dtpsi_from_jr"].shape[0] == n
-        assert mats["dmind_from_u"].shape[0] == n
-        assert mats["dmind_from_jr"].shape[0] == n
+        assert mats["dt_psi_from_u"].shape[0] == n
+        assert mats["dt_psi_from_jr"].shape[0] == n
+        assert mats["dt_m_ind_from_u"].shape[0] == n
+        assert mats["dt_m_ind_from_jr"].shape[0] == n
 
         np.testing.assert_allclose(
-            mats["dtpsi_from_u"],
-            mats["dtpsi_from_E"] @ mats["E_from_u"],
+            mats["dt_psi_from_u"],
+            mats["dt_psi_from_E"] @ mats["E_from_u"],
             rtol=1e-12,
             atol=0.0,
         )
         np.testing.assert_allclose(
-            mats["dtpsi_from_jr"],
-            mats["dtpsi_from_E"] @ mats["E_from_jr"],
+            mats["dt_psi_from_jr"],
+            mats["dt_psi_from_E"] @ mats["E_from_jr"],
             rtol=1e-12,
             atol=0.0,
         )
         np.testing.assert_allclose(
-            mats["dmind_from_u"],
-            mats["dmind_from_E"] @ mats["E_from_u"],
+            mats["dt_m_ind_from_u"],
+            mats["dt_m_ind_from_E"] @ mats["E_from_u"],
             rtol=1e-12,
             atol=0.0,
         )
         np.testing.assert_allclose(
-            mats["dmind_from_jr"],
-            mats["dmind_from_E"] @ mats["E_from_jr"],
+            mats["dt_m_ind_from_jr"],
+            mats["dt_m_ind_from_E"] @ mats["E_from_jr"],
             rtol=1e-12,
             atol=0.0,
         )
@@ -377,13 +377,13 @@ def test_state_exposure_apis_smoke(tmp_path: Path) -> None:
         L_state = state.get_coupled_induction_matrix(source="dense", flatten=True)
         blocks_state = state.get_coupled_induction_blocks(source="dense")
         np.testing.assert_allclose(
-            blocks_state["dtpsi_from_psi"],
+            blocks_state["dt_psi_from_psi"],
             L_state[: state.solution_basis.index_length, : state.solution_basis.index_length],
             rtol=0.0,
             atol=0.0,
         )
         np.testing.assert_allclose(
-            blocks_state["dmind_from_mind"],
+            blocks_state["dt_m_ind_from_m_ind"],
             L_state[state.solution_basis.index_length :, state.solution_basis.index_length :],
             rtol=0.0,
             atol=0.0,
@@ -391,14 +391,14 @@ def test_state_exposure_apis_smoke(tmp_path: Path) -> None:
 
         forcing_state = state.get_external_forcing_matrices()
         np.testing.assert_allclose(
-            forcing_state["dtpsi_from_u"],
-            forcing_state["dtpsi_from_E"] @ forcing_state["E_from_u"],
+            forcing_state["dt_psi_from_u"],
+            forcing_state["dt_psi_from_E"] @ forcing_state["E_from_u"],
             rtol=1e-12,
             atol=0.0,
         )
         np.testing.assert_allclose(
-            forcing_state["dmind_from_jr"],
-            forcing_state["dmind_from_E"] @ forcing_state["E_from_jr"],
+            forcing_state["dt_m_ind_from_jr"],
+            forcing_state["dt_m_ind_from_E"] @ forcing_state["E_from_jr"],
             rtol=1e-12,
             atol=0.0,
         )

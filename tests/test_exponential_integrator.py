@@ -84,8 +84,8 @@ def test_exponential_integrator_pure_spectral(tmp_path):
     """
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
     # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 7.464954996137682e-09
-    expected_mind_norm = 1.5879583264324897e-09
+    expected_psi_norm = 8.255493120634495e-09
+    expected_mind_norm = 1.0188839008054956e-09
     
     _run_exponential_integrator_test(
         SimulationMode.PURE_SPECTRAL,
@@ -100,8 +100,8 @@ def test_exponential_integrator_spectral_transform_gl(tmp_path):
     """Test exponential integrator with spectral_transform (GL grid)."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
     # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 7.457633137292927e-09
-    expected_mind_norm = 1.6802615704577925e-09
+    expected_psi_norm = 8.25732003096468e-09
+    expected_mind_norm = 1.0404304830385658e-09
     
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -116,8 +116,8 @@ def test_exponential_integrator_spectral_transform_cs(tmp_path):
     """Test exponential integrator with spectral_transform (CS grid)."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
     # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 4.420999665124596e-09
-    expected_mind_norm = 6.805854023322583e-10
+    expected_psi_norm = 4.1153778728659436e-09
+    expected_mind_norm = 9.778085087176742e-10
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,

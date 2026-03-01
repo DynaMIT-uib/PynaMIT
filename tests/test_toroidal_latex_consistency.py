@@ -17,8 +17,8 @@ def _build_state(
     nmax: int = 10,
     mmax: int = 5,
     ncs: int = 12,
-    use_toroidal_u_known_from_poloidal: bool = False,
-    toroidal_u_known_radial_model: str = "none",
+    use_toroidal_twist_rate_known_from_poloidal: bool = False,
+    toroidal_twist_rate_known_radial_model: str = "none",
 ):
     sim = run_pynamit(
         final_time=0.0,
@@ -38,8 +38,8 @@ def _build_state(
         dense_full_operators=False,
         integrator="euler",
         least_squares_solver="svd",
-        use_toroidal_u_known_from_poloidal=use_toroidal_u_known_from_poloidal,
-        toroidal_u_known_radial_model=toroidal_u_known_radial_model,
+        use_toroidal_twist_rate_known_from_poloidal=use_toroidal_twist_rate_known_from_poloidal,
+        toroidal_twist_rate_known_radial_model=toroidal_twist_rate_known_radial_model,
     )
     return sim.state
 
@@ -54,12 +54,12 @@ def test_toroidal_forcing_gradient_field_is_zero() -> None:
     phi = rng.normal(size=n)
     E_coeffs = np.vstack([phi, np.zeros_like(phi)])
 
-    forcing = np.asarray(tor.compute_toroidal_forcing_from_E(E_coeffs), dtype=float).reshape(-1)
+    forcing = np.asarray(tor.compute_toroidal_rhs_from_E(E_coeffs), dtype=float).reshape(-1)
     assert np.linalg.norm(forcing) < 1e-10
 
 
-def test_toroidal_forcing_u_known_zero_reduces_to_e_only() -> None:
-    """Providing zero known-u inputs must match the E-only forcing path."""
+def test_toroidal_rhs_u_known_zero_reduces_to_e_only() -> None:
+    """Providing zero known-u inputs must match the E-only toroidal RHS path."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL)
     tor = state.toroidal_matrices
     n = int(state.basis.index_length)
@@ -69,20 +69,20 @@ def test_toroidal_forcing_u_known_zero_reduces_to_e_only() -> None:
     E_coeffs = rng.normal(size=(2, n))
     u_zero = np.zeros((2, n_grid), dtype=float)
 
-    forcing_ref = np.asarray(tor.compute_toroidal_forcing_from_E(E_coeffs), dtype=float).reshape(-1)
-    forcing_u = np.asarray(
-        tor.compute_toroidal_forcing_from_E(
+    rhs_ref = np.asarray(tor.compute_toroidal_rhs_from_E(E_coeffs), dtype=float).reshape(-1)
+    rhs_u = np.asarray(
+        tor.compute_toroidal_rhs_from_E(
             E_coeffs,
-            u_known_grid=u_zero,
-            dr_u_known_grid=u_zero,
+            twist_rate_known_grid=u_zero,
+            dr_twist_rate_known_grid=u_zero,
         ),
         dtype=float,
     ).reshape(-1)
-    assert np.allclose(forcing_u, forcing_ref, rtol=1e-12, atol=1e-12)
+    assert np.allclose(rhs_u, rhs_ref, rtol=1e-12, atol=1e-12)
 
 
-def test_toroidal_forcing_u_known_requires_dr_u_known() -> None:
-    """Known-u forcing must provide dr_u unless explicit opt-in is enabled."""
+def test_toroidal_rhs_u_known_requires_dr_twist_rate_known() -> None:
+    """Known-u toroidal RHS must provide dr_u unless explicit opt-in is enabled."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL)
     tor = state.toroidal_matrices
     n = int(state.basis.index_length)
@@ -90,12 +90,12 @@ def test_toroidal_forcing_u_known_requires_dr_u_known() -> None:
 
     E_coeffs = np.zeros((2, n), dtype=float)
     u_only = np.zeros((2, n_grid), dtype=float)
-    with pytest.raises(ValueError, match="dr_u_known_grid"):
-        _ = tor.compute_toroidal_forcing_from_E(E_coeffs, u_known_grid=u_only)
+    with pytest.raises(ValueError, match="dr_twist_rate_known_grid"):
+        _ = tor.compute_toroidal_rhs_from_E(E_coeffs, twist_rate_known_grid=u_only)
 
 
-def test_sh_u_known_forcing_matches_manual_grid_formula() -> None:
-    """SH known-u forcing matches direct grid-formula assembly."""
+def test_sh_u_known_rhs_matches_manual_grid_formula() -> None:
+    """SH known-u toroidal RHS matches direct grid-formula assembly."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
     tor = state.toroidal_matrices
     basis = state.basis
@@ -126,19 +126,19 @@ def test_sh_u_known_forcing_matches_manual_grid_formula() -> None:
         + Bth * (-inv_Rb * u_th - dr_u_th)
         + Bph * (-inv_Rb * u_ph - dr_u_ph)
     )
-    forcing_ref = P @ S_u
+    rhs_ref = P @ S_u
 
     E_zero = np.zeros((2, int(basis.index_length)), dtype=float)
-    forcing = np.asarray(
-        tor.compute_toroidal_forcing_from_E(
+    rhs = np.asarray(
+        tor.compute_toroidal_rhs_from_E(
             E_zero,
-            u_known_grid=(u_th, u_ph),
-            dr_u_known_grid=(dr_u_th, dr_u_ph),
+            twist_rate_known_grid=(u_th, u_ph),
+            dr_twist_rate_known_grid=(dr_u_th, dr_u_ph),
         ),
         dtype=float,
     ).reshape(-1)
 
-    assert np.allclose(forcing, forcing_ref, rtol=1e-10, atol=1e-10)
+    assert np.allclose(rhs, rhs_ref, rtol=1e-10, atol=1e-10)
 
 
 def test_poloidal_u_known_builder_matches_manual_none_model() -> None:
@@ -155,14 +155,14 @@ def test_poloidal_u_known_builder_matches_manual_none_model() -> None:
 
     rng = np.random.default_rng(29)
     dm = rng.normal(size=n)
-    u_known, dr_u_known = pol.build_toroidal_u_known_terms_from_dm_ind_dt(dm, radial_model="none")
+    u_known, dr_twist_rate_known = pol.build_toroidal_twist_rate_known_terms_from_dt_m_ind(dm, radial_model="none")
 
     u_theta_ref = inv_R * (G_ph @ dm)
     u_phi_ref = -inv_R * (G_th @ dm)
     u_ref = np.vstack([u_theta_ref, u_phi_ref])
 
     assert np.allclose(u_known, u_ref, rtol=1e-12, atol=1e-12)
-    assert np.linalg.norm(dr_u_known) < 1e-12
+    assert np.linalg.norm(dr_twist_rate_known) < 1e-12
 
 
 def test_poloidal_u_known_builder_external_model_scales_dr_u() -> None:
@@ -180,7 +180,7 @@ def test_poloidal_u_known_builder_external_model_scales_dr_u() -> None:
 
     rng = np.random.default_rng(31)
     dm = rng.normal(size=n)
-    u_known, dr_u_known = pol.build_toroidal_u_known_terms_from_dm_ind_dt(
+    u_known, dr_twist_rate_known = pol.build_toroidal_twist_rate_known_terms_from_dt_m_ind(
         dm, radial_model="external_lplus2"
     )
 
@@ -190,56 +190,56 @@ def test_poloidal_u_known_builder_external_model_scales_dr_u() -> None:
     dr_u_phi_ref = -inv_R * (G_th @ dm_beta)
     dr_u_ref = np.vstack([dr_u_theta_ref, dr_u_phi_ref])
 
-    assert np.allclose(dr_u_known, dr_u_ref, rtol=1e-12, atol=1e-12)
+    assert np.allclose(dr_twist_rate_known, dr_u_ref, rtol=1e-12, atol=1e-12)
     # Sanity: u itself is unchanged by radial model choice.
-    u_none, _ = pol.build_toroidal_u_known_terms_from_dm_ind_dt(dm, radial_model="none")
+    u_none, _ = pol.build_toroidal_twist_rate_known_terms_from_dt_m_ind(dm, radial_model="none")
     assert np.allclose(u_known, u_none, rtol=1e-12, atol=1e-12)
 
 
 def test_state_dpsi_solver_accepts_poloidal_u_known_hook() -> None:
-    """State-level hook wiring for optional poloidal u-known forcing is operational."""
+    """State-level hook wiring for optional poloidal u-known toroidal RHS is operational."""
     state = _build_state(
         simulation_mode=SimulationMode.PURE_SPECTRAL,
-        use_toroidal_u_known_from_poloidal=True,
-        toroidal_u_known_radial_model="none",
+        use_toroidal_twist_rate_known_from_poloidal=True,
+        toroidal_twist_rate_known_radial_model="none",
     )
     n = int(state.solution_basis.index_length)
     rng = np.random.default_rng(37)
     E_known = rng.normal(size=(2, n))
-    dpsi = np.asarray(state.solve_dpsi_dt(E_known), dtype=float).reshape(-1)
-    assert dpsi.size == n
-    assert np.all(np.isfinite(dpsi))
+    dt_psi = np.asarray(state.solve_dt_psi(E_known), dtype=float).reshape(-1)
+    assert dt_psi.size == n
+    assert np.all(np.isfinite(dt_psi))
 
 
-def test_coupled_dtpsi_from_mind_includes_poloidal_u_known_hook() -> None:
-    """Coupled ``dtpsi_from_mind`` block includes optional known-u correction."""
+def test_coupled_dt_psi_from_m_ind_includes_poloidal_u_known_hook() -> None:
+    """Coupled ``dt_psi_from_m_ind`` block includes optional known-u correction."""
     state_off = _build_state(
         simulation_mode=SimulationMode.PURE_SPECTRAL,
         nmax=8,
         mmax=4,
-        use_toroidal_u_known_from_poloidal=False,
+        use_toroidal_twist_rate_known_from_poloidal=False,
     )
     state_on = _build_state(
         simulation_mode=SimulationMode.PURE_SPECTRAL,
         nmax=8,
         mmax=4,
-        use_toroidal_u_known_from_poloidal=True,
-        toroidal_u_known_radial_model="none",
+        use_toroidal_twist_rate_known_from_poloidal=True,
+        toroidal_twist_rate_known_radial_model="none",
     )
 
     blocks_off = state_off.get_coupled_induction_blocks(source="dense", use_pinning=state_off.apply_psi_gauge)
     blocks_on = state_on.get_coupled_induction_blocks(source="dense", use_pinning=state_on.apply_psi_gauge)
-    delta = np.asarray(blocks_on["dtpsi_from_mind"], dtype=float) - np.asarray(
-        blocks_off["dtpsi_from_mind"], dtype=float
+    delta = np.asarray(blocks_on["dt_psi_from_m_ind"], dtype=float) - np.asarray(
+        blocks_off["dt_psi_from_m_ind"], dtype=float
     )
 
     api_on = state_on.coupled_operator_api
-    dpsi_from_forcing = np.asarray(
-        api_on._get_dtpsi_from_forcing_dense(use_pinning=state_on.apply_psi_gauge), dtype=float
+    dt_psi_from_rhs = np.asarray(
+        api_on._get_dt_psi_from_toroidal_rhs_dense(use_pinning=state_on.apply_psi_gauge), dtype=float
     )
-    forcing_from_dmindt = np.asarray(api_on._get_u_known_forcing_from_dmindt_dense(), dtype=float)
-    dmind_from_mind = np.asarray(blocks_on["dmind_from_mind"], dtype=float)
-    expected = dpsi_from_forcing @ forcing_from_dmindt @ dmind_from_mind
+    rhs_from_dt_m_ind = np.asarray(api_on._get_twist_rate_known_rhs_from_dt_m_ind_dense(), dtype=float)
+    dt_m_ind_from_m_ind = np.asarray(blocks_on["dt_m_ind_from_m_ind"], dtype=float)
+    expected = dt_psi_from_rhs @ rhs_from_dt_m_ind @ dt_m_ind_from_m_ind
 
     assert np.linalg.norm(expected) > 0.0
     assert np.allclose(delta, expected, rtol=1e-10, atol=1e-10)
@@ -251,8 +251,8 @@ def test_coupled_u_known_hook_dense_sparse_parity() -> None:
         simulation_mode=SimulationMode.PURE_SPECTRAL,
         nmax=8,
         mmax=4,
-        use_toroidal_u_known_from_poloidal=True,
-        toroidal_u_known_radial_model="none",
+        use_toroidal_twist_rate_known_from_poloidal=True,
+        toroidal_twist_rate_known_radial_model="none",
     )
     dense = np.asarray(
         state.get_coupled_induction_matrix(source="dense", flatten=True, use_pinning=state.apply_psi_gauge),
@@ -265,14 +265,15 @@ def test_coupled_u_known_hook_dense_sparse_parity() -> None:
     assert np.allclose(dense, sparse, rtol=1e-9, atol=1e-9)
 
 
-def test_sh_coupling_matrix_scalings_match_closed_form() -> None:
-    """Check coupling block scalings against direct SH quadrature assembly."""
+def test_sh_advection_and_psi_scalings_match_closed_form() -> None:
+    """Check raw advection and jr->psi scalings against direct SH assembly."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
     tor = state.toroidal_matrices
     basis = state.basis
     grid = state.geometry.grid
 
-    mapping_dtjr, mapping_dr_dtjr = [np.asarray(x, dtype=float) for x in tor.fieldline_mapping_dtjr_blocks]
+    advection_raw = np.asarray(tor.fieldline_advection_operator_raw, dtype=float)
+    jr_to_psi = np.asarray(tor.jr_to_psi_coeff_operator, dtype=float)
     G = np.asarray(basis.get_evaluation_matrix(grid), dtype=float)
     G_th = np.asarray(basis.get_evaluation_matrix(grid, derivative="theta"), dtype=float)
     G_ph = np.asarray(basis.get_evaluation_matrix(grid, derivative="phi"), dtype=float)
@@ -288,17 +289,38 @@ def test_sh_coupling_matrix_scalings_match_closed_form() -> None:
     inverse_laplacian_eigenvalues = np.zeros_like(laplacian_eigenvalues)
     inverse_laplacian_eigenvalues[mask] = 1.0 / laplacian_eigenvalues[mask]
 
-    mapping_dtjr_ref = A * ((-2.0 * mu0 * inverse_laplacian_eigenvalues)[None, :])
-    mapping_dr_dtjr_ref = A * (
-        (-mu0 * float(state.RI) * inverse_laplacian_eigenvalues)[None, :]
+    jr_to_psi_ref = np.diag(-mu0 * float(state.RI) * inverse_laplacian_eigenvalues)
+
+    assert np.allclose(advection_raw, A, rtol=1e-10, atol=1e-10)
+    assert np.allclose(jr_to_psi[:, mask], jr_to_psi_ref[:, mask], rtol=1e-10, atol=1e-10)
+    assert np.linalg.norm(jr_to_psi[:, ~mask]) < 1e-12
+
+
+def test_dtalpha_feedback_psi_rewrite_matches_dtjr_form() -> None:
+    """Psi rewrite of the feedback block must equal the direct dt_alpha closed form."""
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
+    tor = state.toroidal_matrices
+
+    advection_raw = np.asarray(tor.fieldline_advection_operator_raw, dtype=float)
+    jr_to_psi = np.asarray(tor.jr_to_psi_coeff_operator, dtype=float)
+    alpha_to_jr = np.asarray(tor.alpha_to_jr_coeff_operator, dtype=float)
+    radial_closure_dtalpha = np.asarray(tor.radial_closure_dtalpha, dtype=float)
+    inv_R = 1.0 / float(state.RI)
+    feedback_ref = advection_raw @ (
+        (2.0 * inv_R) * (jr_to_psi @ alpha_to_jr) + (jr_to_psi @ radial_closure_dtalpha)
     )
 
-    assert np.allclose(mapping_dtjr[:, mask], mapping_dtjr_ref[:, mask], rtol=1e-10, atol=1e-10)
+    alpha_to_psi = np.asarray(tor.alpha_to_psi_coeff_operator, dtype=float)
+    radial_closure_dtpsi = np.asarray(tor.radial_closure_dt_psi_from_dtalpha, dtype=float)
+    feedback_psi = advection_raw @ ((inv_R * alpha_to_psi) + radial_closure_dtpsi)
+
+    assert np.allclose(feedback_psi, feedback_ref, rtol=1e-10, atol=1e-10)
     assert np.allclose(
-        mapping_dr_dtjr[:, mask], mapping_dr_dtjr_ref[:, mask], rtol=1e-10, atol=1e-10
+        np.asarray(tor.toroidal_potential_feedback_dtalpha_operator, dtype=float),
+        feedback_ref,
+        rtol=1e-10,
+        atol=1e-10,
     )
-    assert np.linalg.norm(mapping_dtjr[:, ~mask]) < 1e-12
-    assert np.linalg.norm(mapping_dr_dtjr[:, ~mask]) < 1e-12
 
 
 def test_mass_dtalpha_matrix_is_symmetric() -> None:

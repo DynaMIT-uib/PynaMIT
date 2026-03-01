@@ -73,7 +73,7 @@ def fetch_poloidal_dense_matrices(
 
     scale = float(st.poloidal_matrices.E_df_to_d_m_ind_dt)
     e_df_from_e = np.asarray(st.E_coeffs_to_E_df_matrix, dtype=float)
-    dmind_from_E = scale * e_df_from_e
+    dt_m_ind_from_E = scale * e_df_from_e
 
     # Wind-input basis -> E coefficients (dense).
     e_from_u = np.asarray(to_dense(as_linear_map(st.u_coeffs_to_E_coeffs)), dtype=float)
@@ -91,14 +91,14 @@ def fetch_poloidal_dense_matrices(
             "edf_from_mind": np.asarray(st.m_ind_to_E_df_matrix, dtype=float),
         }
 
-    dmind_from_u = dmind_from_E @ e_from_u
-    dmind_from_jr = dmind_from_E @ e_from_jr
-    dmind_from_mind = scale * np.asarray(st.m_ind_to_E_df_matrix, dtype=float)
+    dt_m_ind_from_u = dt_m_ind_from_E @ e_from_u
+    dt_m_ind_from_jr = dt_m_ind_from_E @ e_from_jr
+    dt_m_ind_from_m_ind = scale * np.asarray(st.m_ind_to_E_df_matrix, dtype=float)
 
     return {
-        "dmind_from_u": np.asarray(dmind_from_u, dtype=float),
-        "dmind_from_jr": np.asarray(dmind_from_jr, dtype=float),
-        "dmind_from_mind": np.asarray(dmind_from_mind, dtype=float),
+        "dt_m_ind_from_u": np.asarray(dt_m_ind_from_u, dtype=float),
+        "dt_m_ind_from_jr": np.asarray(dt_m_ind_from_jr, dtype=float),
+        "dt_m_ind_from_m_ind": np.asarray(dt_m_ind_from_m_ind, dtype=float),
     }
 
 
@@ -106,7 +106,7 @@ def _print_summary(mats: dict[str, np.ndarray]) -> None:
     if {"edf_from_u", "edf_from_jr", "edf_from_mind"}.issubset(mats):
         keys = ["edf_from_u", "edf_from_jr", "edf_from_mind"]
     else:
-        keys = ["dmind_from_u", "dmind_from_jr", "dmind_from_mind"]
+        keys = ["dt_m_ind_from_u", "dt_m_ind_from_jr", "dt_m_ind_from_m_ind"]
     for key in keys:
         mat = np.asarray(mats[key])
         print(
