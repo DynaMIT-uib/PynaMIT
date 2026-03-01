@@ -685,40 +685,121 @@ class ToroidalSystemMatrices:
             raise ValueError(f"{name} normalized shape mismatch: got {arr.shape}, expected (2, {n_grid}).")
         return np.asarray(arr, dtype=float)
 
+    @cached_property
+    def _grid_metric_terms(self) -> tuple[np.ndarray, np.ndarray, int]:
+        """Return ``(theta_rad, cot(theta), n_grid)`` on the toroidal grid."""
+        theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
+        sin_th = np.sin(theta_rad)
+        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
+        cot_th = np.cos(theta_rad) / sin_th_safe
+        return theta_rad, cot_th, int(theta_rad.size)
+
+    @cached_property
+    def _background_field_grid_components(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+        """Return background field components ``(B0r, B0th, B0ph, n_grid)`` on the grid."""
+        B0r = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
+        _, _, n_grid = self._grid_metric_terms
+        if B0r.size != n_grid or B0th.size != n_grid or B0ph.size != n_grid:
+            raise ValueError(
+                "Grid field sizes are inconsistent in toroidal assembly: "
+                f"B0r={B0r.size}, B0th={B0th.size}, B0ph={B0ph.size}, n_grid={n_grid}."
+            )
+        return B0r, B0th, B0ph, n_grid
+
+    @cached_property
+    def _vector_basis_component_maps(self) -> tuple[np.ndarray, np.ndarray, int]:
+        """Return dense maps from flattened E coefficients to tangential components."""
+        N = self.basis.index_length
+        G_vec = np.asarray(to_dense(self.basis.get_vector_basis_matrix(self.grid)))
+        if G_vec.ndim != 4 or G_vec.shape[0] != 2 or G_vec.shape[2] != 2 or G_vec.shape[3] != N:
+            raise ValueError(
+                "Unexpected vector basis shape for toroidal RHS map: "
+                f"{G_vec.shape}, expected (2, N_grid, 2, {N})."
+            )
+        n_grid = int(G_vec.shape[1])
+        V_th = np.hstack([G_vec[0, :, 0, :], G_vec[0, :, 1, :]])
+        V_ph = np.hstack([G_vec[1, :, 0, :], G_vec[1, :, 1, :]])
+        return V_th, V_ph, n_grid
+
+    @cached_property
+    def _rhs_scalar_derivative_operators(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return dense scalar derivative operators acting on grid-sampled scalars."""
+        if self.is_cs:
+            D_th, D_ph, _ = self.cs_rhs_derivative_operators
+            return np.asarray(D_th, dtype=float), np.asarray(D_ph, dtype=float)
+
+        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
+        G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
+        G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
+        return np.asarray(G_th @ P, dtype=float), np.asarray(G_ph @ P, dtype=float)
+
+    def _apply_direct_toroidal_rhs_operator(self, E_coeffs: np.ndarray) -> np.ndarray:
+        """Apply the cached direct RHS operator for SH/CS backends."""
+        E_flat = np.asarray(E_coeffs).reshape(-1)
+        return np.asarray(to_numpy(self.toroidal_rhs_from_E_operator @ E_flat)).reshape(-1)
+
+    def _compute_generic_toroidal_rhs_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
+        """Fallback RHS evaluation for non-SH/non-CS bases."""
+        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
+        G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
+        G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
+        P = np.asarray(to_dense(self.projection_matrix))
+
+        Eth_grid, Eph_grid = self.basis.evaluate(E_coeffs, self.grid, vector_type="tangential")
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta))
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi))
+
+        def get_derivs(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            coeffs = P @ values
+            return G_th @ coeffs, G_ph @ coeffs
+
+        _, dEth_ph = get_derivs(Eth_grid)
+        dEph_th, _ = get_derivs(Eph_grid)
+        _, cot_th, _ = self._grid_metric_terms
+        curlE = dEph_th + cot_th * Eph_grid - dEth_ph
+        dcurl_th, dcurl_ph = get_derivs(curlE)
+        S_known = inv_Rb2 * (B0th * dcurl_ph - B0ph * dcurl_th)
+        return np.asarray(to_numpy(P @ S_known)).reshape(-1)
+
+    def _assemble_toroidal_rhs_from_tangential_maps(
+        self,
+        *,
+        V_th: np.ndarray,
+        V_ph: np.ndarray,
+        D_th: np.ndarray,
+        D_ph: np.ndarray,
+    ) -> np.ndarray:
+        """Assemble the Er-free toroidal RHS map from tangential E component maps."""
+        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
+        _, cot_th, n_grid = self._grid_metric_terms
+        _, B0th, B0ph, _ = self._background_field_grid_components
+        if V_th.shape[0] != n_grid or V_ph.shape[0] != n_grid:
+            raise ValueError(
+                "Tangential component map height mismatch in toroidal RHS assembly: "
+                f"V_th={V_th.shape}, V_ph={V_ph.shape}, n_grid={n_grid}."
+            )
+
+        curlE_op = (D_th @ V_ph) + (cot_th[:, None] * V_ph) - (D_ph @ V_th)
+        dth_curlE_op = D_th @ curlE_op
+        dph_curlE_op = D_ph @ curlE_op
+        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
+        S_op = inv_Rb2 * ((B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op))
+        return asarray(P @ S_op)
+
     def _build_twist_rate_known_rhs_operator(self) -> np.ndarray:
         """Build dense map ``[u, dr_u]_grid -> toroidal RHS coefficients``.
 
         Returns a matrix ``K_u`` with shape ``(N_coeff, 4*N_grid)`` such that
             ``rhs_u = K_u @ [u_theta, u_phi, dr_u_theta, dr_u_phi]``.
         """
-        B0r = np.asarray(to_numpy(self.b_field.vec.r)).reshape(-1)
-        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-        theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
-        sin_th = np.sin(theta_rad)
-        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
-        cot_th = np.cos(theta_rad) / sin_th_safe
+        B0r, B0th, B0ph, n_grid = self._background_field_grid_components
+        _, cot_th, _ = self._grid_metric_terms
         inv_Rb = 1.0 / float(self.RI)
-
-        n_grid = int(theta_rad.size)
-        if B0r.size != n_grid or B0th.size != n_grid or B0ph.size != n_grid:
-            raise ValueError(
-                "Grid field sizes are inconsistent in u-known RHS map assembly: "
-                f"B0r={B0r.size}, B0th={B0th.size}, B0ph={B0ph.size}, n_grid={n_grid}."
-            )
-
-        if self.is_cs:
-            D_th, D_ph, _ = self.cs_rhs_derivative_operators
-            D_th = np.asarray(D_th, dtype=float)
-            D_ph = np.asarray(D_ph, dtype=float)
-            div_u_theta = D_th + np.diag(cot_th)
-            div_u_phi = D_ph
-        else:
-            P = np.asarray(to_dense(self.projection_matrix), dtype=float)
-            G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
-            G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
-            div_u_theta = (G_th @ P) + np.diag(cot_th)
-            div_u_phi = G_ph @ P
+        D_th, D_ph = self._rhs_scalar_derivative_operators
+        div_u_theta = D_th + np.diag(cot_th)
+        div_u_phi = D_ph
 
         # S_u = (B0r/Rb) div(u) + B0th*(-u_th/Rb - dr_u_th) + B0ph*(-u_ph/Rb - dr_u_ph)
         br_div_scale = np.diag(B0r * inv_Rb)
@@ -779,46 +860,14 @@ class ToroidalSystemMatrices:
             K = P @ S
         with ``D_phi = (1/sin(theta)) d/dphi``.
         """
-        N = self.basis.index_length
-        P = np.asarray(to_dense(self.projection_matrix))
-        G_th = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")))
-        G_ph = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")))
-
-        # Vector basis tensor: (component, grid, potential_type, coeff)
-        G_vec = np.asarray(to_dense(self.basis.get_vector_basis_matrix(self.grid)))
-        if G_vec.ndim != 4 or G_vec.shape[0] != 2 or G_vec.shape[2] != 2 or G_vec.shape[3] != N:
-            raise ValueError(
-                "Unexpected vector basis shape for SH RHS map: "
-                f"{G_vec.shape}, expected (2, N_grid, 2, {N})."
-            )
-        n_grid = int(G_vec.shape[1])
-
-        # Map flattened E coefficients [pol; tor] to tangential components.
-        V_th = np.hstack([G_vec[0, :, 0, :], G_vec[0, :, 1, :]])  # (N_grid, 2N)
-        V_ph = np.hstack([G_vec[1, :, 0, :], G_vec[1, :, 1, :]])  # (N_grid, 2N)
-
-        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-        theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
-        sin_th = np.sin(theta_rad)
-        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
-        cot_th = np.cos(theta_rad) / sin_th_safe
-        if B0th.size != n_grid or B0ph.size != n_grid or cot_th.size != n_grid:
-            raise ValueError("Grid field sizes are inconsistent in SH RHS map assembly.")
-
-        # c = curl_Omega(E_S) = d_theta E_phi + cot(theta) E_phi - d_phi E_theta
-        dEth_ph_op = G_ph @ (P @ V_th)
-        dEph_th_op = G_th @ (P @ V_ph)
-        curlE_op = dEph_th_op + (cot_th[:, None] * V_ph) - dEth_ph_op
-
-        dth_curlE_op = G_th @ (P @ curlE_op)
-        dph_curlE_op = G_ph @ (P @ curlE_op)
-
-        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
-        S_op = inv_Rb2 * (
-            (B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op)
+        V_th, V_ph, _ = self._vector_basis_component_maps
+        D_th, D_ph = self._rhs_scalar_derivative_operators
+        return self._assemble_toroidal_rhs_from_tangential_maps(
+            V_th=V_th,
+            V_ph=V_ph,
+            D_th=D_th,
+            D_ph=D_ph,
         )
-        return asarray(P @ S_op)
 
     def _build_cs_toroidal_rhs_from_E_operator(self) -> np.ndarray:
         """Build CS toroidal RHS map ``E_coeffs -> rhs``.
@@ -829,49 +878,14 @@ class ToroidalSystemMatrices:
             K = P @ S
         where CS ``D_phi`` already includes ``1/sin(theta)`` scaling.
         """
-        N = self.basis.index_length
-
-        # Horizontal derivatives use the configured toroidal RHS derivative basis.
-        D_th_h, D_ph_h, _ = self.cs_rhs_derivative_operators
-        D_th_h = np.asarray(D_th_h)
-        D_ph_h = np.asarray(D_ph_h)
-        P = np.asarray(to_dense(self.projection_matrix))
-
-        # Vector basis tensor: (2, N_grid, 2, N_coeff).
-        G_vec = np.asarray(to_dense(self.basis.get_vector_basis_matrix(self.grid)))
-        if G_vec.ndim != 4 or G_vec.shape[0] != 2 or G_vec.shape[2] != 2 or G_vec.shape[3] != N:
-            raise ValueError(
-                "Unexpected vector basis shape for CS RHS map: "
-                f"{G_vec.shape}, expected (2, N_grid, 2, {N})."
-            )
-        n_grid = int(G_vec.shape[1])
-
-        # Map flattened E coefficients [pol; tor] to tangential components.
-        V_th = np.hstack([G_vec[0, :, 0, :], G_vec[0, :, 1, :]])  # (N_grid, 2N)
-        V_ph = np.hstack([G_vec[1, :, 0, :], G_vec[1, :, 1, :]])  # (N_grid, 2N)
-
-        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
-        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
-        theta_rad = np.deg2rad(np.asarray(to_numpy(self.grid.theta)).reshape(-1))
-        sin_th = np.sin(theta_rad)
-        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
-        cot_th = np.cos(theta_rad) / sin_th_safe
-        if B0th.size != n_grid or B0ph.size != n_grid or cot_th.size != n_grid:
-            raise ValueError("Grid field sizes are inconsistent in CS RHS map assembly.")
-
-        # c = curl_Omega(E_S) = d_theta E_phi + cot(theta) E_phi - d_phi E_theta
-        dEth_ph_op = D_ph_h @ V_th
-        dEph_th_op = D_th_h @ V_ph
-        curlE_op = dEph_th_op + (cot_th[:, None] * V_ph) - dEth_ph_op
-
-        dth_curlE_op = D_th_h @ curlE_op
-        dph_curlE_op = D_ph_h @ curlE_op
-
-        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
-        S_op = inv_Rb2 * (
-            (B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op)
+        V_th, V_ph, _ = self._vector_basis_component_maps
+        D_th, D_ph = self._rhs_scalar_derivative_operators
+        return self._assemble_toroidal_rhs_from_tangential_maps(
+            V_th=V_th,
+            V_ph=V_ph,
+            D_th=D_th,
+            D_ph=D_ph,
         )
-        return asarray(P @ S_op)
 
     def compute_toroidal_rhs_from_E(
         self,
@@ -924,7 +938,7 @@ class ToroidalSystemMatrices:
                     "Provide dr_twist_rate_known_grid explicitly, or set "
                     "allow_missing_dr_twist_rate_known=True to assume dr_twist_rate_known=0."
                 )
-            n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
+            _, _, n_grid = self._grid_metric_terms
             dr_twist_rate_known_grid = np.zeros((2, n_grid), dtype=float)
 
         rhs_u = None
@@ -938,53 +952,11 @@ class ToroidalSystemMatrices:
                 )
             ).reshape(-1)
 
-        if self.is_cs:
-            E_flat = np.asarray(E_coeffs).reshape(-1)
-            rhs_e = np.asarray(to_numpy(self.toroidal_rhs_from_E_operator @ E_flat)).reshape(-1)
-            if rhs_u is not None:
-                rhs_e = rhs_e + rhs_u
-            return asarray(rhs_e)
-
-        if (not self.is_cs) and (getattr(self.basis, "kind", "") == "SH"):
-            E_flat = np.asarray(E_coeffs).reshape(-1)
-            rhs_e = np.asarray(to_numpy(self.toroidal_rhs_from_E_operator @ E_flat)).reshape(-1)
-            if rhs_u is not None:
-                rhs_e = rhs_e + rhs_u
-            return asarray(rhs_e)
-
-        # Generic fallback (non-SH/non-CS): apply the same Er-free RHS
-        # formula used in the specialized builders.
-        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
-
-        # 1. Get evaluation and projection matrices (Cached)
-        G_th = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta"))
-        G_ph = to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi"))
-        P = to_dense(self.projection_matrix)
-
-        # 2. Evaluate E_S on grid
-        # E_coeffs contains [Poloidal, Toroidal] potentials
-        Eth_grid, Eph_grid = self.basis.evaluate(E_coeffs, self.grid, vector_type="tangential")
-
-        B0th = to_numpy(self.b_field.vec.theta)
-        B0ph = to_numpy(self.b_field.vec.phi)
-
-        # 3. Helpers for grid derivatives via spectral projection
-        def get_derivs(f_val):
-            c = P @ f_val
-            return G_th @ c, G_ph @ c
-
-        # 4. Compute unit-sphere curl and its derivatives on grid
-        _, dEth_ph = get_derivs(Eth_grid)
-        dEph_th, _ = get_derivs(Eph_grid)
-        theta_rad = np.deg2rad(to_numpy(self.grid.theta)).flatten()
-        sin_th = np.sin(theta_rad)
-        sin_th_safe = np.where(np.abs(sin_th) < 1e-12, 1e-12, sin_th)
-        cot_th = np.cos(theta_rad) / sin_th_safe
-        curlE = dEph_th + cot_th * Eph_grid - dEth_ph
-        dcurl_th, dcurl_ph = get_derivs(curlE)
-
-        S_known = inv_Rb2 * (B0th * dcurl_ph - B0ph * dcurl_th)
-        rhs_e = np.asarray(to_numpy(P @ S_known)).reshape(-1)
+        basis_kind = getattr(self.basis, "kind", "")
+        if self.is_cs or basis_kind == "SH":
+            rhs_e = self._apply_direct_toroidal_rhs_operator(E_coeffs)
+        else:
+            rhs_e = self._compute_generic_toroidal_rhs_from_E(E_coeffs)
         if rhs_u is not None:
             rhs_e = rhs_e + rhs_u
         return asarray(rhs_e)
