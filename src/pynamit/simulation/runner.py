@@ -78,7 +78,7 @@ def run_pynamit(
 
     from pynamit.math.constants import RE
     from pynamit.simulation.dynamics import Dynamics, SimulationMode
-    from pynamit.simulation.input_weighting import compute_spherical_input_sqrt_weights
+    from pynamit.simulation.input import compute_spherical_input_sqrt_weights
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
     def _infer_structured_shape(lat_arr: np.ndarray, lon_arr: np.ndarray) -> Optional[tuple[int, int]]:

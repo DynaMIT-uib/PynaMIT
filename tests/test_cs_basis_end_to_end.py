@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
-from pynamit.simulation.geometry import Geometry
+from pynamit.simulation.spatial import Geometry
 from pynamit.simulation.settings import SimulationMode
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.mainfield import Mainfield

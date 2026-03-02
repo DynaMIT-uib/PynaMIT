@@ -13,8 +13,7 @@ from .state import State
 from .dynamics import Dynamics
 from .runner import run_pynamit
 from .settings import SimulationMode, DynamicsSettings, FLOAT_ERROR_MARGIN
-from .toroidal import ToroidalSystemMatrices
-from .poloidal import PoloidalSystemMatrices
+from .induction import PoloidalSystemMatrices, ToroidalSystemMatrices
 
 __all__ = [
     "Dynamics",

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from pynamit.math.constants import mu0
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.settings import SimulationMode
 

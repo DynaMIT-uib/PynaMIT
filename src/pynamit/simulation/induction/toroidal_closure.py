@@ -12,7 +12,7 @@ from typing import Any, Callable, TYPE_CHECKING
 
 import numpy as np
 
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial.geometry_utils import to_dense
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis

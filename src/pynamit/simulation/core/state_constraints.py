@@ -12,7 +12,7 @@ from functools import cached_property
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray
 
 logger = logging.getLogger(__name__)

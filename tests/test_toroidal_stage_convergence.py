@@ -71,7 +71,7 @@ def _lift_two_channel(op: np.ndarray) -> np.ndarray:
 
 
 def _scalar_transfer_operators(state, sh_basis):
-    from pynamit.simulation.geometry_utils import to_dense
+    from pynamit.simulation.spatial import to_dense
 
     grid = state.geometry.grid
     sol = state.solution_basis
@@ -89,7 +89,7 @@ def _scalar_transfer_operators(state, sh_basis):
 
 
 def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict[str, float]:
-    from pynamit.simulation.geometry_utils import to_dense
+    from pynamit.simulation.spatial import to_dense
     from pynamit.spherical_harmonics.sh_basis import SHBasis
 
     sh_basis = SHBasis(nmax, mmax)

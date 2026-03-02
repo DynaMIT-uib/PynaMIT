@@ -20,7 +20,7 @@ def _forcing_rms_for_smooth_psi(
     northern_apex: bool = False,
 ) -> float:
     from pynamit.simulation.runner import run_pynamit
-    from pynamit.simulation.geometry_utils import to_dense
+    from pynamit.simulation.spatial import to_dense
 
     sim = run_pynamit(
         final_time=2.0,

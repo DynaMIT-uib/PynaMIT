@@ -27,7 +27,7 @@ if "XDG_CACHE_HOME" not in os.environ:
 from pynamit.math.linear_map import as_linear_map
 from pynamit.primitives.field import Field
 from pynamit.simulation.dynamics import Dynamics, SimulationMode
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial import to_dense
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 

@@ -12,11 +12,11 @@ from typing import Any, Optional
 import numpy as np
 
 from pynamit.math.linear_map import LinearMap, as_linear_map
-from pynamit.simulation.operator_api_utils import (
+from pynamit.simulation.induction.operator_api_utils import (
     build_linear_map,
     coerce_dense_operator_matrix,
 )
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray, to_numpy
 
 class ToroidalOperatorAPI:

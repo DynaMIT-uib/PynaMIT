@@ -1,17 +1,17 @@
 """Induction-system assembly and solver helpers."""
 
-from pynamit.simulation.operator_api_utils import (
+from .operator_api_utils import (
     build_linear_map,
     cached_dense_builder,
     coerce_dense_operator_matrix,
 )
-from pynamit.simulation.operators import BlockCoupledOperator, ResistivityTensorOperator
-from pynamit.simulation.poloidal import PoloidalSystemMatrices
-from pynamit.simulation.poloidal_closure import PoloidalClosureProjector, RMCouplingOperators
-from pynamit.simulation.poloidal_solver import PoloidalOperatorAPI
-from pynamit.simulation.toroidal import ToroidalSystemMatrices
-from pynamit.simulation.toroidal_closure import ToroidalClosureProjector
-from pynamit.simulation.toroidal_solver import ToroidalOperatorAPI
+from .operators import BlockCoupledOperator, ResistivityTensorOperator
+from .poloidal import PoloidalSystemMatrices
+from .poloidal_closure import PoloidalClosureProjector, RMCouplingOperators
+from .poloidal_solver import PoloidalOperatorAPI
+from .toroidal import ToroidalSystemMatrices
+from .toroidal_closure import ToroidalClosureProjector
+from .toroidal_solver import ToroidalOperatorAPI
 
 __all__ = [
     "BlockCoupledOperator",

@@ -22,16 +22,16 @@ from pynamit.utils import tensor_pinv
 from pynamit.primitives.basis import Basis
 from pynamit.math.linear_map import as_linear_map
 from pynamit.spherical_harmonics.gaunt import GauntEngine
-from pynamit.simulation.operators import ResistivityTensorOperator
-from pynamit.simulation.poloidal import PoloidalSystemMatrices
+from pynamit.simulation.induction.operators import ResistivityTensorOperator
+from pynamit.simulation.induction.poloidal import PoloidalSystemMatrices
 from pynamit.simulation.settings import SimulationMode
-from pynamit.simulation.geometry_utils import (
+from pynamit.simulation.spatial.geometry_utils import (
     to_dense,
     get_radial_shift_diagonal,
     canonicalize_vector_basis_matrix,
 )
-from pynamit.simulation.pfac import PFACIntegrator
-from pynamit.simulation.constraints import ApexMapper
+from pynamit.simulation.spatial.pfac import PFACIntegrator
+from pynamit.simulation.spatial.constraints import ApexMapper
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import GridBasis

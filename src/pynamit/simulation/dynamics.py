@@ -20,7 +20,7 @@ from pynamit.primitives.timeseries import Timeseries
 from pynamit.primitives.input_manager import InputManager
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, set_backend, xp
-from pynamit.simulation.conductance_representation import (
+from pynamit.simulation.input import (
     conductance_timeseries_vars_for_mode,
     encode_conductance_input_for_storage,
 )

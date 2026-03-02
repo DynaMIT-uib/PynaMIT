@@ -29,12 +29,12 @@ import scipy.sparse
 from functools import cached_property
 
 from pynamit.utils import to_numpy, asarray, tensor_pinv
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.math.linear_map import as_linear_map
 from pynamit.math.constants import mu0
 from pynamit.spherical_harmonics.gaunt import GauntEngine
 from pynamit.spherical_harmonics import sh_operators
-from pynamit.simulation.toroidal_closure import ToroidalClosureProjector
+from pynamit.simulation.induction.toroidal_closure import ToroidalClosureProjector
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ class ToroidalSystemMatrices:
     @cached_property
     def operator_api(self) -> "ToroidalOperatorAPI":
         """Helper exposing solve/orchestration routines built on toroidal operators."""
-        from pynamit.simulation.toroidal_solver import ToroidalOperatorAPI
+        from pynamit.simulation.induction.toroidal_solver import ToroidalOperatorAPI
 
         return ToroidalOperatorAPI(self)
 

@@ -22,7 +22,7 @@ from pynamit.utils import asarray
 
 if TYPE_CHECKING:
     from pynamit.cubed_sphere.grid import CubedSphereGrid
-    from pynamit.simulation.geometry import Geometry
+    from pynamit.simulation.spatial import Geometry
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"

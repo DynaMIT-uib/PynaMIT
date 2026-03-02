@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
-from pynamit.simulation.geometry_utils import canonicalize_vector_basis_matrix
+from pynamit.simulation.spatial.geometry_utils import canonicalize_vector_basis_matrix
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis

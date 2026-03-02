@@ -14,12 +14,12 @@ from typing import Any, Optional, TYPE_CHECKING
 
 import numpy as np
 
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial.geometry_utils import to_dense
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis
     from pynamit.primitives.grid import Grid
-    from pynamit.simulation.pfac import PFACIntegrator
+    from pynamit.simulation.spatial.pfac import PFACIntegrator
 
 
 @dataclass(frozen=True)

@@ -36,7 +36,7 @@ from pynamit.math.constants import mu0
 from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 from pynamit.simulation.spatial import to_dense, canonicalize_vector_basis_matrix
 from pynamit.simulation.settings import SimulationMode
-from pynamit.simulation.conductance_representation import (
+from pynamit.simulation.input import (
     decode_conductance_representation_to_grids,
 )
 

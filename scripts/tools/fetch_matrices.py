@@ -22,7 +22,7 @@ from pynamit.data import get_conductance_inputs
 from pynamit.math.constants import RE
 from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.dynamics import Dynamics
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial import to_dense
 
 
 def build_dynamics(

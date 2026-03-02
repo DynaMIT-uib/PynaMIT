@@ -274,7 +274,7 @@ class TestBlockCoupledOperator:
 
     def test_block_coupled_matvec_matches_dense(self):
         """Test that BlockCoupledOperator matvec matches dense matrix."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction import BlockCoupledOperator
 
         N = 30
         np.random.seed(42)
@@ -303,7 +303,7 @@ class TestBlockCoupledOperator:
 
     def test_block_coupled_rmatvec_matches_dense(self):
         """Test that BlockCoupledOperator rmatvec matches dense transpose."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction import BlockCoupledOperator
 
         N = 30
         np.random.seed(42)
@@ -328,7 +328,7 @@ class TestBlockCoupledOperator:
 
     def test_block_coupled_with_none_blocks(self):
         """Test BlockCoupledOperator with None (zero) blocks."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction import BlockCoupledOperator
 
         N = 20
         np.random.seed(123)
@@ -356,7 +356,7 @@ class TestBlockCoupledOperator:
 
     def test_block_coupled_with_linear_maps(self):
         """Test BlockCoupledOperator with LinearMap blocks."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction import BlockCoupledOperator
 
         N = 25
         np.random.seed(42)
@@ -386,7 +386,7 @@ class TestBlockCoupledOperator:
 
     def test_block_coupled_to_linear_map_for_solver(self):
         """Test that BlockCoupledOperator.to_linear_map() works with solver."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction import BlockCoupledOperator
 
         N = 20
         np.random.seed(42)
@@ -424,7 +424,7 @@ class TestBlockCoupledOperator:
 
     def test_block_coupled_to_dense_tensor_format(self):
         """Test that to_dense() returns (2, N, 2, N) matching codebase convention."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction import BlockCoupledOperator
 
         N = 15
         np.random.seed(42)

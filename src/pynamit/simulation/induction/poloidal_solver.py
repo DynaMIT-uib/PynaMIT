@@ -13,7 +13,7 @@ from typing import Any, Callable, Optional, TYPE_CHECKING
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
-from pynamit.simulation.operator_api_utils import (
+from pynamit.simulation.induction.operator_api_utils import (
     build_linear_map,
     coerce_dense_operator_matrix,
 )
@@ -21,7 +21,7 @@ from pynamit.utils import asarray, xp
 
 if TYPE_CHECKING:
     from pynamit.math.least_squares_problem import LeastSquaresProblem
-    from pynamit.simulation.poloidal import PoloidalSystemMatrices
+    from pynamit.simulation.induction.poloidal import PoloidalSystemMatrices
 
 TimedSolveFn = Callable[..., np.ndarray]
 logger = logging.getLogger(__name__)

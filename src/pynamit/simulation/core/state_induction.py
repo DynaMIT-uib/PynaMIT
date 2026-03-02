@@ -11,7 +11,7 @@ from pynamit.math.integration import ExponentialIntegrator
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map
-from pynamit.simulation.coupled_solver import CoupledSteadyStateSolver
+from pynamit.simulation.core.coupled_solver import CoupledSteadyStateSolver
 from pynamit.utils import asarray, to_numpy, xp
 
 TimedSolveFn = Callable[..., np.ndarray]

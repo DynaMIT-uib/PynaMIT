@@ -16,7 +16,7 @@ import xarray as xr
 from pynamit.math.constants import mu0
 from pynamit.primitives.grid import Grid
 from pynamit.utils import tensor_pinv
-from pynamit.simulation.geometry_utils import to_dense, get_radial_shift_diagonal
+from pynamit.simulation.spatial.geometry_utils import to_dense, get_radial_shift_diagonal
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis

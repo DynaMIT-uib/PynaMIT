@@ -7,7 +7,7 @@ import pytest
 
 from pynamit.math.constants import RE, mu0
 from pynamit.simulation.dynamics import Dynamics, SimulationMode
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial import to_dense
 
 
 def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dynamics:

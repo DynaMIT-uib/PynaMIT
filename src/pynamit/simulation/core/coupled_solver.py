@@ -20,7 +20,7 @@ from scipy.sparse.linalg import (
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map
-from pynamit.simulation.geometry_utils import to_dense
+from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray, xp
 
 TimedSolveFn = Callable[..., np.ndarray]
@@ -834,7 +834,7 @@ class CoupledOperatorAPI:
         use_pinning: Optional[bool] = None,
     ) -> LinearMap:
         """Build matrix-free/dense coupled operator for ``y=[psi, m_ind]`` dynamics."""
-        from pynamit.simulation.operators import BlockCoupledOperator
+        from pynamit.simulation.induction.operators import BlockCoupledOperator
 
         st = self.state
         n = st.solution_basis.index_length

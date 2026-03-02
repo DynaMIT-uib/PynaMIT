@@ -5,7 +5,7 @@ import pynamit
 import dipole
 import datetime
 import h5py as h5
-from pynamit.simulation.input_weighting import compute_spherical_input_sqrt_weights
+from pynamit.simulation.input import compute_spherical_input_sqrt_weights
 
 RE = 6381e3
 RI = 6.5e6

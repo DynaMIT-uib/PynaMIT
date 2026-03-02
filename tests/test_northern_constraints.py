@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 from pynamit.simulation.settings import DynamicsSettings, SimulationMode
-from pynamit.simulation.geometry import Geometry
+from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.primitives.basis import Basis
 # Need concrete basis (SH or CS)

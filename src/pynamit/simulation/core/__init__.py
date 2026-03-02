@@ -1,9 +1,8 @@
 """Core simulation orchestration components."""
 
-from pynamit.simulation.coupled_solver import CoupledOperatorAPI, CoupledSteadyStateSolver
-from pynamit.simulation.state_constraints import StateConstraints
-
+from .coupled_solver import CoupledOperatorAPI, CoupledSteadyStateSolver
 from .state_induction import StateInductionAPI
+from .state_constraints import StateConstraints
 
 __all__ = [
     "CoupledOperatorAPI",

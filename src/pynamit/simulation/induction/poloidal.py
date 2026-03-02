@@ -20,14 +20,17 @@ from functools import cached_property
 from pynamit.utils import to_numpy, asarray, xp, tensor_pinv
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.math.constants import mu0
-from pynamit.simulation.geometry_utils import to_dense
-from pynamit.simulation.poloidal_closure import PoloidalClosureProjector, RMCouplingOperators
+from pynamit.simulation.induction.poloidal_closure import (
+    PoloidalClosureProjector,
+    RMCouplingOperators,
+)
+from pynamit.simulation.spatial.geometry_utils import to_dense
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis
     from pynamit.primitives.grid import Grid
     from pynamit.primitives.field import Field
-    from pynamit.simulation.pfac import PFACIntegrator
+    from pynamit.simulation.spatial.pfac import PFACIntegrator
     from pynamit.math.least_squares_problem import LeastSquaresProblem
 
 logger = logging.getLogger(__name__)
@@ -114,7 +117,7 @@ class PoloidalSystemMatrices:
     @cached_property
     def operator_api(self) -> "PoloidalOperatorAPI":
         """Helper exposing solve/orchestration routines built on poloidal operators."""
-        from pynamit.simulation.poloidal_solver import PoloidalOperatorAPI
+        from pynamit.simulation.induction.poloidal_solver import PoloidalOperatorAPI
 
         return PoloidalOperatorAPI(self, timed_solve=_timed_solve)
 

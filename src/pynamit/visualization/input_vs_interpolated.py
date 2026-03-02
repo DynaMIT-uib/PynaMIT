@@ -20,7 +20,7 @@ from pynamit.math.constants import RE
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.primitives.mainfield import Mainfield
-from pynamit.simulation.conductance_representation import (
+from pynamit.simulation.input import (
     conductance_timeseries_vars_for_mode,
     decode_conductance_representation_to_grids,
 )
