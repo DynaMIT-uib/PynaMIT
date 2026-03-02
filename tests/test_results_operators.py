@@ -68,3 +68,23 @@ def test_results_operator_bundle_builders_agree_for_live_state() -> None:
     for attr in ("m_ind_to_Br", "m_imp_to_jr", "m_ind_to_Jeq", "G_m_ind_to_JS", "G_m_imp_to_JS"):
         expected = np.asarray(getattr(bundle_geometry, attr))
         assert np.allclose(np.asarray(getattr(bundle_settings, attr)), expected)
+
+
+def test_results_operator_bundle_evaluation_helpers_match_explicit_application() -> None:
+    state = _build_state()
+    bundle = state.geometry.get_poloidal_results_operators()
+
+    m_ind = np.arange(state.solution_basis.index_length, dtype=float)
+    m_imp = np.arange(state.solution_basis.index_length, dtype=float) + 1.0
+
+    expected_br = bundle.scalar_evaluation_matrix @ (bundle.m_ind_to_Br @ m_ind)
+    expected_jr = bundle.scalar_evaluation_matrix @ (bundle.m_imp_to_jr @ m_imp)
+    expected_jeq = bundle.scalar_evaluation_matrix @ (bundle.m_ind_to_Jeq @ m_ind)
+    expected_js_ind = np.tensordot(bundle.G_m_ind_to_JS, m_ind, axes=([2], [0]))
+    expected_js_imp = np.tensordot(bundle.G_m_imp_to_JS, m_imp, axes=([2], [0]))
+
+    np.testing.assert_allclose(bundle.evaluate_br(m_ind), expected_br)
+    np.testing.assert_allclose(bundle.evaluate_jr(m_imp), expected_jr)
+    np.testing.assert_allclose(bundle.evaluate_jeq(m_ind), expected_jeq)
+    np.testing.assert_allclose(bundle.evaluate_js_from_m_ind(m_ind), expected_js_ind)
+    np.testing.assert_allclose(bundle.evaluate_js_from_m_imp(m_imp), expected_js_imp)

@@ -12,7 +12,6 @@ import numpy as np
 from pynamit.gauss_legendre.gl_basis import GLBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.input_manager import InputManager
 from pynamit.utils import asarray, set_backend, xp
@@ -208,12 +207,7 @@ class Dynamics:
             "psi": sh_basis_zero_removed, 
         }
 
-        self.mainfield = Mainfield(
-            kind=self.settings.mainfield_kind,
-            epoch=self.settings.mainfield_epoch,
-            hI=(self.settings.RI - RE) * 1e-3,
-            B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
-        )
+        self.mainfield = self.data.mainfield
 
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
@@ -226,8 +220,8 @@ class Dynamics:
             solution_basis=solution_basis,
         )
 
-        if "state" in self.output_timeseries.datasets.keys():
-            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
+        if self.data.has_output_dataset("state"):
+            self.current_time = self.data.get_latest_output_time("state")
         else:
             self.current_time = np.float64(0)
 
@@ -268,11 +262,9 @@ class Dynamics:
         """
         step = 0
 
-        if "state" in self.output_timeseries.datasets.keys():
-            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
-            state_entry = self.output_timeseries.get_entry(
-                "state", self.current_time, interpolation=False
-            )
+        if self.data.has_output_dataset("state"):
+            self.current_time = self.data.get_latest_output_time("state")
+            state_entry = self.data.get_state_entry(self.current_time, interpolation=False)
             inductive_m_ind = state_entry["m_ind"]
             inductive_m_ind = asarray(inductive_m_ind)
             if self.settings.dynamics_mode == "full_induction" and state_entry is not None:
@@ -357,7 +349,7 @@ class Dynamics:
 
                 # Save state and steady state time series.
                 if step % (sampling_step_interval * saving_sample_interval) == 0:
-                    self.output_timeseries.save("state", self.io)
+                    self.data.save_output_dataset("state")
 
                     if quiet:
                         pass
@@ -369,7 +361,7 @@ class Dynamics:
                         )
 
                     if bool(self.settings.save_steady_states) and steady_state_m_ind is not None:
-                        self.output_timeseries.save("steady_state", self.io)
+                        self.data.save_output_dataset("steady_state")
 
                         if quiet:
                             pass
@@ -451,7 +443,7 @@ class Dynamics:
         if state_data["psi"] is None and "psi" in self.output_variables[key]:
              state_data["psi"] = np.zeros(self.state.solution_basis.index_length)
 
-        self.output_timeseries.add_entry(key, state_data, time=self.current_time)
+        self.data.add_output_entry(key, state_data, time=self.current_time)
 
     def set_FAC(
         self,

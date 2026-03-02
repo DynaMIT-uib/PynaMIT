@@ -36,27 +36,6 @@ def _get_current_state_entry(dynamics: Dynamics) -> dict[str, np.ndarray]:
     return state_entry
 
 
-def _evaluate_scalar_operator_on_grid(
-    evaluation_matrix: np.ndarray,
-    operator: np.ndarray,
-    coeffs: np.ndarray,
-) -> np.ndarray:
-    """Evaluate ``evaluation_matrix @ operator @ coeffs`` on a grid."""
-    coeff_vec = np.asarray(coeffs).reshape(-1)
-    return np.asarray(evaluation_matrix @ (operator @ coeff_vec)).reshape(-1)
-
-
-def _evaluate_scalar_coeffs_on_grid(
-    evaluation_matrix: np.ndarray,
-    coeffs: np.ndarray,
-    *,
-    scale: float = 1.0,
-) -> np.ndarray:
-    """Evaluate scalar coefficients on a grid with an optional scalar factor."""
-    coeff_vec = float(scale) * np.asarray(coeffs).reshape(-1)
-    return np.asarray(evaluation_matrix @ coeff_vec).reshape(-1)
-
-
 def cs_interpolate(
     projection: Any,
     inlat: np.ndarray,
@@ -278,27 +257,11 @@ def debugplot(
     m_imp = np.asarray(state_entry["m_imp"]).reshape(-1)
 
     # Calculate values to plot.
-    Br = _evaluate_scalar_operator_on_grid(
-        plot_operators.scalar_evaluation_matrix,
-        plot_operators.m_ind_to_Br,
-        m_ind,
-    )
-    FAC = _evaluate_scalar_operator_on_grid(
-        plot_operators.scalar_evaluation_matrix,
-        plot_operators.m_imp_to_jr,
-        m_imp,
-    ) / (plt_b_field.vec.r / plt_b_field.magnitude)
-    eq_current_function = _evaluate_scalar_operator_on_grid(
-        plot_operators.scalar_evaluation_matrix,
-        plot_operators.m_ind_to_Jeq,
-        m_ind,
-    )
+    Br = plot_operators.evaluate_br(m_ind)
+    FAC = plot_operators.evaluate_jr(m_imp) / (plt_b_field.vec.r / plt_b_field.magnitude)
+    eq_current_function = plot_operators.evaluate_jeq(m_ind)
 
-    jr_mod = _evaluate_scalar_operator_on_grid(
-        state_grid_operators.scalar_evaluation_matrix,
-        state_grid_operators.m_imp_to_jr,
-        m_imp,
-    )
+    jr_mod = state_grid_operators.evaluate_jr(m_imp)
 
     # Make global plots.
     gax_B.contourf(
@@ -451,11 +414,7 @@ def time_dependent_plot(
     state_entry = _get_current_state_entry(dynamics)
     plot_operators = dynamics.state.geometry.get_poloidal_results_operators(grid=plt_state_grid)
 
-    Br = _evaluate_scalar_operator_on_grid(
-        plot_operators.scalar_evaluation_matrix,
-        plot_operators.m_ind_to_Br,
-        state_entry["m_ind"],
-    )
+    Br = plot_operators.evaluate_br(state_entry["m_ind"])
 
     _, paxn, paxs, _ = globalplot(
         plt_grid.lon.reshape(pltshape),
@@ -469,14 +428,10 @@ def time_dependent_plot(
         extend="both",
     )
 
-    Phi = (
-        _evaluate_scalar_coeffs_on_grid(
-            plot_operators.scalar_evaluation_matrix,
-            state_entry["Phi"],
-            scale=float(dynamics.state.RI),
-        )
-        * 1e-3
-    )
+    Phi = plot_operators.evaluate_scalar_coefficients(
+        state_entry["Phi"],
+        scale=float(dynamics.state.RI),
+    ) * 1e-3
 
     # W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
     nnn = plt_grid.lat.flatten() > 50

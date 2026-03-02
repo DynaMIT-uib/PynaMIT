@@ -1,0 +1,189 @@
+from __future__ import annotations
+
+import numpy as np
+import xarray as xr
+
+from pynamit.primitives.io import IO
+from pynamit.simulation.data import (
+    SimulationData,
+    build_simulation_bases,
+    create_input_timeseries,
+    create_output_timeseries,
+)
+from pynamit.simulation.settings import DynamicsSettings
+
+
+def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
+    prefix = tmp_path / "results_case"
+    settings = DynamicsSettings(
+        filename_prefix=str(prefix),
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+        t0="2001-05-12 21:45:00",
+    )
+    io = IO(str(prefix))
+    io.save_dataset(settings.to_dataset(), "settings")
+
+    cs_basis, sh_basis, sh_basis_zero_removed = build_simulation_bases(settings)
+    input_timeseries, _, _ = create_input_timeseries(
+        settings,
+        sh_basis=sh_basis,
+        sh_basis_zero_removed=sh_basis_zero_removed,
+    )
+    output_timeseries, _, _, solution_basis = create_output_timeseries(
+        settings,
+        cs_basis=cs_basis,
+        sh_basis_zero_removed=sh_basis_zero_removed,
+    )
+
+    n_scalar = sh_basis_zero_removed.index_length
+    n_conductance = sh_basis.index_length
+    n_solution = solution_basis.index_length
+
+    input_timeseries.add_entry(
+        "jr",
+        {"jr": np.arange(n_scalar, dtype=float)},
+        time=0.0,
+    )
+    input_timeseries.add_entry(
+        "jr",
+        {"jr": np.arange(n_scalar, dtype=float) + 10.0},
+        time=2.0,
+    )
+    input_timeseries.add_entry(
+        "conductance",
+        {
+            "etaP": np.full(n_conductance, 2.0),
+            "etaH": np.full(n_conductance, 0.5),
+        },
+        time=0.0,
+    )
+    input_timeseries.add_entry(
+        "u",
+        {"u": np.arange(2 * n_scalar, dtype=float).reshape(2, n_scalar)},
+        time=0.0,
+    )
+    input_timeseries.save("jr", io)
+    input_timeseries.save("conductance", io)
+    input_timeseries.save("u", io)
+
+    output_timeseries.add_entry(
+        "state",
+        {
+            "m_ind": np.full(n_solution, 1.0),
+            "m_imp": np.full(n_solution, 2.0),
+            "Phi": np.full(n_solution, 3.0),
+            "W": np.full(n_solution, 4.0),
+        },
+        time=0.0,
+    )
+    output_timeseries.add_entry(
+        "state",
+        {
+            "m_ind": np.full(n_solution, 5.0),
+            "m_imp": np.full(n_solution, 6.0),
+            "Phi": np.full(n_solution, 7.0),
+            "W": np.full(n_solution, 8.0),
+        },
+        time=2.0,
+    )
+    output_timeseries.save("state", io)
+
+    io.save_dataarray(xr.DataArray(np.eye(n_solution)), "PFAC_matrix")
+
+    simulation_data = SimulationData.from_prefix(prefix)
+
+    assert simulation_data.settings.Nmax == settings.Nmax
+    assert simulation_data.mainfield.kind == settings.mainfield_kind
+    assert simulation_data.pfac_matrix.shape == (n_solution, n_solution)
+
+    state_entry = simulation_data.get_state_entry(1.0)
+    assert state_entry is not None
+    assert "psi" not in state_entry
+    np.testing.assert_allclose(state_entry["m_imp"], np.full(n_solution, 2.0))
+
+    jr_entry = simulation_data.get_input_entry("jr", 1.0)
+    assert jr_entry is not None
+    np.testing.assert_allclose(jr_entry["jr"], np.arange(n_scalar, dtype=float))
+
+    jr_interp, jr_derivative = simulation_data.get_input_entry_with_derivative(
+        "jr",
+        1.0,
+        interpolation=True,
+    )
+    assert jr_interp is not None and jr_derivative is not None
+    np.testing.assert_allclose(jr_interp["jr"], np.arange(n_scalar, dtype=float) + 5.0)
+    np.testing.assert_allclose(jr_derivative["jr"], np.full(n_scalar, 5.0))
+
+    conductance_entry = simulation_data.get_input_entry("conductance", 0.0)
+    assert conductance_entry is not None
+    assert set(conductance_entry) == {"etaP", "etaH"}
+    assert simulation_data.get_storage_basis("conductance").kind == "SH"
+    assert simulation_data.has_dataset("state")
+
+
+def test_simulation_data_create_saves_sidecars(tmp_path):
+    prefix = tmp_path / "runtime_case"
+    settings = DynamicsSettings(
+        filename_prefix=str(prefix),
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+        t0="2001-05-12 21:45:00",
+    )
+
+    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    simulation_data.save_settings()
+    simulation_data.save_pfac_matrix(np.eye(simulation_data.solution_basis.index_length))
+
+    reloaded = SimulationData.from_prefix(prefix)
+    assert reloaded.settings.Nmax == settings.Nmax
+    np.testing.assert_allclose(
+        reloaded.pfac_matrix,
+        np.eye(simulation_data.solution_basis.index_length),
+    )
+
+
+def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
+    prefix = tmp_path / "output_helpers"
+    settings = DynamicsSettings(
+        filename_prefix=str(prefix),
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+    )
+
+    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    n_solution = simulation_data.solution_basis.index_length
+
+    assert not simulation_data.has_output_dataset("state")
+
+    simulation_data.add_output_entry(
+        "state",
+        {
+            "m_ind": np.full(n_solution, 1.0),
+            "m_imp": np.full(n_solution, 2.0),
+            "Phi": np.full(n_solution, 3.0),
+            "W": np.full(n_solution, 4.0),
+        },
+        time=0.0,
+    )
+    simulation_data.add_output_entry(
+        "state",
+        {
+            "m_ind": np.full(n_solution, 5.0),
+            "m_imp": np.full(n_solution, 6.0),
+            "Phi": np.full(n_solution, 7.0),
+            "W": np.full(n_solution, 8.0),
+        },
+        time=2.0,
+    )
+    simulation_data.save_output_dataset("state")
+
+    reloaded = SimulationData.create(prefix, settings, load_existing=True)
+    assert reloaded.has_output_dataset("state")
+    assert reloaded.get_latest_output_time("state") == 2.0
+    state_entry = reloaded.get_state_entry(2.0)
+    assert state_entry is not None
+    np.testing.assert_allclose(state_entry["m_imp"], np.full(n_solution, 6.0))

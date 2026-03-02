@@ -41,6 +41,51 @@ class PoloidalResultsOperators:
         """Compatibility alias for the poloidal JS operator."""
         return self.G_Ve_to_JS
 
+    def evaluate_scalar_coefficients(
+        self,
+        coeffs: np.ndarray,
+        *,
+        scale: float = 1.0,
+    ) -> np.ndarray:
+        """Evaluate scalar coefficients directly on the target grid."""
+        coeff_vec = float(scale) * np.asarray(coeffs).reshape(-1)
+        return np.asarray(self.scalar_evaluation_matrix @ coeff_vec).reshape(-1)
+
+    def evaluate_scalar_operator(
+        self,
+        operator: np.ndarray,
+        coeffs: np.ndarray,
+    ) -> np.ndarray:
+        """Evaluate ``scalar_evaluation_matrix @ operator @ coeffs`` on the target grid."""
+        coeff_vec = np.asarray(coeffs).reshape(-1)
+        return np.asarray(self.scalar_evaluation_matrix @ (np.asarray(operator) @ coeff_vec)).reshape(-1)
+
+    def evaluate_br(self, m_ind: np.ndarray) -> np.ndarray:
+        """Evaluate radial magnetic perturbation on the target grid."""
+        return self.evaluate_scalar_operator(self.m_ind_to_Br, m_ind)
+
+    def evaluate_jr(self, m_imp: np.ndarray) -> np.ndarray:
+        """Evaluate radial current density on the target grid."""
+        return self.evaluate_scalar_operator(self.m_imp_to_jr, m_imp)
+
+    def evaluate_jeq(self, m_ind: np.ndarray) -> np.ndarray:
+        """Evaluate equivalent current function on the target grid."""
+        return self.evaluate_scalar_operator(self.m_ind_to_Jeq, m_ind)
+
+    @staticmethod
+    def _evaluate_vector_operator(operator: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
+        """Apply a structured vector operator of shape ``(2, n_grid, n_coeff)``."""
+        coeff_vec = np.asarray(coeffs).reshape(-1)
+        return np.asarray(np.tensordot(np.asarray(operator), coeff_vec, axes=([2], [0])))
+
+    def evaluate_js_from_m_ind(self, m_ind: np.ndarray) -> np.ndarray:
+        """Evaluate structured sheet current from poloidal induced coefficients."""
+        return self._evaluate_vector_operator(self.G_m_ind_to_JS, m_ind)
+
+    def evaluate_js_from_m_imp(self, m_imp: np.ndarray) -> np.ndarray:
+        """Evaluate structured sheet current from toroidal/imposed coefficients."""
+        return self._evaluate_vector_operator(self.G_m_imp_to_JS, m_imp)
+
 
 def build_poloidal_results_operators(
     *,

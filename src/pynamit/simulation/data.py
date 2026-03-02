@@ -270,6 +270,14 @@ class SimulationData:
         """Return whether a named dataset is available."""
         return key == "settings" or key in self.input_timeseries.datasets or key in self.output_timeseries.datasets
 
+    def has_input_dataset(self, key: str) -> bool:
+        """Return whether an input dataset is available."""
+        return key in self.input_timeseries.datasets
+
+    def has_output_dataset(self, key: str) -> bool:
+        """Return whether an output dataset is available."""
+        return key in self.output_timeseries.datasets
+
     def get_dataset(self, key: str) -> Any:
         """Return a raw xarray dataset by name."""
         if key == "settings":
@@ -328,6 +336,12 @@ class SimulationData:
         key = "steady_state" if steady_state else "state"
         return self.get_output_entry(key, time, interpolation=interpolation)
 
+    def get_latest_output_time(self, key: str = "state") -> float:
+        """Return the latest saved time for one output dataset."""
+        if key not in self.output_timeseries.datasets:
+            raise KeyError(f"Output dataset {key!r} is not available.")
+        return float(np.max(self.output_timeseries.datasets[key].time.values))
+
     def get_storage_basis(self, key: str) -> Any:
         """Return the storage basis for a saved input/output dataset."""
         if key in self.input_timeseries.storage_bases:
@@ -356,6 +370,21 @@ class SimulationData:
             print_info=print_info,
         )
         self.pfac_from_file = True
+
+    def add_output_entry(
+        self,
+        key: str,
+        data: dict[str, Any],
+        *,
+        time: float,
+    ) -> None:
+        """Append one output entry to the persisted output timeseries."""
+        self.output_timeseries.add_entry(key, data, time=time)
+
+    def save_output_dataset(self, key: str, *, print_info: bool = False) -> None:
+        """Persist one output dataset to disk."""
+        del print_info
+        self.output_timeseries.save(key, self.io)
 
     @staticmethod
     def _prune_missing_variables(timeseries: Timeseries) -> None:

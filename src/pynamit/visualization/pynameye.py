@@ -147,6 +147,7 @@ class PynamEye(object):
             basis=self.basis,
             grid=self.grids["global"],
         )
+        self.global_operator_bundle = global_bundle
         self.m_ind_to_Br = global_bundle.m_ind_to_Br
         self.m_imp_to_jr = global_bundle.m_imp_to_jr
         self.W_to_dBr_dt = 1 / self.RI
@@ -470,8 +471,9 @@ class PynamEye(object):
         E = np.asarray(e_coeffs.evaluate_on_grid(self.grids[region])) / float(self.RI)
 
         # Calculate current.
-        JS_imp = self.G_m_imp_to_JS[region] @ self.m_imp
-        JS_ind = self.G_m_ind_to_JS[region] @ self.m_ind
+        bundle = self.operator_bundles[region]
+        JS_imp = bundle.evaluate_js_from_m_imp(self.m_imp)
+        JS_ind = bundle.evaluate_js_from_m_ind(self.m_ind)
         JS = JS_imp + JS_ind
 
         # Calculate Joule heating.
@@ -555,7 +557,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
-        Br = self.basis.evaluate(self.m_ind_to_Br @ self.m_ind, self.grids[region])
+        Br = self.operator_bundles[region].evaluate_br(self.m_ind)
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -577,7 +579,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.eqJ_defaults[key]
 
-        Jeq = self.basis.evaluate(self.m_ind_to_Jeq @ self.m_ind, self.grids[region])
+        Jeq = self.operator_bundles[region].evaluate_jeq(self.m_ind)
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
 
@@ -599,7 +601,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.jr_defaults[key]
 
-        jr = self.basis.evaluate(self.m_imp_to_jr @ self.m_imp, self.grids[region])
+        jr = self.operator_bundles[region].evaluate_jr(self.m_imp)
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
