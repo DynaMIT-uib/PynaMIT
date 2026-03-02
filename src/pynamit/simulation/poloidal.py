@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Literal, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 import numpy as np
 from functools import cached_property
@@ -22,11 +22,6 @@ from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.math.constants import mu0
 from pynamit.simulation.geometry_utils import to_dense
 from pynamit.simulation.poloidal_closure import PoloidalClosureProjector, RMCouplingOperators
-from scipy.integrate import solve_ivp
-from scipy.linalg import expm
-from pynamit.utils import use_jax
-from pynamit.primitives.field import Field
-
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis
@@ -115,6 +110,13 @@ class PoloidalSystemMatrices:
     def _rm_coupling_solution_operators(self) -> Optional[RMCouplingOperators]:
         """RM coupling operators represented in solution coefficient space."""
         return self._poloidal_closure_projector.rm_coupling_solution_operators
+
+    @cached_property
+    def operator_api(self) -> "PoloidalOperatorAPI":
+        """Helper exposing solve/orchestration routines built on poloidal operators."""
+        from pynamit.simulation.poloidal_solver import PoloidalOperatorAPI
+
+        return PoloidalOperatorAPI(self, timed_solve=_timed_solve)
 
     # -------------------------------------------------------------------------
     # Core Operators (Laplacian-based)
@@ -214,7 +216,7 @@ class PoloidalSystemMatrices:
         )
         if dm_coeffs.size != U_op.shape[1]:
             raise ValueError(
-                "dm_ind_dt coefficient size mismatch for u-known operator: "
+                "dm_ind_dt coefficient size mismatch for twist-rate-known operator: "
                 f"dm={dm_coeffs.shape}, U_op={U_op.shape}."
             )
         u_flat = U_op @ dm_coeffs
@@ -231,7 +233,7 @@ class PoloidalSystemMatrices:
         analysis_basis: Optional[Any] = None,
         radial_model: str = "none",
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Build linear operators ``dm_ind_dt -> (u_known, dr_twist_rate_known)``.
+        """Build linear operators ``dm_ind_dt -> (twist_rate_known, dr_twist_rate_known)``.
 
         Returns
         -------
@@ -293,7 +295,7 @@ class PoloidalSystemMatrices:
             beta = +((l_arr - 1.0) / float(self.RI))
         else:
             raise ValueError(
-                "Unknown radial_model for u-known terms: "
+                "Unknown radial_model for twist-rate-known terms: "
                 f"{radial_model!r}. Expected 'none', 'external_lplus2', or 'internal_lminus1'."
             )
 
@@ -635,6 +637,84 @@ class PoloidalSystemMatrices:
         op_rhs = as_linear_map(constraint_scalar_operator)
         return op_rhs.matvec(asarray(jr_coeffs).reshape(-1))
 
+    def _extract_toroidal_potential_coeffs(self, E_coeffs: Any) -> np.ndarray:
+        """Extract the toroidal electric-potential coefficients from E coefficients."""
+        return asarray(self.solution_basis.get_toroidal_potential_coeffs(E_coeffs))
+
+    def _apply_E_constraint_operator(
+        self,
+        E_constraint_operator: Any,
+        E_coeffs: Any,
+    ) -> np.ndarray:
+        """Apply the interhemispheric E-constraint operator to one or many scenarios."""
+        if not hasattr(E_constraint_operator, "apply"):
+            raise TypeError(
+                "E_map_constraint_operator must provide an 'apply' method "
+                "(ConstraintOperator)."
+            )
+        return asarray(E_constraint_operator.apply(asarray(E_coeffs)))
+
+    @staticmethod
+    def _reshape_constraint_rhs_block(term: Any) -> np.ndarray:
+        """Flatten a constraint tensor to the canonical RHS block layout."""
+        term_arr = asarray(term)
+        if term_arr.ndim <= 2:
+            return xp.reshape(term_arr, (-1,))
+        return xp.reshape(term_arr, (-1, term_arr.shape[-1]))
+
+    def _build_m_imp_rhs_entries(
+        self,
+        problem: "LeastSquaresProblem",
+        *,
+        E_direct_coeffs: Optional[np.ndarray] = None,
+        E_constraint_operator: Optional[Any] = None,
+        ih_constraint_scaling: float = 1.0,
+        connect_hemispheres: bool = True,
+    ) -> list[Optional[Any]]:
+        """Build RHS entries for `m_imp` feedback solves."""
+        rhs_entries = [None] * problem.num_data_terms
+        if connect_hemispheres and E_constraint_operator is not None:
+            if E_direct_coeffs is None:
+                raise ValueError("E_direct_coeffs is required when E-constraint feedback is active.")
+            b_E = self._apply_E_constraint_operator(E_constraint_operator, E_direct_coeffs)
+            if len(rhs_entries) > 1:
+                rhs_entries[1] = ih_constraint_scaling * self._reshape_constraint_rhs_block(b_E)
+        return rhs_entries
+
+    def _solve_m_imp_feedback_block(
+        self,
+        *,
+        problem: "LeastSquaresProblem",
+        solver: Any,
+        rhs_entries: list[Optional[Any]],
+        num_expected_scenarios: int,
+    ) -> np.ndarray:
+        """Solve batched `m_imp` feedback responses using the cached problem SVD."""
+        rhs_block, _, num_scenarios = problem.assemble_rhs_block(rhs_entries)
+        if rhs_block is None:
+            op_rows = problem.get_system_operator().shape[0]
+            rhs_block = xp.zeros((op_rows, num_expected_scenarios), dtype=float)
+            num_scenarios = num_expected_scenarios
+        rhs_block = asarray(rhs_block)
+
+        u, s, vt = problem.svd
+        if s.size == 0:
+            m_imp_block = xp.zeros((problem.solution_size, num_scenarios), dtype=rhs_block.dtype)
+        else:
+            tol = getattr(solver, "tolerance", 0.0)
+            cutoff = tol * s[0] if tol > 0 else 0.0
+            s_inv = xp.where(s > cutoff, 1.0 / s, 0.0)
+            tmp = u.T.conj() @ rhs_block
+            tmp = s_inv[:, None] * tmp
+            m_imp_block = vt.T.conj() @ tmp
+
+        if int(num_scenarios) != int(num_expected_scenarios):
+            raise RuntimeError(
+                f"Expected {num_expected_scenarios} scenarios when building induction operator, "
+                f"got {num_scenarios}."
+            )
+        return asarray(m_imp_block)
+
     # -------------------------------------------------------------------------
     # Additional Operators for m_ind (induced potential)
     # -------------------------------------------------------------------------
@@ -680,89 +760,16 @@ class PoloidalSystemMatrices:
         m_ind_to_E_operator: Any = None,
         m_imp_to_E_operator: Any = None,
     ) -> np.ndarray:
-        """Construct the dense matrix for the induction operator (m_ind -> E_df).
-
-        This moves logic previously in State._build_m_ind_to_E_df_matrix.
-        """
-        logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        n = self.solution_basis.index_length
-        
-        # 1. Get Direct Contribution (m_ind -> E_ind)
-        if m_ind_to_E_operator is None:
-            raise ValueError("m_ind_to_E_operator is required")
-        m_ind_to_E = m_ind_to_E_operator
-        
-        E_direct_dense = asarray(m_ind_to_E.to_dense()).reshape(2, n, n)
-        
-        # 2. Compute Imposed Feedback (Constraint Response)
-        # We need to construct the RHS for each "scenario" (each basis function being excited).
-        # The problem.num_data_terms includes: [jr_constraint, E_mapping, pinning_constraint(optional)]
-        rhs_entries = [None] * problem.num_data_terms if problem.num_data_terms > 0 else []
-
-        if connect_hemispheres and E_map_constraint_operator is not None:
-            # Canonical path: ConstraintOperator with rank-4 tensor semantics.
-            E_map_op = E_map_constraint_operator
-            
-            if hasattr(E_map_op, "apply"):
-                 term = E_map_op.apply(E_direct_dense)
-            else:
-                 raise TypeError(
-                     "E_map_constraint_operator must provide an 'apply' method "
-                     "(ConstraintOperator)."
-                 )
-            
-            # Reshape b_E_block from (2, Mask, Batch) to (2*Mask, Batch)
-            # This matches the flattening logic used for the LHS operator.
-            b_E_block = xp.reshape(term, (-1, n))
-
-            if len(rhs_entries) > 1:
-                rhs_entries[1] = ih_constraint_scaling * b_E_block
-
-        # IMPORTANT: If pinning is active (num_data_terms > 2), we leave that entry as None (Zero).
-        # This is correct because the induction terms (scenarios) do not drive the pinning value.
-        # However, assemble_rhs_block expects rhs_entries to match num_data_terms.
-        
-        rhs_block, _, num_scenarios = problem.assemble_rhs_block(rhs_entries)
-        
-        if rhs_block is None:
-            op_rows = problem.get_system_operator().shape[0]
-            rhs_block = xp.zeros((op_rows, n), dtype=E_direct_dense.dtype)
-            num_scenarios = n
-        rhs_block = asarray(rhs_block)
-
-        # Solve in batch using cached SVD
-        u, s, vt = problem.svd
-        if s.size == 0:
-            m_imp_block = xp.zeros((problem.solution_size, num_scenarios), dtype=rhs_block.dtype)
-        else:
-            tol = getattr(solver, "tolerance", 0.0)
-            cutoff = tol * s[0] if tol > 0 else 0.0
-            s_inv = xp.where(s > cutoff, 1.0 / s, 0.0)
-            tmp = u.T.conj() @ rhs_block
-            tmp = s_inv[:, None] * tmp
-            m_imp_block = vt.T.conj() @ tmp
-
-        if num_scenarios != n:
-            raise RuntimeError(
-                f"Expected {n} scenarios when building induction operator, got {num_scenarios}."
-            )
-
-        # Map imposed potential response back to E-field coefficients
-        m_imp_to_E = as_linear_map(m_imp_to_E_operator)
-        
-        m_imp_flat = asarray(m_imp_block)
-        E_imp_flat = m_imp_to_E.matmat(m_imp_flat)
-        E_imp_block = asarray(E_imp_flat).reshape(2, n, n)
-
-        total_E = E_direct_dense + E_imp_block
-
-        # Basis-agnostic extraction of the induction-driving E-field part (Toroidal Potential)
-        # total_E has shape (2, n, n) = (component, coeffs, scenarios)
-        curled_scenarios = self.solution_basis.get_toroidal_potential_coeffs(total_E)
-        
-        logger.info("Dense induction operator built.")
-
-        return asarray(curled_scenarios)
+        """Construct the dense matrix for the induction operator (m_ind -> E_df)."""
+        return self.operator_api.build_induction_matrix(
+            problem=problem,
+            solver=solver,
+            E_map_constraint_operator=E_map_constraint_operator,
+            ih_constraint_scaling=ih_constraint_scaling,
+            connect_hemispheres=connect_hemispheres,
+            m_ind_to_E_operator=m_ind_to_E_operator,
+            m_imp_to_E_operator=m_imp_to_E_operator,
+        )
 
     def get_induction_operator(
         self,
@@ -775,106 +782,16 @@ class PoloidalSystemMatrices:
         m_ind_to_E_operator: Any = None,
         m_imp_to_E_operator: Any = None,
     ) -> "LinearMap":
-        """Get matrix-free induction operator (m_ind -> E_df).
-
-        Returns a LinearMap that computes the divergence-free E-field
-        contribution from m_ind without materializing the full dense matrix.
-        Each matvec application solves for the m_imp feedback.
-
-        Note: The adjoint (rmatvec) requires the dense matrix, which is
-        cached on first use. For truly matrix-free operation, use CG solver
-        which only needs matvec (via normal equations).
-
-        Parameters
-        ----------
-        problem : LeastSquaresProblem
-            The m_imp least-squares problem.
-        solver : LeastSquaresSolver
-            Solver for the m_imp problem.
-        preconditioner : optional
-            Preconditioner for the solver.
-        E_map_constraint_operator : optional
-            Operator for interhemispheric constraint.
-        ih_constraint_scaling : float
-            Scaling for interhemispheric constraint.
-        connect_hemispheres : bool
-            Whether to include hemisphere coupling.
-        m_ind_to_E_operator : Any
-            Operator mapping m_ind to E coefficients (required).
-        m_imp_to_E_operator : Any
-            Operator mapping m_imp to E coefficients (required).
-
-        Returns
-        -------
-        LinearMap
-            Matrix-free operator for m_ind -> E_df.
-        """
-        if m_ind_to_E_operator is None:
-            raise ValueError("m_ind_to_E_operator is required")
-        if m_imp_to_E_operator is None:
-            raise ValueError("m_imp_to_E_operator is required")
-        n = self.solution_basis.index_length
-
-        # Get the m_ind -> E operator
-        m_ind_to_E = as_linear_map(m_ind_to_E_operator)
-
-        # Cache for dense matrix (built lazily for rmatvec)
-        _cache = {"dense_matrix": None}
-
-        def _get_dense():
-            """Get or build dense matrix (cached)."""
-            if _cache["dense_matrix"] is None:
-                _cache["dense_matrix"] = self.build_induction_matrix(
-                    problem=problem,
-                    solver=solver,
-                    E_map_constraint_operator=E_map_constraint_operator,
-                    ih_constraint_scaling=ih_constraint_scaling,
-                    connect_hemispheres=connect_hemispheres,
-                    m_ind_to_E_operator=m_ind_to_E_operator,
-                    m_imp_to_E_operator=m_imp_to_E_operator,
-                )
-            return _cache["dense_matrix"]
-
-        def matvec(m_ind_vec):
-            """Compute E_df = induction_operator @ m_ind."""
-            m_ind_vec = asarray(m_ind_vec).flatten()
-
-            # 1. Direct E from m_ind
-            E_ind_coeffs = m_ind_to_E.matvec(m_ind_vec).reshape(2, -1)
-
-            # 2. Add feedback (m_imp) if coupled
-            if connect_hemispheres and problem is not None:
-                _, E_imp = self.solve_for_m_imp(
-                    E_direct_coeffs=E_ind_coeffs,
-                    problem=problem,
-                    solver=solver,
-                    preconditioner=preconditioner,
-                    E_map_constraint_operator=E_map_constraint_operator,
-                    ih_constraint_scaling=ih_constraint_scaling,
-                    connect_hemispheres=connect_hemispheres,
-                    m_imp_to_E_operator=m_imp_to_E_operator,
-                )
-                E_ind_coeffs = E_ind_coeffs + E_imp
-
-            # 3. Extract toroidal potential (E_df)
-            E_df = self.solution_basis.get_toroidal_potential_coeffs(E_ind_coeffs)
-            return asarray(E_df).flatten()
-
-        def rmatvec(y):
-            """Compute adjoint: induction_operator.T @ y.
-
-            For LSMR we need rmatvec. Uses cached dense matrix.
-            """
-            dense_matrix = _get_dense()
-            return asarray(dense_matrix.T @ asarray(y).flatten())
-
-        return LinearMap(
-            shape=(n, n),
-            dtype=np.float64,
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _to_dense=_get_dense,
-            source=None,
+        """Get matrix-free induction operator (m_ind -> E_df)."""
+        return self.operator_api.get_induction_operator(
+            problem=problem,
+            solver=solver,
+            preconditioner=preconditioner,
+            E_map_constraint_operator=E_map_constraint_operator,
+            ih_constraint_scaling=ih_constraint_scaling,
+            connect_hemispheres=connect_hemispheres,
+            m_ind_to_E_operator=m_ind_to_E_operator,
+            m_imp_to_E_operator=m_imp_to_E_operator,
         )
 
     def solve_for_m_imp(
@@ -887,48 +804,18 @@ class PoloidalSystemMatrices:
          ih_constraint_scaling: float = 1.0,
          connect_hemispheres: bool = True,
          m_imp_to_E_operator: Any = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-         """Solve for m_imp given E_direct (e.g. from m_ind + E_noind).
-         
-         Returns (m_imp, E_imp).
-         """
-         rhs_entries = [None] * problem.num_data_terms
-         
-         if connect_hemispheres and E_map_constraint_operator is not None:
-            E_map_op = E_map_constraint_operator
-            E_direct_input = asarray(E_direct_coeffs)
-            
-            if hasattr(E_map_op, "apply"):
-                 b_E = E_map_op.apply(E_direct_input)
-            else:
-                 raise TypeError(
-                     "E_map_constraint_operator must provide an 'apply' method "
-                     "(ConstraintOperator)."
-                 )
-            
-            if len(rhs_entries) > 1:
-                rhs_entries[1] = ih_constraint_scaling * xp.reshape(b_E, (-1,))
-                
-         solution = _timed_solve(
-             "poloidal.m_imp",
-             solver,
+    ) -> tuple[np.ndarray, np.ndarray]:
+         """Solve for m_imp given E_direct and return `(m_imp, E_imp)`."""
+         return self.operator_api.solve_for_m_imp(
+             E_direct_coeffs=E_direct_coeffs,
              problem=problem,
-             rhs=rhs_entries,
+             solver=solver,
              preconditioner=preconditioner,
+             E_map_constraint_operator=E_map_constraint_operator,
+             ih_constraint_scaling=ih_constraint_scaling,
+             connect_hemispheres=connect_hemispheres,
+             m_imp_to_E_operator=m_imp_to_E_operator,
          )
-         if solution is None:
-             m_imp = xp.zeros(self.solution_basis.index_length)
-         else:
-             m_imp = asarray(solution)
-             
-         if m_imp_to_E_operator is None:
-             raise ValueError("m_imp_to_E_operator is required")
-
-         # Compute E_imp
-         m_imp_to_E = as_linear_map(m_imp_to_E_operator)
-             
-         E_imp = m_imp_to_E.matvec(m_imp).reshape(2, -1)
-         return m_imp, E_imp
 
     def compute_rates(
         self,
@@ -947,50 +834,20 @@ class PoloidalSystemMatrices:
         m_imp_to_E_operator: Any = None,
     ) -> np.ndarray:
         """Calculate d(m_ind)/dt rates."""
-        if m_ind_to_E_operator is None:
-            raise ValueError("m_ind_to_E_operator is required")
-        if m_imp_to_E_operator is None:
-            raise ValueError("m_imp_to_E_operator is required")
-        # E_df_total = E_df_ind + E_df_noind
-        # If we have the dense induction matrix (m_ind -> E_df), use it directly.
-        # Otherwise, compute E_ind via operator.
-        
-        backend_m_ind = asarray(m_ind)
-        
-        # Extract Toroidal Potential part of no-induction E-field
-        E_noind_field = Field.from_coefficients(self.solution_basis, E_coeffs_noind, field_type="tangential")
-        E_df_noind = asarray(E_noind_field.toroidal_potential().coeffs)
-        
-        if induction_matrix is not None:
-             # Matrix ALREADY includes the feedback (m_imp) response!
-             E_df_ind = asarray(induction_matrix) @ backend_m_ind
-        else:
-             # Explicit construction: Must manually solve for m_imp feedback
-             # 1. Direct E from m_ind
-             m_ind_to_E = m_ind_to_E_operator
-             E_ind_coeffs = m_ind_to_E.matvec(backend_m_ind).reshape(2, -1)
-             
-             # 2. Add Feedback (m_imp) if coupled
-             if connect_hemispheres and problem is not None:
-                  # Use PoloidalSystemMatrices.solve_for_m_imp which handles dependencies
-                  _, E_imp = self.solve_for_m_imp(
-                       E_direct_coeffs=E_ind_coeffs,
-                       problem=problem,
-                       solver=solver,
-                       preconditioner=preconditioner,
-                       E_map_constraint_operator=E_map_constraint_operator,
-                       ih_constraint_scaling=ih_constraint_scaling,
-                       connect_hemispheres=connect_hemispheres,
-                       m_imp_to_E_operator=m_imp_to_E_operator
-                  )
-                  E_ind_coeffs = E_ind_coeffs + E_imp
-
-             E_df_ind = E_ind_coeffs[1]
-             
-        E_df_total = E_df_ind + E_df_noind
-        
-        d_m_ind_dt = self.E_df_to_d_m_ind_dt * E_df_total
-        return d_m_ind_dt
+        return self.operator_api.compute_rates(
+            m_ind=m_ind,
+            t=t,
+            E_coeffs_noind=E_coeffs_noind,
+            induction_matrix=induction_matrix,
+            m_ind_to_E_operator=m_ind_to_E_operator,
+            problem=problem,
+            solver=solver,
+            preconditioner=preconditioner,
+            E_map_constraint_operator=E_map_constraint_operator,
+            ih_constraint_scaling=ih_constraint_scaling,
+            connect_hemispheres=connect_hemispheres,
+            m_imp_to_E_operator=m_imp_to_E_operator,
+        )
 
 
 
@@ -1054,61 +911,9 @@ class PoloidalSystemMatrices:
         induction_matrix: Any,
         solver: str = "lsmr",
     ) -> np.ndarray:
-        """Calculate the steady-state induced potential.
-
-        Uses least-squares (lstsq or iterative solver) to handle
-        ill-conditioned induction matrices. This ensures the minimum-norm
-        solution is returned, avoiding numerical instability from
-        near-null-space components that can differ between backends.
-
-        Parameters
-        ----------
-        E_coeffs_noind : np.ndarray
-            Non-inductive E-field coefficients with shape (2, n_coeffs) or (2*n_coeffs,).
-        induction_matrix : np.ndarray or LinearMap
-            Induction matrix mapping m_ind -> E_df. Can be a dense array
-            or a LinearMap for matrix-free operation.
-        solver : str, optional
-            Solver to use for matrix-free case: "lsmr" or "cgls". Default "lsmr".
-            For dense matrices, lstsq is always used regardless of this parameter.
-
-        Returns
-        -------
-        np.ndarray
-            Steady-state induced potential coefficients.
-        """
-        # op_A * m_ss + const = 0 -> op_A * m_ss = -const
-        # Extract Toroidal Potential consistently using basis method
-        vec_b = -asarray(self.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind))
-
-        # Check if induction_matrix supports matrix-free operation
-        if hasattr(induction_matrix, "matvec"):
-            # Matrix-free path: Use iterative LeastSquaresSolver
-            from pynamit.math.least_squares_problem import LeastSquaresProblem
-            from pynamit.math.least_squares_solver import LeastSquaresSolver
-
-            n = self.solution_basis.index_length
-            induction_op = as_linear_map(induction_matrix)
-
-            problem = LeastSquaresProblem(
-                A=[induction_op],
-                solution_shape=(n,),
-                data_shapes=[(n,)],
-            )
-
-            # Use LSMR or CG for the steady-state inversion
-            # Increase maxiter for ill-conditioned systems
-            ls_solver = LeastSquaresSolver(solver=solver, tolerance=1e-10)
-            return asarray(_timed_solve(
-                "poloidal.steady_state_m_ind",
-                ls_solver,
-                problem,
-                [vec_b],
-                maxiter=5000,
-            ))
-
-        # Dense path: Use lstsq for numerical stability
-        L = asarray(induction_matrix)
-        # rcond=1e-13 filters out singular values below this relative threshold
-        result = xp.linalg.lstsq(L, vec_b, rcond=1e-13)
-        return result[0]
+        """Calculate the steady-state induced potential."""
+        return self.operator_api.steady_state_m_ind(
+            E_coeffs_noind=E_coeffs_noind,
+            induction_matrix=induction_matrix,
+            solver=solver,
+        )

@@ -22,6 +22,9 @@ from pynamit.utils import tensor_pinv
 from pynamit.primitives.basis import Basis
 from pynamit.math.linear_map import as_linear_map
 from pynamit.spherical_harmonics.gaunt import GauntEngine
+from pynamit.simulation.operators import ResistivityTensorOperator
+from pynamit.simulation.poloidal import PoloidalSystemMatrices
+from pynamit.simulation.settings import SimulationMode
 from pynamit.simulation.geometry_utils import (
     to_dense,
     get_radial_shift_diagonal,
@@ -29,11 +32,9 @@ from pynamit.simulation.geometry_utils import (
 )
 from pynamit.simulation.pfac import PFACIntegrator
 from pynamit.simulation.constraints import ApexMapper
-from pynamit.simulation.poloidal import PoloidalSystemMatrices
 
 if TYPE_CHECKING:
     from pynamit.primitives.grid import GridBasis
-    from pynamit.simulation.dynamics import SimulationMode
 
 
 logger = logging.getLogger(__name__)
@@ -244,8 +245,6 @@ class Geometry:
             For spectral mode: Operator mapping potential coeffs to JS-like VSH coeffs.
             For grid mode: Operator mapping potential coeffs to JS-like grid values.
         """
-        from pynamit.simulation.dynamics import SimulationMode
-
         # Determine if we should use spectral (VSH) or grid representation
         use_spectral = (mode is None or mode == SimulationMode.PURE_SPECTRAL)
 
@@ -334,7 +333,6 @@ class Geometry:
         LinearMap
             Operator mapping potential coefficients to E coefficients.
         """
-        from pynamit.simulation.dynamics import SimulationMode
         from pynamit.utils import to_numpy
 
         if mode == SimulationMode.PURE_SPECTRAL:
@@ -385,8 +383,6 @@ class Geometry:
         eta_grid: np.ndarray
     ) -> Optional["LinearMap"]:
         """Build grid-based (transform) conductivity operator."""
-        from pynamit.simulation.operators import ResistivityTensorOperator
-
         # Get potential-to-JS operator (grid representation)
         op_JS = self._get_JS_operator_grid(potential_type)
         if op_JS is None:

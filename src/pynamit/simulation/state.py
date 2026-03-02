@@ -23,14 +23,18 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Integrator, ScipySolveIVPIntegrator
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
-from pynamit.simulation.geometry import Geometry
-from pynamit.simulation.coupled_solver import CoupledSteadyStateSolver, CoupledOperatorAPI
+from pynamit.simulation.core import (
+    CoupledOperatorAPI,
+    CoupledSteadyStateSolver,
+    StateConstraints,
+    StateInductionAPI,
+)
+from pynamit.simulation.induction import ToroidalSystemMatrices
+from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.basis import Basis
 from pynamit.math.constants import mu0
 from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
-from pynamit.simulation.toroidal import ToroidalSystemMatrices
-from pynamit.simulation.geometry_utils import to_dense, canonicalize_vector_basis_matrix
-from pynamit.simulation.state_constraints import StateConstraints
+from pynamit.simulation.spatial import to_dense, canonicalize_vector_basis_matrix
 from pynamit.simulation.settings import SimulationMode
 from pynamit.simulation.conductance_representation import (
     decode_conductance_representation_to_grids,
@@ -194,6 +198,15 @@ class State:
     def poloidal_matrices(self) -> Any:
         """The poloidal system matrices."""
         return self.geometry.poloidal_matrices
+
+    @cached_property
+    def induction_api(self) -> StateInductionAPI:
+        """Induction/coupled orchestration helper layered on top of `State`."""
+        return StateInductionAPI(
+            self,
+            timed_solve=_timed_solve,
+            available_memory_bytes=_available_memory_bytes,
+        )
 
     # ----- Initialization Helpers -----
 
@@ -1190,125 +1203,21 @@ class State:
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        E_shape = (2, self.solution_basis.index_length)
-        m_imp = self._build_imposed_toroidal_baseline(jr_coeffs, E_direct_coeffs)
-        E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
-        return E_direct_coeffs + E_imp, m_imp
+        return self.induction_api._calculate_total_E_field(E_direct_coeffs, jr_coeffs)
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
-
-        E_shape = (2, self.solution_basis.index_length)
-        if self.u is None:
-            E_direct = xp.zeros(E_shape)
-        else:
-            E_direct = self._apply_operator(
-                self.u_coeffs_to_E_coeffs, asarray(self.u.coeffs), E_shape
-            )
-        if self.Br is not None:
-            E_direct += self._apply_operator(self.Br_to_E_coeffs, asarray(self.Br.coeffs), E_shape)
-
-        jr_coeffs = None if self.jr is None else asarray(self.jr.coeffs)
-        
-        # DYNAMIC MODES: Handle Toroidal Induction
-        if self.dynamics_mode == "full_induction":
-            return self._calculate_dynamic_state(E_direct, jr_coeffs)
-            
-        # LEGACY MODE
-        return self._calculate_total_E_field(E_direct, jr_coeffs)
+        return self.induction_api.calculate_noind_coeffs()
 
     def _calculate_dynamic_state(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Assemble non-inductive forcing and update toroidal residual rate."""
-        n = self.solution_basis.index_length
-    
-        if self.psi is None:
-            # Initialize dynamic residual state/rate on first call.
-            self.psi = xp.zeros(n)
-            self.d_psi_dt = xp.zeros(n)
-
-        # E_direct already contains external forcing terms (wind + imposed Br terms).
-        E_external = asarray(E_direct_coeffs)
-
-        # Build/refresh imposed toroidal baseline m_imp (quasi-static driver component).
-        imposed_refreshed = False
-        if jr_coeffs is None:
-            m_imp_curr = xp.zeros(n)
-            self.m_imp_imposed = asarray(m_imp_curr)
-            self._imposed_toroidal_dirty = False
-            imposed_refreshed = True
-        elif self.m_imp_imposed is None or self._imposed_toroidal_dirty:
-            m_imp_curr = self._build_imposed_toroidal_baseline(jr_coeffs, E_external)
-            self.m_imp_imposed = asarray(m_imp_curr)
-            self._imposed_toroidal_dirty = False
-            imposed_refreshed = True
-        else:
-            m_imp_curr = asarray(self.m_imp_imposed)
-            self.m_imp_imposed = asarray(m_imp_curr)
-
-        # Net LL closure is enforced inside the hard toroidal constraint system.
-        # Avoid post-hoc psi adjustments that can move the state off-manifold.
-
-        E_imposed_toroidal = self._apply_operator(self.m_imp_to_E_coeffs, m_imp_curr, (2, n))
-        E_noninductive = E_external + E_imposed_toroidal
-
-        # Solve directly for dpsi/dt for non-inductive forcing. Coupled
-        # self-feedback from (psi, m_ind) is handled in coupled operator blocks.
-        self.d_psi_dt = self.solve_dt_psi(E_noninductive)
-
-        # Return only non-inductive E coefficients here; inductive contributions
-        # from (psi, m_ind) are applied in the coupled dynamics path.
-        return E_noninductive, asarray(m_imp_curr)
+        return self.induction_api._calculate_dynamic_state(E_direct_coeffs, jr_coeffs)
 
     def solve_dt_psi(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dpsi/dt."""
-        dt_alpha_driver_coeffs = self._get_dt_alpha_driver_coeffs()
-        twist_rate_known_grid = None
-        dr_twist_rate_known_grid = None
-        if self.use_toroidal_twist_rate_known_from_poloidal:
-            try:
-                twist_rate_known_grid, dr_twist_rate_known_grid = self._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to build toroidal u-known RHS terms from poloidal branch: %s",
-                    exc,
-                )
-                twist_rate_known_grid, dr_twist_rate_known_grid = None, None
-
-        E_coeffs = asarray(E_known)
-        rhs_1 = self.toroidal_matrices.compute_toroidal_rhs_from_E(
-            E_coeffs,
-            twist_rate_known_grid=twist_rate_known_grid,
-            dr_twist_rate_known_grid=dr_twist_rate_known_grid,
-            allow_missing_dr_twist_rate_known=False,
-        )
-        if dt_alpha_driver_coeffs is not None:
-            L_alpha = np.asarray(
-                to_numpy(self.toroidal_matrices.dtalpha_operator),
-                dtype=float,
-            )
-            rhs_1 = np.asarray(rhs_1).reshape(-1) - L_alpha @ np.asarray(
-                dt_alpha_driver_coeffs
-            ).reshape(-1)
-
-        constraint_op = self.dt_alpha_constraint_operator_hard
-        rhs_2 = self._build_dt_alpha_constraint_rhs(dt_alpha_driver_coeffs)
-        solution = self.toroidal_matrices.solve_dt_psi_superposed(
-            rhs_physics=rhs_1,
-            rhs_constraint=rhs_2,
-            constraint_operator=constraint_op,
-            m_imp_to_jr_operator=self.poloidal_matrices.m_imp_to_jr,
-            weighting=self.toroidal_weighting,
-            regularization_lambda=self.toroidal_regularization_lambda,
-            penalty_operator=None,
-            penalty_scaling=0.0,
-            hinv_rtol=0.0,
-            use_pinning=self.apply_psi_gauge,
-        )
-        if solution is None:
-            raise RuntimeError("Toroidal superposed dpsi/dt solve returned no solution.")
-        return asarray(solution)
+        return self.induction_api.solve_dt_psi(E_known)
 
     def _build_toroidal_twist_rate_known_terms_from_poloidal(
         self,
@@ -1322,75 +1231,27 @@ class State:
         These coefficients are converted to tangential ``u`` terms by
         ``PoloidalSystemMatrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind``.
         """
-        E_df_known = asarray(self.solution_basis.get_toroidal_potential_coeffs(E_known))
-        dm_ind_dt_known = asarray(self.poloidal_matrices.E_df_to_d_m_ind_dt * E_df_known)
-        analysis_basis = getattr(self.toroidal_matrices, "rhs_derivative_basis", self.solution_basis)
-        return self.poloidal_matrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind(
-            dm_ind_dt_known,
-            analysis_basis=analysis_basis,
-            radial_model=self.toroidal_twist_rate_known_radial_model,
-        )
+        return self.induction_api._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
-        E_shape = (2, self.solution_basis.index_length)
-        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, asarray(m_ind), E_shape)
-        if self.dynamics_mode == "full_induction":
-            # In full-induction, imposed toroidal baseline is handled separately
-            # via m_imp_imposed; the m_ind contribution should not trigger an
-            # additional m_imp feedback solve here.
-            return E_direct_ind, xp.zeros(self.solution_basis.index_length)
-        return self._calculate_total_E_field(E_direct_ind, None)
+        return self.induction_api.calculate_ind_coeffs(m_ind)
 
     def calculate_psi_E_coeffs(self, psi: np.ndarray) -> np.ndarray:
         """Map inductive toroidal residual psi to E-field coefficients."""
-        E_shape = (2, self.solution_basis.index_length)
-        return self._apply_operator(self.toroidal_to_E_coeffs, asarray(psi), E_shape)
+        return self.induction_api.calculate_psi_E_coeffs(psi)
 
     # ----- Time Evolution -----
 
     @cached_property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
         """Dense matrix mapping m_ind to div-free E-field."""
-        return self.poloidal_matrices.build_induction_matrix(
-            problem=self.m_imp_problem,
-            solver=self.m_imp_solver,
-            E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
-            ih_constraint_scaling=self.ih_constraint_scaling,
-            connect_hemispheres=(self.connect_hemispheres and self.dynamics_mode != "full_induction"),
-            m_ind_to_E_operator=self.m_ind_to_E_coeffs,
-            m_imp_to_E_operator=self.m_imp_to_E_coeffs,
-        )
+        return self.induction_api.build_m_ind_to_E_df_matrix()
 
     @cached_property
     def E_coeffs_to_E_df_matrix(self) -> np.ndarray:
         """Operator extracting toroidal potential (E_df) from vector coefficients."""
-        N = self.solution_basis.index_length
-        kind = getattr(self.solution_basis, "kind", "")
-
-        if kind == "SH":
-            zeros = np.zeros((N, N))
-            eye = np.eye(N)
-            return asarray(np.hstack([zeros, eye]))
-
-        if kind in ("CS", "GRID"):
-            P = self.solution_basis.construct_projection_matrix(self.geometry.grid)
-            if P.ndim != 4 or P.shape[0] != 2 or P.shape[2] != 2:
-                raise ValueError(
-                    "Projection matrix must have canonical shape (2, n_coeffs, 2, n_grid), "
-                    f"got {getattr(P, 'shape', None)}."
-                )
-            # P shape: (2, N_coeffs, 2, N_grid). Toroidal block is P[1].
-            return asarray(P[1].reshape(N, 2 * P.shape[3]))
-
-        # Fallback: build by probing basis extraction
-        M = np.zeros((N, 2 * N))
-        for i in range(2 * N):
-            e_i = np.zeros(2 * N)
-            e_i[i] = 1.0
-            coeffs = e_i.reshape(2, N)
-            M[:, i] = asarray(self.solution_basis.get_toroidal_potential_coeffs(coeffs))
-        return asarray(M)
+        return self.induction_api.build_E_coeffs_to_E_df_matrix()
 
     def get_induction_operator(self) -> "LinearMap":
         """Get matrix-free induction operator (m_ind -> E_df).
@@ -1398,16 +1259,7 @@ class State:
         Returns a LinearMap for matrix-free steady-state computation.
         More efficient than building the dense matrix for large systems.
         """
-        return self.poloidal_matrices.get_induction_operator(
-            problem=self.m_imp_problem,
-            solver=self.m_imp_solver,
-            preconditioner=self.m_imp_preconditioner,
-            E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
-            ih_constraint_scaling=self.ih_constraint_scaling,
-            connect_hemispheres=(self.connect_hemispheres and self.dynamics_mode != "full_induction"),
-            m_ind_to_E_operator=self.m_ind_to_E_coeffs,
-            m_imp_to_E_operator=self.m_imp_to_E_coeffs,
-        )
+        return self.induction_api.get_induction_operator()
 
     # _build_m_ind_to_E_df_matrix refactored to PoloidalSystemMatrices.build_induction_matrix
 
@@ -1670,16 +1522,7 @@ class State:
 
     def build_coupled_forcing(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Build coupled forcing tensor ``K`` for ``[psi, m_ind]`` dynamics."""
-        scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
-        E_noind_field = self.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(
-            E_coeffs_noind
-        )
-        k1 = asarray(scale * E_noind_field)
-        if self.d_psi_dt is not None:
-            k0 = asarray(self.d_psi_dt)
-        else:
-            k0 = xp.zeros_like(k1)
-        return xp.stack([k0, k1])
+        return self.induction_api.build_coupled_forcing(E_coeffs_noind)
 
     def solve_steady_state_model_variables(
         self,
@@ -1688,30 +1531,10 @@ class State:
         update_state: bool = True,
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Compute steady-state initialization for current dynamics mode."""
-        N = self.solution_basis.index_length
-        if self.dynamics_mode == "full_induction":
-            K = self.build_coupled_forcing(E_coeffs_noind)
-            y_ss = self._solve_linear_steady_state(
-                linear_operator=None,
-                forcing=K,
-                solution_shape=(2, N),
-                solver=self.solver_type,
-                use_pinning=self.apply_psi_gauge,
-            )
-            psi = asarray(y_ss[0])
-            m_ind = asarray(y_ss[1])
-            if update_state:
-                self.psi = psi
-            return psi, m_ind
-
-        k_legacy = asarray(self.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind))
-        m_ss = self._solve_linear_steady_state(
-            linear_operator=self.m_ind_to_E_df_matrix,
-            forcing=k_legacy,
-            solution_shape=(N,),
-            solver=self.solver_type,
+        return self.induction_api.solve_steady_state_model_variables(
+            E_coeffs_noind,
+            update_state=update_state,
         )
-        return None, asarray(m_ss)
 
     def evolve_model_variables(
         self,
@@ -1726,139 +1549,13 @@ class State:
 
         Returns ``(psi, m_ind)`` where ``psi`` is ``None`` for legacy mode.
         """
-        if self.dynamics_mode == "full_induction":
-            if psi is None:
-                if self.psi is None:
-                    self.psi = xp.zeros((self.solution_basis.index_length,))
-                psi = self.psi
-
-            y = xp.stack([asarray(psi), asarray(m_ind)])
-            K = self.build_coupled_forcing(E_coeffs_noind)
-            if isinstance(self.poloidal_integrator, ExponentialIntegrator):
-                use_pinning = self.apply_psi_gauge
-                N = self.solution_basis.index_length
-                m = 2 * N
-                exp_kwargs = {
-                    "max_step_scale": 10.0,
-                    "max_substeps": 32768,
-                }
-                if self.exponential_solver == "expm":
-                    exp_kwargs["affine_expm_mode"] = "dense"
-                elif self.exponential_solver == "expm_multiply":
-                    exp_kwargs["affine_expm_mode"] = "action"
-                else:
-                    raise ValueError(
-                        "Unknown exponential_solver setting: "
-                        f"{self.exponential_solver!r}"
-                    )
-
-                use_dense_coupled_operator = bool(self.dense_full_operators)
-
-                # Dense coupled operator allocation can require several matrix-sized
-                # work buffers; guard against host OOM before densification.
-                avail_bytes = _available_memory_bytes()
-                if use_dense_coupled_operator and avail_bytes is not None:
-                    matrix_bytes = int(m) * int(m) * np.dtype(float).itemsize
-                    uses_affine_action = self.exponential_solver == "expm_multiply"
-                    peak_factor = 3 if uses_affine_action else 8
-                    estimated_peak_bytes = int(peak_factor * matrix_bytes)
-                    if estimated_peak_bytes > int(0.80 * avail_bytes):
-                        need_gib = estimated_peak_bytes / float(1024 ** 3)
-                        avail_gib = avail_bytes / float(1024 ** 3)
-                        raise MemoryError(
-                            "Coupled exponential step would likely exceed available memory: "
-                            f"need ~{need_gib:.2f} GiB, available ~{avail_gib:.2f} GiB. "
-                            "Reduce resolution or use a non-exponential integrator for this run."
-                        )
-
-                coupled_dynamics_operator = self.get_coupled_operator_for_time_integration(
-                    use_dense=use_dense_coupled_operator,
-                    use_pinning=use_pinning,
-                )
-
-                forcing_flat = np.asarray(K).reshape(m)
-                if self.induction_null_diagnostics:
-                    diag_dense = None
-                    if self._coupled_null_basis is None or self._coupled_null_basis.shape[0] != m:
-                        if m <= 2000:
-                            diag_dense = np.asarray(
-                                self._densify_linear_operator(coupled_dynamics_operator, m)
-                            )
-                        if diag_dense is not None:
-                            self._update_coupled_null_basis(np.asarray(diag_dense))
-                    self._check_forcing_null_projection(np.asarray(forcing_flat))
-
-                y_new = self._evolve_linear_state(
-                    y=np.asarray(y).reshape(m),
-                    dt=float(dt),
-                    linear_operator=coupled_dynamics_operator,
-                    forcing=np.asarray(K).reshape(m),
-                    exponential_kwargs=exp_kwargs,
-                ).reshape(2, N)
-            else:
-                coupled_operator = self.get_coupled_operator_for_time_integration(
-                    use_dense=self.dense_full_operators,
-                    use_pinning=self.apply_psi_gauge,
-                )
-                y_new = self._evolve_linear_state(
-                    y=y,
-                    dt=dt,
-                    linear_operator=coupled_operator,
-                    forcing=K,
-                )
-            psi_new = asarray(y_new[0])
-            m_ind_new = asarray(y_new[1])
-            self.psi = psi_new
-            return psi_new, m_ind_new
-
-        use_dense_rate_operator = bool(
-            self.dense_full_operators or isinstance(self.poloidal_integrator, ExponentialIntegrator)
+        return self.induction_api.evolve_model_variables(
+            m_ind,
+            dt,
+            E_coeffs_noind,
+            steady_state_m_ind=steady_state_m_ind,
+            psi=psi,
         )
-        forcing = None
-        rates_func: Optional[Callable[[np.ndarray, float], np.ndarray]]
-        if use_dense_rate_operator:
-            scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
-            linear_operator = scale * asarray(self.m_ind_to_E_df_matrix)
-            E_noind_field = self.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(
-                E_coeffs_noind
-            )
-            forcing = asarray(scale * E_noind_field)
-            rates_func = None
-        else:
-            linear_operator = None
-
-            def rates_func(y, t):
-                return self.poloidal_matrices.compute_rates(
-                    m_ind=y,
-                    t=t,
-                    E_coeffs_noind=E_coeffs_noind,
-                    induction_matrix=None,
-                    m_ind_to_E_operator=self.m_ind_to_E_coeffs,
-                    problem=self.m_imp_problem,
-                    solver=self.m_imp_solver,
-                    preconditioner=self.m_imp_preconditioner,
-                    E_map_constraint_operator=self.geometry.E_coeffs_to_E_apex_ll_diff,
-                    ih_constraint_scaling=self.ih_constraint_scaling,
-                    connect_hemispheres=(
-                        self.connect_hemispheres and self.dynamics_mode != "full_induction"
-                    ),
-                    m_imp_to_E_operator=self.m_imp_to_E_coeffs,
-                )
-
-        if isinstance(self.poloidal_integrator, ExponentialIntegrator) and linear_operator is None:
-            scale = self.poloidal_matrices.E_df_to_d_m_ind_dt
-            linear_operator = scale * self.m_ind_to_E_df_matrix
-
-        m_ind_new = self._evolve_linear_state(
-            y=asarray(m_ind),
-            dt=dt,
-            linear_operator=linear_operator,
-            forcing=forcing,
-            rates_func=rates_func,
-            steady_state=asarray(steady_state_m_ind) if steady_state_m_ind is not None else None,
-        )
-        m_ind_new = self.constraints.apply_m_ind_gauge_projection(m_ind_new)
-        return None, asarray(m_ind_new)
 
     # -------------------------------------------------------------------------
     # Coupled Exponential Integrator
