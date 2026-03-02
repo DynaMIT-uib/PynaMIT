@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from pynamit.math.constants import RE
+from pynamit.simulation.dynamics import Dynamics
 from pynamit.simulation.settings import DynamicsSettings, SimulationMode
 
 
@@ -44,3 +45,17 @@ def test_dynamics_settings_coerce_applies_derived_defaults() -> None:
     assert settings.poloidal_weighting == "quadratic"
     assert settings.toroidal_regularization_lambda == 1e-10
     assert settings.apply_m_imp_gauge is False
+
+
+def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
+    settings = DynamicsSettings(
+        filename_prefix=str(tmp_path / "settings_ctor"),
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+    )
+
+    dynamics = Dynamics(settings, benchmark_mode=True)
+
+    assert dynamics.settings.Nmax == settings.Nmax
+    assert dynamics.filename_prefix == settings.filename_prefix

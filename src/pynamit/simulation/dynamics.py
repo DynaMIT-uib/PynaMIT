@@ -6,11 +6,11 @@ coupling.
 
 from __future__ import annotations
 import logging
-from typing import List, Optional, Union, Literal
+from pathlib import Path
+from typing import Any, Optional
 
 import numpy as np
 from pynamit.gauss_legendre.gl_basis import GLBasis
-from pynamit.math.constants import RE
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
 from pynamit.primitives.input_manager import InputManager
@@ -55,114 +55,30 @@ class Dynamics:
 
     def __init__(
         self,
-        filename_prefix: str = "simulation",
-        Nmax: int = 20,
-        Mmax: int = 20,
-        Ncs: int = 30,
-        RI: float = RE + 110.0e3,
-        RM: Optional[float] = None,
-        mainfield_kind: Literal["dipole", "igrf", "radial"] = "dipole",
-        mainfield_epoch: int = 2020,
-        mainfield_B0: Optional[float] = None,
-        FAC_integration_steps: Union[np.ndarray, List[float]] = None,
-        ignore_PFAC: bool = False,
-        connect_hemispheres: bool = False,
-        latitude_boundary: float = 50.0,
-        ih_constraint_scaling: float = 1e-5,
-        apply_psi_gauge: bool = True,
-        apply_m_ind_gauge: bool = True,
-        apply_m_imp_gauge: bool = True,
-        magnetospheric_toroidal_lock: bool = False,
-        magnetospheric_poloidal_lock: bool = True,
-        northern_hemisphere_apex_constraints: bool = False,
-        vector_jr: bool = True,
-        vector_Br: bool = True,
-        vector_conductance: bool = True,
-        vector_u: bool = True,
-        t0: str = "2020-01-01 00:00:00",
-        save_steady_states: bool = True,
-        integrator: Literal["euler", "exponential"] = "euler",
-        backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto",
-        solution_basis_kind: Literal["SH", "CS"] = "SH",
-        simulation_mode: Optional[SimulationMode] = None,
-        least_squares_solver: str = "lsmr",
-        m_imp_regularization_lambda: float = 0.0,
-        dynamics_mode: Literal["legacy", "full_induction"] = "legacy",
-        toroidal_weighting: Literal["none", "linear", "quadratic"] = "none",
-        poloidal_weighting: Literal["none", "linear", "quadratic"] = "none",
-        least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv",
-        conductance_interpolation_mode: Literal[
-            "legacy_eta_linear", "sigma_linear", "sigma_log"
-        ] = "sigma_log",
-        conductance_interpolation_floor: float = 1e-3,
-        toroidal_regularization_lambda: float = 1e-10,
-        use_toroidal_twist_rate_known_from_poloidal: bool = False,
-        toroidal_twist_rate_known_radial_model: Literal[
-            "none", "external_lplus2", "internal_lminus1"
-        ] = "none",
-        dense_full_operators: bool = False,
-        enable_fast_input_path: bool = False,
-        exponential_solver: Literal["expm", "expm_multiply"] = "expm",
+        settings: Optional[Any] = None,
+        *,
         benchmark_mode: bool = False,
+        **settings_overrides: Any,
     ):
         """Initialize the Dynamics class."""
-        if FAC_integration_steps is None:
-            FAC_integration_steps = np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
+        if isinstance(settings, (str, Path)):
+            settings_overrides = {
+                "filename_prefix": str(settings),
+                **settings_overrides,
+            }
+            settings = None
 
-        initial_settings = DynamicsSettings(
-            Nmax=Nmax,
-            Mmax=Mmax,
-            Ncs=Ncs,
-            RI=RI,
-            RM=RM,
-            mainfield_kind=mainfield_kind,
-            mainfield_epoch=mainfield_epoch,
-            mainfield_B0=mainfield_B0,
-            FAC_integration_steps=FAC_integration_steps,
-            ignore_PFAC=ignore_PFAC,
-            connect_hemispheres=connect_hemispheres,
-            latitude_boundary=latitude_boundary,
-            ih_constraint_scaling=ih_constraint_scaling,
-            apply_psi_gauge=apply_psi_gauge,
-            apply_m_ind_gauge=apply_m_ind_gauge,
-            apply_m_imp_gauge=apply_m_imp_gauge,
-            magnetospheric_toroidal_lock=magnetospheric_toroidal_lock,
-            magnetospheric_poloidal_lock=magnetospheric_poloidal_lock,
-            northern_hemisphere_apex_constraints=northern_hemisphere_apex_constraints,
-            vector_jr=vector_jr,
-            vector_Br=vector_Br,
-            vector_conductance=vector_conductance,
-            vector_u=vector_u,
-            t0=t0,
-            save_steady_states=save_steady_states,
-            integrator=integrator,
-            backend=backend,
-            solution_basis_kind=solution_basis_kind,
-            simulation_mode=(
-                SimulationMode.SPECTRAL_TRANSFORM_CS if simulation_mode is None else simulation_mode
-            ),
-            least_squares_solver=least_squares_solver,
-            m_imp_regularization_lambda=m_imp_regularization_lambda,
-            dynamics_mode=dynamics_mode,
-            toroidal_weighting=toroidal_weighting,
-            poloidal_weighting=poloidal_weighting,
-            least_squares_preconditioner=least_squares_preconditioner,
-            conductance_interpolation_mode=conductance_interpolation_mode,
-            conductance_interpolation_floor=conductance_interpolation_floor,
-            toroidal_regularization_lambda=toroidal_regularization_lambda,
-            use_toroidal_twist_rate_known_from_poloidal=use_toroidal_twist_rate_known_from_poloidal,
-            toroidal_twist_rate_known_radial_model=toroidal_twist_rate_known_radial_model,
-            dense_full_operators=dense_full_operators,
-            enable_fast_input_path=enable_fast_input_path,
-            exponential_solver=exponential_solver,
+        self.settings = (
+            DynamicsSettings(**settings_overrides)
+            if settings is None
+            else DynamicsSettings.coerce(settings, **settings_overrides)
         )
-        self.settings = initial_settings
-        self.backend = set_backend(backend)
+        self.backend = set_backend(self.settings.backend)
 
-        self.filename_prefix = filename_prefix
+        self.filename_prefix = self.settings.filename_prefix
         self.benchmark_mode = bool(benchmark_mode)
         self.data = SimulationData.create(
-            filename_prefix,
+            self.filename_prefix,
             self.settings,
             load_existing=not self.benchmark_mode,
             print_info=not self.benchmark_mode,
@@ -220,13 +136,13 @@ class Dynamics:
             solution_basis=solution_basis,
         )
 
-        if self.data.has_output_dataset("state"):
+        if self.data.has_dataset("state"):
             self.current_time = self.data.get_latest_output_time("state")
         else:
             self.current_time = np.float64(0)
 
         # Store settings and PFAC matrix on file.
-        if filename_prefix is None:
+        if self.filename_prefix is None:
             self.io.filename_prefix = "simulation"
             self.data.filename_prefix = "simulation"
 
@@ -262,9 +178,9 @@ class Dynamics:
         """
         step = 0
 
-        if self.data.has_output_dataset("state"):
+        if self.data.has_dataset("state"):
             self.current_time = self.data.get_latest_output_time("state")
-            state_entry = self.data.get_state_entry(self.current_time, interpolation=False)
+            state_entry = self.data.get_output_entry("state", self.current_time, interpolation=False)
             inductive_m_ind = state_entry["m_ind"]
             inductive_m_ind = asarray(inductive_m_ind)
             if self.settings.dynamics_mode == "full_induction" and state_entry is not None:
@@ -445,6 +361,38 @@ class Dynamics:
 
         self.data.add_output_entry(key, state_data, time=self.current_time)
 
+    def _interpolate_and_store_input(
+        self,
+        key: str,
+        input_data: dict[str, np.ndarray],
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ) -> None:
+        """Interpolate one input payload and persist it when applicable."""
+        self.input_manager.interpolate_and_add_entry(
+            key,
+            input_data,
+            self.adapt_input_time(time, input_data),
+            self.interpolation_bases[key],
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+        if not self.benchmark_mode:
+            self.data.save_input_dataset(key)
+
     def set_FAC(
         self,
         FAC,
@@ -529,22 +477,18 @@ class Dynamics:
         """
         input_data = {"jr": np.atleast_2d(jr)}
 
-        self.input_manager.interpolate_and_add_entry(
+        self._interpolate_and_store_input(
             "jr",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["jr"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        if not self.benchmark_mode:
-            self.input_timeseries.save("jr", self.io)
 
     def set_Br(
         self,
@@ -582,22 +526,18 @@ class Dynamics:
 
         input_data = {"Br": np.atleast_2d(Br)}
 
-        self.input_manager.interpolate_and_add_entry(
+        self._interpolate_and_store_input(
             "Br",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["Br"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        if not self.benchmark_mode:
-            self.input_timeseries.save("Br", self.io)
 
     def set_conductance(
         self,
@@ -646,35 +586,18 @@ class Dynamics:
             logger=logger,
         )
 
-        self.input_manager.interpolate_and_add_entry(
+        self._interpolate_and_store_input(
             "conductance",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["conductance"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        if not self.benchmark_mode:
-            self.input_timeseries.save("conductance", self.io)
-
-    @classmethod
-    def from_settings(
-        cls,
-        settings: DynamicsSettings,
-        *,
-        benchmark_mode: bool = False,
-    ) -> "Dynamics":
-        """Construct ``Dynamics`` from one normalized settings object."""
-        normalized_settings = DynamicsSettings.coerce(settings)
-        init_kwargs = normalized_settings.to_init_kwargs()
-        init_kwargs["benchmark_mode"] = benchmark_mode
-        return cls(**init_kwargs)
 
     def set_u(
         self,
@@ -713,22 +636,18 @@ class Dynamics:
         # Reorder time to first dimension and component to second.
         input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
 
-        self.input_manager.interpolate_and_add_entry(
+        self._interpolate_and_store_input(
             "u",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["u"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        if not self.benchmark_mode:
-            self.input_timeseries.save("u", self.io)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.

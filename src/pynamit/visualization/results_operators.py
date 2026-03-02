@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -11,13 +11,6 @@ from pynamit.math.constants import mu0
 from pynamit.math.linear_map import as_linear_map
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.spatial.geometry_utils import to_dense
-
-
-def _get_setting_attr(settings: Any, key: str, default: Any) -> Any:
-    """Read a settings value from attrs or object attributes."""
-    if hasattr(settings, "attrs") and key in settings.attrs:
-        return settings.attrs[key]
-    return getattr(settings, key, default)
 
 
 @dataclass(frozen=True)
@@ -35,11 +28,6 @@ class PoloidalResultsOperators:
     G_m_ind_to_JS: np.ndarray
     G_m_imp_to_JS: np.ndarray
     G_Br_to_JS: np.ndarray
-
-    @property
-    def G_B_pol_to_JS(self) -> np.ndarray:
-        """Compatibility alias for the poloidal JS operator."""
-        return self.G_Ve_to_JS
 
     def evaluate_scalar_coefficients(
         self,
@@ -85,6 +73,10 @@ class PoloidalResultsOperators:
     def evaluate_js_from_m_imp(self, m_imp: np.ndarray) -> np.ndarray:
         """Evaluate structured sheet current from toroidal/imposed coefficients."""
         return self._evaluate_vector_operator(self.G_m_imp_to_JS, m_imp)
+
+    def evaluate_js_from_br(self, br_coeffs: np.ndarray) -> np.ndarray:
+        """Evaluate structured sheet current from radial magnetic coefficients."""
+        return self._evaluate_vector_operator(self.G_Br_to_JS, br_coeffs)
 
 
 def build_poloidal_results_operators(
@@ -168,41 +160,4 @@ def build_poloidal_results_operators(
         G_m_ind_to_JS=np.asarray(G_m_ind_to_JS, dtype=float),
         G_m_imp_to_JS=np.asarray(G_m_imp_to_JS, dtype=float),
         G_Br_to_JS=np.asarray(G_Br_to_JS, dtype=float),
-    )
-
-
-def build_poloidal_results_operators_from_settings(
-    settings: Any,
-    *,
-    basis: Any,
-    grid: Grid,
-    T_to_Ve: Optional[np.ndarray] = None,
-) -> PoloidalResultsOperators:
-    """Build explicit postprocessing operators from a settings object or dataset."""
-    RI = float(_get_setting_attr(settings, "RI", 0.0))
-    if RI <= 0.0:
-        raise ValueError("Settings must provide a positive RI value.")
-
-    RM = _get_setting_attr(settings, "RM", None)
-    return build_poloidal_results_operators(
-        basis=basis,
-        grid=grid,
-        RI=RI,
-        T_to_Ve=T_to_Ve,
-        RM=RM,
-    )
-
-
-def build_poloidal_results_operators_from_simulation_data(
-    simulation_data: Any,
-    *,
-    grid: Grid,
-    basis: Any = None,
-) -> PoloidalResultsOperators:
-    """Build explicit postprocessing operators from a ``SimulationData`` object."""
-    return build_poloidal_results_operators_from_settings(
-        simulation_data.settings,
-        basis=simulation_data.sh_basis_zero_removed if basis is None else basis,
-        grid=grid,
-        T_to_Ve=simulation_data.pfac_matrix,
     )

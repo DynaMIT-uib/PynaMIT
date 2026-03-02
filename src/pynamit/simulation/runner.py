@@ -180,7 +180,7 @@ def run_pynamit(
         enable_fast_input_path=enable_fast_input_path,
         exponential_solver=exponential_solver,
     )
-    dynamics = Dynamics.from_settings(settings, benchmark_mode=benchmark_mode)
+    dynamics = Dynamics(settings, benchmark_mode=benchmark_mode)
 
 
     date = datetime.datetime(2001, 5, 12, 21, 45)

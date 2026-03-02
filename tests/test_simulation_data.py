@@ -11,6 +11,7 @@ from pynamit.simulation.data import (
     create_output_timeseries,
 )
 from pynamit.simulation.settings import DynamicsSettings
+from pynamit.primitives.grid import Grid
 
 
 def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
@@ -98,7 +99,7 @@ def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
     assert simulation_data.mainfield.kind == settings.mainfield_kind
     assert simulation_data.pfac_matrix.shape == (n_solution, n_solution)
 
-    state_entry = simulation_data.get_state_entry(1.0)
+    state_entry = simulation_data.get_output_entry("state", 1.0)
     assert state_entry is not None
     assert "psi" not in state_entry
     np.testing.assert_allclose(state_entry["m_imp"], np.full(n_solution, 2.0))
@@ -157,7 +158,7 @@ def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
     simulation_data = SimulationData.create(prefix, settings, load_existing=False)
     n_solution = simulation_data.solution_basis.index_length
 
-    assert not simulation_data.has_output_dataset("state")
+    assert not simulation_data.has_dataset("state")
 
     simulation_data.add_output_entry(
         "state",
@@ -182,8 +183,52 @@ def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
     simulation_data.save_output_dataset("state")
 
     reloaded = SimulationData.create(prefix, settings, load_existing=True)
-    assert reloaded.has_output_dataset("state")
+    assert reloaded.has_dataset("state")
     assert reloaded.get_latest_output_time("state") == 2.0
-    state_entry = reloaded.get_state_entry(2.0)
+    state_entry = reloaded.get_output_entry("state", 2.0)
     assert state_entry is not None
     np.testing.assert_allclose(state_entry["m_imp"], np.full(n_solution, 6.0))
+
+
+def test_simulation_data_input_helpers_round_trip_dataset(tmp_path):
+    prefix = tmp_path / "input_helpers"
+    settings = DynamicsSettings(
+        filename_prefix=str(prefix),
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+    )
+
+    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    n_scalar = simulation_data.sh_basis_zero_removed.index_length
+
+    simulation_data.input_timeseries.add_entry(
+        "jr",
+        {"jr": np.arange(n_scalar, dtype=float)},
+        time=0.0,
+    )
+    simulation_data.save_input_dataset("jr")
+
+    reloaded = SimulationData.create(prefix, settings, load_existing=True)
+    assert reloaded.has_dataset("jr")
+    jr_entry = reloaded.get_input_entry("jr", 0.0)
+    assert jr_entry is not None
+    np.testing.assert_allclose(jr_entry["jr"], np.arange(n_scalar, dtype=float))
+
+
+def test_simulation_data_builds_results_operator_bundle(tmp_path):
+    prefix = tmp_path / "results_ops"
+    settings = DynamicsSettings(
+        filename_prefix=str(prefix),
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+    )
+
+    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    bundle = simulation_data.get_poloidal_results_operators(
+        grid=Grid(lat=np.array([60.0]), lon=np.array([0.0])),
+    )
+
+    assert bundle.m_ind_to_Br.shape[0] == simulation_data.sh_basis_zero_removed.index_length
+    assert bundle.scalar_evaluation_matrix.shape[0] == 1

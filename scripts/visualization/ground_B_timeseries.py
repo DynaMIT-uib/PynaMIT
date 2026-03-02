@@ -1,29 +1,29 @@
 """Ground magnetic field time series visualization."""
 
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
-import xarray as xr
 import pynamit
 from pynamit.math.constants import RE
-from pynamit.math.constants import mu0
 import dipole
 import datetime
 import apexpy
+from pynamit.simulation.data import SimulationData
 
 periods = [50, 25, 10, 5, 1]
-state_data_list = [
-    xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_state.ncdf")
+prefixes = [
+    Path("../simulation/oscillations") / f"{str(p).zfill(2)}s"
     for p in periods
 ]
-settings_list = [
-    xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_settings.ncdf")
-    for p in periods
-]
+simulation_data_list = [SimulationData.from_prefix(prefix) for prefix in prefixes]
+state_data_list = [simulation_data.get_dataset("state") for simulation_data in simulation_data_list]
 
-RI = settings_list[0].RI
-sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
+settings = simulation_data_list[0].settings
+RI = settings.RI
+sh_basis = simulation_data_list[0].sh_basis_zero_removed
 
-t0 = datetime.datetime.strptime(settings_list[0].t0, "%Y-%m-%d %H:%M:%S")
+t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
 a = apexpy.Apex(t0.year)
 
@@ -36,13 +36,6 @@ Ncols = mlt.shape[0]
 mlon = d.mlt2mlon(mlt, t0)
 glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
-
-# Calculate conversion factors.
-m_ind_to_Br = -(RI**2) * sh_basis.laplacian(RI)
-m_imp_to_jr = RI / mu0 * sh_basis.laplacian(RI)
-W_to_dBr_dt = 1 / RI
-m_ind_to_Jeq = -RI / mu0 * sh_basis.Ve_to_delta_V
-
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
 # Removed BasisEvaluator. Logic will use basis and grid directly.

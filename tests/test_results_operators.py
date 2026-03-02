@@ -9,7 +9,7 @@ from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.settings import SimulationMode
 from pynamit.simulation.spatial import to_dense
 from pynamit.visualization.results_operators import (
-    build_poloidal_results_operators_from_settings,
+    build_poloidal_results_operators,
 )
 
 
@@ -58,16 +58,17 @@ def test_results_operator_bundle_builders_agree_for_live_state() -> None:
     state = _build_state()
 
     bundle_geometry = state.geometry.get_poloidal_results_operators()
-    bundle_settings = build_poloidal_results_operators_from_settings(
-        state.settings,
+    bundle_explicit = build_poloidal_results_operators(
         basis=state.solution_basis,
         grid=state.geometry.grid,
+        RI=float(state.settings.RI),
         T_to_Ve=state.poloidal_matrices.T_to_Ve,
+        RM=state.settings.RM,
     )
 
     for attr in ("m_ind_to_Br", "m_imp_to_jr", "m_ind_to_Jeq", "G_m_ind_to_JS", "G_m_imp_to_JS"):
         expected = np.asarray(getattr(bundle_geometry, attr))
-        assert np.allclose(np.asarray(getattr(bundle_settings, attr)), expected)
+        assert np.allclose(np.asarray(getattr(bundle_explicit, attr)), expected)
 
 
 def test_results_operator_bundle_evaluation_helpers_match_explicit_application() -> None:
@@ -82,9 +83,11 @@ def test_results_operator_bundle_evaluation_helpers_match_explicit_application()
     expected_jeq = bundle.scalar_evaluation_matrix @ (bundle.m_ind_to_Jeq @ m_ind)
     expected_js_ind = np.tensordot(bundle.G_m_ind_to_JS, m_ind, axes=([2], [0]))
     expected_js_imp = np.tensordot(bundle.G_m_imp_to_JS, m_imp, axes=([2], [0]))
+    expected_js_br = np.tensordot(bundle.G_Br_to_JS, m_ind, axes=([2], [0]))
 
     np.testing.assert_allclose(bundle.evaluate_br(m_ind), expected_br)
     np.testing.assert_allclose(bundle.evaluate_jr(m_imp), expected_jr)
     np.testing.assert_allclose(bundle.evaluate_jeq(m_ind), expected_jeq)
     np.testing.assert_allclose(bundle.evaluate_js_from_m_ind(m_ind), expected_js_ind)
     np.testing.assert_allclose(bundle.evaluate_js_from_m_imp(m_imp), expected_js_imp)
+    np.testing.assert_allclose(bundle.evaluate_js_from_br(m_ind), expected_js_br)

@@ -270,14 +270,6 @@ class SimulationData:
         """Return whether a named dataset is available."""
         return key == "settings" or key in self.input_timeseries.datasets or key in self.output_timeseries.datasets
 
-    def has_input_dataset(self, key: str) -> bool:
-        """Return whether an input dataset is available."""
-        return key in self.input_timeseries.datasets
-
-    def has_output_dataset(self, key: str) -> bool:
-        """Return whether an output dataset is available."""
-        return key in self.output_timeseries.datasets
-
     def get_dataset(self, key: str) -> Any:
         """Return a raw xarray dataset by name."""
         if key == "settings":
@@ -325,17 +317,6 @@ class SimulationData:
             return None
         return self.output_timeseries.get_entry(key, time, interpolation=interpolation)
 
-    def get_state_entry(
-        self,
-        time: float,
-        *,
-        steady_state: bool = False,
-        interpolation: bool = False,
-    ) -> Optional[dict[str, np.ndarray]]:
-        """Return one saved state entry at ``time``."""
-        key = "steady_state" if steady_state else "state"
-        return self.get_output_entry(key, time, interpolation=interpolation)
-
     def get_latest_output_time(self, key: str = "state") -> float:
         """Return the latest saved time for one output dataset."""
         if key not in self.output_timeseries.datasets:
@@ -371,6 +352,11 @@ class SimulationData:
         )
         self.pfac_from_file = True
 
+    def save_input_dataset(self, key: str, *, print_info: bool = False) -> None:
+        """Persist one input dataset to disk."""
+        del print_info
+        self.input_timeseries.save(key, self.io)
+
     def add_output_entry(
         self,
         key: str,
@@ -385,6 +371,23 @@ class SimulationData:
         """Persist one output dataset to disk."""
         del print_info
         self.output_timeseries.save(key, self.io)
+
+    def get_poloidal_results_operators(
+        self,
+        *,
+        grid: Any,
+        basis: Any = None,
+    ) -> Any:
+        """Build explicit postprocessing operators for one target grid."""
+        from pynamit.visualization.results_operators import build_poloidal_results_operators
+
+        return build_poloidal_results_operators(
+            basis=self.sh_basis_zero_removed if basis is None else basis,
+            grid=grid,
+            RI=float(self.settings.RI),
+            T_to_Ve=self.pfac_matrix,
+            RM=self.settings.RM,
+        )
 
     @staticmethod
     def _prune_missing_variables(timeseries: Timeseries) -> None:

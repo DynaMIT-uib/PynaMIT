@@ -8,8 +8,6 @@ their dependencies are available.
 from .results_operators import (
     PoloidalResultsOperators,
     build_poloidal_results_operators,
-    build_poloidal_results_operators_from_simulation_data,
-    build_poloidal_results_operators_from_settings,
 )
 from .grid_evaluation import (
     decode_conductance_dataset_to_grids,
@@ -25,8 +23,6 @@ from .grid_evaluation import (
 __all__ = [
     "PoloidalResultsOperators",
     "build_poloidal_results_operators",
-    "build_poloidal_results_operators_from_simulation_data",
-    "build_poloidal_results_operators_from_settings",
     "decode_conductance_dataset_to_grids",
     "decode_conductance_entry_to_grids",
     "evaluate_scalar_coeffs_to_grid",

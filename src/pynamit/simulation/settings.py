@@ -279,10 +279,6 @@ class DynamicsSettings:
 
         return cls(**values)
 
-    def to_init_kwargs(self) -> dict[str, Any]:
-        """Return constructor kwargs matching ``Dynamics.__init__`` settings inputs."""
-        return {field_def.name: getattr(self, field_def.name) for field_def in fields(self)}
-
     def to_dataset(self) -> xr.Dataset:
         """Convert settings to an xarray Dataset for storage."""
         attrs = asdict(self)

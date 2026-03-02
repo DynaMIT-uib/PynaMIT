@@ -20,9 +20,6 @@ from pynamit.math.constants import RE
 from pynamit.visualization.grid_evaluation import (
     decode_conductance_entry_to_grids,
 )
-from pynamit.visualization.results_operators import (
-    build_poloidal_results_operators_from_simulation_data,
-)
 from pynamit.simulation.data import SimulationData
 
 logger = logging.getLogger(__name__)
@@ -142,35 +139,12 @@ class PynamEye(object):
 
         # Prepare explicit postprocessing operators on each plot grid.
         self.operator_bundles = {}
-        global_bundle = build_poloidal_results_operators_from_simulation_data(
-            self.simulation_data,
-            basis=self.basis,
-            grid=self.grids["global"],
-        )
-        self.global_operator_bundle = global_bundle
-        self.m_ind_to_Br = global_bundle.m_ind_to_Br
-        self.m_imp_to_jr = global_bundle.m_imp_to_jr
-        self.W_to_dBr_dt = 1 / self.RI
-        self.m_ind_to_Jeq = global_bundle.m_ind_to_Jeq
-
-        # Calculate matrices to calculate current.
-        self.G_B_pol_to_JS = {}
-        self.G_B_tor_to_JS = {}
-        self.G_m_ind_to_JS = {}
-        self.G_m_imp_to_JS = {}
-        self.G_Br_to_JS = {}
         for region in ["global", "north", "south"]:
-            bundle = build_poloidal_results_operators_from_simulation_data(
-                self.simulation_data,
+            bundle = self.simulation_data.get_poloidal_results_operators(
                 basis=self.basis,
                 grid=self.grids[region],
             )
             self.operator_bundles[region] = bundle
-            self.G_B_pol_to_JS[region] = bundle.G_B_pol_to_JS
-            self.G_B_tor_to_JS[region] = bundle.G_B_tor_to_JS
-            self.G_m_ind_to_JS[region] = bundle.G_m_ind_to_JS
-            self.G_m_imp_to_JS[region] = bundle.G_m_imp_to_JS
-            self.G_Br_to_JS[region] = bundle.G_Br_to_JS
 
         self._define_defaults()
         self.set_time(t)
@@ -253,9 +227,9 @@ class PynamEye(object):
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
 
-        state_entry = self.simulation_data.get_state_entry(
+        state_entry = self.simulation_data.get_output_entry(
+            "steady_state" if steady_state else "state",
             self.t,
-            steady_state=steady_state,
             interpolation=False,
         )
         if state_entry is None:
