@@ -76,6 +76,7 @@ class Dynamics:
         ih_constraint_scaling: float = 1e-5,
         apply_psi_gauge: bool = True,
         apply_m_ind_gauge: bool = True,
+        apply_m_imp_gauge: bool = True,
         magnetospheric_toroidal_lock: bool = False,
         magnetospheric_poloidal_lock: bool = True,
         northern_hemisphere_apex_constraints: bool = False,
@@ -112,9 +113,6 @@ class Dynamics:
         """Initialize the Dynamics class."""
         if FAC_integration_steps is None:
             FAC_integration_steps = np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
-            
-        if simulation_mode == SimulationMode.CS_DOMINANT:
-            solution_basis_kind = "CS"
 
         initial_settings = DynamicsSettings(
             Nmax=Nmax,
@@ -132,6 +130,7 @@ class Dynamics:
             ih_constraint_scaling=ih_constraint_scaling,
             apply_psi_gauge=apply_psi_gauge,
             apply_m_ind_gauge=apply_m_ind_gauge,
+            apply_m_imp_gauge=apply_m_imp_gauge,
             magnetospheric_toroidal_lock=magnetospheric_toroidal_lock,
             magnetospheric_poloidal_lock=magnetospheric_poloidal_lock,
             northern_hemisphere_apex_constraints=northern_hemisphere_apex_constraints,
@@ -162,9 +161,6 @@ class Dynamics:
             enable_fast_input_path=enable_fast_input_path,
             exponential_solver=exponential_solver,
         )
-        
-        if simulation_mode is not None:
-            initial_settings.simulation_mode = simulation_mode
         self.settings = initial_settings
         self.backend = set_backend(backend)
 
@@ -204,9 +200,7 @@ class Dynamics:
             grid_basis = cs_basis
 
         # Specify input format and load input data.
-        conductance_mode = getattr(
-            self.settings, "conductance_interpolation_mode", "legacy_eta_linear"
-        )
+        conductance_mode = self.settings.conductance_interpolation_mode
         conductance_vars = conductance_timeseries_vars_for_mode(conductance_mode)
         self.input_variables = {
             "jr": {"jr": "scalar"},
@@ -339,7 +333,7 @@ class Dynamics:
             if self.settings.dynamics_mode == "full_induction" and self.state.psi is not None:
                 psi_finite = bool(np.all(np.isfinite(np.asarray(self.state.psi))))
             if not (m_ind_finite and psi_finite):
-                prefix = getattr(self.settings, "filename_prefix", "<unknown>")
+                prefix = self.settings.filename_prefix
                 raise ValueError(
                     "Non-finite values found in saved state used for resume "
                     f"(filename_prefix={prefix!r}, time={float(self.current_time):.3f}s). "
@@ -698,10 +692,8 @@ class Dynamics:
         """
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
-        mode = getattr(self.settings, "conductance_interpolation_mode", "legacy_eta_linear")
-        sigma_floor = float(
-            max(getattr(self.settings, "conductance_interpolation_floor", 1e-3), 0.0)
-        )
+        mode = self.settings.conductance_interpolation_mode
+        sigma_floor = float(self.settings.conductance_interpolation_floor)
 
         input_data = encode_conductance_input_for_storage(
             Hall=Hall,
@@ -727,6 +719,19 @@ class Dynamics:
 
         if not self.benchmark_mode:
             self.input_timeseries.save("conductance", self.io)
+
+    @classmethod
+    def from_settings(
+        cls,
+        settings: DynamicsSettings,
+        *,
+        benchmark_mode: bool = False,
+    ) -> "Dynamics":
+        """Construct ``Dynamics`` from one normalized settings object."""
+        normalized_settings = DynamicsSettings.coerce(settings)
+        init_kwargs = normalized_settings.to_init_kwargs()
+        init_kwargs["benchmark_mode"] = benchmark_mode
+        return cls(**init_kwargs)
 
     def set_u(
         self,

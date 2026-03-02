@@ -6,8 +6,8 @@ This module contains configuration classes and enums for PynaMIT simulations:
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Union, Literal
+from dataclasses import dataclass, field, asdict, fields
+from typing import Any, List, Mapping, Optional, Union, Literal
 from enum import Enum
 
 import numpy as np
@@ -138,6 +138,7 @@ class DynamicsSettings:
     ih_constraint_scaling: float = 1e-5
     apply_psi_gauge: bool = True
     apply_m_ind_gauge: bool = True
+    apply_m_imp_gauge: bool = True
     magnetospheric_toroidal_lock: bool = False
     magnetospheric_poloidal_lock: bool = True
     northern_hemisphere_apex_constraints: bool = False
@@ -165,7 +166,7 @@ class DynamicsSettings:
     # - sigma_log: interpolate log(Sigma + floor), then convert to eta at state update
     conductance_interpolation_mode: Literal[
         "legacy_eta_linear", "sigma_linear", "sigma_log"
-    ] = "sigma_log",
+    ] = "sigma_log"
     # Floor used for sigma_log encoding and for robust Sigma->eta conversion in
     # non-legacy modes (denominator floor uses floor^2).
     conductance_interpolation_floor: float = 1e-3
@@ -192,6 +193,96 @@ class DynamicsSettings:
     # Computed fields
     solution_basis_kind: Literal["SH", "CS"] = "SH"
 
+    def __post_init__(self) -> None:
+        """Normalize derived/defaulted settings once at construction time."""
+        if isinstance(self.simulation_mode, str):
+            self.simulation_mode = SimulationMode(self.simulation_mode)
+
+        # Guard against accidental tuple defaults from trailing commas in older
+        # code paths or serialized settings adapters.
+        if isinstance(self.conductance_interpolation_mode, tuple):
+            if len(self.conductance_interpolation_mode) != 1:
+                raise ValueError(
+                    "conductance_interpolation_mode tuple input must have length 1, "
+                    f"got {self.conductance_interpolation_mode!r}."
+                )
+            self.conductance_interpolation_mode = str(self.conductance_interpolation_mode[0])
+
+        if self.RM == 0:
+            self.RM = None
+
+        self.conductance_interpolation_floor = float(max(self.conductance_interpolation_floor, 0.0))
+
+        if self.simulation_mode == SimulationMode.CS_DOMINANT:
+            self.solution_basis_kind = "CS"
+
+        # CS-dominant electrostatic solves need mild regularization near the
+        # magnetic equator when the user has not chosen one explicitly.
+        if self.simulation_mode == SimulationMode.CS_DOMINANT and self.m_imp_regularization_lambda == 0.0:
+            self.m_imp_regularization_lambda = 1e-4
+
+        # Full-induction defaults are stability defaults, not user-facing
+        # behavior changes. Keep explicit user choices, only fill "none"/0 cases.
+        if self.dynamics_mode == "full_induction":
+            if self.toroidal_weighting == "none":
+                self.toroidal_weighting = "quadratic"
+            if self.poloidal_weighting == "none":
+                self.poloidal_weighting = "quadratic"
+            if self.toroidal_regularization_lambda == 0.0:
+                self.toroidal_regularization_lambda = 1e-10
+
+        if self.exponential_solver == "dense_expm":
+            self.exponential_solver = "expm"
+
+        if self.exponential_solver not in {"expm", "expm_multiply"}:
+            raise ValueError(
+                "exponential_solver must be one of {'expm', 'expm_multiply'}, "
+                f"got {self.exponential_solver!r}."
+            )
+
+        if (
+            self.integrator == "exponential"
+            and self.dynamics_mode == "full_induction"
+            and self.exponential_solver == "expm"
+            and not self.dense_full_operators
+        ):
+            raise ValueError(
+                "dynamics_mode='full_induction' with integrator='exponential' and "
+                "exponential_solver='expm' requires dense_full_operators=True."
+            )
+
+    @classmethod
+    def coerce(cls, settings: Optional[Any] = None, /, **overrides: Any) -> "DynamicsSettings":
+        """Return normalized settings from a full or partial settings object."""
+        field_names = {field_def.name for field_def in fields(cls)}
+        values: dict[str, Any] = {}
+
+        if settings is not None:
+            if isinstance(settings, Mapping):
+                for name in field_names:
+                    if name in settings:
+                        value = settings[name]
+                        if name == "FAC_integration_steps" and value is None:
+                            continue
+                        values[name] = value
+            else:
+                for name in field_names:
+                    if hasattr(settings, name):
+                        value = getattr(settings, name)
+                        if name == "FAC_integration_steps" and value is None:
+                            continue
+                        values[name] = value
+
+        for key, value in overrides.items():
+            if key in field_names:
+                values[key] = value
+
+        return cls(**values)
+
+    def to_init_kwargs(self) -> dict[str, Any]:
+        """Return constructor kwargs matching ``Dynamics.__init__`` settings inputs."""
+        return {field_def.name: getattr(self, field_def.name) for field_def in fields(self)}
+
     def to_dataset(self) -> xr.Dataset:
         """Convert settings to an xarray Dataset for storage."""
         attrs = asdict(self)
@@ -208,6 +299,7 @@ class DynamicsSettings:
         attrs["northern_hemisphere_apex_constraints"] = int(self.northern_hemisphere_apex_constraints)
         attrs["apply_psi_gauge"] = int(self.apply_psi_gauge)
         attrs["apply_m_ind_gauge"] = int(self.apply_m_ind_gauge)
+        attrs["apply_m_imp_gauge"] = int(self.apply_m_imp_gauge)
         attrs["magnetospheric_toroidal_lock"] = int(self.magnetospheric_toroidal_lock)
         attrs["magnetospheric_poloidal_lock"] = int(self.magnetospheric_poloidal_lock)
         attrs["dense_full_operators"] = int(self.dense_full_operators)
@@ -274,6 +366,7 @@ class DynamicsSettings:
             ih_constraint_scaling=get("ih_constraint_scaling", defaults.ih_constraint_scaling),
             apply_psi_gauge=bool(get("apply_psi_gauge", defaults.apply_psi_gauge)),
             apply_m_ind_gauge=bool(get("apply_m_ind_gauge", defaults.apply_m_ind_gauge)),
+            apply_m_imp_gauge=bool(get("apply_m_imp_gauge", defaults.apply_m_imp_gauge)),
             magnetospheric_toroidal_lock=bool(
                 get("magnetospheric_toroidal_lock", defaults.magnetospheric_toroidal_lock)
             ),

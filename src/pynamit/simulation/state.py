@@ -35,7 +35,7 @@ from pynamit.primitives.basis import Basis
 from pynamit.math.constants import mu0
 from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
 from pynamit.simulation.spatial import to_dense, canonicalize_vector_basis_matrix
-from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsSettings, SimulationMode
 from pynamit.simulation.input import (
     decode_conductance_representation_to_grids,
 )
@@ -212,66 +212,46 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.Nmax = int(getattr(settings, "Nmax", 0))
-        self.Mmax = int(getattr(settings, "Mmax", 0))
-        self.Ncs = int(getattr(settings, "Ncs", 0))
-        self.solver_type = getattr(settings, "least_squares_solver", "cgls")
-        self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
-        self.static_preconditioner = getattr(settings, "static_preconditioner", False)
-        self.integrator = settings.integrator
-        self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
-        self.RI = settings.RI
-        self.RM = None if settings.RM == 0 else settings.RM
-        self.ih_constraint_scaling = settings.ih_constraint_scaling
-        self.apply_psi_gauge = bool(getattr(settings, "apply_psi_gauge", True))
+        normalized_settings = DynamicsSettings.coerce(settings)
+        self.settings = normalized_settings
+
+        self.Nmax = int(normalized_settings.Nmax)
+        self.Mmax = int(normalized_settings.Mmax)
+        self.Ncs = int(normalized_settings.Ncs)
+        self.solver_type = normalized_settings.least_squares_solver
+        self.preconditioner = normalized_settings.least_squares_preconditioner
+        self.integrator = normalized_settings.integrator
+        self.m_imp_regularization_lambda = normalized_settings.m_imp_regularization_lambda
+        self.RI = normalized_settings.RI
+        self.RM = normalized_settings.RM
+        self.ih_constraint_scaling = normalized_settings.ih_constraint_scaling
+        self.apply_psi_gauge = bool(normalized_settings.apply_psi_gauge)
         self.induction_null_diagnostics = False
         self.induction_null_svd_rtol = 1e-8
         self.induction_null_warn_ratio = 0.5
-        self.apply_m_ind_gauge = bool(getattr(settings, "apply_m_ind_gauge", True))
-        self.apply_m_imp_gauge = bool(getattr(settings, "apply_m_imp_gauge", True))
+        self.apply_m_ind_gauge = bool(normalized_settings.apply_m_ind_gauge)
+        self.apply_m_imp_gauge = bool(normalized_settings.apply_m_imp_gauge)
         self.magnetospheric_toroidal_lock = bool(
-            getattr(settings, "magnetospheric_toroidal_lock", False)
+            normalized_settings.magnetospheric_toroidal_lock
         )
-        self.conductance_interpolation_mode = str(
-            getattr(settings, "conductance_interpolation_mode", "legacy_eta_linear")
-        )
-        self.conductance_interpolation_floor = float(
-            max(getattr(settings, "conductance_interpolation_floor", 1e-3), 0.0)
-        )
-        self.toroidal_regularization_lambda = getattr(settings, "toroidal_regularization_lambda", 0.0)
+        self.conductance_interpolation_mode = str(normalized_settings.conductance_interpolation_mode)
+        self.conductance_interpolation_floor = float(normalized_settings.conductance_interpolation_floor)
+        self.toroidal_regularization_lambda = normalized_settings.toroidal_regularization_lambda
         self.use_toroidal_twist_rate_known_from_poloidal = bool(
-            getattr(settings, "use_toroidal_twist_rate_known_from_poloidal", False)
+            normalized_settings.use_toroidal_twist_rate_known_from_poloidal
         )
         self.toroidal_twist_rate_known_radial_model = str(
-            getattr(settings, "toroidal_twist_rate_known_radial_model", "none")
+            normalized_settings.toroidal_twist_rate_known_radial_model
         )
-        self.dense_full_operators = bool(getattr(settings, "dense_full_operators", False))
-        self.exponential_solver = str(getattr(settings, "exponential_solver", "expm"))
-        self.connect_hemispheres = bool(settings.connect_hemispheres)
-        self.dynamics_mode = getattr(settings, "dynamics_mode", "legacy")
-        self.toroidal_weighting = getattr(settings, "toroidal_weighting", "none")
-        self.poloidal_weighting = getattr(settings, "poloidal_weighting", "none")
+        self.dense_full_operators = bool(normalized_settings.dense_full_operators)
+        self.exponential_solver = str(normalized_settings.exponential_solver)
+        self.connect_hemispheres = bool(normalized_settings.connect_hemispheres)
+        self.dynamics_mode = normalized_settings.dynamics_mode
+        self.toroidal_weighting = normalized_settings.toroidal_weighting
+        self.poloidal_weighting = normalized_settings.poloidal_weighting
 
         # Mode Handling
-        self.mode = settings.simulation_mode
-
-        # Default to regularization for CS_DOMINANT to handle equatorial singularity in electrostatic problem
-        if self.mode == SimulationMode.CS_DOMINANT:
-            if self.m_imp_regularization_lambda == 0.0:
-                self.m_imp_regularization_lambda = 1e-4
-
-        # Robust defaults for induction feedback loop stability
-        # Equatorial singularity (Br=0) makes the toroidal problem ill-conditioned.
-        # Quadratic weighting by Br and Tikhonov regularization are essential for stability.
-        if self.dynamics_mode == "full_induction":
-            if self.toroidal_weighting == "none":
-                self.toroidal_weighting = "quadratic"
-            if self.toroidal_regularization_lambda == 0.0:
-                # Backward-compatible fallback for old serialized settings that
-                # still carry lambda=0. Keep this light but stability-safe.
-                self.toroidal_regularization_lambda = 1e-10
-            if self.poloidal_weighting == "none":
-                self.poloidal_weighting = "quadratic"
+        self.mode = normalized_settings.simulation_mode
 
         # CS-dominant full-induction is sensitive when SH truncation approaches
         # the CS native Nyquist range; warn early to keep operational bandwidth safe.
@@ -293,26 +273,12 @@ class State:
                 )
 
         if self.integrator == "exponential":
-             if self.exponential_solver not in {"expm", "expm_multiply"}:
-                 raise ValueError(
-                     "exponential_solver must be one of {'expm', 'expm_multiply'}, "
-                     f"got {self.exponential_solver!r}."
-                 )
-             if (
-                 self.dynamics_mode == "full_induction"
-                 and self.exponential_solver == "expm"
-                 and not self.dense_full_operators
-             ):
-                 raise ValueError(
-                     "dynamics_mode='full_induction' with integrator='exponential' and "
-                     "exponential_solver='expm' requires dense_full_operators=True."
-                 )
-             self.poloidal_integrator = ExponentialIntegrator()
+            self.poloidal_integrator = ExponentialIntegrator()
         elif self.integrator == "euler":
-             self.poloidal_integrator = EulerIntegrator()
+            self.poloidal_integrator = EulerIntegrator()
         else:
-             # Assume it's a scipy method (DOP853, RK45, etc.)
-             self.poloidal_integrator = ScipySolveIVPIntegrator(method=self.integrator)
+            # Assume it's a scipy method (DOP853, RK45, etc.)
+            self.poloidal_integrator = ScipySolveIVPIntegrator(method=self.integrator)
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients.
@@ -1171,20 +1137,7 @@ class State:
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
-            # Cache the preconditioner if it is static and not to be invalidated
-            preconditioner_to_keep = (
-                self.m_imp_preconditioner
-                if self.static_preconditioner and hasattr(self, "m_imp_preconditioner")
-                else None
-            )
-
             self._invalidate_caches()
-
-            # If we kept a static preconditioner, manually inject it back into the cached_proprety cache
-            # The way to do this with cached_property is to set the attribute on the instance
-            if preconditioner_to_keep is not None:
-                logger.info("...retaining static preconditioner due to setting.")
-                self.m_imp_preconditioner = preconditioner_to_keep
 
     # ----- State Calculation -----
 

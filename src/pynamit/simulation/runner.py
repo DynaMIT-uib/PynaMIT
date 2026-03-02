@@ -48,6 +48,7 @@ def run_pynamit(
     use_jr: bool = True,
     apply_psi_gauge: bool = True,
     apply_m_ind_gauge: bool = True,
+    apply_m_imp_gauge: bool = True,
     magnetospheric_toroidal_lock: bool = False,
     magnetospheric_poloidal_lock: bool = True,
     toroidal_weighting: str = "none",
@@ -77,7 +78,8 @@ def run_pynamit(
     import numpy as np
 
     from pynamit.math.constants import RE
-    from pynamit.simulation.dynamics import Dynamics, SimulationMode
+    from pynamit.simulation.dynamics import Dynamics
+    from pynamit.simulation.settings import DynamicsSettings, SimulationMode
     from pynamit.simulation.input import compute_spherical_input_sqrt_weights
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
@@ -137,7 +139,7 @@ def run_pynamit(
     if RI is None:
         RI = RE + 110.0e3
 
-    dynamics = Dynamics(
+    settings = DynamicsSettings(
         filename_prefix=filename_prefix,
         Nmax=Nmax,
         Mmax=Mmax,
@@ -163,6 +165,7 @@ def run_pynamit(
         mainfield_epoch=mainfield_epoch,
         apply_psi_gauge=apply_psi_gauge,
         apply_m_ind_gauge=apply_m_ind_gauge,
+        apply_m_imp_gauge=apply_m_imp_gauge,
         magnetospheric_toroidal_lock=magnetospheric_toroidal_lock,
         magnetospheric_poloidal_lock=magnetospheric_poloidal_lock,
         toroidal_weighting=toroidal_weighting,
@@ -176,8 +179,8 @@ def run_pynamit(
         dense_full_operators=dense_full_operators,
         enable_fast_input_path=enable_fast_input_path,
         exponential_solver=exponential_solver,
-        benchmark_mode=benchmark_mode,
     )
+    dynamics = Dynamics.from_settings(settings, benchmark_mode=benchmark_mode)
 
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
