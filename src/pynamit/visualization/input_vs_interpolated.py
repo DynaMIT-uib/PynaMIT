@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,27 +13,13 @@ import cartopy.crs as ccrs
 
 from pynamit.primitives.grid import Grid
 
-from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.math.constants import RE
-from pynamit.primitives.io import IO
-from pynamit.primitives.timeseries import Timeseries
-from pynamit.primitives.mainfield import Mainfield
-from pynamit.simulation.input import (
-    conductance_timeseries_vars_for_mode,
-)
+from pynamit.simulation.data import SimulationData
 from pynamit.visualization.grid_evaluation import (
     decode_conductance_entry_to_grids,
     evaluate_scalar_coeffs_to_grid,
     evaluate_tangential_coeffs_to_grid_components,
 )
 
-
-def _get_setting_attr(settings: Any, key: str, default: Any) -> Any:
-    """Read a settings value from xarray attrs or dataset-style attribute access."""
-    if hasattr(settings, "attrs") and key in settings.attrs:
-        return settings.attrs[key]
-    return getattr(settings, key, default)
 
 def plot_scalar_map_on_ax(
     ax: plt.Axes,
@@ -104,42 +90,11 @@ def plot_input_vs_interpolated(
         h5file.close()
         raise ValueError("strictly_positive_scale_type must be 'linear' or 'log'.")
 
-    io = IO(interpolated_filename_prefix)
-    settings = io.load_dataset("settings", print_info=False)
-    if settings is None:
-        h5file.close()
-        raise ValueError("Settings dataset not found.")
-
+    simulation_data = SimulationData.from_prefix(interpolated_filename_prefix)
+    settings = simulation_data.settings
     ri_value = float(settings.RI)
-    mainfield = Mainfield(
-        kind=str(settings.mainfield_kind),
-        epoch=int(settings.mainfield_epoch),
-        hI=(ri_value - RE) * 1e-3,
-        B0=None if float(settings.mainfield_B0) == 0 else float(settings.mainfield_B0),
-    )
-
-    cs_basis = CSBasis(int(settings.Ncs))
-    sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), Nmin=0)
-    sh_basis_zero_removed = SHBasis(int(settings.Nmax), int(settings.Mmax))
-    conductance_mode = str(
-        _get_setting_attr(settings, "conductance_interpolation_mode", "legacy_eta_linear")
-    )
-    conductance_floor = float(
-        _get_setting_attr(settings, "conductance_interpolation_floor", 1e-3)
-    )
-
-    input_vars_pynamit = {
-        "jr": {"jr": "scalar"},
-        "Br": {"Br": "scalar"},
-        "conductance": conductance_timeseries_vars_for_mode(conductance_mode),
-        "u": {"u": "tangential"},
-    }
-    input_storage_bases = {
-        "jr": sh_basis_zero_removed,
-        "Br": sh_basis_zero_removed,
-        "conductance": sh_basis,
-        "u": sh_basis_zero_removed,
-    }
+    mainfield = simulation_data.mainfield
+    conductance_floor = float(settings.conductance_interpolation_floor)
     pynamit_timeseries_key_map = {
         "Br": "Br",
         "jr": "jr",
@@ -198,9 +153,6 @@ def plot_input_vs_interpolated(
         },
     }
 
-    input_timeseries = Timeseries(input_storage_bases, input_vars_pynamit)
-    input_timeseries.load_all(io)
-
     ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]
     magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
@@ -249,11 +201,11 @@ def plot_input_vs_interpolated(
             all_data_for_scaling[data_type_str]["input"].append(calculated_input_data_2d.ravel())
 
             calculated_interpolated_data_2d = np.full(target_shape_pass1, np.nan)
-            timeseries_entry = input_timeseries.get_entry(
+            timeseries_entry = simulation_data.get_input_entry(
                 pynamit_ts_key, time_val, interpolation=False
             )
             if timeseries_entry:
-                storage_basis = input_timeseries.storage_bases[pynamit_ts_key]
+                storage_basis = simulation_data.get_storage_basis(pynamit_ts_key)
                 if pynamit_ts_key not in plot_grids:
                     plot_grids[pynamit_ts_key] = Grid(
                         lat=current_lat_coords_pass1, lon=current_lon_coords_pass1

@@ -6,24 +6,20 @@ coupling.
 
 from __future__ import annotations
 import logging
-from typing import Any, List, Optional, Union, Literal
+from typing import List, Optional, Union, Literal
 
 import numpy as np
-from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.gauss_legendre.gl_basis import GLBasis
 from pynamit.math.constants import RE
 from pynamit.primitives.grid import Grid
-from pynamit.primitives.io import IO
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.simulation.state import State
-from pynamit.primitives.timeseries import Timeseries
 from pynamit.primitives.input_manager import InputManager
-from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.utils import asarray, set_backend, xp
 from pynamit.simulation.input import (
-    conductance_timeseries_vars_for_mode,
     encode_conductance_input_for_storage,
 )
+from pynamit.simulation.data import SimulationData
 
 # Import settings from dedicated module
 from pynamit.simulation.settings import (
@@ -165,28 +161,18 @@ class Dynamics:
         self.backend = set_backend(backend)
 
         self.filename_prefix = filename_prefix
-        self.io = IO(filename_prefix)
         self.benchmark_mode = bool(benchmark_mode)
-
-        # Check if settings are consistent with previously saved runs.
-        settings_on_file = None
-        if not self.benchmark_mode:
-            settings_on_file = self.io.load_dataset("settings", print_info=True)
-
-        if settings_on_file is not None:
-            if not self.settings.to_dataset().identical(settings_on_file):
-                raise ValueError(
-                    "Mismatch between Dynamics object arguments and settings on file."
-                )
-
-        PFAC_matrix_on_file = None
-        if not self.benchmark_mode:
-            PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
-
-        sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, Nmin=0)
-        sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
-
-        cs_basis = CSBasis(self.settings.Ncs)
+        self.data = SimulationData.create(
+            filename_prefix,
+            self.settings,
+            load_existing=not self.benchmark_mode,
+            print_info=not self.benchmark_mode,
+        )
+        self.settings = self.data.settings
+        self.io = self.data.io
+        cs_basis = self.data.cs_basis
+        sh_basis = self.data.sh_basis
+        sh_basis_zero_removed = self.data.sh_basis_zero_removed
 
         # Select grid basis based on simulation mode
         # GL grid for exact SH transforms (pure spectral and GL transform modes)
@@ -199,55 +185,19 @@ class Dynamics:
         else:
             grid_basis = cs_basis
 
-        # Specify input format and load input data.
-        conductance_mode = self.settings.conductance_interpolation_mode
-        conductance_vars = conductance_timeseries_vars_for_mode(conductance_mode)
-        self.input_variables = {
-            "jr": {"jr": "scalar"},
-            "Br": {"Br": "scalar"},
-            "conductance": conductance_vars,
-            "u": {"u": "tangential"},
-        }
-
-        self.input_storage_bases = {
-            "jr": sh_basis_zero_removed,
-            "Br": sh_basis_zero_removed,
-            "conductance": sh_basis,
-            "u": sh_basis_zero_removed,
-        }
-
-        self.input_timeseries = Timeseries(self.input_storage_bases, self.input_variables)
+        self.input_timeseries = self.data.input_timeseries
+        self.input_variables = self.data.input_variables
+        self.input_storage_bases = self.data.input_storage_bases
         self.input_manager = InputManager(
             self.input_timeseries,
             grid_basis,
             self.input_variables,
             enable_fast_path=self.settings.enable_fast_input_path,
         )
-        if not self.benchmark_mode:
-            self.input_timeseries.load_all(self.io)
-
-        # Specify output format and load output data.
-        self.output_variables = {
-            "state": {"m_ind": "scalar", "psi": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar", "psi": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-        }
-
-        # Select solution basis
-        if self.settings.solution_basis_kind == "CS":
-            solution_basis = cs_basis
-            state_output_basis = cs_basis
-        else:
-            solution_basis = sh_basis_zero_removed
-            state_output_basis = sh_basis_zero_removed
-
-        self.output_storage_bases = {
-            "state": state_output_basis,
-            "steady_state": state_output_basis,
-        }
-
-        self.output_timeseries = Timeseries(self.output_storage_bases, self.output_variables)
-        if not self.benchmark_mode:
-            self.output_timeseries.load_all(self.io)
+        self.output_timeseries = self.data.output_timeseries
+        self.output_variables = self.data.output_variables
+        self.output_storage_bases = self.data.output_storage_bases
+        solution_basis = self.data.solution_basis
 
         self.interpolation_bases = {
             "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else grid_basis,
@@ -272,7 +222,7 @@ class Dynamics:
             mainfield=self.mainfield,
             grid_basis=grid_basis,
             settings=self.settings,
-            PFAC_matrix=PFAC_matrix_on_file,
+            PFAC_matrix=self.data.pfac_matrix,
             solution_basis=solution_basis,
         )
 
@@ -284,12 +234,13 @@ class Dynamics:
         # Store settings and PFAC matrix on file.
         if filename_prefix is None:
             self.io.filename_prefix = "simulation"
+            self.data.filename_prefix = "simulation"
 
-        if (not self.benchmark_mode) and settings_on_file is None:
-            self.io.save_dataset(self.settings.to_dataset(), "settings", print_info=True)
+        if (not self.benchmark_mode) and not self.data.settings_from_file:
+            self.data.save_settings(print_info=True)
 
-        if (not self.benchmark_mode) and PFAC_matrix_on_file is None:
-            self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
+        if (not self.benchmark_mode) and not self.data.pfac_from_file:
+            self.data.save_pfac_matrix(self.state.geometry.T_to_Ve, print_info=True)
 
     def evolve_to_time(
         self,

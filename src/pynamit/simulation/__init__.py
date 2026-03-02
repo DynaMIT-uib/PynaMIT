@@ -14,6 +14,7 @@ from .dynamics import Dynamics
 from .runner import run_pynamit
 from .settings import SimulationMode, DynamicsSettings, FLOAT_ERROR_MARGIN
 from .induction import PoloidalSystemMatrices, ToroidalSystemMatrices
+from .data import SimulationData
 
 __all__ = [
     "Dynamics",
@@ -24,4 +25,5 @@ __all__ = [
     "FLOAT_ERROR_MARGIN",
     "ToroidalSystemMatrices",
     "PoloidalSystemMatrices",
+    "SimulationData",
 ]

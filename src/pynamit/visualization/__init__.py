@@ -1,14 +1,59 @@
 """Visualization tools for PynaMIT.
 
-This module provides plotting utilities for visualizing simulation results:
-- globalplot: Global map projections
-- debugplot: Debug visualization tools
-- PynamEye: Interactive visualization class
-- plot_input_vs_interpolated: Input/interpolation comparison plots
+Optional plotting dependencies such as ``cartopy`` are not required for the
+operator/grid-evaluation helpers. Import those plotting entry points only when
+their dependencies are available.
 """
 
-from .plots import debugplot, globalplot
-from .pynameye import PynamEye
-from .input_vs_interpolated import plot_input_vs_interpolated
+from .results_operators import (
+    PoloidalResultsOperators,
+    build_poloidal_results_operators,
+    build_poloidal_results_operators_from_simulation_data,
+    build_poloidal_results_operators_from_settings,
+)
+from .grid_evaluation import (
+    decode_conductance_dataset_to_grids,
+    decode_conductance_entry_to_grids,
+    evaluate_scalar_coeffs_to_grid,
+    evaluate_tangential_coeffs_to_grid_components,
+    get_scalar_grid_evaluation_matrix,
+    get_tangential_grid_component_matrices,
+    load_netcdf_dataarray,
+    load_netcdf_dataset,
+)
 
-__all__ = ["debugplot", "globalplot", "PynamEye", "plot_input_vs_interpolated"]
+__all__ = [
+    "PoloidalResultsOperators",
+    "build_poloidal_results_operators",
+    "build_poloidal_results_operators_from_simulation_data",
+    "build_poloidal_results_operators_from_settings",
+    "decode_conductance_dataset_to_grids",
+    "decode_conductance_entry_to_grids",
+    "evaluate_scalar_coeffs_to_grid",
+    "evaluate_tangential_coeffs_to_grid_components",
+    "get_scalar_grid_evaluation_matrix",
+    "get_tangential_grid_component_matrices",
+    "load_netcdf_dataarray",
+    "load_netcdf_dataset",
+]
+
+try:
+    from .plots import debugplot, globalplot
+except ModuleNotFoundError:
+    pass
+else:
+    __all__.extend(["debugplot", "globalplot"])
+
+try:
+    from .pynameye import PynamEye
+except ModuleNotFoundError:
+    pass
+else:
+    __all__.append("PynamEye")
+
+try:
+    from .input_vs_interpolated import plot_input_vs_interpolated
+except ModuleNotFoundError:
+    pass
+else:
+    __all__.append("plot_input_vs_interpolated")

@@ -1,248 +1,103 @@
-"""Figure layout."""
+"""Example figure-layout script using the package visualization path."""
 
-import matplotlib.pyplot as plt
-import numpy as np
-from polplot import Polarplot
-import cartopy.crs as ccrs
-import pynamit
+from __future__ import annotations
 
-# Define toy model object (placeholder).
-from lompe import conductance
-import dipole
-import pyhwm2014  # https://github.com/rilma/pyHWM14
 import datetime
+
+import numpy as np
+
+import pynamit
+from dipole import Dipole
+from lompe import conductance
 import pyamps
+import pyhwm2014
+
 
 RE = 6371.2e3
 RI = RE + 110e3
-latitude_boundary = 35
-
-WIND_FACTOR = 1  # Scale wind by this factor
-
-filename_prefix = "figlayout"
-
-Nmax, Mmax, Ncs = 14, 14, 30
-rk = RI / np.cos(np.deg2rad(np.r_[0 : 80 : int(80 / Nmax)])) ** 2
-print(len(rk))
-date = datetime.datetime(2001, 5, 12, 21, 45)
-Kp = 5
-d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
-
-# Set up simulation object.
-dynamics = pynamit.Dynamics(
-    filename_prefix=filename_prefix,
-    Nmax=Nmax,
-    Mmax=Mmax,
-    Ncs=Ncs,
-    RI=RI,
-    mainfield_kind="dipole",
-    FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
-    latitude_boundary=latitude_boundary,
-)
-
-# Get and set conductance input.
-conductance_lat = dynamics.state.geometry.grid.lat
-conductance_lon = dynamics.state.geometry.grid.lon
-hall, pedersen = conductance.hardy_EUV(
-    conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
-)
-dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
-
-# Get and set jr input.
-jr_lat = dynamics.state.geometry.grid.lat
-jr_lon = dynamics.state.geometry.grid.lon
-a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
-jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
-jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
-dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
-
-# Get and set wind input.
-hwm14Obj = pyhwm2014.HWM142D(
-    alt=110.0,
-    ap=[35, 35],
-    glatlim=[-89.0, 88.0],
-    glatstp=3.0,
-    glonlim=[-180.0, 180.0],
-    glonstp=8.0,
-    option=6,
-    verbose=False,
-    ut=date.hour,
-    day=date.timetuple().tm_yday,
-)
-u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
-u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
-dynamics.set_u(
-    u_theta=u_theta,
-    u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
-    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
-)
-
-dynamics.update_conductance()
-dynamics.update_u()
-dynamics.update_jr()
-dynamics.state.update_m_imp()
+LATITUDE_BOUNDARY = 35
+WIND_FACTOR = 1.0
 
 
-def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
-    """Debug plotting for the model object.
+def build_example_dynamics() -> pynamit.Dynamics:
+    """Build a toy dynamics object and populate one current state entry."""
+    filename_prefix = "figlayout"
+    nmax, mmax, ncs = 14, 14, 30
+    rk = RI / np.cos(np.deg2rad(np.r_[0:80:int(80 / nmax)])) ** 2
+    date = datetime.datetime(2001, 5, 12, 21, 45)
+    kp = 5
 
-    Parameters
-    ----------
-    dynamics : pynamit.Dynamics
-        The model object to plot.
-    title : str, optional
-        Title for the plot.
-    filename : str, optional
-        Filename to save the plot to. If None, the plot is shown.
-    noon_longitude : float, optional
-        The longitude of noon in degrees.
-    """
-    B_kwargs = {"cmap": plt.cm.bwr, "levels": np.linspace(-50, 50, 22) * 1e-9, "extend": "both"}
-    eqJ_kwargs = {"colors": "black", "levels": np.r_[-210:220:20] * 1e3}
-    FAC_kwargs = {
-        "cmap": plt.cm.bwr,
-        "levels": np.linspace(-0.95, 0.95, 22) * 1e-6,
-        "extend": "both",
-    }
-
-    # Set up map projection.
-    global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
-
-    fig = plt.figure(figsize=(15, 13))
-
-    paxn_B = Polarplot(plt.subplot2grid((4, 4), (0, 0)))
-    paxs_B = Polarplot(plt.subplot2grid((4, 4), (0, 1)))
-    paxn_j = Polarplot(plt.subplot2grid((4, 4), (0, 2)))
-    paxs_j = Polarplot(plt.subplot2grid((4, 4), (0, 3)))
-    gax_B = plt.subplot2grid((4, 2), (1, 0), projection=global_projection, rowspan=2)
-    gax_j = plt.subplot2grid((4, 2), (1, 1), projection=global_projection, rowspan=2)
-    ax_1 = plt.subplot2grid((4, 3), (3, 0))
-    ax_2 = plt.subplot2grid((4, 3), (3, 1))
-    ax_3 = plt.subplot2grid((4, 3), (3, 2))
-
-    for ax in [gax_B, gax_j]:
-        ax.coastlines(zorder=2, color="grey")
-
-    # Set up plotting grid and evaluators.
-    NLA, NLO = 50, 90
-    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
-    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    # Removed BasisEvaluator. Logic will use basis and grid directly.
-    plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
-
-    # Calculate values to plot.
-    Br = dynamics.state.get_Br(plt_grid)
-    FAC = (dynamics.state_basis.get_scaled_matrix(plt_grid, 1 / plt_b_evaluator.br.reshape((-1, 1)))).dot(
-        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
-    )
-    jr_mod = dynamics.state_basis.get_evaluation_matrix(plt_grid).dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
-    eq_current_function = dynamics.state.get_Jeq(plt_grid)
-
-    # Make global plots.
-    gax_B.contourf(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        Br.reshape((NLO, NLA)),
-        transform=ccrs.PlateCarree(),
-        **B_kwargs,
-    )
-    gax_j.contour(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        eq_current_function.reshape((NLO, NLA)),
-        transform=ccrs.PlateCarree(),
-        **eqJ_kwargs,
-    )
-    gax_j.contourf(
-        lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), FAC.reshape((NLO, NLA)), **FAC_kwargs
+    dipole = Dipole(date.year)
+    dynamics = pynamit.Dynamics(
+        filename_prefix=filename_prefix,
+        Nmax=nmax,
+        Mmax=mmax,
+        Ncs=ncs,
+        RI=RI,
+        mainfield_kind="dipole",
+        FAC_integration_steps=rk,
+        ignore_PFAC=False,
+        connect_hemispheres=True,
+        latitude_boundary=LATITUDE_BOUNDARY,
     )
 
-    # Make polar plots.
-    mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
+    conductance_lat = dynamics.state.geometry.grid.lat
+    conductance_lon = dynamics.state.geometry.grid.lon
+    hall, pedersen = conductance.hardy_EUV(
+        conductance_lon,
+        conductance_lat,
+        kp,
+        date,
+        starlight=1,
+        dipole=True,
+    )
+    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
 
-    # Make north polar plots.
-    iii = lat > 50
-    paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    jr_lat = dynamics.state.geometry.grid.lat
+    jr_lon = dynamics.state.geometry.grid.lon
+    amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
+    jr = amps.get_upward_current(mlat=jr_lat, mlt=dipole.mlon2mlt(jr_lon, date)) * 1e-6
+    jr[np.abs(jr_lat) < 50] = 0.0
+    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
-    # Make south polar plots.
-    iii = lat < -50
-    paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
-
-    # Scatter plot high latitude jr.
-    iii = np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
-    jrmax = np.max(np.abs(dynamics.state.jr))
-    ax_1.scatter(dynamics.state.jr, jr_mod[iii])
-    ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
-    ax_1.set_xlabel("Input ")
-
-    # Scatter plot FACs at conjugate points.
-    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
-    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
-    j_par_max = np.max(np.abs(j_par_ll))
-    ax_2.scatter(j_par_ll, j_par_cp)
-    ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], "k-")
-    ax_2.set_xlabel(
-        r"$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$".format(
-            dynamics.state.latitude_boundary
-        )
+    hwm14 = pyhwm2014.HWM142D(
+        alt=110.0,
+        ap=[35, 35],
+        glatlim=[-89.0, 88.0],
+        glatstp=3.0,
+        glonlim=[-180.0, 180.0],
+        glonstp=8.0,
+        option=6,
+        verbose=False,
+        ut=date.hour,
+        day=date.timetuple().tm_yday,
     )
-    ax_2.set_ylabel(r"$j_\parallel$ [A/m$^2$] at conjugate points")
-
-    # Scatter plot Ed1 and Ed2 vs values at conjugate points.
-    cu_ll = (
-        dynamics.state.u_phi_cp * dynamics.state.aup_cp
-        + dynamics.state.u_theta_cp * dynamics.state.aut_cp
-    )
-    cu_cp = (
-        dynamics.state.u_phi_ll * dynamics.state.aup_ll
-        + dynamics.state.u_theta_ll * dynamics.state.aut_ll
-    )
-    A_imp_ll = (
-        dynamics.state.etaP_ll * dynamics.state.aeP_imp_ll
-        + dynamics.state.etaH_ll * dynamics.state.aeH_imp_ll
-    )
-    A_imp_cp = (
-        dynamics.state.etaP_cp * dynamics.state.aeP_imp_cp
-        + dynamics.state.etaH_cp * dynamics.state.aeH_imp_cp
-    )
-    A_ind_ll = (
-        dynamics.state.etaP_ll * dynamics.state.aeP_ind_ll
-        + dynamics.state.etaH_ll * dynamics.state.aeH_ind_ll
-    )
-    A_ind_cp = (
-        dynamics.state.etaP_cp * dynamics.state.aeP_ind_cp
-        + dynamics.state.etaH_cp * dynamics.state.aeH_ind_cp
+    u_theta = -hwm14.Vwind.flatten() * WIND_FACTOR
+    u_phi = hwm14.Uwind.flatten() * WIND_FACTOR
+    u_lat, u_lon = np.meshgrid(hwm14.glatbins, hwm14.glonbins, indexing="ij")
+    dynamics.set_u(
+        u_theta=u_theta,
+        u_phi=u_phi,
+        lat=u_lat,
+        lon=u_lon,
+        sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90.0 - u_lat.flatten()))), (2, 1)),
     )
 
-    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
-    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
-    ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
-    ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
-    ax_3.set_xlabel("$E_{d_i}$")
-    ax_3.set_ylabel("$E_{d_i}$ at conjugate points")
-    ax_3.legend(frameon=False)
+    dynamics.current_time = np.float64(0.0)
+    dynamics.state.update(dynamics.input_manager, float(dynamics.current_time), interpolation=True)
 
-    if title is not None:
-        gax_j.set_title(title)
-
-    plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
-    if filename is not None:
-        fig.savefig(filename)
-    else:
-        plt.show()
-
-    plt.close()
+    m_ind = np.zeros(dynamics.state.solution_basis.index_length)
+    e_coeffs, m_imp = dynamics.state.calculate_noind_coeffs()
+    dynamics.add_state_to_timeseries("state", m_ind, e_coeffs, m_imp)
+    return dynamics
 
 
-debugplot(dynamics, title="hoi!", filename=None, noon_longitude=noon_longitude)
+if __name__ == "__main__":
+    current_date = datetime.datetime(2001, 5, 12, 21, 45)
+    noon_longitude = Dipole(current_date.year).mlt2mlon(12, current_date)
+    pynamit.debugplot(
+        build_example_dynamics(),
+        title="figlayout",
+        filename=None,
+        noon_longitude=noon_longitude,
+    )

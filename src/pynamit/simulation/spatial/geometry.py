@@ -173,6 +173,38 @@ class Geometry:
             )
         return self._poloidal_matrices
 
+    def get_poloidal_results_operators(
+        self,
+        grid: Optional[Grid] = None,
+        *,
+        basis: Optional[Any] = None,
+    ) -> Any:
+        """Return explicit postprocessing operators for a target grid.
+
+        This delegates to the shared results-operator bundle builder and uses
+        the live simulation geometry/PFAC configuration.
+        """
+        from pynamit.visualization.results_operators import (
+            build_poloidal_results_operators,
+        )
+
+        target_grid = self.grid if grid is None else grid
+        target_basis = self.solution_basis if basis is None else basis
+        t_to_ve = np.asarray(self.poloidal_matrices.T_to_Ve, dtype=float)
+        if hasattr(self.poloidal_matrices, "_apply_imposed_toroidal_poloidal_lock"):
+            t_to_ve = np.asarray(
+                self.poloidal_matrices._apply_imposed_toroidal_poloidal_lock(t_to_ve),
+                dtype=float,
+            )
+
+        return build_poloidal_results_operators(
+            basis=target_basis,
+            grid=target_grid,
+            RI=float(self.RI),
+            T_to_Ve=t_to_ve,
+            RM=getattr(self, "RM", None),
+        )
+
     def _init_input_adapter(self) -> Optional[np.ndarray]:
         """Initialize hybrid basis adapter if needed.
 

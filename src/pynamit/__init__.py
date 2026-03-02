@@ -34,7 +34,7 @@ from .primitives import (
     Mainfield,
     Timeseries,
 )
-from .simulation import Dynamics, State, run_pynamit
+from .simulation import Dynamics, SimulationData, State, run_pynamit
 try:
     from .visualization import PynamEye, debugplot, globalplot
 except ImportError:
@@ -52,6 +52,7 @@ __all__ = [
     "Grid",
     "IO",
     "Mainfield",
+    "SimulationData",
     "PynamEye",
     "debugplot",
     "globalplot",
