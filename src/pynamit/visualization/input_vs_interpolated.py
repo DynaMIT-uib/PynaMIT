@@ -13,7 +13,6 @@ import cartopy.crs as ccrs
 
 from pynamit.primitives.grid import Grid
 
-from pynamit.primitives.field import Field
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.math.constants import RE
@@ -22,7 +21,11 @@ from pynamit.primitives.timeseries import Timeseries
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.simulation.input import (
     conductance_timeseries_vars_for_mode,
-    decode_conductance_representation_to_grids,
+)
+from pynamit.visualization.grid_evaluation import (
+    decode_conductance_entry_to_grids,
+    evaluate_scalar_coeffs_to_grid,
+    evaluate_tangential_coeffs_to_grid_components,
 )
 
 
@@ -31,57 +34,6 @@ def _get_setting_attr(settings: Any, key: str, default: Any) -> Any:
     if hasattr(settings, "attrs") and key in settings.attrs:
         return settings.attrs[key]
     return getattr(settings, key, default)
-
-
-def _evaluate_scalar_coeffs_to_grid(
-    coeffs: Optional[np.ndarray],
-    storage_basis: Any,
-    grid: Grid,
-    target_shape: Tuple[int, ...],
-) -> np.ndarray:
-    """Evaluate scalar coefficients to a grid."""
-    if coeffs is None:
-        return np.full(target_shape, np.nan)
-    field_exp = Field.from_coefficients(storage_basis, coeffs=coeffs, field_type="scalar")
-    v, _, _ = field_exp.evaluate(r=None, theta=grid.theta, phi=grid.phi)
-    return v.reshape(target_shape)
-
-
-def _evaluate_tangential_coeffs_to_grid_components(
-    coeffs: Optional[np.ndarray],
-    storage_basis: Any,
-    grid: Grid,
-    target_shape: Tuple[int, ...],
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Evaluate tangential coefficients to grid components."""
-    if coeffs is None:
-        return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
-    field_exp = Field.from_coefficients(
-        storage_basis, coeffs=coeffs.reshape((2, -1)), field_type="tangential"
-    )
-    _, v_theta, v_phi = field_exp.evaluate(r=None, theta=grid.theta, phi=grid.phi)
-    field_t_2d = v_theta.reshape(target_shape)
-    field_p_2d = v_phi.reshape(target_shape)
-    return field_t_2d, field_p_2d
-
-
-def _decode_conductance_timeseries_entry_to_grids(
-    timeseries_entry: dict[str, np.ndarray],
-    storage_basis: Any,
-    grid: Grid,
-    target_shape: Tuple[int, ...],
-    sigma_floor: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return ``(SigmaP, SigmaH, etaP, etaH)`` on the target grid from a conductance entry."""
-    def _eval(coeffs: np.ndarray) -> np.ndarray:
-        return _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, grid, target_shape)
-
-    return decode_conductance_representation_to_grids(
-        data=timeseries_entry,
-        eval_scalar_coeffs_to_grid=_eval,
-        sigma_floor=sigma_floor,
-    )
-
 
 def plot_scalar_map_on_ax(
     ax: plt.Axes,
@@ -309,16 +261,16 @@ def plot_input_vs_interpolated(
                 current_grid = plot_grids[pynamit_ts_key]
                 if pynamit_ts_key == "Br":
                     coeffs = timeseries_entry.get("Br")
-                    calculated_interpolated_data_2d = _evaluate_scalar_coeffs_to_grid(
+                    calculated_interpolated_data_2d = evaluate_scalar_coeffs_to_grid(
                         coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                 elif pynamit_ts_key == "jr":
                     coeffs = timeseries_entry.get("jr")
-                    calculated_interpolated_data_2d = _evaluate_scalar_coeffs_to_grid(
+                    calculated_interpolated_data_2d = evaluate_scalar_coeffs_to_grid(
                         coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                 elif pynamit_ts_key == "conductance":
-                    sP_f, sH_f, _, _ = _decode_conductance_timeseries_entry_to_grids(
+                    sP_f, sH_f, _, _ = decode_conductance_entry_to_grids(
                         timeseries_entry,
                         storage_basis,
                         current_grid,
@@ -331,7 +283,7 @@ def plot_input_vs_interpolated(
                         calculated_interpolated_data_2d = sP_f
                 elif pynamit_ts_key == "u":
                     coeffs = timeseries_entry.get("u")
-                    u_t_2d, u_p_2d = _evaluate_tangential_coeffs_to_grid_components(
+                    u_t_2d, u_p_2d = evaluate_tangential_coeffs_to_grid_components(
                         coeffs, storage_basis, current_grid, target_shape_pass1
                     )
                     if data_type_str == "u_mag":
