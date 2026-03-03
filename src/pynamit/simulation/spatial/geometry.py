@@ -150,7 +150,7 @@ class Geometry:
             logger.info(
                 "Using SH auxiliary closure basis for PFAC/radial coupling in cs_dominant."
             )
-            return SHBasis(int(settings.Nmax), int(settings.Mmax))
+            return SHBasis(int(settings.Nmax), int(settings.Mmax), mean_free=True)
         return self.basis
 
     @property
@@ -184,9 +184,7 @@ class Geometry:
         This delegates to the shared results-operator bundle builder and uses
         the live simulation geometry/PFAC configuration.
         """
-        from pynamit.visualization.results_operators import (
-            build_poloidal_results_operators,
-        )
+        from pynamit.postprocess.results_operators import build_poloidal_results_operators
 
         target_grid = self.grid if grid is None else grid
         target_basis = self.solution_basis if basis is None else basis

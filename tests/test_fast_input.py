@@ -22,7 +22,7 @@ lon_mesh = np.rad2deg(pp)
 @pytest.fixture
 def setup_manager():
     def _create(var_type='scalar', var_name='hall', key='conductance'):
-        basis = SHBasis(Nmax=N_sh, Mmax=N_sh, Nmin=0)
+        basis = SHBasis(Nmax=N_sh, Mmax=N_sh, mean_free=False)
         sim_basis = GLBasis(Nmax=N_sh)
         variables_dict = {key: {var_name: var_type}}
         storage_bases = {key: basis}

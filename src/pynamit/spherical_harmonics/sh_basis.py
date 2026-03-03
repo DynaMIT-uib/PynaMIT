@@ -138,8 +138,14 @@ class SHBasis(Basis):
         Maximum degree.
     Mmax : int
         Maximum order.
+    mean_free : bool, optional
+        Whether the scalar coefficient space excludes the monopole mode.
+        ``True`` gives the usual mean-free Helmholtz scalar space. ``False``
+        keeps the ``(n,m)=(0,0)`` coefficient. By default ``True``.
     Nmin : int, optional
-        Minimum degree, by default 1.
+        Legacy minimum-degree control. ``Nmin=1`` is equivalent to
+        ``mean_free=True`` and ``Nmin=0`` is equivalent to
+        ``mean_free=False``.
     quasi_normalized : bool, optional
         If True, applies Schmidt quasi-normalization factors. By default True.
     backend : str, optional
@@ -151,7 +157,8 @@ class SHBasis(Basis):
         self,
         Nmax: int,
         Mmax: int,
-        Nmin: int = 1,
+        Nmin: Optional[int] = None,
+        mean_free: Optional[bool] = None,
         quasi_normalized: bool = True,
         backend: str = "internal",
     ):
@@ -159,8 +166,19 @@ class SHBasis(Basis):
         if backend not in ["internal", "scipy"]:
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
+        if mean_free is None:
+            effective_nmin = 1 if Nmin is None else int(Nmin)
+        else:
+            effective_nmin = 1 if bool(mean_free) else 0
+            if Nmin is not None and int(Nmin) != effective_nmin:
+                raise ValueError(
+                    "SHBasis received inconsistent scalar-space options: "
+                    f"Nmin={Nmin} and mean_free={mean_free}."
+                )
+
         self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
-        self.Nmin = Nmin
+        self.Nmin = effective_nmin
+        self.mean_free = bool(self.Nmin >= 1)
         self.is_normalized = quasi_normalized
 
         self._kind = "SH"
@@ -176,10 +194,12 @@ class SHBasis(Basis):
         self.index_pairs = list(all_indices.index_pairs)
 
         self.cnm = SHIndices(Nmax, Mmax)
-        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin])
+        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= self.Nmin])
         self.cnm.make_arrays()
         self.snm = SHIndices(Nmax, Mmax)
-        self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1])
+        self.snm.index_pairs = tuple(
+            [p for p in self.index_pairs if p[0] >= self.Nmin and p[1] >= 1]
+        )
         self.snm.make_arrays()
 
         self.cnm_filter = [pair in self.cnm.index_pairs for pair in self.index_pairs]
@@ -237,7 +257,7 @@ class SHBasis(Basis):
 
     def scalar_fields_are_mean_free_by_construction(self) -> bool:
         """Return True when monopole is excluded from scalar coefficient space."""
-        return self.Nmin >= 1
+        return self.mean_free
 
     @cached_property
     def schmidt_factors(self) -> np.ndarray:
@@ -256,11 +276,20 @@ class SHBasis(Basis):
 
     def get_extended_basis(self) -> "SHBasis":
         """Return a basis extended to include the monopole term (Nmin=0)."""
-        if self.cnm.index_pairs[0][0] == 0:
+        if not self.mean_free:
+            return self
+        return self.with_mean_free(False)
+
+    def with_mean_free(self, mean_free: bool) -> "SHBasis":
+        """Return the related SH basis with the requested scalar-space variant."""
+        if bool(mean_free) == self.mean_free:
             return self
         return SHBasis(
-            self.Nmax, self.Mmax, Nmin=0,
-            quasi_normalized=self.is_normalized, backend=self.backend
+            self.Nmax,
+            self.Mmax,
+            mean_free=bool(mean_free),
+            quasi_normalized=self.is_normalized,
+            backend=self.backend,
         )
 
     # --- Legendre Functions (delegated) ---

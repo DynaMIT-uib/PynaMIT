@@ -8,13 +8,13 @@ from pynamit.math.constants import mu0
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.settings import SimulationMode
 from pynamit.simulation.spatial import to_dense
-from pynamit.visualization.results_operators import (
+from pynamit.postprocess.results_operators import (
     build_poloidal_results_operators,
 )
 
 
-def _build_state():
-    sim = run_pynamit(
+def _build_sim():
+    return run_pynamit(
         final_time=0.0,
         dt=1.0,
         Nmax=8,
@@ -33,7 +33,10 @@ def _build_state():
         integrator="euler",
         least_squares_solver="svd",
     )
-    return sim.state
+
+
+def _build_state():
+    return _build_sim().state
 
 
 def test_results_operator_bundle_matches_state_poloidal_operators() -> None:
@@ -91,3 +94,23 @@ def test_results_operator_bundle_evaluation_helpers_match_explicit_application()
     np.testing.assert_allclose(bundle.evaluate_js_from_m_ind(m_ind), expected_js_ind)
     np.testing.assert_allclose(bundle.evaluate_js_from_m_imp(m_imp), expected_js_imp)
     np.testing.assert_allclose(bundle.evaluate_js_from_br(m_ind), expected_js_br)
+
+
+def test_simulation_data_results_operator_bundle_matches_live_geometry() -> None:
+    sim = _build_sim()
+    sim.data.pfac_matrix = np.asarray(sim.state.geometry.T_to_Ve)
+    bundle_live = sim.state.geometry.get_poloidal_results_operators()
+    bundle_saved = sim.data.get_poloidal_results_operators(grid=sim.state.geometry.grid)
+
+    for attr in (
+        "m_ind_to_Br",
+        "m_imp_to_jr",
+        "m_ind_to_Jeq",
+        "G_m_ind_to_JS",
+        "G_m_imp_to_JS",
+        "G_Br_to_JS",
+    ):
+        np.testing.assert_allclose(
+            np.asarray(getattr(bundle_saved, attr)),
+            np.asarray(getattr(bundle_live, attr)),
+        )

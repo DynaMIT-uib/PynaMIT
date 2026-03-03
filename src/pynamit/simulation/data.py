@@ -20,23 +20,28 @@ from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.simulation.input import conductance_timeseries_vars_for_mode
 from pynamit.simulation.settings import DynamicsSettings
+from pynamit.simulation.spatial.geometry_utils import get_radial_shift_diagonal, to_dense
 
 
-def build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasis, SHBasis]:
-    """Build the standard CS/SH bases implied by saved settings."""
+def _get_mean_free_sh_basis(sh_basis: SHBasis) -> SHBasis:
+    """Return the mean-free scalar coefficient view of one full SH basis."""
+    return sh_basis.with_mean_free(True)
+
+
+def _build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasis]:
+    """Build the standard CS basis and canonical full SH basis."""
     cs_basis = CSBasis(int(settings.Ncs))
-    sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), Nmin=0)
-    sh_basis_zero_removed = SHBasis(int(settings.Nmax), int(settings.Mmax))
-    return cs_basis, sh_basis, sh_basis_zero_removed
+    sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), mean_free=False)
+    return cs_basis, sh_basis
 
 
-def create_input_timeseries(
+def _create_input_timeseries(
     settings: DynamicsSettings,
     *,
     sh_basis: SHBasis,
-    sh_basis_zero_removed: SHBasis,
 ) -> tuple[Timeseries, dict[str, dict[str, str]], dict[str, Any]]:
     """Create the canonical input timeseries schema for a simulation."""
+    sh_mean_free_basis = _get_mean_free_sh_basis(sh_basis)
     input_variables = {
         "jr": {"jr": "scalar"},
         "Br": {"Br": "scalar"},
@@ -46,10 +51,10 @@ def create_input_timeseries(
         "u": {"u": "tangential"},
     }
     input_storage_bases = {
-        "jr": sh_basis_zero_removed,
-        "Br": sh_basis_zero_removed,
+        "jr": sh_mean_free_basis,
+        "Br": sh_mean_free_basis,
         "conductance": sh_basis,
-        "u": sh_basis_zero_removed,
+        "u": sh_mean_free_basis,
     }
     return (
         Timeseries(input_storage_bases, input_variables),
@@ -58,13 +63,14 @@ def create_input_timeseries(
     )
 
 
-def create_output_timeseries(
+def _create_output_timeseries(
     settings: DynamicsSettings,
     *,
     cs_basis: CSBasis,
-    sh_basis_zero_removed: SHBasis,
+    sh_basis: SHBasis,
 ) -> tuple[Timeseries, dict[str, dict[str, str]], dict[str, Any], Any]:
     """Create the canonical output timeseries schema for a simulation."""
+    sh_mean_free_basis = _get_mean_free_sh_basis(sh_basis)
     output_variables = {
         "state": {
             "m_ind": "scalar",
@@ -81,7 +87,7 @@ def create_output_timeseries(
             "W": "scalar",
         },
     }
-    solution_basis = cs_basis if settings.solution_basis_kind == "CS" else sh_basis_zero_removed
+    solution_basis = cs_basis if settings.solution_basis_kind == "CS" else sh_mean_free_basis
     output_storage_bases = {
         "state": solution_basis,
         "steady_state": solution_basis,
@@ -113,7 +119,6 @@ class SimulationData:
         mainfield: Mainfield,
         cs_basis: CSBasis,
         sh_basis: SHBasis,
-        sh_basis_zero_removed: SHBasis,
         input_timeseries: Timeseries,
         input_variables: dict[str, dict[str, str]],
         input_storage_bases: dict[str, Any],
@@ -132,7 +137,6 @@ class SimulationData:
         self.mainfield = mainfield
         self.cs_basis = cs_basis
         self.sh_basis = sh_basis
-        self.sh_basis_zero_removed = sh_basis_zero_removed
         self.input_timeseries = input_timeseries
         self.input_variables = input_variables
         self.input_storage_bases = input_storage_bases
@@ -178,16 +182,15 @@ class SimulationData:
         if prefix is not None:
             effective_settings.filename_prefix = prefix
 
-        cs_basis, sh_basis, sh_basis_zero_removed = build_simulation_bases(effective_settings)
+        cs_basis, sh_basis = _build_simulation_bases(effective_settings)
 
         (
             input_timeseries,
             input_variables,
             input_storage_bases,
-        ) = create_input_timeseries(
+        ) = _create_input_timeseries(
             effective_settings,
             sh_basis=sh_basis,
-            sh_basis_zero_removed=sh_basis_zero_removed,
         )
         if load_existing:
             input_timeseries.load_all(io)
@@ -198,10 +201,10 @@ class SimulationData:
             output_variables,
             output_storage_bases,
             solution_basis,
-        ) = create_output_timeseries(
+        ) = _create_output_timeseries(
             effective_settings,
             cs_basis=cs_basis,
-            sh_basis_zero_removed=sh_basis_zero_removed,
+            sh_basis=sh_basis,
         )
         if load_existing:
             output_timeseries.load_all(io)
@@ -226,7 +229,6 @@ class SimulationData:
             mainfield=mainfield,
             cs_basis=cs_basis,
             sh_basis=sh_basis,
-            sh_basis_zero_removed=sh_basis_zero_removed,
             input_timeseries=input_timeseries,
             input_variables=input_variables,
             input_storage_bases=input_storage_bases,
@@ -331,6 +333,14 @@ class SimulationData:
             return self.output_timeseries.storage_bases[key]
         raise KeyError(f"No storage basis is registered for dataset {key!r}.")
 
+    def get_data_var_name(self, key: str, var: str) -> str:
+        """Return the stored xarray variable name for one saved series variable."""
+        if key in self.input_timeseries.storage_bases:
+            return self.input_timeseries.get_data_var_name(key, var)
+        if key in self.output_timeseries.storage_bases:
+            return self.output_timeseries.get_data_var_name(key, var)
+        raise KeyError(f"No saved series {key!r} is registered for variable lookup.")
+
     def save_settings(self, *, print_info: bool = False) -> None:
         """Persist normalized settings to disk."""
         self.settings_dataset = self.settings.to_dataset()
@@ -379,15 +389,103 @@ class SimulationData:
         basis: Any = None,
     ) -> Any:
         """Build explicit postprocessing operators for one target grid."""
-        from pynamit.visualization.results_operators import build_poloidal_results_operators
+        from pynamit.postprocess.results_operators import build_poloidal_results_operators
+
+        target_basis = self.solution_basis if basis is None else basis
+        t_to_ve = self._get_locked_pfac_operator()
+        if t_to_ve is not None and int(target_basis.index_length) != int(t_to_ve.shape[0]):
+            raise ValueError(
+                "Saved PFAC operator is stored in the simulation solution basis. "
+                f"Requested basis length {int(target_basis.index_length)} does not match "
+                f"stored PFAC shape {t_to_ve.shape}."
+            )
 
         return build_poloidal_results_operators(
-            basis=self.sh_basis_zero_removed if basis is None else basis,
+            basis=target_basis,
             grid=grid,
             RI=float(self.settings.RI),
-            T_to_Ve=self.pfac_matrix,
+            T_to_Ve=t_to_ve,
             RM=self.settings.RM,
         )
+
+    def _get_locked_pfac_operator(self) -> Optional[np.ndarray]:
+        """Return the saved PFAC operator with imposed RM closure applied."""
+        if self.pfac_matrix is None:
+            return None
+        return self._apply_imposed_toroidal_poloidal_lock(
+            np.asarray(self.pfac_matrix, dtype=float),
+            solution_basis=self.solution_basis,
+        )
+
+    def _apply_imposed_toroidal_poloidal_lock(
+        self,
+        operator: np.ndarray,
+        *,
+        solution_basis: Any,
+    ) -> np.ndarray:
+        """Apply the imposed toroidal-poloidal RM closure in solution space."""
+        rm = None if self.settings.RM in (None, 0) else float(self.settings.RM)
+        if rm is None:
+            return np.asarray(operator, dtype=float)
+
+        closure_basis = self._get_pfac_closure_basis(solution_basis)
+        br_rm_to_ri_shift = get_radial_shift_diagonal(
+            closure_basis,
+            rm,
+            float(self.settings.RI),
+            kind="external",
+        )
+        br_ri_to_rm_shift = get_radial_shift_diagonal(
+            closure_basis,
+            float(self.settings.RI),
+            rm,
+            kind="internal",
+        )
+        roundtrip_denominator = 1.0 - (br_rm_to_ri_shift * br_ri_to_rm_shift)
+        roundtrip_operator = np.diag(np.asarray(roundtrip_denominator, dtype=float))
+
+        if closure_basis is solution_basis:
+            roundtrip_vec = np.asarray(roundtrip_denominator, dtype=float).reshape(-1)
+            tol = max(float(np.finfo(float).eps * max(roundtrip_vec.size, 1)), 1e-15)
+            inv_roundtrip_vec = np.zeros_like(roundtrip_vec)
+            keep = np.abs(roundtrip_vec) > tol
+            inv_roundtrip_vec[keep] = 1.0 / roundtrip_vec[keep]
+            roundtrip_inv = np.diag(inv_roundtrip_vec)
+        else:
+            grid = getattr(solution_basis, "grid", None)
+            if grid is None:
+                raise ValueError(
+                    "Cannot project saved PFAC RM closure into solution space without "
+                    "a solution-basis grid."
+                )
+
+            solution_to_closure = np.asarray(
+                to_dense(closure_basis.construct_scalar_projection_matrix(grid))
+                @ to_dense(solution_basis.get_evaluation_matrix(grid)),
+                dtype=float,
+            )
+            closure_to_solution = np.asarray(
+                to_dense(solution_basis.construct_scalar_projection_matrix(grid))
+                @ to_dense(closure_basis.get_evaluation_matrix(grid)),
+                dtype=float,
+            )
+            roundtrip_solution = closure_to_solution @ roundtrip_operator @ solution_to_closure
+            rcond = float(np.finfo(float).eps * max(roundtrip_solution.shape))
+            roundtrip_inv = np.linalg.pinv(roundtrip_solution, rcond=max(rcond, 1e-15))
+
+        if roundtrip_inv.shape[1] != operator.shape[0]:
+            raise ValueError(
+                "RM closure operator shape mismatch for saved PFAC matrix: "
+                f"{roundtrip_inv.shape} cannot left-multiply {operator.shape}."
+            )
+        return np.asarray(roundtrip_inv @ np.asarray(operator, dtype=float))
+
+    def _get_pfac_closure_basis(self, solution_basis: Any) -> Any:
+        """Return the closure basis used for PFAC/radial coupling semantics."""
+        mode = getattr(self.settings.simulation_mode, "value", self.settings.simulation_mode)
+        if getattr(solution_basis, "kind", "") in ("CS", "GRID") and mode == "cs_dominant":
+            return _get_mean_free_sh_basis(self.sh_basis)
+        return solution_basis
 
     @staticmethod
     def _prune_missing_variables(timeseries: Timeseries) -> None:

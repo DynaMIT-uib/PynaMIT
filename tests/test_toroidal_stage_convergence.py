@@ -92,7 +92,7 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
     from pynamit.simulation.spatial import to_dense
     from pynamit.spherical_harmonics.sh_basis import SHBasis
 
-    sh_basis = SHBasis(nmax, mmax)
+    sh_basis = SHBasis(nmax, mmax, mean_free=True)
     state_st = _build_state(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
         nmax=nmax,
@@ -127,7 +127,7 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
 
     # Stage 3: toroidal RHS -> dt_alpha
     dtalpha_from_rhs_st = np.asarray(
-        state_st.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
+        state_st.toroidal_matrices.solver._get_unconstrained_dtalpha_map_cached(
             weighting="none",
             regularization_lambda=0.0,
             penalty_operator=None,
@@ -136,7 +136,7 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
         )
     )
     dtalpha_from_rhs_cs = np.asarray(
-        state_cs.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
+        state_cs.toroidal_matrices.solver._get_unconstrained_dtalpha_map_cached(
             weighting="none",
             regularization_lambda=0.0,
             penalty_operator=None,
@@ -151,12 +151,12 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
     m_imp_to_jr_st = state_st.geometry.get_potential_to_JS_operator("m_imp", mode=None)
     m_imp_to_jr_cs = state_cs.geometry.get_potential_to_JS_operator("m_imp", mode=None)
     dtalpha_to_dt_psi_st = np.asarray(
-        state_st.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+        state_st.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
             m_imp_to_jr_operator=m_imp_to_jr_st, use_pinning=False
         )
     )
     dtalpha_to_dt_psi_cs = np.asarray(
-        state_cs.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+        state_cs.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
             m_imp_to_jr_operator=m_imp_to_jr_cs, use_pinning=False
         )
     )

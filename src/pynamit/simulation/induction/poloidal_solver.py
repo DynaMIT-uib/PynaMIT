@@ -13,7 +13,7 @@ from typing import Any, Callable, Optional, TYPE_CHECKING
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
-from pynamit.simulation.induction.operator_api_utils import (
+from pynamit.simulation.induction.operator_utils import (
     build_linear_map,
     coerce_dense_operator_matrix,
 )
@@ -27,7 +27,7 @@ TimedSolveFn = Callable[..., np.ndarray]
 logger = logging.getLogger(__name__)
 
 
-class PoloidalOperatorAPI:
+class PoloidalSolver:
     """Expose solve/orchestration routines built on top of poloidal operators."""
 
     def __init__(self, matrices: "PoloidalSystemMatrices", timed_solve: TimedSolveFn) -> None:

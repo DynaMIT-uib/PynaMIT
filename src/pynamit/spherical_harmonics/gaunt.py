@@ -138,13 +138,19 @@ class GauntEngine:
     def _get_spin2_kernel_tensors(self):
         """Precompute or retrieve the Spin-2 interaction tensor kernels."""
         # Check class-level cache first
-        key = (self.Nmax, self.basis.Mmax, getattr(self.basis, 'Nmin', 1))
+        key = (self.Nmax, self.basis.Mmax, bool(getattr(self.basis, "mean_free", True)))
         if key in self._KERNEL_CACHE:
             return self._KERNEL_CACHE[key]
             
-        # We need Nmin=0 basis for the Sigma Coefficients
+        # Conductance coefficients include the monopole mode.
         from pynamit.spherical_harmonics.sh_basis import SHBasis
-        sigma_basis = SHBasis(self.Nmax, self.basis.Mmax, Nmin=0, quasi_normalized=self.basis.is_normalized, backend="internal")
+        sigma_basis = SHBasis(
+            self.Nmax,
+            self.basis.Mmax,
+            mean_free=False,
+            quasi_normalized=self.basis.is_normalized,
+            backend="internal",
+        )
         L_sig = sigma_basis.index_length
         L_vec = self.basis.index_length
         L_phys = 2 * L_vec
@@ -356,7 +362,7 @@ class GauntEngine:
         val_p2_gaunt = val_aniso_re + 1j * val_aniso_im
         val_m2_gaunt = val_aniso_re - 1j * val_aniso_im
 
-        # 2. Analyze using Spin-Weighted Harmonics (Nmin=0)
+        # 2. Analyze using Spin-Weighted Harmonics on the full scalar space.
         # Coupling of degree N1 and N2 requires Ls up to N1+N2 (2*Nmax).
         # For analytic spin-weighted analysis, we need a full complex basis
         # (Mmax=Nmax) to satisfy the idx = l^2 + l + m indexing.
@@ -367,7 +373,7 @@ class GauntEngine:
         sigma_basis = SHBasis(
             sigma_Nmax,
             sigma_Nmax,
-            Nmin=0,
+            mean_free=False,
             quasi_normalized=self.basis.is_normalized,
             backend=self.basis.backend
         )
@@ -414,10 +420,12 @@ class GauntEngine:
         M : np.ndarray
             The interaction matrix.
         """
-        # Create basis for Conductance (Nmin=0) to match input coeffs
+        # Conductance coefficients live in the full scalar SH space.
         from pynamit.spherical_harmonics.sh_basis import SHBasis
         cond_basis = SHBasis(
-            self.basis.Nmax, self.basis.Mmax, Nmin=0,
+            self.basis.Nmax,
+            self.basis.Mmax,
+            mean_free=False,
             quasi_normalized=self.basis.is_normalized, backend=self.basis.backend
         )
 

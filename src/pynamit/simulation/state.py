@@ -13,27 +13,24 @@ import warnings
 from typing import Optional, Tuple, Any, List, Dict, Literal, Callable
 
 import numpy as np
-from scipy.integrate import solve_ivp
-from scipy.linalg import expm
 from functools import cached_property
 
 from pynamit.primitives.field import Field
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Integrator, ScipySolveIVPIntegrator
+from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, ScipySolveIVPIntegrator
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.core import (
-    CoupledOperatorAPI,
+    CoupledOperators,
     CoupledSteadyStateSolver,
     StateConstraints,
-    StateInductionAPI,
+    StateInduction,
 )
 from pynamit.simulation.induction import ToroidalSystemMatrices
 from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.basis import Basis
-from pynamit.math.constants import mu0
-from pynamit.utils import asarray, use_jax, xp, to_numpy, tensor_pinv
+from pynamit.utils import asarray, xp, to_numpy
 from pynamit.simulation.spatial import to_dense, canonicalize_vector_basis_matrix
 from pynamit.simulation.settings import DynamicsSettings, SimulationMode
 from pynamit.simulation.input import (
@@ -139,7 +136,7 @@ class State:
             if getattr(self.mode, "value", self.mode) == "cs_dominant":
                 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
-                closure_basis = SHBasis(self.Nmax, self.Mmax)
+                closure_basis = SHBasis(self.Nmax, self.Mmax, mean_free=True)
             self.toroidal_matrices = ToroidalSystemMatrices(
                 basis=self.solution_basis, 
                 grid=self.geometry.grid, 
@@ -200,9 +197,9 @@ class State:
         return self.geometry.poloidal_matrices
 
     @cached_property
-    def induction_api(self) -> StateInductionAPI:
+    def induction(self) -> StateInduction:
         """Induction/coupled orchestration helper layered on top of `State`."""
-        return StateInductionAPI(
+        return StateInduction(
             self,
             timed_solve=_timed_solve,
             available_memory_bytes=_available_memory_bytes,
@@ -1156,21 +1153,21 @@ class State:
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        return self.induction_api._calculate_total_E_field(E_direct_coeffs, jr_coeffs)
+        return self.induction._calculate_total_E_field(E_direct_coeffs, jr_coeffs)
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
-        return self.induction_api.calculate_noind_coeffs()
+        return self.induction.calculate_noind_coeffs()
 
     def _calculate_dynamic_state(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Assemble non-inductive forcing and update toroidal residual rate."""
-        return self.induction_api._calculate_dynamic_state(E_direct_coeffs, jr_coeffs)
+        return self.induction._calculate_dynamic_state(E_direct_coeffs, jr_coeffs)
 
     def solve_dt_psi(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dpsi/dt."""
-        return self.induction_api.solve_dt_psi(E_known)
+        return self.induction.solve_dt_psi(E_known)
 
     def _build_toroidal_twist_rate_known_terms_from_poloidal(
         self,
@@ -1184,27 +1181,27 @@ class State:
         These coefficients are converted to tangential ``u`` terms by
         ``PoloidalSystemMatrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind``.
         """
-        return self.induction_api._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
+        return self.induction._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
-        return self.induction_api.calculate_ind_coeffs(m_ind)
+        return self.induction.calculate_ind_coeffs(m_ind)
 
     def calculate_psi_E_coeffs(self, psi: np.ndarray) -> np.ndarray:
         """Map inductive toroidal residual psi to E-field coefficients."""
-        return self.induction_api.calculate_psi_E_coeffs(psi)
+        return self.induction.calculate_psi_E_coeffs(psi)
 
     # ----- Time Evolution -----
 
     @cached_property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
         """Dense matrix mapping m_ind to div-free E-field."""
-        return self.induction_api.build_m_ind_to_E_df_matrix()
+        return self.induction.build_m_ind_to_E_df_matrix()
 
     @cached_property
     def E_coeffs_to_E_df_matrix(self) -> np.ndarray:
         """Operator extracting toroidal potential (E_df) from vector coefficients."""
-        return self.induction_api.build_E_coeffs_to_E_df_matrix()
+        return self.induction.build_E_coeffs_to_E_df_matrix()
 
     def get_induction_operator(self) -> "LinearMap":
         """Get matrix-free induction operator (m_ind -> E_df).
@@ -1212,7 +1209,7 @@ class State:
         Returns a LinearMap for matrix-free steady-state computation.
         More efficient than building the dense matrix for large systems.
         """
-        return self.induction_api.get_induction_operator()
+        return self.induction.get_induction_operator()
 
     # _build_m_ind_to_E_df_matrix refactored to PoloidalSystemMatrices.build_induction_matrix
 
@@ -1475,7 +1472,7 @@ class State:
 
     def build_coupled_forcing(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Build coupled forcing tensor ``K`` for ``[psi, m_ind]`` dynamics."""
-        return self.induction_api.build_coupled_forcing(E_coeffs_noind)
+        return self.induction.build_coupled_forcing(E_coeffs_noind)
 
     def solve_steady_state_model_variables(
         self,
@@ -1484,7 +1481,7 @@ class State:
         update_state: bool = True,
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Compute steady-state initialization for current dynamics mode."""
-        return self.induction_api.solve_steady_state_model_variables(
+        return self.induction.solve_steady_state_model_variables(
             E_coeffs_noind,
             update_state=update_state,
         )
@@ -1502,7 +1499,7 @@ class State:
 
         Returns ``(psi, m_ind)`` where ``psi`` is ``None`` for legacy mode.
         """
-        return self.induction_api.evolve_model_variables(
+        return self.induction.evolve_model_variables(
             m_ind,
             dt,
             E_coeffs_noind,
@@ -1515,24 +1512,24 @@ class State:
     # -------------------------------------------------------------------------
 
     @cached_property
-    def coupled_operator_api(self) -> CoupledOperatorAPI:
+    def coupled_operators(self) -> CoupledOperators:
         """Internal coupled-operator assembly/exposure helper."""
-        return CoupledOperatorAPI(self)
+        return CoupledOperators(self)
 
     def get_coupled_induction_tensor(self, use_pinning: Optional[bool] = None) -> np.ndarray:
         """Build the coupled tensor ``L_coupled`` with shape ``(2, N, 2, N)``."""
-        return self.coupled_operator_api.get_coupled_induction_tensor(use_pinning=use_pinning)
+        return self.coupled_operators.get_coupled_induction_tensor(use_pinning=use_pinning)
 
     @cached_property
     def coupled_induction_tensor(self) -> np.ndarray:
         """Default coupled induction tensor (delegates to get_coupled_induction_tensor)."""
-        return self.coupled_operator_api.get_coupled_induction_tensor(use_pinning=self.apply_psi_gauge)
+        return self.coupled_operators.get_coupled_induction_tensor(use_pinning=self.apply_psi_gauge)
 
     @cached_property
     def coupled_induction_operator_sparse(self) -> "LinearMap":
         """Cached matrix-free coupled operator for non-exponential stepping."""
         solver = self.solver_type if self.solver_type in ("lsmr", "cgls") else "lsmr"
-        return self.coupled_operator_api.get_coupled_induction_operator(
+        return self.coupled_operators.get_coupled_induction_operator(
             matrix_free=True,
             solver=solver,
             use_pinning=self.apply_psi_gauge,
@@ -1547,14 +1544,14 @@ class State:
     @cached_property
     def coupled_induction_blocks_dense(self) -> Dict[str, np.ndarray]:
         """Cached dense coupled blocks keyed by physical role."""
-        return self.coupled_operator_api.get_coupled_induction_blocks(
+        return self.coupled_operators.get_coupled_induction_blocks(
             source="dense",
             use_pinning=self.apply_psi_gauge,
         )
 
     def _densify_linear_operator(self, operator: Any, n_total: int) -> np.ndarray:
         """Convert a linear operator to dense ``(2N, 2N)``."""
-        return self.coupled_operator_api._densify_linear_operator(operator, n_total)
+        return self.coupled_operators._densify_linear_operator(operator, n_total)
 
     def get_coupled_induction_matrix(
         self,
@@ -1563,7 +1560,7 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> np.ndarray:
         """Expose coupled operator matrix in dense form."""
-        return self.coupled_operator_api.get_coupled_induction_matrix(
+        return self.coupled_operators.get_coupled_induction_matrix(
             source=source,
             flatten=flatten,
             use_pinning=use_pinning,
@@ -1575,7 +1572,7 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> Dict[str, np.ndarray]:
         """Expose coupled block matrices keyed by physical role."""
-        return self.coupled_operator_api.get_coupled_induction_blocks(
+        return self.coupled_operators.get_coupled_induction_blocks(
             source=source,
             use_pinning=use_pinning,
         )
@@ -1587,7 +1584,7 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> Any:
         """Return coupled operator used by steady-state coupled solve."""
-        return self.coupled_operator_api.get_coupled_operator_for_steady_state(
+        return self.coupled_operators.get_coupled_operator_for_steady_state(
             solver=solver,
             use_pinning=use_pinning,
         )
@@ -1599,22 +1596,22 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> Any:
         """Return coupled operator used by non-exponential full-induction stepping."""
-        return self.coupled_operator_api.get_coupled_operator_for_time_integration(
+        return self.coupled_operators.get_coupled_operator_for_time_integration(
             use_dense=use_dense,
             use_pinning=use_pinning,
         )
 
     def _get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
         """Return dense projector used by `_project_to_hl_modes`."""
-        return self.coupled_operator_api.get_hl_projection_matrix(n_coeffs)
+        return self.coupled_operators.get_hl_projection_matrix(n_coeffs)
 
     def get_m_imp_from_jr_matrix(self, input_basis: Optional[Any] = None) -> np.ndarray:
         """Expose dense linear map from input `jr` coefficients to imposed `m_imp`."""
-        return self.coupled_operator_api.get_m_imp_from_jr_matrix(input_basis=input_basis)
+        return self.coupled_operators.get_m_imp_from_jr_matrix(input_basis=input_basis)
 
     def get_external_forcing_matrices(self, input_basis_jr: Optional[Any] = None) -> Dict[str, np.ndarray]:
         """Expose dense rate maps from `u` and `jr` into the coupled system."""
-        return self.coupled_operator_api.get_external_forcing_matrices(
+        return self.coupled_operators.get_external_forcing_matrices(
             input_basis_jr=input_basis_jr
         )
 
@@ -1629,7 +1626,7 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> "LinearMap":
         """Build coupled operator for ``y=[psi, m_ind]`` dynamics."""
-        return self.coupled_operator_api.get_coupled_induction_operator(
+        return self.coupled_operators.get_coupled_induction_operator(
             dt_psi_from_psi=dt_psi_from_psi,
             dt_psi_from_m_ind=dt_psi_from_m_ind,
             dt_m_ind_from_psi=dt_m_ind_from_psi,

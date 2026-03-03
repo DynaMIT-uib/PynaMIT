@@ -1,4 +1,4 @@
-"""Shared plumbing helpers for solver-facing operator APIs.
+"""Shared plumbing helpers for solver-facing operator objects.
 
 These helpers keep branch-specific solver modules focused on physics and
 constraint semantics, while centralizing the small amount of reusable linear

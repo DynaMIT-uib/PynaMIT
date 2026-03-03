@@ -133,7 +133,7 @@ class TestSteadyStateMatrixFree:
         # Create SH basis
         Nmax = 5
         Mmax = 5
-        basis = SHBasis(Nmax=Nmax, Mmax=Mmax)
+        basis = SHBasis(Nmax=Nmax, Mmax=Mmax, mean_free=True)
         n = basis.index_length
 
         # Create random E-field coefficients (2, n) for tangential field

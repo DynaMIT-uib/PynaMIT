@@ -7,23 +7,282 @@ exported solve/dynamics maps in one helper object.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
 
 from pynamit.math.linear_map import LinearMap, as_linear_map
-from pynamit.simulation.induction.operator_api_utils import (
+from pynamit.simulation.induction.operator_utils import (
     build_linear_map,
     coerce_dense_operator_matrix,
 )
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray, to_numpy
 
-class ToroidalOperatorAPI:
+logger = logging.getLogger(__name__)
+
+
+class ToroidalSolver:
     """Expose solve/orchestration routines built on top of toroidal operators."""
 
     def __init__(self, matrices: Any) -> None:
         self._mats = matrices
+
+    def _get_problem_bundle(
+        self,
+        *,
+        weighting: str,
+        regularization_lambda: float,
+        penalty_operator: Any = None,
+        penalty_scaling: float = 0.0,
+    ) -> dict[str, Any]:
+        """Build or fetch the weighted least-squares bundle for ``dt_alpha``."""
+        mats = self._mats
+        cache_key = (
+            weighting,
+            float(regularization_lambda),
+            id(penalty_operator) if penalty_operator is not None else 0,
+            float(penalty_scaling),
+        )
+        cached = mats._toroidal_problem_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        from pynamit.math.least_squares_problem import LeastSquaresProblem
+        from pynamit.math.linear_map import as_linear_map, diagonal_linear_map
+
+        dtalpha_operator = np.asarray(to_numpy(mats.dtalpha_operator))
+        n_coeff = dtalpha_operator.shape[0]
+        r_grid, a_grid = mats._dtalpha_grid_residual_maps
+        op_a_grid = as_linear_map(a_grid)
+        physics_weight = mats._build_physics_sqrt_weight(op_a_grid.shape[0], weighting)
+
+        operators = [op_a_grid]
+        data_shapes = [(op_a_grid.shape[0],)]
+        sqrt_weights = [physics_weight]
+
+        if penalty_operator is not None and penalty_scaling > 0:
+            op_penalty = as_linear_map(penalty_operator) * penalty_scaling
+            operators.append(op_penalty)
+            data_shapes.append((op_penalty.shape[0],))
+            sqrt_weights.append(None)
+
+        if regularization_lambda > 0:
+            op_reg = diagonal_linear_map(np.ones(n_coeff)) * float(
+                np.sqrt(max(regularization_lambda, 0.0))
+            )
+            operators.append(op_reg)
+            data_shapes.append((op_reg.shape[0],))
+            sqrt_weights.append(None)
+
+        problem = LeastSquaresProblem(
+            A=operators,
+            solution_shape=n_coeff,
+            data_shapes=data_shapes,
+            sqrt_weights=sqrt_weights,
+        )
+        bundle = {
+            "problem": problem,
+            "R_grid": np.asarray(r_grid),
+            "n_coeff": int(n_coeff),
+            "grid_rows": int(op_a_grid.shape[0]),
+        }
+        mats._toroidal_problem_cache[cache_key] = bundle
+        return bundle
+
+    def _resolve_rcond(self, *, n_coeff: int, hinv_rtol: float) -> float:
+        """Resolve pseudoinverse cutoff used by constrained elimination."""
+        mats = self._mats
+        if hinv_rtol > 0:
+            return max(float(hinv_rtol), 0.0)
+        rcond = mats._default_pinv_rcond((n_coeff, n_coeff))
+        logger.info(
+            "Auto hard-solve rtol (default pseudoinverse cutoff): %.3e",
+            float(rcond),
+        )
+        return float(max(rcond, 0.0))
+
+    @staticmethod
+    def _coeff_rhs_to_grid_rhs(r_grid: np.ndarray, rhs_coeffs: np.ndarray) -> np.ndarray:
+        """Map coefficient-space RHS columns to grid-space RHS columns."""
+        rhs_arr = np.asarray(to_numpy(rhs_coeffs))
+        if rhs_arr.ndim == 1:
+            return r_grid @ rhs_arr.reshape(-1, 1)
+        rhs_2d = rhs_arr.reshape(rhs_arr.shape[0], -1)
+        return r_grid @ rhs_2d
+
+    def _solve_dtalpha_problem(
+        self,
+        rhs_physics_coeffs: np.ndarray,
+        *,
+        weighting: str,
+        regularization_lambda: float,
+        penalty_operator: Any = None,
+        penalty_scaling: float = 0.0,
+        hinv_rtol: float = 0.0,
+        equality_operator: Any = None,
+        equality_rhs: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Solve the weighted toroidal least-squares problem in ``dt_alpha``."""
+        from pynamit.math.least_squares_solver import LeastSquaresSolver
+
+        mats = self._mats
+        bundle = self._get_problem_bundle(
+            weighting=weighting,
+            regularization_lambda=regularization_lambda,
+            penalty_operator=penalty_operator,
+            penalty_scaling=penalty_scaling,
+        )
+        problem = bundle["problem"]
+        r_grid = bundle["R_grid"]
+        n_coeff = int(bundle["n_coeff"])
+        rcond = self._resolve_rcond(n_coeff=n_coeff, hinv_rtol=hinv_rtol)
+
+        rhs_grid = self._coeff_rhs_to_grid_rhs(r_grid, rhs_physics_coeffs)
+        rhs_grid_arr = np.asarray(rhs_grid)
+        if rhs_grid_arr.ndim == 1:
+            rhs_grid_arr = rhs_grid_arr.reshape(-1, 1)
+        n_scenarios = int(rhs_grid_arr.shape[1])
+        rhs_terms = [rhs_grid_arr]
+        for term_index in range(1, int(problem.num_data_terms)):
+            n_rows = int(problem.A[term_index].num_rows)
+            rhs_terms.append(np.zeros((n_rows, n_scenarios), dtype=rhs_grid_arr.dtype))
+
+        solver = LeastSquaresSolver(
+            solver=mats.toroidal_solver,
+            tolerance=max(rcond, mats.toroidal_tolerance),
+            preconditioner=mats.toroidal_preconditioner,
+        )
+        preconditioner = None
+        if equality_operator is None and mats.toroidal_preconditioner is not None:
+            preconditioner = solver.build_preconditioner(
+                problem=problem,
+                preconditioner_type=mats.toroidal_preconditioner,
+                num_scenarios=n_scenarios,
+                pinv_rcond=rcond,
+            )
+        sol = solver.solve(
+            problem,
+            rhs_terms,
+            preconditioner=preconditioner,
+            equality_operator=equality_operator,
+            equality_rhs=equality_rhs,
+            elimination_rcond=rcond,
+        )
+        return np.asarray(sol)
+
+    def _get_unconstrained_dtalpha_map_cached(
+        self,
+        *,
+        weighting: str,
+        regularization_lambda: float,
+        penalty_operator: Any = None,
+        penalty_scaling: float = 0.0,
+        hinv_rtol: float = 0.0,
+    ) -> np.ndarray:
+        """Return cached dense map ``rhs_physics -> dt_alpha``."""
+        mats = self._mats
+        bundle = self._get_problem_bundle(
+            weighting=weighting,
+            regularization_lambda=regularization_lambda,
+            penalty_operator=penalty_operator,
+            penalty_scaling=penalty_scaling,
+        )
+        n_coeff = int(bundle["n_coeff"])
+        rcond = self._resolve_rcond(n_coeff=n_coeff, hinv_rtol=hinv_rtol)
+        key = (
+            weighting,
+            float(regularization_lambda),
+            id(penalty_operator) if penalty_operator is not None else 0,
+            float(penalty_scaling),
+            float(rcond),
+            mats._toroidal_solver_signature(),
+        )
+        cached = mats._dtalpha_unconstrained_map_cache.get(key)
+        if cached is not None:
+            return cached
+        rhs_physics_basis = np.eye(n_coeff, dtype=float)
+        alpha_map = np.asarray(
+            self._solve_dtalpha_problem(
+                rhs_physics_coeffs=rhs_physics_basis,
+                weighting=weighting,
+                regularization_lambda=regularization_lambda,
+                penalty_operator=penalty_operator,
+                penalty_scaling=penalty_scaling,
+                hinv_rtol=hinv_rtol,
+            )
+        ).reshape(n_coeff, n_coeff)
+        mats._dtalpha_unconstrained_map_cache[key] = alpha_map
+        return alpha_map
+
+    def _get_constrained_dtalpha_maps(
+        self,
+        *,
+        alpha_map_operator: Any,
+        weighting: str,
+        regularization_lambda: float,
+        penalty_operator: Any = None,
+        penalty_scaling: float = 0.0,
+        hinv_rtol: float = 0.0,
+    ) -> dict[str, np.ndarray]:
+        """Return cached constrained maps for hard ``dt_alpha`` constraints."""
+        mats = self._mats
+        c_dtalpha = np.asarray(to_dense(as_linear_map(alpha_map_operator)))
+        if c_dtalpha.ndim != 2:
+            c_dtalpha = c_dtalpha.reshape(c_dtalpha.shape[0], -1)
+        n_coeff = int(c_dtalpha.shape[1])
+        m_constraints = int(c_dtalpha.shape[0])
+        rcond = self._resolve_rcond(n_coeff=n_coeff, hinv_rtol=hinv_rtol)
+        key = (
+            id(alpha_map_operator),
+            weighting,
+            float(regularization_lambda),
+            id(penalty_operator) if penalty_operator is not None else 0,
+            float(penalty_scaling),
+            float(rcond),
+            mats._toroidal_solver_signature(),
+        )
+        cached = mats._dtalpha_constrained_maps_cache.get(key)
+        if cached is not None:
+            return cached
+
+        m_phys_dtalpha = np.asarray(
+            self._solve_dtalpha_problem(
+                rhs_physics_coeffs=np.eye(n_coeff, dtype=float),
+                weighting=weighting,
+                regularization_lambda=regularization_lambda,
+                penalty_operator=penalty_operator,
+                penalty_scaling=penalty_scaling,
+                hinv_rtol=hinv_rtol,
+                equality_operator=c_dtalpha,
+                equality_rhs=np.zeros(m_constraints, dtype=float),
+            )
+        ).reshape(n_coeff, n_coeff)
+
+        if m_constraints > 0:
+            m_corr_dtalpha = np.asarray(
+                self._solve_dtalpha_problem(
+                    rhs_physics_coeffs=np.zeros((n_coeff, m_constraints), dtype=float),
+                    weighting=weighting,
+                    regularization_lambda=regularization_lambda,
+                    penalty_operator=penalty_operator,
+                    penalty_scaling=penalty_scaling,
+                    hinv_rtol=hinv_rtol,
+                    equality_operator=c_dtalpha,
+                    equality_rhs=np.eye(m_constraints, dtype=float),
+                )
+            ).reshape(n_coeff, m_constraints)
+        else:
+            m_corr_dtalpha = np.zeros((n_coeff, 0), dtype=float)
+
+        maps = {
+            "C_dtalpha": c_dtalpha,
+            "M_phys_dtalpha": np.asarray(m_phys_dtalpha),
+            "M_corr_dtalpha": np.asarray(m_corr_dtalpha),
+        }
+        mats._dtalpha_constrained_maps_cache[key] = maps
+        return maps
 
     def solve_dt_psi_superposed(
         self,
@@ -46,7 +305,7 @@ class ToroidalOperatorAPI:
         )
 
         if constraint_operator is None:
-            M_alpha = self._mats._get_unconstrained_dtalpha_map_cached(
+            M_alpha = self._get_unconstrained_dtalpha_map_cached(
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,
@@ -56,7 +315,7 @@ class ToroidalOperatorAPI:
             dtalpha = M_alpha @ rhs_p
             return asarray((dtalpha_to_dt_psi @ dtalpha).reshape(-1))
 
-        maps = self._mats._get_constrained_dtalpha_maps(
+        maps = self._get_constrained_dtalpha_maps(
             alpha_map_operator=constraint_operator,
             weighting=weighting,
             regularization_lambda=regularization_lambda,
@@ -213,7 +472,7 @@ class ToroidalOperatorAPI:
         """Build dense map `toroidal_rhs -> dpsi/dt`."""
         mats = self._mats
         if constraint_operator is not None:
-            maps = mats._get_constrained_dtalpha_maps(
+            maps = self._get_constrained_dtalpha_maps(
                 alpha_map_operator=constraint_operator,
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
@@ -223,7 +482,7 @@ class ToroidalOperatorAPI:
             )
             dtalpha_from_K = maps["M_phys_dtalpha"]
         else:
-            dtalpha_from_K = mats._get_unconstrained_dtalpha_map_cached(
+            dtalpha_from_K = self._get_unconstrained_dtalpha_map_cached(
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,
@@ -315,7 +574,7 @@ class ToroidalOperatorAPI:
 
         E_to_rhs_op = as_linear_map(np.asarray(to_numpy(mats.toroidal_rhs_from_E_operator)))
         dtalpha_from_K_op = as_linear_map(
-            mats._get_unconstrained_dtalpha_map_cached(
+            self._get_unconstrained_dtalpha_map_cached(
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,

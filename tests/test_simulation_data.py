@@ -4,12 +4,7 @@ import numpy as np
 import xarray as xr
 
 from pynamit.primitives.io import IO
-from pynamit.simulation.data import (
-    SimulationData,
-    build_simulation_bases,
-    create_input_timeseries,
-    create_output_timeseries,
-)
+from pynamit.simulation.data import SimulationData
 from pynamit.simulation.settings import DynamicsSettings
 from pynamit.primitives.grid import Grid
 
@@ -23,23 +18,18 @@ def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
         Ncs=6,
         t0="2001-05-12 21:45:00",
     )
+    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
     io = IO(str(prefix))
     io.save_dataset(settings.to_dataset(), "settings")
 
-    cs_basis, sh_basis, sh_basis_zero_removed = build_simulation_bases(settings)
-    input_timeseries, _, _ = create_input_timeseries(
-        settings,
-        sh_basis=sh_basis,
-        sh_basis_zero_removed=sh_basis_zero_removed,
-    )
-    output_timeseries, _, _, solution_basis = create_output_timeseries(
-        settings,
-        cs_basis=cs_basis,
-        sh_basis_zero_removed=sh_basis_zero_removed,
-    )
+    sh_full_basis = simulation_data.sh_basis
+    sh_mean_free_basis = sh_full_basis.with_mean_free(True)
+    input_timeseries = simulation_data.input_timeseries
+    output_timeseries = simulation_data.output_timeseries
+    solution_basis = simulation_data.solution_basis
 
-    n_scalar = sh_basis_zero_removed.index_length
-    n_conductance = sh_basis.index_length
+    n_scalar = sh_mean_free_basis.index_length
+    n_conductance = sh_full_basis.index_length
     n_solution = solution_basis.index_length
 
     input_timeseries.add_entry(
@@ -200,7 +190,7 @@ def test_simulation_data_input_helpers_round_trip_dataset(tmp_path):
     )
 
     simulation_data = SimulationData.create(prefix, settings, load_existing=False)
-    n_scalar = simulation_data.sh_basis_zero_removed.index_length
+    n_scalar = simulation_data.sh_basis.with_mean_free(True).index_length
 
     simulation_data.input_timeseries.add_entry(
         "jr",
@@ -230,5 +220,5 @@ def test_simulation_data_builds_results_operator_bundle(tmp_path):
         grid=Grid(lat=np.array([60.0]), lon=np.array([0.0])),
     )
 
-    assert bundle.m_ind_to_Br.shape[0] == simulation_data.sh_basis_zero_removed.index_length
+    assert bundle.m_ind_to_Br.shape[0] == simulation_data.sh_basis.with_mean_free(True).index_length
     assert bundle.scalar_evaluation_matrix.shape[0] == 1

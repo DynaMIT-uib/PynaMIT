@@ -14,7 +14,7 @@ RI = (6371.2 + 110) * 1e3
 Kp = 3
 ckeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN()
 skeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN().Mge(1)
-ubasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax)
+ubasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, mean_free=True)
 
 
 # Fit wind pattern using a spherical harmonic Helmholtz representation.
@@ -24,7 +24,7 @@ date = datetime.datetime(2000, 5, 12, 21, 45)
 assert date.year % 5 == 0
 
 ### CONDUCTANCE EXPERIMENT
-cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, Nmin=0)
+cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, mean_free=False)
 
 cs_basis = pynamit.CSBasis(Ncs)
 conductance_lat = 90 - cs_basis.arr_theta
@@ -91,7 +91,7 @@ if False:
     _n, _m = np.array([k for k in g.columns]).T  # n and m
     g, h = (g.loc[igrf_date, :].values, h.loc[igrf_date, :].values)  # Gauss coefficients
 
-    igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
+    igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max(), mean_free=True)
 
     igrf_keys = pynamit.sha.helpers.SHIndices(_n.max(), _m.max()).setNmin(1).MleN()
 

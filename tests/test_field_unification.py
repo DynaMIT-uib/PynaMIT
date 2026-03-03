@@ -11,7 +11,7 @@ def test_field_expansion_as_field():
     # Setup standard parameters
     Nmax = 2
     Mmax = 1
-    basis = SHBasis(Nmax, Mmax)
+    basis = SHBasis(Nmax, Mmax, mean_free=True)
 
     coeffs = np.zeros(basis.index_length)
     coeffs[0] = 1000.0
@@ -56,7 +56,7 @@ def test_field_expansion_tangential():
     """Test tangential FieldExpansion."""
     Nmax = 2
     Mmax = 1
-    basis = SHBasis(Nmax, Mmax)
+    basis = SHBasis(Nmax, Mmax, mean_free=True)
     coeffs = np.zeros((2, basis.index_length))
     coeffs[0, 0] = 100.0
 

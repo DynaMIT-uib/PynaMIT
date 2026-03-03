@@ -139,7 +139,7 @@ def run_pynamit(
     if RI is None:
         RI = RE + 110.0e3
 
-    settings = DynamicsSettings(
+    settings_kwargs = dict(
         filename_prefix=filename_prefix,
         Nmax=Nmax,
         Mmax=Mmax,
@@ -158,7 +158,6 @@ def run_pynamit(
         vector_u=vector_u,
         integrator=integrator,
         solution_basis_kind=solution_basis_kind,
-        simulation_mode=None if simulation_mode is None else SimulationMode(simulation_mode),
         least_squares_solver=least_squares_solver,
         m_imp_regularization_lambda=m_imp_regularization_lambda,
         dynamics_mode=dynamics_mode,
@@ -180,6 +179,10 @@ def run_pynamit(
         enable_fast_input_path=enable_fast_input_path,
         exponential_solver=exponential_solver,
     )
+    if simulation_mode is not None:
+        settings_kwargs["simulation_mode"] = SimulationMode(simulation_mode)
+
+    settings = DynamicsSettings(**settings_kwargs)
     dynamics = Dynamics(settings, benchmark_mode=benchmark_mode)
 
 

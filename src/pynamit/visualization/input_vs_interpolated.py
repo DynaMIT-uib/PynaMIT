@@ -14,7 +14,7 @@ import cartopy.crs as ccrs
 from pynamit.primitives.grid import Grid
 
 from pynamit.simulation.data import SimulationData
-from pynamit.visualization.grid_evaluation import (
+from pynamit.postprocess.grid_evaluation import (
     decode_conductance_entry_to_grids,
     evaluate_scalar_coeffs_to_grid,
     evaluate_tangential_coeffs_to_grid_components,

@@ -621,7 +621,7 @@ class CoupledSteadyStateSolver:
         )
 
 
-class CoupledOperatorAPI:
+class CoupledOperators:
     """Assemble and expose coupled full-induction operators for a ``State``."""
 
     def __init__(self, state: Any) -> None:

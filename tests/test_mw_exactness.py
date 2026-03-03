@@ -9,7 +9,7 @@ def test_mw_exactness_scalar():
     print("\n--- MW SCALAR EXACTNESS ---")
     
     L = 10
-    basis = SHBasis(Nmax=L, Mmax=L, Nmin=0)
+    basis = SHBasis(Nmax=L, Mmax=L, mean_free=False)
     
     # Create MW Grid
     grid = Grid.create_mw_grid(L)
@@ -92,7 +92,7 @@ def test_general_grid_exactness():
     print("\n--- GENERAL GRID SCALAR EXACTNESS ---")
     
     L = 10
-    basis = SHBasis(Nmax=L, Mmax=L, Nmin=0)
+    basis = SHBasis(Nmax=L, Mmax=L, mean_free=False)
     
     # Create an Arbitrary Regular Grid (e.g. excluding poles or including them)
     # Ensure N_theta >= L+1

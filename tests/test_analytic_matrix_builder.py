@@ -38,12 +38,12 @@ def compute_analytic_reference_comparison(N, Nmin_dense, field_kind):
     # So we use N_calc = max(N, 8) to ensure exact quadrature.
     N_calc = max(N, 8)
     
-    basis_sol = SHBasis(Nmax=N_calc, Mmax=N_calc, Nmin=1)
-    basis_dense = SHBasis(Nmax=N_calc, Mmax=N_calc, Nmin=0)
+    basis_sol = SHBasis(Nmax=N_calc, Mmax=N_calc, mean_free=True)
+    basis_dense = SHBasis(Nmax=N_calc, Mmax=N_calc, mean_free=False)
     grid = GauntEngine(basis_sol).quad_grid
     
     # Target Dimension for Comparison (Validation set requested by User)
-    basis_target = SHBasis(Nmax=N, Mmax=N, Nmin=1)
+    basis_target = SHBasis(Nmax=N, Mmax=N, mean_free=True)
     dim_target = basis_target.index_length
     
     # 2. Create Random Field Coefficients (Full Random, Band-Limited to N)

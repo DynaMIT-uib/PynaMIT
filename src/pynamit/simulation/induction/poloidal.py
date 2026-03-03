@@ -115,11 +115,11 @@ class PoloidalSystemMatrices:
         return self._poloidal_closure_projector.rm_coupling_solution_operators
 
     @cached_property
-    def operator_api(self) -> "PoloidalOperatorAPI":
+    def solver(self) -> "PoloidalSolver":
         """Helper exposing solve/orchestration routines built on poloidal operators."""
-        from pynamit.simulation.induction.poloidal_solver import PoloidalOperatorAPI
+        from pynamit.simulation.induction.poloidal_solver import PoloidalSolver
 
-        return PoloidalOperatorAPI(self, timed_solve=_timed_solve)
+        return PoloidalSolver(self, timed_solve=_timed_solve)
 
     # -------------------------------------------------------------------------
     # Core Operators (Laplacian-based)
@@ -764,7 +764,7 @@ class PoloidalSystemMatrices:
         m_imp_to_E_operator: Any = None,
     ) -> np.ndarray:
         """Construct the dense matrix for the induction operator (m_ind -> E_df)."""
-        return self.operator_api.build_induction_matrix(
+        return self.solver.build_induction_matrix(
             problem=problem,
             solver=solver,
             E_map_constraint_operator=E_map_constraint_operator,
@@ -786,7 +786,7 @@ class PoloidalSystemMatrices:
         m_imp_to_E_operator: Any = None,
     ) -> "LinearMap":
         """Get matrix-free induction operator (m_ind -> E_df)."""
-        return self.operator_api.get_induction_operator(
+        return self.solver.get_induction_operator(
             problem=problem,
             solver=solver,
             preconditioner=preconditioner,
@@ -809,7 +809,7 @@ class PoloidalSystemMatrices:
          m_imp_to_E_operator: Any = None,
     ) -> tuple[np.ndarray, np.ndarray]:
          """Solve for m_imp given E_direct and return `(m_imp, E_imp)`."""
-         return self.operator_api.solve_for_m_imp(
+         return self.solver.solve_for_m_imp(
              E_direct_coeffs=E_direct_coeffs,
              problem=problem,
              solver=solver,
@@ -837,7 +837,7 @@ class PoloidalSystemMatrices:
         m_imp_to_E_operator: Any = None,
     ) -> np.ndarray:
         """Calculate d(m_ind)/dt rates."""
-        return self.operator_api.compute_rates(
+        return self.solver.compute_rates(
             m_ind=m_ind,
             t=t,
             E_coeffs_noind=E_coeffs_noind,
@@ -915,7 +915,7 @@ class PoloidalSystemMatrices:
         solver: str = "lsmr",
     ) -> np.ndarray:
         """Calculate the steady-state induced potential."""
-        return self.operator_api.steady_state_m_ind(
+        return self.solver.steady_state_m_ind(
             E_coeffs_noind=E_coeffs_noind,
             induction_matrix=induction_matrix,
             solver=solver,

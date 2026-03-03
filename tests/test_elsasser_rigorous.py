@@ -16,7 +16,7 @@ def check_rigorous():
     print("Initialize Final Rigorous Elsasser Verification...")
     NMAX = 8
     # High resolution to ensure 'Exact' is truly exact (machine precision)
-    basis = SHBasis(Nmax=NMAX, Mmax=NMAX)
+    basis = SHBasis(Nmax=NMAX, Mmax=NMAX, mean_free=True)
     engine = GauntEngine(basis, grid_resolution=4*NMAX) 
     
     print(f"Grid Size: {len(engine.weights)}")

@@ -233,7 +233,7 @@ def test_coupled_dt_psi_from_m_ind_includes_poloidal_u_known_hook() -> None:
         blocks_off["dt_psi_from_m_ind"], dtype=float
     )
 
-    api_on = state_on.coupled_operator_api
+    api_on = state_on.coupled_operators
     dt_psi_from_rhs = np.asarray(
         api_on._get_dt_psi_from_toroidal_rhs_dense(use_pinning=state_on.apply_psi_gauge), dtype=float
     )

@@ -87,7 +87,7 @@ class Dynamics:
         self.io = self.data.io
         cs_basis = self.data.cs_basis
         sh_basis = self.data.sh_basis
-        sh_basis_zero_removed = self.data.sh_basis_zero_removed
+        sh_mean_free_basis = sh_basis.with_mean_free(True)
 
         # Select grid basis based on simulation mode
         # GL grid for exact SH transforms (pure spectral and GL transform modes)
@@ -115,12 +115,12 @@ class Dynamics:
         solution_basis = self.data.solution_basis
 
         self.interpolation_bases = {
-            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else grid_basis,
-            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else grid_basis,
+            "jr": sh_mean_free_basis if bool(self.settings.vector_jr) else grid_basis,
+            "Br": sh_mean_free_basis if bool(self.settings.vector_Br) else grid_basis,
             "conductance": sh_basis if bool(self.settings.vector_conductance) else grid_basis,
-            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else grid_basis,
+            "u": sh_mean_free_basis if bool(self.settings.vector_u) else grid_basis,
             # Add psi to interpolation bases to support output timeseries loading
-            "psi": sh_basis_zero_removed, 
+            "psi": sh_mean_free_basis,
         }
 
         self.mainfield = self.data.mainfield

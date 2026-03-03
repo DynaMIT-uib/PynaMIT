@@ -124,7 +124,7 @@ def test_numerical_exactness_verified():
     theta_grid, phi_grid = np.meshgrid(theta_1d, phi_1d, indexing='ij')
     
     # Generate signal Y_2,2 (Real) using PynaMIT basis
-    basis = SHBasis(Nmax, Nmax)
+    basis = SHBasis(Nmax, Nmax, mean_free=True)
     coeffs_true = np.zeros(basis.index_length)
     # Inject mode L=2, M=2 (Cos)
     idx_target = np.where((basis.n == 2) & (basis.m == 2))[0][0]
@@ -151,7 +151,7 @@ def test_numerical_exactness_verified():
             g = Grid(lat, lon)
             
             # Use basis to evaluate
-            b = SHBasis(Nmax, Nmax)
+            b = SHBasis(Nmax, Nmax, mean_free=True)
             c = np.zeros(b.index_length)
             idx_b = np.where((b.n == 2) & (b.m == 2))[0][0]
             c[idx_b] = 10.0 # Target Coeff

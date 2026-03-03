@@ -172,7 +172,7 @@ def compute_stage_errors(
         f"connect_hemispheres={connect_hemispheres})"
     )
     t0 = time.perf_counter()
-    sh_basis = SHBasis(nmax, mmax)
+    sh_basis = SHBasis(nmax, mmax, mean_free=True)
     state_st = _build_state(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
         nmax=nmax,
@@ -301,7 +301,7 @@ def compute_stage_errors(
         if probe_mode == "dense":
             _log("[dtalpha_from_rhs] build dense maps...")
             dtalpha_from_rhs_st_map = np.asarray(
-                state_st.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
+                state_st.toroidal_matrices.solver._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
@@ -310,7 +310,7 @@ def compute_stage_errors(
                 )
             )
             dtalpha_from_rhs_cs_map = np.asarray(
-                state_cs.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
+                state_cs.toroidal_matrices.solver._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
@@ -333,7 +333,7 @@ def compute_stage_errors(
 
             def _apply_dtalpha_from_rhs_st(v_sh):
                 x = a_st @ v_sh
-                y = state_st.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
+                y = state_st.toroidal_matrices.solver._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
@@ -344,7 +344,7 @@ def compute_stage_errors(
 
             def _apply_dtalpha_from_rhs_cs(v_sh):
                 x = a_cs @ v_sh
-                y = state_cs.toroidal_matrices._get_unconstrained_dtalpha_map_cached(
+                y = state_cs.toroidal_matrices.solver._get_unconstrained_dtalpha_map_cached(
                     weighting="none",
                     regularization_lambda=0.0,
                     penalty_operator=None,
@@ -377,12 +377,12 @@ def compute_stage_errors(
         if probe_mode == "dense":
             _log("[dtalpha_to_dt_psi] build dense maps...")
             dtalpha_to_dt_psi_st_map = np.asarray(
-                state_st.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                state_st.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
                     m_imp_to_jr_operator=m_imp_to_jr_st, use_pinning=False
                 )
             )
             dtalpha_to_dt_psi_cs_map = np.asarray(
-                state_cs.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                state_cs.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
                     m_imp_to_jr_operator=m_imp_to_jr_cs, use_pinning=False
                 )
             )
@@ -401,7 +401,7 @@ def compute_stage_errors(
 
             def _apply_dtalpha_to_dt_psi_st(v_sh):
                 x = a_st @ v_sh
-                y = state_st.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                y = state_st.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
                     m_imp_to_jr_operator=m_imp_to_jr_st,
                     use_pinning=False,
                 ) @ x
@@ -409,7 +409,7 @@ def compute_stage_errors(
 
             def _apply_dtalpha_to_dt_psi_cs(v_sh):
                 x = a_cs @ v_sh
-                y = state_cs.toroidal_matrices._get_dtalpha_to_dt_psi_map_cached(
+                y = state_cs.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
                     m_imp_to_jr_operator=m_imp_to_jr_cs,
                     use_pinning=False,
                 ) @ x

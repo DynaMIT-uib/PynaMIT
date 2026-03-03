@@ -12,7 +12,7 @@ def test_fast_vs_slow_equivalence_scalar(N, M, phi_offset):
     Verify Fast vs Slow Equivalence for Scalar Fields.
     Expect Bit-Exact Identity for reg_lambda=0.
     """
-    basis = SHBasis(Nmax=N, Mmax=M, Nmin=0)
+    basis = SHBasis(Nmax=N, Mmax=M, mean_free=False)
     
     # Grid
     N_lat = 2 * N + 4
@@ -50,7 +50,7 @@ def test_fast_vs_slow_equivalence_vector(N, M):
     Verify Fast vs Slow Equivalence for Vector Fields.
     Expect Bit-Exact for Zonal (m=0), Approx 4% for Coupled (m>0).
     """
-    basis = SHBasis(Nmax=N, Mmax=M, Nmin=0)
+    basis = SHBasis(Nmax=N, Mmax=M, mean_free=False)
     
     # Grid
     N_lat = 2 * N + 6

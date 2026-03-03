@@ -61,7 +61,7 @@ def test_cs_basis_state_end_to_end():
     # We still need an SHBasis instance for Geometry initialization (legacy signature requires it),
     # but we pass cs_basis as 'solution_basis' to override solver logic.
     # The 'basis' arg is used for standard generic helpers if needed.
-    sh_basis_dummy = SHBasis(Nmax=10, Mmax=8) 
+    sh_basis_dummy = SHBasis(Nmax=10, Mmax=8, mean_free=True) 
     
     mainfield = Mainfield("dipole")
     settings = MockSettings()

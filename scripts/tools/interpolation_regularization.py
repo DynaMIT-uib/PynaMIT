@@ -169,7 +169,11 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         Nmax_values.append(Nmax)
 
-        sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
+        sh_basis = pynamit.SHBasis(
+            Nmax,
+            Mmax,
+            mean_free=bool(nmin >= 1),
+        )
         input_sh = pynamit.Field.from_grid_values_expansion(
             sh_basis,
             grid_values=input_grid_values,

@@ -20,7 +20,7 @@ AvailableMemoryFn = Callable[[], Optional[int]]
 logger = logging.getLogger(__name__)
 
 
-class StateInductionAPI:
+class StateInduction:
     """Expose induction/coupled orchestration on top of a `State` instance."""
 
     def __init__(

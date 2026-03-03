@@ -26,7 +26,7 @@ class TestNorthernConstraints:
         )
         
         mainfield = Mainfield(kind="igrf", epoch=2020)
-        basis = SHBasis(settings.Nmax, settings.Mmax)
+        basis = SHBasis(settings.Nmax, settings.Mmax, mean_free=True)
         grid_basis = CSBasis(settings.Ncs) # dummy grid
         
         # 1. Baseline (Legacy)

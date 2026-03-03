@@ -8,7 +8,7 @@ import xarray as xr
 from pynamit.primitives.field import Field
 from pynamit.primitives.grid import Grid
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.visualization.grid_evaluation import (
+from pynamit.postprocess.grid_evaluation import (
     decode_conductance_dataset_to_grids,
     decode_conductance_entry_to_grids,
     evaluate_scalar_coeffs_to_grid,
@@ -28,7 +28,7 @@ def _build_test_grid() -> Grid:
 
 
 def test_evaluate_scalar_coeffs_to_grid_matches_field_evaluation() -> None:
-    basis = SHBasis(3, 3, Nmin=0)
+    basis = SHBasis(3, 3, mean_free=False)
     grid = _build_test_grid()
     rng = np.random.default_rng(0)
     coeffs = rng.standard_normal(basis.index_length)
@@ -48,7 +48,7 @@ def test_evaluate_scalar_coeffs_to_grid_matches_field_evaluation() -> None:
 
 
 def test_evaluate_tangential_coeffs_to_grid_components_matches_field_evaluation() -> None:
-    basis = SHBasis(3, 3, Nmin=0)
+    basis = SHBasis(3, 3, mean_free=False)
     grid = _build_test_grid()
     rng = np.random.default_rng(1)
     coeffs = rng.standard_normal((2, basis.index_length))
@@ -71,7 +71,7 @@ def test_evaluate_tangential_coeffs_to_grid_components_matches_field_evaluation(
 
 
 def test_decode_conductance_dataset_to_grids_matches_entry_decoder_for_log_sigma() -> None:
-    basis = SHBasis(3, 3, Nmin=0)
+    basis = SHBasis(3, 3, mean_free=False)
     grid = _build_test_grid()
     rng = np.random.default_rng(2)
     coeffs_p = rng.standard_normal(basis.index_length)

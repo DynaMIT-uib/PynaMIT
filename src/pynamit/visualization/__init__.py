@@ -5,11 +5,9 @@ operator/grid-evaluation helpers. Import those plotting entry points only when
 their dependencies are available.
 """
 
-from .results_operators import (
+from pynamit.postprocess import (
     PoloidalResultsOperators,
     build_poloidal_results_operators,
-)
-from .grid_evaluation import (
     decode_conductance_dataset_to_grids,
     decode_conductance_entry_to_grids,
     evaluate_scalar_coeffs_to_grid,

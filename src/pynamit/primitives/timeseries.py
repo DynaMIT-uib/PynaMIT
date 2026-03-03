@@ -89,6 +89,10 @@ class Timeseries:
                 self.storage_bases[key].index_names
             ).assign_coords(coords)
 
+    def get_data_var_name(self, key, var):
+        """Return the stored xarray variable name for one timeseries entry."""
+        return f"{self.storage_bases[key].kind}_{var}"
+
     def add_entry(self, key, data, time):
         """Add entry to the timeseries.
 
@@ -106,7 +110,7 @@ class Timeseries:
         """
         data_vars = {}
         for var in data:
-            data_vars[self.storage_bases[key].kind + "_" + var] = (
+            data_vars[self.get_data_var_name(key, var)] = (
                 ["time", "i"],
                 data[var].reshape((1, -1)),
             )
@@ -150,9 +154,7 @@ class Timeseries:
             )
 
             for var in self.variables[key]:
-                current_data[var] = dataset_before[
-                    self.storage_bases[key].kind + "_" + var
-                ].values.flatten()
+                current_data[var] = dataset_before[self.get_data_var_name(key, var)].values.flatten()
                 # Default derivative is zero if no next point
                 current_derivative[var] = np.zeros_like(current_data[var])
 
@@ -168,8 +170,8 @@ class Timeseries:
                 if dt > 0:
                      factor = (time - dataset_before.time.item()) / dt
                      for var in self.variables[key]:
-                        y0 = dataset_before[self.storage_bases[key].kind + "_" + var].values.flatten()
-                        y1 = dataset_after[self.storage_bases[key].kind + "_" + var].values.flatten()
+                        y0 = dataset_before[self.get_data_var_name(key, var)].values.flatten()
+                        y1 = dataset_after[self.get_data_var_name(key, var)].values.flatten()
                         
                         slope = (y1 - y0) / dt
                         

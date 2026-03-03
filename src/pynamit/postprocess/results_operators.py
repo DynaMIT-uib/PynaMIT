@@ -1,9 +1,9 @@
-"""Explicit operator bundles for postprocessing and visualization."""
+"""Explicit operator bundles for postprocessing."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -39,7 +39,7 @@ class PoloidalResultsOperators:
         coeff_vec = float(scale) * np.asarray(coeffs).reshape(-1)
         return np.asarray(self.scalar_evaluation_matrix @ coeff_vec).reshape(-1)
 
-    def evaluate_scalar_operator(
+    def _evaluate_scalar_operator(
         self,
         operator: np.ndarray,
         coeffs: np.ndarray,
@@ -50,15 +50,15 @@ class PoloidalResultsOperators:
 
     def evaluate_br(self, m_ind: np.ndarray) -> np.ndarray:
         """Evaluate radial magnetic perturbation on the target grid."""
-        return self.evaluate_scalar_operator(self.m_ind_to_Br, m_ind)
+        return self._evaluate_scalar_operator(self.m_ind_to_Br, m_ind)
 
     def evaluate_jr(self, m_imp: np.ndarray) -> np.ndarray:
         """Evaluate radial current density on the target grid."""
-        return self.evaluate_scalar_operator(self.m_imp_to_jr, m_imp)
+        return self._evaluate_scalar_operator(self.m_imp_to_jr, m_imp)
 
     def evaluate_jeq(self, m_ind: np.ndarray) -> np.ndarray:
         """Evaluate equivalent current function on the target grid."""
-        return self.evaluate_scalar_operator(self.m_ind_to_Jeq, m_ind)
+        return self._evaluate_scalar_operator(self.m_ind_to_Jeq, m_ind)
 
     @staticmethod
     def _evaluate_vector_operator(operator: np.ndarray, coeffs: np.ndarray) -> np.ndarray:

@@ -18,10 +18,12 @@ prefixes = [
 ]
 simulation_data_list = [SimulationData.from_prefix(prefix) for prefix in prefixes]
 state_data_list = [simulation_data.get_dataset("state") for simulation_data in simulation_data_list]
+m_ind_name = simulation_data_list[0].get_data_var_name("state", "m_ind")
+m_imp_name = simulation_data_list[0].get_data_var_name("state", "m_imp")
 
 settings = simulation_data_list[0].settings
 RI = settings.RI
-sh_basis = simulation_data_list[0].sh_basis_zero_removed
+sh_basis = simulation_data_list[0].sh_basis.with_mean_free(True)
 
 t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
@@ -48,7 +50,7 @@ fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
 for state_data in state_data_list:
     # Calculate the time series.
-    m_ind = state_data.SH_m_ind.values.T
+    m_ind = state_data[m_ind_name].values.T
 
     Br = (sh_basis.get_evaluation_matrix(ground_grid) * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
     Bh = (-sh_basis.get_gradient_matrix(ground_grid) * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
@@ -85,11 +87,11 @@ fig, axes = plt.subplots(ncols=5, nrows=5, sharex=True)
 
 for state_data in state_data_list:
     # calculate the time series:
-    m_ind = state_data.SH_m_ind.values.T
+    m_ind = state_data[m_ind_name].values.T
 
     for i in range(25):
         axes.flatten()[i].plot(
-            state_data.time.values, state_data["SH_m_imp"].values[:, i], label="$B_r$"
+            state_data.time.values, state_data[m_imp_name].values[:, i], label="$B_r$"
         )
 
 
@@ -109,7 +111,7 @@ for p, state_data in zip(periods, state_data_list):
         (np.ones_like(t), np.cos(t / p * 2 * np.pi), np.sin(t / p * 2 * np.pi))
     ).T
 
-    m_ind = sd.SH_m_ind.values.T
+    m_ind = sd[m_ind_name].values.T
     Br = (sh_basis.get_evaluation_matrix(ground_grid) * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
 
     # Fit the wave parameters.
