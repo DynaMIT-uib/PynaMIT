@@ -298,6 +298,22 @@ class FieldSpec:
             kwargs.setdefault("mean_free", self.mean_free)
         return self.basis.from_grid_values(values, grid, vector_type, **kwargs)
 
+    def evaluate(
+        self,
+        coeffs: np.ndarray,
+        grid: Any,
+        vector_type: str = "scalar",
+    ) -> np.ndarray:
+        """Evaluate coefficients in this field space on a grid."""
+        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
+            return self.basis.evaluate(
+                coeffs,
+                grid,
+                vector_type=vector_type,
+                mean_free=self.mean_free,
+            )
+        return self.basis.evaluate(coeffs, grid, vector_type=vector_type)
+
     def get_scaled_matrix(self, grid: Any, factor: Any) -> Any:
         """Return an evaluation matrix scaled by a row or column factor."""
         import scipy.sparse

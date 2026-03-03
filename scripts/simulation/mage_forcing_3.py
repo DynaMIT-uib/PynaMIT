@@ -117,16 +117,16 @@ dynamics = pynamit.Dynamics(
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     #dynamics_mode="full_induction",
-    northern_hemisphere_apex_constraints=True,
+    #northern_hemisphere_apex_constraints=False,
     # Induced channels are unlocked; imposed m_imp closure remains locked by design.
-    magnetospheric_toroidal_lock=False,
-    magnetospheric_poloidal_lock=False,
+    #magnetospheric_toroidal_lock=False,
+    #magnetospheric_poloidal_lock=False,
     least_squares_solver="normal_eq",
     t0=str(date),
     integrator="DOP853",
     # Enable SH fast input projection for regular ionosphere-grid inputs (jr/SP/SH/u).
     # Br remains on the curvilinear magnetosphere grid and will use the slow path.
-    enable_fast_input_path=True,
+    #enable_fast_input_path=True,
 )
 
 #FAC_b_evaluator = pynamit.FieldEvaluator(
