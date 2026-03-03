@@ -83,7 +83,7 @@ def test_full_induction_coupled_column_scale_cache(tmp_path):
 
     st = sim.state
     cache = getattr(st, "_coupled_steady_state_column_scale_cache")
-    n = st.solution_basis.index_length
+    n = st.solution_space.index_length
     key = (bool(st.apply_psi_gauge), int(n))
     cache_key = key
     if cache_key not in cache:

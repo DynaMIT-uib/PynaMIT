@@ -46,7 +46,7 @@ class StateInduction:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Apply imposed toroidal baseline to a direct electric field."""
         st = self._state
-        E_shape = (2, st.solution_basis.index_length)
+        E_shape = (2, st.solution_space.index_length)
         m_imp = st._build_imposed_toroidal_baseline(jr_coeffs, E_direct_coeffs)
         E_imp = st._apply_operator(st.m_imp_to_E_coeffs, m_imp, E_shape)
         return E_direct_coeffs + E_imp, m_imp
@@ -54,7 +54,7 @@ class StateInduction:
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction feedback."""
         st = self._state
-        E_shape = (2, st.solution_basis.index_length)
+        E_shape = (2, st.solution_space.index_length)
         if st.u is None:
             E_direct = xp.zeros(E_shape)
         else:
@@ -82,7 +82,7 @@ class StateInduction:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Assemble non-inductive forcing and update toroidal residual rate."""
         st = self._state
-        n = st.solution_basis.index_length
+        n = st.solution_space.index_length
 
         if st.psi is None:
             st.psi = xp.zeros(n)
@@ -158,9 +158,9 @@ class StateInduction:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Build toroidal `(twist_rate_known_grid, dr_twist_rate_known_grid)` from poloidal forcing."""
         st = self._state
-        E_df_known = asarray(st.solution_basis.get_toroidal_potential_coeffs(E_known))
+        E_df_known = asarray(st.solution_space.get_toroidal_potential_coeffs(E_known))
         dt_m_ind_known = asarray(st.poloidal_matrices.E_df_to_d_m_ind_dt * E_df_known)
-        analysis_basis = getattr(st.toroidal_matrices, "rhs_derivative_basis", st.solution_basis)
+        analysis_basis = getattr(st.toroidal_matrices, "rhs_derivative_basis", st.solution_space)
         return st.poloidal_matrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind(
             dt_m_ind_known,
             analysis_basis=analysis_basis,
@@ -170,16 +170,16 @@ class StateInduction:
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total induced E-field coefficients."""
         st = self._state
-        E_shape = (2, st.solution_basis.index_length)
+        E_shape = (2, st.solution_space.index_length)
         E_direct_ind = st._apply_operator(st.m_ind_to_E_coeffs, asarray(m_ind), E_shape)
         if st.dynamics_mode == "full_induction":
-            return E_direct_ind, xp.zeros(st.solution_basis.index_length)
+            return E_direct_ind, xp.zeros(st.solution_space.index_length)
         return self._calculate_total_E_field(E_direct_ind, None)
 
     def calculate_psi_E_coeffs(self, psi: np.ndarray) -> np.ndarray:
         """Map inductive toroidal residual `psi` to E-field coefficients."""
         st = self._state
-        E_shape = (2, st.solution_basis.index_length)
+        E_shape = (2, st.solution_space.index_length)
         return st._apply_operator(st.toroidal_to_E_coeffs, asarray(psi), E_shape)
 
     def build_m_ind_to_E_df_matrix(self) -> np.ndarray:
@@ -198,8 +198,8 @@ class StateInduction:
     def build_E_coeffs_to_E_df_matrix(self) -> np.ndarray:
         """Operator extracting toroidal potential (`E_df`) from vector coefficients."""
         st = self._state
-        N = st.solution_basis.index_length
-        kind = getattr(st.solution_basis, "kind", "")
+        N = st.solution_space.index_length
+        kind = getattr(st.solution_space, "kind", "")
 
         if kind == "SH":
             zeros = np.zeros((N, N))
@@ -207,7 +207,7 @@ class StateInduction:
             return asarray(np.hstack([zeros, eye]))
 
         if kind in ("CS", "GRID"):
-            P = st.solution_basis.construct_projection_matrix(st.geometry.grid)
+            P = st.solution_space.construct_projection_matrix(st.geometry.grid)
             if P.ndim != 4 or P.shape[0] != 2 or P.shape[2] != 2:
                 raise ValueError(
                     "Projection matrix must have canonical shape (2, n_coeffs, 2, n_grid), "
@@ -220,7 +220,7 @@ class StateInduction:
             e_i = np.zeros(2 * N)
             e_i[i] = 1.0
             coeffs = e_i.reshape(2, N)
-            M[:, i] = asarray(st.solution_basis.get_toroidal_potential_coeffs(coeffs))
+            M[:, i] = asarray(st.solution_space.get_toroidal_potential_coeffs(coeffs))
         return asarray(M)
 
     def get_induction_operator(self) -> LinearMap:
@@ -241,7 +241,7 @@ class StateInduction:
         """Build coupled forcing tensor `K` for `[psi, m_ind]` dynamics."""
         st = self._state
         scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-        E_noind_field = st.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(
+        E_noind_field = st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(
             E_coeffs_noind
         )
         k1 = asarray(scale * E_noind_field)
@@ -259,7 +259,7 @@ class StateInduction:
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Compute steady-state initialization for the current dynamics mode."""
         st = self._state
-        N = st.solution_basis.index_length
+        N = st.solution_space.index_length
         if st.dynamics_mode == "full_induction":
             y_ss = st._solve_linear_steady_state(
                 linear_operator=None,
@@ -275,7 +275,7 @@ class StateInduction:
             return psi, m_ind
 
         k_legacy = asarray(
-            st.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(E_coeffs_noind)
+            st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(E_coeffs_noind)
         )
         m_ss = st._solve_linear_steady_state(
             linear_operator=st.m_ind_to_E_df_matrix,
@@ -299,14 +299,14 @@ class StateInduction:
         if st.dynamics_mode == "full_induction":
             if psi is None:
                 if st.psi is None:
-                    st.psi = xp.zeros((st.solution_basis.index_length,))
+                    st.psi = xp.zeros((st.solution_space.index_length,))
                 psi = st.psi
 
             y = xp.stack([asarray(psi), asarray(m_ind)])
             K = self.build_coupled_forcing(E_coeffs_noind)
             if isinstance(st.poloidal_integrator, ExponentialIntegrator):
                 use_pinning = st.apply_psi_gauge
-                N = st.solution_basis.index_length
+                N = st.solution_space.index_length
                 m = 2 * N
                 exp_kwargs: Dict[str, Any] = {
                     "max_step_scale": 10.0,
@@ -382,7 +382,7 @@ class StateInduction:
         if use_dense_rate_operator:
             scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
             linear_operator = scale * asarray(st.m_ind_to_E_df_matrix)
-            E_noind_field = st.poloidal_matrices.solution_basis.get_toroidal_potential_coeffs(
+            E_noind_field = st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(
                 E_coeffs_noind
             )
             forcing = asarray(scale * E_noind_field)

@@ -23,7 +23,7 @@ class StateConstraints:
     def __init__(
         self,
         geometry: Any,
-        solution_basis: Any,
+        solution_space: Any,
         dynamics_mode: str,
         connect_hemispheres: bool,
         magnetospheric_toroidal_lock: bool,
@@ -31,7 +31,7 @@ class StateConstraints:
         apply_m_ind_gauge: bool,
     ):
         self.geometry = geometry
-        self.solution_basis = solution_basis
+        self.solution_space = solution_space
         self.dynamics_mode = dynamics_mode
         self.connect_hemispheres = connect_hemispheres
         self.magnetospheric_toroidal_lock = magnetospheric_toroidal_lock
@@ -137,10 +137,10 @@ class StateConstraints:
 
     def _basis_has_mean_free_scalar_space(self) -> bool:
         """Return whether solution-basis scalar coefficients are mean-free by construction."""
-        if not hasattr(self.solution_basis, "scalar_fields_are_mean_free_by_construction"):
+        if not hasattr(self.solution_space, "scalar_fields_are_mean_free_by_construction"):
             return False
         try:
-            return bool(self.solution_basis.scalar_fields_are_mean_free_by_construction())
+            return bool(self.solution_space.scalar_fields_are_mean_free_by_construction())
         except Exception:
             return False
 
@@ -148,10 +148,10 @@ class StateConstraints:
         """Return scalar gauge row for psi coefficients."""
         if self._basis_has_mean_free_scalar_space():
             return np.zeros((0, n_coeff), dtype=float)
-        if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
+        if hasattr(self.solution_space, "get_scalar_gauge_constraint_matrix"):
             try:
                 row = np.asarray(
-                    self.solution_basis.get_scalar_gauge_constraint_matrix(
+                    self.solution_space.get_scalar_gauge_constraint_matrix(
                         n_coeff=n_coeff,
                         mode="mean_zero",
                     )
@@ -177,8 +177,8 @@ class StateConstraints:
     @cached_property
     def m_ind_gauge_projector(self) -> np.ndarray:
         """Dense scalar gauge projector for legacy m_ind evolution."""
-        n = self.solution_basis.index_length
-        kind = getattr(self.solution_basis, "kind", "")
+        n = self.solution_space.index_length
+        kind = getattr(self.solution_space, "kind", "")
         if not self.apply_m_ind_gauge or kind not in ("CS", "GRID"):
             return np.eye(n, dtype=float)
 
@@ -200,8 +200,8 @@ class StateConstraints:
     @cached_property
     def m_imp_gauge_projector(self) -> np.ndarray:
         """Dense scalar gauge projector for imposed toroidal scalar m_imp."""
-        n = self.solution_basis.index_length
-        kind = getattr(self.solution_basis, "kind", "")
+        n = self.solution_space.index_length
+        kind = getattr(self.solution_space, "kind", "")
         if kind not in ("CS", "GRID"):
             return np.eye(n, dtype=float)
 
@@ -315,7 +315,7 @@ class StateConstraints:
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Build global and HL magnetic-energy metrics in coefficient space."""
         try:
-            curl = np.asarray(self.solution_basis.get_curl_matrix(self.geometry.grid), dtype=float)
+            curl = np.asarray(self.solution_space.get_curl_matrix(self.geometry.grid), dtype=float)
         except Exception:
             logger.warning("Energy-metric split: curl operator unavailable.", exc_info=True)
             return None, None

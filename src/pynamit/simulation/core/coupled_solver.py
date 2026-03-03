@@ -634,7 +634,7 @@ class CoupledOperators:
     def _dense_E_coeff_operator_matrix(self, op: Any) -> np.ndarray:
         """Return dense ``(2N, N)`` matrix for a coefficient->E operator."""
         st = self.state
-        n = st.solution_basis.index_length
+        n = st.solution_space.index_length
         arr = np.asarray(to_dense(op))
         if arr.ndim == 3:
             arr = arr.reshape(2 * n, n)
@@ -695,11 +695,11 @@ class CoupledOperators:
     def _get_twist_rate_known_rhs_from_dt_m_ind_dense(self) -> np.ndarray:
         """Dense map ``dm_ind_dt -> toroidal_rhs`` for optional known-u closure."""
         st = self.state
-        n = int(st.solution_basis.index_length)
+        n = int(st.solution_space.index_length)
         if not bool(getattr(st, "use_toroidal_twist_rate_known_from_poloidal", False)):
             return np.zeros((n, n), dtype=float)
 
-        analysis_basis = getattr(st.toroidal_matrices, "rhs_derivative_basis", st.solution_basis)
+        analysis_basis = getattr(st.toroidal_matrices, "rhs_derivative_basis", st.solution_space)
         radial_model = str(getattr(st, "toroidal_twist_rate_known_radial_model", "none")).lower()
         key = (id(analysis_basis), radial_model)
         cached = self._twist_rate_known_rhs_from_dt_m_ind_dense_cache.get(key)
@@ -729,7 +729,7 @@ class CoupledOperators:
     ) -> np.ndarray:
         """Dense correction ``m_ind -> dpsi/dt`` from optional known-u hook."""
         st = self.state
-        n = int(st.solution_basis.index_length)
+        n = int(st.solution_space.index_length)
         if not bool(getattr(st, "use_toroidal_twist_rate_known_from_poloidal", False)):
             return np.zeros((n, n), dtype=float)
 
@@ -789,7 +789,7 @@ class CoupledOperators:
     def get_coupled_induction_tensor(self, use_pinning: Optional[bool] = None) -> np.ndarray:
         """Build the coupled tensor ``L_coupled`` with shape ``(2, N, 2, N)``."""
         st = self.state
-        n = st.solution_basis.index_length
+        n = st.solution_space.index_length
         if use_pinning is None:
             use_pinning = st.apply_psi_gauge
 
@@ -837,7 +837,7 @@ class CoupledOperators:
         from pynamit.simulation.induction.operators import BlockCoupledOperator
 
         st = self.state
-        n = st.solution_basis.index_length
+        n = st.solution_space.index_length
         if use_pinning is None:
             use_pinning = st.apply_psi_gauge
         if st.dense_full_operators and matrix_free:
@@ -919,7 +919,7 @@ class CoupledOperators:
         st = self.state
         if use_pinning is None:
             use_pinning = st.apply_psi_gauge
-        n = st.solution_basis.index_length
+        n = st.solution_space.index_length
         n_total = 2 * n
 
         chosen = source
@@ -979,7 +979,7 @@ class CoupledOperators:
         if use_pinning is None:
             use_pinning = st.apply_psi_gauge
 
-        n_total = 2 * st.solution_basis.index_length
+        n_total = 2 * st.solution_space.index_length
         use_dense = st.dense_full_operators or (st.integrator == "exponential") or (n_total <= 600)
         if use_dense:
             if use_pinning == st.apply_psi_gauge:
@@ -1058,7 +1058,7 @@ class CoupledOperators:
         rcond = float(np.finfo(float).eps * max(dim_max, 1))
         solver = LeastSquaresSolver(solver="svd", tolerance=max(float(rcond), 1e-15))
         m_imp_from_jr = np.asarray(solver.solve(st.m_imp_problem, rhs_terms)).reshape(
-            st.solution_basis.index_length, n_scenarios
+            st.solution_space.index_length, n_scenarios
         )
         if st.dynamics_mode == "full_induction":
             m_imp_from_jr = self.get_hl_projection_matrix(m_imp_from_jr.shape[0]) @ m_imp_from_jr
@@ -1072,7 +1072,7 @@ class CoupledOperators:
     ) -> Dict[str, np.ndarray]:
         """Expose dense rate maps from ``u`` and ``jr`` into the coupled system."""
         st = self.state
-        n = st.solution_basis.index_length
+        n = st.solution_space.index_length
         n2 = 2 * n
         feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
 

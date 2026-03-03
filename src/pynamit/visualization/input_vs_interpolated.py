@@ -205,7 +205,9 @@ def plot_input_vs_interpolated(
                 pynamit_ts_key, time_val, interpolation=False
             )
             if timeseries_entry:
-                storage_basis = simulation_data.get_storage_basis(pynamit_ts_key)
+                storage_spec = simulation_data.get_storage_spec(pynamit_ts_key)
+                storage_basis = storage_spec.basis
+                storage_mean_free = bool(storage_spec.mean_free)
                 if pynamit_ts_key not in plot_grids:
                     plot_grids[pynamit_ts_key] = Grid(
                         lat=current_lat_coords_pass1, lon=current_lon_coords_pass1
@@ -214,12 +216,20 @@ def plot_input_vs_interpolated(
                 if pynamit_ts_key == "Br":
                     coeffs = timeseries_entry.get("Br")
                     calculated_interpolated_data_2d = evaluate_scalar_coeffs_to_grid(
-                        coeffs, storage_basis, current_grid, target_shape_pass1
+                        coeffs,
+                        storage_basis,
+                        current_grid,
+                        target_shape_pass1,
+                        mean_free=storage_mean_free,
                     )
                 elif pynamit_ts_key == "jr":
                     coeffs = timeseries_entry.get("jr")
                     calculated_interpolated_data_2d = evaluate_scalar_coeffs_to_grid(
-                        coeffs, storage_basis, current_grid, target_shape_pass1
+                        coeffs,
+                        storage_basis,
+                        current_grid,
+                        target_shape_pass1,
+                        mean_free=storage_mean_free,
                     )
                 elif pynamit_ts_key == "conductance":
                     sP_f, sH_f, _, _ = decode_conductance_entry_to_grids(
@@ -236,7 +246,11 @@ def plot_input_vs_interpolated(
                 elif pynamit_ts_key == "u":
                     coeffs = timeseries_entry.get("u")
                     u_t_2d, u_p_2d = evaluate_tangential_coeffs_to_grid_components(
-                        coeffs, storage_basis, current_grid, target_shape_pass1
+                        coeffs,
+                        storage_basis,
+                        current_grid,
+                        target_shape_pass1,
+                        mean_free=storage_mean_free,
                     )
                     if data_type_str == "u_mag":
                         calculated_interpolated_data_2d = np.sqrt(u_t_2d**2 + u_p_2d**2)

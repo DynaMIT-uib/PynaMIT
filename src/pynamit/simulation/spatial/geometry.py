@@ -16,6 +16,7 @@ from functools import cached_property
 import scipy.sparse
 
 from pynamit.math.constants import mu0
+from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field import Field
 from pynamit.utils import tensor_pinv
@@ -56,7 +57,7 @@ class Geometry:
         mainfield: Any,
         settings: Any,
         PFAC_matrix: Optional[xr.DataArray] = None,
-        solution_basis: Optional[Any] = None,
+        solution_space: Optional[Any] = None,
     ) -> None:
         """Initialize the geometric context.
 
@@ -72,11 +73,11 @@ class Geometry:
             Simulation settings.
         PFAC_matrix : xr.DataArray, optional
             Pre-computed PFAC matrix.
-        solution_basis : Any, optional
+        solution_space : Any, optional
             The basis used for the solution state variables.
         """
         self.basis = basis
-        self.solution_basis = solution_basis if solution_basis is not None else basis
+        self.solution_space = solution_space if solution_space is not None else basis
         self.mainfield = mainfield
 
         # Allow pre-computed PFAC matrix (must override cached_property if provided)
@@ -106,7 +107,7 @@ class Geometry:
         # Initialize PFAC integrator
         self._pfac = PFACIntegrator(
             basis=self.pfac_closure_basis,
-            solution_basis=self.solution_basis,
+            solution_space=self.solution_space,
             mainfield=self.mainfield,
             RI=self.RI,
             RM=self.RM,
@@ -134,6 +135,7 @@ class Geometry:
         # Initialize Poloidal System Matrices
         # Note: We defer initialization until after grid is set up
         self._poloidal_matrices: Optional[PoloidalSystemMatrices] = None
+        self._poloidal_results_operators_cache: dict[tuple[Any, ...], Any] = {}
 
     def _select_pfac_closure_basis(self, settings: Any) -> Basis:
         """Select basis used for PFAC/radial closure operations.
@@ -143,14 +145,18 @@ class Geometry:
         """
         mode = getattr(settings, "simulation_mode", None)
         mode_value = getattr(mode, "value", mode)
-        sol_kind = getattr(self.solution_basis, "kind", "")
+        sol_kind = getattr(self.solution_space, "kind", "")
         if sol_kind in ("CS", "GRID") and mode_value == "cs_dominant":
             from pynamit.spherical_harmonics.sh_basis import SHBasis
 
             logger.info(
                 "Using SH auxiliary closure basis for PFAC/radial coupling in cs_dominant."
             )
-            return SHBasis(int(settings.Nmax), int(settings.Mmax), mean_free=True)
+            return FieldSpec(
+                basis=SHBasis(int(settings.Nmax), int(settings.Mmax), mean_free=False),
+                field_type="scalar",
+                mean_free=True,
+            )
         return self.basis
 
     @property
@@ -165,7 +171,7 @@ class Geometry:
         if self._poloidal_matrices is None:
             self._poloidal_matrices = PoloidalSystemMatrices(
                 basis=self.basis,
-                solution_basis=self.solution_basis,
+                solution_space=self.solution_space,
                 grid=self.grid,
                 b_field=self.b_field,
                 RI=self.RI,
@@ -187,7 +193,15 @@ class Geometry:
         from pynamit.postprocess.results_operators import build_poloidal_results_operators
 
         target_grid = self.grid if grid is None else grid
-        target_basis = self.solution_basis if basis is None else basis
+        target_basis = self.solution_space if basis is None else basis
+        cache_key = (
+            getattr(target_grid, "hash", id(target_grid)),
+            getattr(target_basis, "signature", id(target_basis)),
+        )
+        cached = self._poloidal_results_operators_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         t_to_ve = np.asarray(self.poloidal_matrices.T_to_Ve, dtype=float)
         if hasattr(self.poloidal_matrices, "_apply_imposed_toroidal_poloidal_lock"):
             t_to_ve = np.asarray(
@@ -195,13 +209,15 @@ class Geometry:
                 dtype=float,
             )
 
-        return build_poloidal_results_operators(
+        bundle = build_poloidal_results_operators(
             basis=target_basis,
             grid=target_grid,
             RI=float(self.RI),
             T_to_Ve=t_to_ve,
             RM=getattr(self, "RM", None),
         )
+        self._poloidal_results_operators_cache[cache_key] = bundle
+        return bundle
 
     def _init_input_adapter(self) -> Optional[np.ndarray]:
         """Initialize hybrid basis adapter if needed.
@@ -211,12 +227,12 @@ class Geometry:
         np.ndarray or None
             Input adapter matrix, or None if not needed.
         """
-        if self.solution_basis is self.basis:
+        if self.solution_space is self.basis:
             return None
 
         try:
             # Check for different basis types
-            if getattr(self.solution_basis, "kind", "") != getattr(self.basis, "kind", ""):
+            if getattr(self.solution_space, "kind", "") != getattr(self.basis, "kind", ""):
                 logger.info("Basis mismatch detected: initializing hybrid adapter.")
                 G_dense = to_dense(self.basis.get_evaluation_matrix(self.grid))
                 return tensor_pinv(G_dense, n_leading_flattened=1)
@@ -245,7 +261,7 @@ class Geometry:
         coeffs = xp.tensordot(P_scalar, grid_data, axes=([1], [-1]))
 
         # 2. Synthesize to Gaunt grid
-        quad_grid = GauntEngine(self.solution_basis).quad_grid
+        quad_grid = GauntEngine(self.solution_space).quad_grid
         G_quad = to_dense(self.basis_zero_added.get_evaluation_matrix(quad_grid))
 
         res = xp.tensordot(G_quad, coeffs, axes=([1], [0]))
@@ -312,8 +328,8 @@ class Geometry:
             try:
                 op_js_coeff = self._get_JS_operator_spectral(potential_type)
                 G_vec = canonicalize_vector_basis_matrix(
-                    self.solution_basis.get_vector_basis_matrix(self.grid),
-                    basis_index_length=self.solution_basis.index_length,
+                    self.solution_space.get_vector_basis_matrix(self.grid),
+                    basis_index_length=self.solution_space.index_length,
                 )
                 # (2, N_grid, 2, N_coeffs) -> (2*N_grid, 2*N_coeffs)
                 op_eval = as_linear_map(
@@ -451,7 +467,7 @@ class Geometry:
         if use_isotropic:
             try:
                 logger.info("Building Analytic Interaction Matrix (Isotropic/Radial)...")
-                engine = GauntEngine(self.solution_basis)
+                engine = GauntEngine(self.solution_space)
                 return engine.get_isotropic_interaction_matrix(etaP.coeffs, etaH.coeffs)
             except Exception as e:
                 logger.warning(f"Isotropic Analytic construction failed ({e}).")
@@ -461,7 +477,7 @@ class Geometry:
             logger.info("Building General Analytic Interaction Matrix (Anisotropic Tensor)...")
             eta_quad = self._synthesize_to_gaunt(eta_grid)
 
-            engine = GauntEngine(self.solution_basis)
+            engine = GauntEngine(self.solution_space)
             return engine.get_interaction_matrix_from_real_grid(
                 eta_quad[0, 0], eta_quad[1, 1], eta_quad[0, 1], eta_quad[1, 0]
             )
@@ -472,7 +488,7 @@ class Geometry:
 
         # Quadrature fallback (robust)
         eta_quad = self._synthesize_to_gaunt(eta_grid)
-        engine = GauntEngine(self.solution_basis)
+        engine = GauntEngine(self.solution_space)
         return engine.get_vector_interaction_matrix(to_numpy(eta_quad))
 
     @cached_property
@@ -493,7 +509,7 @@ class Geometry:
             logger.info("Using exact GL quadrature for Helmholtz decomposition.")
             return self._build_exact_helmholtz_analysis()
 
-        P = self.solution_basis.construct_projection_matrix(self.grid)
+        P = self.solution_space.construct_projection_matrix(self.grid)
         # CSBasis returns 4D tensor (2, N_coeffs, 2, N_grid), flatten to 2D
         if P.ndim == 4:
             P = P.reshape(P.shape[0] * P.shape[1], P.shape[2] * P.shape[3])
@@ -637,16 +653,16 @@ class Geometry:
     @cached_property
     def G_Ve_to_JS(self) -> np.ndarray:
         """Grid-native Induction operator (Solution Basis)."""
-        if self.solution_basis.kind == "CS":
+        if self.solution_space.kind == "CS":
             try:
-                return self._compute_vsh_operator(self.solution_basis)
+                return self._compute_vsh_operator(self.solution_space)
             except (NotImplementedError, AttributeError):
                 logger.warning(
                     "CS Basis does not support operator construction. Falling back to spectral."
                 )
 
         # If SH basis (or fallback), reuse the SH operator
-        if self.solution_basis is self.basis:
+        if self.solution_space is self.basis:
             return self.G_Ve_to_JS_closure
 
-        return self._compute_vsh_operator(self.solution_basis)
+        return self._compute_vsh_operator(self.solution_space)

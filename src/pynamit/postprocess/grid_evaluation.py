@@ -13,17 +13,30 @@ from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.simulation.input import decode_conductance_representation_to_grids
 
 
-def get_scalar_grid_evaluation_matrix(storage_basis: Any, grid: Grid) -> np.ndarray:
+def get_scalar_grid_evaluation_matrix(
+    storage_basis: Any,
+    grid: Grid,
+    *,
+    mean_free: Optional[bool] = None,
+) -> np.ndarray:
     """Return the dense scalar evaluation matrix for ``storage_basis`` on ``grid``."""
-    return np.asarray(to_dense(storage_basis.get_evaluation_matrix(grid)))
+    kwargs = {}
+    if mean_free is not None and getattr(storage_basis, "kind", "") == "SH":
+        kwargs["mean_free"] = mean_free
+    return np.asarray(to_dense(storage_basis.get_evaluation_matrix(grid, **kwargs)))
 
 
 def get_tangential_grid_component_matrices(
     storage_basis: Any,
     grid: Grid,
+    *,
+    mean_free: Optional[bool] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return dense ``(theta, phi)`` tangential evaluation matrices on ``grid``."""
-    vector_basis = np.asarray(to_dense(storage_basis.get_vector_basis_matrix(grid)))
+    kwargs = {}
+    if mean_free is not None and getattr(storage_basis, "kind", "") == "SH":
+        kwargs["mean_free"] = mean_free
+    vector_basis = np.asarray(to_dense(storage_basis.get_vector_basis_matrix(grid, **kwargs)))
     if vector_basis.ndim != 4 or vector_basis.shape[0] != 2 or vector_basis.shape[2] != 2:
         raise ValueError(
             "Unexpected vector basis tensor shape for tangential grid evaluation: "
@@ -50,6 +63,7 @@ def evaluate_scalar_coeffs_to_grid(
     grid: Grid,
     target_shape: Tuple[int, ...],
     *,
+    mean_free: Optional[bool] = None,
     evaluation_matrix: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Evaluate scalar coefficients to a target grid."""
@@ -58,7 +72,7 @@ def evaluate_scalar_coeffs_to_grid(
     scalar_matrix = (
         np.asarray(evaluation_matrix)
         if evaluation_matrix is not None
-        else get_scalar_grid_evaluation_matrix(storage_basis, grid)
+        else get_scalar_grid_evaluation_matrix(storage_basis, grid, mean_free=mean_free)
     )
     values = scalar_matrix @ np.asarray(coeffs).reshape(-1)
     return np.asarray(values).reshape(target_shape)
@@ -70,6 +84,7 @@ def evaluate_tangential_coeffs_to_grid_components(
     grid: Grid,
     target_shape: Tuple[int, ...],
     *,
+    mean_free: Optional[bool] = None,
     theta_evaluation_matrix: Optional[np.ndarray] = None,
     phi_evaluation_matrix: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -78,7 +93,11 @@ def evaluate_tangential_coeffs_to_grid_components(
         nan_grid = np.full(target_shape, np.nan)
         return nan_grid, nan_grid
     if theta_evaluation_matrix is None or phi_evaluation_matrix is None:
-        theta_matrix, phi_matrix = get_tangential_grid_component_matrices(storage_basis, grid)
+        theta_matrix, phi_matrix = get_tangential_grid_component_matrices(
+            storage_basis,
+            grid,
+            mean_free=mean_free,
+        )
     else:
         theta_matrix = np.asarray(theta_evaluation_matrix)
         phi_matrix = np.asarray(phi_evaluation_matrix)

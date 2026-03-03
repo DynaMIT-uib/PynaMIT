@@ -53,7 +53,7 @@ def test_results_operator_bundle_exposes_expected_jeq_scaling() -> None:
     state = _build_state()
     bundle = state.geometry.get_poloidal_results_operators()
 
-    expected = (-state.RI / mu0) * np.asarray(to_dense(state.solution_basis.get_potential_scaling_operator()))
+    expected = (-state.RI / mu0) * np.asarray(to_dense(state.solution_space.get_potential_scaling_operator()))
     assert np.allclose(bundle.m_ind_to_Jeq, expected)
 
 
@@ -62,7 +62,7 @@ def test_results_operator_bundle_builders_agree_for_live_state() -> None:
 
     bundle_geometry = state.geometry.get_poloidal_results_operators()
     bundle_explicit = build_poloidal_results_operators(
-        basis=state.solution_basis,
+        basis=state.solution_space,
         grid=state.geometry.grid,
         RI=float(state.settings.RI),
         T_to_Ve=state.poloidal_matrices.T_to_Ve,
@@ -74,12 +74,20 @@ def test_results_operator_bundle_builders_agree_for_live_state() -> None:
         assert np.allclose(np.asarray(getattr(bundle_explicit, attr)), expected)
 
 
+def test_results_operator_bundle_is_cached_on_geometry() -> None:
+    state = _build_state()
+    bundle_1 = state.geometry.get_poloidal_results_operators()
+    bundle_2 = state.geometry.get_poloidal_results_operators()
+
+    assert bundle_1 is bundle_2
+
+
 def test_results_operator_bundle_evaluation_helpers_match_explicit_application() -> None:
     state = _build_state()
     bundle = state.geometry.get_poloidal_results_operators()
 
-    m_ind = np.arange(state.solution_basis.index_length, dtype=float)
-    m_imp = np.arange(state.solution_basis.index_length, dtype=float) + 1.0
+    m_ind = np.arange(state.solution_space.index_length, dtype=float)
+    m_imp = np.arange(state.solution_space.index_length, dtype=float) + 1.0
 
     expected_br = bundle.scalar_evaluation_matrix @ (bundle.m_ind_to_Br @ m_ind)
     expected_jr = bundle.scalar_evaluation_matrix @ (bundle.m_imp_to_jr @ m_imp)

@@ -23,7 +23,8 @@ m_imp_name = simulation_data_list[0].get_data_var_name("state", "m_imp")
 
 settings = simulation_data_list[0].settings
 RI = settings.RI
-sh_basis = simulation_data_list[0].sh_basis.with_mean_free(True)
+sh_basis = simulation_data_list[0].sh_basis
+mean_free_degrees = sh_basis.scalar_degrees(mean_free=True)
 
 t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
@@ -42,8 +43,12 @@ glat, glon = glat.flatten(), glon.flatten()
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
 # Removed BasisEvaluator. Logic will use basis and grid directly.
 
-m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n
-m_ind_to_Br_ground = sh_basis.n * (sh_basis.n + 1) * (RE / RI) ** (sh_basis.n - 1)
+m_ind_to_Bh_ground = -(mean_free_degrees + 1) * (RE / RI) ** mean_free_degrees
+m_ind_to_Br_ground = (
+    mean_free_degrees
+    * (mean_free_degrees + 1)
+    * (RE / RI) ** (mean_free_degrees - 1)
+)
 
 
 fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
@@ -52,8 +57,14 @@ for state_data in state_data_list:
     # Calculate the time series.
     m_ind = state_data[m_ind_name].values.T
 
-    Br = (sh_basis.get_evaluation_matrix(ground_grid) * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
-    Bh = (-sh_basis.get_gradient_matrix(ground_grid) * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
+    Br = (
+        sh_basis.get_evaluation_matrix(ground_grid, mean_free=True)
+        * m_ind_to_Br_ground.reshape((1, -1))
+    ).dot(m_ind)
+    Bh = (
+        -sh_basis.get_gradient_matrix(ground_grid, mean_free=True)
+        * m_ind_to_Bh_ground.reshape((1, -1))
+    ).dot(m_ind)
     Btheta, Bphi = np.split(Bh, 2, axis=0)
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
@@ -112,7 +123,10 @@ for p, state_data in zip(periods, state_data_list):
     ).T
 
     m_ind = sd[m_ind_name].values.T
-    Br = (sh_basis.get_evaluation_matrix(ground_grid) * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    Br = (
+        sh_basis.get_evaluation_matrix(ground_grid, mean_free=True)
+        * m_ind_to_Br_ground.reshape((1, -1))
+    ).dot(m_ind)
 
     # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]

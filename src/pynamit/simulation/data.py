@@ -14,6 +14,7 @@ import xarray as xr
 
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
+from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.io import IO
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.primitives.timeseries import Timeseries
@@ -21,12 +22,6 @@ from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.simulation.input import conductance_timeseries_vars_for_mode
 from pynamit.simulation.settings import DynamicsSettings
 from pynamit.simulation.spatial.geometry_utils import get_radial_shift_diagonal, to_dense
-
-
-def _get_mean_free_sh_basis(sh_basis: SHBasis) -> SHBasis:
-    """Return the mean-free scalar coefficient view of one full SH basis."""
-    return sh_basis.with_mean_free(True)
-
 
 def _build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasis]:
     """Build the standard CS basis and canonical full SH basis."""
@@ -39,9 +34,8 @@ def _create_input_timeseries(
     settings: DynamicsSettings,
     *,
     sh_basis: SHBasis,
-) -> tuple[Timeseries, dict[str, dict[str, str]], dict[str, Any]]:
+) -> tuple[Timeseries, dict[str, dict[str, str]]]:
     """Create the canonical input timeseries schema for a simulation."""
-    sh_mean_free_basis = _get_mean_free_sh_basis(sh_basis)
     input_variables = {
         "jr": {"jr": "scalar"},
         "Br": {"Br": "scalar"},
@@ -50,17 +44,14 @@ def _create_input_timeseries(
         ),
         "u": {"u": "tangential"},
     }
-    input_storage_bases = {
-        "jr": sh_mean_free_basis,
-        "Br": sh_mean_free_basis,
-        "conductance": sh_basis,
-        "u": sh_mean_free_basis,
+    input_storage_specs = {
+        "jr": FieldSpec(basis=sh_basis, field_type="scalar", mean_free=True),
+        "Br": FieldSpec(basis=sh_basis, field_type="scalar", mean_free=True),
+        "conductance": FieldSpec(basis=sh_basis, field_type="scalar", mean_free=False),
+        "u": FieldSpec(basis=sh_basis, field_type="tangential", mean_free=True),
     }
-    return (
-        Timeseries(input_storage_bases, input_variables),
-        input_variables,
-        input_storage_bases,
-    )
+    timeseries = Timeseries(input_storage_specs, input_variables)
+    return timeseries, input_variables
 
 
 def _create_output_timeseries(
@@ -68,9 +59,8 @@ def _create_output_timeseries(
     *,
     cs_basis: CSBasis,
     sh_basis: SHBasis,
-) -> tuple[Timeseries, dict[str, dict[str, str]], dict[str, Any], Any]:
+) -> tuple[Timeseries, dict[str, dict[str, str]], FieldSpec]:
     """Create the canonical output timeseries schema for a simulation."""
-    sh_mean_free_basis = _get_mean_free_sh_basis(sh_basis)
     output_variables = {
         "state": {
             "m_ind": "scalar",
@@ -87,17 +77,20 @@ def _create_output_timeseries(
             "W": "scalar",
         },
     }
-    solution_basis = cs_basis if settings.solution_basis_kind == "CS" else sh_mean_free_basis
-    output_storage_bases = {
-        "state": solution_basis,
-        "steady_state": solution_basis,
-    }
-    return (
-        Timeseries(output_storage_bases, output_variables),
-        output_variables,
-        output_storage_bases,
-        solution_basis,
+    solution_spec = FieldSpec(
+        basis=cs_basis if settings.solution_basis_kind == "CS" else sh_basis,
+        field_type="scalar",
+        # State-side scalar quantities are conceptually zero-mean in both SH and
+        # CS representations. SH realizes this by omitting the monopole;
+        # CS realizes it through mean-zero gauge/constraint handling.
+        mean_free=True,
     )
+    output_storage_specs = {
+        "state": solution_spec,
+        "steady_state": solution_spec,
+    }
+    timeseries = Timeseries(output_storage_specs, output_variables)
+    return timeseries, output_variables, solution_spec
 
 
 class SimulationData:
@@ -121,11 +114,9 @@ class SimulationData:
         sh_basis: SHBasis,
         input_timeseries: Timeseries,
         input_variables: dict[str, dict[str, str]],
-        input_storage_bases: dict[str, Any],
         output_timeseries: Timeseries,
         output_variables: dict[str, dict[str, str]],
-        output_storage_bases: dict[str, Any],
-        solution_basis: Any,
+        solution_spec: FieldSpec,
         pfac_matrix: Optional[np.ndarray],
         settings_from_file: bool,
         pfac_from_file: bool,
@@ -139,14 +130,13 @@ class SimulationData:
         self.sh_basis = sh_basis
         self.input_timeseries = input_timeseries
         self.input_variables = input_variables
-        self.input_storage_bases = input_storage_bases
         self.output_timeseries = output_timeseries
         self.output_variables = output_variables
-        self.output_storage_bases = output_storage_bases
-        self.solution_basis = solution_basis
+        self.solution_spec = solution_spec
         self.pfac_matrix = None if pfac_matrix is None else np.asarray(pfac_matrix)
         self.settings_from_file = bool(settings_from_file)
         self.pfac_from_file = bool(pfac_from_file)
+        self._poloidal_results_operators_cache: dict[tuple[Any, ...], Any] = {}
 
     @classmethod
     def create(
@@ -157,13 +147,14 @@ class SimulationData:
         load_existing: bool = True,
         print_info: bool = False,
         require_saved_settings: bool = False,
+        io: IO | None = None,
+        settings_dataset: xr.Dataset | None = None,
     ) -> "SimulationData":
         """Create a persisted-run container from settings and optional saved files."""
         prefix = None if filename_prefix is None else str(filename_prefix)
-        io = IO(prefix)
+        io = IO(prefix) if io is None else io
 
-        settings_dataset = None
-        if load_existing:
+        if settings_dataset is None and load_existing:
             settings_dataset = io.load_dataset("settings", print_info=print_info)
         settings_from_file = settings_dataset is not None
         if settings_dataset is not None:
@@ -187,7 +178,6 @@ class SimulationData:
         (
             input_timeseries,
             input_variables,
-            input_storage_bases,
         ) = _create_input_timeseries(
             effective_settings,
             sh_basis=sh_basis,
@@ -199,8 +189,7 @@ class SimulationData:
         (
             output_timeseries,
             output_variables,
-            output_storage_bases,
-            solution_basis,
+            solution_spec,
         ) = _create_output_timeseries(
             effective_settings,
             cs_basis=cs_basis,
@@ -231,11 +220,9 @@ class SimulationData:
             sh_basis=sh_basis,
             input_timeseries=input_timeseries,
             input_variables=input_variables,
-            input_storage_bases=input_storage_bases,
             output_timeseries=output_timeseries,
             output_variables=output_variables,
-            output_storage_bases=output_storage_bases,
-            solution_basis=solution_basis,
+            solution_spec=solution_spec,
             pfac_matrix=pfac_matrix,
             settings_from_file=settings_from_file,
             pfac_from_file=pfac_from_file,
@@ -258,6 +245,8 @@ class SimulationData:
             settings,
             load_existing=True,
             require_saved_settings=True,
+            io=io,
+            settings_dataset=settings_dataset,
         )
 
     @property
@@ -325,19 +314,19 @@ class SimulationData:
             raise KeyError(f"Output dataset {key!r} is not available.")
         return float(np.max(self.output_timeseries.datasets[key].time.values))
 
-    def get_storage_basis(self, key: str) -> Any:
-        """Return the storage basis for a saved input/output dataset."""
-        if key in self.input_timeseries.storage_bases:
-            return self.input_timeseries.storage_bases[key]
-        if key in self.output_timeseries.storage_bases:
-            return self.output_timeseries.storage_bases[key]
+    def get_storage_spec(self, key: str) -> FieldSpec:
+        """Return the storage specification for a saved input/output dataset."""
+        if key in self.input_timeseries.storage_specs:
+            return self.input_timeseries.get_storage_spec(key)
+        if key in self.output_timeseries.storage_specs:
+            return self.output_timeseries.get_storage_spec(key)
         raise KeyError(f"No storage basis is registered for dataset {key!r}.")
 
     def get_data_var_name(self, key: str, var: str) -> str:
         """Return the stored xarray variable name for one saved series variable."""
-        if key in self.input_timeseries.storage_bases:
+        if key in self.input_timeseries.storage_specs:
             return self.input_timeseries.get_data_var_name(key, var)
-        if key in self.output_timeseries.storage_bases:
+        if key in self.output_timeseries.storage_specs:
             return self.output_timeseries.get_data_var_name(key, var)
         raise KeyError(f"No saved series {key!r} is registered for variable lookup.")
 
@@ -391,7 +380,15 @@ class SimulationData:
         """Build explicit postprocessing operators for one target grid."""
         from pynamit.postprocess.results_operators import build_poloidal_results_operators
 
-        target_basis = self.solution_basis if basis is None else basis
+        target_basis = self.solution_spec if basis is None else basis
+        cache_key = (
+            getattr(grid, "hash", id(grid)),
+            getattr(target_basis, "signature", id(target_basis)),
+        )
+        cached = self._poloidal_results_operators_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         t_to_ve = self._get_locked_pfac_operator()
         if t_to_ve is not None and int(target_basis.index_length) != int(t_to_ve.shape[0]):
             raise ValueError(
@@ -400,13 +397,15 @@ class SimulationData:
                 f"stored PFAC shape {t_to_ve.shape}."
             )
 
-        return build_poloidal_results_operators(
+        bundle = build_poloidal_results_operators(
             basis=target_basis,
             grid=grid,
             RI=float(self.settings.RI),
             T_to_Ve=t_to_ve,
             RM=self.settings.RM,
         )
+        self._poloidal_results_operators_cache[cache_key] = bundle
+        return bundle
 
     def _get_locked_pfac_operator(self) -> Optional[np.ndarray]:
         """Return the saved PFAC operator with imposed RM closure applied."""
@@ -414,21 +413,21 @@ class SimulationData:
             return None
         return self._apply_imposed_toroidal_poloidal_lock(
             np.asarray(self.pfac_matrix, dtype=float),
-            solution_basis=self.solution_basis,
+            solution_space=self.solution_spec,
         )
 
     def _apply_imposed_toroidal_poloidal_lock(
         self,
         operator: np.ndarray,
         *,
-        solution_basis: Any,
+        solution_space: Any,
     ) -> np.ndarray:
         """Apply the imposed toroidal-poloidal RM closure in solution space."""
         rm = None if self.settings.RM in (None, 0) else float(self.settings.RM)
         if rm is None:
             return np.asarray(operator, dtype=float)
 
-        closure_basis = self._get_pfac_closure_basis(solution_basis)
+        closure_basis = self._get_pfac_closure_basis(solution_space)
         br_rm_to_ri_shift = get_radial_shift_diagonal(
             closure_basis,
             rm,
@@ -444,7 +443,7 @@ class SimulationData:
         roundtrip_denominator = 1.0 - (br_rm_to_ri_shift * br_ri_to_rm_shift)
         roundtrip_operator = np.diag(np.asarray(roundtrip_denominator, dtype=float))
 
-        if closure_basis is solution_basis:
+        if closure_basis is solution_space:
             roundtrip_vec = np.asarray(roundtrip_denominator, dtype=float).reshape(-1)
             tol = max(float(np.finfo(float).eps * max(roundtrip_vec.size, 1)), 1e-15)
             inv_roundtrip_vec = np.zeros_like(roundtrip_vec)
@@ -452,7 +451,7 @@ class SimulationData:
             inv_roundtrip_vec[keep] = 1.0 / roundtrip_vec[keep]
             roundtrip_inv = np.diag(inv_roundtrip_vec)
         else:
-            grid = getattr(solution_basis, "grid", None)
+            grid = getattr(solution_space, "grid", None)
             if grid is None:
                 raise ValueError(
                     "Cannot project saved PFAC RM closure into solution space without "
@@ -461,11 +460,11 @@ class SimulationData:
 
             solution_to_closure = np.asarray(
                 to_dense(closure_basis.construct_scalar_projection_matrix(grid))
-                @ to_dense(solution_basis.get_evaluation_matrix(grid)),
+                @ to_dense(solution_space.get_evaluation_matrix(grid)),
                 dtype=float,
             )
             closure_to_solution = np.asarray(
-                to_dense(solution_basis.construct_scalar_projection_matrix(grid))
+                to_dense(solution_space.construct_scalar_projection_matrix(grid))
                 @ to_dense(closure_basis.get_evaluation_matrix(grid)),
                 dtype=float,
             )
@@ -480,12 +479,12 @@ class SimulationData:
             )
         return np.asarray(roundtrip_inv @ np.asarray(operator, dtype=float))
 
-    def _get_pfac_closure_basis(self, solution_basis: Any) -> Any:
+    def _get_pfac_closure_basis(self, solution_space: Any) -> Any:
         """Return the closure basis used for PFAC/radial coupling semantics."""
         mode = getattr(self.settings.simulation_mode, "value", self.settings.simulation_mode)
-        if getattr(solution_basis, "kind", "") in ("CS", "GRID") and mode == "cs_dominant":
-            return _get_mean_free_sh_basis(self.sh_basis)
-        return solution_basis
+        if getattr(solution_space, "kind", "") in ("CS", "GRID") and mode == "cs_dominant":
+            return FieldSpec(basis=self.sh_basis, field_type="scalar", mean_free=True)
+        return solution_space
 
     @staticmethod
     def _prune_missing_variables(timeseries: Timeseries) -> None:
@@ -497,7 +496,7 @@ class SimulationData:
         access keeps working for archived results.
         """
         for key, dataset in timeseries.datasets.items():
-            prefix = f"{timeseries.storage_bases[key].kind}_"
+            prefix = f"{timeseries.get_storage_spec(key).kind}_"
             known_variables = dict(timeseries.variables[key])
             data_var_names = [name for name in dataset.data_vars if name.startswith(prefix)]
 

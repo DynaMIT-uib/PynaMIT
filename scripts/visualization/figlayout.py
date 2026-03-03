@@ -86,7 +86,7 @@ def build_example_dynamics() -> pynamit.Dynamics:
     dynamics.current_time = np.float64(0.0)
     dynamics.state.update(dynamics.input_manager, float(dynamics.current_time), interpolation=True)
 
-    m_ind = np.zeros(dynamics.state.solution_basis.index_length)
+    m_ind = np.zeros(dynamics.state.solution_space.index_length)
     e_coeffs, m_imp = dynamics.state.calculate_noind_coeffs()
     dynamics.add_state_to_timeseries("state", m_ind, e_coeffs, m_imp)
     return dynamics

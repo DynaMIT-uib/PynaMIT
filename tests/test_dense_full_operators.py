@@ -161,7 +161,7 @@ def test_full_induction_coupled_euler_integrator_object_parity(
             benchmark_mode=True,
         )
         state = sim.state
-        n = state.solution_basis.index_length
+        n = state.solution_space.index_length
         m = 2 * n
 
         rng = np.random.default_rng(12345)
@@ -217,7 +217,7 @@ def test_exposed_coupled_matrices_and_blocks(tmp_path: Path) -> None:
         )
 
         state = sim.state
-        n = state.solution_basis.index_length
+        n = state.solution_space.index_length
 
         dense_2d = np.asarray(state.get_coupled_induction_matrix(source="dense", flatten=True))
         sparse_2d = np.asarray(state.get_coupled_induction_matrix(source="sparse", flatten=True))
@@ -318,7 +318,7 @@ def test_exposed_external_forcing_matrices(tmp_path: Path) -> None:
         for key in required:
             assert key in mats
 
-        n = state.solution_basis.index_length
+        n = state.solution_space.index_length
         assert mats["dt_psi_from_u"].shape[0] == n
         assert mats["dt_psi_from_jr"].shape[0] == n
         assert mats["dt_m_ind_from_u"].shape[0] == n
@@ -378,13 +378,13 @@ def test_state_exposure_apis_smoke(tmp_path: Path) -> None:
         blocks_state = state.get_coupled_induction_blocks(source="dense")
         np.testing.assert_allclose(
             blocks_state["dt_psi_from_psi"],
-            L_state[: state.solution_basis.index_length, : state.solution_basis.index_length],
+            L_state[: state.solution_space.index_length, : state.solution_space.index_length],
             rtol=0.0,
             atol=0.0,
         )
         np.testing.assert_allclose(
             blocks_state["dt_m_ind_from_m_ind"],
-            L_state[state.solution_basis.index_length :, state.solution_basis.index_length :],
+            L_state[state.solution_space.index_length :, state.solution_space.index_length :],
             rtol=0.0,
             atol=0.0,
         )

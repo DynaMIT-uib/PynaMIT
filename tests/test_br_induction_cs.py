@@ -27,7 +27,7 @@ def test_br_induction_cs():
         print(f"DEBUG: Br_to_E_coeffs op: {op}")
         if op is not None:
              print(f"DEBUG: op shape: {op.shape}")
-        n_cs = dynamics.state.solution_basis.index_length
+        n_cs = dynamics.state.solution_space.index_length
         n_sh = dynamics.state.basis.index_length
         print(f"DEBUG: n_cs: {n_cs}, n_sh: {n_sh}")
         assert op is not None
@@ -40,7 +40,7 @@ def test_br_induction_cs():
         e_coeffs = op.matvec(br_coeffs)
         assert e_coeffs is not None
         # Output should be in solution basis vector space (2*n_cs)
-        n_cs = dynamics.state.solution_basis.index_length
+        n_cs = dynamics.state.solution_space.index_length
         assert e_coeffs.size == 2 * n_cs
         
     except ValueError as e:

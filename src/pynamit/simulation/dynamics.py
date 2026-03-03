@@ -84,10 +84,8 @@ class Dynamics:
             print_info=not self.benchmark_mode,
         )
         self.settings = self.data.settings
-        self.io = self.data.io
         cs_basis = self.data.cs_basis
         sh_basis = self.data.sh_basis
-        sh_mean_free_basis = sh_basis.with_mean_free(True)
 
         # Select grid basis based on simulation mode
         # GL grid for exact SH transforms (pure spectral and GL transform modes)
@@ -100,40 +98,32 @@ class Dynamics:
         else:
             grid_basis = cs_basis
 
-        self.input_timeseries = self.data.input_timeseries
-        self.input_variables = self.data.input_variables
-        self.input_storage_bases = self.data.input_storage_bases
         self.input_manager = InputManager(
-            self.input_timeseries,
+            self.data.input_timeseries,
             grid_basis,
-            self.input_variables,
+            self.data.input_variables,
             enable_fast_path=self.settings.enable_fast_input_path,
         )
-        self.output_timeseries = self.data.output_timeseries
-        self.output_variables = self.data.output_variables
-        self.output_storage_bases = self.data.output_storage_bases
-        solution_basis = self.data.solution_basis
+        solution_spec = self.data.solution_spec
 
         self.interpolation_bases = {
-            "jr": sh_mean_free_basis if bool(self.settings.vector_jr) else grid_basis,
-            "Br": sh_mean_free_basis if bool(self.settings.vector_Br) else grid_basis,
+            "jr": sh_basis if bool(self.settings.vector_jr) else grid_basis,
+            "Br": sh_basis if bool(self.settings.vector_Br) else grid_basis,
             "conductance": sh_basis if bool(self.settings.vector_conductance) else grid_basis,
-            "u": sh_mean_free_basis if bool(self.settings.vector_u) else grid_basis,
+            "u": sh_basis if bool(self.settings.vector_u) else grid_basis,
             # Add psi to interpolation bases to support output timeseries loading
-            "psi": sh_mean_free_basis,
+            "psi": sh_basis,
         }
-
-        self.mainfield = self.data.mainfield
 
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            basis=solution_basis,
-            mainfield=self.mainfield,
+            basis=solution_spec,
+            mainfield=self.data.mainfield,
             grid_basis=grid_basis,
             settings=self.settings,
             PFAC_matrix=self.data.pfac_matrix,
-            solution_basis=solution_basis,
+            solution_space=solution_spec,
         )
 
         if self.data.has_dataset("state"):
@@ -151,6 +141,36 @@ class Dynamics:
 
         if (not self.benchmark_mode) and not self.data.pfac_from_file:
             self.data.save_pfac_matrix(self.state.geometry.T_to_Ve, print_info=True)
+
+    @property
+    def io(self):
+        """Persistence backend for this simulation run."""
+        return self.data.io
+
+    @property
+    def mainfield(self):
+        """Main magnetic field model used by the run."""
+        return self.data.mainfield
+
+    @property
+    def input_timeseries(self):
+        """Input timeseries storage owned by the persisted run package."""
+        return self.data.input_timeseries
+
+    @property
+    def output_timeseries(self):
+        """Output timeseries storage owned by the persisted run package."""
+        return self.data.output_timeseries
+
+    @property
+    def input_variables(self):
+        """Input variable schema."""
+        return self.data.input_variables
+
+    @property
+    def output_variables(self):
+        """Output variable schema."""
+        return self.data.output_variables
 
     def evolve_to_time(
         self,
@@ -208,13 +228,13 @@ class Dynamics:
                 )
             else:
                 self.current_time = np.float64(0)
-                zeros = xp.zeros((self.output_storage_bases["state"].index_length,))
+                zeros = xp.zeros((self.output_timeseries.get_storage_spec("state").index_length,))
                 inductive_m_ind = zeros
 
         # Sync state psi if dynamic mode
         if self.settings.dynamics_mode == "full_induction":
              if self.state.psi is None:
-                  self.state.psi = xp.zeros((self.state.solution_basis.index_length,))
+                  self.state.psi = xp.zeros((self.state.solution_space.index_length,))
              psi = self.state.psi
         else:
              psi = None
@@ -354,10 +374,10 @@ class Dynamics:
         
         # Ensure dummy zeros for missing fields if required by schema
         if state_data["m_ind"] is None and "m_ind" in self.output_variables[key]:
-             state_data["m_ind"] = np.zeros(self.state.solution_basis.index_length)
+             state_data["m_ind"] = np.zeros(self.state.solution_space.index_length)
              
         if state_data["psi"] is None and "psi" in self.output_variables[key]:
-             state_data["psi"] = np.zeros(self.state.solution_basis.index_length)
+             state_data["psi"] = np.zeros(self.state.solution_space.index_length)
 
         self.data.add_output_entry(key, state_data, time=self.current_time)
 

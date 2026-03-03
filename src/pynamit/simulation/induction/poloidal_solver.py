@@ -46,7 +46,7 @@ class PoloidalSolver:
     ) -> np.ndarray:
         """Construct the dense induction matrix `(m_ind -> E_df)`."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        n = self._mats.solution_basis.index_length
+        n = self._mats.solution_space.index_length
 
         if m_ind_to_E_operator is None:
             raise ValueError("m_ind_to_E_operator is required")
@@ -95,7 +95,7 @@ class PoloidalSolver:
             raise ValueError("m_ind_to_E_operator is required")
         if m_imp_to_E_operator is None:
             raise ValueError("m_imp_to_E_operator is required")
-        n = self._mats.solution_basis.index_length
+        n = self._mats.solution_space.index_length
         m_ind_to_E = as_linear_map(m_ind_to_E_operator)
 
         def _build_dense() -> np.ndarray:
@@ -161,7 +161,7 @@ class PoloidalSolver:
             preconditioner=preconditioner,
         )
         if solution is None:
-            m_imp = xp.zeros(self._mats.solution_basis.index_length)
+            m_imp = xp.zeros(self._mats.solution_space.index_length)
         else:
             m_imp = asarray(solution)
 
@@ -229,7 +229,7 @@ class PoloidalSolver:
             from pynamit.math.least_squares_problem import LeastSquaresProblem
             from pynamit.math.least_squares_solver import LeastSquaresSolver
 
-            n = self._mats.solution_basis.index_length
+            n = self._mats.solution_space.index_length
             induction_op = as_linear_map(induction_matrix)
             problem = LeastSquaresProblem(
                 A=[induction_op],

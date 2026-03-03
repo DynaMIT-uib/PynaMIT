@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 import numpy as np
 
 if TYPE_CHECKING:
-    from pynamit.math.least_squares_problem import LeastSquaresProblem
     from pynamit.math.linear_map import LinearMap
 
 from pynamit.math.least_squares_solver import LeastSquaresSolver
@@ -44,6 +43,15 @@ class Basis(ABC):
         self._scalar_solvers: dict[str, LeastSquaresSolver] = {}
         self._helmholtz_solvers: dict[str, LeastSquaresSolver] = {}
         self._cache: dict[Any, Any] = {}
+
+    @property
+    def signature(self) -> tuple[Any, ...]:
+        """Return a stable cache signature for this basis instance."""
+        parts: list[Any] = [type(self).__module__, type(self).__qualname__, self.kind]
+        for name in ("Nmax", "Mmax", "Nmin", "mean_free", "backend", "is_normalized", "N"):
+            if hasattr(self, name):
+                parts.append((name, getattr(self, name)))
+        return tuple(parts)
 
     @property
     @abstractmethod
@@ -319,52 +327,6 @@ class Basis(ABC):
                  f"Factor size {factor_arr.size} does not match G shape {G.shape} "
                  "for either row or column scaling."
              )
-    def get_least_squares_problem(
-        self,
-        grid: Any,
-        sqrt_weights: Optional[np.ndarray] = None,
-        reg_lambda: Optional[float] = None,
-    ) -> "LeastSquaresProblem":
-        """Get a least squares problem for scalar projection."""
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
-        G = self.get_evaluation_matrix(grid)
-        L = self.get_regularization_matrix(scalar=True, reg_lambda=reg_lambda)
-        
-        reg_matrices = [L] if L is not None else []
-        reg_weights = [reg_lambda] if reg_lambda is not None else []
-        
-        return LeastSquaresProblem(
-            A=[G],
-            solution_shape=self.index_length,
-            data_shapes=[grid.size],
-            sqrt_weights=[sqrt_weights],
-            regularization_weights=reg_weights,
-            regularization_matrices=reg_matrices,
-        )
-
-    def get_least_squares_problem_helmholtz(
-        self,
-        grid: Any,
-        sqrt_weights: Optional[np.ndarray] = None,
-        reg_lambda: Optional[float] = None,
-    ) -> "LeastSquaresProblem":
-        """Get a least squares problem for vector projection."""
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
-        G_h = self.get_vector_basis_matrix(grid)
-        L_h = self.get_regularization_matrix(scalar=False, reg_lambda=reg_lambda)
-        
-        reg_matrices = [L_h] if L_h is not None else []
-        reg_weights = [reg_lambda] if reg_lambda is not None else []
-        
-        return LeastSquaresProblem(
-            A=[G_h],
-            solution_shape=(2, self.index_length),
-            data_shapes=[(2, grid.size)],
-            sqrt_weights=[sqrt_weights],
-            regularization_weights=reg_weights,
-            regularization_matrices=reg_matrices,
-        )
-
     def get_regularization_matrix(self, scalar: bool = True, reg_lambda: Optional[float] = None) -> Optional[np.ndarray]:
         """Get the regularization matrix for this basis. Default is None."""
         return None
@@ -388,66 +350,15 @@ class Basis(ABC):
         P : array-like
             Projection matrix of shape (n_coeffs, n_grid).
         """
-        import scipy.sparse
-        from pynamit.utils import to_numpy, asarray, tensor_pinv
+        from pynamit.primitives.analysis import get_scalar_projection_matrix
+        from pynamit.primitives.field_spec import FieldSpec
 
-        # 1. Get Evaluation Matrix G
-        G = self.get_evaluation_matrix(grid)
-        
-        # 2. Check for Weights (Quadrature support)
-        if hasattr(grid, "weights") and grid.weights is not None:
-            weights = grid.weights
-            
-            # Weighted Least Squares: P = (G^T W G)^{-1} G^T W
-            # If G is sparse, ensure we handle it efficiently
-            is_sparse = scipy.sparse.issparse(G)
-            
-            # G^T W
-            if is_sparse:
-                 # Sparse matrix element-wise multiplication with weights broadcasted?
-                 # G.T is (N_basis, N_grid). weights is (N_grid,).
-                 # G.T * weights scales columns of G.T (rows of G).
-                 # Correct logic:
-                 # W is diag(weights). GtW = G.T @ W.
-                 # equivalent to multiplying each column j of G.T by weights[j]
-                 
-                 # scipy.sparse multiply: row scaling?
-                 # G.T is csr/csc.
-                 # Let's use robust diag multiplication
-                 W_diag = scipy.sparse.diags(weights)
-                 GtW = G.T @ W_diag
-            else:
-                 GtW = G.T * weights
-            
-            # Mass Matrix M = G^T W G (Should be small: N_basis x N_basis)
-            M = GtW @ G
-            
-            if is_sparse:
-                 M = M.toarray()
-                 
-            # Solve P = M^-1 GtW
-            # Logic: P @ x_grid = c_basis
-            # M @ c_basis = GtW @ x_grid
-            # So P is the operator that applies M^-1 to the result of GtW @ x
-            # P = solve(M, GtW)
-            
-            # If GtW is sparse, we might want to densify it for solve if it's not too huge,
-            # or solve for each column (expensive). 
-            # Usually N_basis is small enough that we can just invert M and multiply.
-            # But let's stick to solve.
-            if is_sparse:
-                 GtW = GtW.toarray()
-                 
-            P = np.linalg.solve(M, GtW)
-            return asarray(P)
-
-        # 3. Fallback: Pseudo-Inverse
-        # Ensure dense for tensor_pinv if currently sparse, or update tensor_pinv to handle sparse?
-        # tensor_pinv handles dense arrays usually.
-        if scipy.sparse.issparse(G):
-             G = G.toarray()
-             
-        return tensor_pinv(G, n_leading_flattened=1)
+        spec = FieldSpec(
+            basis=self,
+            field_type="scalar",
+            mean_free=bool(getattr(self, "mean_free", False)),
+        )
+        return get_scalar_projection_matrix(spec, grid)
 
     def grid_to_basis(
         self,
@@ -460,20 +371,41 @@ class Basis(ABC):
         solver_type: str = "svd",
     ) -> np.ndarray:
         """Project grid values to basis coefficients."""
+        from pynamit.primitives.analysis import (
+            get_helmholtz_least_squares_problem,
+            get_scalar_least_squares_problem,
+        )
+        from pynamit.primitives.field_spec import FieldSpec
+
+        spec = FieldSpec(
+            basis=self,
+            field_type="tangential" if helmholtz else "scalar",
+            mean_free=bool(getattr(self, "mean_free", False)),
+        )
         if helmholtz:
             if solver_type not in self._helmholtz_solvers:
                 self._helmholtz_solvers[solver_type] = LeastSquaresSolver(
                     solver=solver_type, tolerance=pinv_rtol
                 )
             solver = self._helmholtz_solvers[solver_type]
-            problem = self.get_least_squares_problem_helmholtz(grid, weights, reg_lambda)
+            problem = get_helmholtz_least_squares_problem(
+                spec,
+                grid,
+                sqrt_weights=weights,
+                reg_lambda=reg_lambda,
+            )
         else:
             if solver_type not in self._scalar_solvers:
                 self._scalar_solvers[solver_type] = LeastSquaresSolver(
                     solver=solver_type, tolerance=pinv_rtol
                 )
             solver = self._scalar_solvers[solver_type]
-            problem = self.get_least_squares_problem(grid, weights, reg_lambda)
+            problem = get_scalar_least_squares_problem(
+                spec,
+                grid,
+                sqrt_weights=weights,
+                reg_lambda=reg_lambda,
+            )
 
         # Basis-specific gauge constraints (e.g., CS Helmholtz constant-mode nulls).
         if helmholtz and hasattr(self, "get_helmholtz_gauge_constraint_matrix"):

@@ -102,10 +102,12 @@ class PynamEye(object):
         self.t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
         self.dp = Dipole(self.t0.year)
 
-        self.state_basis = self.simulation_data.solution_basis
-        self.input_basis = self.simulation_data.get_storage_basis("u")
-        self.basis = self.state_basis
-        self.conductance_basis = self.simulation_data.get_storage_basis("conductance")
+        self.state_spec = self.simulation_data.solution_spec
+        input_spec = self.simulation_data.get_storage_spec("u")
+        conductance_spec = self.simulation_data.get_storage_spec("conductance")
+        self.input_basis = input_spec.basis
+        self.input_mean_free = bool(input_spec.mean_free)
+        self.conductance_basis = conductance_spec.basis
 
         # Set up grids.
         self.grids = {}
@@ -141,7 +143,7 @@ class PynamEye(object):
         self.operator_bundles = {}
         for region in ["global", "north", "south"]:
             bundle = self.simulation_data.get_poloidal_results_operators(
-                basis=self.state_basis,
+                basis=self.state_spec,
                 grid=self.grids[region],
             )
             self.operator_bundles[region] = bundle
@@ -440,7 +442,7 @@ class PynamEye(object):
 
         # Calculate electric field.
         e_coeffs = Field.from_coefficients(
-            self.state_basis,
+            self.state_spec,
             coeffs=np.array([self.m_Phi, self.m_W]),
             field_type="tangential",
         )
@@ -515,6 +517,7 @@ class PynamEye(object):
             self.m_u,
             self.grids[region],
             vector_type="tangential",
+            mean_free=self.input_mean_free,
         )
 
         return self._quiver(uphi, -utheta, ax, region, **kwargs)
@@ -605,7 +608,14 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Phi_defaults[key]
 
-        Phi = self.state_basis.evaluate(self.m_Phi, self.grids[region])
+        if getattr(self.state_spec, "kind", "") == "SH":
+            Phi = self.state_spec.evaluate(
+                self.m_Phi,
+                self.grids[region],
+                mean_free=getattr(self.state_spec, "mean_free", None),
+            )
+        else:
+            Phi = self.state_spec.evaluate(self.m_Phi, self.grids[region])
 
         return self._plot_contour(Phi, ax, region, **kwargs)
 
@@ -627,7 +637,14 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.W_defaults[key]
 
-        W = self.state_basis.evaluate(self.m_W, self.grids[region])
+        if getattr(self.state_spec, "kind", "") == "SH":
+            W = self.state_spec.evaluate(
+                self.m_W,
+                self.grids[region],
+                mean_free=getattr(self.state_spec, "mean_free", None),
+            )
+        else:
+            W = self.state_spec.evaluate(self.m_W, self.grids[region])
 
         return self._plot_contour(W, ax, region, **kwargs)
 

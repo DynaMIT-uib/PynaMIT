@@ -185,6 +185,7 @@ class SHBasis(Basis):
         self._index_names = ["n", "m"]
         self._minimum_phi_sampling = 2 * Mmax + 1
         super().__init__()
+        self._related_basis_cache: dict[bool, "SHBasis"] = {}
         
         # DEBUG: Backend inspection
         # print(f"DEBUG: SHBasis Init. Backend: {self.backend}. Normalized: {self.is_normalized}")
@@ -259,6 +260,42 @@ class SHBasis(Basis):
         """Return True when monopole is excluded from scalar coefficient space."""
         return self.mean_free
 
+    def _resolve_scalar_mean_free(self, mean_free: Optional[bool]) -> bool:
+        """Resolve requested scalar-space variant against this basis."""
+        return self.mean_free if mean_free is None else bool(mean_free)
+
+    def scalar_index_length(self, mean_free: Optional[bool] = None) -> int:
+        """Return scalar coefficient-space length for the requested variant."""
+        return int(self.scalar_degrees(mean_free=mean_free).size)
+
+    def scalar_degrees(self, mean_free: Optional[bool] = None) -> np.ndarray:
+        """Return scalar harmonic degrees for the requested scalar space."""
+        target_mean_free = self._resolve_scalar_mean_free(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.n
+        if target_mean_free:
+            return self.n[1:]
+        return np.concatenate([np.array([0], dtype=self.n.dtype), self.n])
+
+    def scalar_orders(self, mean_free: Optional[bool] = None) -> np.ndarray:
+        """Return scalar harmonic orders for the requested scalar space."""
+        target_mean_free = self._resolve_scalar_mean_free(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.m
+        if target_mean_free:
+            return self.m[1:]
+        return np.concatenate([np.array([0], dtype=self.m.dtype), self.m])
+
+    def scalar_index_arrays(self, mean_free: Optional[bool] = None) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(n, m)`` arrays for the requested scalar coefficient space."""
+        return self.scalar_degrees(mean_free=mean_free), self.scalar_orders(mean_free=mean_free)
+
+    def _basis_for_scalar_mode(self, mean_free: Optional[bool]) -> "SHBasis":
+        """Return the SH basis variant matching the requested scalar space."""
+        if mean_free is None or bool(mean_free) == self.mean_free:
+            return self
+        return self._with_mean_free(bool(mean_free))
+
     @cached_property
     def schmidt_factors(self) -> np.ndarray:
         """Return Schmidt quasi-normalization factors."""
@@ -278,19 +315,24 @@ class SHBasis(Basis):
         """Return a basis extended to include the monopole term (Nmin=0)."""
         if not self.mean_free:
             return self
-        return self.with_mean_free(False)
+        return self._with_mean_free(False)
 
-    def with_mean_free(self, mean_free: bool) -> "SHBasis":
-        """Return the related SH basis with the requested scalar-space variant."""
+    def _with_mean_free(self, mean_free: bool) -> "SHBasis":
+        """Return the internal SH sibling for the requested scalar-space variant."""
         if bool(mean_free) == self.mean_free:
             return self
-        return SHBasis(
+        if bool(mean_free) in self._related_basis_cache:
+            return self._related_basis_cache[bool(mean_free)]
+        sibling = SHBasis(
             self.Nmax,
             self.Mmax,
             mean_free=bool(mean_free),
             quasi_normalized=self.is_normalized,
             backend=self.backend,
         )
+        self._related_basis_cache[bool(mean_free)] = sibling
+        sibling._related_basis_cache[bool(self.mean_free)] = self
+        return sibling
 
     # --- Legendre Functions (delegated) ---
 
@@ -316,7 +358,12 @@ class SHBasis(Basis):
 
     # --- Basis Function Evaluation ---
 
-    def get_evaluation_matrix(self, grid, derivative: Optional[str] = None) -> np.ndarray:
+    def get_evaluation_matrix(
+        self,
+        grid,
+        derivative: Optional[str] = None,
+        mean_free: Optional[bool] = None,
+    ) -> np.ndarray:
         """Compute basis evaluation (or derivative) matrix on the provided grid.
 
         Parameters
@@ -331,6 +378,16 @@ class SHBasis(Basis):
         np.ndarray
             Basis evaluation matrix.
         """
+        target_mean_free = self._resolve_scalar_mean_free(mean_free)
+        if target_mean_free != self.mean_free:
+            if not self.mean_free and target_mean_free:
+                full_matrix = self.get_evaluation_matrix(grid, derivative=derivative)
+                return full_matrix[:, 1:]
+            return self._with_mean_free(target_mean_free).get_evaluation_matrix(
+                grid,
+                derivative=derivative,
+            )
+
         phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
 
         # Check internal cache
@@ -405,7 +462,25 @@ class SHBasis(Basis):
         cache_entry["G"][derivative] = G
         return G
 
-    def get_rxgrad_matrix(self, grid) -> np.ndarray:
+    def get_gradient_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
+        """Return tangential gradient operator evaluation tensor on ``grid``."""
+        G_th = self.get_evaluation_matrix(grid, derivative="theta", mean_free=mean_free)
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi", mean_free=mean_free)
+        return np.array([G_th, G_ph])
+
+    def get_curl_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
+        """Return tangential ``-r x grad`` operator evaluation tensor on ``grid``."""
+        G_th = self.get_evaluation_matrix(grid, derivative="theta", mean_free=mean_free)
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi", mean_free=mean_free)
+        return np.array([G_ph, -G_th])
+
+    def get_vector_basis_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
+        """Return canonical Helmholtz vector basis tensor on ``grid``."""
+        G_grad = self.get_gradient_matrix(grid, mean_free=mean_free)
+        G_curl = self.get_curl_matrix(grid, mean_free=mean_free)
+        return np.stack([-G_grad, G_curl], axis=2)
+
+    def get_rxgrad_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
         """Return the tangential ``r x grad`` operator evaluation tensor on ``grid``.
 
         Returns the canonical coefficient-to-grid tensor with component ordering
@@ -413,51 +488,89 @@ class SHBasis(Basis):
             [ d/dphi, -d/dtheta ]
         using the same derivative conventions as :meth:`get_evaluation_matrix`.
         """
-        G_th = self.get_evaluation_matrix(grid, derivative="theta")
-        G_ph = self.get_evaluation_matrix(grid, derivative="phi")
+        G_th = self.get_evaluation_matrix(grid, derivative="theta", mean_free=mean_free)
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi", mean_free=mean_free)
         return np.array([G_ph, -G_th])
 
     # --- Operator Factors ---
 
-    def laplacian(self, r: float = 1.0) -> np.ndarray:
+    def laplacian(self, r: float = 1.0, mean_free: Optional[bool] = None) -> np.ndarray:
         """Factor to apply the spherical harmonic Laplacian operator."""
-        return sh_operators.get_laplacian_factor(self.n, r)
+        return sh_operators.get_laplacian_factor(self.scalar_degrees(mean_free=mean_free), r)
 
-    def radial_shift_Ve(self, start: float, end: float) -> np.ndarray:
+    def radial_shift_Ve(
+        self, start: float, end: float, mean_free: Optional[bool] = None
+    ) -> np.ndarray:
         """Factor to radially shift external potential coefficients."""
-        return sh_operators.get_radial_shift_Ve_factor(self.n, start, end)
+        return sh_operators.get_radial_shift_Ve_factor(
+            self.scalar_degrees(mean_free=mean_free),
+            start,
+            end,
+        )
 
-    def radial_shift_Vi(self, start: float, end: float) -> np.ndarray:
+    def radial_shift_Vi(
+        self, start: float, end: float, mean_free: Optional[bool] = None
+    ) -> np.ndarray:
         """Factor to radially shift internal potential coefficients."""
-        return sh_operators.get_radial_shift_Vi_factor(self.n, start, end)
+        return sh_operators.get_radial_shift_Vi_factor(
+            self.scalar_degrees(mean_free=mean_free),
+            start,
+            end,
+        )
 
     # --- Linear Map Operators ---
 
-    def get_laplacian_operator(self, r: float = 1.0) -> "LinearMap":
+    def get_laplacian_operator(
+        self, r: float = 1.0, mean_free: Optional[bool] = None
+    ) -> "LinearMap":
         """Get the Laplacian operator for this basis."""
-        return sh_operators.build_laplacian_operator(self, r)
+        from pynamit.math.linear_map import diagonal_linear_map
+
+        return diagonal_linear_map(self.laplacian(r, mean_free=mean_free))
 
     def get_radial_shift_operator(
-        self, start_r: float, end_r: float, kind: str = "external"
+        self,
+        start_r: float,
+        end_r: float,
+        kind: str = "external",
+        mean_free: Optional[bool] = None,
     ) -> "LinearMap":
         """Get the radial shift operator for potential coefficients."""
-        return sh_operators.build_radial_shift_operator(self, start_r, end_r, kind)
+        from pynamit.math.linear_map import diagonal_linear_map
 
-    def get_potential_scaling_operator(self) -> "LinearMap":
+        if kind == "external":
+            return diagonal_linear_map(self.radial_shift_Ve(start_r, end_r, mean_free=mean_free))
+        return diagonal_linear_map(self.radial_shift_Vi(start_r, end_r, mean_free=mean_free))
+
+    def get_potential_scaling_operator(self, mean_free: Optional[bool] = None) -> "LinearMap":
         """Get the operator for converting coefficients to surface potential."""
-        return sh_operators.build_potential_scaling_operator(self)
+        from pynamit.math.linear_map import diagonal_linear_map
 
-    def get_gradient_operator(self, r: float = 1.0) -> "LinearMap":
+        factors = sh_operators.get_coeffs_to_delta_V_factor(
+            self.scalar_degrees(mean_free=mean_free)
+        )
+        return diagonal_linear_map(factors)
+
+    def get_gradient_operator(
+        self, r: float = 1.0, mean_free: Optional[bool] = None
+    ) -> "LinearMap":
         """Get the analytical gradient operator in spectral space."""
-        return sh_operators.build_gradient_operator(self, r)
+        basis = self._basis_for_scalar_mode(mean_free)
+        return sh_operators.build_gradient_operator(basis, r)
 
-    def get_curl_operator(self, r: float = 1.0) -> "LinearMap":
+    def get_curl_operator(
+        self, r: float = 1.0, mean_free: Optional[bool] = None
+    ) -> "LinearMap":
         """Get the analytical curl operator (r x grad) in spectral space."""
-        return sh_operators.build_curl_operator(self, r)
+        basis = self._basis_for_scalar_mode(mean_free)
+        return sh_operators.build_curl_operator(basis, r)
 
-    def get_divergence_operator(self, r: float = 1.0) -> "LinearMap":
+    def get_divergence_operator(
+        self, r: float = 1.0, mean_free: Optional[bool] = None
+    ) -> "LinearMap":
         """Get the analytical divergence operator in spectral space."""
-        return sh_operators.build_divergence_operator(self, r)
+        basis = self._basis_for_scalar_mode(mean_free)
+        return sh_operators.build_divergence_operator(basis, r)
 
     def get_vector_divergence_operator(self, grid: Optional[Any] = None) -> "LinearMap":
         """Get the analytical divergence operator for vector fields.
@@ -519,14 +632,22 @@ class SHBasis(Basis):
 
     # --- Grid/Basis Transforms ---
 
-    def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
+    def evaluate(
+        self,
+        coeffs: np.ndarray,
+        grid: Any,
+        vector_type: str = "scalar",
+        mean_free: Optional[bool] = None,
+    ) -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""
         if vector_type == "scalar":
-            return self.basis_to_grid(coeffs, grid, helmholtz=False)
+            G = self.get_evaluation_matrix(grid, mean_free=mean_free)
+            return G.dot(coeffs)
         elif vector_type == "tangential":
             if coeffs.ndim == 1:
                 coeffs = coeffs.reshape(2, -1)
-            return self.basis_to_grid(coeffs, grid, helmholtz=True)
+            G_h = self.get_vector_basis_matrix(grid, mean_free=mean_free)
+            return np.tensordot(G_h, coeffs, 2)
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
@@ -538,6 +659,14 @@ class SHBasis(Basis):
         **kwargs,
     ) -> np.ndarray:
         """Convert grid values to coefficients."""
+        mean_free = kwargs.pop("mean_free", None)
+        if mean_free is not None and bool(mean_free) != self.mean_free:
+            return self._with_mean_free(bool(mean_free)).from_grid_values(
+                values,
+                grid,
+                vector_type,
+                **kwargs,
+            )
         weights = kwargs.get("weights")
         reg_lambda = kwargs.get("reg_lambda")
         pinv_rtol = kwargs.get("pinv_rtol", 1e-15)

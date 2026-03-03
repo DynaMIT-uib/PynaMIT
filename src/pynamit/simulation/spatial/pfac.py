@@ -36,7 +36,7 @@ class PFACIntegrator:
     ----------
     basis : Basis
         The spectral (SH) basis for physics computations.
-    solution_basis : Basis
+    solution_space : Basis
         The basis used for solution variables (may differ from basis).
     mainfield : Any
         The main magnetic field model.
@@ -60,7 +60,7 @@ class PFACIntegrator:
     def __init__(
         self,
         basis: "Basis",
-        solution_basis: "Basis",
+        solution_space: "Basis",
         mainfield: Any,
         RI: float,
         RM: Optional[float],
@@ -70,7 +70,7 @@ class PFACIntegrator:
         lock_toroidal_source_channels: bool = False,
     ) -> None:
         self.basis = basis
-        self.solution_basis = solution_basis
+        self.solution_space = solution_space
         self.mainfield = mainfield
         self.RI = RI
         self.RM = RM
@@ -138,7 +138,7 @@ class PFACIntegrator:
         xr.DataArray
             The T_to_Ve operator mapping toroidal to poloidal potential.
         """
-        n_sol = self.solution_basis.index_length
+        n_sol = self.solution_space.index_length
         n_sh = self.basis.index_length
         T_to_Ve = xr.DataArray(np.zeros((n_sol, n_sol)), dims=("current_pot", "field_pot"))
 
@@ -152,9 +152,9 @@ class PFACIntegrator:
             int(getattr(self.basis, "index_length", -1)),
             int(getattr(self.basis, "Nmax", -1)),
             int(getattr(self.basis, "Mmax", -1)),
-            getattr(self.solution_basis, "kind", None),
-            int(getattr(self.solution_basis, "index_length", -1)),
-            int(getattr(self.solution_basis, "N", -1)),
+            getattr(self.solution_space, "kind", None),
+            int(getattr(self.solution_space, "index_length", -1)),
+            int(getattr(self.solution_space, "N", -1)),
             int(getattr(grid, "hash", id(grid))),
             float(self.RI),
             float(self.RM) if self.RM is not None else None,
@@ -177,13 +177,13 @@ class PFACIntegrator:
 
         # Source operator factor in solution-basis coefficients: RI/mu0 * Laplacian
         # (built once and reused for all radial quadrature steps).
-        L_sol = to_dense(self.solution_basis.get_laplacian_operator(self.RI))
+        L_sol = to_dense(self.solution_space.get_laplacian_operator(self.RI))
         m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
-        if getattr(self.solution_basis, "kind", "") in ("CS", "GRID"):
-            if hasattr(self.solution_basis, "get_mean_zero_projector"):
+        if getattr(self.solution_space, "kind", "") in ("CS", "GRID"):
+            if hasattr(self.solution_space, "get_mean_zero_projector"):
                 try:
                     P_sol = np.asarray(
-                        self.solution_basis.get_mean_zero_projector(n_coeff=n_sol),
+                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol),
                         dtype=float,
                     )
                     if P_sol.shape == (n_sol, n_sol):
@@ -192,7 +192,7 @@ class PFACIntegrator:
                     pass
 
         # Is this a pure spectral simulation?
-        is_pure_sh = (self.solution_basis is self.basis or self.solution_basis.kind == "SH")
+        is_pure_sh = (self.solution_space is self.basis or self.solution_space.kind == "SH")
 
         # Accumulator (spectral result: Ve_sh_coeffs / m_imp_coeffs)
         T_accum = np.zeros((n_sh, n_sol))
@@ -209,15 +209,15 @@ class PFACIntegrator:
         else:
             # Map integrated SH coefficients back to solver coefficients (hybrid)
             E_sh = to_dense(self.basis.get_evaluation_matrix(grid))
-            E_sol = to_dense(self.solution_basis.get_evaluation_matrix(grid))
+            E_sol = to_dense(self.solution_space.get_evaluation_matrix(grid))
             P_sol = tensor_pinv(E_sol, rtol=1e-12)
             T_to_Ve.values = (P_sol @ E_sh) @ T_accum
 
-        if getattr(self.solution_basis, "kind", "") in ("CS", "GRID"):
-            if hasattr(self.solution_basis, "get_mean_zero_projector"):
+        if getattr(self.solution_space, "kind", "") in ("CS", "GRID"):
+            if hasattr(self.solution_space, "get_mean_zero_projector"):
                 try:
                     P_g = np.asarray(
-                        self.solution_basis.get_mean_zero_projector(n_coeff=n_sol),
+                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol),
                         dtype=float,
                     )
                     if P_g.shape == (n_sol, n_sol):
@@ -268,7 +268,7 @@ class PFACIntegrator:
         m_b = self.mainfield.discretize(m_grid, self.RI)
 
         # Footprint evaluation of the driving potential (m_imp)
-        M_source = to_dense(self.solution_basis.get_evaluation_matrix(m_grid))
+        M_source = to_dense(self.solution_space.get_evaluation_matrix(m_grid))
 
         # Source term mapping: m_imp_sol -> jr_grid -> JS_grid(rk)
         m_imp_to_JS_rk = np.einsum(

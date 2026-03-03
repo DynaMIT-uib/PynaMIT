@@ -23,14 +23,13 @@ def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
     io.save_dataset(settings.to_dataset(), "settings")
 
     sh_full_basis = simulation_data.sh_basis
-    sh_mean_free_basis = sh_full_basis.with_mean_free(True)
     input_timeseries = simulation_data.input_timeseries
     output_timeseries = simulation_data.output_timeseries
-    solution_basis = simulation_data.solution_basis
+    solution_spec = simulation_data.solution_spec
 
-    n_scalar = sh_mean_free_basis.index_length
+    n_scalar = sh_full_basis.scalar_index_length(mean_free=True)
     n_conductance = sh_full_basis.index_length
-    n_solution = solution_basis.index_length
+    n_solution = solution_spec.index_length
 
     input_timeseries.add_entry(
         "jr",
@@ -110,7 +109,11 @@ def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
     conductance_entry = simulation_data.get_input_entry("conductance", 0.0)
     assert conductance_entry is not None
     assert set(conductance_entry) == {"etaP", "etaH"}
-    assert simulation_data.get_storage_basis("conductance").kind == "SH"
+    conductance_spec = simulation_data.get_storage_spec("conductance")
+    jr_spec = simulation_data.get_storage_spec("jr")
+    assert conductance_spec.basis.kind == "SH"
+    assert conductance_spec.mean_free is False
+    assert jr_spec.mean_free is True
     assert simulation_data.has_dataset("state")
 
 
@@ -126,13 +129,13 @@ def test_simulation_data_create_saves_sidecars(tmp_path):
 
     simulation_data = SimulationData.create(prefix, settings, load_existing=False)
     simulation_data.save_settings()
-    simulation_data.save_pfac_matrix(np.eye(simulation_data.solution_basis.index_length))
+    simulation_data.save_pfac_matrix(np.eye(simulation_data.solution_spec.index_length))
 
     reloaded = SimulationData.from_prefix(prefix)
     assert reloaded.settings.Nmax == settings.Nmax
     np.testing.assert_allclose(
         reloaded.pfac_matrix,
-        np.eye(simulation_data.solution_basis.index_length),
+        np.eye(simulation_data.solution_spec.index_length),
     )
 
 
@@ -146,7 +149,7 @@ def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
     )
 
     simulation_data = SimulationData.create(prefix, settings, load_existing=False)
-    n_solution = simulation_data.solution_basis.index_length
+    n_solution = simulation_data.solution_spec.index_length
 
     assert not simulation_data.has_dataset("state")
 
@@ -190,7 +193,7 @@ def test_simulation_data_input_helpers_round_trip_dataset(tmp_path):
     )
 
     simulation_data = SimulationData.create(prefix, settings, load_existing=False)
-    n_scalar = simulation_data.sh_basis.with_mean_free(True).index_length
+    n_scalar = simulation_data.sh_basis.scalar_index_length(mean_free=True)
 
     simulation_data.input_timeseries.add_entry(
         "jr",
@@ -219,6 +222,10 @@ def test_simulation_data_builds_results_operator_bundle(tmp_path):
     bundle = simulation_data.get_poloidal_results_operators(
         grid=Grid(lat=np.array([60.0]), lon=np.array([0.0])),
     )
+    bundle_cached = simulation_data.get_poloidal_results_operators(
+        grid=Grid(lat=np.array([60.0]), lon=np.array([0.0])),
+    )
 
-    assert bundle.m_ind_to_Br.shape[0] == simulation_data.sh_basis.with_mean_free(True).index_length
+    assert bundle.m_ind_to_Br.shape[0] == simulation_data.sh_basis.scalar_index_length(mean_free=True)
     assert bundle.scalar_evaluation_matrix.shape[0] == 1
+    assert bundle is bundle_cached

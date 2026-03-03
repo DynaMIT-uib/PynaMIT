@@ -116,3 +116,23 @@ def test_mainfield_continuous_accessors():
     # DiscreteField.vec.r -> array
     assert isinstance(disc_br.vec.r, np.ndarray)
     np.testing.assert_allclose(disc_br.vec.r, v1)
+
+
+def test_mainfield_as_field_provider_backend():
+    """Mainfield can be wrapped behind the generic Field facade."""
+    from pynamit.primitives.mainfield import Mainfield
+
+    mf = Mainfield(kind="radial", B0=30000e-9)
+    field = mf.as_field()
+
+    assert isinstance(field, Field)
+    assert field.source_field is None
+
+    r = np.array([6371e3])
+    theta = np.array([45.0])
+    phi = np.array([0.0])
+
+    expected = mf.evaluate(r, theta, phi)
+    actual = field.evaluate(r, theta, phi)
+    for exp, act in zip(expected, actual):
+        np.testing.assert_allclose(act, exp)

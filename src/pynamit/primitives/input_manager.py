@@ -141,6 +141,9 @@ class InputManager:
             Relative tolerance for pseudo-inverse.
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        storage_spec = self.timeseries.get_storage_spec(key)
+        target_basis = storage_spec
+        target_mean_free = bool(storage_spec.mean_free)
 
         for time_index in range(time.size):
             interpolated_data = {}
@@ -148,7 +151,6 @@ class InputManager:
             for var in self.variables[key]:
 
                 target_grid = self.simulation_basis.grid
-                target_basis = self.timeseries.storage_bases[key]
                 raw_values = input_data[var][time_index]
 
                 # Check for Fast Path (Regular Grid + SHBasis)
@@ -289,6 +291,7 @@ class InputManager:
                         vector_type=self.variables[key][var],
                         target_grid=target_grid,
                         target_basis=target_basis,
+                        mean_free=target_mean_free,
                         weights=sqrt_weights,
                         reg_lambda=reg_lambda,
                         pinv_rtol=pinv_rtol,
@@ -326,7 +329,3 @@ class InputManager:
     def input_keys(self):
         """Return the keys of the available input datasets."""
         return self.timeseries.datasets.keys()
-
-    def get_storage_basis(self, key):
-        """Return the storage basis for a given key."""
-        return self.timeseries.storage_bases.get(key)

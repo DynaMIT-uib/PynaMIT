@@ -109,7 +109,7 @@ def _build_state(
 
 def _scalar_transfer_operators(state, sh_basis: SHBasis) -> tuple[np.ndarray, np.ndarray]:
     grid = state.geometry.grid
-    sol = state.solution_basis
+    sol = state.solution_space
 
     g_sol = np.asarray(to_dense(sol.get_evaluation_matrix(grid)))
     p_sol = np.asarray(to_dense(sol.construct_scalar_projection_matrix(grid)))

@@ -32,7 +32,7 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     )
     
     geo = sim.state.geometry
-    basis = geo.solution_basis
+    basis = geo.solution_space
     
     # Custom Conductance Setup
     th_rad = np.deg2rad(geo.grid.theta)
@@ -57,8 +57,8 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     else:
         raise ValueError(f"Unknown conductance kind: {conductance_kind}")
 
-    sim.state.etaP = Field.from_values(geo.grid, etaP_val, np.zeros(geo.grid.size), np.zeros(geo.grid.size))
-    sim.state.etaH = Field.from_values(geo.grid, etaH_val, np.zeros(geo.grid.size), np.zeros(geo.grid.size))
+    sim.state.etaP = Field.from_grid_values(geo.grid, etaP_val, np.zeros(geo.grid.size), np.zeros(geo.grid.size))
+    sim.state.etaH = Field.from_grid_values(geo.grid, etaH_val, np.zeros(geo.grid.size), np.zeros(geo.grid.size))
     sim.state._invalidate_caches()
 
     sigma = sim.state.M_total_on_grid

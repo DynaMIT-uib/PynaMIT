@@ -71,7 +71,7 @@ class PoloidalSystemMatrices:
     ----------
     basis : Basis
         The spectral basis (SHBasis) for physics computations.
-    solution_basis : Basis
+    solution_space : Basis
         The basis used for solution variables (may differ from basis).
     grid : Grid
         The spatial grid for evaluation.
@@ -86,14 +86,14 @@ class PoloidalSystemMatrices:
     def __init__(
         self,
         basis: "Basis",
-        solution_basis: "Basis",
+        solution_space: "Basis",
         grid: "Grid",
         b_field: "Field",
         RI: float,
         pfac_integrator: "PFACIntegrator",
     ):
         self.basis = basis
-        self.solution_basis = solution_basis
+        self.solution_space = solution_space
         self.grid = grid
         self.b_field = b_field
         self.RI = RI
@@ -103,7 +103,7 @@ class PoloidalSystemMatrices:
     def _poloidal_closure_projector(self) -> PoloidalClosureProjector:
         """Closure-basis projector for poloidal RM/PFAC operators."""
         return PoloidalClosureProjector(
-            solution_basis=self.solution_basis,
+            solution_space=self.solution_space,
             closure_basis=self._pfac.basis,
             grid=self.grid,
             pfac_integrator=self._pfac,
@@ -137,7 +137,7 @@ class PoloidalSystemMatrices:
         np.ndarray
             Operator (matrix or diagonal) mapping potential to current.
         """
-        return (self.RI / mu0) * self.solution_basis.get_laplacian_operator(self.RI)
+        return (self.RI / mu0) * self.solution_space.get_laplacian_operator(self.RI)
 
     @cached_property
     def m_ind_to_Br(self) -> np.ndarray:
@@ -151,7 +151,7 @@ class PoloidalSystemMatrices:
         np.ndarray
             Operator mapping induced potential to radial field.
         """
-        return -(self.RI**2) * self.solution_basis.get_laplacian_operator(self.RI)
+        return -(self.RI**2) * self.solution_space.get_laplacian_operator(self.RI)
 
     @property
     def E_df_to_d_m_ind_dt(self) -> float:
@@ -173,10 +173,10 @@ class PoloidalSystemMatrices:
     ) -> np.ndarray:
         """Project scalar coefficients to ``target_basis`` through grid values."""
         coeffs = np.asarray(to_numpy(coeffs)).reshape(-1)
-        if target_basis is self.solution_basis and coeffs.size == int(self.solution_basis.index_length):
+        if target_basis is self.solution_space and coeffs.size == int(self.solution_space.index_length):
             return coeffs
 
-        G_src = np.asarray(to_dense(self.solution_basis.get_evaluation_matrix(self.grid)))
+        G_src = np.asarray(to_dense(self.solution_space.get_evaluation_matrix(self.grid)))
         P_tgt = np.asarray(to_dense(target_basis.construct_scalar_projection_matrix(self.grid)))
         if coeffs.size != G_src.shape[1]:
             raise ValueError(
@@ -201,10 +201,10 @@ class PoloidalSystemMatrices:
         Parameters
         ----------
         dm_ind_dt_coeffs : np.ndarray
-            Scalar ``dm_ind_dt`` coefficients in ``solution_basis``.
+            Scalar ``dm_ind_dt`` coefficients in ``solution_space``.
         analysis_basis : optional
             Scalar basis used for derivative evaluation. Defaults to
-            ``solution_basis``.
+            ``solution_space``.
         radial_model : str, optional
             Radial continuation for ``dr_u``:
             - ``"none"``: ``dr_u = 0``.
@@ -242,17 +242,17 @@ class PoloidalSystemMatrices:
         -------
         tuple[np.ndarray, np.ndarray]
             ``(U_op, DRU_op)`` where both have shape ``(2*n_grid, n_solution)`` and
-            map ``dm_ind_dt`` coefficients in ``solution_basis`` to flattened
+            map ``dm_ind_dt`` coefficients in ``solution_space`` to flattened
             ``[u_theta, u_phi]`` and ``[dr_u_theta, dr_u_phi]`` on ``self.grid``.
         """
         if analysis_basis is None:
-            analysis_basis = self.solution_basis
+            analysis_basis = self.solution_space
 
-        n_sol = int(self.solution_basis.index_length)
+        n_sol = int(self.solution_space.index_length)
         n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
         inv_R = 1.0 / float(self.RI)
 
-        G_sol = np.asarray(to_dense(self.solution_basis.get_evaluation_matrix(self.grid)))
+        G_sol = np.asarray(to_dense(self.solution_space.get_evaluation_matrix(self.grid)))
         P_ana = np.asarray(to_dense(analysis_basis.construct_scalar_projection_matrix(self.grid)))
         T_sol_to_ana = np.asarray(P_ana @ G_sol, dtype=float)
         if T_sol_to_ana.shape[1] != n_sol:
@@ -324,9 +324,9 @@ class PoloidalSystemMatrices:
         Returns
         -------
         np.ndarray
-            Shape (L, L) operator where L = solution_basis.index_length
+            Shape (L, L) operator where L = solution_space.index_length
         """
-        L = self.solution_basis.index_length
+        L = self.solution_space.index_length
         return (1.0 / mu0) * np.eye(L)
 
     @cached_property
@@ -405,9 +405,9 @@ class PoloidalSystemMatrices:
         np.ndarray
             Shape (2, N_grid, L) operator mapping m_imp to JS components.
         """
-        grad_op = as_linear_map(self.solution_basis.get_gradient_matrix(self.grid))
+        grad_op = as_linear_map(self.solution_space.get_gradient_matrix(self.grid))
         G_grad = (1.0 / self.RI) * (grad_op * ((-self.RI / mu0)))
-        G_total = to_dense(G_grad).reshape(2, -1, self.solution_basis.index_length)
+        G_total = to_dense(G_grad).reshape(2, -1, self.solution_space.index_length)
 
         # Add PFAC coupling: JS += G_Ve_to_JS @ T_to_Ve @ m_imp
         T_to_Ve_eff = self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
@@ -427,11 +427,11 @@ class PoloidalSystemMatrices:
         np.ndarray
             Shape (2, N_grid, L) operator.
         """
-        scaling_op = self.solution_basis.get_potential_scaling_operator()
-        curl_op = as_linear_map(self.solution_basis.get_curl_matrix(self.grid))
+        scaling_op = self.solution_space.get_potential_scaling_operator()
+        curl_op = as_linear_map(self.solution_space.get_curl_matrix(self.grid))
 
         G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
-        return to_dense(G_lin).reshape(2, -1, self.solution_basis.index_length)
+        return to_dense(G_lin).reshape(2, -1, self.solution_space.index_length)
 
     # -------------------------------------------------------------------------
     # PFAC Coupling
@@ -487,7 +487,7 @@ class PoloidalSystemMatrices:
         if hasattr(self.grid, "weights"):
             # Exact quadrature projection
             weights = self.grid.weights
-            G = to_numpy(self.solution_basis.get_evaluation_matrix(self.grid))
+            G = to_numpy(self.solution_space.get_evaluation_matrix(self.grid))
 
             # Weighted least-squares: P = (G^T W G)^{-1} G^T W
             GtW = G.T * weights
@@ -496,7 +496,7 @@ class PoloidalSystemMatrices:
             return asarray(P)
 
         # Fallback to pseudo-inverse
-        G = to_dense(self.solution_basis.get_evaluation_matrix(self.grid))
+        G = to_dense(self.solution_space.get_evaluation_matrix(self.grid))
         return tensor_pinv(G, n_leading_flattened=1)
 
     # -------------------------------------------------------------------------
@@ -582,10 +582,10 @@ class PoloidalSystemMatrices:
 
         # 3. Pinning Constraint
         if use_pinning:
-            n = self.solution_basis.index_length
-            if hasattr(self.solution_basis, "get_scalar_gauge_constraint_matrix"):
+            n = self.solution_space.index_length
+            if hasattr(self.solution_space, "get_scalar_gauge_constraint_matrix"):
                 row = np.asarray(
-                    self.solution_basis.get_scalar_gauge_constraint_matrix(
+                    self.solution_space.get_scalar_gauge_constraint_matrix(
                         n_coeff=n,
                         mode="mean_zero",
                     )
@@ -602,14 +602,14 @@ class PoloidalSystemMatrices:
         reg_ops = []
         reg_weights = []
         if regularization_lambda > 0:
-            n = self.solution_basis.index_length
+            n = self.solution_space.index_length
             identity_op = diagonal_linear_map(xp.ones(n))
             reg_ops.append(identity_op)
             reg_weights.append(regularization_lambda)
 
         return LeastSquaresProblem(
             A=operators,
-            solution_shape=self.solution_basis.index_length,
+            solution_shape=self.solution_space.index_length,
             data_shapes=data_shapes,
             sqrt_weights=sqrt_weights,
             regularization_matrices=reg_ops,
@@ -642,7 +642,7 @@ class PoloidalSystemMatrices:
 
     def _extract_toroidal_potential_coeffs(self, E_coeffs: Any) -> np.ndarray:
         """Extract the toroidal electric-potential coefficients from E coefficients."""
-        return asarray(self.solution_basis.get_toroidal_potential_coeffs(E_coeffs))
+        return asarray(self.solution_space.get_toroidal_potential_coeffs(E_coeffs))
 
     def _apply_E_constraint_operator(
         self,
@@ -860,7 +860,7 @@ class PoloidalSystemMatrices:
         This operator maps magnetic scalars to the JS-like vector coefficients.
         The resistivity operator (eta) is applied afterward to obtain E.
         """
-        L = self.solution_basis.index_length
+        L = self.solution_space.index_length
 
         if potential_type in ("m_imp", "psi"):
              # Poloidal part from toroidal magnetic scalar source.
@@ -874,7 +874,7 @@ class PoloidalSystemMatrices:
 
         elif potential_type == "m_ind":
             # E_t = -1/mu0 * Scaling(m_ind) * Y^T
-            scaling = self.solution_basis.get_potential_scaling_operator()
+            scaling = self.solution_space.get_potential_scaling_operator()
             t_mat = (-1.0 / mu0) * to_dense(scaling)
 
             if self._pfac.RM is not None and self._pfac.magnetospheric_poloidal_lock:
@@ -902,7 +902,7 @@ class PoloidalSystemMatrices:
             rcond = max(float(np.finfo(float).eps * max(m_ind_to_Br.shape)), 1e-15)
             m_ind_to_Br_inv = np.linalg.pinv(m_ind_to_Br, rcond=rcond)
 
-            scaling = np.asarray(to_dense(self.solution_basis.get_potential_scaling_operator()))
+            scaling = np.asarray(to_dense(self.solution_space.get_potential_scaling_operator()))
             t_mat = (-1.0 / mu0) * (scaling @ br_factor_op @ m_ind_to_Br_inv)
             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
 

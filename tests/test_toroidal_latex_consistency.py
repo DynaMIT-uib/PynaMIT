@@ -145,7 +145,7 @@ def test_poloidal_u_known_builder_matches_manual_none_model() -> None:
     """Poloidal provider returns the expected u/dr_u for radial_model='none'."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
     pol = state.poloidal_matrices
-    basis = state.solution_basis
+    basis = state.solution_space
     grid = state.geometry.grid
     n = int(basis.index_length)
     inv_R = 1.0 / float(state.RI)
@@ -169,7 +169,7 @@ def test_poloidal_u_known_builder_external_model_scales_dr_u() -> None:
     """External model dr_u follows mode-wise -(l+2)/R scaling."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
     pol = state.poloidal_matrices
-    basis = state.solution_basis
+    basis = state.solution_space
     grid = state.geometry.grid
     n = int(basis.index_length)
     inv_R = 1.0 / float(state.RI)
@@ -203,7 +203,7 @@ def test_state_dpsi_solver_accepts_poloidal_u_known_hook() -> None:
         use_toroidal_twist_rate_known_from_poloidal=True,
         toroidal_twist_rate_known_radial_model="none",
     )
-    n = int(state.solution_basis.index_length)
+    n = int(state.solution_space.index_length)
     rng = np.random.default_rng(37)
     E_known = rng.normal(size=(2, n))
     dt_psi = np.asarray(state.solve_dt_psi(E_known), dtype=float).reshape(-1)

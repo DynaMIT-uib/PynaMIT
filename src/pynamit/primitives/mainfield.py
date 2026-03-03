@@ -11,8 +11,8 @@ import dipole
 from pynamit.math.constants import RE
 
 
-# New import
-from pynamit.primitives.field import Field
+# Shared field frontend helpers
+from pynamit.primitives.field import _EvaluableMixin
 
 
 class MainfieldImplementation(ABC):
@@ -211,21 +211,26 @@ class RadialImplementation(MainfieldImplementation):
         return np.full_like(phi, np.nan)
 
 
-class Mainfield(Field):
-    """Class for representing the main magnetic field.
+class Mainfield(_EvaluableMixin):
+    """Analytic main magnetic field model.
 
-    Delegates to concrete implementations for Dipole, IGRF, or Radial fields.
+    ``Mainfield`` is not a realized ``Field`` value object. It is an evaluable
+    analytic model that can be sampled into discrete ``Field`` instances via the
+    shared field-evaluation frontend.
     """
 
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):
-        super().__init__()
         self.kind = kind.lower()
+        self.epoch = int(epoch)
+        self.hI = float(hI)
+        self.B0 = B0
         if self.kind == "dipole":
             self._impl = DipoleImplementation(epoch)
         elif self.kind == "igrf":
             self._impl = IGRFImplementation(epoch, hI)
         elif self.kind == "radial":
             self._impl = RadialImplementation(epoch, B0)
+            self.B0 = self._impl.B0
         else:
             raise ValueError("kind must be either radial, dipole or igrf")
 
@@ -263,3 +268,9 @@ class Mainfield(Field):
     def dip_equator(self, phi, theta=90):
         """Calculate colatitude of given magnetic latitude at phi."""
         return self._impl.dip_equator(phi, theta)
+
+    def as_field(self):
+        """Wrap this analytic main field model behind the generic ``Field`` facade."""
+        from pynamit.primitives.field import Field
+
+        return Field.from_provider(self)

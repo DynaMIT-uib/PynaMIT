@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.gauss_legendre.gl_basis import GLBasis
+from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.input_manager import InputManager
 from pynamit.primitives.timeseries import Timeseries
@@ -25,8 +26,8 @@ def setup_manager():
         basis = SHBasis(Nmax=N_sh, Mmax=N_sh, mean_free=False)
         sim_basis = GLBasis(Nmax=N_sh)
         variables_dict = {key: {var_name: var_type}}
-        storage_bases = {key: basis}
-        ts = Timeseries(storage_bases=storage_bases, variables=variables_dict)
+        storage_specs = {key: FieldSpec(basis=basis, field_type=var_type, mean_free=False)}
+        ts = Timeseries(storage_specs=storage_specs, variables=variables_dict)
         manager = InputManager(ts, sim_basis, variables_dict)
         return manager, basis, ts
     return _create

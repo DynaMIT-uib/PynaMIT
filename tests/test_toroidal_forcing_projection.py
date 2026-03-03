@@ -41,7 +41,7 @@ def _forcing_rms_for_smooth_psi(
         northern_hemisphere_apex_constraints=northern_apex,
     )
     state = sim.state
-    basis = state.solution_basis
+    basis = state.solution_space
     grid = state.geometry.grid
     n = basis.index_length
 

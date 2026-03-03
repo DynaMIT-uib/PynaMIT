@@ -37,7 +37,7 @@ class RMCouplingOperators:
 class PoloidalClosureProjector:
     """Project poloidal closure operators into solution coefficient space."""
 
-    solution_basis: "Basis"
+    solution_space: "Basis"
     closure_basis: "Basis"
     grid: "Grid"
     pfac_integrator: "PFACIntegrator"
@@ -45,14 +45,14 @@ class PoloidalClosureProjector:
     @property
     def uses_auxiliary_basis(self) -> bool:
         """Whether closure basis differs from solution basis."""
-        return self.closure_basis is not self.solution_basis
+        return self.closure_basis is not self.solution_space
 
     @cached_property
     def solution_to_closure_scalar_map(self) -> np.ndarray:
         """Map solution scalar coefficients -> closure scalar coefficients."""
         if not self.uses_auxiliary_basis:
             raise RuntimeError("Solution->closure map requested without auxiliary closure basis.")
-        G_sol = np.asarray(to_dense(self.solution_basis.get_evaluation_matrix(self.grid)))
+        G_sol = np.asarray(to_dense(self.solution_space.get_evaluation_matrix(self.grid)))
         P_closure = np.asarray(
             to_dense(self.closure_basis.construct_scalar_projection_matrix(self.grid))
         )
@@ -65,7 +65,7 @@ class PoloidalClosureProjector:
             raise RuntimeError("Closure->solution map requested without auxiliary closure basis.")
         G_closure = np.asarray(to_dense(self.closure_basis.get_evaluation_matrix(self.grid)))
         P_solution = np.asarray(
-            to_dense(self.solution_basis.construct_scalar_projection_matrix(self.grid))
+            to_dense(self.solution_space.construct_scalar_projection_matrix(self.grid))
         )
         return np.asarray(P_solution @ G_closure)
 
@@ -97,7 +97,7 @@ class PoloidalClosureProjector:
         op_ri_to_rm = self.project_scalar_operator_to_solution(op_ri_to_rm)
         op_roundtrip = self.project_scalar_operator_to_solution(op_roundtrip)
 
-        n = int(self.solution_basis.index_length)
+        n = int(self.solution_space.index_length)
         if not self.uses_auxiliary_basis:
             roundtrip_vec = np.asarray(rm_roundtrip_denominator, dtype=float)
             tol = max(float(np.finfo(float).eps * max(roundtrip_vec.size, 1)), 1e-15)

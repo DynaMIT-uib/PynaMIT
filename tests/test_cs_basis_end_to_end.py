@@ -5,6 +5,7 @@ import xarray as xr
 from dataclasses import dataclass
 
 from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
 from pynamit.simulation.spatial import Geometry
@@ -34,6 +35,7 @@ class MockInputManager:
         self.input_keys = ["conductance", "jr"]
         self.variables = {"jr": ["jr"], "conductance": ["etaP", "etaH"]}
         self.basis = basis
+        self.timeseries = self
         
     def get_entry(self, key, time, interpolation):
         # Return dummy data
@@ -49,8 +51,9 @@ class MockInputManager:
             return {"jr": vals} # Coefficients ARE values for CSBasis
         return None
 
-    def get_storage_basis(self, key):
-        return self.basis
+    def get_storage_spec(self, key):
+        field_type = "scalar" if key in ("conductance", "jr") else "tangential"
+        return FieldSpec(basis=self.basis, field_type=field_type, mean_free=False)
 
 def test_cs_basis_state_end_to_end():
     """Verify that State can solve m_imp using CSBasis as solution basis."""
@@ -59,7 +62,7 @@ def test_cs_basis_state_end_to_end():
     cs_basis = CSBasis(N)
     
     # We still need an SHBasis instance for Geometry initialization (legacy signature requires it),
-    # but we pass cs_basis as 'solution_basis' to override solver logic.
+    # but we pass cs_basis as 'solution_space' to override solver logic.
     # The 'basis' arg is used for standard generic helpers if needed.
     sh_basis_dummy = SHBasis(Nmax=10, Mmax=8, mean_free=True) 
     
@@ -74,7 +77,7 @@ def test_cs_basis_state_end_to_end():
         mainfield=mainfield,
         grid_basis=cs_basis,
         settings=settings,
-        solution_basis=cs_basis
+        solution_space=cs_basis
     )
     
     # Initialize inputs
@@ -86,7 +89,7 @@ def test_cs_basis_state_end_to_end():
     assert state.geometry.G_Ve_to_JS is not None, "Hybrid G_Ve_to_JS should be created w/ SHBasis"
     
     # Check shape of G_Ve_to_JS (2, N_grid, N_coeffs)
-    # After refactor, G_Ve_to_JS uses solution_basis (grid-native)
+    # After refactor, G_Ve_to_JS uses solution_space (grid-native)
     assert state.geometry.G_Ve_to_JS.shape == (2, cs_basis.size, cs_basis.size)
     
     # Verify Poloidal matrices initialized with correct operator

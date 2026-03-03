@@ -80,7 +80,7 @@ class State:
         grid_basis: Any,
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
-        solution_basis: Optional[Any] = None,
+        solution_space: Optional[Any] = None,
     ) -> None:
         """Initialize the State object.
         
@@ -96,11 +96,11 @@ class State:
             Simulation settings.
         PFAC_matrix : np.ndarray, optional
             Pre-computed PFAC.
-        solution_basis : Any, optional
+        solution_space : Any, optional
             The basis for solution variables.
         """
         self.basis = basis
-        self.solution_basis = solution_basis if solution_basis is not None else basis
+        self.solution_space = solution_space if solution_space is not None else basis
         self._init_settings(settings)
         
         # Toroidal magnetic scalar (inductive), analogous to m_imp but time-evolved.
@@ -116,12 +116,12 @@ class State:
 
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(
-            basis, grid_basis, mainfield, settings, PFAC_matrix, solution_basis=self.solution_basis
+            basis, grid_basis, mainfield, settings, PFAC_matrix, solution_space=self.solution_space
         )
 
         self.constraints = StateConstraints(
             geometry=self.geometry,
-            solution_basis=self.solution_basis,
+            solution_space=self.solution_space,
             dynamics_mode=self.dynamics_mode,
             connect_hemispheres=self.connect_hemispheres,
             magnetospheric_toroidal_lock=self.magnetospheric_toroidal_lock,
@@ -132,13 +132,9 @@ class State:
         # Initialize Toroidal System Matrices if in full_induction mode
         self.toroidal_matrices: Optional[ToroidalSystemMatrices] = None
         if self.dynamics_mode == "full_induction":
-            closure_basis = self.solution_basis
-            if getattr(self.mode, "value", self.mode) == "cs_dominant":
-                from pynamit.spherical_harmonics.sh_basis import SHBasis
-
-                closure_basis = SHBasis(self.Nmax, self.Mmax, mean_free=True)
+            closure_basis = self.geometry.pfac_closure_basis
             self.toroidal_matrices = ToroidalSystemMatrices(
-                basis=self.solution_basis, 
+                basis=self.solution_space, 
                 grid=self.geometry.grid, 
                 b_field=self.geometry.b_field,
                 RI=self.RI,
@@ -838,7 +834,7 @@ class State:
             connect_hemispheres=(E_constraint_op is not None),
             ih_constraint_scaling=self.ih_constraint_scaling,
             regularization_lambda=self.m_imp_regularization_lambda,
-            use_pinning=(getattr(self.solution_basis, "kind", "") in ("CS", "GRID")),
+            use_pinning=(getattr(self.solution_space, "kind", "") in ("CS", "GRID")),
             weighting=self.poloidal_weighting,
         )
 
@@ -857,7 +853,7 @@ class State:
         if self.preconditioner is None:
             return None
 
-        N = self.solution_basis.index_length
+        N = self.solution_space.index_length
         L = self.coupled_induction_tensor
         L_map = as_linear_map(asarray(L).reshape(2 * N, 2 * N))
         problem = LeastSquaresProblem(
@@ -882,7 +878,7 @@ class State:
         Full-induction path: direct `jr -> m_imp` map in solution space.
         Legacy path: constrained least-squares solve for imposed baseline.
         """
-        n = self.solution_basis.index_length
+        n = self.solution_space.index_length
         if self.dynamics_mode == "full_induction":
             if jr_coeffs is None:
                 return xp.zeros(n)
@@ -941,7 +937,7 @@ class State:
     ) -> np.ndarray:
         """Map driver derivative ``dt_jr`` to toroidal driver derivative ``dt_m_imp``."""
         dt_jr_vec = np.asarray(dt_jr_coeffs).reshape(-1)
-        m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=self.solution_basis))
+        m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=self.solution_space))
         if m_imp_from_jr.ndim != 2 or m_imp_from_jr.shape[1] != dt_jr_vec.size:
             raise RuntimeError(
                 "dt_jr -> dt_m_imp mapping dimension mismatch: "
@@ -970,18 +966,18 @@ class State:
 
     def _ensure_basis(self, field: Field, field_type: str = "scalar") -> Field:
         """Ensure the field is represented in the solution basis."""
-        if field.basis is self.solution_basis or field.basis == self.solution_basis:
+        if field.basis is self.solution_space or field.basis == self.solution_space:
              return field
              
         # Handle projection to CS/Nodal basis
-        if hasattr(self.solution_basis, "kind") and self.solution_basis.kind == "CS":
+        if hasattr(self.solution_space, "kind") and self.solution_space.kind == "CS":
              grid = self.geometry.grid
              # Evaluate on grid
              v1, v2, v3 = field.evaluate(self.geometry.RI, grid.theta, grid.phi)
              
              if field_type == "scalar":
                   return Field.from_coefficients(
-                      self.solution_basis, 
+                      self.solution_space, 
                       coeffs=asarray(v1).flatten(), 
                       field_type="scalar"
                   )
@@ -991,7 +987,7 @@ class State:
                   v3_flat = asarray(v3).flatten()
                   new_coeffs = xp.stack([v2_flat, v3_flat], axis=0)
                   return Field.from_coefficients(
-                      self.solution_basis, 
+                      self.solution_space, 
                       coeffs=new_coeffs, 
                       field_type="tangential"
                   )
@@ -1003,6 +999,7 @@ class State:
         *,
         storage_base: Any,
         updated_input: dict,
+        storage_mean_free: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Decode conductance input representation and return ``(etaP, etaH)`` coeffs.
 
@@ -1023,7 +1020,11 @@ class State:
         target_shape = tuple(np.asarray(grid.theta).shape)
 
         def _eval_scalar(coeffs: np.ndarray) -> np.ndarray:
-            field = Field.from_coefficients(storage_base, coeffs=coeffs)
+            field = Field.from_coefficients(
+                storage_base,
+                coeffs=coeffs,
+                mean_free=storage_mean_free,
+            )
             vals, _, _ = field.evaluate(r_eval, grid.theta, grid.phi)
             return np.asarray(vals, dtype=float).reshape(target_shape)
 
@@ -1083,31 +1084,50 @@ class State:
                     if jr_prev.shape == jr_curr.shape and dt > 0.0:
                         current_deriv = {"jr": (jr_curr - jr_prev) / dt}
 
-            storage_base = input_manager.get_storage_basis(key)
+            storage_spec = input_manager.timeseries.get_storage_spec(key)
+            storage_base = None if storage_spec is None else storage_spec.basis
+            storage_mean_free = False if storage_spec is None else bool(storage_spec.mean_free)
             if key == "conductance":
                 conductance_updated = True
                 etaP_coeffs, etaH_coeffs = self._decode_conductance_input_to_eta_coeffs(
                     storage_base=storage_base,
                     updated_input=updated_input,
+                    storage_mean_free=storage_mean_free,
                 )
-                f_etaP = Field.from_coefficients(storage_base, coeffs=etaP_coeffs)
-                f_etaH = Field.from_coefficients(storage_base, coeffs=etaH_coeffs)
+                f_etaP = Field.from_coefficients(
+                    storage_base,
+                    coeffs=etaP_coeffs,
+                    mean_free=storage_mean_free,
+                )
+                f_etaH = Field.from_coefficients(
+                    storage_base,
+                    coeffs=etaH_coeffs,
+                    mean_free=storage_mean_free,
+                )
                 self.etaP = self._ensure_basis(f_etaP, "scalar")
                 self.etaH = self._ensure_basis(f_etaH, "scalar")
             elif key == "jr":
-                f_jr = Field.from_coefficients(storage_base, coeffs=updated_input["jr"])
+                f_jr = Field.from_coefficients(
+                    storage_base,
+                    coeffs=updated_input["jr"],
+                    mean_free=storage_mean_free,
+                )
                 self.jr = self._ensure_basis(f_jr, "scalar")
                 # Driver changed: rebuild imposed toroidal baseline on next use.
                 self._imposed_toroidal_dirty = True
                 if current_deriv is not None:
                     if self.dynamics_mode == "full_induction":
-                        f_dt_jr = Field.from_coefficients(storage_base, coeffs=current_deriv["jr"])
+                        f_dt_jr = Field.from_coefficients(
+                            storage_base,
+                            coeffs=current_deriv["jr"],
+                            mean_free=storage_mean_free,
+                        )
                         dt_jr_solution = self._ensure_basis(f_dt_jr, "scalar")
                         dt_m_imp_coeffs = self._map_dt_jr_driver_to_dt_m_imp(
                             dt_jr_coeffs=asarray(dt_jr_solution.coeffs),
                         )
                         self.dt_m_imp_driver = Field.from_coefficients(
-                            self.solution_basis,
+                            self.solution_space,
                             coeffs=asarray(dt_m_imp_coeffs),
                             field_type="scalar",
                         )
@@ -1118,13 +1138,18 @@ class State:
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                f_Br = Field.from_coefficients(storage_base, coeffs=updated_input["Br"])
+                f_Br = Field.from_coefficients(
+                    storage_base,
+                    coeffs=updated_input["Br"],
+                    mean_free=storage_mean_free,
+                )
                 self.Br = self._ensure_basis(f_Br, "scalar")
             elif key == "u":
                 f_u = Field.from_coefficients(
                     storage_base,
                     coeffs=updated_input["u"].reshape((2, -1)),
                     field_type="tangential",
+                    mean_free=storage_mean_free,
                 )
                 self.u = self._ensure_basis(f_u, "tangential")
 
@@ -1383,7 +1408,7 @@ class State:
         if (
             len(solution_shape) == 2
             and int(solution_shape[0]) == 2
-            and int(solution_shape[1]) == self.solution_basis.index_length
+            and int(solution_shape[1]) == self.solution_space.index_length
         ):
             if use_pinning is None:
                 use_pinning = self.apply_psi_gauge
@@ -1399,7 +1424,7 @@ class State:
                     use_pinning=use_pinning,
                 )
             steady_solver = CoupledSteadyStateSolver(
-                n_scalar=self.solution_basis.index_length,
+                n_scalar=self.solution_space.index_length,
                 apply_m_ind_gauge=self.apply_m_ind_gauge,
                 preconditioner_type=self.preconditioner,
                 psi_gauge_row_builder=self.constraints.get_psi_gauge_row,
@@ -1413,7 +1438,7 @@ class State:
             if using_default_coupled_operator:
                 column_scale_cache_key = (
                     bool(use_pinning),
-                    int(self.solution_basis.index_length),
+                    int(self.solution_space.index_length),
                 )
             y_ss_flat = steady_solver.solve(
                 coupled_operator=coupled_operator,
@@ -1538,7 +1563,7 @@ class State:
     @cached_property
     def coupled_induction_matrix_dense(self) -> np.ndarray:
         """Cached dense coupled operator matrix with shape ``(2N, 2N)``."""
-        N = self.solution_basis.index_length
+        N = self.solution_space.index_length
         return asarray(self.coupled_induction_tensor).reshape(2 * N, 2 * N)
 
     @cached_property
