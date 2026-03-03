@@ -14,6 +14,8 @@ machinery instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
+from functools import wraps
 from typing import Any, Literal
 
 import numpy as np
@@ -89,8 +91,30 @@ class FieldSpec:
         return np.asarray(self.basis.m)
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate unhandled attributes to the underlying basis family."""
-        return getattr(self.basis, name)
+        """Delegate unhandled attributes to the underlying basis family.
+
+        For SH scalar/tangential spaces, missing callable attributes that
+        accept a ``mean_free`` keyword automatically inherit this spec's
+        zero-mean semantics unless the caller overrides them explicitly.
+        """
+        attr = getattr(self.basis, name)
+        if not callable(attr):
+            return attr
+        if self.kind != "SH" or self.field_type not in ("scalar", "tangential"):
+            return attr
+        try:
+            signature = inspect.signature(attr)
+        except (TypeError, ValueError):
+            return attr
+        if "mean_free" not in signature.parameters:
+            return attr
+
+        @wraps(attr)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("mean_free", self.mean_free)
+            return attr(*args, **kwargs)
+
+        return wrapped
 
     def scalar_fields_are_mean_free_by_construction(self) -> bool:
         """Return whether zero-mean is built into the coefficient representation."""
@@ -139,6 +163,12 @@ class FieldSpec:
         if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
             return self.basis.get_vector_basis_matrix(grid, mean_free=self.mean_free)
         return self.basis.get_vector_basis_matrix(grid)
+
+    def get_rxgrad_matrix(self, grid: Any) -> Any:
+        """Return the rotated-gradient matrix for this field space."""
+        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
+            return self.basis.get_rxgrad_matrix(grid, mean_free=self.mean_free)
+        return self.basis.get_rxgrad_matrix(grid)
 
     def get_laplacian_operator(self, r: float = 1.0) -> Any:
         """Return the Laplacian operator for this field space."""
@@ -297,6 +327,27 @@ class FieldSpec:
         if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
             kwargs.setdefault("mean_free", self.mean_free)
         return self.basis.from_grid_values(values, grid, vector_type, **kwargs)
+
+    def project_to_basis(
+        self,
+        input_values: np.ndarray,
+        input_grid: Any,
+        vector_type: str,
+        target_grid: Any,
+        target_basis: Any,
+        **kwargs: Any,
+    ) -> np.ndarray:
+        """Project grid values using this field space as the source representation."""
+        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
+            kwargs.setdefault("mean_free", self.mean_free)
+        return self.basis.project_to_basis(
+            input_values,
+            input_grid,
+            vector_type,
+            target_grid,
+            target_basis,
+            **kwargs,
+        )
 
     def evaluate(
         self,

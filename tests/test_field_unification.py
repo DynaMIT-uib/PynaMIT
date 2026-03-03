@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from pynamit.primitives.field import Field
+from pynamit.primitives.field_spec import FieldSpec
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
 
@@ -136,3 +137,23 @@ def test_mainfield_as_field_provider_backend():
     actual = field.evaluate(r, theta, phi)
     for exp, act in zip(expected, actual):
         np.testing.assert_allclose(act, exp)
+
+
+def test_fieldspec_delegates_mean_free_to_sh_methods() -> None:
+    """Missing SH methods delegated through FieldSpec should inherit mean_free."""
+
+    class DummySHBasis:
+        kind = "SH"
+        signature = ("dummy",)
+        index_names = ["i"]
+        index_arrays = [np.arange(3)]
+        index_length = 3
+        n = np.arange(3)
+        m = np.arange(3)
+
+        def foo(self, *, mean_free=None):
+            return mean_free
+
+    spec = FieldSpec(basis=DummySHBasis(), field_type="scalar", mean_free=True)
+    assert spec.foo() is True
+    assert spec.foo(mean_free=False) is False
