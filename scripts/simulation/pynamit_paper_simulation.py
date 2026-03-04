@@ -102,7 +102,7 @@ dynamics.set_u(
 
 
 print(datetime.datetime.now(), "Starting simulation", flush=True)
-dynamics.evolve_to_time(simulation_time)
+dynamics.evolve_to_time(simulation_time, steady_state_initialization=False)
 dynamics.impose_steady_state()
 
 print(

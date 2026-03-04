@@ -158,6 +158,15 @@ class Dynamics:
             self.current_time = self.data.get_latest_output_time("state")
         else:
             self.current_time = np.float64(0)
+        self._current_m_ind = None
+        if self.data.has_dataset("state"):
+            state_entry = self.data.get_output_entry("state", self.current_time, interpolation=False)
+            if state_entry is not None and state_entry.get("m_ind") is not None:
+                self._current_m_ind = asarray(state_entry["m_ind"])
+            if self.settings.dynamics_mode == "full_induction" and state_entry is not None:
+                psi_entry = state_entry.get("psi")
+                if psi_entry is not None:
+                    self.state.psi = asarray(psi_entry)
 
         # Store settings and PFAC matrix on file.
         if (not self.benchmark_mode) and not self.data.settings_from_file:
@@ -236,15 +245,8 @@ class Dynamics:
         """
         step = 0
 
-        if self.data.has_dataset("state"):
-            self.current_time = self.data.get_latest_output_time("state")
-            state_entry = self.data.get_output_entry("state", self.current_time, interpolation=False)
-            inductive_m_ind = state_entry["m_ind"]
-            inductive_m_ind = asarray(inductive_m_ind)
-            if self.settings.dynamics_mode == "full_induction" and state_entry is not None:
-                psi_entry = state_entry.get("psi")
-                if psi_entry is not None:
-                    self.state.psi = asarray(psi_entry)
+        if self._current_m_ind is not None:
+            inductive_m_ind = asarray(self._current_m_ind)
             m_ind_finite = bool(np.all(np.isfinite(np.asarray(inductive_m_ind))))
             psi_finite = True
             if self.settings.dynamics_mode == "full_induction" and self.state.psi is not None:
@@ -268,6 +270,7 @@ class Dynamics:
                 self.current_time = np.float64(0)
                 zeros = xp.zeros((self.output_timeseries.get_storage_spec("state").index_length,))
                 inductive_m_ind = zeros
+            self._current_m_ind = asarray(inductive_m_ind)
 
         # Sync state psi if dynamic mode
         if self.settings.dynamics_mode == "full_induction":
@@ -367,8 +370,63 @@ class Dynamics:
                 psi = psi_new
             
             self.current_time = next_time
+            self._current_m_ind = asarray(inductive_m_ind)
 
             step += 1
+
+    def impose_steady_state(
+        self,
+        time: Optional[float] = None,
+        *,
+        interpolation: bool = True,
+        save: bool = True,
+        quiet: bool = False,
+    ):
+        """Replace the live model state by the steady-state solution at one time.
+
+        Parameters
+        ----------
+        time : float, optional
+            Simulation time at which to impose the steady state. If omitted,
+            uses the current simulation time.
+        interpolation : bool, optional
+            Whether to interpolate inputs to the requested time before solving.
+        save : bool, optional
+            Whether to persist the imposed state/steady-state entries.
+        quiet : bool, optional
+            Suppress status output when saving.
+        """
+        if time is not None:
+            self.current_time = np.float64(time)
+
+        self.state.update(self.input_manager, self.current_time, interpolation=interpolation)
+        E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
+        psi_ss, m_ind_ss = self.state.solve_steady_state_model_variables(
+            E_coeffs_noind,
+            update_state=True,
+        )
+        m_ind_ss = asarray(m_ind_ss)
+        self._current_m_ind = m_ind_ss
+        if self.settings.dynamics_mode == "full_induction":
+            self.state.psi = None if psi_ss is None else asarray(psi_ss)
+
+        if save and not self.benchmark_mode:
+            self.add_state_to_timeseries("state", m_ind_ss, E_coeffs_noind, m_imp_noind, psi=psi_ss)
+            if bool(self.settings.save_steady_states):
+                self.add_state_to_timeseries(
+                    "steady_state",
+                    m_ind_ss,
+                    E_coeffs_noind,
+                    m_imp_noind,
+                    psi=psi_ss,
+                )
+            self.data.save_output_dataset("state")
+            if bool(self.settings.save_steady_states):
+                self.data.save_output_dataset("steady_state")
+            if not quiet:
+                print(f"Imposed steady state at t = {float(self.current_time):.2f} s")
+
+        return psi_ss, m_ind_ss
 
     def add_state_to_timeseries(self, key, m_ind, E_coeffs, m_imp, psi=None):
         """Add the current state to the time series.

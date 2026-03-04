@@ -61,3 +61,37 @@ def test_steady_state_init():
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
     assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+
+
+def test_impose_steady_state_at_current_time(tmp_path):
+    """Imposed steady state should overwrite the live state at the current time."""
+    run_directory = tmp_path / "steady_state_impose"
+
+    dynamics = run_pynamit(
+        final_time=0.1,
+        dt=1e-2,
+        Nmax=10,
+        Mmax=8,
+        Ncs=18,
+        mainfield_kind="dipole",
+        ignore_PFAC=False,
+        connect_hemispheres=True,
+        latitude_boundary=50,
+        wind=True,
+        steady_state_initialization=False,
+        vector_jr=True,
+        vector_conductance=True,
+        vector_u=True,
+        run_directory=run_directory,
+    )
+
+    psi_ss, m_ind_ss = dynamics.impose_steady_state(quiet=True)
+
+    state_entry = dynamics.output_timeseries.get_entry("state", dynamics.current_time)
+    steady_entry = dynamics.output_timeseries.get_entry("steady_state", dynamics.current_time)
+
+    np.testing.assert_allclose(np.asarray(state_entry["m_ind"]), np.asarray(m_ind_ss))
+    np.testing.assert_allclose(np.asarray(steady_entry["m_ind"]), np.asarray(m_ind_ss))
+    if psi_ss is not None:
+        np.testing.assert_allclose(np.asarray(state_entry["psi"]), np.asarray(psi_ss))
+        np.testing.assert_allclose(np.asarray(steady_entry["psi"]), np.asarray(psi_ss))
