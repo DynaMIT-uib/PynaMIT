@@ -12,7 +12,7 @@ import pyamps
 import apexpy
 
 run_directory = "data/pynamit_paper_simulation"
-Nmax, Mmax, Ncs = 30, 30, 40
+Nmax, Mmax, Ncs = 20, 20, 30
 simulation_time = 480
 latitude_boundary = 45
 RE = 6371.2e3
