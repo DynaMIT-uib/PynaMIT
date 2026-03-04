@@ -78,7 +78,7 @@ def test_full_induction_coupled_column_scale_cache(tmp_path):
         least_squares_preconditioner=None,
         dense_full_operators=False,
         benchmark_mode=True,
-        filename_prefix=str(tmp_path / "coupled_scale_cache"),
+        run_directory=str(tmp_path / "coupled_scale_cache"),
     )
 
     st = sim.state

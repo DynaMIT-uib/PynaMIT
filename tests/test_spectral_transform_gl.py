@@ -39,7 +39,6 @@ def test_spectral_transform_gl():
         Mmax=8,
         Ncs=20,  # Not used for GL mode, but kept for compatibility
         mainfield_kind="igrf",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

@@ -105,7 +105,7 @@ class SimulationData:
     def __init__(
         self,
         *,
-        filename_prefix: str | None,
+        run_directory: str | None,
         io: IO,
         settings_dataset: Any,
         settings: DynamicsSettings,
@@ -121,7 +121,7 @@ class SimulationData:
         settings_from_file: bool,
         pfac_from_file: bool,
     ) -> None:
-        self.filename_prefix = filename_prefix
+        self.run_directory = run_directory
         self.io = io
         self.settings_dataset = settings_dataset
         self.settings = settings
@@ -141,7 +141,7 @@ class SimulationData:
     @classmethod
     def create(
         cls,
-        filename_prefix: str | Path | None,
+        run_directory: str | Path | None,
         settings: DynamicsSettings,
         *,
         load_existing: bool = True,
@@ -151,8 +151,10 @@ class SimulationData:
         settings_dataset: xr.Dataset | None = None,
     ) -> "SimulationData":
         """Create a persisted-run container from settings and optional saved files."""
-        prefix = None if filename_prefix is None else str(filename_prefix)
-        io = IO(prefix) if io is None else io
+        resolved_run_directory = (
+            None if run_directory is None else IO.build_run_directory(run_directory)
+        )
+        io = IO(resolved_run_directory) if io is None else io
 
         if settings_dataset is None and load_existing:
             settings_dataset = io.load_dataset("settings", print_info=print_info)
@@ -166,12 +168,12 @@ class SimulationData:
         else:
             if require_saved_settings:
                 raise ValueError(
-                    f"Settings dataset not found for filename prefix {prefix!r}."
+                    f"Settings dataset not found for run directory {resolved_run_directory!r}."
                 )
             effective_settings = settings
             settings_dataset = effective_settings.to_dataset()
-        if prefix is not None:
-            effective_settings.filename_prefix = prefix
+        if resolved_run_directory is not None:
+            effective_settings.run_directory = resolved_run_directory
 
         cs_basis, sh_basis = _build_simulation_bases(effective_settings)
 
@@ -211,7 +213,7 @@ class SimulationData:
         )
 
         return cls(
-            filename_prefix=prefix,
+            run_directory=resolved_run_directory,
             io=io,
             settings_dataset=settings_dataset,
             settings=effective_settings,
@@ -229,19 +231,19 @@ class SimulationData:
         )
 
     @classmethod
-    def from_prefix(cls, filename_prefix: str | Path) -> "SimulationData":
-        """Load a saved simulation package from one filename prefix."""
-        prefix = str(filename_prefix)
-        io = IO(prefix)
+    def from_directory(cls, run_directory: str | Path) -> "SimulationData":
+        """Load a saved simulation package from one run directory."""
+        resolved_run_directory = IO.discover_run_directory(run_directory)
+        io = IO(resolved_run_directory)
         settings_dataset = io.load_dataset("settings")
         if settings_dataset is None:
-            raise ValueError(f"Settings dataset not found for filename prefix {prefix!r}.")
+            raise ValueError(f"Settings dataset not found for run directory {resolved_run_directory!r}.")
         settings = DynamicsSettings.from_dataset(
             settings_dataset,
-            DynamicsSettings(filename_prefix=prefix),
+            DynamicsSettings(run_directory=resolved_run_directory),
         )
         return cls.create(
-            prefix,
+            resolved_run_directory,
             settings,
             load_existing=True,
             require_saved_settings=True,
@@ -353,8 +355,7 @@ class SimulationData:
 
     def save_input_dataset(self, key: str, *, print_info: bool = False) -> None:
         """Persist one input dataset to disk."""
-        del print_info
-        self.input_timeseries.save(key, self.io)
+        self.input_timeseries.save(key, self.io, print_info=print_info)
 
     def add_output_entry(
         self,
@@ -368,8 +369,7 @@ class SimulationData:
 
     def save_output_dataset(self, key: str, *, print_info: bool = False) -> None:
         """Persist one output dataset to disk."""
-        del print_info
-        self.output_timeseries.save(key, self.io)
+        self.output_timeseries.save(key, self.io, print_info=print_info)
 
     def get_poloidal_results_operators(
         self,

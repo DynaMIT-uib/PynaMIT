@@ -16,7 +16,7 @@ def test_induction_sensitivity(tmp_path):
     # use_jr=False -> Zero Driver
     # wind=True -> Built-in Wind (HWM14)
     dynamics = run_pynamit(
-        filename_prefix=str(tmp_path / "induction_sensitivity"),
+        run_directory=str(tmp_path / "induction_sensitivity"),
         final_time=10.0,
         dt=10.0,
         Nmax=5, Mmax=2,

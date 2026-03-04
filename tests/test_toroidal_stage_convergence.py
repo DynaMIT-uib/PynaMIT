@@ -14,12 +14,12 @@ def _build_state(
     nmax: int,
     mmax: int,
     ncs: int,
-    filename_prefix: str,
+    run_directory: str,
 ):
     from pynamit.simulation.dynamics import Dynamics
 
     dynamics = Dynamics(
-        filename_prefix=filename_prefix,
+        run_directory=run_directory,
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,
@@ -98,14 +98,14 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
         nmax=nmax,
         mmax=mmax,
         ncs=ncs,
-        filename_prefix=f"{output_prefix}_st",
+        run_directory=f"{output_prefix}_st",
     )
     state_cs = _build_state(
         SimulationMode.CS_DOMINANT,
         nmax=nmax,
         mmax=mmax,
         ncs=ncs,
-        filename_prefix=f"{output_prefix}_cs",
+        run_directory=f"{output_prefix}_cs",
     )
 
     a_st, b_st = _scalar_transfer_operators(state_st, sh_basis)

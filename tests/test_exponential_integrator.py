@@ -20,7 +20,7 @@ def _run_exponential_integrator_test(
     rel_tol=1e-4, 
     test_name="sim",
     northern_apex_constraints=False,
-    filename_prefix=None,
+    run_directory=None,
 ):
     """Helper to run the exponential integrator test using run_pynamit defaults."""
     from pynamit.simulation.runner import run_pynamit
@@ -28,7 +28,7 @@ def _run_exponential_integrator_test(
     # Run using the default runner with multi_data=True
     # Using 'svd' solver for maximum precision
     sim = run_pynamit(
-        filename_prefix=filename_prefix,
+        run_directory=run_directory,
         final_time=2.0,
         dt=1.0,
         plotsteps=1, 
@@ -93,7 +93,7 @@ def test_exponential_integrator_pure_spectral(tmp_path):
         expected_mind_norm,
         rel_tol=1e-4,  # Relaxed slightly for physics changes
         test_name="exp_pure_spectral",
-        filename_prefix=str(tmp_path / "exp_pure_spectral"),
+        run_directory=str(tmp_path / "exp_pure_spectral"),
     )
 
 def test_exponential_integrator_spectral_transform_gl(tmp_path):
@@ -109,7 +109,7 @@ def test_exponential_integrator_spectral_transform_gl(tmp_path):
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="exp_spec_trans_gl",
-        filename_prefix=str(tmp_path / "exp_spec_trans_gl"),
+        run_directory=str(tmp_path / "exp_spec_trans_gl"),
     )
 
 def test_exponential_integrator_spectral_transform_cs(tmp_path):
@@ -125,7 +125,7 @@ def test_exponential_integrator_spectral_transform_cs(tmp_path):
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="exp_spec_trans_cs",
-        filename_prefix=str(tmp_path / "exp_spec_trans_cs"),
+        run_directory=str(tmp_path / "exp_spec_trans_cs"),
     )
 
 def test_exponential_integrator_cs_dominant(tmp_path):
@@ -146,5 +146,5 @@ def test_exponential_integrator_cs_dominant(tmp_path):
         rel_tol=1e-2,
         test_name="exp_cs_dom",
         northern_apex_constraints=True,
-        filename_prefix=str(tmp_path / "exp_cs_dom"),
+        run_directory=str(tmp_path / "exp_cs_dom"),
     )

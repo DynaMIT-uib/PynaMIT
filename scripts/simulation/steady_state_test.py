@@ -10,7 +10,7 @@ import datetime
 import pyamps
 import apexpy
 
-filename_prefix = "ss_test"
+run_directory = "ss_test"
 Nmax, Mmax, Ncs = 15, 15, 16
 latitude_boundary = 40
 RE = 6371.2e3
@@ -25,7 +25,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    filename_prefix=filename_prefix,
+    run_directory=run_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

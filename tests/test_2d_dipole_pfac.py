@@ -28,7 +28,6 @@ def test_2d_dipole_pfac():
         Mmax=10,
         Ncs=20,
         mainfield_kind="dipole",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         steady_state_initialization=False,
     )

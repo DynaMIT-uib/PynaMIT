@@ -49,7 +49,6 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
         Mmax=12,
         Ncs=8,
         mainfield_kind="igrf",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

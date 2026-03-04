@@ -28,7 +28,6 @@ def test_2d_dipole_pfac_dop853():
         Mmax=10,
         Ncs=20,
         mainfield_kind="dipole",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         integrator="DOP853",
         steady_state_initialization=False,

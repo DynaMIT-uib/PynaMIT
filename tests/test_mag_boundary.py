@@ -32,7 +32,6 @@ def test_mag_boundary():
         Ncs=18,
         RM=4 * RE,
         mainfield_kind="dipole",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

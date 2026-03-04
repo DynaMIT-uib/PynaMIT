@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 from pynamit.math.constants import RE
 from pynamit.simulation.dynamics import Dynamics
@@ -11,6 +12,7 @@ def test_dynamics_settings_default_conductance_mode_is_string() -> None:
     assert settings.conductance_interpolation_mode == "sigma_log"
     assert isinstance(settings.conductance_interpolation_mode, str)
     assert settings.apply_m_imp_gauge is True
+    assert settings.run_directory is None
 
 
 @dataclass
@@ -49,7 +51,7 @@ def test_dynamics_settings_coerce_applies_derived_defaults() -> None:
 
 def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
     settings = DynamicsSettings(
-        filename_prefix=str(tmp_path / "settings_ctor"),
+        run_directory=str(tmp_path / "settings_ctor"),
         Nmax=4,
         Mmax=3,
         Ncs=8,
@@ -58,4 +60,21 @@ def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
     dynamics = Dynamics(settings, benchmark_mode=True)
 
     assert dynamics.settings.Nmax == settings.Nmax
-    assert dynamics.filename_prefix == settings.filename_prefix
+    assert dynamics.run_directory == settings.run_directory
+
+
+def test_dynamics_uses_temporary_run_directory_when_no_run_directory() -> None:
+    settings = DynamicsSettings(
+        run_directory=None,
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+    )
+
+    dynamics = Dynamics(settings, benchmark_mode=False)
+
+    assert dynamics.uses_temporary_run_directory is True
+    assert dynamics.run_directory is not None
+    assert Path(dynamics.run_directory).name.startswith("pynamit-run-")
+    assert (Path(dynamics.run_directory) / "settings.ncdf").exists()
+    assert (Path(dynamics.run_directory) / "PFAC_matrix.ncdf").exists()

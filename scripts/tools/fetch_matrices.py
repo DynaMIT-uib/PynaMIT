@@ -37,7 +37,7 @@ def build_dynamics(
     RI = RE + 110.0e3
     RM = None if rm_re is None else float(rm_re) * RE
     dynamics = Dynamics(
-        filename_prefix="poloidal_dense_mats",
+        run_directory="poloidal_dense_mats",
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,

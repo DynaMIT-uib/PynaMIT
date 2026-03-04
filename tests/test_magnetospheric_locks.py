@@ -12,7 +12,7 @@ from pynamit.simulation.spatial import to_dense
 
 def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dynamics:
     return Dynamics(
-        filename_prefix=str(
+        run_directory=str(
             tmp_path / f"locks_t{int(toroidal_lock)}_p{int(poloidal_lock)}"
         ),
         Nmax=8,
@@ -32,7 +32,7 @@ def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dy
 
 def _build_legacy_dynamics(tmp_path, *, poloidal_lock: bool) -> Dynamics:
     return Dynamics(
-        filename_prefix=str(tmp_path / f"legacy_lock_p{int(poloidal_lock)}"),
+        run_directory=str(tmp_path / f"legacy_lock_p{int(poloidal_lock)}"),
         Nmax=8,
         Mmax=4,
         Ncs=10,

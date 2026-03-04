@@ -7,6 +7,7 @@ and as a starting point for simulation scripts.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -20,7 +21,6 @@ def run_pynamit(
     RI: Optional[float] = None,
     RM: Optional[float] = None,
     mainfield_kind: str = "dipole",
-    fig_directory: str = "./figs",
     ignore_PFAC: bool = True,
     connect_hemispheres: bool = False,
     northern_hemisphere_apex_constraints: bool = False,
@@ -44,7 +44,7 @@ def run_pynamit(
     dynamics_mode: str = "legacy",
     mainfield_epoch: int = 2020,
     input_weighting: Optional[str] = None,
-    filename_prefix: Optional[str] = None,
+    run_directory: Optional[str | Path] = None,
     use_jr: bool = True,
     apply_psi_gauge: bool = True,
     apply_m_ind_gauge: bool = True,
@@ -69,8 +69,10 @@ def run_pynamit(
     Parameters
     ----------
     ...
-    filename_prefix : str, optional
-        Prefix for output files.
+    run_directory : str or Path, optional
+        Directory for one persisted run. If omitted, the run persists to a
+        unique timestamped run directory under ``simulation/`` and artifacts are
+        written as ``<run_directory>/settings.ncdf``, ``state.ncdf``, etc.
     use_jr : bool, optional
         Whether to drive with field aligned currents (default True).
     """
@@ -78,6 +80,7 @@ def run_pynamit(
     import numpy as np
 
     from pynamit.math.constants import RE
+    from pynamit.primitives.io import IO
     from pynamit.simulation.dynamics import Dynamics
     from pynamit.simulation.settings import DynamicsSettings, SimulationMode
     from pynamit.simulation.input import compute_spherical_input_sqrt_weights
@@ -139,8 +142,14 @@ def run_pynamit(
     if RI is None:
         RI = RE + 110.0e3
 
+    resolved_run_directory = (
+        IO.build_run_directory(run_directory)
+        if run_directory is not None
+        else IO.build_temporary_run_directory_in_directory("simulation")
+    )
+
     settings_kwargs = dict(
-        filename_prefix=filename_prefix,
+        run_directory=resolved_run_directory,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,

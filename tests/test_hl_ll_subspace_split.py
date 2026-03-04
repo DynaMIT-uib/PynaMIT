@@ -35,7 +35,7 @@ def _assert_split_regression_properties(
 ) -> None:
     """Lock core HL/LL split properties used by hard full-induction constraints."""
     dynamics = Dynamics(
-        filename_prefix=str(tmp_path / f"split_regression_{simulation_mode.value}"),
+        run_directory=str(tmp_path / f"split_regression_{simulation_mode.value}"),
         Nmax=10,
         Mmax=5,
         Ncs=10,

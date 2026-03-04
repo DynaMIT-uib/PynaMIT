@@ -9,7 +9,7 @@ from pynamit.simulation.dynamics import Dynamics, SimulationMode
 
 def _build_radial_isotropic_state():
     dynamics = Dynamics(
-        filename_prefix="test_toroidal_radial_closure",
+        run_directory="test_toroidal_radial_closure",
         Nmax=6,
         Mmax=6,
         Ncs=12,

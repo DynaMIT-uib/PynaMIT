@@ -10,16 +10,16 @@ from pynamit.primitives.grid import Grid
 
 
 def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
-    prefix = tmp_path / "results_case"
+    run_dir = tmp_path / "results_case"
     settings = DynamicsSettings(
-        filename_prefix=str(prefix),
+        run_directory=str(run_dir),
         Nmax=2,
         Mmax=2,
         Ncs=6,
         t0="2001-05-12 21:45:00",
     )
-    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
-    io = IO(str(prefix))
+    simulation_data = SimulationData.create(run_dir, settings, load_existing=False)
+    io = IO(str(run_dir))
     io.save_dataset(settings.to_dataset(), "settings")
 
     sh_full_basis = simulation_data.sh_basis
@@ -82,7 +82,7 @@ def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
 
     io.save_dataarray(xr.DataArray(np.eye(n_solution)), "PFAC_matrix")
 
-    simulation_data = SimulationData.from_prefix(prefix)
+    simulation_data = SimulationData.from_directory(run_dir)
 
     assert simulation_data.settings.Nmax == settings.Nmax
     assert simulation_data.mainfield.kind == settings.mainfield_kind
@@ -116,22 +116,26 @@ def test_simulation_data_loads_saved_inputs_and_outputs(tmp_path):
     assert jr_spec.mean_free is True
     assert simulation_data.has_dataset("state")
 
+    simulation_data_from_dir = SimulationData.from_directory(run_dir)
+    assert simulation_data_from_dir.settings.Nmax == settings.Nmax
+    np.testing.assert_allclose(simulation_data_from_dir.pfac_matrix, simulation_data.pfac_matrix)
+
 
 def test_simulation_data_create_saves_sidecars(tmp_path):
-    prefix = tmp_path / "runtime_case"
+    run_dir = tmp_path / "runtime_case"
     settings = DynamicsSettings(
-        filename_prefix=str(prefix),
+        run_directory=str(run_dir),
         Nmax=2,
         Mmax=2,
         Ncs=6,
         t0="2001-05-12 21:45:00",
     )
 
-    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    simulation_data = SimulationData.create(run_dir, settings, load_existing=False)
     simulation_data.save_settings()
     simulation_data.save_pfac_matrix(np.eye(simulation_data.solution_spec.index_length))
 
-    reloaded = SimulationData.from_prefix(prefix)
+    reloaded = SimulationData.from_directory(run_dir)
     assert reloaded.settings.Nmax == settings.Nmax
     np.testing.assert_allclose(
         reloaded.pfac_matrix,
@@ -140,15 +144,15 @@ def test_simulation_data_create_saves_sidecars(tmp_path):
 
 
 def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
-    prefix = tmp_path / "output_helpers"
+    run_dir = tmp_path / "output_helpers"
     settings = DynamicsSettings(
-        filename_prefix=str(prefix),
+        run_directory=str(run_dir),
         Nmax=2,
         Mmax=2,
         Ncs=6,
     )
 
-    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    simulation_data = SimulationData.create(run_dir, settings, load_existing=False)
     n_solution = simulation_data.solution_spec.index_length
 
     assert not simulation_data.has_dataset("state")
@@ -175,7 +179,7 @@ def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
     )
     simulation_data.save_output_dataset("state")
 
-    reloaded = SimulationData.create(prefix, settings, load_existing=True)
+    reloaded = SimulationData.create(run_dir, settings, load_existing=True)
     assert reloaded.has_dataset("state")
     assert reloaded.get_latest_output_time("state") == 2.0
     state_entry = reloaded.get_output_entry("state", 2.0)
@@ -184,15 +188,15 @@ def test_simulation_data_output_helpers_round_trip_entries(tmp_path):
 
 
 def test_simulation_data_input_helpers_round_trip_dataset(tmp_path):
-    prefix = tmp_path / "input_helpers"
+    run_dir = tmp_path / "input_helpers"
     settings = DynamicsSettings(
-        filename_prefix=str(prefix),
+        run_directory=str(run_dir),
         Nmax=2,
         Mmax=2,
         Ncs=6,
     )
 
-    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    simulation_data = SimulationData.create(run_dir, settings, load_existing=False)
     n_scalar = simulation_data.sh_basis.scalar_index_length(mean_free=True)
 
     simulation_data.input_timeseries.add_entry(
@@ -202,7 +206,7 @@ def test_simulation_data_input_helpers_round_trip_dataset(tmp_path):
     )
     simulation_data.save_input_dataset("jr")
 
-    reloaded = SimulationData.create(prefix, settings, load_existing=True)
+    reloaded = SimulationData.create(run_dir, settings, load_existing=True)
     assert reloaded.has_dataset("jr")
     jr_entry = reloaded.get_input_entry("jr", 0.0)
     assert jr_entry is not None
@@ -210,15 +214,15 @@ def test_simulation_data_input_helpers_round_trip_dataset(tmp_path):
 
 
 def test_simulation_data_builds_results_operator_bundle(tmp_path):
-    prefix = tmp_path / "results_ops"
+    run_dir = tmp_path / "results_ops"
     settings = DynamicsSettings(
-        filename_prefix=str(prefix),
+        run_directory=str(run_dir),
         Nmax=2,
         Mmax=2,
         Ncs=6,
     )
 
-    simulation_data = SimulationData.create(prefix, settings, load_existing=False)
+    simulation_data = SimulationData.create(run_dir, settings, load_existing=False)
     bundle = simulation_data.get_poloidal_results_operators(
         grid=Grid(lat=np.array([60.0]), lon=np.array([0.0])),
     )

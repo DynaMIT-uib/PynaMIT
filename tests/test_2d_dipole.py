@@ -28,7 +28,6 @@ def test_2d_dipole():
         Mmax=12,
         Ncs=22,
         mainfield_kind="dipole",
-        fig_directory=temp_dir,
         steady_state_initialization=False,
     )
 

@@ -109,8 +109,10 @@ class DynamicsSettings:
         Time integration method: "euler" or "exponential".
     backend : str
         Computation backend: "auto", "numpy", or "jax".
-    filename_prefix : str
-        Prefix for output files.
+    run_directory : str, optional
+        Directory for persisted run files. If omitted, the caller decides
+        whether to use a temporary run directory or an explicit project-local
+        directory.
     simulation_mode : SimulationMode
         Operational mode of the simulation.
     least_squares_solver : str
@@ -150,7 +152,7 @@ class DynamicsSettings:
     save_steady_states: bool = True
     integrator: Literal["euler", "exponential"] = "euler"
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
-    filename_prefix: str = "simulation"
+    run_directory: Optional[str] = None
     dynamics_mode: Literal["legacy", "full_induction"] = "legacy"
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "lsmr"
@@ -317,8 +319,8 @@ class DynamicsSettings:
         # Remove backend as it is runtime configuration
         if "backend" in attrs:
             del attrs["backend"]
-        if "filename_prefix" in attrs:
-            del attrs["filename_prefix"]
+        if "run_directory" in attrs:
+            del attrs["run_directory"]
 
         return xr.Dataset(attrs=attrs)
 
@@ -382,7 +384,7 @@ class DynamicsSettings:
             integrator=get("integrator", defaults.integrator),
             # Runtime fields not in file
             backend=defaults.backend,
-            filename_prefix=get("filename_prefix", defaults.filename_prefix),
+            run_directory=get("run_directory", defaults.run_directory),
             solution_basis_kind=get("solution_basis_kind", defaults.solution_basis_kind),
             dynamics_mode=get("dynamics_mode", defaults.dynamics_mode),
             toroidal_weighting=get("toroidal_weighting", defaults.toroidal_weighting),

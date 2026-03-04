@@ -44,15 +44,14 @@ class PynamEye(object):
     """
 
     def __init__(
-        self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
+        self, run_directory, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
     ):
         """Initialize the PynamEye object.
 
         Parameters
         ----------
-        filename_prefix : str
-            Filename prefix for the simulation save files that will be
-            visualized.
+        run_directory : str
+            Directory containing the saved simulation artifacts to visualize.
         t : int, optional
             Simulation time in seconds.
         Nlat : int, optional
@@ -68,12 +67,12 @@ class PynamEye(object):
         steady_state : bool, optional
             Whether to use steady state data.
         """
-        self.simulation_data = SimulationData.from_prefix(filename_prefix)
+        self.simulation_data = SimulationData.from_directory(run_directory)
         self.datasets = self.simulation_data.datasets
         self.settings = self.simulation_data.settings
         if steady_state and not self.simulation_data.has_dataset("steady_state"):
             warnings.warn(
-                f"Could not find {filename_prefix + '_steady_state.ncdf'}.",
+                f"Could not find steady-state data in {run_directory!r}.",
                 RuntimeWarning,
                 stacklevel=2,
             )

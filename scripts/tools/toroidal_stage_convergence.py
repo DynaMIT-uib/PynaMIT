@@ -66,7 +66,7 @@ def _build_state(
     connect_hemispheres: bool,
 ) -> Dynamics:
     dynamics = Dynamics(
-        filename_prefix="benchmark_stage",
+        run_directory="benchmark_stage",
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,

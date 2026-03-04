@@ -235,5 +235,6 @@ class Timeseries:
             # No data available for the specified time.
             return None, None
 
-    def save(self, key, io):
-        io.save_dataset(self.datasets[key].reset_index("i"), key)
+    def save(self, key, io, *, print_info: bool = False):
+        """Persist one stored series to disk."""
+        io.save_dataset(self.datasets[key].reset_index("i"), key, print_info=print_info)

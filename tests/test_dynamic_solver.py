@@ -13,13 +13,13 @@ def _run_dynamic_ramp_test(
     rel_tol=1e-4,
     test_name="sim",
     northern_apex_constraints=False,
-    filename_prefix=None,
+    run_directory=None,
 ):
     """Run full-induction simulation and compare t=1.0s state norms."""
     from pynamit.simulation.runner import run_pynamit
 
     sim = run_pynamit(
-        filename_prefix=filename_prefix,
+        run_directory=run_directory,
         final_time=2.0,
         dt=1.0,
         plotsteps=1,
@@ -75,7 +75,7 @@ def test_dynamic_ramp_pure_spectral(tmp_path):
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="sim_pure_spectral",
-        filename_prefix=str(tmp_path / "sim_pure_spectral"),
+        run_directory=str(tmp_path / "sim_pure_spectral"),
     )
 
 
@@ -92,7 +92,7 @@ def test_dynamic_ramp_spectral_transform_gl(tmp_path):
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="sim_st_gl",
-        filename_prefix=str(tmp_path / "sim_st_gl"),
+        run_directory=str(tmp_path / "sim_st_gl"),
     )
 
 
@@ -109,7 +109,7 @@ def test_dynamic_ramp_spectral_transform_cs(tmp_path):
         expected_mind_norm,
         rel_tol=1e-4,
         test_name="sim_st_cs",
-        filename_prefix=str(tmp_path / "sim_st_cs"),
+        run_directory=str(tmp_path / "sim_st_cs"),
     )
 
 
@@ -128,5 +128,5 @@ def test_dynamic_ramp_cs_dominant(backend: str, tmp_path):
         rel_tol=rel_tol,
         test_name="sim_cs_dom",
         northern_apex_constraints=True,
-        filename_prefix=str(tmp_path / "sim_cs_dom"),
+        run_directory=str(tmp_path / "sim_cs_dom"),
     )

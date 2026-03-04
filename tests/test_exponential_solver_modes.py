@@ -13,7 +13,7 @@ def _run_full_induction_exponential_mode(tmp_path, *, dense_full_operators: bool
     from pynamit.simulation.runner import run_pynamit
 
     sim = run_pynamit(
-        filename_prefix=str(tmp_path / f"exp_mode_{exponential_solver}_{'dense' if dense_full_operators else 'mf'}"),
+        run_directory=str(tmp_path / f"exp_mode_{exponential_solver}_{'dense' if dense_full_operators else 'mf'}"),
         final_time=1.0,
         dt=1.0,
         plotsteps=1,
@@ -104,7 +104,7 @@ def test_exponential_solver_requires_dense_operators_for_expm(tmp_path):
         match="full_induction'.*exponential_solver='expm'.*dense_full_operators=True",
     ):
         run_pynamit(
-            filename_prefix=str(tmp_path / "exp_invalid_combo"),
+            run_directory=str(tmp_path / "exp_invalid_combo"),
             final_time=0.0,
             dt=1.0,
             plotsteps=1,
@@ -128,7 +128,7 @@ def test_expm_multiply_not_supported_for_jax_backend(tmp_path):
 
     with pytest.raises(NotImplementedError, match="expm_multiply"):
         run_pynamit(
-            filename_prefix=str(tmp_path / "exp_jax_expm_multiply"),
+            run_directory=str(tmp_path / "exp_jax_expm_multiply"),
             final_time=1.0,
             dt=1.0,
             plotsteps=1,

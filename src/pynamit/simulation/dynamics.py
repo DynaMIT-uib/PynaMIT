@@ -12,6 +12,7 @@ from typing import Any, Optional
 import numpy as np
 from pynamit.gauss_legendre.gl_basis import GLBasis
 from pynamit.primitives.grid import Grid
+from pynamit.primitives.io import IO
 from pynamit.simulation.state import State
 from pynamit.primitives.input_manager import InputManager
 from pynamit.utils import asarray, set_backend, xp
@@ -62,11 +63,32 @@ class Dynamics:
     ):
         """Initialize the Dynamics class."""
         if isinstance(settings, (str, Path)):
-            settings_overrides = {
-                "filename_prefix": str(settings),
-                **settings_overrides,
-            }
-            settings = None
+            settings_path = Path(settings)
+            io: IO | None = None
+            resolved_directory = None
+            if settings_path.exists() and settings_path.is_dir():
+                resolved_directory = IO.discover_run_directory(settings_path)
+                io = IO(resolved_directory)
+                loaded_settings_dataset = io.load_dataset("settings")
+            elif settings_path.exists():
+                raise ValueError(
+                    f"Expected a run directory for restart, got existing non-directory path "
+                    f"{str(settings_path)!r}."
+                )
+            else:
+                loaded_settings_dataset = None
+            if loaded_settings_dataset is not None:
+                loaded_settings = DynamicsSettings.from_dataset(
+                    loaded_settings_dataset,
+                    DynamicsSettings(run_directory=resolved_directory),
+                )
+                settings = DynamicsSettings.coerce(loaded_settings, **settings_overrides)
+            else:
+                settings_overrides = {
+                    "run_directory": str(settings_path),
+                    **settings_overrides,
+                }
+                settings = None
 
         self.settings = (
             DynamicsSettings(**settings_overrides)
@@ -74,11 +96,17 @@ class Dynamics:
             else DynamicsSettings.coerce(settings, **settings_overrides)
         )
         self.backend = set_backend(self.settings.backend)
-
-        self.filename_prefix = self.settings.filename_prefix
         self.benchmark_mode = bool(benchmark_mode)
+
+        self._uses_temporary_run_directory = False
+        if (not self.benchmark_mode) and self.settings.run_directory is None:
+            temporary_run_directory = IO.build_temporary_run_directory()
+            self.settings.run_directory = temporary_run_directory
+            self._uses_temporary_run_directory = True
+
+        self.run_directory = self.settings.run_directory
         self.data = SimulationData.create(
-            self.filename_prefix,
+            self.run_directory,
             self.settings,
             load_existing=not self.benchmark_mode,
             print_info=not self.benchmark_mode,
@@ -132,15 +160,20 @@ class Dynamics:
             self.current_time = np.float64(0)
 
         # Store settings and PFAC matrix on file.
-        if self.filename_prefix is None:
-            self.io.filename_prefix = "simulation"
-            self.data.filename_prefix = "simulation"
-
         if (not self.benchmark_mode) and not self.data.settings_from_file:
             self.data.save_settings(print_info=True)
 
         if (not self.benchmark_mode) and not self.data.pfac_from_file:
             self.data.save_pfac_matrix(self.state.geometry.T_to_Ve, print_info=True)
+
+    @classmethod
+    def from_directory(
+        cls,
+        run_directory: str | Path,
+        **settings_overrides: Any,
+    ) -> "Dynamics":
+        """Construct a simulation by restarting from one saved run directory."""
+        return cls(IO.discover_run_directory(run_directory), **settings_overrides)
 
     @property
     def io(self):
@@ -171,6 +204,11 @@ class Dynamics:
     def output_variables(self):
         """Output variable schema."""
         return self.data.output_variables
+
+    @property
+    def uses_temporary_run_directory(self) -> bool:
+        """Whether the run is persisting to an auto-generated temporary directory."""
+        return self._uses_temporary_run_directory
 
     def evolve_to_time(
         self,
@@ -212,12 +250,12 @@ class Dynamics:
             if self.settings.dynamics_mode == "full_induction" and self.state.psi is not None:
                 psi_finite = bool(np.all(np.isfinite(np.asarray(self.state.psi))))
             if not (m_ind_finite and psi_finite):
-                prefix = self.settings.filename_prefix
+                run_directory = self.settings.run_directory
                 raise ValueError(
                     "Non-finite values found in saved state used for resume "
-                    f"(filename_prefix={prefix!r}, time={float(self.current_time):.3f}s). "
-                    "Delete the saved state/steady_state output files for this prefix "
-                    "or use a new filename_prefix to start from a clean initialization."
+                    f"(run_directory={run_directory!r}, time={float(self.current_time):.3f}s). "
+                    "Delete the saved state/steady_state output files for this run "
+                    "or use a new run_directory to start from a clean initialization."
                 )
         else:
             if steady_state_initialization:

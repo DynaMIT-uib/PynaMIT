@@ -51,7 +51,7 @@ def plot_scalar_map_on_ax(
 
 def plot_input_vs_interpolated(
     h5_filepath: str,
-    interpolated_filename_prefix: str,
+    interpolated_run_directory: str,
     timesteps_to_plot: List[int],
     input_dt: float,
     data_types_to_plot: List[str],
@@ -90,7 +90,7 @@ def plot_input_vs_interpolated(
         h5file.close()
         raise ValueError("strictly_positive_scale_type must be 'linear' or 'log'.")
 
-    simulation_data = SimulationData.from_prefix(interpolated_filename_prefix)
+    simulation_data = SimulationData.from_directory(interpolated_run_directory)
     settings = simulation_data.settings
     ri_value = float(settings.RI)
     mainfield = simulation_data.mainfield

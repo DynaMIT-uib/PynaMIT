@@ -28,7 +28,6 @@ def test_2d_dipole_pfac_hc():
         Mmax=8,
         Ncs=18,
         mainfield_kind="dipole",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

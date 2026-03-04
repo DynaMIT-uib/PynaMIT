@@ -21,7 +21,7 @@ WIND_FACTOR = 1.0
 
 def build_example_dynamics() -> pynamit.Dynamics:
     """Build a toy dynamics object and populate one current state entry."""
-    filename_prefix = "figlayout"
+    run_directory = "figlayout"
     nmax, mmax, ncs = 14, 14, 30
     rk = RI / np.cos(np.deg2rad(np.r_[0:80:int(80 / nmax)])) ** 2
     date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -29,7 +29,7 @@ def build_example_dynamics() -> pynamit.Dynamics:
 
     dipole = Dipole(date.year)
     dynamics = pynamit.Dynamics(
-        filename_prefix=filename_prefix,
+        run_directory=run_directory,
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,

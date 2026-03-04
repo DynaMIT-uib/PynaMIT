@@ -12,11 +12,11 @@ import apexpy
 from pynamit.simulation.data import SimulationData
 
 periods = [50, 25, 10, 5, 1]
-prefixes = [
+run_directories = [
     Path("../simulation/oscillations") / f"{str(p).zfill(2)}s"
     for p in periods
 ]
-simulation_data_list = [SimulationData.from_prefix(prefix) for prefix in prefixes]
+simulation_data_list = [SimulationData.from_directory(run_directory) for run_directory in run_directories]
 state_data_list = [simulation_data.get_dataset("state") for simulation_data in simulation_data_list]
 m_ind_name = simulation_data_list[0].get_data_var_name("state", "m_ind")
 m_imp_name = simulation_data_list[0].get_data_var_name("state", "m_imp")

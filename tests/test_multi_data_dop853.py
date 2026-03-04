@@ -28,7 +28,6 @@ def test_multi_data_dop853():
         Mmax=8,
         Ncs=20,
         mainfield_kind="igrf",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

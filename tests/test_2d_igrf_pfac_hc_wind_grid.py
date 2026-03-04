@@ -28,7 +28,6 @@ def test_2d_igrf_pfac_hc_wind_grid():
         Mmax=8,
         Ncs=18,
         mainfield_kind="igrf",
-        fig_directory=temp_dir,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
