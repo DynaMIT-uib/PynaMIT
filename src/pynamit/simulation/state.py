@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 import os
 import time
-import warnings
 from typing import Optional, Tuple, Any, List, Dict, Literal, Callable
 
 import numpy as np
 from functools import cached_property
 
 from pynamit.primitives.field import Field
+from pynamit.primitives.field_spec import FieldSpec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, ScipySolveIVPIntegrator
@@ -23,7 +23,7 @@ from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, Sci
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.core import (
     CoupledOperators,
-    CoupledSteadyStateSolver,
+    StateDiagnostics,
     StateConstraints,
     StateInduction,
 )
@@ -112,7 +112,6 @@ class State:
         self._coupled_null_basis: Optional[np.ndarray] = None
         self._coupled_null_threshold: Optional[float] = None
         self._coupled_null_warned: bool = False
-        self._coupled_stability_warned_keys: set[Tuple[Any, ...]] = set()
 
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(
@@ -385,7 +384,8 @@ class State:
         self._coupled_null_basis = None
         self._coupled_null_threshold = None
         self._coupled_null_warned = False
-        self._coupled_stability_warned_keys.clear()
+        if "diagnostics" in self.__dict__:
+            self.diagnostics.reset_stability_warnings()
 
     def _get_linear_map(
         self, op: Any, input_shape: Tuple[int, ...], output_shape: Tuple[int, ...]
@@ -419,134 +419,10 @@ class State:
             return op.tocsr()[row_mask]
         return np.ascontiguousarray(to_dense(op_lm)[row_mask, :])
 
-    def _orthonormalize_columns(self, A: np.ndarray, rtol: float) -> np.ndarray:
-        """Return an orthonormal basis for the column space of A."""
-        A = np.asarray(A, dtype=float)
-        if A.ndim != 2 or A.size == 0:
-            n_rows = A.shape[0] if A.ndim == 2 else 0
-            return np.zeros((n_rows, 0), dtype=float)
-        u, s, _ = np.linalg.svd(A, full_matrices=False)
-        if s.size == 0 or s[0] <= 0:
-            return np.zeros((A.shape[0], 0), dtype=float)
-        thresh = max(float(rtol), 0.0) * float(s[0])
-        keep = s > thresh
-        if not np.any(keep):
-            return np.zeros((A.shape[0], 0), dtype=float)
-        return np.ascontiguousarray(u[:, keep])
-
-    def _m_orthonormalize_columns(
-        self,
-        A: np.ndarray,
-        metric: np.ndarray,
-        rtol: float,
-    ) -> np.ndarray:
-        """Return an ``M``-orthonormal basis spanning ``col(A)``.
-
-        The concentration eigenmodes are naturally orthogonal in the magnetic
-        energy metric ``M``. We preserve that inner product so split amplitudes
-        are represented consistently as ``q^T M x``.
-        """
-        A = np.asarray(A, dtype=float)
-        if A.ndim != 2 or A.size == 0:
-            n_rows = A.shape[0] if A.ndim == 2 else 0
-            return np.zeros((n_rows, 0), dtype=float)
-
-        M = np.asarray(metric, dtype=float)
-        if M.ndim != 2 or M.shape[0] != M.shape[1] or M.shape[0] != A.shape[0]:
-            return self._orthonormalize_columns(A, rtol=rtol)
-
-        G = 0.5 * ((A.T @ M @ A) + (A.T @ M @ A).T)
-        try:
-            evals, evecs = np.linalg.eigh(G)
-        except np.linalg.LinAlgError:
-            return self._orthonormalize_columns(A, rtol=rtol)
-
-        if evals.size == 0:
-            return np.zeros((A.shape[0], 0), dtype=float)
-
-        order = np.argsort(evals)[::-1]
-        evals = np.asarray(evals[order], dtype=float)
-        evecs = np.asarray(evecs[:, order], dtype=float)
-        max_eval = float(np.max(evals))
-        if not np.isfinite(max_eval) or max_eval <= 0:
-            return np.zeros((A.shape[0], 0), dtype=float)
-
-        thresh = max(float(rtol), 0.0) * max_eval
-        keep = evals > thresh
-        if not np.any(keep):
-            return np.zeros((A.shape[0], 0), dtype=float)
-
-        scale = np.sqrt(np.maximum(evals[keep], 0.0))
-        Q = A @ (evecs[:, keep] / scale.reshape(1, -1))
-        return np.ascontiguousarray(Q)
-
-    @staticmethod
-    def _normalize_constraint_rows(C: np.ndarray) -> np.ndarray:
-        """Row-normalize constraint matrix and drop zero rows."""
-        C = np.asarray(C, dtype=float)
-        if C.ndim != 2 or C.shape[0] == 0:
-            return np.zeros((0, C.shape[1] if C.ndim == 2 else 0), dtype=float)
-        row_norm = np.linalg.norm(C, axis=1)
-        keep = row_norm > 0
-        if not np.any(keep):
-            return np.zeros((0, C.shape[1]), dtype=float)
-        C_use = C[keep] / row_norm[keep].reshape(-1, 1)
-        return np.ascontiguousarray(C_use)
-
-
-
-
-
-    def _analyze_coupled_stability(
-        self,
-        L_flat: np.ndarray,
-        *,
-        label: str,
-        unstable_tol: float = 1e-10,
-    ) -> Dict[str, float]:
-        """Analyze coupled-operator spectrum and warn on unstable modes."""
-        arr = np.asarray(L_flat, dtype=float)
-        if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
-            arr = arr.reshape(arr.shape[0], -1)
-            if arr.shape[0] != arr.shape[1]:
-                raise ValueError(
-                    "Coupled stability analysis requires a square matrix, "
-                    f"got {arr.shape}."
-                )
-
-        eigvals = np.linalg.eigvals(arr)
-        real = np.real(eigvals)
-        max_real = float(np.max(real)) if real.size > 0 else 0.0
-        min_real = float(np.min(real)) if real.size > 0 else 0.0
-        n_pos = int(np.sum(real > float(unstable_tol)))
-        n_total = int(real.size)
-
-        report = {
-            "max_real": max_real,
-            "min_real": min_real,
-            "positive_real_count": float(n_pos),
-            "n_eigs": float(n_total),
-        }
-
-        if max_real > float(unstable_tol):
-            key = (
-                label,
-                arr.shape[0],
-                round(max_real, 9),
-                round(min_real, 9),
-                n_pos,
-            )
-            if key not in self._coupled_stability_warned_keys:
-                msg = (
-                    "Coupled full-induction operator has unstable eigenmodes "
-                    f"(label={label}, max Re(lambda)={max_real:.3e}, "
-                    f"positive modes={n_pos}/{n_total}). "
-                    "Explicit Euler integration is expected to be unstable for this operator."
-                )
-                logger.warning(msg)
-                warnings.warn(msg, RuntimeWarning, stacklevel=2)
-                self._coupled_stability_warned_keys.add(key)
-        return report
+    @cached_property
+    def diagnostics(self) -> StateDiagnostics:
+        """Runtime diagnostics helper derived from the live state."""
+        return StateDiagnostics(self)
 
     def get_coupled_stability_report(
         self,
@@ -555,18 +431,9 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> Dict[str, float]:
         """Return spectral stability report for the coupled full-induction operator."""
-        if use_pinning is None:
-            use_pinning = self.apply_psi_gauge
-        L_flat = np.asarray(
-            self.get_coupled_induction_matrix(
-                source=source,
-                flatten=True,
-                use_pinning=use_pinning,
-            )
-        )
-        return self._analyze_coupled_stability(
-            L_flat,
-            label=f"{source}:pinning={int(bool(use_pinning))}",
+        return self.diagnostics.get_coupled_stability_report(
+            source=source,
+            use_pinning=use_pinning,
         )
 
     @cached_property
@@ -806,43 +673,13 @@ class State:
     # ----- Solver Setup and Execution -----
     @cached_property
     def m_imp_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for `m_imp`.
-
-        Delegates to PoloidalSystemMatrices.build_least_squares_problem()
-        with parameters from the current state.
-        """
-        logger.info("Defining new least-squares problem for m_imp.")
-
-        # Determine E-field constraint operator based on mode
-        # In full_induction mode, IH coupling is handled by the global solution
-        E_constraint_op = None
-        if (
-            self.connect_hemispheres
-            and self.dynamics_mode != "full_induction"
-            and self.E_map_constraint_operator is not None
-        ):
-            E_constraint_op = self.E_map_constraint_operator
-
-        # Keep lhs/rhs constraint-scalar operator basis-consistent for legacy m_imp solves.
-        constraint_scalar_operator = self.geometry.get_constraint_scalar_operator(
-            self.jr.basis if self.jr else None
-        )
-
-        return self.geometry.poloidal_matrices.build_least_squares_problem(
-            constraint_scalar_operator=constraint_scalar_operator,
-            E_constraint_operator=E_constraint_op,
-            connect_hemispheres=(E_constraint_op is not None),
-            ih_constraint_scaling=self.ih_constraint_scaling,
-            regularization_lambda=self.m_imp_regularization_lambda,
-            use_pinning=(getattr(self.solution_space, "kind", "") in ("CS", "GRID")),
-            weighting=self.poloidal_weighting,
-        )
+        """The least-squares problem definition for `m_imp`."""
+        return self.induction.build_m_imp_problem()
 
     @cached_property
     def m_imp_preconditioner(self) -> Optional[LinearMap]:
         """Preconditioner for the m_imp least-squares problem."""
-        logger.info("Building new preconditioner for m_imp solver.")
-        return self.m_imp_solver.build_preconditioner(problem=self.m_imp_problem, num_scenarios=1)
+        return self.induction.build_m_imp_preconditioner()
 
     @cached_property
     def coupled_preconditioner(self) -> Optional[LinearMap]:
@@ -850,23 +687,7 @@ class State:
 
         Uses the standard LeastSquaresProblem/LeastSquaresSolver construction.
         """
-        if self.preconditioner is None:
-            return None
-
-        N = self.solution_space.index_length
-        L = self.coupled_induction_tensor
-        L_map = as_linear_map(asarray(L).reshape(2 * N, 2 * N))
-        problem = LeastSquaresProblem(
-            A=[L_map],
-            solution_shape=(2 * N,),
-            data_shapes=[(2 * N,)],
-        )
-        solver = LeastSquaresSolver(solver=self.solver_type, preconditioner=self.preconditioner)
-        return solver.build_preconditioner(
-            problem=problem,
-            preconditioner_type=self.preconditioner,
-            num_scenarios=1,
-        )
+        return self.coupled_operators.build_coupled_preconditioner()
 
     def _build_imposed_toroidal_baseline(
         self,
@@ -878,74 +699,14 @@ class State:
         Full-induction path: direct `jr -> m_imp` map in solution space.
         Legacy path: constrained least-squares solve for imposed baseline.
         """
-        n = self.solution_space.index_length
-        if self.dynamics_mode == "full_induction":
-            if jr_coeffs is None:
-                return xp.zeros(n)
-            input_basis = self.jr.basis if self.jr is not None else None
-            m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=input_basis))
-            jr_vec = np.asarray(jr_coeffs).reshape(-1)
-            return self.constraints.apply_m_imp_gauge_projection(m_imp_from_jr @ jr_vec)
-
-        # Legacy mode: when IH E-constraint is active we still solve m_imp even if
-        # jr is unavailable, because the E-constraint contributes RHS information.
-        use_e_constraint = self.connect_hemispheres and self.E_map_constraint_operator is not None
-        if jr_coeffs is None and not use_e_constraint:
-            return xp.zeros(n)
-
-        problem = self.m_imp_problem
-        preconditioner = self.m_imp_preconditioner
-
-        rhs_entries: List[Optional[Any]] = [None] * problem.num_data_terms
-        if jr_coeffs is not None:
-            op_rhs = self.geometry.get_constraint_scalar_operator(
-                self.jr.basis if self.jr else None
-            )
-            rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
-
-        if use_e_constraint:
-            if E_direct_coeffs is None:
-                raise ValueError(
-                    "E_direct_coeffs is required for imposed baseline solve with IH E-constraint."
-                )
-            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            E_direct_input = asarray(E_direct_coeffs)
-
-            if hasattr(E_map_op, "apply"):
-                b_E = E_map_op.apply(E_direct_input)
-            else:
-                raise TypeError(
-                    "E_coeffs_to_E_apex_ll_diff must provide an 'apply' method "
-                    "(ConstraintOperator)."
-                )
-            rhs_entries[1] = self.ih_constraint_scaling * xp.reshape(b_E, (-1,))
-
-        solution = _timed_solve(
-            "state.m_imp",
-            self.m_imp_solver,
-            problem=problem,
-            rhs=rhs_entries,
-            preconditioner=preconditioner,
-        )
-        if solution is None:
-            solution = xp.zeros(n)
-        return self.constraints.apply_m_imp_gauge_projection(solution)
+        return self.induction.build_imposed_toroidal_baseline(jr_coeffs, E_direct_coeffs)
 
     def _map_dt_jr_driver_to_dt_m_imp(
         self,
         dt_jr_coeffs: np.ndarray,
     ) -> np.ndarray:
         """Map driver derivative ``dt_jr`` to toroidal driver derivative ``dt_m_imp``."""
-        dt_jr_vec = np.asarray(dt_jr_coeffs).reshape(-1)
-        m_imp_from_jr = np.asarray(self.get_m_imp_from_jr_matrix(input_basis=self.solution_space))
-        if m_imp_from_jr.ndim != 2 or m_imp_from_jr.shape[1] != dt_jr_vec.size:
-            raise RuntimeError(
-                "dt_jr -> dt_m_imp mapping dimension mismatch: "
-                f"map={m_imp_from_jr.shape}, driver={dt_jr_vec.shape}."
-            )
-        dt_m_imp = m_imp_from_jr @ dt_jr_vec
-        dt_m_imp = self._project_to_hl_modes(dt_m_imp)
-        return self.constraints.apply_m_imp_gauge_projection(dt_m_imp)
+        return self.induction.map_dt_jr_driver_to_dt_m_imp(dt_jr_coeffs)
 
     # ----- State Update -----
 
@@ -997,9 +758,8 @@ class State:
     def _decode_conductance_input_to_eta_coeffs(
         self,
         *,
-        storage_base: Any,
+        storage_spec: FieldSpec,
         updated_input: dict,
-        storage_mean_free: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Decode conductance input representation and return ``(etaP, etaH)`` coeffs.
 
@@ -1021,9 +781,8 @@ class State:
 
         def _eval_scalar(coeffs: np.ndarray) -> np.ndarray:
             field = Field.from_coefficients(
-                storage_base,
+                storage_spec,
                 coeffs=coeffs,
-                mean_free=storage_mean_free,
             )
             vals, _, _ = field.evaluate(r_eval, grid.theta, grid.phi)
             return np.asarray(vals, dtype=float).reshape(target_shape)
@@ -1038,10 +797,10 @@ class State:
         etaH_grid = np.asarray(etaH_grid, dtype=float).reshape(-1)
 
         etaP_coeffs = np.asarray(
-            storage_base.from_grid_values(etaP_grid, grid, "scalar")
+            storage_spec.from_grid_values(etaP_grid, grid, "scalar")
         ).reshape(-1)
         etaH_coeffs = np.asarray(
-            storage_base.from_grid_values(etaH_grid, grid, "scalar")
+            storage_spec.from_grid_values(etaH_grid, grid, "scalar")
         ).reshape(-1)
         return etaP_coeffs, etaH_coeffs
 
@@ -1085,32 +844,26 @@ class State:
                         current_deriv = {"jr": (jr_curr - jr_prev) / dt}
 
             storage_spec = input_manager.timeseries.get_storage_spec(key)
-            storage_base = None if storage_spec is None else storage_spec.basis
-            storage_mean_free = False if storage_spec is None else bool(storage_spec.mean_free)
             if key == "conductance":
                 conductance_updated = True
                 etaP_coeffs, etaH_coeffs = self._decode_conductance_input_to_eta_coeffs(
-                    storage_base=storage_base,
+                    storage_spec=storage_spec,
                     updated_input=updated_input,
-                    storage_mean_free=storage_mean_free,
                 )
                 f_etaP = Field.from_coefficients(
-                    storage_base,
+                    storage_spec,
                     coeffs=etaP_coeffs,
-                    mean_free=storage_mean_free,
                 )
                 f_etaH = Field.from_coefficients(
-                    storage_base,
+                    storage_spec,
                     coeffs=etaH_coeffs,
-                    mean_free=storage_mean_free,
                 )
                 self.etaP = self._ensure_basis(f_etaP, "scalar")
                 self.etaH = self._ensure_basis(f_etaH, "scalar")
             elif key == "jr":
                 f_jr = Field.from_coefficients(
-                    storage_base,
+                    storage_spec,
                     coeffs=updated_input["jr"],
-                    mean_free=storage_mean_free,
                 )
                 self.jr = self._ensure_basis(f_jr, "scalar")
                 # Driver changed: rebuild imposed toroidal baseline on next use.
@@ -1118,9 +871,8 @@ class State:
                 if current_deriv is not None:
                     if self.dynamics_mode == "full_induction":
                         f_dt_jr = Field.from_coefficients(
-                            storage_base,
+                            storage_spec,
                             coeffs=current_deriv["jr"],
-                            mean_free=storage_mean_free,
                         )
                         dt_jr_solution = self._ensure_basis(f_dt_jr, "scalar")
                         dt_m_imp_coeffs = self._map_dt_jr_driver_to_dt_m_imp(
@@ -1139,17 +891,15 @@ class State:
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
                 f_Br = Field.from_coefficients(
-                    storage_base,
+                    storage_spec,
                     coeffs=updated_input["Br"],
-                    mean_free=storage_mean_free,
                 )
                 self.Br = self._ensure_basis(f_Br, "scalar")
             elif key == "u":
                 f_u = Field.from_coefficients(
-                    storage_base,
+                    storage_spec,
                     coeffs=updated_input["u"].reshape((2, -1)),
                     field_type="tangential",
-                    mean_free=storage_mean_free,
                 )
                 self.u = self._ensure_basis(f_u, "tangential")
 
@@ -1247,26 +997,11 @@ class State:
         output_shape: Optional[Tuple[int, ...]] = None,
     ) -> np.ndarray:
         """Apply a state-space linear operator to a flattened/stacked state."""
-        state_arr = asarray(state)
-        state_shape = tuple(state_arr.shape)
-        state_flat = state_arr.reshape(-1)
-
-        if hasattr(operator, "matvec"):
-            out_flat = asarray(operator.matvec(state_flat)).reshape(-1)
-        else:
-            op_arr = asarray(operator)
-            if op_arr.ndim == 4:
-                if state_arr.ndim != 2:
-                    raise ValueError(
-                        "4D coupled operator requires 2D state shaped (n_state, n_coeffs)."
-                    )
-                out_arr = asarray(
-                    xp.einsum("ijkl,kl->ij", op_arr, state_arr, optimize=True)
-                )
-                return out_arr.reshape(output_shape or state_shape)
-            out_flat = asarray(op_arr).reshape(state_flat.size, state_flat.size) @ state_flat
-
-        return asarray(out_flat).reshape(output_shape or state_shape)
+        return self.induction.apply_state_linear_operator(
+            operator,
+            state,
+            output_shape=output_shape,
+        )
 
     def _evolve_linear_state(
         self,
@@ -1280,115 +1015,15 @@ class State:
         exponential_kwargs: Optional[Dict[str, Any]] = None,
     ) -> np.ndarray:
         """Shared linear-state evolution for legacy and full-induction paths."""
-        y_arr = asarray(y)
-        y_shape = tuple(y_arr.shape)
-        forcing_arr = (
-            xp.zeros_like(y_arr)
-            if forcing is None
-            else asarray(forcing).reshape(y_shape)
+        return self.induction.evolve_linear_state(
+            y,
+            dt,
+            linear_operator=linear_operator,
+            forcing=forcing,
+            rates_func=rates_func,
+            steady_state=steady_state,
+            exponential_kwargs=exponential_kwargs,
         )
-
-        if isinstance(self.poloidal_integrator, ExponentialIntegrator):
-            if linear_operator is None:
-                raise ValueError("Exponential integration requires linear_operator.")
-
-            step_kwargs: Dict[str, Any] = dict(exponential_kwargs or {})
-            if "affine_expm_mode" not in step_kwargs:
-                if self.exponential_solver == "expm":
-                    step_kwargs["affine_expm_mode"] = "dense"
-                elif self.exponential_solver == "expm_multiply":
-                    step_kwargs["affine_expm_mode"] = "action"
-                else:
-                    raise ValueError(
-                        "Unknown exponential_solver setting: "
-                        f"{self.exponential_solver!r}"
-                    )
-            affine_mode = str(step_kwargs.get("affine_expm_mode", "auto")).lower()
-
-            n_total = int(y_arr.size)
-            linear_operator_for_step: Any
-            if forcing is not None and affine_mode == "action":
-                if hasattr(linear_operator, "matvec"):
-                    linear_operator_for_step = linear_operator
-                else:
-                    L_arr = asarray(linear_operator)
-                    if getattr(L_arr, "ndim", None) == 4:
-                        linear_operator_for_step = np.asarray(L_arr, dtype=float).reshape(n_total, n_total)
-                    else:
-                        linear_operator_for_step = np.asarray(L_arr, dtype=float).reshape(n_total, n_total)
-            else:
-                if hasattr(linear_operator, "matvec"):
-                    L_dense = self._densify_linear_operator(linear_operator, n_total)
-                else:
-                    L_arr = asarray(linear_operator)
-                    if L_arr.ndim == 4:
-                        L_dense = asarray(L_arr).reshape(n_total, n_total)
-                    else:
-                        L_dense = asarray(L_arr).reshape(n_total, n_total)
-                linear_operator_for_step = np.asarray(L_dense, dtype=float)
-
-            forcing_flat = None
-            if forcing is not None:
-                forcing_flat = np.asarray(asarray(forcing_arr), dtype=float).reshape(n_total)
-            steady_state_flat = None
-            if steady_state is not None:
-                steady_state_flat = np.asarray(steady_state, dtype=float).reshape(n_total)
-            if forcing_flat is None and steady_state_flat is None:
-                raise ValueError(
-                    "Exponential integration requires either forcing or steady_state."
-                )
-            y_next_flat = self.poloidal_integrator.step(
-                y=np.asarray(y_arr, dtype=float).reshape(n_total),
-                dt=float(dt),
-                linear_operator=linear_operator_for_step,
-                forcing=forcing_flat,
-                steady_state=steady_state_flat,
-                **step_kwargs,
-            )
-            return asarray(y_next_flat).reshape(y_shape)
-
-        if rates_func is None:
-            if linear_operator is None:
-                raise ValueError("Either rates_func or linear_operator must be provided.")
-
-            def default_rates_func(y_curr: np.ndarray, _t: float) -> np.ndarray:
-                y_curr_arr = asarray(y_curr).reshape(y_shape)
-                rates = self._apply_state_linear_operator(
-                    linear_operator,
-                    y_curr_arr,
-                    output_shape=y_shape,
-                )
-                return asarray(rates + forcing_arr)
-
-            rates = default_rates_func
-        else:
-            rates = rates_func
-
-        # scipy.solve_ivp requires a 1-D state vector. Full-induction and other
-        # stacked-state paths may pass higher-rank tensors (e.g. (2, N)), so
-        # flatten here and reshape inside the rates wrapper.
-        if isinstance(self.poloidal_integrator, ScipySolveIVPIntegrator):
-            y0_flat = asarray(y_arr).reshape(-1)
-
-            def scipy_rates(y_curr: np.ndarray, t_curr: float) -> np.ndarray:
-                y_curr_shaped = asarray(y_curr).reshape(y_shape)
-                rates_curr = asarray(rates(y_curr_shaped, t_curr)).reshape(y_shape)
-                return asarray(rates_curr).reshape(-1)
-
-            y_next_flat = self.poloidal_integrator.step(
-                y=y0_flat,
-                dt=dt,
-                rates_func=scipy_rates,
-            )
-            return asarray(y_next_flat).reshape(y_shape)
-
-        return asarray(
-            self.poloidal_integrator.step(
-                y=y_arr,
-                dt=dt,
-                rates_func=rates,
-            )
-        ).reshape(y_shape)
 
     def _solve_linear_steady_state(
         self,
@@ -1401,99 +1036,14 @@ class State:
         use_pinning: Optional[bool] = None,
     ) -> np.ndarray:
         """Solve a linear steady-state system `A x = -forcing` for arbitrary state shape."""
-        rhs = asarray(forcing).reshape(-1)
-        n_total = int(np.prod(solution_shape))
-
-        # Coupled (psi, m_ind) steady-state path with gauge elimination.
-        if (
-            len(solution_shape) == 2
-            and int(solution_shape[0]) == 2
-            and int(solution_shape[1]) == self.solution_space.index_length
-        ):
-            if use_pinning is None:
-                use_pinning = self.apply_psi_gauge
-            if solver is None:
-                solver = self.solver_type
-
-            coupled_operator = linear_operator
-            using_default_coupled_operator = False
-            if coupled_operator is None:
-                using_default_coupled_operator = True
-                coupled_operator = self.get_coupled_operator_for_steady_state(
-                    solver=solver,
-                    use_pinning=use_pinning,
-                )
-            steady_solver = CoupledSteadyStateSolver(
-                n_scalar=self.solution_space.index_length,
-                apply_m_ind_gauge=self.apply_m_ind_gauge,
-                preconditioner_type=self.preconditioner,
-                psi_gauge_row_builder=self.constraints.get_psi_gauge_row,
-                m_ind_gauge_row_builder=self.constraints.get_m_ind_gauge_row,
-                timed_solve=_timed_solve,
-                column_scale_cache=self._coupled_steady_state_column_scale_cache,
-                solver_tolerance=float(getattr(self.m_imp_solver, "tolerance", 1e-13)),
-                steady_state_regularization_lambda=1e-10,
-            )
-            column_scale_cache_key = None
-            if using_default_coupled_operator:
-                column_scale_cache_key = (
-                    bool(use_pinning),
-                    int(self.solution_space.index_length),
-                )
-            y_ss_flat = steady_solver.solve(
-                coupled_operator=coupled_operator,
-                forcing_flat=rhs,
-                solver=solver,
-                preconditioner=preconditioner,
-                use_pinning=bool(use_pinning),
-                column_scale_cache_key=column_scale_cache_key,
-            )
-            return asarray(y_ss_flat).reshape(solution_shape)
-
-        # Single-state steady-state path (legacy m_ind).
-        if linear_operator is None:
-            raise ValueError("Single-state steady-state solve requires linear_operator.")
-
-        vec_b = -rhs
-        induction_obj = linear_operator
-        if not hasattr(induction_obj, "matvec"):
-            induction_obj = asarray(induction_obj).reshape(n_total, n_total)
-        induction_op = as_linear_map(induction_obj)
-
-        equality_operator = None
-        equality_rhs = None
-        if self.apply_m_ind_gauge:
-            gauge_row = np.asarray(self.constraints.get_m_ind_gauge_row(n_total), dtype=float)
-            if gauge_row.ndim == 1:
-                gauge_row = gauge_row.reshape(1, -1)
-            if gauge_row.ndim == 2 and gauge_row.shape[1] == n_total and gauge_row.shape[0] > 0:
-                equality_operator = gauge_row
-                equality_rhs = np.zeros(gauge_row.shape[0], dtype=float)
-
-        ls_problem = LeastSquaresProblem(
-            A=[induction_op],
+        return self.induction.solve_linear_steady_state(
+            linear_operator=linear_operator,
+            forcing=forcing,
             solution_shape=solution_shape,
-            data_shapes=[solution_shape],
+            solver=solver,
+            preconditioner=preconditioner,
+            use_pinning=use_pinning,
         )
-        ls_solver = LeastSquaresSolver(
-            solver=(solver or "lsmr"),
-            tolerance=1e-10,
-        )
-        solve_kwargs: Dict[str, Any] = {
-            "preconditioner": preconditioner if equality_operator is None else None,
-        }
-        if equality_operator is not None:
-            solve_kwargs["equality_operator"] = equality_operator
-            solve_kwargs["equality_rhs"] = equality_rhs
-
-        sol = _timed_solve(
-            "state.steady_state_single",
-            ls_solver,
-            ls_problem,
-            [vec_b],
-            **solve_kwargs,
-        )
-        return asarray(sol).reshape(solution_shape)
 
     def build_coupled_forcing(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Build coupled forcing tensor ``K`` for ``[psi, m_ind]`` dynamics."""

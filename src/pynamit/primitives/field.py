@@ -131,18 +131,8 @@ class _CoefficientFieldBackend(_FieldBackend):
 
     def evaluate(self, r, theta, phi):
         g = Grid(theta=theta, phi=phi)
-        
-        # SH scalar/tangential evaluation needs the stored coefficient-space
-        # convention so a full basis can still evaluate mean-free coefficients.
-        if getattr(self.basis, "kind", "") == "SH" and self.mean_free is not None:
-            values = self.basis.evaluate(
-                self.coeffs,
-                g,
-                self.field_type,
-                mean_free=self.mean_free,
-            )
-        else:
-            values = self.basis.evaluate(self.coeffs, g, self.field_type)
+
+        values = self.spec.evaluate(self.coeffs, g, self.field_type)
 
         if self.field_type == "scalar":
             return values, np.zeros_like(values), np.zeros_like(values)
@@ -161,8 +151,8 @@ class _CoefficientFieldBackend(_FieldBackend):
             raise ValueError("curl() only valid for vector or tangential fields.")
         
         # Mapping: [Poloidal; Toroidal] -> Scalar
-        grid = getattr(self.basis, "grid", None)
-        op = self.basis.get_vector_curl_operator(grid)
+        grid = getattr(self.spec, "grid", None)
+        op = self.spec.get_vector_curl_operator(grid)
         new_coeffs = op.matvec(self.coeffs.reshape(-1))
         
         return _CoefficientFieldBackend(
@@ -178,8 +168,8 @@ class _CoefficientFieldBackend(_FieldBackend):
         if self.field_type not in ["vector", "tangential"]:
             raise ValueError("div() only valid for vector or tangential fields.")
             
-        grid = getattr(self.basis, "grid", None)
-        op = self.basis.get_vector_divergence_operator(grid)
+        grid = getattr(self.spec, "grid", None)
+        op = self.spec.get_vector_divergence_operator(grid)
         new_coeffs = op.matvec(self.coeffs.reshape(-1))
         
         return _CoefficientFieldBackend(
@@ -195,7 +185,7 @@ class _CoefficientFieldBackend(_FieldBackend):
         if self.field_type not in ["vector", "tangential"]:
             raise ValueError("toroidal_potential() only valid for vector or tangential fields.")
         
-        psi_coeffs = self.basis.get_toroidal_potential_coeffs(self.coeffs)
+        psi_coeffs = self.spec.get_toroidal_potential_coeffs(self.coeffs)
         
         return _CoefficientFieldBackend(
             self.basis, psi_coeffs, field_type="scalar",
@@ -210,7 +200,7 @@ class _CoefficientFieldBackend(_FieldBackend):
         if self.field_type not in ["vector", "tangential"]:
             raise ValueError("poloidal_potential() only valid for vector or tangential fields.")
         
-        phi_coeffs = self.basis.get_poloidal_potential_coeffs(self.coeffs)
+        phi_coeffs = self.spec.get_poloidal_potential_coeffs(self.coeffs)
         
         return _CoefficientFieldBackend(
             self.basis, phi_coeffs, field_type="scalar",
@@ -502,14 +492,7 @@ class Field(_EvaluableMixin):
         """
         coefficient_backend = self._coefficient_backend
         if coefficient_backend is not None and coefficient_backend.basis is not None:
-            if getattr(coefficient_backend.basis, "kind", "") == "SH" and coefficient_backend.mean_free is not None:
-                return coefficient_backend.basis.evaluate(
-                    coefficient_backend.coeffs,
-                    grid,
-                    coefficient_backend.field_type,
-                    mean_free=coefficient_backend.mean_free,
-                )
-            return coefficient_backend.basis.evaluate(
+            return coefficient_backend.spec.evaluate(
                 coefficient_backend.coeffs,
                 grid,
                 coefficient_backend.field_type,
@@ -520,12 +503,16 @@ class Field(_EvaluableMixin):
         """Compute the regularization penalty term."""
         coefficient_backend = self._coefficient_backend
         if coefficient_backend is not None and coefficient_backend.basis is not None:
-            return coefficient_backend.basis.regularization_term(
-                coefficient_backend.coeffs,
-                grid, 
-                coefficient_backend.field_type,
+            is_scalar = coefficient_backend.field_type == "scalar"
+            reg_op = coefficient_backend.spec.get_regularization_matrix(
+                scalar=is_scalar,
                 reg_lambda=self.reg_lambda,
             )
+            if reg_op is None or self.reg_lambda is None or self.reg_lambda == 0:
+                return 0.0
+            if not is_scalar:
+                return np.tensordot(reg_op, coefficient_backend.coeffs, 2)
+            return np.dot(coefficient_backend.coeffs, np.dot(reg_op, coefficient_backend.coeffs))
         raise NotImplementedError("regularization_term valid only for coefficient-backed fields.")
 
     @staticmethod

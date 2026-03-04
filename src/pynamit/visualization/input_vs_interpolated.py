@@ -19,34 +19,7 @@ from pynamit.postprocess.grid_evaluation import (
     evaluate_scalar_coeffs_to_grid,
     evaluate_tangential_coeffs_to_grid_components,
 )
-
-
-def plot_scalar_map_on_ax(
-    ax: plt.Axes,
-    lon_coords_2d: np.ndarray,
-    lat_coords_2d: np.ndarray,
-    data_2d_arr: np.ndarray,
-    title: str = "",
-    cmap: str = "viridis",
-    norm: Optional[mcolors.Normalize] = None,
-) -> Any:
-    """Plot a scalar map with specified coordinates and data."""
-    if norm is None:
-        raise ValueError("Norm object must be provided to plot_scalar_map_on_ax.")
-    ax.coastlines(color="grey", zorder=3, linewidth=0.5)
-    data_to_plot_masked = np.ma.masked_invalid(data_2d_arr)
-    im = ax.pcolormesh(
-        lon_coords_2d,
-        lat_coords_2d,
-        data_to_plot_masked,
-        cmap=cmap,
-        norm=norm,
-        transform=ccrs.PlateCarree(),
-        shading="auto",
-        zorder=1,
-    )
-    ax.set_title(title, fontsize=9)
-    return im
+from pynamit.visualization.map_plotting import plot_scalar_map_on_ax
 
 
 def plot_input_vs_interpolated(

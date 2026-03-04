@@ -231,8 +231,29 @@ class Geometry:
             return None
 
         try:
+            solution_kind = getattr(self.solution_space, "kind", "")
+            basis_kind = getattr(self.basis, "kind", "")
+            solution_size = getattr(self.solution_space, "index_length", None)
+            basis_size = getattr(self.basis, "index_length", None)
+
+            # Same-family SH scalar spaces can still differ by the monopole mode.
+            # In that case the simulation space is the mean-free coefficient space
+            # and the constraint operators need an explicit embedding back into the
+            # full SH scalar space.
+            if (
+                solution_kind == "SH"
+                and basis_kind == "SH"
+                and bool(getattr(self.solution_space, "mean_free", False))
+                and solution_size is not None
+                and basis_size is not None
+                and int(solution_size) + 1 == int(basis_size)
+            ):
+                adapter = np.zeros((int(basis_size), int(solution_size)), dtype=float)
+                adapter[1:, :] = np.eye(int(solution_size), dtype=float)
+                return adapter
+
             # Check for different basis types
-            if getattr(self.solution_space, "kind", "") != getattr(self.basis, "kind", ""):
+            if solution_kind != basis_kind:
                 logger.info("Basis mismatch detected: initializing hybrid adapter.")
                 G_dense = to_dense(self.basis.get_evaluation_matrix(self.grid))
                 return tensor_pinv(G_dense, n_leading_flattened=1)
@@ -594,20 +615,51 @@ class Geometry:
         self.constraint_scalar_map_reference_sim = mappings.constraint_scalar_map_reference_sim
         self.E_coeffs_to_E_apex_ll_diff = mappings.E_coeffs_to_E_apex_ll_diff
 
-    def get_constraint_scalar_operator(self, input_basis: Any = None) -> np.ndarray:
-        """Get the operator mapping coefficients to the configured constraint scalar.
+    def _adapt_constraint_scalar_operator(
+        self,
+        spectral_operator: np.ndarray,
+        sim_operator: np.ndarray,
+        input_basis: Any,
+    ) -> np.ndarray:
+        """Adapt a constraint scalar operator to the requested coefficient space."""
+        if input_basis is None:
+            return spectral_operator
 
-        If input basis kind matches the Physics basis kind (e.g. SH), use the
-        Physics/Spectral operator. Otherwise, use the Simulation operator
-        (which includes adapter).
-        """
-        physics_kind = getattr(self.basis, "kind", None)
         input_kind = getattr(input_basis, "kind", None)
+        input_size = getattr(input_basis, "index_length", None)
+        spectral_width = int(spectral_operator.shape[1])
 
-        if input_basis is None or input_kind == physics_kind:
-            return self.constraint_scalar_map_spectral
+        if input_size is not None and int(input_size) == spectral_width:
+            return spectral_operator
 
-        return self.constraint_scalar_map_sim
+        # SH mean-free scalar spaces reuse the spectral constraint map with the
+        # monopole column removed. This keeps same-kind reduced SH spaces
+        # basis-consistent without routing through the hybrid simulation adapter.
+        if (
+            input_kind == "SH"
+            and bool(getattr(input_basis, "mean_free", False))
+            and input_size is not None
+            and int(input_size) + 1 == spectral_width
+        ):
+            return spectral_operator[:, 1:]
+
+        return sim_operator
+
+    def get_constraint_scalar_operator(self, input_basis: Any = None) -> np.ndarray:
+        """Get the operator mapping coefficients to the configured constraint scalar."""
+        return self._adapt_constraint_scalar_operator(
+            self.constraint_scalar_map_spectral,
+            self.constraint_scalar_map_sim,
+            input_basis,
+        )
+
+    def get_constraint_scalar_reference_operator(self, input_basis: Any = None) -> np.ndarray:
+        """Get the reference (pre-mismatch) constraint scalar operator."""
+        return self._adapt_constraint_scalar_operator(
+            self.constraint_scalar_map_reference_spectral,
+            self.constraint_scalar_map_reference_sim,
+            input_basis,
+        )
 
     @cached_property
     def bP(self) -> np.ndarray:

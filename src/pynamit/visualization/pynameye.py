@@ -1,180 +1,38 @@
-"""PynamEye module.
-
-This module contains the PynamEye class for visualizing simulation
-results.
-"""
+"""Figure assembly and plot methods for ``PynamEye``."""
 
 import logging
-import warnings
 import numpy as np
-import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
-import apexpy
-from dipole import Dipole
 from polplot import Polarplot
-import datetime
-from pynamit.cubed_sphere.cs_basis import CSBasis
-from pynamit.primitives.grid import Grid
 from pynamit.primitives.field import Field
-from pynamit.math.constants import RE
-from pynamit.postprocess.grid_evaluation import decode_conductance_entry_to_grids
-from pynamit.simulation.data import SimulationData
+from pynamit.visualization.map_plotting import (
+    decorate_global_axes,
+    make_global_projection,
+    plot_region_contour,
+    plot_region_filled_contour,
+    plot_region_quiver,
+)
+from pynamit.visualization.pynameye_viewer_state import _PynamEyeViewerState
 
 logger = logging.getLogger(__name__)
 
 
-class PynamEye(object):
-    """Class for visualizing simulation results.
-
-    Attributes
-    ----------
-    datasets : dict
-        Dictionary holding simulation datasets loaded from file(s).
-    mainfield : Mainfield
-        An instance of the Mainfield class representing the magnetic
-        field model in use.
-    global_grid : Grid
-        Global grid used for evaluations.
-    grids : dict
-        Dictionary of Grid instances for different regions.
-    conductance_grids : dict
-        Dictionary of Grid instances for conductance
-        evaluations across regions.
-    ...additional attributes as needed...
-    """
+class PynamEye(_PynamEyeViewerState):
+    """High-level saved-run viewer and figure builder."""
 
     def __init__(
         self, run_directory, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
     ):
-        """Initialize the PynamEye object.
-
-        Parameters
-        ----------
-        run_directory : str
-            Directory containing the saved simulation artifacts to visualize.
-        t : int, optional
-            Simulation time in seconds.
-        Nlat : int, optional
-            Number of grid points between -90 and 90 degrees latitude
-            for visualization.
-        Nlon : int, optional
-            Number of grid points between -180 and 180 degrees longitude
-            for visualization.
-        NCS_plot : int, optional
-            Number of grid points for the cubed sphere plot.
-        mlatlim : int, optional
-            Magnetic latitude limit.
-        steady_state : bool, optional
-            Whether to use steady state data.
-        """
-        self.simulation_data = SimulationData.from_directory(run_directory)
-        self.datasets = self.simulation_data.datasets
-        self.settings = self.simulation_data.settings
-        if steady_state and not self.simulation_data.has_dataset("steady_state"):
-            warnings.warn(
-                f"Could not find steady-state data in {run_directory!r}.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        self.T_to_Ve = self.simulation_data.pfac_matrix
-
-        self.mlatlim = mlatlim
-        settings = self.settings
-        self.RI = settings.RI
-
-        # Define mainfield.
-        self.mainfield = self.simulation_data.mainfield
-
-        # Set up cubed sphere grid for vector plotting.
-        self.vector_cs_basis = CSBasis(NCS_plot)
-        k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
-        # Crop to skip duplicate points.
-        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).flatten()
-        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).flatten()
-        _, arr_theta, arr_phi = self.vector_cs_basis.cube2spherical(
-            arr_xi, arr_eta, k[:, :-1, :-1].flatten(), deg=True
+        super().__init__(
+            run_directory=run_directory,
+            t=t,
+            Nlat=Nlat,
+            Nlon=Nlon,
+            NCS_plot=NCS_plot,
+            mlatlim=mlatlim,
+            steady_state=steady_state,
         )
-        self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
-
-        # Define t0 and set up dipole object.
-        self.t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
-        self.dp = Dipole(self.t0.year)
-
-        self.state_spec = self.simulation_data.solution_spec
-        input_spec = self.simulation_data.get_storage_spec("u")
-        conductance_spec = self.simulation_data.get_storage_spec("conductance")
-        self.input_basis = input_spec.basis
-        self.input_mean_free = bool(input_spec.mean_free)
-        self.conductance_basis = conductance_spec.basis
-
-        # Set up grids.
-        self.grids = {}
-        lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
-        self.lat, self.lon = np.meshgrid(lat, lon)
-        self.grids["global"] = Grid(lat=self.lat, lon=self.lon)
-        self.grids["global_vector"] = self.global_vector_grid
-
-        # Set up polar grids.
-        self.mlat, self.mlon = np.meshgrid(
-            np.linspace(mlatlim, 89.9, Nlat // 2), np.linspace(-180, 180, Nlon)
-        )
-        if settings.mainfield_kind.lower() == "igrf":
-            # Define a grid, then mask depending on mlatmin.
-            self.apx = apexpy.Apex(self.t0.year, refh=(settings.RI - RE) * 1e-3)
-            self.lat_n, self.lon_n, _ = self.apx.apex2geo(
-                self.mlat, self.mlon, (settings.RI - RE) * 1e-3
-            )
-            self.lat_s, self.lon_s, _ = self.apx.apex2geo(
-                -self.mlat, self.mlon, (settings.RI - RE) * 1e-3
-            )
-            self.grids["north"] = Grid(lat=self.lat_n, lon=self.lon_n)
-            self.grids["south"] = Grid(lat=self.lat_s, lon=self.lon_s)
-        else:
-            # Assume simulations are done in magnetic coordinates.
-            grid_polar = Grid(lat=self.mlat, lon=self.mlon)
-            self.grids["north"] = grid_polar
-            self.grids["south"] = grid_polar
-
-        self.B_parameters_calculated = False
-
-        # Prepare explicit postprocessing operators on each plot grid.
-        self.operator_bundles = {}
-        for region in ["global", "north", "south"]:
-            bundle = self.simulation_data.get_poloidal_results_operators(
-                basis=self.state_spec,
-                grid=self.grids[region],
-            )
-            self.operator_bundles[region] = bundle
-
         self._define_defaults()
-        self.set_time(t)
-
-    def _get_settings_scalar(self, name, default):
-        """Return a scalar settings value from the loaded settings dataset."""
-        if hasattr(self.settings, name):
-            return float(getattr(self.settings, name))
-        return float(default)
-
-    def _get_conductance_entry_at_time(self):
-        """Return the conductance representation stored at the current time."""
-        entry = self.simulation_data.get_input_entry("conductance", self.t, interpolation=False)
-        if entry is None:
-            raise KeyError(
-                f"No conductance entry is available at t={float(self.t):.2f}s."
-            )
-        return entry
-
-    def _get_eta_on_grid(self, grid):
-        """Decode the stored conductance representation to resistivity on ``grid``."""
-        _, _, etaP, etaH = decode_conductance_entry_to_grids(
-            self._get_conductance_entry_at_time(),
-            self.conductance_basis,
-            grid,
-            target_shape=np.asarray(grid.lat).shape,
-            sigma_floor=self._get_settings_scalar("conductance_interpolation_floor", 1e-3),
-        )
-        return etaP, etaH
 
     def derive_E_from_B(self):
         """Derive E coefficients from B coefficients.
@@ -215,50 +73,7 @@ class PynamEye(object):
         self.Phi_defaults = {"colors": "black", "levels": np.r_[-211.5:220:3] * 1e3}
         self.W_defaults = {"colors": "orange", "levels": self.Phi_defaults["levels"]}
 
-    def set_time(self, t, steady_state=False):
-        """Set time for PynamEye object in seconds.
-
-        Parameters
-        ----------
-        t : int
-            Simulation time in seconds.
-        steady_state : bool, optional
-            Whether to use steady state data.
-        """
-        self.t = t
-        self.time = self.t0 + datetime.timedelta(seconds=t)
-
-        state_entry = self.simulation_data.get_output_entry(
-            "steady_state" if steady_state else "state",
-            self.t,
-            interpolation=False,
-        )
-        if state_entry is None:
-            raise KeyError(
-                f"No {'steady-state ' if steady_state else ''}state entry is available "
-                f"at t={float(self.t):.2f}s."
-            )
-        u_entry = self.simulation_data.get_input_entry("u", self.t, interpolation=False)
-        if u_entry is None:
-            raise KeyError(f"No wind entry is available at t={float(self.t):.2f}s.")
-
-        self.m_ind = np.asarray(state_entry["m_ind"])
-        self.m_imp = np.asarray(state_entry["m_imp"])
-        self.m_W = np.asarray(state_entry["W"]) * self.RI
-        self.m_Phi = np.asarray(state_entry["Phi"]) * self.RI
-        self.m_u = np.asarray(u_entry["u"]).reshape(2, -1)
-        self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
-
-        if np.any(np.isnan(self.m_ind)):
-            warnings.warn(
-                f"Induced magnetic field coefficients at t={float(t):.2f}s contain NaNs.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        return self
-
-    def get_global_projection(self):
+    def _get_global_projection(self):
         """Get the global projection for plotting.
 
         Returns
@@ -272,154 +87,7 @@ class PynamEye(object):
             # Convert to geographic coordinates.
             _, noon_longitude, _ = self.apx.apex2geo(0, noon_longitude, 0)
 
-        return ccrs.PlateCarree(central_longitude=noon_longitude)
-
-    def jazz_global_plot(self, ax, draw_labels=True, draw_coastlines=True):
-        """Add coastlines and coordinates to the global plot.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes
-            The axis to plot on.
-        draw_labels : bool, optional
-            Whether to draw labels.
-        draw_coastlines : bool, optional
-            Whether to draw coastlines.
-        """
-        if draw_coastlines:
-            ax.coastlines(zorder=2, color="grey")
-
-        gridlines = ax.gridlines(draw_labels=draw_labels)
-        gridlines.right_labels = False
-        gridlines.top_labels = False
-
-        ll = np.linspace(-180, 180, 200)
-        dip_lat = 90 - self.mainfield.dip_equator(ll)
-
-        lbn = 90 - self.mainfield.dip_equator(
-            ll, theta=90 - self.settings.latitude_boundary
-        )
-        lbs = 90 - self.mainfield.dip_equator(
-            ll, theta=90 + self.settings.latitude_boundary
-        )
-
-        ax.plot(
-            ll, dip_lat, color="blue", linestyle="--", linewidth=1, transform=ccrs.PlateCarree()
-        )
-        ax.plot(ll, lbn, color="blue", linestyle="--", linewidth=0.5, transform=ccrs.PlateCarree())
-        ax.plot(ll, lbs, color="blue", linestyle="--", linewidth=0.5, transform=ccrs.PlateCarree())
-
-    def _plot_contour(self, values, ax, region="global", **kwargs):
-        """Plot contour.
-
-        Parameters
-        ----------
-        values : array-like
-            The values to plot.
-        ax : matplotlib.axes.Axes or Polarplot
-            The axis to plot on.
-        region : str, optional
-            The region to plot ('global', 'north', or 'south').
-        **kwargs
-            Additional keyword arguments passed to contour.
-        """
-        if region in ["south", "north"]:
-            assert isinstance(ax, Polarplot)
-            mlt = self.dp.mlon2mlt(self.mlon, self.time)  # Magnetic local time
-            xx, yy = ax._latlt2xy(self.mlat, mlt)
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", message="No contour levels were found within the data range."
-                )
-                return ax.ax.contour(xx, yy, values.reshape(self.mlat.shape), **kwargs)
-        elif region == "global":
-            assert ax.projection.equals(self.get_global_projection())
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", message="No contour levels were found within the data range."
-                )
-                return ax.contour(
-                    self.lon,
-                    self.lat,
-                    values.reshape(self.lon.shape),
-                    transform=ccrs.PlateCarree(),
-                    **kwargs,
-                )
-        else:
-            raise ValueError("region must be either global, north, or south")
-
-    def _plot_filled_contour(self, values, ax, region="global", **kwargs):
-        """Plot filled contour.
-
-        Parameters
-        ----------
-        values : array-like
-            The values to plot.
-        ax : matplotlib.axes.Axes or Polarplot
-            The axis to plot on.
-        region : str, optional
-            The region to plot ('global', 'north', or 'south').
-        **kwargs
-            Additional keyword arguments passed to contourf.
-        """
-        if region in ["south", "north"]:
-            assert isinstance(ax, Polarplot)
-            mlt = self.dp.mlon2mlt(self.mlon, self.time)  # Magnetic local time
-            xx, yy = ax._latlt2xy(self.mlat, mlt)
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", message="No contour levels were found within the data range."
-                )
-                return ax.ax.contourf(xx, yy, values.reshape(self.mlat.shape), **kwargs)
-        elif region == "global":
-            assert ax.projection.equals(self.get_global_projection())
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", message="No contour levels were found within the data range."
-                )
-                return ax.contourf(
-                    self.lon,
-                    self.lat,
-                    values.reshape(self.lon.shape),
-                    transform=ccrs.PlateCarree(),
-                    **kwargs,
-                )
-        else:
-            raise ValueError("region must be either global, north, or south")
-
-    def _quiver(self, east, north, ax, region="global", **kwargs):
-        """Quiver plot.
-
-        Parameters
-        ----------
-        east : array-like
-            The eastward component of the vector field.
-        north : array-like
-            The northward component of the vector field.
-        ax : matplotlib.axes.Axes or Polarplot
-            The axis to plot on.
-        region : str, optional
-            The region to plot ('global', 'north', or 'south').
-        **kwargs
-            Additional keyword arguments passed to quiver.
-        """
-        if region in ["south", "north"]:
-            warnings.warn(
-                "Vector plotting on polar grids is not implemented; returning None.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            return None
-        elif region == "global":
-            assert ax.projection == self.get_global_projection()
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", message="No contour levels were found within the data range."
-                )
-                lon, lat = (self.global_vector_grid.lon, self.global_vector_grid.lat)
-                return ax.quiver(lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs)
-        else:
-            raise ValueError("region must be either global, north, or south")
+        return make_global_projection(noon_longitude)
 
     def plot_joule(self, ax, region="global", **kwargs):
         """Plot Joule heating.
@@ -460,7 +128,19 @@ class PynamEye(object):
         self._JS = JS
 
         # Plot.
-        return self._plot_filled_contour(Q, ax, region, **kwargs)
+        return plot_region_filled_contour(
+            ax,
+            Q,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def plot_conductance(self, ax, hp="h", region="global", **kwargs):
         """Plot conductance.
@@ -492,7 +172,19 @@ class PynamEye(object):
         else:
             raise ValueError("hp must be h or p")
 
-        return self._plot_filled_contour(Sigma, ax, region, **kwargs)
+        return plot_region_filled_contour(
+            ax,
+            Sigma,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def plot_wind(self, ax, region="global", **kwargs):
         """Plot wind vector field.
@@ -519,7 +211,16 @@ class PynamEye(object):
             mean_free=self.input_mean_free,
         )
 
-        return self._quiver(uphi, -utheta, ax, region, **kwargs)
+        return plot_region_quiver(
+            ax,
+            uphi,
+            -utheta,
+            region=region,
+            global_lon=self.global_vector_grid.lon,
+            global_lat=self.global_vector_grid.lat,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def plot_Br(self, ax, region="global", **kwargs):
         """Plot Br.
@@ -541,7 +242,19 @@ class PynamEye(object):
 
         Br = self.operator_bundles[region].evaluate_br(self.m_ind)
 
-        return self._plot_filled_contour(Br, ax, region, **kwargs)
+        return plot_region_filled_contour(
+            ax,
+            Br,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def plot_equivalent_current(self, ax, region="global", **kwargs):
         """Plot equivalent current.
@@ -563,7 +276,19 @@ class PynamEye(object):
 
         Jeq = self.operator_bundles[region].evaluate_jeq(self.m_ind)
 
-        return self._plot_contour(Jeq, ax, region, **kwargs)
+        return plot_region_contour(
+            ax,
+            Jeq,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def plot_jr(self, ax, region="global", **kwargs):
         """Plot jr.
@@ -585,9 +310,21 @@ class PynamEye(object):
 
         jr = self.operator_bundles[region].evaluate_jr(self.m_imp)
 
-        return self._plot_filled_contour(jr, ax, region, **kwargs)
+        return plot_region_filled_contour(
+            ax,
+            jr,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
-    def plot_electric_potential(self, ax, region="global", from_B=False, **kwargs):
+    def plot_electric_potential(self, ax, region="global", **kwargs):
         """Plot electric potential.
 
         Parameters
@@ -596,8 +333,6 @@ class PynamEye(object):
             The axis to plot on.
         region : str, optional
             The region to plot ('global', 'north', or 'south').
-        from_B : bool, optional
-            Whether to derive from B coefficients.
         **kwargs
             Additional keyword arguments passed to contour.
         """
@@ -616,7 +351,19 @@ class PynamEye(object):
         else:
             Phi = self.state_spec.evaluate(self.m_Phi, self.grids[region])
 
-        return self._plot_contour(Phi, ax, region, **kwargs)
+        return plot_region_contour(
+            ax,
+            Phi,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def plot_electric_field_stream_function(self, ax, region="global", **kwargs):
         """Plot electric field stream function (the inductive part).
@@ -645,7 +392,19 @@ class PynamEye(object):
         else:
             W = self.state_spec.evaluate(self.m_W, self.grids[region])
 
-        return self._plot_contour(W, ax, region, **kwargs)
+        return plot_region_contour(
+            ax,
+            W,
+            region=region,
+            global_lon=self.lon,
+            global_lat=self.lat,
+            polar_lat=self.mlat,
+            polar_lon=self.mlon,
+            dipole=self.dp,
+            time=self.time,
+            projection=self._get_global_projection(),
+            **kwargs,
+        )
 
     def make_multipanel_output_figure(self, label=None):
         """Create a multipanel output figure.
@@ -665,9 +424,9 @@ class PynamEye(object):
 
         fig = plt.figure(figsize=(14, 14))
 
-        gax1 = fig.add_subplot(333, projection=self.get_global_projection())
-        gax2 = fig.add_subplot(336, projection=self.get_global_projection())
-        gax3 = fig.add_subplot(339, projection=self.get_global_projection())
+        gax1 = fig.add_subplot(333, projection=self._get_global_projection())
+        gax2 = fig.add_subplot(336, projection=self._get_global_projection())
+        gax3 = fig.add_subplot(339, projection=self._get_global_projection())
 
         paxn1 = Polarplot(fig.add_subplot(331))
         paxn2 = Polarplot(fig.add_subplot(334))
@@ -677,7 +436,11 @@ class PynamEye(object):
         paxs3 = Polarplot(fig.add_subplot(338))
 
         for ax in [gax1, gax2, gax3]:
-            self.jazz_global_plot(ax)
+            decorate_global_axes(
+                ax,
+                mainfield=self.mainfield,
+                latitude_boundary=self.settings.latitude_boundary,
+            )
 
         self.plot_Br(gax1, region="global")
         self.plot_equivalent_current(gax1, region="global")
@@ -702,14 +465,3 @@ class PynamEye(object):
         plt.tight_layout()
 
         return fig
-
-
-if __name__ == "__main__":
-    fn = (
-        "/".join(os.path.abspath(__file__).split("/")[:-1]) + "/../../../scripts/simulation/hdtest"
-    )
-    a = PynamEye(fn).set_time(14.92)
-
-    a.make_multipanel_output_figure()
-
-    plt.show()

@@ -157,3 +157,17 @@ def test_fieldspec_delegates_mean_free_to_sh_methods() -> None:
     spec = FieldSpec(basis=DummySHBasis(), field_type="scalar", mean_free=True)
     assert spec.foo() is True
     assert spec.foo(mean_free=False) is False
+
+
+def test_fieldspec_get_scaled_matrix_respects_mean_free_sh_space() -> None:
+    """Scaled SH evaluation matrices should preserve the mean-free column count."""
+    basis = SHBasis(3, 2, mean_free=False)
+    spec = FieldSpec(basis=basis, field_type="scalar", mean_free=True)
+    grid = Grid(theta=np.array([30.0, 60.0]), phi=np.array([0.0, 90.0]))
+    factor = np.array([2.0, 3.0])
+
+    scaled = spec.get_scaled_matrix(grid, factor)
+    expected = spec.get_evaluation_matrix(grid) * factor.reshape(-1, 1)
+
+    assert scaled.shape[1] == spec.index_length
+    np.testing.assert_allclose(np.asarray(scaled), np.asarray(expected))

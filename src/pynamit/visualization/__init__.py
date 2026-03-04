@@ -1,35 +1,10 @@
 """Visualization tools for PynaMIT.
 
-Optional plotting dependencies such as ``cartopy`` are not required for the
-operator/grid-evaluation helpers. Import those plotting entry points only when
-their dependencies are available.
+This package owns rendering and viewer utilities. Numerical read/evaluation
+helpers live under ``pynamit.postprocess``.
 """
 
-from pynamit.postprocess import (
-    PoloidalResultsOperators,
-    build_poloidal_results_operators,
-    decode_conductance_dataset_to_grids,
-    decode_conductance_entry_to_grids,
-    evaluate_scalar_coeffs_to_grid,
-    evaluate_tangential_coeffs_to_grid_components,
-    get_scalar_grid_evaluation_matrix,
-    get_tangential_grid_component_matrices,
-    load_netcdf_dataarray,
-    load_netcdf_dataset,
-)
-
-__all__ = [
-    "PoloidalResultsOperators",
-    "build_poloidal_results_operators",
-    "decode_conductance_dataset_to_grids",
-    "decode_conductance_entry_to_grids",
-    "evaluate_scalar_coeffs_to_grid",
-    "evaluate_tangential_coeffs_to_grid_components",
-    "get_scalar_grid_evaluation_matrix",
-    "get_tangential_grid_component_matrices",
-    "load_netcdf_dataarray",
-    "load_netcdf_dataset",
-]
+__all__: list[str] = []
 
 try:
     from .plots import debugplot, globalplot

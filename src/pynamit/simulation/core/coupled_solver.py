@@ -631,6 +631,27 @@ class CoupledOperators:
         self._twist_rate_known_rhs_from_dt_m_ind_dense_cache: Dict[tuple[Any, ...], np.ndarray] = {}
         self._dt_m_ind_from_E_dense_cache: Optional[np.ndarray] = None
 
+    def build_coupled_preconditioner(self) -> Optional[LinearMap]:
+        """Build the preconditioner for the coupled ``(2N, 2N)`` induction system."""
+        st = self.state
+        if st.preconditioner is None:
+            return None
+
+        n = st.solution_space.index_length
+        l_tensor = st.coupled_induction_tensor
+        l_map = as_linear_map(asarray(l_tensor).reshape(2 * n, 2 * n))
+        problem = LeastSquaresProblem(
+            A=[l_map],
+            solution_shape=(2 * n,),
+            data_shapes=[(2 * n,)],
+        )
+        solver = LeastSquaresSolver(solver=st.solver_type, preconditioner=st.preconditioner)
+        return solver.build_preconditioner(
+            problem=problem,
+            preconditioner_type=st.preconditioner,
+            num_scenarios=1,
+        )
+
     def _dense_E_coeff_operator_matrix(self, op: Any) -> np.ndarray:
         """Return dense ``(2N, N)`` matrix for a coefficient->E operator."""
         st = self.state
@@ -815,7 +836,7 @@ class CoupledOperators:
         l_coupled = xp.stack([top_row, bottom_row], axis=0)
         try:
             l_flat = np.asarray(l_coupled, dtype=float).reshape(2 * n, 2 * n)
-            st._analyze_coupled_stability(
+            st.diagnostics.analyze_coupled_stability(
                 l_flat,
                 label=f"tensor:pinning={int(bool(use_pinning))}",
             )
@@ -1042,7 +1063,7 @@ class CoupledOperators:
         """Expose dense map from input ``jr`` coefficients to imposed ``m_imp``."""
         st = self.state
         if input_basis is None and st.jr is not None:
-            input_basis = st.jr.basis
+            input_basis = st.jr.spec
 
         op_rhs = as_linear_map(st.geometry.get_constraint_scalar_operator(input_basis))
         rhs0 = np.asarray(to_dense(op_rhs))

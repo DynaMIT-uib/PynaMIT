@@ -40,7 +40,7 @@ class StateConstraints:
 
     def _extract_ll_constraint_rows(self) -> Any:
         """Extract low-latitude (LL) rows from the constraint-scalar operator."""
-        op = self.geometry.constraint_scalar_map_sim
+        op = self.geometry.get_constraint_scalar_operator(self.solution_space)
         if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
             return op
 
@@ -368,9 +368,7 @@ class StateConstraints:
         n_coeffs: int,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Build global and HL Gram metrics in apex sample space."""
-        apex_op = getattr(self.geometry, "constraint_scalar_map_reference_sim", None)
-        if apex_op is None:
-            apex_op = self.geometry.constraint_scalar_map_sim
+        apex_op = self.geometry.get_constraint_scalar_reference_operator(self.solution_space)
 
         A_apex = np.asarray(to_dense(as_linear_map(apex_op)), dtype=float)
         if A_apex.ndim != 2:
@@ -643,7 +641,7 @@ class StateConstraints:
         if self.dynamics_mode == "full_induction" and not self.connect_hemispheres:
             return None
         if self.dynamics_mode != "full_induction":
-            return self.geometry.constraint_scalar_map_sim
+            return self.geometry.get_constraint_scalar_operator(self.solution_space)
 
         bundle = self.induction_constraint_bundle_hard
         if bundle is None or bundle["C_total"].shape[0] == 0:

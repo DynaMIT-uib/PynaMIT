@@ -10,15 +10,19 @@ from __future__ import annotations
 import os
 from typing import Any, Optional, Tuple
 
+import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
-import cartopy.crs as ccrs
 import polplot
-from scipy.interpolate import griddata
 from polplot import Polarplot
 
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.dynamics import Dynamics
+from pynamit.visualization.map_plotting import (
+    make_global_projection,
+    plot_polar_contour,
+    plot_polar_filled_contour,
+)
 
 
 def _get_current_state_entry(dynamics: Dynamics) -> dict[str, np.ndarray]:
@@ -34,68 +38,6 @@ def _get_current_state_entry(dynamics: Dynamics) -> dict[str, np.ndarray]:
             "Save or append a state entry before plotting."
         )
     return state_entry
-
-
-def cs_interpolate(
-    projection: Any,
-    inlat: np.ndarray,
-    inlon: np.ndarray,
-    values: np.ndarray,
-    outlat: np.ndarray,
-    outlon: np.ndarray,
-    **kwargs: Any,
-) -> np.ndarray:
-    """Interpolate data from cubed sphere to regular grid.
-
-    Parameters
-    ----------
-    projection : CSBasis
-        Cubed sphere projection object.
-    inlat : array-like
-        Latitude coordinates of input data.
-    inlon : array-like
-        Longitude coordinates of input data.
-    values : array-like
-        Field values to interpolate.
-    outlat : array-like
-        Latitude coordinates of output grid.
-    outlon : array-like
-        Longitude coordinates of output grid.
-    kwargs : dict
-        Additional arguments for griddata interpolation.
-    """
-    inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
-    in_r = np.vstack(
-        (
-            np.cos(np.deg2rad(inlat)) * np.cos(np.deg2rad(inlon)),
-            np.cos(np.deg2rad(inlat)) * np.sin(np.deg2rad(inlon)),
-            np.sin(np.deg2rad(inlat)),
-        )
-    )
-
-    outlon, outlat = np.broadcast_arrays(outlon, outlat)
-    # Get the shape so we can reshape the result in the end.
-    shape = outlon.shape
-    outlon, outlat = outlon.flatten(), outlat.flatten()
-
-    result = np.zeros_like(outlon) - 1
-
-    xi_o, eta_o, block_o = projection.geo2cube(outlon, outlat)
-
-    # Go through each block.
-    for i in range(6):
-        jjj = block_o == i  # These are the points we want to specify
-
-        # Find the points that are on the right side.
-        _, th0, ph0 = projection.cube2spherical(0, 0, i)
-        r0 = np.array([np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)])
-        iii = np.sum(r0.reshape((-1, 1)) * in_r, axis=0) > 0
-        xi_i, eta_i, _ = projection.geo2cube(inlon[iii], inlat[iii], block=i)
-        result[jjj] = griddata(
-            np.vstack((xi_i, eta_i)).T, values[iii], np.vstack((xi_o[jjj], eta_o[jjj])).T, **kwargs
-        )
-
-    return result.reshape(shape)
 
 
 def globalplot(
@@ -145,7 +87,7 @@ def globalplot(
     else:
         returnplot = False
 
-    global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
+    global_projection = make_global_projection(noon_longitude)
     ax = fig.add_subplot(2, 1, 2, projection=global_projection)
     ax.coastlines(zorder=2, color="grey")
     if scatter:
@@ -165,14 +107,14 @@ def globalplot(
     if scatter:
         pax1.scatter(lat[iii], lon[iii] / 15, c=data[iii], **kwargs)
     else:
-        pax1.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+        plot_polar_filled_contour(pax1, lat[iii], lon[iii] / 15, data[iii], **kwargs)
     pax1.ax.set_title("North")
 
     iii = lat < -50
     if scatter:
         pax2.scatter(lat[iii], lon[iii] / 15, c=data[iii], **kwargs)
     else:
-        pax2.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+        plot_polar_filled_contour(pax2, lat[iii], lon[iii] / 15, data[iii], **kwargs)
     pax2.ax.set_title("South")
 
     plt.tight_layout()
@@ -228,7 +170,7 @@ def debugplot(
         "extend": "both",
     }
 
-    global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
+    global_projection = make_global_projection(noon_longitude)
 
     fig = plt.figure(figsize=(15, 13))
 
@@ -291,15 +233,15 @@ def debugplot(
 
     # Make north plot.
     iii = lat > 50
-    paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    plot_polar_filled_contour(paxn_B, lat[iii], mlt[iii], Br[iii], **B_kwargs)
+    plot_polar_contour(paxn_j, lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
+    plot_polar_filled_contour(paxn_j, lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
     # Make south plot.
     iii = lat < -50
-    paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    plot_polar_filled_contour(paxs_B, lat[iii], mlt[iii], Br[iii], **B_kwargs)
+    plot_polar_contour(paxs_j, lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
+    plot_polar_filled_contour(paxs_j, lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
     # Make scatter plot of high latitude jr.
     iii = np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
@@ -452,7 +394,8 @@ def time_dependent_plot(
     #    levels=Wlevels,
     #    linewidths=0.5,
     # )
-    paxn.contour(
+    plot_polar_contour(
+        paxn,
         plt_grid.lat[nnn],
         (plt_grid.lon - lon0)[nnn] / 15,
         Phi[nnn],
@@ -460,7 +403,8 @@ def time_dependent_plot(
         levels=Philevels,
         linewidths=0.5,
     )
-    paxs.contour(
+    plot_polar_contour(
+        paxs,
         plt_grid.lat[sss],
         (plt_grid.lon - lon0)[sss] / 15,
         Phi[sss],

@@ -146,76 +146,6 @@ class FieldSpec:
             )
         return self.basis.get_evaluation_matrix(grid, derivative=derivative)
 
-    def get_gradient_matrix(self, grid: Any) -> Any:
-        """Return the gradient matrix for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_gradient_matrix(grid, mean_free=self.mean_free)
-        return self.basis.get_gradient_matrix(grid)
-
-    def get_curl_matrix(self, grid: Any) -> Any:
-        """Return the curl matrix for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_curl_matrix(grid, mean_free=self.mean_free)
-        return self.basis.get_curl_matrix(grid)
-
-    def get_vector_basis_matrix(self, grid: Any) -> Any:
-        """Return the Helmholtz vector basis matrix for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_vector_basis_matrix(grid, mean_free=self.mean_free)
-        return self.basis.get_vector_basis_matrix(grid)
-
-    def get_rxgrad_matrix(self, grid: Any) -> Any:
-        """Return the rotated-gradient matrix for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_rxgrad_matrix(grid, mean_free=self.mean_free)
-        return self.basis.get_rxgrad_matrix(grid)
-
-    def get_laplacian_operator(self, r: float = 1.0) -> Any:
-        """Return the Laplacian operator for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_laplacian_operator(r, mean_free=self.mean_free)
-        return self.basis.get_laplacian_operator(r)
-
-    def laplacian(self, r: float = 1.0) -> np.ndarray:
-        """Return diagonal SH Laplacian factors for this field space."""
-        if self.kind == "SH" and hasattr(self.basis, "laplacian"):
-            return np.asarray(self.basis.laplacian(r, mean_free=self.mean_free))
-        return np.asarray(self.basis.laplacian(r))
-
-    def get_radial_shift_operator(
-        self,
-        start_r: float,
-        end_r: float,
-        kind: str = "external",
-    ) -> Any:
-        """Return the radial shift operator for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_radial_shift_operator(
-                start_r,
-                end_r,
-                kind=kind,
-                mean_free=self.mean_free,
-            )
-        return self.basis.get_radial_shift_operator(start_r, end_r, kind=kind)
-
-    def radial_shift_Ve(self, start: float, end: float) -> np.ndarray:
-        """Return SH external radial-shift factors for this field space."""
-        if self.kind == "SH" and hasattr(self.basis, "radial_shift_Ve"):
-            return np.asarray(self.basis.radial_shift_Ve(start, end, mean_free=self.mean_free))
-        return np.asarray(self.basis.radial_shift_Ve(start, end))
-
-    def radial_shift_Vi(self, start: float, end: float) -> np.ndarray:
-        """Return SH internal radial-shift factors for this field space."""
-        if self.kind == "SH" and hasattr(self.basis, "radial_shift_Vi"):
-            return np.asarray(self.basis.radial_shift_Vi(start, end, mean_free=self.mean_free))
-        return np.asarray(self.basis.radial_shift_Vi(start, end))
-
-    def get_potential_scaling_operator(self) -> Any:
-        """Return the potential-scaling operator for this field space."""
-        if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
-            return self.basis.get_potential_scaling_operator(mean_free=self.mean_free)
-        return self.basis.get_potential_scaling_operator()
-
     def grid_to_basis_fast(
         self,
         data: Any,
@@ -275,6 +205,37 @@ class FieldSpec:
         from pynamit.primitives.analysis import get_helmholtz_projection_matrix
 
         return get_helmholtz_projection_matrix(self, grid)
+
+    def get_scaled_matrix(self, grid: Any, factor: Any) -> Any:
+        """Return the evaluation matrix scaled by a row or column factor.
+
+        This mirrors ``Basis.get_scaled_matrix(...)`` but routes through
+        ``FieldSpec.get_evaluation_matrix(...)`` so SH mean-free spaces use the
+        reduced scalar representation consistently.
+        """
+        import scipy.sparse
+
+        G = self.get_evaluation_matrix(grid)
+
+        if np.isscalar(factor):
+            return factor * G
+
+        factor_arr = np.asarray(factor).ravel()
+        rows, cols = G.shape
+        is_sparse = scipy.sparse.issparse(G)
+
+        if factor_arr.size == rows:
+            if is_sparse:
+                return scipy.sparse.diags(factor_arr) @ G
+            return G * factor_arr.reshape(-1, 1)
+        if factor_arr.size == cols:
+            if is_sparse:
+                return G @ scipy.sparse.diags(factor_arr)
+            return G * factor_arr
+        raise ValueError(
+            f"Factor size {factor_arr.size} does not match G shape {G.shape} "
+            "for either row or column scaling."
+        )
 
     def get_vector_divergence_operator(self, grid: Any = None) -> Any:
         """Return the vector divergence operator for this field space."""
@@ -364,27 +325,3 @@ class FieldSpec:
                 mean_free=self.mean_free,
             )
         return self.basis.evaluate(coeffs, grid, vector_type=vector_type)
-
-    def get_scaled_matrix(self, grid: Any, factor: Any) -> Any:
-        """Return an evaluation matrix scaled by a row or column factor."""
-        import scipy.sparse
-
-        G = self.get_evaluation_matrix(grid)
-        if np.isscalar(factor):
-            return factor * G
-
-        factor_arr = np.asarray(factor).ravel()
-        rows, cols = G.shape
-        is_sparse = scipy.sparse.issparse(G)
-        if factor_arr.size == rows:
-            if is_sparse:
-                return scipy.sparse.diags(factor_arr) @ G
-            return G * factor_arr.reshape(-1, 1)
-        if factor_arr.size == cols:
-            if is_sparse:
-                return G @ scipy.sparse.diags(factor_arr)
-            return G * factor_arr
-        raise ValueError(
-            f"Factor size {factor_arr.size} does not match G shape {G.shape} "
-            "for either row or column scaling."
-        )

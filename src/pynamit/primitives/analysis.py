@@ -176,7 +176,10 @@ def get_helmholtz_projection_matrix(spec: Any, grid: Any) -> Any:
         g_helmholtz = np.stack([-g_grad, g_rxgrad], axis=2)
         projection = tensor_pinv(g_helmholtz, n_leading_flattened=2)
     else:
-        # Non-SH bases may need basis-specific gauge/constraint handling.
+        # Non-SH Helmholtz analysis remains basis-owned on purpose.
+        # CS and other non-SH bases may need basis-specific gauge or
+        # constrained-solve handling that is not expressible through the
+        # generic `FieldSpec` surface alone.
         projection = spec.basis.construct_projection_matrix(grid)
 
     _HELMHOLTZ_PROJECTION_CACHE[cache_key] = projection

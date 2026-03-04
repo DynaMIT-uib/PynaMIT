@@ -10,7 +10,7 @@ vector fields on cubed sphere blocks
 import matplotlib.pyplot as plt
 import numpy as np
 from pynamit.cubed_sphere import cs_basis
-from pynamit.visualization.cartopy_utils import Geocentric_to_PlateCarree_vector_components
+from pynamit.visualization.map_plotting import geocentric_to_plate_carree_vector_components
 from importlib import reload
 import cartopy.crs as ccrs
 from pynamit.cubed_sphere import cs_math
@@ -151,7 +151,7 @@ def test_projection():
         assert np.all(np.isclose(Ar, 0))
         # norms = np.sqrt(Aeast**2 + Anorth**2)
 
-        Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
+        Ae_pc, An_pc = geocentric_to_plate_carree_vector_components(
             Aeast.flatten(), Anorth.flatten(), lat
         )
         axg1.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
@@ -161,7 +161,7 @@ def test_projection():
         Aeast, Anorth, Ar = np.einsum("nij, nj -> ni", Ps_normalized, Aetas).T
         assert np.all(np.isclose(Ar, 0))
 
-        Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
+        Ae_pc, An_pc = geocentric_to_plate_carree_vector_components(
             Aeast.flatten(), Anorth.flatten(), lat
         )
         axg3.quiver(lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
