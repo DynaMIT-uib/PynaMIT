@@ -12,7 +12,7 @@ import pyamps
 import apexpy
 
 run_directory = "data/pynamit_paper_simulation"
-Nmax, Mmax, Ncs = 90, 90, 100
+Nmax, Mmax, Ncs = 30, 30, 40
 simulation_time = 480
 latitude_boundary = 45
 RE = 6371.2e3
@@ -40,6 +40,8 @@ dynamics = pynamit.Dynamics(
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
+    dynamics_mode="legacy",
+    conductance_interpolation_mode="legacy_eta_linear",
     t0=str(date),
 )
 

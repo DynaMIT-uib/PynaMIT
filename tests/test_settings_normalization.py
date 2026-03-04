@@ -9,7 +9,7 @@ from pynamit.simulation.settings import DynamicsSettings, SimulationMode
 def test_dynamics_settings_default_conductance_mode_is_string() -> None:
     settings = DynamicsSettings()
 
-    assert settings.conductance_interpolation_mode == "sigma_log"
+    assert settings.conductance_interpolation_mode == "legacy_eta_linear"
     assert isinstance(settings.conductance_interpolation_mode, str)
     assert settings.apply_m_imp_gauge is True
     assert settings.run_directory is None

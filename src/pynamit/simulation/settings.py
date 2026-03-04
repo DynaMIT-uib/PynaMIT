@@ -168,7 +168,7 @@ class DynamicsSettings:
     # - sigma_log: interpolate log(Sigma + floor), then convert to eta at state update
     conductance_interpolation_mode: Literal[
         "legacy_eta_linear", "sigma_linear", "sigma_log"
-    ] = "sigma_log"
+    ] = "legacy_eta_linear"
     # Floor used for sigma_log encoding and for robust Sigma->eta conversion in
     # non-legacy modes (denominator floor uses floor^2).
     conductance_interpolation_floor: float = 1e-3
