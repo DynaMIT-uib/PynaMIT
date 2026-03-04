@@ -76,7 +76,7 @@ Br = G_Br.dot(dynamics.state.geometry.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
 
 
 if SIMULATE_DYNAMIC_RESPONSE:
-    fig, paxn, paxs, axg = pynamit.globalplot(
+    fig, paxn, paxs, axg = pynamit.plot_global_map(
         plt_grid.lon,
         plt_grid.lat,
         Br.reshape(plt_grid.lat.shape),
@@ -121,7 +121,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
             filecount += 1
             title = "t = {:.3} s".format(time)
             Br = dynamics.state.get_Br(plt_grid)
-            fig, paxn, paxs, axg = pynamit.globalplot(
+            fig, paxn, paxs, axg = pynamit.plot_global_map(
                 plt_grid.lon,
                 plt_grid.lat,
                 Br.reshape(plt_grid.lat.shape),
@@ -160,7 +160,7 @@ if COMPARE_TO_SECS:
 
     Br_SECS = Gu.dot(secsI)
 
-    fig, paxn, paxs, axg = pynamit.globalplot(
+    fig, paxn, paxs, axg = pynamit.plot_global_map(
         plt_grid.lon,
         plt_grid.lat,
         Br_SECS.reshape(plt_grid.lat.shape),

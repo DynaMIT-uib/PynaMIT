@@ -1,4 +1,4 @@
-"""Saved-run viewer state handling for ``PynamEye``."""
+"""Saved-run viewer state handling for ``SimulationViewer``."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from pynamit.primitives.grid import Grid
 from pynamit.simulation.data import SimulationData
 
 
-class _PynamEyeViewerState:
-    """Internal saved-run viewer state and snapshot access for ``PynamEye``."""
+class _SimulationViewerState:
+    """Internal saved-run viewer state and snapshot access for ``SimulationViewer``."""
 
     def __init__(
         self,

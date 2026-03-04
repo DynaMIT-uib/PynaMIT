@@ -7,18 +7,18 @@ helpers live under ``pynamit.postprocess``.
 __all__: list[str] = []
 
 try:
-    from .plots import debugplot, globalplot
+    from .plot_recipes import plot_global_map, plot_simulation_snapshot
 except ModuleNotFoundError:
     pass
 else:
-    __all__.extend(["debugplot", "globalplot"])
+    __all__.extend(["plot_global_map", "plot_simulation_snapshot"])
 
 try:
-    from .pynameye import PynamEye
+    from .simulation_viewer import SimulationViewer
 except ModuleNotFoundError:
     pass
 else:
-    __all__.append("PynamEye")
+    __all__.append("SimulationViewer")
 
 try:
     from .input_vs_interpolated import plot_input_vs_interpolated

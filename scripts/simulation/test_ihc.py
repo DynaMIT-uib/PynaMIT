@@ -199,7 +199,7 @@ if SIMULATE:
             filecount += 1
             title = "t = {:.3} s".format(time)
             Br = dynamics.state.get_Br(plt_grid)
-            fig, paxn, paxs, axg = pynamit.globalplot(
+            fig, paxn, paxs, axg = pynamit.plot_global_map(
                 plt_grid.lon,
                 plt_grid.lat,
                 Br.reshape(plt_grid.lat.shape),
@@ -223,7 +223,7 @@ if SIMULATE:
             break
 
 else:
-    fig, paxn, paxs, axg = pynamit.globalplot(
+    fig, paxn, paxs, axg = pynamit.plot_global_map(
         plt_grid.lon,
         plt_grid.lat,
         Br.reshape(plt_grid.lat.shape),

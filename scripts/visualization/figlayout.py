@@ -95,7 +95,7 @@ def build_example_dynamics() -> pynamit.Dynamics:
 if __name__ == "__main__":
     current_date = datetime.datetime(2001, 5, 12, 21, 45)
     noon_longitude = Dipole(current_date.year).mlt2mlon(12, current_date)
-    pynamit.debugplot(
+    pynamit.plot_simulation_snapshot(
         build_example_dynamics(),
         title="figlayout",
         filename=None,

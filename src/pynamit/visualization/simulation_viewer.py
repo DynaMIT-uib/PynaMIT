@@ -1,4 +1,4 @@
-"""Figure assembly and plot methods for ``PynamEye``."""
+"""Figure assembly and plot methods for ``SimulationViewer``."""
 
 import logging
 import numpy as np
@@ -12,12 +12,12 @@ from pynamit.visualization.map_plotting import (
     plot_region_filled_contour,
     plot_region_quiver,
 )
-from pynamit.visualization.pynameye_viewer_state import _PynamEyeViewerState
+from pynamit.visualization.simulation_viewer_state import _SimulationViewerState
 
 logger = logging.getLogger(__name__)
 
 
-class PynamEye(_PynamEyeViewerState):
+class SimulationViewer(_SimulationViewerState):
     """High-level saved-run viewer and figure builder."""
 
     def __init__(
@@ -39,10 +39,10 @@ class PynamEye(_PynamEyeViewerState):
 
         This path is not maintained in the current visualization stack.
         Use stored ``SH_Phi``/``SH_W`` outputs or runtime package operators
-        instead of reconstructing electric coefficients inside ``PynamEye``.
+        instead of reconstructing electric coefficients inside ``SimulationViewer``.
         """
         raise NotImplementedError(
-            "PynamEye.derive_E_from_B() is not maintained. Use stored SH_Phi/SH_W "
+            "SimulationViewer.derive_E_from_B() is not maintained. Use stored SH_Phi/SH_W "
             "outputs or the package operator paths instead."
         )
 

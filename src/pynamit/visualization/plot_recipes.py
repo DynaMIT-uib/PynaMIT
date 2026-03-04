@@ -1,9 +1,4 @@
-"""Visualization utilities for simulation results.
-
-This module contains plotting functions for visualizing ionospheric
-simulation results, including global maps, diagnostic plots, and time
-series visualizations.
-"""
+"""High-level plotting recipes for simulation results."""
 
 from __future__ import annotations
 
@@ -40,7 +35,7 @@ def _get_current_state_entry(dynamics: Dynamics) -> dict[str, np.ndarray]:
     return state_entry
 
 
-def globalplot(
+def plot_global_map(
     lon: np.ndarray,
     lat: np.ndarray,
     data: np.ndarray,
@@ -48,7 +43,7 @@ def globalplot(
     scatter: bool = False,
     **kwargs: Any,
 ) -> Optional[Tuple[plt.Figure, Polarplot, Polarplot, plt.Axes]]:
-    """Create global map visualization of field data.
+    """Create a global map visualization of scalar field data.
 
     Parameters
     ----------
@@ -130,13 +125,13 @@ def globalplot(
     plt.close()
 
 
-def debugplot(
+def plot_simulation_snapshot(
     dynamics: Dynamics,
     title: Optional[str] = None,
     filename: Optional[str] = None,
     noon_longitude: float = 0,
 ) -> None:
-    """Generate diagnostic plots of simulation state.
+    """Generate a diagnostic snapshot plot of the current simulation state.
 
     Creates visualizations of radial magnetic field, field-aligned
     currents, and equivalent current function for debugging.
@@ -310,7 +305,7 @@ def debugplot(
 
     plt.close()
 
-def time_dependent_plot(
+def save_time_dependent_frame(
     dynamics: Dynamics,
     fig_directory: str,
     filecount: int,
@@ -319,7 +314,7 @@ def time_dependent_plot(
     pltshape: Tuple[int, ...],
     plt_state_grid: Grid,
 ) -> None:
-    """Create time series visualization frame.
+    """Create and save one time-dependent visualization frame.
 
     Generates and saves a single frame for time-dependent visualization
     of simulation results.
@@ -358,7 +353,7 @@ def time_dependent_plot(
 
     Br = plot_operators.evaluate_br(state_entry["m_ind"])
 
-    _, paxn, paxs, _ = globalplot(
+    _, paxn, paxs, _ = plot_global_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
         Br.reshape(pltshape),

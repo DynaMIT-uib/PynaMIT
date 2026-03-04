@@ -112,7 +112,7 @@ for step in range(0, nstep):
 
         lat = 90 - theta
         lon = phi
-        pynamit.globalplot(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
+        pynamit.plot_global_map(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
     Br_expansion = pynamit.Field.from_grid_values_expansion(
         dynamics.state.basis,
@@ -128,7 +128,7 @@ for step in range(0, nstep):
     plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
 
     if PLOT_BR:
-        pynamit.globalplot(
+        pynamit.plot_global_map(
             plt_lon,
             plt_lat,
             Br_expansion.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
@@ -142,7 +142,7 @@ for step in range(0, nstep):
     # * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
     # if PLOT_BR:
-    #    pynamit.globalplot(
+    #    pynamit.plot_global_map(
     #        plt_lon,
     #        plt_lat,
     #        Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
@@ -315,7 +315,7 @@ for step in range(0, nstep):
     dynamics.set_input_state_variables()
 
     if PLOT_JR:
-        pynamit.globalplot(
+        pynamit.plot_global_map(
             plt_lon,
             plt_lat,
             dynamics.state.jr.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
@@ -325,7 +325,7 @@ for step in range(0, nstep):
         )
 
     if PLOT_CONDUCTANCE:
-        pynamit.globalplot(
+        pynamit.plot_global_map(
             plt_lon,
             plt_lat,
             dynamics.state.etaP.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),
@@ -334,7 +334,7 @@ for step in range(0, nstep):
             title="etaP",
         )
 
-        pynamit.globalplot(
+        pynamit.plot_global_map(
             plt_lon,
             plt_lat,
             dynamics.state.etaH.evaluate_on_grid(plt_grid).reshape(plt_lon.shape),

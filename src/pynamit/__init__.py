@@ -16,12 +16,12 @@ Grid : class
     Class for grid management.
 Mainfield : class
     Class for main field evaluation.
-PynamEye : class
-    Class for visualization.
-debugplot : function
-    Function for debug plotting.
-globalplot : function
-    Function for global plotting.
+SimulationViewer : class
+    Class for saved-run visualization.
+plot_global_map : function
+    Function for global map plotting.
+plot_simulation_snapshot : function
+    Function for diagnostic snapshot plotting.
 SHBasis : class
     Class for spherical harmonics basis functions.
 """
@@ -36,12 +36,12 @@ from .primitives import (
 )
 from .simulation import Dynamics, SimulationData, State, run_pynamit
 try:
-    from .visualization import PynamEye, debugplot, globalplot
+    from .visualization import SimulationViewer, plot_global_map, plot_simulation_snapshot
 except ImportError:
     # Visualization dependencies (e.g. Cartopy) might be missing in production/test envs
-    PynamEye = None
-    debugplot = None
-    globalplot = None
+    SimulationViewer = None
+    plot_global_map = None
+    plot_simulation_snapshot = None
 from .spherical_harmonics import SHBasis
 from .utils import set_backend
 
@@ -53,9 +53,9 @@ __all__ = [
     "IO",
     "Mainfield",
     "SimulationData",
-    "PynamEye",
-    "debugplot",
-    "globalplot",
+    "SimulationViewer",
+    "plot_global_map",
+    "plot_simulation_snapshot",
     "SHBasis",
     "State",
     "Timeseries",

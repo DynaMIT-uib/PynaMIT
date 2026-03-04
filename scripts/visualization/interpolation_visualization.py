@@ -10,8 +10,8 @@ from string import ascii_lowercase as abc
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 
-print(datetime.datetime.now(), "making PynamEye object")
-a = pynamit.visualization.PynamEye(path, steady_state=True)
+print(datetime.datetime.now(), "making SimulationViewer object")
+a = pynamit.visualization.SimulationViewer(path, steady_state=True)
 
 for plot_num, simulation_time in enumerate([0, 480]):
     a.set_time(simulation_time, steady_state=True)

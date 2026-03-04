@@ -20,7 +20,7 @@ path = (
 #        "simulation/data/steady_state"
 # )
 
-a = pynamit.visualization.PynamEye(path)
+a = pynamit.visualization.SimulationViewer(path)
 
 GLOBAL_TIMESERIES = True
 POLAR_TIMESERIES = True

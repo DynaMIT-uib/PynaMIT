@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
-a = pynamit.visualization.PynamEye(path)
+a = pynamit.visualization.SimulationViewer(path)
 
 
 TIMESERIES = False

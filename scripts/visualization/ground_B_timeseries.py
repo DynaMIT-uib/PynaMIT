@@ -9,6 +9,7 @@ from pynamit.math.constants import RE
 import dipole
 import datetime
 import apexpy
+from pynamit.postprocess import build_ground_magnetic_response_operators
 from pynamit.simulation.data import SimulationData
 
 periods = [50, 25, 10, 5, 1]
@@ -23,8 +24,7 @@ m_imp_name = simulation_data_list[0].get_data_var_name("state", "m_imp")
 
 settings = simulation_data_list[0].settings
 RI = settings.RI
-sh_basis = simulation_data_list[0].sh_basis
-mean_free_degrees = sh_basis.scalar_degrees(mean_free=True)
+state_spec = simulation_data_list[0].solution_spec
 
 t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
@@ -41,13 +41,11 @@ glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
-# Removed BasisEvaluator. Logic will use basis and grid directly.
-
-m_ind_to_Bh_ground = -(mean_free_degrees + 1) * (RE / RI) ** mean_free_degrees
-m_ind_to_Br_ground = (
-    mean_free_degrees
-    * (mean_free_degrees + 1)
-    * (RE / RI) ** (mean_free_degrees - 1)
+ground_response = build_ground_magnetic_response_operators(
+    state_spec=state_spec,
+    ground_grid=ground_grid,
+    ionosphere_radius=RI,
+    ground_radius=RE,
 )
 
 
@@ -57,15 +55,12 @@ for state_data in state_data_list:
     # Calculate the time series.
     m_ind = state_data[m_ind_name].values.T
 
-    Br = (
-        sh_basis.get_evaluation_matrix(ground_grid, mean_free=True)
-        * m_ind_to_Br_ground.reshape((1, -1))
-    ).dot(m_ind)
-    Bh = (
-        -sh_basis.get_gradient_matrix(ground_grid, mean_free=True)
-        * m_ind_to_Bh_ground.reshape((1, -1))
-    ).dot(m_ind)
-    Btheta, Bphi = np.split(Bh, 2, axis=0)
+    Br = np.column_stack([ground_response.evaluate_radial(m_ind[:, i]) for i in range(m_ind.shape[1])])
+    Bh = np.stack(
+        [ground_response.evaluate_horizontal(m_ind[:, i]) for i in range(m_ind.shape[1])],
+        axis=-1,
+    )
+    Btheta, Bphi = Bh[0], Bh[1]
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
     for i in range(len(glat)):
@@ -123,10 +118,7 @@ for p, state_data in zip(periods, state_data_list):
     ).T
 
     m_ind = sd[m_ind_name].values.T
-    Br = (
-        sh_basis.get_evaluation_matrix(ground_grid, mean_free=True)
-        * m_ind_to_Br_ground.reshape((1, -1))
-    ).dot(m_ind)
+    Br = np.column_stack([ground_response.evaluate_radial(m_ind[:, i]) for i in range(m_ind.shape[1])])
 
     # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]

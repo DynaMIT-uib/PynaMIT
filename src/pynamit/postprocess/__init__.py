@@ -10,12 +10,18 @@ from .grid_evaluation import (
     load_netcdf_dataarray,
     load_netcdf_dataset,
 )
+from .ground_response import (
+    GroundMagneticResponseOperators,
+    build_ground_magnetic_response_operators,
+)
 from .results_operators import (
     PoloidalResultsOperators,
     build_poloidal_results_operators,
 )
 
 __all__ = [
+    "GroundMagneticResponseOperators",
+    "build_ground_magnetic_response_operators",
     "PoloidalResultsOperators",
     "build_poloidal_results_operators",
     "decode_conductance_dataset_to_grids",
