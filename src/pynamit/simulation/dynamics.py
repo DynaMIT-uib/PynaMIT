@@ -291,7 +291,11 @@ class Dynamics:
             if self.settings.dynamics_mode == "full_induction":
                 current_m_ind = inductive_m_ind
                 current_psi = psi
-                if bool(self.settings.save_steady_states) and step % sampling_step_interval == 0:
+                need_steady_state_for_step = self.settings.integrator == "exponential"
+                need_steady_state_for_output = (
+                    bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
+                )
+                if need_steady_state_for_step or need_steady_state_for_output:
                     steady_state_psi, steady_state_m_ind = self.state.solve_steady_state_model_variables(
                         E_coeffs_noind,
                         update_state=False,
@@ -364,6 +368,7 @@ class Dynamics:
                 dt=dt,
                 E_coeffs_noind=E_coeffs_noind,
                 steady_state_m_ind=steady_state_m_ind,
+                steady_state_psi=steady_state_psi,
                 psi=psi,
             )
             if self.settings.dynamics_mode == "full_induction":

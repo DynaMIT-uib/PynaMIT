@@ -53,7 +53,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
 
 
 run_directory = "results_mage_2011_full_induction"
-Nmax, Mmax, Ncs = 30, 30, 30
+Nmax, Mmax, Ncs = 50, 30, 40
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
@@ -124,7 +124,11 @@ dynamics = pynamit.Dynamics(
     #magnetospheric_poloidal_lock=False,
     least_squares_solver="normal_eq",
     t0=str(date),
-    integrator="DOP853",
+    # Use the affine exponential step as a diagnostic: if the first-step
+    # corruption disappears, the issue is in the explicit time propagation,
+    # not in the assembled coupled steady-state operator itself.
+    integrator="exponential",
+    exponential_solver="expm_multiply",
     # Enable SH fast input projection for regular ionosphere-grid inputs (jr/SP/SH/u).
     # Br remains on the curvilinear magnetosphere grid and will use the slow path.
     #enable_fast_input_path=True,

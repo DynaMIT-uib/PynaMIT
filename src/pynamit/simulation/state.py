@@ -1068,6 +1068,7 @@ class State:
         E_coeffs_noind: np.ndarray,
         *,
         steady_state_m_ind: Optional[np.ndarray] = None,
+        steady_state_psi: Optional[np.ndarray] = None,
         psi: Optional[np.ndarray] = None,
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Advance model variables by one time step.
@@ -1079,6 +1080,7 @@ class State:
             dt,
             E_coeffs_noind,
             steady_state_m_ind=steady_state_m_ind,
+            steady_state_psi=steady_state_psi,
             psi=psi,
         )
 

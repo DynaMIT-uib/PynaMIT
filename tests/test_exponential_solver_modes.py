@@ -48,22 +48,22 @@ def _run_full_induction_exponential_mode(tmp_path, *, dense_full_operators: bool
             "dense_expm",
             True,
             "expm",
-            5.048226712788428e-10,
-            1.6874470337361023e-09,
+            1.4402232090810212e-09,
+            2.8572718963335246e-09,
         ),
         (
             "dense_expm_multiply",
             True,
             "expm_multiply",
-            5.048226712788427e-10,
-            1.6874470337361019e-09,
+            1.4402232090810212e-09,
+            2.8572718963335246e-09,
         ),
         (
             "matrixfree_expm_multiply",
             False,
             "expm_multiply",
-            5.048226712788428e-10,
-            1.6874470337361023e-09,
+            1.4402232090810212e-09,
+            2.8572718963335246e-09,
         ),
     ],
 )
@@ -76,19 +76,11 @@ def test_full_induction_exponential_solver_modes(
     expected_psi_norm,
     expected_mind_norm,
 ):
-    if label == "matrixfree_expm_multiply":
-        with pytest.warns(UserWarning, match="Trace of LinearOperator not available"):
-            psi_norm, mind_norm = _run_full_induction_exponential_mode(
-                tmp_path,
-                dense_full_operators=dense_full_operators,
-                exponential_solver=exponential_solver,
-            )
-    else:
-        psi_norm, mind_norm = _run_full_induction_exponential_mode(
-            tmp_path,
-            dense_full_operators=dense_full_operators,
-            exponential_solver=exponential_solver,
-        )
+    psi_norm, mind_norm = _run_full_induction_exponential_mode(
+        tmp_path,
+        dense_full_operators=dense_full_operators,
+        exponential_solver=exponential_solver,
+    )
 
     assert psi_norm == pytest.approx(expected_psi_norm, rel=1e-10, abs=0.0)
     assert mind_norm == pytest.approx(expected_mind_norm, rel=1e-10, abs=0.0)

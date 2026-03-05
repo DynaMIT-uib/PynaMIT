@@ -240,6 +240,31 @@ class ExponentialIntegrator(Integrator):
             y_aug = expm_multiply(augmented_op * dt_sub, y_aug)
         return asarray(y_aug[:n])
 
+    @staticmethod
+    def _homogeneous_step_expm_multiply(
+        *,
+        linear_operator: Any,
+        y_host: np.ndarray,
+        dt: float,
+        n_substeps: int,
+    ) -> np.ndarray:
+        """Apply ``exp(L dt)`` to ``y`` without forming a dense exponential."""
+        if hasattr(linear_operator, "as_linear_operator"):
+            base_op = linear_operator.as_linear_operator()
+        elif isinstance(linear_operator, ScipyLinearOperator):
+            base_op = linear_operator
+        else:
+            base_op = np.asarray(linear_operator)
+
+        if n_substeps == 1:
+            return asarray(expm_multiply(base_op * float(dt), y_host))
+
+        dt_sub = float(dt) / float(n_substeps)
+        y_curr = np.asarray(y_host)
+        for _ in range(n_substeps):
+            y_curr = expm_multiply(base_op * dt_sub, y_curr)
+        return asarray(y_curr)
+
     def step(
         self,
         y: np.ndarray,
@@ -298,6 +323,27 @@ class ExponentialIntegrator(Integrator):
              )
 
         if steady_state is not None:
+             y_ss = np.asarray(asarray(steady_state), dtype=float).reshape(y_host.shape)
+             diff = y_host - y_ss
+             n = int(diff.size)
+             if self._should_use_affine_expm_action(n, kwargs):
+                 if hasattr(linear_operator, "matvec") and not hasattr(linear_operator, "toarray"):
+                     n_substeps = 1
+                 else:
+                     if hasattr(linear_operator, "toarray"):
+                         L_dense = linear_operator.toarray()
+                     else:
+                         L_dense = asarray(linear_operator)
+                     L_host = np.array(L_dense)
+                     n_substeps = self._compute_substeps(L_host, dt, kwargs)
+                 decayed = self._homogeneous_step_expm_multiply(
+                     linear_operator=linear_operator,
+                     y_host=diff,
+                     dt=float(dt),
+                     n_substeps=n_substeps,
+                 )
+                 return asarray(y_ss + decayed)
+
              if hasattr(linear_operator, "toarray"):
                  L_dense = linear_operator.toarray()
              else:
@@ -305,20 +351,17 @@ class ExponentialIntegrator(Integrator):
              L_host = np.array(L_dense)
              n_substeps = self._compute_substeps(L_host, dt, kwargs)
              # Form: y_next = y_ss + P @ (y - y_ss)
-             y_ss = asarray(steady_state)
              if n_substeps == 1:
                  propagator = asarray(scipy.linalg.expm(L_host * float(dt)))
-                 diff = asarray(y) - y_ss
                  decayed = propagator @ diff
-                 return y_ss + decayed
+                 return asarray(y_ss + decayed)
 
              dt_sub = float(dt) / float(n_substeps)
              propagator = asarray(scipy.linalg.expm(L_host * dt_sub))
-             y_curr = asarray(y_host)
+             diff_curr = asarray(diff)
              for _ in range(n_substeps):
-                 diff = y_curr - y_ss
-                 y_curr = y_ss + propagator @ diff
-             return asarray(y_curr)
+                 diff_curr = propagator @ diff_curr
+             return asarray(y_ss + diff_curr)
         else:
              raise ValueError(
                  "Exponential integration requires either forcing (affine form) "

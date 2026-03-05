@@ -630,6 +630,7 @@ class StateInduction:
         E_coeffs_noind: np.ndarray,
         *,
         steady_state_m_ind: Optional[np.ndarray] = None,
+        steady_state_psi: Optional[np.ndarray] = None,
         psi: Optional[np.ndarray] = None,
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Advance model variables by one time step."""
@@ -641,7 +642,6 @@ class StateInduction:
                 psi = st.psi
 
             y = xp.stack([asarray(psi), asarray(m_ind)])
-            K = self.build_coupled_forcing(E_coeffs_noind)
             if isinstance(st.poloidal_integrator, ExponentialIntegrator):
                 use_pinning = st.apply_psi_gauge
                 N = st.solution_space.index_length
@@ -678,25 +678,27 @@ class StateInduction:
                     use_dense=use_dense_coupled_operator,
                     use_pinning=use_pinning,
                 )
-                if st.induction_null_diagnostics:
-                    if st._coupled_null_basis is None or st._coupled_null_basis.shape[0] != m:
-                        diag_dense = None
-                        if m <= 2000:
-                            diag_dense = np.asarray(
-                                st._densify_linear_operator(coupled_dynamics_operator, m)
-                            )
-                        if diag_dense is not None:
-                            st._update_coupled_null_basis(np.asarray(diag_dense))
-                    st._check_forcing_null_projection(np.asarray(K).reshape(m))
+                if steady_state_psi is None or steady_state_m_ind is None:
+                    steady_state_psi, steady_state_m_ind = self.solve_steady_state_model_variables(
+                        E_coeffs_noind,
+                        update_state=False,
+                    )
+                y_ss = np.stack(
+                    [
+                        np.asarray(steady_state_psi, dtype=float).reshape(N),
+                        np.asarray(steady_state_m_ind, dtype=float).reshape(N),
+                    ]
+                )
 
                 y_new = self.evolve_linear_state(
                     y=np.asarray(y).reshape(m),
                     dt=float(dt),
                     linear_operator=coupled_dynamics_operator,
-                    forcing=np.asarray(K).reshape(m),
+                    steady_state=y_ss.reshape(m),
                     exponential_kwargs=exp_kwargs,
                 ).reshape(2, N)
             else:
+                K = self.build_coupled_forcing(E_coeffs_noind)
                 coupled_operator = st.get_coupled_operator_for_time_integration(
                     use_dense=st.dense_full_operators,
                     use_pinning=st.apply_psi_gauge,
