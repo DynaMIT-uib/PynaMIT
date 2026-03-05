@@ -893,10 +893,9 @@ class PoloidalSystemMatrices:
 
             rm_to_ri = np.asarray(ops.rm_to_ri)
             roundtrip_inv = np.asarray(ops.roundtrip_inv)
-            if self._pfac.magnetospheric_poloidal_lock:
-                br_factor_op = -(rm_to_ri @ roundtrip_inv)
-            else:
-                br_factor_op = -rm_to_ri
+            # Explicit imposed Br forcing is always treated as an imposed RM
+            # boundary channel and therefore uses the closed roundtrip branch.
+            br_factor_op = -(rm_to_ri @ roundtrip_inv)
 
             m_ind_to_Br = np.asarray(to_dense(self.m_ind_to_Br))
             rcond = max(float(np.finfo(float).eps * max(m_ind_to_Br.shape)), 1e-15)

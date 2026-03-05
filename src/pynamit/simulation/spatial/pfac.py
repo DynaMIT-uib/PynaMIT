@@ -49,8 +49,9 @@ class PFACIntegrator:
     ignore_PFAC : bool
         If True, return zero operator (radial field approximation).
     magnetospheric_poloidal_lock : bool
-        If True, include RM shielding-style coupling between imposed Br and
-        induced m_ind pathways. If False, keep those pathways superposed but uncoupled.
+        If True, include RM shielding-style roundtrip coupling for induced
+        pathways (for example ``m_ind`` and, when enabled, dynamic toroidal
+        source channels). Explicit imposed boundary channels remain closed.
     lock_toroidal_source_channels : bool
         If True, apply the RM poloidal lock to toroidal-source channels
         (m_imp/psi PFAC branch) in addition to m_ind/Br pathways.

@@ -75,7 +75,7 @@ def test_full_induction_magnetospheric_locks(
     else:
         assert bundle["C_hl"].shape[0] == 0
 
-    # --- Poloidal lock: RM coupling on m_ind and Br pathways ---
+    # --- Poloidal lock: RM coupling on induced pathways; imposed Br is always closed ---
     op_m_ind = geometry.get_potential_to_JS_operator("m_ind", mode=None)
     op_br = geometry.get_potential_to_JS_operator("Br", mode=None)
     op_m_imp = geometry.get_potential_to_JS_operator("m_imp", mode=None)
@@ -107,11 +107,7 @@ def test_full_induction_magnetospheric_locks(
 
     lap_diag = np.diag(np.asarray(to_dense(basis.get_laplacian_operator(state.RI))))
     m_ind_to_br = -(state.RI**2) * lap_diag
-    br_factor = (
-        -br_rm_to_ri_shift / rm_roundtrip_denominator
-        if poloidal_lock
-        else -br_rm_to_ri_shift
-    )
+    br_factor = -br_rm_to_ri_shift / rm_roundtrip_denominator
     expected_t_br = (-1.0 / mu0) * scaling * (br_factor / m_ind_to_br)[:, None]
 
     np.testing.assert_allclose(p_br, 0.0, atol=1e-12, rtol=0.0)
@@ -187,7 +183,7 @@ def test_full_induction_lock_numeric_snapshot(tmp_path, poloidal_lock: bool) -> 
     expected = {
         False: {
             "norm_t_m_ind": 73193972.32756677,
-            "norm_t_br": 2103172.7011852637,
+            "norm_t_br": 2137241.9153284496,
             "norm_t_m_imp": 0.7223795135300719,
             "norm_t_psi": 0.7162627561888577,
         },
