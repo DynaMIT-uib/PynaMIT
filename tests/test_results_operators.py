@@ -49,6 +49,20 @@ def test_results_operator_bundle_matches_state_poloidal_operators() -> None:
     assert np.allclose(bundle.G_m_imp_to_JS, np.asarray(state.poloidal_matrices.G_m_imp_to_JS))
 
 
+def test_m_ind_to_br_pseudoinverse_is_cached_and_matches_direct_pinv() -> None:
+    state = _build_state()
+
+    pinv_cached_1 = state.poloidal_matrices.m_ind_to_Br_pinv
+    pinv_cached_2 = state.poloidal_matrices.m_ind_to_Br_pinv
+
+    m_ind_to_br = np.asarray(to_dense(state.poloidal_matrices.m_ind_to_Br))
+    rcond = max(float(np.finfo(float).eps * max(m_ind_to_br.shape)), 1e-15)
+    pinv_direct = np.linalg.pinv(m_ind_to_br, rcond=rcond)
+
+    assert pinv_cached_1 is pinv_cached_2
+    np.testing.assert_allclose(pinv_cached_1, pinv_direct)
+
+
 def test_results_operator_bundle_exposes_expected_jeq_scaling() -> None:
     state = _build_state()
     bundle = state.geometry.get_poloidal_results_operators()

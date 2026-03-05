@@ -153,6 +153,19 @@ class PoloidalSystemMatrices:
         """
         return -(self.RI**2) * self.solution_space.get_laplacian_operator(self.RI)
 
+    @cached_property
+    def m_ind_to_Br_pinv(self) -> np.ndarray:
+        """Cached pseudoinverse of ``m_ind_to_Br``.
+
+        This operator depends only on the solution basis and radius, not on
+        conductance. Caching it here avoids recomputing the same dense
+        pseudoinverse whenever conductance updates invalidate the downstream
+        ``Br -> E`` conductivity operator.
+        """
+        m_ind_to_Br = np.asarray(to_dense(self.m_ind_to_Br))
+        rcond = max(float(np.finfo(float).eps * max(m_ind_to_Br.shape)), 1e-15)
+        return np.asarray(np.linalg.pinv(m_ind_to_Br, rcond=rcond))
+
     @property
     def E_df_to_d_m_ind_dt(self) -> float:
         """Scaling factor for induction equation.
@@ -921,12 +934,8 @@ class PoloidalSystemMatrices:
             # boundary channel and therefore uses the closed roundtrip branch.
             br_factor_op = -(rm_to_ri @ roundtrip_inv)
 
-            m_ind_to_Br = np.asarray(to_dense(self.m_ind_to_Br))
-            rcond = max(float(np.finfo(float).eps * max(m_ind_to_Br.shape)), 1e-15)
-            m_ind_to_Br_inv = np.linalg.pinv(m_ind_to_Br, rcond=rcond)
-
             scaling = np.asarray(to_dense(self.solution_space.get_potential_scaling_operator()))
-            t_mat = (-1.0 / mu0) * (scaling @ br_factor_op @ m_ind_to_Br_inv)
+            t_mat = (-1.0 / mu0) * (scaling @ br_factor_op @ self.m_ind_to_Br_pinv)
             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
 
         raise ValueError(f"Unknown potential_type: {potential_type}")
