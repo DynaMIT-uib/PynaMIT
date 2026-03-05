@@ -143,26 +143,7 @@ class StateInduction:
         """Solve constrained system for `dpsi/dt`."""
         st = self._state
         dt_alpha_driver_coeffs = st._get_dt_alpha_driver_coeffs()
-        twist_rate_known_grid = None
-        dr_twist_rate_known_grid = None
-        if st.use_toroidal_twist_rate_known_from_poloidal:
-            try:
-                (
-                    twist_rate_known_grid,
-                    dr_twist_rate_known_grid,
-                ) = self._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to build toroidal u-known RHS terms from poloidal branch: %s",
-                    exc,
-                )
-
-        rhs_physics = st.toroidal_matrices.compute_toroidal_rhs_from_E(
-            asarray(E_known),
-            twist_rate_known_grid=twist_rate_known_grid,
-            dr_twist_rate_known_grid=dr_twist_rate_known_grid,
-            allow_missing_dr_twist_rate_known=False,
-        )
+        rhs_physics = st.toroidal_matrices.compute_toroidal_rhs_from_E(asarray(E_known))
         if dt_alpha_driver_coeffs is not None:
             L_alpha = np.asarray(to_numpy(st.toroidal_matrices.dtalpha_operator), dtype=float)
             rhs_physics = np.asarray(rhs_physics).reshape(-1) - L_alpha @ np.asarray(
@@ -250,21 +231,6 @@ class StateInduction:
         dt_m_imp = m_imp_from_jr @ dt_jr_vec
         dt_m_imp = st._project_to_hl_modes(dt_m_imp)
         return st.constraints.apply_m_imp_gauge_projection(dt_m_imp)
-
-    def _build_toroidal_twist_rate_known_terms_from_poloidal(
-        self,
-        E_known: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Build toroidal `(twist_rate_known_grid, dr_twist_rate_known_grid)` from poloidal forcing."""
-        st = self._state
-        E_df_known = asarray(st.solution_space.get_toroidal_potential_coeffs(E_known))
-        dt_m_ind_known = asarray(st.poloidal_matrices.E_df_to_d_m_ind_dt * E_df_known)
-        analysis_basis = getattr(st.toroidal_matrices, "rhs_derivative_basis", st.solution_space)
-        return st.poloidal_matrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind(
-            dt_m_ind_known,
-            analysis_basis=analysis_basis,
-            radial_model=st.toroidal_twist_rate_known_radial_model,
-        )
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total induced E-field coefficients."""

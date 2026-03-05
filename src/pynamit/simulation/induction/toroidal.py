@@ -651,45 +651,6 @@ class ToroidalSystemMatrices:
 
         return asarray(E_to_rhs)
 
-    def _normalize_tangential_grid_vector(
-        self,
-        value: Any,
-        *,
-        name: str,
-    ) -> np.ndarray:
-        """Return tangential grid vector with canonical shape ``(2, n_grid)``."""
-        n_grid = int(np.asarray(to_numpy(self.grid.theta)).reshape(-1).size)
-        if isinstance(value, (tuple, list)):
-            if len(value) != 2:
-                raise ValueError(f"{name} must have two components (theta, phi).")
-            comp_th = np.asarray(to_numpy(value[0])).reshape(-1)
-            comp_ph = np.asarray(to_numpy(value[1])).reshape(-1)
-            arr = np.vstack([comp_th, comp_ph])
-        else:
-            arr = np.asarray(to_numpy(value))
-            if arr.ndim == 1:
-                if arr.size == 2 * n_grid:
-                    arr = arr.reshape(2, n_grid)
-                else:
-                    raise ValueError(
-                        f"{name} 1D input must have size 2*n_grid={2*n_grid}, got {arr.size}."
-                    )
-            elif arr.ndim == 2:
-                if arr.shape == (2, n_grid):
-                    pass
-                elif arr.shape == (n_grid, 2):
-                    arr = arr.T
-                else:
-                    raise ValueError(
-                        f"{name} must have shape (2, n_grid) or (n_grid, 2), got {arr.shape}."
-                    )
-            else:
-                raise ValueError(f"{name} must be tuple/list or 2D array, got ndim={arr.ndim}.")
-
-        if arr.shape != (2, n_grid):
-            raise ValueError(f"{name} normalized shape mismatch: got {arr.shape}, expected (2, {n_grid}).")
-        return np.asarray(arr, dtype=float)
-
     @cached_property
     def _grid_metric_terms(self) -> tuple[np.ndarray, np.ndarray, int]:
         """Return ``(theta_rad, cot(theta), n_grid)`` on the toroidal grid."""
@@ -793,69 +754,6 @@ class ToroidalSystemMatrices:
         S_op = inv_Rb2 * ((B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op))
         return asarray(P @ S_op)
 
-    def _build_twist_rate_known_rhs_operator(self) -> np.ndarray:
-        """Build dense map ``[u, dr_u]_grid -> toroidal RHS coefficients``.
-
-        Returns a matrix ``K_u`` with shape ``(N_coeff, 4*N_grid)`` such that
-            ``rhs_u = K_u @ [u_theta, u_phi, dr_u_theta, dr_u_phi]``.
-        """
-        B0r, B0th, B0ph, n_grid = self._background_field_grid_components
-        _, cot_th, _ = self._grid_metric_terms
-        inv_Rb = 1.0 / float(self.RI)
-        D_th, D_ph = self._rhs_scalar_derivative_operators
-        div_u_theta = D_th + np.diag(cot_th)
-        div_u_phi = D_ph
-
-        # S_u = (B0r/Rb) div(u) + B0th*(-u_th/Rb - dr_u_th) + B0ph*(-u_ph/Rb - dr_u_ph)
-        br_div_scale = np.diag(B0r * inv_Rb)
-        s_u_th = (br_div_scale @ div_u_theta) + np.diag(-inv_Rb * B0th)
-        s_u_ph = (br_div_scale @ div_u_phi) + np.diag(-inv_Rb * B0ph)
-        s_dr_u_th = np.diag(-B0th)
-        s_dr_u_ph = np.diag(-B0ph)
-        s_op = np.hstack([s_u_th, s_u_ph, s_dr_u_th, s_dr_u_ph])
-
-        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
-        return asarray(P @ s_op)
-
-    @cached_property
-    def twist_rate_known_rhs_operator(self) -> np.ndarray:
-        """Dense map ``[u, dr_u]_grid -> toroidal RHS coefficients``."""
-        return self._build_twist_rate_known_rhs_operator()
-
-    def _compute_twist_rate_known_rhs_coeffs(
-        self,
-        *,
-        twist_rate_known_grid: Any,
-        dr_twist_rate_known_grid: Any,
-    ) -> np.ndarray:
-        """Project ``u``-known contribution to toroidal RHS coefficient space.
-
-        Implements:
-            S_u = (B0r/Rb) div_Omega(u)
-                  + B0th * (-(1/Rb) u_th - dr_u_th)
-                  + B0ph * (-(1/Rb) u_ph - dr_u_ph)
-            K_u = P @ S_u
-        """
-        u_known = self._normalize_tangential_grid_vector(twist_rate_known_grid, name="twist_rate_known_grid")
-        dr_twist_rate_known = self._normalize_tangential_grid_vector(dr_twist_rate_known_grid, name="dr_twist_rate_known_grid")
-        n_grid = u_known.shape[1]
-        rhs_op = np.asarray(to_numpy(self.twist_rate_known_rhs_operator))
-        if rhs_op.shape[1] != 4 * n_grid:
-            raise ValueError(
-                "u-known RHS operator width mismatch: "
-                f"K_u={rhs_op.shape}, n_grid={n_grid}."
-            )
-        stacked = np.concatenate(
-            [
-                np.asarray(u_known[0]).reshape(-1),
-                np.asarray(u_known[1]).reshape(-1),
-                np.asarray(dr_twist_rate_known[0]).reshape(-1),
-                np.asarray(dr_twist_rate_known[1]).reshape(-1),
-            ],
-            axis=0,
-        )
-        return asarray(rhs_op @ stacked)
-
     def _build_sh_toroidal_rhs_from_E_operator(self) -> np.ndarray:
         """Build SH toroidal RHS map ``E_coeffs -> rhs``.
 
@@ -895,10 +793,6 @@ class ToroidalSystemMatrices:
     def compute_toroidal_rhs_from_E(
         self,
         E_coeffs: np.ndarray,
-        *,
-        twist_rate_known_grid: Optional[Any] = None,
-        dr_twist_rate_known_grid: Optional[Any] = None,
-        allow_missing_dr_twist_rate_known: bool = False,
     ) -> np.ndarray:
         """Compute toroidal RHS coefficients from known E-field coefficients.
 
@@ -907,23 +801,10 @@ class ToroidalSystemMatrices:
         where ``S_known`` is derived from Faraday and Gauss identities after
         eliminating radial derivatives of ``E``.
 
-        Optional additive known-term support:
-            ``K_total = K_E + K_u``
-        where ``K_u`` uses ``twist_rate_known_grid`` and ``dr_twist_rate_known_grid`` as
-        externally provided one-sided closure inputs.
-
         Parameters
         ----------
         E_coeffs : np.ndarray
             Tangential electric-field potential coefficients.
-        twist_rate_known_grid : optional
-            Known tangential ``u`` on the grid (theta/phi components), as
-            ``(u_theta, u_phi)`` or array shape ``(2, n_grid)``.
-        dr_twist_rate_known_grid : optional
-            One-sided radial derivative of ``twist_rate_known_grid`` with matching shape.
-        allow_missing_dr_twist_rate_known : bool, optional
-            If ``True`` and ``twist_rate_known_grid`` is provided without
-            ``dr_twist_rate_known_grid``, use ``dr_twist_rate_known = 0``.
 
         Notes
         -----
@@ -931,39 +812,11 @@ class ToroidalSystemMatrices:
         In this code path we apply the basis projection directly:
             ``K = P @ S_known``.
         """
-        if twist_rate_known_grid is None and dr_twist_rate_known_grid is not None:
-            raise ValueError(
-                "dr_twist_rate_known_grid was provided without twist_rate_known_grid. "
-                "Provide both, or neither."
-            )
-        if twist_rate_known_grid is not None and dr_twist_rate_known_grid is None:
-            if not allow_missing_dr_twist_rate_known:
-                raise ValueError(
-                    "twist_rate_known_grid was provided without dr_twist_rate_known_grid. "
-                    "Provide dr_twist_rate_known_grid explicitly, or set "
-                    "allow_missing_dr_twist_rate_known=True to assume dr_twist_rate_known=0."
-                )
-            _, _, n_grid = self._grid_metric_terms
-            dr_twist_rate_known_grid = np.zeros((2, n_grid), dtype=float)
-
-        rhs_u = None
-        if twist_rate_known_grid is not None:
-            rhs_u = np.asarray(
-                to_numpy(
-                    self._compute_twist_rate_known_rhs_coeffs(
-                        twist_rate_known_grid=twist_rate_known_grid,
-                        dr_twist_rate_known_grid=dr_twist_rate_known_grid,
-                    )
-                )
-            ).reshape(-1)
-
         basis_kind = getattr(self.basis, "kind", "")
         if self.is_cs or basis_kind == "SH":
             rhs_e = self._apply_direct_toroidal_rhs_operator(E_coeffs)
         else:
             rhs_e = self._compute_generic_toroidal_rhs_from_E(E_coeffs)
-        if rhs_u is not None:
-            rhs_e = rhs_e + rhs_u
         return asarray(rhs_e)
 
     @cached_property

@@ -229,12 +229,6 @@ class State:
         self.conductance_interpolation_mode = str(normalized_settings.conductance_interpolation_mode)
         self.conductance_interpolation_floor = float(normalized_settings.conductance_interpolation_floor)
         self.toroidal_regularization_lambda = normalized_settings.toroidal_regularization_lambda
-        self.use_toroidal_twist_rate_known_from_poloidal = bool(
-            normalized_settings.use_toroidal_twist_rate_known_from_poloidal
-        )
-        self.toroidal_twist_rate_known_radial_model = str(
-            normalized_settings.toroidal_twist_rate_known_radial_model
-        )
         self.dense_full_operators = bool(normalized_settings.dense_full_operators)
         self.exponential_solver = str(normalized_settings.exponential_solver)
         self.connect_hemispheres = bool(normalized_settings.connect_hemispheres)
@@ -943,20 +937,6 @@ class State:
     def solve_dt_psi(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for dpsi/dt."""
         return self.induction.solve_dt_psi(E_known)
-
-    def _build_toroidal_twist_rate_known_terms_from_poloidal(
-        self,
-        E_known: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Build optional ``(twist_rate_known_grid, dr_twist_rate_known_grid)`` for toroidal forcing.
-
-        The source is the poloidal branch's known ``dm_ind_dt`` implied by
-        ``E_known``:
-            ``dm_ind_dt_known = (1/RI) * E_df_known``.
-        These coefficients are converted to tangential ``u`` terms by
-        ``PoloidalSystemMatrices.build_toroidal_twist_rate_known_terms_from_dt_m_ind``.
-        """
-        return self.induction._build_toroidal_twist_rate_known_terms_from_poloidal(E_known)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""

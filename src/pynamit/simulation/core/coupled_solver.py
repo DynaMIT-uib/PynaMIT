@@ -628,7 +628,6 @@ class CoupledOperators:
         self.state = state
         self._dt_psi_from_toroidal_rhs_dense_cache: Dict[bool, np.ndarray] = {}
         self._dt_psi_from_E_dense_cache: Dict[bool, np.ndarray] = {}
-        self._twist_rate_known_rhs_from_dt_m_ind_dense_cache: Dict[tuple[Any, ...], np.ndarray] = {}
         self._dt_m_ind_from_E_dense_cache: Optional[np.ndarray] = None
 
     def build_coupled_preconditioner(self) -> Optional[LinearMap]:
@@ -713,51 +712,6 @@ class CoupledOperators:
             )
         return self._dt_m_ind_from_E_dense_cache
 
-    def _get_twist_rate_known_rhs_from_dt_m_ind_dense(self) -> np.ndarray:
-        """Dense map ``dm_ind_dt -> toroidal_rhs`` for optional known-u closure."""
-        st = self.state
-        n = int(st.solution_space.index_length)
-        if not bool(getattr(st, "use_toroidal_twist_rate_known_from_poloidal", False)):
-            return np.zeros((n, n), dtype=float)
-
-        analysis_basis = getattr(st.toroidal_matrices, "rhs_derivative_basis", st.solution_space)
-        radial_model = str(getattr(st, "toroidal_twist_rate_known_radial_model", "none")).lower()
-        key = (id(analysis_basis), radial_model)
-        cached = self._twist_rate_known_rhs_from_dt_m_ind_dense_cache.get(key)
-        if cached is not None:
-            return cached
-
-        U_op, DRU_op = st.poloidal_matrices.build_toroidal_twist_rate_known_operators_from_dt_m_ind(
-            analysis_basis=analysis_basis,
-            radial_model=radial_model,
-        )
-        U4 = np.vstack([np.asarray(U_op, dtype=float), np.asarray(DRU_op, dtype=float)])
-        K_u = np.asarray(to_dense(st.toroidal_matrices.twist_rate_known_rhs_operator), dtype=float)
-        if K_u.shape[1] != U4.shape[0]:
-            raise ValueError(
-                "u-known operator size mismatch: "
-                f"K_u={K_u.shape}, U4={U4.shape}."
-            )
-        map_dt_m_ind_to_rhs = np.asarray(K_u @ U4, dtype=float)
-        self._twist_rate_known_rhs_from_dt_m_ind_dense_cache[key] = map_dt_m_ind_to_rhs
-        return map_dt_m_ind_to_rhs
-
-    def _get_toroidal_twist_rate_known_correction_from_m_ind_dense(
-        self,
-        *,
-        dt_m_ind_from_m_ind: np.ndarray,
-        use_pinning: bool,
-    ) -> np.ndarray:
-        """Dense correction ``m_ind -> dpsi/dt`` from optional known-u hook."""
-        st = self.state
-        n = int(st.solution_space.index_length)
-        if not bool(getattr(st, "use_toroidal_twist_rate_known_from_poloidal", False)):
-            return np.zeros((n, n), dtype=float)
-
-        dt_psi_from_rhs = self._get_dt_psi_from_toroidal_rhs_dense(use_pinning=bool(use_pinning))
-        rhs_from_dt_m_ind = self._get_twist_rate_known_rhs_from_dt_m_ind_dense()
-        return np.asarray(dt_psi_from_rhs @ rhs_from_dt_m_ind @ np.asarray(dt_m_ind_from_m_ind), dtype=float)
-
     def _toroidal_feedback_regularization_lambda(self) -> float:
         """Regularization used when assembling the coupled linear feedback operator.
 
@@ -825,10 +779,6 @@ class CoupledOperators:
         dt_m_ind_from_psi = asarray(dt_m_ind_from_E @ toroidal_to_E)
         dt_m_ind_from_m_ind = asarray(dt_m_ind_from_E @ mind_to_E)
         dt_m_ind_from_m_ind = self._stabilize_poloidal_self_block(dt_m_ind_from_m_ind)
-        dt_psi_from_m_ind = dt_psi_from_m_ind + self._get_toroidal_twist_rate_known_correction_from_m_ind_dense(
-            dt_m_ind_from_m_ind=np.asarray(dt_m_ind_from_m_ind, dtype=float),
-            use_pinning=bool(use_pinning),
-        )
         dt_psi_from_m_ind = asarray(dt_psi_from_m_ind)
 
         top_row = xp.stack([dt_psi_from_psi, dt_psi_from_m_ind], axis=1)
@@ -864,7 +814,6 @@ class CoupledOperators:
         if st.dense_full_operators and matrix_free:
             matrix_free = False
 
-        auto_dt_psi_from_m_ind = False
         if dt_psi_from_psi is None or dt_psi_from_m_ind is None:
             psi_to_E_coeffs = st.toroidal_to_E_coeffs
             mind_to_E_coeffs = st.m_ind_to_E_coeffs
@@ -882,7 +831,6 @@ class CoupledOperators:
                     dt_psi_from_psi = dt_psi_from_E_dense @ np.asarray(psi_to_E_coeffs, dtype=float)
 
             if dt_psi_from_m_ind is None:
-                auto_dt_psi_from_m_ind = True
                 if matrix_free:
                     dt_psi_from_m_ind = dt_psi_from_E_map @ as_linear_map(mind_to_E_coeffs)
                 else:
@@ -898,16 +846,6 @@ class CoupledOperators:
             mind_to_E = self._dense_E_coeff_operator_matrix(st.m_ind_to_E_coeffs)
             dt_m_ind_from_m_ind = np.asarray(dt_m_ind_from_E @ mind_to_E, dtype=float)
             dt_m_ind_from_m_ind = self._stabilize_poloidal_self_block(dt_m_ind_from_m_ind)
-
-        if auto_dt_psi_from_m_ind:
-            corr_dense = self._get_toroidal_twist_rate_known_correction_from_m_ind_dense(
-                dt_m_ind_from_m_ind=np.asarray(dt_m_ind_from_m_ind, dtype=float),
-                use_pinning=bool(use_pinning),
-            )
-            if matrix_free:
-                dt_psi_from_m_ind = as_linear_map(dt_psi_from_m_ind) + as_linear_map(corr_dense)
-            else:
-                dt_psi_from_m_ind = np.asarray(dt_psi_from_m_ind, dtype=float) + corr_dense
 
         block_op = BlockCoupledOperator(
             L_00=dt_psi_from_psi,
