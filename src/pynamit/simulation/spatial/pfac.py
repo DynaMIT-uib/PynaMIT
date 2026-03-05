@@ -115,6 +115,8 @@ class PFACIntegrator:
         self,
         G_Ve_to_JS_closure: np.ndarray,
         grid: Grid,
+        *,
+        rm_boundary_mode: str = "closed",
     ) -> xr.DataArray:
         """Construct the T_to_Ve operator by integrating radially.
 
@@ -148,6 +150,11 @@ class PFACIntegrator:
 
         fac_steps = np.asarray(self.FAC_integration_steps, dtype=float)
         fac_steps_key = tuple(np.round(fac_steps, 6).tolist())
+        rm_mode = str(rm_boundary_mode).lower()
+        if rm_mode not in {"open", "closed"}:
+            raise ValueError(
+                f"Invalid rm_boundary_mode {rm_boundary_mode!r}; expected 'open' or 'closed'."
+            )
         cache_key = (
             getattr(self.basis, "kind", None),
             int(getattr(self.basis, "index_length", -1)),
@@ -163,6 +170,7 @@ class PFACIntegrator:
             int(getattr(self.mainfield, "epoch", 0)),
             float(getattr(self.mainfield, "B0", 0.0) or 0.0),
             fac_steps_key,
+            rm_mode,
         )
         cached = PFACIntegrator._T_TO_VE_CACHE.get(cache_key)
         if cached is not None:
@@ -200,7 +208,13 @@ class PFACIntegrator:
 
         for i, rk in enumerate(rks):
             step_mat = self._compute_integration_step(
-                rk, grid, G_inv_sh, m_imp_to_jr_sol_op, n_sol, n_sh
+                rk,
+                grid,
+                G_inv_sh,
+                m_imp_to_jr_sol_op,
+                n_sol,
+                n_sh,
+                rm_boundary_mode=rm_mode,
             )
             T_accum += Delta_k[i] * step_mat
 
@@ -237,6 +251,8 @@ class PFACIntegrator:
         m_imp_to_jr_sol_op: np.ndarray,
         n_sol: int,
         n_sh: int,
+        *,
+        rm_boundary_mode: str = "closed",
     ) -> np.ndarray:
         """Compute a single radial integration step.
 
@@ -282,7 +298,8 @@ class PFACIntegrator:
         # Radial propagation factors (exact spectral decay)
         prop_vec = get_radial_shift_diagonal(self.basis, rk, self.RI, kind="external")
 
-        if self.RM is not None:
+        use_rm_boundary = (self.RM is not None) and (str(rm_boundary_mode).lower() == "closed")
+        if use_rm_boundary:
             # Reflection and boundaries
             S_ext_RM = get_radial_shift_diagonal(self.basis, self.RM, self.RI, kind="external")
             S_int_rk = get_radial_shift_diagonal(self.basis, rk, self.RM, kind="internal")
@@ -297,7 +314,7 @@ class PFACIntegrator:
         step_mat = G_inv_sh @ m_imp_to_JS_rk
         step_mat = prop_vec[:, None] * step_mat
 
-        if self.RM is not None:
+        if use_rm_boundary:
             step_mat = step_mat * factor_vec[:, None]
         else:
             step_mat = step_mat * -1.0

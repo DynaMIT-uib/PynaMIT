@@ -384,13 +384,23 @@ class PoloidalSystemMatrices:
         """Apply RM closure for imposed toroidal source (m_imp) unconditionally."""
         return self._apply_rm_poloidal_closure(t_to_ve)
 
-    def _apply_dynamic_toroidal_poloidal_lock(self, t_to_ve: np.ndarray) -> np.ndarray:
-        """Apply RM closure for dynamic toroidal source (psi) when enabled."""
-        if not self._pfac.magnetospheric_poloidal_lock:
-            return t_to_ve
-        if not self._pfac.lock_toroidal_source_channels:
-            return t_to_ve
-        return self._apply_rm_poloidal_closure(t_to_ve)
+    def _dynamic_psi_lock_enabled(self) -> bool:
+        """Return whether dynamic psi PFAC should use RM-closed boundary policy."""
+        if self._pfac.RM is None:
+            return False
+        return bool(
+            self._pfac.magnetospheric_poloidal_lock
+            and self._pfac.lock_toroidal_source_channels
+        )
+
+    def _get_dynamic_toroidal_pfac_operator(self) -> np.ndarray:
+        """Return effective dynamic psi PFAC operator from lock state."""
+        # Lock-on -> RM-closed kernel, lock-off -> open kernel.
+        return (
+            np.asarray(self.T_to_Ve)
+            if self._dynamic_psi_lock_enabled()
+            else np.asarray(self.T_to_Ve_open)
+        )
 
     @cached_property
     def G_m_imp_to_JS(self) -> np.ndarray:
@@ -446,10 +456,24 @@ class PoloidalSystemMatrices:
         Returns
         -------
         np.ndarray
-            Shape (L, L) operator mapping T to Ve.
+            Shape (L, L) operator mapping T to Ve with RM-closed boundary.
         """
         # The PFAC integrator returns an xr.DataArray; extract values
-        T_to_Ve_da = self._pfac.compute_T_to_Ve(self.G_Ve_to_JS_closure, self.grid)
+        T_to_Ve_da = self._pfac.compute_T_to_Ve(
+            self.G_Ve_to_JS_closure,
+            self.grid,
+            rm_boundary_mode="closed",
+        )
+        return T_to_Ve_da.values
+
+    @cached_property
+    def T_to_Ve_open(self) -> np.ndarray:
+        """Open-boundary mapping from toroidal potential T to poloidal potential Ve."""
+        T_to_Ve_da = self._pfac.compute_T_to_Ve(
+            self.G_Ve_to_JS_closure,
+            self.grid,
+            rm_boundary_mode="open",
+        )
         return T_to_Ve_da.values
 
     @cached_property
@@ -869,7 +893,7 @@ class PoloidalSystemMatrices:
             if potential_type == "m_imp":
                 t_op = self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
             else:
-                t_op = self._apply_dynamic_toroidal_poloidal_lock(self.T_to_Ve)
+                t_op = self._get_dynamic_toroidal_pfac_operator()
             return as_linear_map(np.vstack([p_op, t_op]))
 
         elif potential_type == "m_ind":

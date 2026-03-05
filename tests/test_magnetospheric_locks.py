@@ -10,10 +10,16 @@ from pynamit.simulation.dynamics import Dynamics, SimulationMode
 from pynamit.simulation.spatial import to_dense
 
 
-def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dynamics:
+def _build_dynamics(
+    tmp_path,
+    *,
+    toroidal_lock: bool,
+    poloidal_lock: bool,
+) -> Dynamics:
     return Dynamics(
         run_directory=str(
-            tmp_path / f"locks_t{int(toroidal_lock)}_p{int(poloidal_lock)}"
+            tmp_path
+            / f"locks_t{int(toroidal_lock)}_p{int(poloidal_lock)}"
         ),
         Nmax=8,
         Mmax=4,
@@ -121,9 +127,11 @@ def test_full_induction_magnetospheric_locks(
     np.testing.assert_allclose(t_m_imp, expected_t_m_imp, atol=1e-10, rtol=1e-10)
 
     expected_p_psi = (1.0 / mu0) * np.eye(n_coeffs)
-    expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve)
-    if poloidal_lock:
-        expected_t_psi = (1.0 / rm_roundtrip_denominator)[:, None] * expected_t_psi
+    expected_t_psi = (
+        np.asarray(state.poloidal_matrices.T_to_Ve)
+        if poloidal_lock
+        else np.asarray(state.poloidal_matrices.T_to_Ve_open)
+    )
 
     np.testing.assert_allclose(p_psi, expected_p_psi, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
@@ -146,7 +154,7 @@ def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, poloidal_lock: boo
     expected_t_m_imp = np.asarray(state.poloidal_matrices.T_to_Ve)
     _, _, rm_roundtrip_denominator = geometry._pfac.get_coupling_factors()
     expected_t_m_imp = (1.0 / rm_roundtrip_denominator)[:, None] * expected_t_m_imp
-    expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve)
+    expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve_open)
     np.testing.assert_allclose(t_m_imp, expected_t_m_imp, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
 
@@ -185,13 +193,13 @@ def test_full_induction_lock_numeric_snapshot(tmp_path, poloidal_lock: bool) -> 
             "norm_t_m_ind": 73193972.32756677,
             "norm_t_br": 2137241.9153284496,
             "norm_t_m_imp": 0.7223795135300719,
-            "norm_t_psi": 0.7162627561888577,
+            "norm_t_psi": 0.7253300455734074,
         },
         True: {
             "norm_t_m_ind": 73199298.94320045,
             "norm_t_br": 2137241.9153284496,
             "norm_t_m_imp": 0.7223795135300719,
-            "norm_t_psi": 0.7223795135300719,
+            "norm_t_psi": 0.7162627561888577,
         },
     }[poloidal_lock]
 
