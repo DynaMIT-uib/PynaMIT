@@ -116,7 +116,7 @@ dynamics = pynamit.Dynamics(
     ignore_PFAC=False,
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
-    dynamics_mode="full_induction",
+    dynamics_mode="legacy",
     #conductance_interpolation_mode="sigma_log",
     #northern_hemisphere_apex_constraints=False,
     # Induced channels are unlocked; imposed m_imp closure remains locked by design.

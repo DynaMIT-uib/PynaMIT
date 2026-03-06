@@ -9,6 +9,7 @@ import cartopy.crs as ccrs
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.lines import Line2D
 from polplot import Polarplot
 
 
@@ -454,3 +455,199 @@ def plot_polar_contour(
 ) -> Any:
     """Plot contour lines on a ``Polarplot`` using latitude/MLT coordinates."""
     return ax.contour(np.asarray(lat), np.asarray(mlt), np.asarray(values), **kwargs)
+
+
+def build_even_global_curve_sites(
+    *,
+    min_lat: float = -75.0,
+    max_lat: float = 75.0,
+    lat_step: float = 10.0,
+    equatorial_spacing_deg: float = 18.0,
+    min_sites_per_row: int = 6,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return approximately even lon/lat anchor locations for curve-map plots."""
+    latitudes = np.arange(float(min_lat), float(max_lat) + 0.5 * float(lat_step), float(lat_step))
+    equatorial_count = max(int(round(360.0 / max(float(equatorial_spacing_deg), 1.0))), 1)
+
+    lon_sites: list[np.ndarray] = []
+    lat_sites: list[np.ndarray] = []
+    for row_index, latitude in enumerate(latitudes):
+        cos_lat = float(np.cos(np.deg2rad(latitude)))
+        row_count = max(min_sites_per_row, int(round(equatorial_count * max(cos_lat, 0.2))))
+        if row_count <= 0:
+            continue
+        row_spacing = 360.0 / float(row_count)
+        row_offset = 0.5 * row_spacing if row_index % 2 else 0.0
+        row_lons = np.linspace(-180.0, 180.0, row_count, endpoint=False) + row_offset
+        row_lons = ((row_lons + 180.0) % 360.0) - 180.0
+        lon_sites.append(row_lons)
+        lat_sites.append(np.full(row_lons.shape, latitude, dtype=float))
+
+    if not lon_sites:
+        return np.zeros(0, dtype=float), np.zeros(0, dtype=float)
+    return np.concatenate(lon_sites), np.concatenate(lat_sites)
+
+
+def _wrap_longitudes(lon_values: np.ndarray, *, central_longitude: float) -> np.ndarray:
+    """Wrap longitudes into the visible PlateCarree interval."""
+    center = float(central_longitude)
+    return ((np.asarray(lon_values, dtype=float) - center + 180.0) % 360.0) + center - 180.0
+
+
+def _split_wrapped_curve(
+    lon_values: np.ndarray,
+    lat_values: np.ndarray,
+    *,
+    central_longitude: float,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Split a local curve into dateline-safe segments."""
+    lon_wrapped = _wrap_longitudes(lon_values, central_longitude=central_longitude)
+    lat_arr = np.asarray(lat_values, dtype=float)
+    finite_mask = np.isfinite(lon_wrapped) & np.isfinite(lat_arr)
+    if not np.any(finite_mask):
+        return []
+
+    segments: list[tuple[np.ndarray, np.ndarray]] = []
+    start_idx = 0
+    n_points = lon_wrapped.size
+    while start_idx < n_points:
+        while start_idx < n_points and not finite_mask[start_idx]:
+            start_idx += 1
+        if start_idx >= n_points:
+            break
+        end_idx = start_idx + 1
+        while end_idx < n_points and finite_mask[end_idx]:
+            end_idx += 1
+
+        lon_slice = lon_wrapped[start_idx:end_idx]
+        lat_slice = lat_arr[start_idx:end_idx]
+        if lon_slice.size >= 2:
+            jump_indices = np.where(np.abs(np.diff(lon_slice)) > 180.0)[0] + 1
+            split_points = np.r_[0, jump_indices, lon_slice.size]
+            for begin, end in zip(split_points[:-1], split_points[1:]):
+                if end - begin >= 2:
+                    segments.append((lon_slice[begin:end], lat_slice[begin:end]))
+        start_idx = end_idx
+    return segments
+
+
+def draw_timeseries_curve_map(
+    ax: Any,
+    *,
+    site_lon: np.ndarray,
+    site_lat: np.ndarray,
+    normalized_time: np.ndarray,
+    layers: list[dict[str, Any]],
+    curve_width_deg: float = 10.0,
+    curve_height_deg: float = 3.0,
+    value_scale: Optional[float] = None,
+    central_longitude: float = 0.0,
+    show_anchor_points: bool = False,
+    anchor_point_kwargs: Optional[dict[str, Any]] = None,
+    add_legend: bool = True,
+    legend_kwargs: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Draw small time-series curves anchored at global map locations."""
+    lon_sites = np.asarray(site_lon, dtype=float).reshape(-1)
+    lat_sites = np.asarray(site_lat, dtype=float).reshape(-1)
+    time_arr = np.asarray(normalized_time, dtype=float).reshape(-1)
+    if lon_sites.size != lat_sites.size:
+        raise ValueError("site_lon and site_lat must have the same length.")
+    if time_arr.size == 0:
+        raise ValueError("normalized_time must not be empty.")
+
+    all_values: list[np.ndarray] = []
+    for layer in layers:
+        values = np.asarray(layer["values"], dtype=float)
+        if values.shape != (lon_sites.size, time_arr.size):
+            raise ValueError(
+                "Layer values must have shape "
+                f"({lon_sites.size}, {time_arr.size}), got {values.shape}."
+            )
+        all_values.append(values.reshape(-1))
+
+    if value_scale is None:
+        finite_values = np.concatenate([vals[np.isfinite(vals)] for vals in all_values if np.any(np.isfinite(vals))])
+        if finite_values.size == 0:
+            scale = 1.0
+        else:
+            scale = float(np.nanmax(np.abs(finite_values)))
+            if not np.isfinite(scale) or scale <= 0.0:
+                scale = 1.0
+    else:
+        scale = max(float(value_scale), np.finfo(float).tiny)
+
+    curve_x = float(curve_width_deg) * (time_arr - 0.5)
+    artists: list[Any] = []
+    legend_handles: list[Any] = []
+
+    for layer in layers:
+        style = {
+            "color": layer.get("color", "black"),
+            "linewidth": layer.get("linewidth", 1.0),
+            "linestyle": layer.get("linestyle", "-"),
+            "alpha": layer.get("alpha", 1.0),
+            "marker": layer.get("marker", None),
+            "markersize": layer.get("markersize", 2.0),
+            "zorder": layer.get("zorder", 3),
+        }
+        values = np.asarray(layer["values"], dtype=float)
+        if add_legend:
+            legend_handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=style["color"],
+                    linewidth=style["linewidth"],
+                    linestyle=style["linestyle"],
+                    alpha=style["alpha"],
+                    marker=style["marker"],
+                    markersize=style["markersize"],
+                    label=layer.get("label", ""),
+                )
+            )
+
+        for site_index in range(lon_sites.size):
+            local_lon = lon_sites[site_index] + curve_x
+            local_lat = lat_sites[site_index] + float(curve_height_deg) * (values[site_index] / scale)
+            for lon_segment, lat_segment in _split_wrapped_curve(
+                local_lon,
+                local_lat,
+                central_longitude=central_longitude,
+            ):
+                artists.extend(
+                    ax.plot(
+                        lon_segment,
+                        lat_segment,
+                        transform=ccrs.PlateCarree(),
+                        color=style["color"],
+                        linewidth=style["linewidth"],
+                        linestyle=style["linestyle"],
+                        alpha=style["alpha"],
+                        marker=style["marker"],
+                        markersize=style["markersize"],
+                        zorder=style["zorder"],
+                    )
+                )
+
+    if show_anchor_points:
+        point_kwargs = {"marker": "x", "s": 10, "color": "black", "linewidths": 0.6, "zorder": 2}
+        if anchor_point_kwargs:
+            point_kwargs.update(anchor_point_kwargs)
+        artists.append(
+            ax.scatter(
+                lon_sites,
+                lat_sites,
+                transform=ccrs.PlateCarree(),
+                **point_kwargs,
+            )
+        )
+
+    legend = None
+    if add_legend and legend_handles:
+        default_legend_kwargs = {"loc": "lower left", "framealpha": 0.95, "fontsize": 9}
+        if legend_kwargs:
+            default_legend_kwargs.update(legend_kwargs)
+        legend = ax.legend(handles=legend_handles, **default_legend_kwargs)
+
+    return {"artists": artists, "legend": legend, "value_scale": scale}
