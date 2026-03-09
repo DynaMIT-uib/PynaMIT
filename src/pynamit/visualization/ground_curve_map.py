@@ -482,23 +482,30 @@ class GroundCurveMapBuilder:
             show_anchor_points = False
             station_labels = None
 
-        finite_arrays = []
-        for layer in layers:
-            layer_values = np.asarray(layer["values"], dtype=float)
-            finite_layer = np.abs(layer_values[np.isfinite(layer_values)])
-            if finite_layer.size > 0:
-                finite_arrays.append(finite_layer)
-        finite_values = np.concatenate(finite_arrays) if finite_arrays else np.array([], dtype=float)
-        if finite_values.size == 0:
+        if normalize_differences:
+            # In normalized mode, keep the display scale fixed in the same
+            # units as the normalization itself: +/-1 local unit, i.e. a
+            # full displayed span of 2 x RMS (or 2 x mean|.|).
             value_scale = 1.0
+            full_display_scale = 2.0
         else:
-            value_scale = float(np.nanpercentile(finite_values, 95.0))
-            if not np.isfinite(value_scale) or value_scale <= 0.0:
-                value_scale = float(np.nanmax(finite_values)) if finite_values.size > 0 else 1.0
-            value_scale = max(value_scale, 1.0)
+            finite_arrays = []
+            for layer in layers:
+                layer_values = np.asarray(layer["values"], dtype=float)
+                finite_layer = np.abs(layer_values[np.isfinite(layer_values)])
+                if finite_layer.size > 0:
+                    finite_arrays.append(finite_layer)
+            finite_values = np.concatenate(finite_arrays) if finite_arrays else np.array([], dtype=float)
+            if finite_values.size == 0:
+                value_scale = 1.0
+            else:
+                value_scale = float(np.nanpercentile(finite_values, 95.0))
+                if not np.isfinite(value_scale) or value_scale <= 0.0:
+                    value_scale = float(np.nanmax(finite_values)) if finite_values.size > 0 else 1.0
+                value_scale = max(value_scale, 1.0)
 
-        full_display_scale = self._round_up_scale(2.0 * value_scale, normalized=normalize_differences)
-        value_scale = max(0.5 * full_display_scale, np.finfo(float).tiny)
+            full_display_scale = self._round_up_scale(2.0 * value_scale, normalized=False)
+            value_scale = max(0.5 * full_display_scale, np.finfo(float).tiny)
         scale_annotation = self._format_scale_label(
             full_display_scale,
             scale_unit_label=scale_unit_label,
