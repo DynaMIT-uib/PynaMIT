@@ -20,6 +20,7 @@ except ModuleNotFoundError:
 else:
     __all__.append("SimulationViewer")
 
+
 try:
     from .input_vs_interpolated import plot_input_vs_interpolated
 except ModuleNotFoundError:

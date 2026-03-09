@@ -630,18 +630,18 @@ def draw_timeseries_curve_map(
                     )
                 )
 
+    anchor_scatter = None
     if show_anchor_points:
         point_kwargs = {"marker": "x", "s": 10, "color": "black", "linewidths": 0.6, "zorder": 2}
         if anchor_point_kwargs:
             point_kwargs.update(anchor_point_kwargs)
-        artists.append(
-            ax.scatter(
-                lon_sites,
-                lat_sites,
-                transform=ccrs.PlateCarree(),
-                **point_kwargs,
-            )
+        anchor_scatter = ax.scatter(
+            lon_sites,
+            lat_sites,
+            transform=ccrs.PlateCarree(),
+            **point_kwargs,
         )
+        artists.append(anchor_scatter)
 
     legend = None
     if add_legend and legend_handles:
@@ -650,4 +650,9 @@ def draw_timeseries_curve_map(
             default_legend_kwargs.update(legend_kwargs)
         legend = ax.legend(handles=legend_handles, **default_legend_kwargs)
 
-    return {"artists": artists, "legend": legend, "value_scale": scale}
+    return {
+        "artists": artists,
+        "legend": legend,
+        "value_scale": scale,
+        "anchor_scatter": anchor_scatter,
+    }
