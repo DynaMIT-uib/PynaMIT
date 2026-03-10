@@ -10,6 +10,7 @@ import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
 import os
+from pynamit.simulation.settings import MainfieldKind
 
 COMPARE_TO_SECS = True
 SIMULATE_DYNAMIC_RESPONSE = False
@@ -37,7 +38,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="dipole",
+    mainfield_kind=MainfieldKind.DIPOLE,
     FAC_integration_steps=np.logspace(np.log10(RI), np.log10(7 * RE), 11),
     ignore_PFAC=False,
 )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.simulation.dynamics import Dynamics, SimulationMode
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
 def _relative_rank(mat: np.ndarray, rtol: float = 1e-10) -> int:
@@ -39,11 +40,11 @@ def _assert_split_regression_properties(
         Nmax=10,
         Mmax=5,
         Ncs=10,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=simulation_mode,
         ignore_PFAC=False,
         connect_hemispheres=True,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         least_squares_solver="svd",
     )

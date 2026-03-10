@@ -11,7 +11,9 @@ from pynamit.math.integration import ExponentialIntegrator, ScipySolveIVPIntegra
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.primitives.basis import is_cs_like_basis, is_sh_basis
 from pynamit.simulation.core.coupled_solver import CoupledSteadyStateSolver
+from pynamit.simulation.settings import DynamicsMode, ExponentialSolverKind
 from pynamit.utils import asarray, to_numpy, xp
 
 TimedSolveFn = Callable[..., np.ndarray]
@@ -37,7 +39,7 @@ class StateInduction:
     def _legacy_connect_hemispheres(self) -> bool:
         """Return whether legacy poloidal feedback closes hemispheres."""
         st = self._state
-        return bool(st.connect_hemispheres and st.dynamics_mode != "full_induction")
+        return bool(st.connect_hemispheres and st.dynamics_mode != DynamicsMode.FULL_INDUCTION)
 
     def build_m_imp_problem(self) -> LeastSquaresProblem:
         """Build the least-squares problem definition for ``m_imp``."""
@@ -47,7 +49,7 @@ class StateInduction:
         e_constraint_op = None
         if (
             st.connect_hemispheres
-            and st.dynamics_mode != "full_induction"
+            and st.dynamics_mode != DynamicsMode.FULL_INDUCTION
             and st.E_map_constraint_operator is not None
         ):
             e_constraint_op = st.E_map_constraint_operator
@@ -62,7 +64,7 @@ class StateInduction:
             connect_hemispheres=(e_constraint_op is not None),
             ih_constraint_scaling=st.ih_constraint_scaling,
             regularization_lambda=st.m_imp_regularization_lambda,
-            use_pinning=(getattr(st.solution_space, "kind", "") in ("CS", "GRID")),
+            use_pinning=is_cs_like_basis(st.solution_space),
             weighting=st.poloidal_weighting,
         )
 
@@ -104,7 +106,7 @@ class StateInduction:
             )
 
         jr_coeffs = None if st.jr is None else asarray(st.jr.coeffs)
-        if st.dynamics_mode == "full_induction":
+        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             return self._calculate_dynamic_state(E_direct, jr_coeffs)
         return self._calculate_total_E_field(E_direct, jr_coeffs)
 
@@ -174,7 +176,7 @@ class StateInduction:
         """Build imposed toroidal baseline ``m_imp`` from external driver inputs."""
         st = self._state
         n = st.solution_space.index_length
-        if st.dynamics_mode == "full_induction":
+        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             if jr_coeffs is None:
                 return xp.zeros(n)
             input_basis = st.jr.spec if st.jr is not None else None
@@ -237,7 +239,7 @@ class StateInduction:
         st = self._state
         E_shape = (2, st.solution_space.index_length)
         E_direct_ind = st._apply_operator(st.m_ind_to_E_coeffs, asarray(m_ind), E_shape)
-        if st.dynamics_mode == "full_induction":
+        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             return E_direct_ind, xp.zeros(st.solution_space.index_length)
         return self._calculate_total_E_field(E_direct_ind, None)
 
@@ -264,14 +266,12 @@ class StateInduction:
         """Operator extracting toroidal potential (`E_df`) from vector coefficients."""
         st = self._state
         N = st.solution_space.index_length
-        kind = getattr(st.solution_space, "kind", "")
-
-        if kind == "SH":
+        if is_sh_basis(st.solution_space):
             zeros = np.zeros((N, N))
             eye = np.eye(N)
             return asarray(np.hstack([zeros, eye]))
 
-        if kind in ("CS", "GRID"):
+        if is_cs_like_basis(st.solution_space):
             P = st.solution_space.construct_projection_matrix(st.geometry.grid)
             if P.ndim != 4 or P.shape[0] != 2 or P.shape[2] != 2:
                 raise ValueError(
@@ -351,9 +351,9 @@ class StateInduction:
 
             step_kwargs: Dict[str, Any] = dict(exponential_kwargs or {})
             if "affine_expm_mode" not in step_kwargs:
-                if st.exponential_solver == "expm":
+                if st.exponential_solver == ExponentialSolverKind.EXPM:
                     step_kwargs["affine_expm_mode"] = "dense"
-                elif st.exponential_solver == "expm_multiply":
+                elif st.exponential_solver == ExponentialSolverKind.EXPM_MULTIPLY:
                     step_kwargs["affine_expm_mode"] = "action"
                 else:
                     raise ValueError(
@@ -564,7 +564,7 @@ class StateInduction:
         """Compute steady-state initialization for the current dynamics mode."""
         st = self._state
         N = st.solution_space.index_length
-        if st.dynamics_mode == "full_induction":
+        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             y_ss = self.solve_linear_steady_state(
                 linear_operator=None,
                 forcing=self.build_coupled_forcing(E_coeffs_noind),
@@ -601,7 +601,7 @@ class StateInduction:
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Advance model variables by one time step."""
         st = self._state
-        if st.dynamics_mode == "full_induction":
+        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             if psi is None:
                 if st.psi is None:
                     st.psi = xp.zeros((st.solution_space.index_length,))
@@ -616,9 +616,9 @@ class StateInduction:
                     "max_step_scale": 10.0,
                     "max_substeps": 32768,
                 }
-                if st.exponential_solver == "expm":
+                if st.exponential_solver == ExponentialSolverKind.EXPM:
                     exp_kwargs["affine_expm_mode"] = "dense"
-                elif st.exponential_solver == "expm_multiply":
+                elif st.exponential_solver == ExponentialSolverKind.EXPM_MULTIPLY:
                     exp_kwargs["affine_expm_mode"] = "action"
                 else:
                     raise ValueError(
@@ -629,7 +629,7 @@ class StateInduction:
                 avail_bytes = self._available_memory_bytes()
                 if use_dense_coupled_operator and avail_bytes is not None:
                     matrix_bytes = int(m) * int(m) * np.dtype(float).itemsize
-                    peak_factor = 3 if st.exponential_solver == "expm_multiply" else 8
+                    peak_factor = 3 if st.exponential_solver == ExponentialSolverKind.EXPM_MULTIPLY else 8
                     estimated_peak_bytes = int(peak_factor * matrix_bytes)
                     if estimated_peak_bytes > int(0.80 * avail_bytes):
                         need_gib = estimated_peak_bytes / float(1024 ** 3)

@@ -14,13 +14,14 @@ import xarray as xr
 
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
+from pynamit.primitives.basis import is_cs_like_basis
 from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.io import IO
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.simulation.input import conductance_timeseries_vars_for_mode
-from pynamit.simulation.settings import DynamicsSettings
+from pynamit.simulation.settings import DynamicsSettings, SimulationMode, SolutionBasisKind
 from pynamit.simulation.spatial.geometry_utils import get_radial_shift_diagonal, to_dense
 
 def _build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasis]:
@@ -78,7 +79,7 @@ def _create_output_timeseries(
         },
     }
     solution_spec = FieldSpec(
-        basis=cs_basis if settings.solution_basis_kind == "CS" else sh_basis,
+        basis=cs_basis if settings.solution_basis_kind == SolutionBasisKind.CS else sh_basis,
         field_type="scalar",
         # State-side scalar quantities are conceptually zero-mean in both SH and
         # CS representations. SH realizes this by omitting the monopole;
@@ -481,8 +482,8 @@ class SimulationData:
 
     def _get_pfac_closure_basis(self, solution_space: Any) -> Any:
         """Return the closure basis used for PFAC/radial coupling semantics."""
-        mode = getattr(self.settings.simulation_mode, "value", self.settings.simulation_mode)
-        if getattr(solution_space, "kind", "") in ("CS", "GRID") and mode == "cs_dominant":
+        mode = self.settings.simulation_mode
+        if is_cs_like_basis(solution_space) and mode == SimulationMode.CS_DOMINANT:
             return FieldSpec(basis=self.sh_basis, field_type="scalar", mean_free=True)
         return solution_space
 

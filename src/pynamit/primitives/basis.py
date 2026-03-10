@@ -15,6 +15,33 @@ if TYPE_CHECKING:
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 
 
+def basis_kind(basis: Any) -> Optional[str]:
+    """Return the normalized basis-kind identifier, if present."""
+    kind = getattr(basis, "kind", None)
+    return None if kind is None else str(kind)
+
+
+def is_basis_kind(basis: Any, *kinds: str) -> bool:
+    """Return whether ``basis`` advertises one of the provided kind strings."""
+    kind = basis_kind(basis)
+    return kind is not None and kind in {str(item) for item in kinds}
+
+
+def is_sh_basis(basis: Any) -> bool:
+    """Return whether ``basis`` uses the spherical-harmonic kind tag."""
+    return is_basis_kind(basis, "SH")
+
+
+def is_cs_basis(basis: Any) -> bool:
+    """Return whether ``basis`` uses the cubed-sphere kind tag."""
+    return is_basis_kind(basis, "CS")
+
+
+def is_cs_like_basis(basis: Any) -> bool:
+    """Return whether ``basis`` behaves like the CS/grid scalar solution space."""
+    return is_basis_kind(basis, "CS", "GRID")
+
+
 class Basis(ABC):
     """Abstract class for basis representations of fields.
 

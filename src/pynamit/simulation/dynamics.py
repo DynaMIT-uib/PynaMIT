@@ -23,9 +23,11 @@ from pynamit.simulation.data import SimulationData
 
 # Import settings from dedicated module
 from pynamit.simulation.settings import (
+    DynamicsMode,
     SimulationMode,
     DynamicsSettings,
     FLOAT_ERROR_MARGIN,
+    IntegratorKind,
 )
 
 
@@ -163,7 +165,7 @@ class Dynamics:
             state_entry = self.data.get_output_entry("state", self.current_time, interpolation=False)
             if state_entry is not None and state_entry.get("m_ind") is not None:
                 self._current_m_ind = asarray(state_entry["m_ind"])
-            if self.settings.dynamics_mode == "full_induction" and state_entry is not None:
+            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION and state_entry is not None:
                 psi_entry = state_entry.get("psi")
                 if psi_entry is not None:
                     self.state.psi = asarray(psi_entry)
@@ -249,7 +251,7 @@ class Dynamics:
             inductive_m_ind = asarray(self._current_m_ind)
             m_ind_finite = bool(np.all(np.isfinite(np.asarray(inductive_m_ind))))
             psi_finite = True
-            if self.settings.dynamics_mode == "full_induction" and self.state.psi is not None:
+            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.state.psi is not None:
                 psi_finite = bool(np.all(np.isfinite(np.asarray(self.state.psi))))
             if not (m_ind_finite and psi_finite):
                 run_directory = self.settings.run_directory
@@ -273,7 +275,7 @@ class Dynamics:
             self._current_m_ind = asarray(inductive_m_ind)
 
         # Sync state psi if dynamic mode
-        if self.settings.dynamics_mode == "full_induction":
+        if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
              if self.state.psi is None:
                   self.state.psi = xp.zeros((self.state.solution_space.index_length,))
              psi = self.state.psi
@@ -284,14 +286,14 @@ class Dynamics:
             self.state.update(self.input_manager, self.current_time, interpolation=True)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
-            if self.settings.dynamics_mode == "full_induction":
+            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
                 psi = self.state.psi
 
             # Prepare data for logging/storage
-            if self.settings.dynamics_mode == "full_induction":
+            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
                 current_m_ind = inductive_m_ind
                 current_psi = psi
-                need_steady_state_for_step = self.settings.integrator == "exponential"
+                need_steady_state_for_step = self.settings.integrator == IntegratorKind.EXPONENTIAL
                 need_steady_state_for_output = (
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
                 )
@@ -308,7 +310,7 @@ class Dynamics:
             else:
                 current_m_ind = inductive_m_ind
                 current_psi = None
-                if self.settings.integrator == "exponential" or (
+                if self.settings.integrator == IntegratorKind.EXPONENTIAL or (
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
                 ):
                     steady_state_psi, steady_state_m_ind = self.state.solve_steady_state_model_variables(
@@ -371,7 +373,7 @@ class Dynamics:
                 steady_state_psi=steady_state_psi,
                 psi=psi,
             )
-            if self.settings.dynamics_mode == "full_induction":
+            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
                 psi = psi_new
             
             self.current_time = next_time
@@ -412,7 +414,7 @@ class Dynamics:
         )
         m_ind_ss = asarray(m_ind_ss)
         self._current_m_ind = m_ind_ss
-        if self.settings.dynamics_mode == "full_induction":
+        if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             self.state.psi = None if psi_ss is None else asarray(psi_ss)
 
         if save and not self.benchmark_mode:

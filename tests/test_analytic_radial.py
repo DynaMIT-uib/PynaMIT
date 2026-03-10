@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
 @pytest.mark.wind
 def test_analytic_radial_execution(pynamit_approx):
@@ -20,10 +21,10 @@ def test_analytic_radial_execution(pynamit_approx):
         Nmax=5,
         Mmax=5,
         Ncs=6,
-        simulation_mode="pure_spectral",
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         steady_state_initialization=False,
         wind=True,
-        mainfield_kind="radial", # Triggers Analytic Path
+        mainfield_kind=MainfieldKind.RADIAL, # Triggers Analytic Path
         mainfield_B0=30000e-9 
     )
     

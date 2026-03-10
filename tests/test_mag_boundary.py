@@ -7,6 +7,7 @@ import pytest
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
 from pynamit.math.constants import RE
+from pynamit.simulation.settings import MainfieldKind
 
 
 def test_mag_boundary():
@@ -31,7 +32,7 @@ def test_mag_boundary():
         Mmax=8,
         Ncs=18,
         RM=4 * RE,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

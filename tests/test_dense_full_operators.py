@@ -10,6 +10,7 @@ import pytest
 
 from pynamit.math.integration import EulerIntegrator
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.settings import DynamicsMode, IntegratorKind, SimulationMode
 
 
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
@@ -26,8 +27,8 @@ def test_dense_full_operators_legacy_smoke(tmp_path: Path) -> None:
             Nmax=6,
             Mmax=3,
             Ncs=8,
-            dynamics_mode="legacy",
-            simulation_mode="pure_spectral",
+            dynamics_mode=DynamicsMode.LEGACY,
+            simulation_mode=SimulationMode.PURE_SPECTRAL,
             least_squares_solver="svd",
             dense_full_operators=True,
         )
@@ -55,10 +56,10 @@ def test_dense_full_operators_full_induction_smoke(tmp_path: Path) -> None:
             Nmax=6,
             Mmax=3,
             Ncs=8,
-            dynamics_mode="full_induction",
-            simulation_mode="spectral_transform_cs",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
             dense_full_operators=True,
         )
 
@@ -92,10 +93,10 @@ def test_full_induction_coupled_sparse_dense_parity(tmp_path: Path) -> None:
             Nmax=8,
             Mmax=4,
             Ncs=10,
-            dynamics_mode="full_induction",
-            simulation_mode="spectral_transform_cs",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
         )
 
         sim_sparse = run_pynamit(**common_kwargs, dense_full_operators=False)
@@ -131,15 +132,15 @@ def test_full_induction_coupled_sparse_dense_parity(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "simulation_mode",
     [
-        "pure_spectral",
-        "spectral_transform_gl",
-        "spectral_transform_cs",
-        "cs_dominant",
+        SimulationMode.PURE_SPECTRAL,
+        SimulationMode.SPECTRAL_TRANSFORM_GL,
+        SimulationMode.SPECTRAL_TRANSFORM_CS,
+        SimulationMode.CS_DOMINANT,
     ],
 )
 def test_full_induction_coupled_euler_integrator_object_parity(
     tmp_path: Path,
-    simulation_mode: str,
+    simulation_mode: SimulationMode,
 ) -> None:
     """Coupled Euler step must match direct EulerIntegrator for same L, K, y, dt."""
     previous_cwd = Path.cwd()
@@ -152,10 +153,10 @@ def test_full_induction_coupled_euler_integrator_object_parity(
             Nmax=6,
             Mmax=3,
             Ncs=12,
-            dynamics_mode="full_induction",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
             simulation_mode=simulation_mode,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
             dense_full_operators=True,
             connect_hemispheres=True,
             benchmark_mode=True,
@@ -209,10 +210,10 @@ def test_exposed_coupled_matrices_and_blocks(tmp_path: Path) -> None:
             Nmax=8,
             Mmax=4,
             Ncs=10,
-            dynamics_mode="full_induction",
-            simulation_mode="spectral_transform_cs",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
             dense_full_operators=False,
         )
 
@@ -245,15 +246,15 @@ def test_exposed_coupled_matrices_and_blocks(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "simulation_mode",
     [
-        "pure_spectral",
-        "spectral_transform_gl",
-        "spectral_transform_cs",
-        "cs_dominant",
+        SimulationMode.PURE_SPECTRAL,
+        SimulationMode.SPECTRAL_TRANSFORM_GL,
+        SimulationMode.SPECTRAL_TRANSFORM_CS,
+        SimulationMode.CS_DOMINANT,
     ],
 )
 def test_exposed_coupled_matrix_sparse_dense_parity_all_modes(
     tmp_path: Path,
-    simulation_mode: str,
+    simulation_mode: SimulationMode,
 ) -> None:
     """Dense and sparse exposed coupled matrices must match across all modes."""
     previous_cwd = Path.cwd()
@@ -266,10 +267,10 @@ def test_exposed_coupled_matrix_sparse_dense_parity_all_modes(
             Nmax=6,
             Mmax=3,
             Ncs=12,
-            dynamics_mode="full_induction",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
             simulation_mode=simulation_mode,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
             connect_hemispheres=True,
             benchmark_mode=True,
         )
@@ -295,10 +296,10 @@ def test_exposed_external_forcing_matrices(tmp_path: Path) -> None:
             Nmax=8,
             Mmax=4,
             Ncs=10,
-            dynamics_mode="full_induction",
-            simulation_mode="spectral_transform_cs",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
             dense_full_operators=False,
         )
         state = sim.state
@@ -366,10 +367,10 @@ def test_state_exposure_apis_smoke(tmp_path: Path) -> None:
             Nmax=8,
             Mmax=4,
             Ncs=10,
-            dynamics_mode="full_induction",
-            simulation_mode="spectral_transform_cs",
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
             least_squares_solver="svd",
-            integrator="euler",
+            integrator=IntegratorKind.EULER,
             dense_full_operators=False,
         )
 

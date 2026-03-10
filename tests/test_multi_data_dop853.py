@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind
 
 @pytest.mark.wind
 def test_multi_data_dop853():
@@ -27,7 +28,7 @@ def test_multi_data_dop853():
         Nmax=10,
         Mmax=8,
         Ncs=20,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

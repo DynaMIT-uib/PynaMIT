@@ -20,6 +20,7 @@ from scipy.sparse.linalg import (
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.simulation.settings import DynamicsMode, IntegratorKind, SimulationMode
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray, xp
 
@@ -727,7 +728,7 @@ class CoupledOperators:
         # CS-dominant runs remain sensitive near Nyquist and require the runtime
         # stabilization level for robust integration.
         mode = getattr(st, "mode", None)
-        if str(mode).lower().endswith("cs_dominant"):
+        if mode == SimulationMode.CS_DOMINANT:
             return runtime_lambda
         # Runtime forcing solves can require stronger damping for robust RHS
         # inversion. For assembled feedback operators, cap lambda to avoid
@@ -745,9 +746,9 @@ class CoupledOperators:
         """
         st = self.state
         mode = getattr(st, "mode", None)
-        if not str(mode).lower().endswith("cs_dominant"):
+        if mode != SimulationMode.CS_DOMINANT:
             return np.asarray(l11)
-        if getattr(st, "dynamics_mode", "") != "full_induction":
+        if getattr(st, "dynamics_mode", "") != DynamicsMode.FULL_INDUCTION:
             return np.asarray(l11)
 
         a = np.asarray(l11, dtype=float)
@@ -939,7 +940,11 @@ class CoupledOperators:
             use_pinning = st.apply_psi_gauge
 
         n_total = 2 * st.solution_space.index_length
-        use_dense = st.dense_full_operators or (st.integrator == "exponential") or (n_total <= 600)
+        use_dense = (
+            st.dense_full_operators
+            or (st.integrator == IntegratorKind.EXPONENTIAL)
+            or (n_total <= 600)
+        )
         if use_dense:
             if use_pinning == st.apply_psi_gauge:
                 return st.coupled_induction_tensor
@@ -1019,7 +1024,7 @@ class CoupledOperators:
         m_imp_from_jr = np.asarray(solver.solve(st.m_imp_problem, rhs_terms)).reshape(
             st.solution_space.index_length, n_scenarios
         )
-        if st.dynamics_mode == "full_induction":
+        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             m_imp_from_jr = self.get_hl_projection_matrix(m_imp_from_jr.shape[0]) @ m_imp_from_jr
         p = np.asarray(st.constraints.m_imp_gauge_projector)
         if p.shape == (m_imp_from_jr.shape[0], m_imp_from_jr.shape[0]):

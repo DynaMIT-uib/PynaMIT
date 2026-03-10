@@ -8,6 +8,7 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 import datetime
 import pyamps
 import apexpy
+from pynamit.simulation.settings import MainfieldKind
 
 RE = 6371.2e3
 RI = RE + 110e3
@@ -33,7 +34,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="igrf",
+    mainfield_kind=MainfieldKind.IGRF,
     FAC_integration_steps=rk,
     ignore_PFAC=False,
     connect_hemispheres=True,

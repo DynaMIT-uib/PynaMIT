@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind
 
 
 def test_2d_dipole_pfac_dop853():
@@ -27,7 +28,7 @@ def test_2d_dipole_pfac_dop853():
         Nmax=10,
         Mmax=10,
         Ncs=20,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         integrator="DOP853",
         steady_state_initialization=False,

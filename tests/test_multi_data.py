@@ -7,7 +7,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.dynamics import Dynamics
-from pynamit.simulation.settings import DynamicsSettings
+from pynamit.simulation.settings import ConductanceInterpolationMode, DynamicsSettings, IntegratorKind, MainfieldKind
 from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 import numpy as np
 
@@ -29,12 +29,12 @@ def _build_multi_data_dynamics(run_directory: str) -> Dynamics:
         Nmax=10,
         Mmax=8,
         Ncs=20,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
-        integrator="exponential",
-        conductance_interpolation_mode="legacy_eta_linear",
+        integrator=IntegratorKind.EXPONENTIAL,
+        conductance_interpolation_mode=ConductanceInterpolationMode.LEGACY_ETA_LINEAR,
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
@@ -105,7 +105,7 @@ def test_multi_data():
         Nmax=10,
         Mmax=8,
         Ncs=20,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
@@ -114,7 +114,7 @@ def test_multi_data():
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
-        integrator="exponential",
+        integrator=IntegratorKind.EXPONENTIAL,
         multi_data=True,
     )
 

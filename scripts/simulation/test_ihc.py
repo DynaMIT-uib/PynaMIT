@@ -11,6 +11,7 @@ from lompe import conductance
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 import cartopy.crs as ccrs
 import os
+from pynamit.simulation.settings import MainfieldKind
 
 PLOT_WIND = False  # True to make a plot of the wind field
 SIMULATE = True
@@ -57,7 +58,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="dipole",
+    mainfield_kind=MainfieldKind.DIPOLE,
     FAC_integration_steps=rk,
     ignore_PFAC=False,
     connect_hemispheres=True,

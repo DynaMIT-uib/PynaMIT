@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind
 
 
 def test_2d_dipole():
@@ -27,7 +28,7 @@ def test_2d_dipole():
         Nmax=12,
         Mmax=12,
         Ncs=22,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         steady_state_initialization=False,
     )
 

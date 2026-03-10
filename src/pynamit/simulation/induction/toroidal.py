@@ -28,6 +28,7 @@ import numpy as np
 import scipy.sparse
 from functools import cached_property
 
+from pynamit.primitives.basis import is_cs_basis, is_sh_basis
 from pynamit.utils import to_numpy, asarray, tensor_pinv
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.math.constants import mu0
@@ -96,7 +97,7 @@ class ToroidalSystemMatrices:
         )
         self._cs_derivative_operator_cache: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
         
-        self.is_cs = (getattr(self.basis, "kind", "") == "CS")
+        self.is_cs = is_cs_basis(self.basis)
         if not self.is_cs:
             self.gaunt_engine = GauntEngine(basis)
         # Cache for explicit gauge projector applied after MP inversion.
@@ -631,7 +632,7 @@ class ToroidalSystemMatrices:
         if self.is_cs:
             return asarray(self._build_cs_toroidal_rhs_from_E_operator())
 
-        if (not self.is_cs) and (getattr(self.basis, "kind", "") == "SH"):
+        if (not self.is_cs) and is_sh_basis(self.basis):
             return asarray(self._build_sh_toroidal_rhs_from_E_operator())
 
         N = self.basis.index_length
@@ -812,8 +813,7 @@ class ToroidalSystemMatrices:
         In this code path we apply the basis projection directly:
             ``K = P @ S_known``.
         """
-        basis_kind = getattr(self.basis, "kind", "")
-        if self.is_cs or basis_kind == "SH":
+        if self.is_cs or is_sh_basis(self.basis):
             rhs_e = self._apply_direct_toroidal_rhs_operator(E_coeffs)
         else:
             rhs_e = self._compute_generic_toroidal_rhs_from_E(E_coeffs)
@@ -933,8 +933,7 @@ class ToroidalSystemMatrices:
         if self.is_cs:
             return asarray(float(mu0 * self.RI) * np.asarray(self.cs_laplacian_inverse))
 
-        basis_kind = getattr(self.basis, "kind", "")
-        if basis_kind == "SH":
+        if is_sh_basis(self.basis):
             l_arr = np.asarray(to_numpy(self.basis.n)).reshape(-1).astype(float)
             laplacian_eigenvalues = l_arr * (l_arr + 1.0)
             inverse_laplacian_eigenvalues = np.zeros_like(laplacian_eigenvalues)

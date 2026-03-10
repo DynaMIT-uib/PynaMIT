@@ -3,7 +3,8 @@
 import pytest
 import numpy as np
 
-from pynamit.simulation.dynamics import SimulationMode
+from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
 def _run_dynamic_ramp_test(
@@ -26,10 +27,10 @@ def _run_dynamic_ramp_test(
         Nmax=10,
         Mmax=5,
         Ncs=10,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=sim_mode.value,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         multi_data=True,
         connect_hemispheres=True,

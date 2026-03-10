@@ -6,7 +6,7 @@ import numpy as np
 
 from pynamit.math.constants import mu0
 from pynamit.simulation.runner import run_pynamit
-from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, IntegratorKind, MainfieldKind, SimulationMode
 from pynamit.simulation.spatial import to_dense
 from pynamit.postprocess.results_operators import (
     build_poloidal_results_operators,
@@ -20,17 +20,17 @@ def _build_sim():
         Nmax=8,
         Mmax=4,
         Ncs=10,
-        dynamics_mode="full_induction",
-        simulation_mode=SimulationMode.PURE_SPECTRAL.value,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         use_jr=False,
         wind=False,
         connect_hemispheres=False,
         benchmark_mode=True,
         dense_full_operators=False,
-        integrator="euler",
+        integrator=IntegratorKind.EULER,
         least_squares_solver="svd",
     )
 

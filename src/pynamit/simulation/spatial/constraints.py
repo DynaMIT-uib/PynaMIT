@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from pynamit.simulation.spatial.geometry_utils import canonicalize_vector_basis_matrix
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 if TYPE_CHECKING:
     from pynamit.primitives.basis import Basis
@@ -126,14 +127,14 @@ class ApexMapper:
         latitude_boundary: float,
         connect_hemispheres: bool,
         northern_hemisphere_apex_constraints: bool = False,
-        dynamics_mode: str = "legacy",
+        dynamics_mode: DynamicsMode | str = DynamicsMode.LEGACY,
     ) -> None:
         self.mainfield = mainfield
         self.basis = basis
         self.latitude_boundary = latitude_boundary
         self.connect_hemispheres = connect_hemispheres
         self.northern_hemisphere_apex_constraints = northern_hemisphere_apex_constraints
-        self.dynamics_mode = str(dynamics_mode)
+        self.dynamics_mode = DynamicsMode(str(dynamics_mode))
 
     def get_transformation_matrices(
         self, dfield: "Field"
@@ -225,7 +226,7 @@ class ApexMapper:
 
         # Full-induction constraints use direct alpha sample-space mismatch.
         # Legacy path keeps the historical d3/apex mapping.
-        if self.dynamics_mode == "full_induction":
+        if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             radial_to_apex = np.ones(grid.size, dtype=float)
         else:
             radial_to_apex, _ = self.get_transformation_matrices(field)
@@ -454,7 +455,7 @@ class ApexMapper:
             grid_north = Grid(lat=glat_n, lon=glon_n)
 
         # --- Dipole case: exact dipole-consistent Apex-like construction -------------
-        elif self.mainfield.kind == "dipole":
+        elif self.mainfield.kind == MainfieldKind.DIPOLE:
             # Define a reference shell (analog of Apex refh) on which the mesh is uniform in
             # "magnetic latitude" and longitude. Then map along dipole field lines to RI.
             #
@@ -507,9 +508,9 @@ class ApexMapper:
         """
         from pynamit.math.constants import RE
         kind = self.mainfield.kind
-        if kind == "dipole":
+        if kind == MainfieldKind.DIPOLE:
             return np.abs(grid.lat) < self.latitude_boundary
-        elif kind == "igrf":
+        elif kind == MainfieldKind.IGRF:
             mlat, _ = self.mainfield.apx.geo2apex(
                 grid.lat, grid.lon, (RI - RE) * 1e-3
             )

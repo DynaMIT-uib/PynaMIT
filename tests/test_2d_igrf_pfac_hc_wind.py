@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind
 
 
 @pytest.mark.wind
@@ -28,7 +29,7 @@ def test_2d_igrf_pfac_hc_wind(pynamit_approx):
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
@@ -81,7 +82,7 @@ def test_2d_igrf_pfac_hc_wind_fast_input_path(pynamit_approx):
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

@@ -5,6 +5,7 @@ import pynamit
 from lompe import conductance
 import dipole
 import pyhwm2014  # https://github.com/rilma/pyHWM14
+from pynamit.simulation.settings import ConductanceInterpolationMode, DynamicsMode, MainfieldKind
 
 # import matplotlib.pyplot as plt
 import datetime
@@ -34,14 +35,14 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="igrf",
+    mainfield_kind=MainfieldKind.IGRF,
     FAC_integration_steps=rk,
     ignore_PFAC=False,
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
-    dynamics_mode="legacy",
-    conductance_interpolation_mode="legacy_eta_linear",
+    dynamics_mode=DynamicsMode.LEGACY,
+    conductance_interpolation_mode=ConductanceInterpolationMode.LEGACY_ETA_LINEAR,
     t0=str(date),
 )
 

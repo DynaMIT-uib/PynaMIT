@@ -2,6 +2,7 @@
 import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
 @pytest.mark.wind
 def test_pure_spectral_radial(pynamit_approx):
@@ -18,8 +19,8 @@ def test_pure_spectral_radial(pynamit_approx):
         Nmax=5,
         Mmax=5,
         Ncs=6,
-        mainfield_kind="radial",
-        simulation_mode="pure_spectral",
+        mainfield_kind=MainfieldKind.RADIAL,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         steady_state_initialization=False,
         wind=True,
     )

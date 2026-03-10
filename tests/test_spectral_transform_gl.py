@@ -10,6 +10,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
 
 @pytest.mark.wind
@@ -38,7 +39,7 @@ def test_spectral_transform_gl():
         Nmax=10,
         Mmax=8,
         Ncs=20,  # Not used for GL mode, but kept for compatibility
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
@@ -49,7 +50,7 @@ def test_spectral_transform_gl():
         vector_u=True,
         integrator="DOP853",
         multi_data=True,
-        simulation_mode="spectral_transform_gl",
+        simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_GL,
     )
 
     # Assert.

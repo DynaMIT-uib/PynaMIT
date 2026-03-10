@@ -5,8 +5,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pynamit.simulation.dynamics import SimulationMode
 from pynamit.utils import JAX_AVAILABLE
+from pynamit.simulation.settings import (
+    DynamicsMode,
+    ExponentialSolverKind,
+    IntegratorKind,
+    MainfieldKind,
+    SimulationMode,
+)
 
 
 def _run_full_induction_exponential_mode(tmp_path, *, dense_full_operators: bool, exponential_solver: str):
@@ -20,15 +26,15 @@ def _run_full_induction_exponential_mode(tmp_path, *, dense_full_operators: bool
         Nmax=5,
         Mmax=2,
         Ncs=6,
-        dynamics_mode="full_induction",
-        simulation_mode=SimulationMode.PURE_SPECTRAL.value,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         multi_data=False,
         connect_hemispheres=True,
         least_squares_solver="svd",
-        integrator="exponential",
+        integrator=IntegratorKind.EXPONENTIAL,
         dense_full_operators=dense_full_operators,
         exponential_solver=exponential_solver,
     )
@@ -103,12 +109,12 @@ def test_exponential_solver_requires_dense_operators_for_expm(tmp_path):
             Nmax=3,
             Mmax=1,
             Ncs=4,
-            dynamics_mode="full_induction",
-            simulation_mode=SimulationMode.PURE_SPECTRAL.value,
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.PURE_SPECTRAL,
             least_squares_solver="svd",
-            integrator="exponential",
+            integrator=IntegratorKind.EXPONENTIAL,
             dense_full_operators=False,
-            exponential_solver="expm",
+            exponential_solver=ExponentialSolverKind.EXPM,
         )
 
 
@@ -127,10 +133,10 @@ def test_expm_multiply_not_supported_for_jax_backend(tmp_path):
             Nmax=5,
             Mmax=2,
             Ncs=6,
-            dynamics_mode="full_induction",
-            simulation_mode=SimulationMode.PURE_SPECTRAL.value,
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.PURE_SPECTRAL,
             least_squares_solver="svd",
-            integrator="exponential",
+            integrator=IntegratorKind.EXPONENTIAL,
             dense_full_operators=False,
-            exponential_solver="expm_multiply",
+            exponential_solver=ExponentialSolverKind.EXPM_MULTIPLY,
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict, fields
 from typing import Any, List, Mapping, Optional, Union, Literal
 from enum import Enum
+from difflib import get_close_matches
 
 import numpy as np
 import xarray as xr
@@ -57,8 +58,182 @@ class SimulationMode(str, Enum):
     CS_DOMINANT = "cs_dominant"
 
 
+class StringChoiceEnum(str, Enum):
+    """String enum with human-friendly ``str(...)`` behavior."""
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class MainfieldKind(StringChoiceEnum):
+    DIPOLE = "dipole"
+    IGRF = "igrf"
+    RADIAL = "radial"
+
+
+class IntegratorKind(StringChoiceEnum):
+    EULER = "euler"
+    EXPONENTIAL = "exponential"
+
+
+class DynamicsMode(StringChoiceEnum):
+    LEGACY = "legacy"
+    FULL_INDUCTION = "full_induction"
+
+
+class WeightingMode(StringChoiceEnum):
+    NONE = "none"
+    LINEAR = "linear"
+    QUADRATIC = "quadratic"
+
+
+class ConductanceInterpolationMode(StringChoiceEnum):
+    LEGACY_ETA_LINEAR = "legacy_eta_linear"
+    SIGMA_LINEAR = "sigma_linear"
+    SIGMA_LOG = "sigma_log"
+
+
+class ExponentialSolverKind(StringChoiceEnum):
+    EXPM = "expm"
+    EXPM_MULTIPLY = "expm_multiply"
+    DENSE_EXPM = "dense_expm"
+
+
+class SolutionBasisKind(StringChoiceEnum):
+    SH = "SH"
+    CS = "CS"
+
+
 # Safety margin for floating point errors
 FLOAT_ERROR_MARGIN = 1e-6
+
+def _enum_values(enum_cls: type[StringChoiceEnum]) -> set[str]:
+    """Return the canonical string values for a string enum."""
+    return {member.value for member in enum_cls}
+
+
+_VALID_MAINFIELD_KINDS = _enum_values(MainfieldKind)
+_VALID_INTEGRATORS = _enum_values(IntegratorKind)
+_VALID_BACKENDS = {"auto", "numpy", "jax"}
+_VALID_DYNAMICS_MODES = _enum_values(DynamicsMode)
+_VALID_WEIGHTINGS = _enum_values(WeightingMode)
+_VALID_PRECONDITIONERS = {"jacobi", "pinv"}
+_VALID_CONDUCTANCE_INTERPOLATION_MODES = _enum_values(ConductanceInterpolationMode)
+_VALID_EXPONENTIAL_SOLVERS = _enum_values(ExponentialSolverKind)
+_VALID_SOLUTION_BASES = _enum_values(SolutionBasisKind)
+
+
+def _normalize_choice(
+    name: str,
+    value: Any,
+    *,
+    valid: set[str],
+    allow_none: bool = False,
+) -> Any:
+    """Return normalized string choice or raise with a clear message."""
+    if allow_none and value is None:
+        return None
+    if isinstance(value, Enum):
+        value = value.value
+    if isinstance(value, np.generic):
+        value = value.item()
+    if not isinstance(value, str):
+        raise ValueError(
+            f"{name} must be one of {sorted(valid)}"
+            + (" or None" if allow_none else "")
+            + f", got {value!r}."
+        )
+    normalized = str(value).strip()
+    if normalized not in valid:
+        suggestion = ""
+        matches = get_close_matches(normalized, sorted(valid), n=1, cutoff=0.7)
+        if matches:
+            suggestion = f" Did you mean {matches[0]!r}?"
+        raise ValueError(
+            f"Invalid {name} {normalized!r}. Valid options: {sorted(valid)}"
+            + (" or None." if allow_none else ".")
+            + suggestion
+        )
+    return normalized
+
+
+def _normalize_lower_choice(
+    name: str,
+    value: Any,
+    *,
+    valid: set[str],
+    allow_none: bool = False,
+) -> Any:
+    """Return lower-case normalized choice or raise with a clear message."""
+    if isinstance(value, str):
+        value = value.strip().lower()
+    return _normalize_choice(name, value, valid=valid, allow_none=allow_none)
+
+
+def _normalize_upper_choice(
+    name: str,
+    value: Any,
+    *,
+    valid: set[str],
+) -> str:
+    """Return upper-case normalized choice or raise with a clear message."""
+    if isinstance(value, str):
+        value = value.strip().upper()
+    return _normalize_choice(name, value, valid=valid)
+
+
+def _coerce_enum_choice(
+    enum_cls: type[StringChoiceEnum],
+    name: str,
+    value: Any,
+    *,
+    case: Literal["lower", "upper", "preserve"] = "preserve",
+) -> StringChoiceEnum:
+    """Return a normalized string enum instance with typo suggestions."""
+    if isinstance(value, enum_cls):
+        return value
+    if isinstance(value, Enum):
+        value = value.value
+    if isinstance(value, np.generic):
+        value = value.item()
+    if not isinstance(value, str):
+        raise ValueError(
+            f"{name} must be one of {[member.value for member in enum_cls]}, got {value!r}."
+        )
+    normalized = value.strip()
+    if case == "lower":
+        normalized = normalized.lower()
+    elif case == "upper":
+        normalized = normalized.upper()
+    try:
+        return enum_cls(normalized)
+    except ValueError:
+        valid = [member.value for member in enum_cls]
+        matches = get_close_matches(normalized, valid, n=1, cutoff=0.7)
+        suggestion = f" Did you mean {matches[0]!r}?" if matches else ""
+        raise ValueError(
+            f"Invalid {name} {normalized!r}. Valid options: {valid}.{suggestion}"
+        ) from None
+
+
+def _normalize_backend_choice(value: Any) -> str:
+    """Return canonical backend string."""
+    if isinstance(value, Enum):
+        value = value.value
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, bool):
+        return "jax" if value else "numpy"
+    if value is None:
+        return "auto"
+    if not isinstance(value, str):
+        raise ValueError(
+            f"backend must be one of {sorted(_VALID_BACKENDS)} or a boolean, got {value!r}."
+        )
+    normalized = value.strip().lower()
+    if normalized == "np":
+        normalized = "numpy"
+    return _normalize_choice("backend", normalized, valid=_VALID_BACKENDS)
 
 
 @dataclass
@@ -128,7 +303,7 @@ class DynamicsSettings:
     Ncs: int = 30
     RI: float = RE + 110.0e3
     RM: Optional[float] = None
-    mainfield_kind: Literal["dipole", "igrf", "radial"] = "dipole"
+    mainfield_kind: MainfieldKind = MainfieldKind.DIPOLE
     mainfield_epoch: int = 2020
     mainfield_B0: Optional[float] = None
     FAC_integration_steps: Union[np.ndarray, List[float]] = field(
@@ -150,25 +325,25 @@ class DynamicsSettings:
     vector_u: bool = True
     t0: str = "2020-01-01 00:00:00"
     save_steady_states: bool = True
-    integrator: Literal["euler", "exponential"] = "euler"
+    integrator: IntegratorKind = IntegratorKind.EULER
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     run_directory: Optional[str] = None
-    dynamics_mode: Literal["legacy", "full_induction"] = "legacy"
+    dynamics_mode: DynamicsMode = DynamicsMode.LEGACY
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "lsmr"
     m_imp_regularization_lambda: float = 0.0
     # Weighting strategies for handling equatorial singularity (Br -> 0)
-    toroidal_weighting: Literal["none", "linear", "quadratic"] = "none"
-    poloidal_weighting: Literal["none", "linear", "quadratic"] = "none"
+    toroidal_weighting: WeightingMode = WeightingMode.NONE
+    poloidal_weighting: WeightingMode = WeightingMode.NONE
     # Preconditioner for least-squares solver
     least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv"
     # Conductance input interpolation policy:
     # - legacy_eta_linear: convert Sigma->eta first, then interpolate eta (legacy behavior)
     # - sigma_linear: interpolate Sigma directly, then convert to eta at state update
     # - sigma_log: interpolate log(Sigma + floor), then convert to eta at state update
-    conductance_interpolation_mode: Literal[
-        "legacy_eta_linear", "sigma_linear", "sigma_log"
-    ] = "legacy_eta_linear"
+    conductance_interpolation_mode: ConductanceInterpolationMode = (
+        ConductanceInterpolationMode.LEGACY_ETA_LINEAR
+    )
     # Floor used for sigma_log encoding and for robust Sigma->eta conversion in
     # non-legacy modes (denominator floor uses floor^2).
     conductance_interpolation_floor: float = 1e-3
@@ -185,15 +360,20 @@ class DynamicsSettings:
     # therefore requires ``dense_full_operators=True`` when ``integrator="exponential"``.
     # "expm_multiply" uses expm_multiply. Combined with ``dense_full_operators``,
     # this yields either dense-action or matrix-free-action stepping.
-    exponential_solver: Literal["expm", "expm_multiply"] = "expm"
+    exponential_solver: ExponentialSolverKind = ExponentialSolverKind.EXPM
 
     # Computed fields
-    solution_basis_kind: Literal["SH", "CS"] = "SH"
+    solution_basis_kind: SolutionBasisKind = SolutionBasisKind.SH
 
     def __post_init__(self) -> None:
         """Normalize derived/defaulted settings once at construction time."""
         if isinstance(self.simulation_mode, str):
             self.simulation_mode = SimulationMode(self.simulation_mode)
+        elif not isinstance(self.simulation_mode, SimulationMode):
+            raise ValueError(
+                f"simulation_mode must be one of {[mode.value for mode in SimulationMode]}, "
+                f"got {self.simulation_mode!r}."
+            )
 
         # Guard against accidental tuple defaults from trailing commas in older
         # code paths or serialized settings adapters.
@@ -205,13 +385,56 @@ class DynamicsSettings:
                 )
             self.conductance_interpolation_mode = str(self.conductance_interpolation_mode[0])
 
+        self.mainfield_kind = _coerce_enum_choice(
+            MainfieldKind, "mainfield_kind", self.mainfield_kind, case="lower"
+        )
+        self.integrator = _coerce_enum_choice(
+            IntegratorKind, "integrator", self.integrator, case="lower"
+        )
+        self.backend = _normalize_backend_choice(self.backend)
+        self.dynamics_mode = _coerce_enum_choice(
+            DynamicsMode, "dynamics_mode", self.dynamics_mode, case="lower"
+        )
+        self.toroidal_weighting = _coerce_enum_choice(
+            WeightingMode, "toroidal_weighting", self.toroidal_weighting, case="lower"
+        )
+        self.poloidal_weighting = _coerce_enum_choice(
+            WeightingMode, "poloidal_weighting", self.poloidal_weighting, case="lower"
+        )
+        self.least_squares_preconditioner = _normalize_lower_choice(
+            "least_squares_preconditioner",
+            self.least_squares_preconditioner,
+            valid=_VALID_PRECONDITIONERS,
+            allow_none=True,
+        )
+        self.conductance_interpolation_mode = _coerce_enum_choice(
+            ConductanceInterpolationMode,
+            "conductance_interpolation_mode",
+            self.conductance_interpolation_mode,
+            case="lower",
+        )
+        self.exponential_solver = _coerce_enum_choice(
+            ExponentialSolverKind, "exponential_solver", self.exponential_solver, case="lower"
+        )
+        self.solution_basis_kind = _coerce_enum_choice(
+            SolutionBasisKind, "solution_basis_kind", self.solution_basis_kind, case="upper"
+        )
+
+        from pynamit.math.least_squares_solver import LeastSquaresSolver
+
+        self.least_squares_solver = _normalize_lower_choice(
+            "least_squares_solver",
+            self.least_squares_solver,
+            valid=set(LeastSquaresSolver.VALID_SOLVERS),
+        )
+
         if self.RM == 0:
             self.RM = None
 
         self.conductance_interpolation_floor = float(max(self.conductance_interpolation_floor, 0.0))
 
         if self.simulation_mode == SimulationMode.CS_DOMINANT:
-            self.solution_basis_kind = "CS"
+            self.solution_basis_kind = SolutionBasisKind.CS
 
         # CS-dominant electrostatic solves need mild regularization near the
         # magnetic equator when the user has not chosen one explicitly.
@@ -220,27 +443,30 @@ class DynamicsSettings:
 
         # Full-induction defaults are stability defaults, not user-facing
         # behavior changes. Keep explicit user choices, only fill "none"/0 cases.
-        if self.dynamics_mode == "full_induction":
-            if self.toroidal_weighting == "none":
-                self.toroidal_weighting = "quadratic"
-            if self.poloidal_weighting == "none":
-                self.poloidal_weighting = "quadratic"
+        if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
+            if self.toroidal_weighting == WeightingMode.NONE:
+                self.toroidal_weighting = WeightingMode.QUADRATIC
+            if self.poloidal_weighting == WeightingMode.NONE:
+                self.poloidal_weighting = WeightingMode.QUADRATIC
             if self.toroidal_regularization_lambda == 0.0:
                 self.toroidal_regularization_lambda = 1e-10
 
-        if self.exponential_solver == "dense_expm":
-            self.exponential_solver = "expm"
+        if self.exponential_solver == ExponentialSolverKind.DENSE_EXPM:
+            self.exponential_solver = ExponentialSolverKind.EXPM
 
-        if self.exponential_solver not in {"expm", "expm_multiply"}:
+        if self.exponential_solver not in {
+            ExponentialSolverKind.EXPM,
+            ExponentialSolverKind.EXPM_MULTIPLY,
+        }:
             raise ValueError(
                 "exponential_solver must be one of {'expm', 'expm_multiply'}, "
                 f"got {self.exponential_solver!r}."
             )
 
         if (
-            self.integrator == "exponential"
-            and self.dynamics_mode == "full_induction"
-            and self.exponential_solver == "expm"
+            self.integrator == IntegratorKind.EXPONENTIAL
+            and self.dynamics_mode == DynamicsMode.FULL_INDUCTION
+            and self.exponential_solver == ExponentialSolverKind.EXPM
             and not self.dense_full_operators
         ):
             raise ValueError(
@@ -279,6 +505,9 @@ class DynamicsSettings:
     def to_dataset(self) -> xr.Dataset:
         """Convert settings to an xarray Dataset for storage."""
         attrs = asdict(self)
+        for key, value in list(attrs.items()):
+            if isinstance(value, Enum):
+                attrs[key] = value.value
         # Handle types that might not serialize well or need specific handling
         attrs["RM"] = 0 if self.RM is None else self.RM
         attrs["mainfield_B0"] = 0 if self.mainfield_B0 is None else self.mainfield_B0
@@ -329,7 +558,13 @@ class DynamicsSettings:
         try:
             sim_mode = SimulationMode(mode_str)
         except ValueError:
-            sim_mode = defaults.simulation_mode
+            valid_modes = [mode.value for mode in SimulationMode]
+            matches = get_close_matches(str(mode_str), valid_modes, n=1, cutoff=0.7)
+            suggestion = f" Did you mean {matches[0]!r}?" if matches else ""
+            raise ValueError(
+                f"Invalid simulation_mode {mode_str!r} in saved settings. "
+                f"Valid options: {valid_modes}.{suggestion}"
+            ) from None
 
         exp_solver = get("exponential_solver", defaults.exponential_solver)
         if exp_solver == "dense_expm":

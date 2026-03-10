@@ -14,15 +14,24 @@ import logging
 from typing import Callable, Optional
 
 import numpy as np
+from pynamit.simulation.settings import ConductanceInterpolationMode
 
 
-def conductance_timeseries_vars_for_mode(mode: str) -> dict[str, str]:
+def _normalize_mode(mode: ConductanceInterpolationMode | str) -> ConductanceInterpolationMode:
+    """Return canonical conductance interpolation mode."""
+    return mode if isinstance(mode, ConductanceInterpolationMode) else ConductanceInterpolationMode(mode)
+
+
+def conductance_timeseries_vars_for_mode(
+    mode: ConductanceInterpolationMode | str,
+) -> dict[str, str]:
     """Return conductance variable names stored in a Timeseries for ``mode``."""
-    if mode == "legacy_eta_linear":
+    mode = _normalize_mode(mode)
+    if mode == ConductanceInterpolationMode.LEGACY_ETA_LINEAR:
         return {"etaP": "scalar", "etaH": "scalar"}
-    if mode == "sigma_linear":
+    if mode == ConductanceInterpolationMode.SIGMA_LINEAR:
         return {"SigmaP": "scalar", "SigmaH": "scalar"}
-    if mode == "sigma_log":
+    if mode == ConductanceInterpolationMode.SIGMA_LOG:
         return {"logSigmaP": "scalar", "logSigmaH": "scalar"}
     raise ValueError(
         "Invalid conductance_interpolation_mode="
@@ -67,15 +76,16 @@ def encode_conductance_input_for_storage(
     *,
     Hall: np.ndarray,
     Pedersen: np.ndarray,
-    mode: str,
+    mode: ConductanceInterpolationMode | str,
     sigma_floor: float,
     logger: Optional[logging.Logger] = None,
 ) -> dict[str, np.ndarray]:
     """Encode conductance arrays for the configured storage/interpolation mode."""
     hall = np.asarray(Hall, dtype=float)
     ped = np.asarray(Pedersen, dtype=float)
+    mode = _normalize_mode(mode)
 
-    if mode == "legacy_eta_linear":
+    if mode == ConductanceInterpolationMode.LEGACY_ETA_LINEAR:
         den = hall * hall + ped * ped
         return {
             "etaP": ped / den,
@@ -99,9 +109,9 @@ def encode_conductance_input_for_storage(
             )
         hall = np.maximum(hall, 0.0)
 
-    if mode == "sigma_linear":
+    if mode == ConductanceInterpolationMode.SIGMA_LINEAR:
         return {"SigmaP": ped, "SigmaH": hall}
-    if mode == "sigma_log":
+    if mode == ConductanceInterpolationMode.SIGMA_LOG:
         floor = max(float(sigma_floor), np.finfo(float).tiny)
         return {
             "logSigmaP": np.log(ped + floor),

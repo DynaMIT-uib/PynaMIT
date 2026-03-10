@@ -3,10 +3,11 @@ import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
 from pynamit.simulation.runner import run_pynamit
-from pynamit.simulation.dynamics import Dynamics, SimulationMode
+from pynamit.simulation.dynamics import Dynamics
 from pynamit.utils import set_backend
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
 def test_run_pynamit_mw_weighting_option():
     """Test run_pynamit with input_weighting='mw' using GL grid (regular)."""
@@ -40,9 +41,9 @@ def test_run_pynamit_mw_weighting_option():
             plotsteps=100,
             Nmax=4,
             Mmax=4,
-            simulation_mode="spectral_transform_gl", # Ensures Regular Grid
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_GL, # Ensures Regular Grid
             input_weighting="mw",
-            mainfield_kind="dipole"
+            mainfield_kind=MainfieldKind.DIPOLE
         )
         pass
 
@@ -81,9 +82,9 @@ def test_run_pynamit_passes_weights(mock_wind, mock_jr, mock_cond,
     run_pynamit(
         final_time=1.0,
         Nmax=4, 
-        simulation_mode="spectral_transform_gl",
+        simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_GL,
         input_weighting="mw",
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         wind=True
     )
     
@@ -168,9 +169,9 @@ def test_numerical_exactness_verified():
         dynamics = run_pynamit(
             final_time=1e-3,
             Nmax=Nmax,
-            simulation_mode="spectral_transform_gl",
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_GL,
             input_weighting="mw",
-            mainfield_kind="dipole"
+            mainfield_kind=MainfieldKind.DIPOLE
         )
         
         # Assert Output State

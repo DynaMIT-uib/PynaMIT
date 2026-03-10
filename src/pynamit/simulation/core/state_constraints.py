@@ -12,6 +12,8 @@ from functools import cached_property
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
+from pynamit.primitives.basis import is_cs_like_basis
+from pynamit.simulation.settings import DynamicsMode
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray
 
@@ -24,7 +26,7 @@ class StateConstraints:
         self,
         geometry: Any,
         solution_space: Any,
-        dynamics_mode: str,
+        dynamics_mode: DynamicsMode | str,
         connect_hemispheres: bool,
         magnetospheric_toroidal_lock: bool,
         apply_psi_gauge: bool,
@@ -32,7 +34,7 @@ class StateConstraints:
     ):
         self.geometry = geometry
         self.solution_space = solution_space
-        self.dynamics_mode = dynamics_mode
+        self.dynamics_mode = DynamicsMode(str(dynamics_mode))
         self.connect_hemispheres = connect_hemispheres
         self.magnetospheric_toroidal_lock = magnetospheric_toroidal_lock
         self.apply_psi_gauge = apply_psi_gauge
@@ -41,7 +43,9 @@ class StateConstraints:
     def _extract_ll_constraint_rows(self) -> Any:
         """Extract low-latitude (LL) rows from the constraint-scalar operator."""
         op = self.geometry.get_constraint_scalar_operator(self.solution_space)
-        if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
+        if not (
+            self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres
+        ):
             return op
 
         ll_mask = getattr(self.geometry, "ll_mask", None)
@@ -178,8 +182,7 @@ class StateConstraints:
     def m_ind_gauge_projector(self) -> np.ndarray:
         """Dense scalar gauge projector for legacy m_ind evolution."""
         n = self.solution_space.index_length
-        kind = getattr(self.solution_space, "kind", "")
-        if not self.apply_m_ind_gauge or kind not in ("CS", "GRID"):
+        if not self.apply_m_ind_gauge or not is_cs_like_basis(self.solution_space):
             return np.eye(n, dtype=float)
 
         row = np.asarray(self.get_m_ind_gauge_row(n), dtype=float)
@@ -201,8 +204,7 @@ class StateConstraints:
     def m_imp_gauge_projector(self) -> np.ndarray:
         """Dense scalar gauge projector for imposed toroidal scalar m_imp."""
         n = self.solution_space.index_length
-        kind = getattr(self.solution_space, "kind", "")
-        if kind not in ("CS", "GRID"):
+        if not is_cs_like_basis(self.solution_space):
             return np.eye(n, dtype=float)
 
         row = np.asarray(self.get_m_imp_gauge_row(n), dtype=float)
@@ -538,7 +540,9 @@ class StateConstraints:
     @cached_property
     def induction_constraint_bundle_hard(self) -> Optional[Dict[str, np.ndarray]]:
         """Build compact hard-constraint blocks for LL symmetry and optional HL lock."""
-        if not (self.dynamics_mode == "full_induction" and self.connect_hemispheres):
+        if not (
+            self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres
+        ):
             return None
 
         ll_op = self._extract_ll_constraint_rows()
@@ -638,9 +642,9 @@ class StateConstraints:
     @cached_property
     def induction_constraint_operator_hard(self) -> Any:
         """Hard constraint operator for LL symmetry and optional HL lock."""
-        if self.dynamics_mode == "full_induction" and not self.connect_hemispheres:
+        if self.dynamics_mode == DynamicsMode.FULL_INDUCTION and not self.connect_hemispheres:
             return None
-        if self.dynamics_mode != "full_induction":
+        if self.dynamics_mode != DynamicsMode.FULL_INDUCTION:
             return self.geometry.get_constraint_scalar_operator(self.solution_space)
 
         bundle = self.induction_constraint_bundle_hard

@@ -14,7 +14,9 @@ import numpy as np
 import xarray as xr
 
 from pynamit.math.constants import mu0
+from pynamit.primitives.basis import is_cs_like_basis, is_sh_basis
 from pynamit.primitives.grid import Grid
+from pynamit.simulation.settings import MainfieldKind
 from pynamit.utils import tensor_pinv
 from pynamit.simulation.spatial.geometry_utils import to_dense, get_radial_shift_diagonal
 
@@ -145,7 +147,7 @@ class PFACIntegrator:
         n_sh = self.basis.index_length
         T_to_Ve = xr.DataArray(np.zeros((n_sol, n_sol)), dims=("current_pot", "field_pot"))
 
-        if self.mainfield.kind == "radial" or self.ignore_PFAC:
+        if self.mainfield.kind == MainfieldKind.RADIAL or self.ignore_PFAC:
             return T_to_Ve
 
         fac_steps = np.asarray(self.FAC_integration_steps, dtype=float)
@@ -188,7 +190,7 @@ class PFACIntegrator:
         # (built once and reused for all radial quadrature steps).
         L_sol = to_dense(self.solution_space.get_laplacian_operator(self.RI))
         m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
-        if getattr(self.solution_space, "kind", "") in ("CS", "GRID"):
+        if is_cs_like_basis(self.solution_space):
             if hasattr(self.solution_space, "get_mean_zero_projector"):
                 try:
                     P_sol = np.asarray(
@@ -201,7 +203,7 @@ class PFACIntegrator:
                     pass
 
         # Is this a pure spectral simulation?
-        is_pure_sh = (self.solution_space is self.basis or self.solution_space.kind == "SH")
+        is_pure_sh = self.solution_space is self.basis or is_sh_basis(self.solution_space)
 
         # Accumulator (spectral result: Ve_sh_coeffs / m_imp_coeffs)
         T_accum = np.zeros((n_sh, n_sol))
@@ -228,7 +230,7 @@ class PFACIntegrator:
             P_sol = tensor_pinv(E_sol, rtol=1e-12)
             T_to_Ve.values = (P_sol @ E_sh) @ T_accum
 
-        if getattr(self.solution_space, "kind", "") in ("CS", "GRID"):
+        if is_cs_like_basis(self.solution_space):
             if hasattr(self.solution_space, "get_mean_zero_projector"):
                 try:
                     P_g = np.asarray(

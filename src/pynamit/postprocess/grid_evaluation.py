@@ -8,6 +8,7 @@ from typing import Any, Optional, Tuple
 import numpy as np
 import xarray as xr
 
+from pynamit.primitives.basis import is_sh_basis
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.simulation.input import decode_conductance_representation_to_grids
@@ -21,7 +22,7 @@ def get_scalar_grid_evaluation_matrix(
 ) -> np.ndarray:
     """Return the dense scalar evaluation matrix for ``storage_basis`` on ``grid``."""
     kwargs = {}
-    if mean_free is not None and getattr(storage_basis, "kind", "") == "SH":
+    if mean_free is not None and is_sh_basis(storage_basis):
         kwargs["mean_free"] = mean_free
     return np.asarray(to_dense(storage_basis.get_evaluation_matrix(grid, **kwargs)))
 
@@ -34,7 +35,7 @@ def get_tangential_grid_component_matrices(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return dense ``(theta, phi)`` tangential evaluation matrices on ``grid``."""
     kwargs = {}
-    if mean_free is not None and getattr(storage_basis, "kind", "") == "SH":
+    if mean_free is not None and is_sh_basis(storage_basis):
         kwargs["mean_free"] = mean_free
     vector_basis = np.asarray(to_dense(storage_basis.get_vector_basis_matrix(grid, **kwargs)))
     if vector_basis.ndim != 4 or vector_basis.shape[0] != 2 or vector_basis.shape[2] != 2:

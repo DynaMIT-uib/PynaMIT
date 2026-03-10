@@ -16,6 +16,7 @@ from functools import cached_property
 import scipy.sparse
 
 from pynamit.math.constants import mu0
+from pynamit.primitives.basis import is_cs_basis, is_cs_like_basis, is_sh_basis
 from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field import Field
@@ -25,7 +26,7 @@ from pynamit.math.linear_map import as_linear_map
 from pynamit.spherical_harmonics.gaunt import GauntEngine
 from pynamit.simulation.induction.operators import ResistivityTensorOperator
 from pynamit.simulation.induction.poloidal import PoloidalSystemMatrices
-from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind, SimulationMode
 from pynamit.simulation.spatial.geometry_utils import (
     to_dense,
     get_radial_shift_diagonal,
@@ -117,7 +118,8 @@ class Geometry:
                 getattr(settings, "magnetospheric_poloidal_lock", True)
             ),
             lock_toroidal_source_channels=(
-                getattr(settings, "dynamics_mode", "legacy") == "full_induction"
+                getattr(settings, "dynamics_mode", DynamicsMode.LEGACY)
+                == DynamicsMode.FULL_INDUCTION
             ),
         )
 
@@ -128,7 +130,7 @@ class Geometry:
             latitude_boundary=self.latitude_boundary,
             connect_hemispheres=self.connect_hemispheres,
             northern_hemisphere_apex_constraints=self.northern_hemisphere_apex_constraints,
-            dynamics_mode=getattr(settings, "dynamics_mode", "legacy"),
+            dynamics_mode=getattr(settings, "dynamics_mode", DynamicsMode.LEGACY),
         )
         self._init_constraint_mappings()
 
@@ -144,9 +146,7 @@ class Geometry:
         an auxiliary SH basis for PFAC/radial closure semantics.
         """
         mode = getattr(settings, "simulation_mode", None)
-        mode_value = getattr(mode, "value", mode)
-        sol_kind = getattr(self.solution_space, "kind", "")
-        if sol_kind in ("CS", "GRID") and mode_value == "cs_dominant":
+        if is_cs_like_basis(self.solution_space) and mode == SimulationMode.CS_DOMINANT:
             from pynamit.spherical_harmonics.sh_basis import SHBasis
 
             logger.info(
@@ -231,8 +231,6 @@ class Geometry:
             return None
 
         try:
-            solution_kind = getattr(self.solution_space, "kind", "")
-            basis_kind = getattr(self.basis, "kind", "")
             solution_size = getattr(self.solution_space, "index_length", None)
             basis_size = getattr(self.basis, "index_length", None)
 
@@ -241,8 +239,8 @@ class Geometry:
             # and the constraint operators need an explicit embedding back into the
             # full SH scalar space.
             if (
-                solution_kind == "SH"
-                and basis_kind == "SH"
+                is_sh_basis(self.solution_space)
+                and is_sh_basis(self.basis)
                 and bool(getattr(self.solution_space, "mean_free", False))
                 and solution_size is not None
                 and basis_size is not None
@@ -253,7 +251,7 @@ class Geometry:
                 return adapter
 
             # Check for different basis types
-            if solution_kind != basis_kind:
+            if type(self.solution_space) is not type(self.basis):
                 logger.info("Basis mismatch detected: initializing hybrid adapter.")
                 G_dense = to_dense(self.basis.get_evaluation_matrix(self.grid))
                 return tensor_pinv(G_dense, n_leading_flattened=1)
@@ -482,7 +480,7 @@ class Geometry:
         # Try isotropic analytic path
         use_isotropic = (
             etaP is not None and etaH is not None and
-            getattr(self.mainfield, "kind", "dipole") == "radial"
+            getattr(self.mainfield, "kind", MainfieldKind.DIPOLE) == MainfieldKind.RADIAL
         )
 
         if use_isotropic:
@@ -625,7 +623,6 @@ class Geometry:
         if input_basis is None:
             return spectral_operator
 
-        input_kind = getattr(input_basis, "kind", None)
         input_size = getattr(input_basis, "index_length", None)
         spectral_width = int(spectral_operator.shape[1])
 
@@ -636,7 +633,7 @@ class Geometry:
         # monopole column removed. This keeps same-kind reduced SH spaces
         # basis-consistent without routing through the hybrid simulation adapter.
         if (
-            input_kind == "SH"
+            is_sh_basis(input_basis)
             and bool(getattr(input_basis, "mean_free", False))
             and input_size is not None
             and int(input_size) + 1 == spectral_width
@@ -705,7 +702,7 @@ class Geometry:
     @cached_property
     def G_Ve_to_JS(self) -> np.ndarray:
         """Grid-native Induction operator (Solution Basis)."""
-        if self.solution_space.kind == "CS":
+        if is_cs_basis(self.solution_space):
             try:
                 return self._compute_vsh_operator(self.solution_space)
             except (NotImplementedError, AttributeError):

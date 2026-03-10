@@ -13,6 +13,7 @@ import tempfile
 import time
 
 import numpy as np
+from pynamit.simulation.settings import DynamicsMode
 
 # Avoid expensive per-run Matplotlib/font cache initialization in non-writable HOME.
 if "MPLCONFIGDIR" not in os.environ:
@@ -70,7 +71,7 @@ def _build_state(
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=sim_mode,
         ignore_PFAC=ignore_pfac,
         mainfield_kind=mainfield_kind,

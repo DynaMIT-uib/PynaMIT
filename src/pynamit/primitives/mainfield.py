@@ -220,15 +220,24 @@ class Mainfield(_EvaluableMixin):
     """
 
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):
-        self.kind = kind.lower()
+        # Import lazily to avoid pulling in ``pynamit.simulation`` during
+        # primitive module initialization.
+        from pynamit.simulation.settings import MainfieldKind
+
+        if isinstance(kind, MainfieldKind):
+            self.kind = kind
+        elif isinstance(kind, str):
+            self.kind = MainfieldKind(kind.lower())
+        else:
+            raise ValueError("kind must be a MainfieldKind or string")
         self.epoch = int(epoch)
         self.hI = float(hI)
         self.B0 = B0
-        if self.kind == "dipole":
+        if self.kind == MainfieldKind.DIPOLE:
             self._impl = DipoleImplementation(epoch)
-        elif self.kind == "igrf":
+        elif self.kind == MainfieldKind.IGRF:
             self._impl = IGRFImplementation(epoch, hI)
-        elif self.kind == "radial":
+        elif self.kind == MainfieldKind.RADIAL:
             self._impl = RadialImplementation(epoch, B0)
             self.B0 = self._impl.B0
         else:

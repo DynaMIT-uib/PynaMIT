@@ -8,6 +8,7 @@ import pytest
 from pynamit.math.constants import RE, mu0
 from pynamit.simulation.dynamics import Dynamics, SimulationMode
 from pynamit.simulation.spatial import to_dense
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
 def _build_dynamics(
@@ -26,10 +27,10 @@ def _build_dynamics(
         Ncs=10,
         RI=RE + 110.0e3,
         RM=4.0 * RE,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         connect_hemispheres=True,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
         magnetospheric_toroidal_lock=toroidal_lock,
         magnetospheric_poloidal_lock=poloidal_lock,
@@ -44,10 +45,10 @@ def _build_legacy_dynamics(tmp_path, *, poloidal_lock: bool) -> Dynamics:
         Ncs=10,
         RI=RE + 110.0e3,
         RM=4.0 * RE,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         connect_hemispheres=True,
-        dynamics_mode="legacy",
+        dynamics_mode=DynamicsMode.LEGACY,
         simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
         magnetospheric_poloidal_lock=poloidal_lock,
     )

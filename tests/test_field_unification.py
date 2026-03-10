@@ -75,9 +75,10 @@ def test_field_expansion_tangential():
 
 def test_mainfield_continuous_accessors():
     """Test accessing components of continuous Mainfield."""
-    from pynamit.primitives.mainfield import Mainfield
+from pynamit.primitives.mainfield import Mainfield
+from pynamit.simulation.settings import MainfieldKind
 
-    mf = Mainfield(kind="radial", B0=30000e-9)
+    mf = Mainfield(kind=MainfieldKind.RADIAL, B0=30000e-9)
 
     # 1. Access components directly
     br_field = mf.vec.r
@@ -123,7 +124,7 @@ def test_mainfield_as_field_provider_backend():
     """Mainfield can be wrapped behind the generic Field facade."""
     from pynamit.primitives.mainfield import Mainfield
 
-    mf = Mainfield(kind="radial", B0=30000e-9)
+    mf = Mainfield(kind=MainfieldKind.RADIAL, B0=30000e-9)
     field = mf.as_field()
 
     assert isinstance(field, Field)

@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind
 
 
 def test_steady_state_init():
@@ -27,7 +28,7 @@ def test_steady_state_init():
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
@@ -73,7 +74,7 @@ def test_impose_steady_state_at_current_time(tmp_path):
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

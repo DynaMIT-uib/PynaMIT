@@ -9,6 +9,7 @@ import datetime
 import pyamps
 import apexpy
 import matplotlib.pyplot as plt
+from pynamit.simulation.settings import MainfieldKind
 
 RE = 6371.2e3
 RI = RE + 110e3
@@ -47,7 +48,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         Mmax=Mmax,
         Ncs=Ncs,
         RI=RI,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         FAC_integration_steps=rk,
         ignore_PFAC=False,
         connect_hemispheres=True,

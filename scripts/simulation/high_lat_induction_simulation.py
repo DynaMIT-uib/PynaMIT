@@ -1,6 +1,7 @@
 """Simulate induction at high latitudes."""
 
 import os
+from pynamit.simulation.settings import MainfieldKind
 
 os.environ["MKL_NUM_THREADS"] = "185"
 os.environ["NUMEXPR_NUM_THREADS"] = "185"
@@ -36,7 +37,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="igrf",
+    mainfield_kind=MainfieldKind.IGRF,
     FAC_integration_steps=rk,
     ignore_PFAC=False,
     connect_hemispheres=True,

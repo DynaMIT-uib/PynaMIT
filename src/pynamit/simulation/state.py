@@ -15,6 +15,7 @@ import numpy as np
 from functools import cached_property
 
 from pynamit.primitives.field import Field
+from pynamit.primitives.basis import is_cs_basis
 from pynamit.primitives.field_spec import FieldSpec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
@@ -32,7 +33,12 @@ from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.basis import Basis
 from pynamit.utils import asarray, xp, to_numpy
 from pynamit.simulation.spatial import to_dense, canonicalize_vector_basis_matrix
-from pynamit.simulation.settings import DynamicsSettings, SimulationMode
+from pynamit.simulation.settings import (
+    DynamicsMode,
+    DynamicsSettings,
+    IntegratorKind,
+    SimulationMode,
+)
 from pynamit.simulation.input import (
     decode_conductance_representation_to_grids,
 )
@@ -130,7 +136,7 @@ class State:
 
         # Initialize Toroidal System Matrices if in full_induction mode
         self.toroidal_matrices: Optional[ToroidalSystemMatrices] = None
-        if self.dynamics_mode == "full_induction":
+        if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             closure_basis = self.geometry.pfac_closure_basis
             self.toroidal_matrices = ToroidalSystemMatrices(
                 basis=self.solution_space, 
@@ -158,7 +164,7 @@ class State:
                     preconditioner=self.preconditioner,
                     tolerance=1e-13,
                 )
-            if getattr(self.mode, "value", self.mode) == "cs_dominant":
+            if self.mode == SimulationMode.CS_DOMINANT:
                 logger.info(
                     "Using SH auxiliary closure basis for toroidal operator assembly "
                     "in cs_dominant/full_induction."
@@ -226,11 +232,11 @@ class State:
         self.magnetospheric_toroidal_lock = bool(
             normalized_settings.magnetospheric_toroidal_lock
         )
-        self.conductance_interpolation_mode = str(normalized_settings.conductance_interpolation_mode)
+        self.conductance_interpolation_mode = normalized_settings.conductance_interpolation_mode
         self.conductance_interpolation_floor = float(normalized_settings.conductance_interpolation_floor)
         self.toroidal_regularization_lambda = normalized_settings.toroidal_regularization_lambda
         self.dense_full_operators = bool(normalized_settings.dense_full_operators)
-        self.exponential_solver = str(normalized_settings.exponential_solver)
+        self.exponential_solver = normalized_settings.exponential_solver
         self.connect_hemispheres = bool(normalized_settings.connect_hemispheres)
         self.dynamics_mode = normalized_settings.dynamics_mode
         self.toroidal_weighting = normalized_settings.toroidal_weighting
@@ -242,7 +248,7 @@ class State:
         # CS-dominant full-induction is sensitive when SH truncation approaches
         # the CS native Nyquist range; warn early to keep operational bandwidth safe.
         if (
-            self.dynamics_mode == "full_induction"
+            self.dynamics_mode == DynamicsMode.FULL_INDUCTION
             and self.mode == SimulationMode.CS_DOMINANT
             and self.Ncs > 0
         ):
@@ -258,9 +264,9 @@ class State:
                     self.Ncs,
                 )
 
-        if self.integrator == "exponential":
+        if self.integrator == IntegratorKind.EXPONENTIAL:
             self.poloidal_integrator = ExponentialIntegrator()
-        elif self.integrator == "euler":
+        elif self.integrator == IntegratorKind.EULER:
             self.poloidal_integrator = EulerIntegrator()
         else:
             # Assume it's a scipy method (DOP853, RK45, etc.)
@@ -341,7 +347,7 @@ class State:
         # IH coupling is disabled, it is conductance-independent.
         invalidate_m_imp = (
             self.connect_hemispheres
-            and self.dynamics_mode != "full_induction"
+            and self.dynamics_mode != DynamicsMode.FULL_INDUCTION
             and self.geometry.E_coeffs_to_E_apex_ll_diff is not None
         )
 
@@ -443,7 +449,7 @@ class State:
 
     def _get_dt_alpha_driver_coeffs(self) -> Optional[np.ndarray]:
         """Return ``dt_alpha`` driver projected to HL modes."""
-        if self.dynamics_mode != "full_induction" or self.dt_m_imp_driver is None:
+        if self.dynamics_mode != DynamicsMode.FULL_INDUCTION or self.dt_m_imp_driver is None:
             return None
         dt_m_imp = np.asarray(asarray(self.dt_m_imp_driver.coeffs).reshape(-1))
         dt_m_imp = np.asarray(self._project_to_hl_modes(dt_m_imp)).reshape(-1)
@@ -725,7 +731,7 @@ class State:
              return field
              
         # Handle projection to CS/Nodal basis
-        if hasattr(self.solution_space, "kind") and self.solution_space.kind == "CS":
+        if is_cs_basis(self.solution_space):
              grid = self.geometry.grid
              # Evaluate on grid
              v1, v2, v3 = field.evaluate(self.geometry.RI, grid.theta, grid.phi)
@@ -863,7 +869,7 @@ class State:
                 # Driver changed: rebuild imposed toroidal baseline on next use.
                 self._imposed_toroidal_dirty = True
                 if current_deriv is not None:
-                    if self.dynamics_mode == "full_induction":
+                    if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
                         f_dt_jr = Field.from_coefficients(
                             storage_spec,
                             coeffs=current_deriv["jr"],

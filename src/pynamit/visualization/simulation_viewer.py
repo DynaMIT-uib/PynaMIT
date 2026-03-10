@@ -4,7 +4,9 @@ import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from polplot import Polarplot
+from pynamit.primitives.basis import is_sh_basis
 from pynamit.primitives.field import Field
+from pynamit.simulation.settings import MainfieldKind
 from pynamit.visualization.map_plotting import (
     decorate_global_axes,
     make_global_projection,
@@ -83,7 +85,7 @@ class SimulationViewer(_SimulationViewerState):
         """
         noon_longitude = self.dp.mlt2mlon(12, self.time)
 
-        if self.settings.mainfield_kind == "igrf":
+        if self.settings.mainfield_kind == MainfieldKind.IGRF:
             # Convert to geographic coordinates.
             _, noon_longitude, _ = self.apx.apex2geo(0, noon_longitude, 0)
 
@@ -342,7 +344,7 @@ class SimulationViewer(_SimulationViewerState):
             if key not in kwargs.keys():
                 kwargs[key] = self.Phi_defaults[key]
 
-        if getattr(self.state_spec, "kind", "") == "SH":
+        if is_sh_basis(self.state_spec):
             Phi = self.state_spec.evaluate(
                 self.m_Phi,
                 self.grids[region],
@@ -383,7 +385,7 @@ class SimulationViewer(_SimulationViewerState):
             if key not in kwargs.keys():
                 kwargs[key] = self.W_defaults[key]
 
-        if getattr(self.state_spec, "kind", "") == "SH":
+        if is_sh_basis(self.state_spec):
             W = self.state_spec.evaluate(
                 self.m_W,
                 self.grids[region],

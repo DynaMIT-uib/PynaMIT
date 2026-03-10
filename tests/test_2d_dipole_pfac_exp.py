@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import IntegratorKind, MainfieldKind
 
 
 def test_2d_dipole_pfac_exp():
@@ -27,9 +28,9 @@ def test_2d_dipole_pfac_exp():
         Nmax=10,
         Mmax=10,
         Ncs=20,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
-        integrator="exponential",
+        integrator=IntegratorKind.EXPONENTIAL,
         steady_state_initialization=False,
     )
 

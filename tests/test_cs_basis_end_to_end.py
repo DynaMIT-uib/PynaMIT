@@ -9,7 +9,7 @@ from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.state import State
 from pynamit.simulation.spatial import Geometry
-from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import IntegratorKind, MainfieldKind, SimulationMode
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.mainfield import Mainfield
 
@@ -24,7 +24,7 @@ class MockSettings:
     FAC_integration_steps: list = None
     least_squares_solver: str = "svd"
     least_squares_preconditioner: str = None
-    integrator: str = "euler"
+    integrator: IntegratorKind = IntegratorKind.EULER
     m_imp_regularization_lambda: float = 1e-10
     ih_constraint_scaling: float = 1.0
     simulation_mode: SimulationMode = SimulationMode.PURE_SPECTRAL
@@ -66,7 +66,7 @@ def test_cs_basis_state_end_to_end():
     # The 'basis' arg is used for standard generic helpers if needed.
     sh_basis_dummy = SHBasis(Nmax=10, Mmax=8, mean_free=True) 
     
-    mainfield = Mainfield("dipole")
+    mainfield = Mainfield(MainfieldKind.DIPOLE)
     settings = MockSettings()
     
     # Initialize State with CSBasis overriding the solver basis

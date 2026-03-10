@@ -10,7 +10,8 @@ Uses 'full_induction' dynamics mode with exponential integrator.
 
 import pytest
 import numpy as np
-from pynamit.simulation.dynamics import SimulationMode
+from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, ExponentialSolverKind, IntegratorKind, MainfieldKind
 
 
 def _run_exponential_integrator_test(
@@ -35,17 +36,17 @@ def _run_exponential_integrator_test(
         Nmax=10,
         Mmax=5,
         Ncs=10,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=sim_mode.value,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         multi_data=True,
         connect_hemispheres=True,
         least_squares_solver="svd",
-        integrator="exponential",
+        integrator=IntegratorKind.EXPONENTIAL,
         dense_full_operators=True,
-        exponential_solver="expm",
+        exponential_solver=ExponentialSolverKind.EXPM,
         northern_hemisphere_apex_constraints=northern_apex_constraints,
     )
 

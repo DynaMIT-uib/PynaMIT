@@ -10,6 +10,7 @@ import os
 import cartopy.crs as ccrs
 from polplot import Polarplot
 import matplotlib.pyplot as plt
+from pynamit.simulation.settings import IntegratorKind, MainfieldKind
 
 
 RE = 6381e3
@@ -42,14 +43,14 @@ dynamics = pynamit.Dynamics(
     Ncs=Ncs,
     RI=RI,
     RM=1.5 * RI,
-    mainfield_kind="dipole",
+    mainfield_kind=MainfieldKind.DIPOLE,
     FAC_integration_steps=rk,
     ignore_PFAC=True,
     connect_hemispheres=False,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
-    integrator="exponential",
+    integrator=IntegratorKind.EXPONENTIAL,
 )
 
 mage_dir = "./mage_data/"

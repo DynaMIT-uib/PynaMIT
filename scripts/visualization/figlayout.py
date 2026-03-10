@@ -11,6 +11,7 @@ from dipole import Dipole
 from lompe import conductance
 import pyamps
 import pyhwm2014
+from pynamit.simulation.settings import MainfieldKind
 
 
 RE = 6371.2e3
@@ -34,7 +35,7 @@ def build_example_dynamics() -> pynamit.Dynamics:
         Mmax=mmax,
         Ncs=ncs,
         RI=RI,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         FAC_integration_steps=rk,
         ignore_PFAC=False,
         connect_hemispheres=True,

@@ -14,6 +14,7 @@ from pynamit.math.constants import RE
 from pynamit.postprocess.grid_evaluation import decode_conductance_entry_to_grids
 from pynamit.primitives.grid import Grid
 from pynamit.simulation.data import SimulationData
+from pynamit.simulation.settings import MainfieldKind
 
 
 class _SimulationViewerState:
@@ -69,7 +70,7 @@ class _SimulationViewerState:
         self.mlat, self.mlon = np.meshgrid(
             np.linspace(mlatlim, 89.9, Nlat // 2), np.linspace(-180, 180, Nlon)
         )
-        if settings.mainfield_kind.lower() == "igrf":
+        if settings.mainfield_kind == MainfieldKind.IGRF:
             self.apx = apexpy.Apex(self.t0.year, refh=(settings.RI - RE) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
                 self.mlat, self.mlon, (settings.RI - RE) * 1e-3

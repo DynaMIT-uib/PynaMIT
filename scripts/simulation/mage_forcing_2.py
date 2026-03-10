@@ -6,6 +6,7 @@ import dipole
 import datetime
 import h5py as h5
 from pynamit.simulation.input import compute_spherical_input_sqrt_weights
+from pynamit.simulation.settings import IntegratorKind, MainfieldKind
 
 RE = 6381e3
 RI = 6.5e6
@@ -104,14 +105,14 @@ dynamics = pynamit.Dynamics(
     Ncs=Ncs,
     RI=RI,
     RM=1.5 * RI,
-    mainfield_kind="dipole",
+    mainfield_kind=MainfieldKind.DIPOLE,
     FAC_integration_steps=rk,
     ignore_PFAC=False,
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
     t0=str(date),
-    integrator="exponential",
+    integrator=IntegratorKind.EXPONENTIAL,
     # Enable SH fast input projection for regular ionosphere-grid inputs (jr/SP/SH/u).
     # Br remains on the curvilinear magnetosphere grid and will use the slow path.
     enable_fast_input_path=True,

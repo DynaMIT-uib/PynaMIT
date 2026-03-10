@@ -2,6 +2,7 @@
 import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
 @pytest.mark.wind
 def test_pure_spectral_execution(pynamit_approx):
@@ -19,10 +20,10 @@ def test_pure_spectral_execution(pynamit_approx):
         Nmax=5,
         Mmax=5,
         Ncs=6,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
-        simulation_mode="pure_spectral",
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         steady_state_initialization=False,
         wind=True,
     )

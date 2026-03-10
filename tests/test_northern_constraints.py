@@ -1,7 +1,7 @@
 
 import numpy as np
 import pytest
-from pynamit.simulation.settings import DynamicsSettings, SimulationMode
+from pynamit.simulation.settings import DynamicsSettings, MainfieldKind, SimulationMode
 from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.primitives.basis import Basis
@@ -25,7 +25,7 @@ class TestNorthernConstraints:
              northern_hemisphere_apex_constraints=False # Baseline
         )
         
-        mainfield = Mainfield(kind="igrf", epoch=2020)
+        mainfield = Mainfield(kind=MainfieldKind.IGRF, epoch=2020)
         basis = SHBasis(settings.Nmax, settings.Mmax, mean_free=True)
         grid_basis = CSBasis(settings.Ncs) # dummy grid
         
@@ -64,7 +64,7 @@ class TestNorthernConstraints:
             connect_hemispheres=True,
             northern_hemisphere_apex_constraints=True,
             final_time=5e-4, # Run one step
-            mainfield_kind='igrf'
+            mainfield_kind=MainfieldKind.IGRF
         )
         
         assert dynamics is not None

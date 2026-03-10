@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import datetime
 import pyamps
 import apexpy
+from pynamit.simulation.settings import MainfieldKind
 
 run_directory = "ss_test"
 Nmax, Mmax, Ncs = 15, 15, 16
@@ -30,7 +31,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="igrf",
+    mainfield_kind=MainfieldKind.IGRF,
     FAC_integration_steps=rk,
     ignore_PFAC=False,
     connect_hemispheres=True,

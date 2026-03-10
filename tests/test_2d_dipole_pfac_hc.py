@@ -6,6 +6,7 @@ import pytest
 
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
+from pynamit.simulation.settings import MainfieldKind
 
 
 def test_2d_dipole_pfac_hc():
@@ -27,7 +28,7 @@ def test_2d_dipole_pfac_hc():
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="dipole",
+        mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,

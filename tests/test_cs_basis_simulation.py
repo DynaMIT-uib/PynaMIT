@@ -6,6 +6,12 @@ import pytest
 import numpy as np
 
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.settings import (
+    IntegratorKind,
+    MainfieldKind,
+    SimulationMode,
+    SolutionBasisKind,
+)
 
 
 @pytest.mark.wind
@@ -40,7 +46,7 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
         os.mkdir(temp_dir)
 
     # Act.
-    # Run simulation with solution_basis_kind="CS"
+    # Run simulation with solution_basis_kind=SolutionBasisKind.CS
     # Balanced resolution: SH modes (218) sufficient for near-full rank
     dynamics = run_pynamit(
         final_time=final_time,
@@ -48,7 +54,7 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
         Nmax=14,
         Mmax=12,
         Ncs=8,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
@@ -57,9 +63,9 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
-        integrator="euler",
+        integrator=IntegratorKind.EULER,
         multi_data=True,
-        simulation_mode="cs_dominant",
+        simulation_mode=SimulationMode.CS_DOMINANT,
         northern_hemisphere_apex_constraints=True,
     )
 

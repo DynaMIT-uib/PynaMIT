@@ -7,7 +7,7 @@ import numpy as np
 from pynamit.math.constants import mu0
 from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.runner import run_pynamit
-from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, IntegratorKind, MainfieldKind, SimulationMode
 
 
 def _build_state(
@@ -23,17 +23,17 @@ def _build_state(
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=simulation_mode.value,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         use_jr=False,
         wind=False,
         connect_hemispheres=False,
         benchmark_mode=True,
         dense_full_operators=False,
-        integrator="euler",
+        integrator=IntegratorKind.EULER,
         least_squares_solver="svd",
     )
     return sim.state

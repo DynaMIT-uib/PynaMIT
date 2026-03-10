@@ -4,15 +4,16 @@ import numpy as np
 from pynamit.simulation.runner import run_pynamit
 from pynamit.primitives.field import Field
 from pynamit.spherical_harmonics.gaunt import GauntEngine
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
-def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
+def run_convergence_check(mainfield_kind: MainfieldKind, conductance_kind, N=12, tol=1e-6):
     """
     Run a convergence check for a specific configuration.
     
     Parameters
     ----------
-    mainfield_kind : str
-        "radial" or "dipole"
+    mainfield_kind : MainfieldKind
+        Mainfield model kind.
     conductance_kind : str
         "unit", "hall", "pedersen_smooth"
     N : int
@@ -24,7 +25,7 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
     
     sim = run_pynamit(
         Nmax=N, Mmax=N, Ncs=2*N+4,
-        simulation_mode="spectral_transform_gl",
+        simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_GL,
         mainfield_kind=mainfield_kind,
         final_time=0.01,
         steady_state_initialization=False,
@@ -87,11 +88,11 @@ def run_convergence_check(mainfield_kind, conductance_kind, N=12, tol=1e-6):
 
 def test_analytic_convergence_radial_hall():
     # Bit-exact expectation
-    run_convergence_check("radial", "hall", N=12, tol=1e-10)
+    run_convergence_check(MainfieldKind.RADIAL, "hall", N=12, tol=1e-10)
 
 def test_analytic_convergence_dipole_pedersen():
     # High precision expectation (N=12 limited by spectral truncation ~3e-5)
-    run_convergence_check("dipole", "pedersen_smooth", N=12, tol=1e-4)
+    run_convergence_check(MainfieldKind.DIPOLE, "pedersen_smooth", N=12, tol=1e-4)
 
 if __name__ == "__main__":
     test_analytic_convergence_radial_hall()

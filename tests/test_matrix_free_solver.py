@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
-from pynamit.simulation.dynamics import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind, SimulationMode
 
 @pytest.mark.parametrize("solver", ["lsmr", "cgls"])
 def test_full_induction_iterative_solvers(solver):
@@ -19,11 +19,11 @@ def test_full_induction_iterative_solvers(solver):
         Nmax=8,
         Mmax=4,
         Ncs=16,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         # Use simple spectral mode for speed
-        simulation_mode="pure_spectral",
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         connect_hemispheres=True,
         # Explicitly request iterative solver
         least_squares_solver=solver,
@@ -68,10 +68,10 @@ def test_full_induction_coupled_column_scale_cache(tmp_path):
         Nmax=8,
         Mmax=4,
         Ncs=10,
-        dynamics_mode="full_induction",
-        simulation_mode=SimulationMode.PURE_SPECTRAL.value,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         connect_hemispheres=True,
         multi_data=True,
         least_squares_solver="lsmr",

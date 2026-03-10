@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.simulation.dynamics import Dynamics, SimulationMode
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
 def _build_radial_isotropic_state():
@@ -13,10 +14,10 @@ def _build_radial_isotropic_state():
         Nmax=6,
         Mmax=6,
         Ncs=12,
-        mainfield_kind="radial",
+        mainfield_kind=MainfieldKind.RADIAL,
         ignore_PFAC=True,
         connect_hemispheres=False,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=SimulationMode.PURE_SPECTRAL,
         least_squares_solver="svd",
         benchmark_mode=True,

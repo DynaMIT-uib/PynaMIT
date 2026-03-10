@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 from pynamit.simulation.runner import run_pynamit
-from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import MainfieldKind, SimulationMode
 
 def test_br_induction_cs():
     """Test that Br induction works with CSBasis (no size mismatch)."""
@@ -15,7 +15,7 @@ def test_br_induction_cs():
             Ncs=10,
             Nmax=5,
             Mmax=5,
-            mainfield_kind="dipole",
+            mainfield_kind=MainfieldKind.DIPOLE,
             RM=2.0, # Enable magnetosphere for coupling factors
             simulation_mode=SimulationMode.CS_DOMINANT,
             ignore_PFAC=False, # Needed for induction

@@ -9,6 +9,7 @@ import os
 import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
+from pynamit.simulation.settings import MainfieldKind
 
 reload(pynamit)
 
@@ -39,7 +40,7 @@ dynamics = pynamit.Dynamics(
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="dipole",
+    mainfield_kind=MainfieldKind.DIPOLE,
     ignore_PFAC=IGNORE_PFAC,
     connect_hemispheres=CONNECT_HEMISPHERES,
 )

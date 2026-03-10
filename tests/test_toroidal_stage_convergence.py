@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pynamit.simulation.dynamics import SimulationMode
+from pynamit.simulation.settings import SimulationMode
+from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
 def _build_state(
@@ -23,10 +24,10 @@ def _build_state(
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,
-        dynamics_mode="full_induction",
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=sim_mode,
         ignore_PFAC=False,
-        mainfield_kind="igrf",
+        mainfield_kind=MainfieldKind.IGRF,
         mainfield_epoch=2020,
         connect_hemispheres=True,
         least_squares_solver="svd",
