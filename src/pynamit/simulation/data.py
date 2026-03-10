@@ -24,6 +24,7 @@ from pynamit.simulation.input import conductance_timeseries_vars_for_mode
 from pynamit.simulation.settings import DynamicsSettings, SimulationMode, SolutionBasisKind
 from pynamit.simulation.spatial.geometry_utils import get_radial_shift_diagonal, to_dense
 
+
 def _build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasis]:
     """Build the standard CS basis and canonical full SH basis."""
     cs_basis = CSBasis(int(settings.Ncs))
@@ -32,9 +33,7 @@ def _build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasi
 
 
 def _create_input_timeseries(
-    settings: DynamicsSettings,
-    *,
-    sh_basis: SHBasis,
+    settings: DynamicsSettings, *, sh_basis: SHBasis
 ) -> tuple[Timeseries, dict[str, dict[str, str]]]:
     """Create the canonical input timeseries schema for a simulation."""
     input_variables = {
@@ -56,10 +55,7 @@ def _create_input_timeseries(
 
 
 def _create_output_timeseries(
-    settings: DynamicsSettings,
-    *,
-    cs_basis: CSBasis,
-    sh_basis: SHBasis,
+    settings: DynamicsSettings, *, cs_basis: CSBasis, sh_basis: SHBasis
 ) -> tuple[Timeseries, dict[str, dict[str, str]], FieldSpec]:
     """Create the canonical output timeseries schema for a simulation."""
     output_variables = {
@@ -86,10 +82,7 @@ def _create_output_timeseries(
         # CS realizes it through mean-zero gauge/constraint handling.
         mean_free=True,
     )
-    output_storage_specs = {
-        "state": solution_spec,
-        "steady_state": solution_spec,
-    }
+    output_storage_specs = {"state": solution_spec, "steady_state": solution_spec}
     timeseries = Timeseries(output_storage_specs, output_variables)
     return timeseries, output_variables, solution_spec
 
@@ -155,17 +148,28 @@ class SimulationData:
         resolved_run_directory = (
             None if run_directory is None else IO.build_run_directory(run_directory)
         )
-        io = IO(resolved_run_directory) if io is None else io
+        io = (
+            IO(resolved_run_directory, preferred_dataset_storage=str(settings.artifact_storage))
+            if io is None
+            else io
+        )
 
         if settings_dataset is None and load_existing:
             settings_dataset = io.load_dataset("settings", print_info=print_info)
         settings_from_file = settings_dataset is not None
         if settings_dataset is not None:
-            if not settings.to_dataset().identical(settings_dataset):
-                raise ValueError(
-                    "Mismatch between requested settings and saved settings on file."
-                )
-            effective_settings = DynamicsSettings.from_dataset(settings_dataset, settings)
+            settings_storage = io.get_dataset_storage_kind("settings") or str(
+                settings.artifact_storage
+            )
+            settings_defaults = DynamicsSettings.coerce(
+                settings, artifact_storage=settings_storage
+            )
+            comparable_requested_settings = settings.to_dataset()
+            if "artifact_storage" not in settings_dataset.attrs:
+                comparable_requested_settings.attrs.pop("artifact_storage", None)
+            if not comparable_requested_settings.identical(settings_dataset):
+                raise ValueError("Mismatch between requested settings and saved settings on file.")
+            effective_settings = DynamicsSettings.from_dataset(settings_dataset, settings_defaults)
         else:
             if require_saved_settings:
                 raise ValueError(
@@ -175,34 +179,27 @@ class SimulationData:
             settings_dataset = effective_settings.to_dataset()
         if resolved_run_directory is not None:
             effective_settings.run_directory = resolved_run_directory
+        io.set_preferred_dataset_storage(str(effective_settings.artifact_storage))
 
         cs_basis, sh_basis = _build_simulation_bases(effective_settings)
 
-        (
-            input_timeseries,
-            input_variables,
-        ) = _create_input_timeseries(
-            effective_settings,
-            sh_basis=sh_basis,
+        (input_timeseries, input_variables) = _create_input_timeseries(
+            effective_settings, sh_basis=sh_basis
         )
         if load_existing:
             input_timeseries.load_all(io)
             cls._prune_missing_variables(input_timeseries)
 
-        (
-            output_timeseries,
-            output_variables,
-            solution_spec,
-        ) = _create_output_timeseries(
-            effective_settings,
-            cs_basis=cs_basis,
-            sh_basis=sh_basis,
+        (output_timeseries, output_variables, solution_spec) = _create_output_timeseries(
+            effective_settings, cs_basis=cs_basis, sh_basis=sh_basis
         )
         if load_existing:
             output_timeseries.load_all(io)
             cls._prune_missing_variables(output_timeseries)
 
-        pfac_dataarray = io.load_dataarray("PFAC_matrix", print_info=print_info) if load_existing else None
+        pfac_dataarray = (
+            io.load_dataarray("PFAC_matrix", print_info=print_info) if load_existing else None
+        )
         pfac_from_file = pfac_dataarray is not None
         pfac_matrix = None if pfac_dataarray is None else np.asarray(pfac_dataarray.values)
 
@@ -238,10 +235,15 @@ class SimulationData:
         io = IO(resolved_run_directory)
         settings_dataset = io.load_dataset("settings")
         if settings_dataset is None:
-            raise ValueError(f"Settings dataset not found for run directory {resolved_run_directory!r}.")
+            raise ValueError(
+                f"Settings dataset not found for run directory {resolved_run_directory!r}."
+            )
+        settings_storage = io.get_dataset_storage_kind("settings") or "auto"
         settings = DynamicsSettings.from_dataset(
             settings_dataset,
-            DynamicsSettings(run_directory=resolved_run_directory),
+            DynamicsSettings(
+                run_directory=resolved_run_directory, artifact_storage=settings_storage
+            ),
         )
         return cls.create(
             resolved_run_directory,
@@ -262,7 +264,11 @@ class SimulationData:
 
     def has_dataset(self, key: str) -> bool:
         """Return whether a named dataset is available."""
-        return key == "settings" or key in self.input_timeseries.datasets or key in self.output_timeseries.datasets
+        return (
+            key == "settings"
+            or key in self.input_timeseries.datasets
+            or key in self.output_timeseries.datasets
+        )
 
     def get_dataset(self, key: str) -> Any:
         """Return a raw xarray dataset by name."""
@@ -275,10 +281,7 @@ class SimulationData:
         raise KeyError(f"Dataset {key!r} is not available.")
 
     def get_input_entry(
-        self,
-        key: str,
-        time: float,
-        interpolation: bool = False,
+        self, key: str, time: float, interpolation: bool = False
     ) -> Optional[dict[str, np.ndarray]]:
         """Return one saved input entry at ``time``."""
         if key not in self.input_timeseries.datasets:
@@ -286,25 +289,17 @@ class SimulationData:
         return self.input_timeseries.get_entry(key, time, interpolation=interpolation)
 
     def get_input_entry_with_derivative(
-        self,
-        key: str,
-        time: float,
-        interpolation: bool = False,
+        self, key: str, time: float, interpolation: bool = False
     ) -> tuple[Optional[dict[str, np.ndarray]], Optional[dict[str, np.ndarray]]]:
         """Return one saved input entry and its derivative at ``time``."""
         if key not in self.input_timeseries.datasets:
             return None, None
         return self.input_timeseries.get_entry_with_derivative(
-            key,
-            time,
-            interpolation=interpolation,
+            key, time, interpolation=interpolation
         )
 
     def get_output_entry(
-        self,
-        key: str,
-        time: float,
-        interpolation: bool = False,
+        self, key: str, time: float, interpolation: bool = False
     ) -> Optional[dict[str, np.ndarray]]:
         """Return one saved output entry at ``time``."""
         if key not in self.output_timeseries.datasets:
@@ -339,18 +334,11 @@ class SimulationData:
         self.io.save_dataset(self.settings_dataset, "settings", print_info=print_info)
         self.settings_from_file = True
 
-    def save_pfac_matrix(
-        self,
-        pfac_matrix: Any,
-        *,
-        print_info: bool = False,
-    ) -> None:
+    def save_pfac_matrix(self, pfac_matrix: Any, *, print_info: bool = False) -> None:
         """Persist the PFAC sidecar matrix to disk and cache it on the object."""
         self.pfac_matrix = np.asarray(pfac_matrix)
         self.io.save_dataarray(
-            xr.DataArray(self.pfac_matrix),
-            "PFAC_matrix",
-            print_info=print_info,
+            xr.DataArray(self.pfac_matrix), "PFAC_matrix", print_info=print_info
         )
         self.pfac_from_file = True
 
@@ -358,13 +346,7 @@ class SimulationData:
         """Persist one input dataset to disk."""
         self.input_timeseries.save(key, self.io, print_info=print_info)
 
-    def add_output_entry(
-        self,
-        key: str,
-        data: dict[str, Any],
-        *,
-        time: float,
-    ) -> None:
+    def add_output_entry(self, key: str, data: dict[str, Any], *, time: float) -> None:
         """Append one output entry to the persisted output timeseries."""
         self.output_timeseries.add_entry(key, data, time=time)
 
@@ -372,12 +354,7 @@ class SimulationData:
         """Persist one output dataset to disk."""
         self.output_timeseries.save(key, self.io, print_info=print_info)
 
-    def get_poloidal_results_operators(
-        self,
-        *,
-        grid: Any,
-        basis: Any = None,
-    ) -> Any:
+    def get_poloidal_results_operators(self, *, grid: Any, basis: Any = None) -> Any:
         """Build explicit postprocessing operators for one target grid."""
         from pynamit.postprocess.results_operators import build_poloidal_results_operators
 
@@ -413,15 +390,11 @@ class SimulationData:
         if self.pfac_matrix is None:
             return None
         return self._apply_imposed_toroidal_poloidal_lock(
-            np.asarray(self.pfac_matrix, dtype=float),
-            solution_space=self.solution_spec,
+            np.asarray(self.pfac_matrix, dtype=float), solution_space=self.solution_spec
         )
 
     def _apply_imposed_toroidal_poloidal_lock(
-        self,
-        operator: np.ndarray,
-        *,
-        solution_space: Any,
+        self, operator: np.ndarray, *, solution_space: Any
     ) -> np.ndarray:
         """Apply the imposed toroidal-poloidal RM closure in solution space."""
         rm = None if self.settings.RM in (None, 0) else float(self.settings.RM)
@@ -430,16 +403,10 @@ class SimulationData:
 
         closure_basis = self._get_pfac_closure_basis(solution_space)
         br_rm_to_ri_shift = get_radial_shift_diagonal(
-            closure_basis,
-            rm,
-            float(self.settings.RI),
-            kind="external",
+            closure_basis, rm, float(self.settings.RI), kind="external"
         )
         br_ri_to_rm_shift = get_radial_shift_diagonal(
-            closure_basis,
-            float(self.settings.RI),
-            rm,
-            kind="internal",
+            closure_basis, float(self.settings.RI), rm, kind="internal"
         )
         roundtrip_denominator = 1.0 - (br_rm_to_ri_shift * br_ri_to_rm_shift)
         roundtrip_operator = np.diag(np.asarray(roundtrip_denominator, dtype=float))

@@ -19,13 +19,21 @@ NETCDF_SUFFIX = ".ncdf"
 ZARR_SUFFIX = ".zarr"
 DATASET_STORAGE_KINDS = frozenset({"auto", "netcdf", "zarr"})
 DATAARRAY_ARTIFACTS = frozenset({"PFAC_matrix"})
+RUN_ARTIFACTS = frozenset(
+    {"settings", "PFAC_matrix", "jr", "Br", "conductance", "u", "state", "steady_state"}
+)
 ZARR_AVAILABLE = importlib.util.find_spec("zarr") is not None
 
 
 class IO:
     """Handle persisted artifacts for one simulation run."""
 
-    def __init__(self, run_directory: str | os.PathLike[str] | None):
+    def __init__(
+        self,
+        run_directory: str | os.PathLike[str] | None,
+        *,
+        preferred_dataset_storage: str = "auto",
+    ):
         """Initialize the IO helper.
 
         Parameters
@@ -33,8 +41,11 @@ class IO:
         run_directory : str or Path, optional
             Directory holding fixed artifact names like ``settings.zarr`` and
             ``state.zarr``.
+        preferred_dataset_storage : {"auto", "netcdf", "zarr"}, optional
+            Default storage format for new artifacts that do not yet exist.
         """
         self.run_directory = None if run_directory is None else str(Path(run_directory).resolve())
+        self.preferred_dataset_storage = self._normalize_storage_kind(preferred_dataset_storage)
 
     @staticmethod
     def _timestamped_tempdir(*, root: Path | None = None, prefix: str) -> Path:
@@ -76,6 +87,21 @@ class IO:
         """Return whether the optional ``zarr`` dependency is available."""
         return bool(ZARR_AVAILABLE)
 
+    @staticmethod
+    def _normalize_storage_kind(storage: str) -> str:
+        """Return normalized storage kind for explicit preferences."""
+        normalized = str(storage).strip().lower()
+        if normalized not in DATASET_STORAGE_KINDS:
+            raise ValueError(
+                f"Unsupported dataset storage kind {storage!r}. "
+                f"Expected one of {sorted(DATASET_STORAGE_KINDS)}."
+            )
+        return normalized
+
+    def set_preferred_dataset_storage(self, storage: str) -> None:
+        """Update the default storage format for new artifacts."""
+        self.preferred_dataset_storage = self._normalize_storage_kind(storage)
+
     def _path_for(self, name: str, *, storage: str) -> Path:
         """Return the persisted path for one named artifact."""
         if self.run_directory is None:
@@ -91,28 +117,60 @@ class IO:
             )
         return Path(self.run_directory) / f"{name}{suffix}"
 
+    @staticmethod
+    def _prepare_dataset_for_zarr_write(dataset: xr.Dataset) -> xr.Dataset:
+        """Return a materialized dataset without stale Zarr chunk encodings."""
+        prepared = dataset.load()
+        for variable in prepared.variables.values():
+            variable.encoding.pop("chunks", None)
+            variable.encoding.pop("preferred_chunks", None)
+        return prepared
+
+    @staticmethod
+    def _prepare_dataarray_for_zarr_write(dataarray: xr.DataArray) -> xr.DataArray:
+        """Return a materialized data array without stale Zarr chunk encodings."""
+        prepared = dataarray.load()
+        prepared.encoding.pop("chunks", None)
+        prepared.encoding.pop("preferred_chunks", None)
+        return prepared
+
     def default_dataset_storage_kind(self, name: str) -> str:
         """Return the preferred storage format for one dataset artifact."""
+        if self.preferred_dataset_storage != "auto":
+            return self.preferred_dataset_storage
         return "zarr" if self.zarr_available() else "netcdf"
+
+    def get_dataset_storage_kinds(self, name: str) -> tuple[str, ...]:
+        """Return all on-disk storage kinds present for one artifact."""
+        storages: list[str] = []
+        if self._path_for(name, storage="zarr").exists():
+            storages.append("zarr")
+        if self._path_for(name, storage="netcdf").exists():
+            storages.append("netcdf")
+        return tuple(storages)
 
     def get_dataset_storage_kind(self, name: str) -> str | None:
         """Return the on-disk storage kind for one dataset artifact, if any."""
-        netcdf_path = self._path_for(name, storage="netcdf")
-        zarr_path = self._path_for(name, storage="zarr")
-        if zarr_path.exists():
+        storages = self.get_dataset_storage_kinds(name)
+        if "zarr" in storages:
             return "zarr"
-        if netcdf_path.exists():
+        if "netcdf" in storages:
             return "netcdf"
         return None
 
+    def scan_run_artifacts(self) -> dict[str, tuple[str, ...]]:
+        """Return known persisted artifacts present in this run directory."""
+        artifacts: dict[str, tuple[str, ...]] = {}
+        for name in RUN_ARTIFACTS:
+            storages = self.get_dataset_storage_kinds(name)
+            if storages:
+                artifacts[name] = storages
+        return artifacts
+
     def _resolve_dataset_storage_kind(self, name: str, storage: str | None) -> str:
         """Choose the storage kind for one dataset save."""
-        normalized = "auto" if storage is None else str(storage).strip().lower()
-        if normalized not in DATASET_STORAGE_KINDS:
-            raise ValueError(
-                f"Unsupported dataset storage kind {storage!r}. "
-                f"Expected one of {sorted(DATASET_STORAGE_KINDS)}."
-            )
+        normalized = "auto" if storage is None else str(storage)
+        normalized = self._normalize_storage_kind(normalized)
 
         if normalized == "auto":
             existing = self.get_dataset_storage_kind(name)
@@ -129,12 +187,8 @@ class IO:
 
     def _resolve_existing_dataset_storage_kind(self, name: str, storage: str | None) -> str | None:
         """Return the existing storage kind for one dataset load, if available."""
-        normalized = "auto" if storage is None else str(storage).strip().lower()
-        if normalized not in DATASET_STORAGE_KINDS:
-            raise ValueError(
-                f"Unsupported dataset storage kind {storage!r}. "
-                f"Expected one of {sorted(DATASET_STORAGE_KINDS)}."
-            )
+        normalized = "auto" if storage is None else str(storage)
+        normalized = self._normalize_storage_kind(normalized)
         if normalized == "auto":
             return self.get_dataset_storage_kind(name)
         filename = self._path_for(name, storage=normalized)
@@ -155,6 +209,7 @@ class IO:
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
+            dataset = self._prepare_dataset_for_zarr_write(dataset)
             if append_dim is None:
                 dataset.to_zarr(filename, mode="w")
             else:
@@ -219,6 +274,7 @@ class IO:
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
+            dataarray = self._prepare_dataarray_for_zarr_write(dataarray)
             dataarray.to_zarr(filename, mode="w")
         else:
             tmp_filename = filename.with_suffix(filename.suffix + ".tmp")

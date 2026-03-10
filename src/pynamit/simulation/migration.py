@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
-from pynamit.primitives.io import DATAARRAY_ARTIFACTS, IO, NETCDF_SUFFIX, ZARR_SUFFIX
+from pynamit.primitives.io import DATAARRAY_ARTIFACTS, IO
 
 
 @dataclass(frozen=True)
@@ -17,19 +17,6 @@ class RunStorageMigrationReport:
     target_storage: str
     migrated_artifacts: tuple[str, ...]
     unchanged_artifacts: tuple[str, ...]
-
-
-def _scan_run_artifacts(run_directory: Path) -> dict[str, set[str]]:
-    """Return saved artifacts in one run directory keyed by artifact name."""
-    artifacts: dict[str, set[str]] = {}
-    for path in run_directory.iterdir():
-        if path.is_file() and path.name.endswith(NETCDF_SUFFIX):
-            name = path.name[: -len(NETCDF_SUFFIX)]
-            artifacts.setdefault(name, set()).add("netcdf")
-        elif path.is_dir() and path.name.endswith(ZARR_SUFFIX):
-            name = path.name[: -len(ZARR_SUFFIX)]
-            artifacts.setdefault(name, set()).add("zarr")
-    return artifacts
 
 
 def _remove_artifact(path: Path) -> None:
@@ -66,7 +53,7 @@ def migrate_run_storage(
 
     resolved_directory = Path(IO.discover_run_directory(run_directory))
     io = IO(resolved_directory)
-    artifacts = _scan_run_artifacts(resolved_directory)
+    artifacts = io.scan_run_artifacts()
 
     if "settings" not in artifacts:
         raise ValueError(
@@ -77,7 +64,7 @@ def migrate_run_storage(
     unchanged_artifacts: list[str] = []
 
     for name in sorted(artifacts):
-        storages = artifacts[name]
+        storages = set(artifacts[name])
         if len(storages) > 1:
             raise ValueError(
                 f"Artifact {name!r} exists as both NetCDF and Zarr in "

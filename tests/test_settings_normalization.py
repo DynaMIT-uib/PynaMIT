@@ -7,6 +7,7 @@ from pynamit.math.constants import RE
 from pynamit.primitives.io import IO
 from pynamit.simulation.dynamics import Dynamics
 from pynamit.simulation.settings import (
+    ArtifactStorageKind,
     ConductanceInterpolationMode,
     DynamicsMode,
     DynamicsSettings,
@@ -35,6 +36,7 @@ def test_dynamics_settings_default_conductance_mode_is_string() -> None:
     assert settings.dynamics_mode == DynamicsMode.LEGACY
     assert settings.apply_m_imp_gauge is True
     assert settings.run_directory is None
+    assert settings.artifact_storage == ArtifactStorageKind.AUTO
 
 
 @dataclass
@@ -89,6 +91,7 @@ def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
         ("integrator", "expotential", "Did you mean 'exponential'?"),
         ("mainfield_kind", "IGRFf", "Did you mean 'igrf'?"),
         ("conductance_interpolation_mode", "sigma_lgo", "Did you mean 'sigma_log'?"),
+        ("artifact_storage", "zra", "Valid options: \\['auto', 'netcdf', 'zarr'\\]"),
     ],
 )
 def test_dynamics_settings_reject_invalid_string_choices(
@@ -128,3 +131,20 @@ def test_dynamics_uses_temporary_run_directory_when_no_run_directory() -> None:
     assert pfac_storage == ("zarr" if IO.zarr_available() else "netcdf")
     assert _artifact_path(dynamics.run_directory, "settings", settings_storage).exists()
     assert _artifact_path(dynamics.run_directory, "PFAC_matrix", pfac_storage).exists()
+
+
+def test_dynamics_respects_explicit_netcdf_artifact_storage(tmp_path) -> None:
+    settings = DynamicsSettings(
+        run_directory=str(tmp_path / "explicit_netcdf"),
+        artifact_storage="netcdf",
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+    )
+
+    dynamics = Dynamics(settings, benchmark_mode=False)
+
+    assert dynamics.io.get_dataset_storage_kind("settings") == "netcdf"
+    assert dynamics.io.get_dataset_storage_kind("PFAC_matrix") == "netcdf"
+    assert _artifact_path(dynamics.run_directory, "settings", "netcdf").exists()
+    assert _artifact_path(dynamics.run_directory, "PFAC_matrix", "netcdf").exists()

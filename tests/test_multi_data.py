@@ -3,29 +3,32 @@
 import os
 import tempfile
 import datetime
+
 import pytest
 
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.dynamics import Dynamics
-from pynamit.simulation.settings import ConductanceInterpolationMode, DynamicsSettings, IntegratorKind, MainfieldKind
+from pynamit.simulation.migration import migrate_run_storage
+from pynamit.simulation.settings import (
+    ConductanceInterpolationMode,
+    DynamicsSettings,
+    IntegratorKind,
+    MainfieldKind,
+)
 from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 import numpy as np
 
 
 def _get_state_coeff_array(dynamics: Dynamics) -> np.ndarray:
     state_ds = dynamics.output_timeseries.datasets["state"]
-    return np.hstack(
-        (
-            state_ds["SH_m_ind"].values[-1],
-            state_ds["SH_m_imp"].values[-1],
-        )
-    )
+    return np.hstack((state_ds["SH_m_ind"].values[-1], state_ds["SH_m_imp"].values[-1]))
 
 
-def _build_multi_data_dynamics(run_directory: str) -> Dynamics:
+def _build_multi_data_dynamics(run_directory: str, *, artifact_storage: str = "auto") -> Dynamics:
     """Construct the same multi-data wind case as ``test_multi_data``."""
     settings = DynamicsSettings(
         run_directory=run_directory,
+        artifact_storage=artifact_storage,
         Nmax=10,
         Mmax=8,
         Ncs=20,
@@ -47,10 +50,7 @@ def _build_multi_data_dynamics(run_directory: str) -> Dynamics:
     conductance_lat = dynamics.state.geometry.grid.lat
     conductance_lon = dynamics.state.geometry.grid.lon
     hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
-        date,
-        conductance_lat,
-        conductance_lon,
-        time,
+        date, conductance_lat, conductance_lon, time
     )
 
     jr_lat = dynamics.state.geometry.grid.lat
@@ -61,28 +61,24 @@ def _build_multi_data_dynamics(run_directory: str) -> Dynamics:
     assert wind_inputs is not None
     u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
 
-    dynamics.set_conductance(
-        hall,
-        pedersen,
-        lat=conductance_lat,
-        lon=conductance_lon,
-        time=time,
-    )
-    dynamics.set_jr(
-        jr,
-        lat=jr_lat,
-        lon=jr_lon,
-        time=time,
-    )
+    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon, time=time)
+    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, time=time)
     dynamics.set_u(
-        u_theta=u_theta,
-        u_phi=u_phi,
-        lat=u_lat,
-        lon=u_lon,
-        sqrt_weights=weights,
-        time=time,
+        u_theta=u_theta, u_phi=u_phi, lat=u_lat, lon=u_lon, sqrt_weights=weights, time=time
     )
     return dynamics
+
+
+def _evolve_multi_data_case(dynamics: Dynamics, *, t: float) -> None:
+    """Advance the standard multi-data test case to one target time."""
+    dynamics.evolve_to_time(
+        t=t,
+        dt=5.0,
+        sampling_step_interval=1,
+        saving_sample_interval=1,
+        quiet=True,
+        steady_state_initialization=True,
+    )
 
 
 @pytest.mark.wind
@@ -155,35 +151,14 @@ def test_multi_data_restart_matches_direct_run(tmp_path):
     restart_run_directory = str(tmp_path / "multi_data_restart")
 
     direct = _build_multi_data_dynamics(direct_run_directory)
-    direct.evolve_to_time(
-        t=15.0,
-        dt=5.0,
-        sampling_step_interval=1,
-        saving_sample_interval=1,
-        quiet=True,
-        steady_state_initialization=True,
-    )
+    _evolve_multi_data_case(direct, t=15.0)
     direct_coeffs = _get_state_coeff_array(direct)
 
     partial = _build_multi_data_dynamics(restart_run_directory)
-    partial.evolve_to_time(
-        t=10.0,
-        dt=5.0,
-        sampling_step_interval=1,
-        saving_sample_interval=1,
-        quiet=True,
-        steady_state_initialization=True,
-    )
+    _evolve_multi_data_case(partial, t=10.0)
 
     resumed = Dynamics.from_directory(restart_run_directory)
-    resumed.evolve_to_time(
-        t=15.0,
-        dt=5.0,
-        sampling_step_interval=1,
-        saving_sample_interval=1,
-        quiet=True,
-        steady_state_initialization=True,
-    )
+    _evolve_multi_data_case(resumed, t=15.0)
     resumed_coeffs = _get_state_coeff_array(resumed)
 
     np.testing.assert_allclose(resumed_coeffs, direct_coeffs, rtol=1e-9, atol=1e-12)
@@ -197,3 +172,53 @@ def test_multi_data_restart_matches_direct_run(tmp_path):
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
     assert actual_n_coeffs == expected_n_coeffs
+
+
+@pytest.mark.wind
+def test_multi_data_restart_matches_direct_run_after_netcdf_to_zarr_migration(tmp_path):
+    """Mid-run NetCDF->Zarr migration should preserve restart correctness."""
+    direct_run_directory = str(tmp_path / "multi_data_direct_zarr")
+    restart_run_directory = str(tmp_path / "multi_data_restart_netcdf_to_zarr")
+
+    direct = _build_multi_data_dynamics(direct_run_directory, artifact_storage="zarr")
+    _evolve_multi_data_case(direct, t=15.0)
+    direct_coeffs = _get_state_coeff_array(direct)
+
+    partial = _build_multi_data_dynamics(restart_run_directory, artifact_storage="netcdf")
+    _evolve_multi_data_case(partial, t=10.0)
+
+    migrate_run_storage(restart_run_directory, "zarr")
+
+    resumed = Dynamics.from_directory(restart_run_directory)
+    assert resumed.io.get_dataset_storage_kind("settings") == "zarr"
+    assert resumed.io.get_dataset_storage_kind("PFAC_matrix") == "zarr"
+    assert resumed.io.get_dataset_storage_kind("state") == "zarr"
+    _evolve_multi_data_case(resumed, t=15.0)
+    resumed_coeffs = _get_state_coeff_array(resumed)
+
+    np.testing.assert_allclose(resumed_coeffs, direct_coeffs, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.wind
+def test_multi_data_restart_matches_direct_run_after_zarr_to_netcdf_migration(tmp_path):
+    """Mid-run Zarr->NetCDF migration should preserve restart correctness."""
+    direct_run_directory = str(tmp_path / "multi_data_direct_netcdf")
+    restart_run_directory = str(tmp_path / "multi_data_restart_zarr_to_netcdf")
+
+    direct = _build_multi_data_dynamics(direct_run_directory, artifact_storage="netcdf")
+    _evolve_multi_data_case(direct, t=15.0)
+    direct_coeffs = _get_state_coeff_array(direct)
+
+    partial = _build_multi_data_dynamics(restart_run_directory, artifact_storage="zarr")
+    _evolve_multi_data_case(partial, t=10.0)
+
+    migrate_run_storage(restart_run_directory, "netcdf")
+
+    resumed = Dynamics.from_directory(restart_run_directory)
+    assert resumed.io.get_dataset_storage_kind("settings") == "netcdf"
+    assert resumed.io.get_dataset_storage_kind("PFAC_matrix") == "netcdf"
+    assert resumed.io.get_dataset_storage_kind("state") == "netcdf"
+    _evolve_multi_data_case(resumed, t=15.0)
+    resumed_coeffs = _get_state_coeff_array(resumed)
+
+    np.testing.assert_allclose(resumed_coeffs, direct_coeffs, rtol=1e-9, atol=1e-12)

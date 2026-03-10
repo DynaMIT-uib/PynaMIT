@@ -70,3 +70,21 @@ def test_run_pynamit_accepts_run_directory(tmp_path):
     settings_storage = sim.io.get_dataset_storage_kind("settings")
     assert settings_storage == ("zarr" if IO.zarr_available() else "netcdf")
     assert _settings_path(run_dir, settings_storage).exists()
+
+
+def test_run_pynamit_respects_explicit_netcdf_storage(tmp_path):
+    run_dir = tmp_path / "my_run_netcdf"
+    sim = run_pynamit(
+        run_directory=run_dir,
+        artifact_storage="netcdf",
+        final_time=0.1,
+        plotsteps=1,
+        dt=0.1,
+        Nmax=4,
+        Mmax=2,
+        mainfield_kind=MainfieldKind.IGRF,
+    )
+
+    assert Path(sim.run_directory) == run_dir
+    assert sim.io.get_dataset_storage_kind("settings") == "netcdf"
+    assert _settings_path(run_dir, "netcdf").exists()

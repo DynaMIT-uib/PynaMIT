@@ -78,8 +78,12 @@ class Dynamics:
             else:
                 loaded_settings_dataset = None
             if loaded_settings_dataset is not None:
+                settings_storage = io.get_dataset_storage_kind("settings") or "auto"
                 loaded_settings = DynamicsSettings.from_dataset(
-                    loaded_settings_dataset, DynamicsSettings(run_directory=resolved_directory)
+                    loaded_settings_dataset,
+                    DynamicsSettings(
+                        run_directory=resolved_directory, artifact_storage=settings_storage
+                    ),
                 )
                 settings = DynamicsSettings.coerce(loaded_settings, **settings_overrides)
             else:

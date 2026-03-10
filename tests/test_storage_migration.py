@@ -154,3 +154,21 @@ def test_migrate_run_storage_rejects_dual_format_artifacts(tmp_path):
 
     with pytest.raises(ValueError, match="exists as both NetCDF and Zarr"):
         migrate_run_storage(run_dir, "zarr")
+
+
+def test_migrate_run_storage_ignores_unknown_top_level_artifacts(tmp_path):
+    run_dir = tmp_path / "ignore_unknown"
+    _create_run_with_storage(
+        run_dir,
+        settings_storage="netcdf",
+        pfac_storage="netcdf",
+        jr_storage="netcdf",
+        state_storage="netcdf",
+    )
+    unknown_path = run_dir / "notes.ncdf"
+    unknown_path.write_text("not a pynamit artifact", encoding="utf-8")
+
+    report = migrate_run_storage(run_dir, "zarr")
+
+    assert set(report.migrated_artifacts) == {"PFAC_matrix", "jr", "settings", "state"}
+    assert unknown_path.exists()

@@ -29,6 +29,7 @@ def plot_input_vs_interpolated(
     input_dt: float,
     data_types_to_plot: List[str],
     noon_longitude: float = 0,
+    h5_timestep_offset: int = 0,
     output_filename: Optional[str] = None,
     vmin_percentile: float = 0.2,
     vmax_percentile: float = 99.8,
@@ -48,12 +49,15 @@ def plot_input_vs_interpolated(
         h5file.close()
         print("Warning: No timesteps specified for plotting. Exiting.")
         return
-    invalid_timesteps = [t for t in timesteps_to_plot if not (0 <= t < num_h5_steps)]
+    invalid_timesteps = [
+        t for t in timesteps_to_plot if not (0 <= t + h5_timestep_offset < num_h5_steps)
+    ]
     if invalid_timesteps:
         h5file.close()
         raise ValueError(
             f"Invalid timesteps provided: {invalid_timesteps}. "
-            f"All timesteps must be within the range [0, {num_h5_steps - 1})."
+            f"With h5_timestep_offset={h5_timestep_offset}, all source timesteps must be within "
+            f"the range [0, {num_h5_steps - 1}]."
         )
     if not data_types_to_plot:
         h5file.close()
@@ -131,7 +135,9 @@ def plot_input_vs_interpolated(
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_field = mainfield.discretize(ionosphere_grid, ri_value)
 
-    ionosphere_br_2d = (ionosphere_b_field.vec.r / ionosphere_b_field.magnitude).reshape(ionosphere_lat.shape)
+    ionosphere_br_2d = (ionosphere_b_field.vec.r / ionosphere_b_field.magnitude).reshape(
+        ionosphere_lat.shape
+    )
 
     print("Starting Pass 1: Collecting and Caching data for global vmin/vmax...")
     all_data_for_scaling = {
@@ -141,6 +147,7 @@ def plot_input_vs_interpolated(
     plot_grids = {}
 
     for timestep in timesteps_to_plot:
+        source_timestep = timestep + h5_timestep_offset
         time_val = timestep * input_dt
         for data_type_str in data_types_to_plot:
             details = data_type_details[data_type_str]
@@ -153,17 +160,19 @@ def plot_input_vs_interpolated(
             )
             calculated_input_data_2d = np.full(target_shape_pass1, np.nan)
             if data_type_str == "Br":
-                calculated_input_data_2d = h5file[details["h5_key_primary"]][timestep, :, :] * 1e-9
+                calculated_input_data_2d = (
+                    h5file[details["h5_key_primary"]][source_timestep, :, :] * 1e-9
+                )
             elif data_type_str == "jr":
                 calculated_input_data_2d = (
-                    h5file[details["h5_key_primary"]][timestep, :, :] * 1e-6
+                    h5file[details["h5_key_primary"]][source_timestep, :, :] * 1e-6
                 ) * ionosphere_br_2d
             elif data_type_str in ["SH", "SP"]:
-                calculated_input_data_2d = h5file[details["h5_key_primary"]][timestep, :, :]
+                calculated_input_data_2d = h5file[details["h5_key_primary"]][source_timestep, :, :]
             elif data_type_str in ["u_mag", "u_theta", "u_phi"]:
                 u_e_h5, u_n_h5 = (
-                    h5file[details["h5_key_primary"]][timestep, :, :],
-                    h5file[details["h5_key_secondary"]][timestep, :, :],
+                    h5file[details["h5_key_primary"]][source_timestep, :, :],
+                    h5file[details["h5_key_secondary"]][source_timestep, :, :],
                 )
                 if data_type_str == "u_mag":
                     calculated_input_data_2d = np.sqrt(u_n_h5**2 + u_e_h5**2)

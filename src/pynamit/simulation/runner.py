@@ -45,6 +45,7 @@ def run_pynamit(
     mainfield_epoch: int = 2020,
     input_weighting: Optional[str] = None,
     run_directory: Optional[str | Path] = None,
+    artifact_storage: str = "auto",
     use_jr: bool = True,
     apply_psi_gauge: bool = True,
     apply_m_ind_gauge: bool = True,
@@ -70,9 +71,10 @@ def run_pynamit(
     run_directory : str or Path, optional
         Directory for one persisted run. If omitted, the run persists to a
         unique timestamped run directory under ``simulation/`` and artifacts are
-        written as ``<run_directory>/settings.zarr`` plus timeseries artifacts
-        such as ``state.zarr`` when the optional Zarr dependency is available,
-        otherwise the run uses ``.ncdf`` artifacts.
+        written using the requested ``artifact_storage`` policy.
+    artifact_storage : {"auto", "netcdf", "zarr"}, optional
+        Default storage format for new persisted artifacts. ``"auto"`` prefers
+        Zarr when available and otherwise falls back to NetCDF.
     use_jr : bool, optional
         Whether to drive with field aligned currents (default True).
     """
@@ -142,6 +144,7 @@ def run_pynamit(
 
     settings_kwargs = dict(
         run_directory=resolved_run_directory,
+        artifact_storage=artifact_storage,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,

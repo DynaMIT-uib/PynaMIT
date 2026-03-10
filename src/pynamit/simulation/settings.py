@@ -52,6 +52,7 @@ class SimulationMode(str, Enum):
         retaining CS state/grid representation.
 
     """
+
     PURE_SPECTRAL = "pure_spectral"
     SPECTRAL_TRANSFORM_CS = "spectral_transform_cs"
     SPECTRAL_TRANSFORM_GL = "spectral_transform_gl"
@@ -104,8 +105,15 @@ class SolutionBasisKind(StringChoiceEnum):
     CS = "CS"
 
 
+class ArtifactStorageKind(StringChoiceEnum):
+    AUTO = "auto"
+    NETCDF = "netcdf"
+    ZARR = "zarr"
+
+
 # Safety margin for floating point errors
 FLOAT_ERROR_MARGIN = 1e-6
+
 
 def _enum_values(enum_cls: type[StringChoiceEnum]) -> set[str]:
     """Return the canonical string values for a string enum."""
@@ -121,15 +129,10 @@ _VALID_PRECONDITIONERS = {"jacobi", "pinv"}
 _VALID_CONDUCTANCE_INTERPOLATION_MODES = _enum_values(ConductanceInterpolationMode)
 _VALID_EXPONENTIAL_SOLVERS = _enum_values(ExponentialSolverKind)
 _VALID_SOLUTION_BASES = _enum_values(SolutionBasisKind)
+_VALID_ARTIFACT_STORAGES = _enum_values(ArtifactStorageKind)
 
 
-def _normalize_choice(
-    name: str,
-    value: Any,
-    *,
-    valid: set[str],
-    allow_none: bool = False,
-) -> Any:
+def _normalize_choice(name: str, value: Any, *, valid: set[str], allow_none: bool = False) -> Any:
     """Return normalized string choice or raise with a clear message."""
     if allow_none and value is None:
         return None
@@ -158,11 +161,7 @@ def _normalize_choice(
 
 
 def _normalize_lower_choice(
-    name: str,
-    value: Any,
-    *,
-    valid: set[str],
-    allow_none: bool = False,
+    name: str, value: Any, *, valid: set[str], allow_none: bool = False
 ) -> Any:
     """Return lower-case normalized choice or raise with a clear message."""
     if isinstance(value, str):
@@ -170,12 +169,7 @@ def _normalize_lower_choice(
     return _normalize_choice(name, value, valid=valid, allow_none=allow_none)
 
 
-def _normalize_upper_choice(
-    name: str,
-    value: Any,
-    *,
-    valid: set[str],
-) -> str:
+def _normalize_upper_choice(name: str, value: Any, *, valid: set[str]) -> str:
     """Return upper-case normalized choice or raise with a clear message."""
     if isinstance(value, str):
         value = value.strip().upper()
@@ -288,6 +282,9 @@ class DynamicsSettings:
         Directory for persisted run files. If omitted, the caller decides
         whether to use a temporary run directory or an explicit project-local
         directory.
+    artifact_storage : str
+        Preferred on-disk artifact format for new saved datasets:
+        "auto", "netcdf", or "zarr".
     simulation_mode : SimulationMode
         Operational mode of the simulation.
     least_squares_solver : str
@@ -328,6 +325,7 @@ class DynamicsSettings:
     integrator: IntegratorKind = IntegratorKind.EULER
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     run_directory: Optional[str] = None
+    artifact_storage: ArtifactStorageKind = ArtifactStorageKind.AUTO
     dynamics_mode: DynamicsMode = DynamicsMode.LEGACY
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "lsmr"
@@ -419,6 +417,9 @@ class DynamicsSettings:
         self.solution_basis_kind = _coerce_enum_choice(
             SolutionBasisKind, "solution_basis_kind", self.solution_basis_kind, case="upper"
         )
+        self.artifact_storage = _coerce_enum_choice(
+            ArtifactStorageKind, "artifact_storage", self.artifact_storage, case="lower"
+        )
 
         from pynamit.math.least_squares_solver import LeastSquaresSolver
 
@@ -431,14 +432,19 @@ class DynamicsSettings:
         if self.RM == 0:
             self.RM = None
 
-        self.conductance_interpolation_floor = float(max(self.conductance_interpolation_floor, 0.0))
+        self.conductance_interpolation_floor = float(
+            max(self.conductance_interpolation_floor, 0.0)
+        )
 
         if self.simulation_mode == SimulationMode.CS_DOMINANT:
             self.solution_basis_kind = SolutionBasisKind.CS
 
         # CS-dominant electrostatic solves need mild regularization near the
         # magnetic equator when the user has not chosen one explicitly.
-        if self.simulation_mode == SimulationMode.CS_DOMINANT and self.m_imp_regularization_lambda == 0.0:
+        if (
+            self.simulation_mode == SimulationMode.CS_DOMINANT
+            and self.m_imp_regularization_lambda == 0.0
+        ):
             self.m_imp_regularization_lambda = 1e-4
 
         # Full-induction defaults are stability defaults, not user-facing
@@ -518,7 +524,9 @@ class DynamicsSettings:
         attrs["vector_conductance"] = int(self.vector_conductance)
         attrs["vector_u"] = int(self.vector_u)
         attrs["save_steady_states"] = int(self.save_steady_states)
-        attrs["northern_hemisphere_apex_constraints"] = int(self.northern_hemisphere_apex_constraints)
+        attrs["northern_hemisphere_apex_constraints"] = int(
+            self.northern_hemisphere_apex_constraints
+        )
         attrs["apply_psi_gauge"] = int(self.apply_psi_gauge)
         attrs["apply_m_ind_gauge"] = int(self.apply_m_ind_gauge)
         attrs["apply_m_imp_gauge"] = int(self.apply_m_imp_gauge)
@@ -598,7 +606,10 @@ class DynamicsSettings:
                 get("magnetospheric_poloidal_lock", defaults.magnetospheric_poloidal_lock)
             ),
             northern_hemisphere_apex_constraints=bool(
-                get("northern_hemisphere_apex_constraints", defaults.northern_hemisphere_apex_constraints)
+                get(
+                    "northern_hemisphere_apex_constraints",
+                    defaults.northern_hemisphere_apex_constraints,
+                )
             ),
             vector_jr=bool(get("vector_jr", defaults.vector_jr)),
             vector_Br=bool(get("vector_Br", defaults.vector_Br)),
@@ -606,29 +617,31 @@ class DynamicsSettings:
             vector_u=bool(get("vector_u", defaults.vector_u)),
             t0=get("t0", defaults.t0),
             save_steady_states=bool(get("save_steady_states", defaults.save_steady_states)),
-
             integrator=get("integrator", defaults.integrator),
             # Runtime fields not in file
             backend=defaults.backend,
             run_directory=get("run_directory", defaults.run_directory),
+            artifact_storage=get("artifact_storage", defaults.artifact_storage),
             solution_basis_kind=get("solution_basis_kind", defaults.solution_basis_kind),
             dynamics_mode=get("dynamics_mode", defaults.dynamics_mode),
             toroidal_weighting=get("toroidal_weighting", defaults.toroidal_weighting),
             poloidal_weighting=get("poloidal_weighting", defaults.poloidal_weighting),
-            least_squares_preconditioner=get("least_squares_preconditioner", defaults.least_squares_preconditioner),
+            least_squares_preconditioner=get(
+                "least_squares_preconditioner", defaults.least_squares_preconditioner
+            ),
             conductance_interpolation_mode=get(
-                "conductance_interpolation_mode",
-                defaults.conductance_interpolation_mode,
+                "conductance_interpolation_mode", defaults.conductance_interpolation_mode
             ),
             conductance_interpolation_floor=get(
-                "conductance_interpolation_floor",
-                defaults.conductance_interpolation_floor,
+                "conductance_interpolation_floor", defaults.conductance_interpolation_floor
             ),
-            m_imp_regularization_lambda=get("m_imp_regularization_lambda", defaults.m_imp_regularization_lambda),
-            toroidal_regularization_lambda=get("toroidal_regularization_lambda", defaults.toroidal_regularization_lambda),
-            dense_full_operators=bool(
-                get("dense_full_operators", defaults.dense_full_operators)
+            m_imp_regularization_lambda=get(
+                "m_imp_regularization_lambda", defaults.m_imp_regularization_lambda
             ),
+            toroidal_regularization_lambda=get(
+                "toroidal_regularization_lambda", defaults.toroidal_regularization_lambda
+            ),
+            dense_full_operators=bool(get("dense_full_operators", defaults.dense_full_operators)),
             enable_fast_input_path=bool(
                 get("enable_fast_input_path", defaults.enable_fast_input_path)
             ),

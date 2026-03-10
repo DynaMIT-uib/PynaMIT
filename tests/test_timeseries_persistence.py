@@ -18,7 +18,12 @@ def _artifact_path(run_dir: Path, name: str, storage_kind: str) -> Path:
 def _build_simulation_data(tmp_path: Path) -> SimulationData:
     run_dir = tmp_path / "timeseries_persistence"
     settings = DynamicsSettings(
-        run_directory=str(run_dir), Nmax=2, Mmax=2, Ncs=6, t0="2001-05-12 21:45:00"
+        run_directory=str(run_dir),
+        artifact_storage="zarr",
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+        t0="2001-05-12 21:45:00",
     )
     return SimulationData.create(run_dir, settings, load_existing=False)
 
@@ -100,7 +105,12 @@ def test_timeseries_use_real_zarr_store_when_available(tmp_path):
 
     run_dir = tmp_path / "zarr_run"
     settings = DynamicsSettings(
-        run_directory=str(run_dir), Nmax=2, Mmax=2, Ncs=6, t0="2001-05-12 21:45:00"
+        run_directory=str(run_dir),
+        artifact_storage="zarr",
+        Nmax=2,
+        Mmax=2,
+        Ncs=6,
+        t0="2001-05-12 21:45:00",
     )
     simulation_data = SimulationData.create(run_dir, settings, load_existing=False)
     n_solution = simulation_data.solution_spec.index_length

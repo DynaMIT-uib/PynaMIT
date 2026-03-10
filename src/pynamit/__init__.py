@@ -29,6 +29,7 @@ SHBasis : class
 from .cubed_sphere import CSBasis
 from .primitives import Field, Grid, IO, Mainfield, Timeseries
 from .simulation import (
+    ArtifactStorageKind,
     Dynamics,
     RunStorageMigrationReport,
     SimulationData,
@@ -50,6 +51,7 @@ from .utils import set_backend
 __all__ = [
     "CSBasis",
     "Dynamics",
+    "ArtifactStorageKind",
     "Field",
     "Grid",
     "IO",

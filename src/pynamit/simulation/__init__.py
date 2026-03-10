@@ -12,7 +12,7 @@ Core simulation infrastructure for PynaMIT:
 from .state import State
 from .dynamics import Dynamics
 from .runner import run_pynamit
-from .settings import SimulationMode, DynamicsSettings, FLOAT_ERROR_MARGIN
+from .settings import ArtifactStorageKind, SimulationMode, DynamicsSettings, FLOAT_ERROR_MARGIN
 from .induction import PoloidalSystemMatrices, ToroidalSystemMatrices
 from .data import SimulationData
 from .migration import migrate_run_storage, RunStorageMigrationReport
@@ -23,6 +23,7 @@ __all__ = [
     "run_pynamit",
     "SimulationMode",
     "DynamicsSettings",
+    "ArtifactStorageKind",
     "FLOAT_ERROR_MARGIN",
     "ToroidalSystemMatrices",
     "PoloidalSystemMatrices",
