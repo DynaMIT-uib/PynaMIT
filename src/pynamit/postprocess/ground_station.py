@@ -24,6 +24,7 @@ DEFAULT_ANALYSIS_WINDOW: TimeWindow = (
     datetime.time(18, 30),
     datetime.time(18, 35),
 )
+_IAGA_MAGNETIC_COMPONENTS = frozenset({"X", "Y", "Z", "D", "H", "I"})
 
 
 def normalize_station_metadata(stations: pd.DataFrame) -> pd.DataFrame:
@@ -169,6 +170,82 @@ class MagnetometerDataArchive:
         return "Data"
 
 
+@dataclass(frozen=True)
+class IAGA2002Header:
+    """Minimal parsed IAGA2002 header metadata used for validation."""
+
+    header_line_num: int
+    header_content: tuple[str, ...]
+    reported_elements: Optional[str]
+    sensor_orientation: Optional[str]
+
+
+def _parse_iaga2002_header(filepath: Path) -> Optional[IAGA2002Header]:
+    """Return parsed header metadata up to the data-column header line."""
+    header_line_num = None
+    header_content: tuple[str, ...] | None = None
+    reported_elements: Optional[str] = None
+    sensor_orientation: Optional[str] = None
+
+    with filepath.open("r") as handle:
+        for idx, line in enumerate(handle):
+            stripped = line.lstrip()
+            if stripped.startswith("DATE"):
+                header_line_num = idx
+                header_content = tuple(stripped.strip().split())
+                break
+            if stripped.startswith("#"):
+                continue
+
+            body = stripped.split("|", 1)[0].rstrip()
+            if body.startswith("Reported"):
+                value = body.removeprefix("Reported").strip().upper()
+                reported_elements = value or None
+            elif body.startswith("Sensor Orientation"):
+                value = body.removeprefix("Sensor Orientation").strip().upper()
+                sensor_orientation = value or None
+
+    if header_line_num is None or header_content is None:
+        return None
+    return IAGA2002Header(
+        header_line_num=header_line_num,
+        header_content=header_content,
+        reported_elements=reported_elements,
+        sensor_orientation=sensor_orientation,
+    )
+
+
+def _extract_reported_component_set(elements: Optional[str]) -> Optional[set[str]]:
+    """Return magnetic component letters from an IAGA reported-element string."""
+    if not elements:
+        return None
+    letters = {char for char in str(elements).upper() if char in _IAGA_MAGNETIC_COMPONENTS}
+    return letters or None
+
+
+def _validate_iaga_component_metadata(
+    *,
+    station_prefix: str,
+    filepath: Path,
+    actual_components: list[str],
+    header: IAGA2002Header,
+) -> Optional[str]:
+    """Return an error string if header metadata conflicts with data columns."""
+    reported_components = _extract_reported_component_set(header.reported_elements)
+    actual_component_set = {component for component in actual_components if len(component) == 1}
+    actual_component_set = {
+        component for component in actual_component_set if component in _IAGA_MAGNETIC_COMPONENTS
+    }
+
+    if reported_components is not None and actual_component_set != reported_components:
+        return (
+            "Format Error: Reported elements "
+            f"{sorted(reported_components)} do not match data columns "
+            f"{sorted(actual_component_set)} in '{filepath}'."
+        )
+    return None
+
+
 def load_iaga2002_station_data(
     filepath: str | Path,
     station_code: str,
@@ -180,23 +257,15 @@ def load_iaga2002_station_data(
     try:
         station_prefix = str(station_code).upper()
         filepath = Path(filepath)
-        header_line_num = None
-        header_content: list[str] | None = None
-        with filepath.open("r") as handle:
-            for idx, line in enumerate(handle):
-                stripped = line.lstrip()
-                if stripped.startswith("DATE"):
-                    header_line_num = idx
-                    header_content = stripped.strip().split()
-                    break
-        if header_line_num is None or header_content is None:
+        header = _parse_iaga2002_header(filepath)
+        if header is None:
             if not silent and log is not None:
                 log(f"Format Error: Data header not found in '{filepath}'.")
             return None
 
         available_components = [
             token.replace(station_prefix, "")
-            for token in header_content
+            for token in header.header_content
             if token.startswith(station_prefix)
         ]
         if not available_components:
@@ -206,11 +275,22 @@ def load_iaga2002_station_data(
                 )
             return None
 
+        metadata_error = _validate_iaga_component_metadata(
+            station_prefix=station_prefix,
+            filepath=filepath,
+            actual_components=available_components,
+            header=header,
+        )
+        if metadata_error is not None:
+            if not silent and log is not None:
+                log(metadata_error)
+            return None
+
         use_cols = ["DATE", "TIME"] + [f"{station_prefix}{comp}" for comp in available_components]
         missing_data_flags = [99999.0, 88888.0, 99999.9, 88888.8]
         data = pd.read_csv(
             filepath,
-            skiprows=header_line_num,
+            skiprows=header.header_line_num,
             header=0,
             sep=r"\s+",
             usecols=lambda column: str(column).strip() in use_cols,
