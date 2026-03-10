@@ -12,7 +12,12 @@ import pandas as pd
 
 from pynamit.math.constants import RE
 from pynamit.postprocess.ground_response import build_ground_magnetic_response_operators
-from pynamit.postprocess.ground_station import DEFAULT_BASELINE_WINDOW, TimeWindow, compute_baseline_offset
+from pynamit.postprocess.ground_station import (
+    DEFAULT_BASELINE_WINDOW,
+    TimeWindow,
+    compute_baseline_offset,
+    normalize_station_metadata,
+)
 from pynamit.primitives.grid import Grid
 from pynamit.visualization.map_plotting import build_even_global_curve_sites, draw_timeseries_curve_map
 
@@ -55,7 +60,7 @@ class GroundCurveMapBuilder:
     ) -> None:
         self.simulation_start_time = simulation_start_time
         self.sim_datetime_index = pd.DatetimeIndex(pd.to_datetime(sim_datetime_index))
-        self.stations = stations.reset_index(drop=True).copy()
+        self.stations = normalize_station_metadata(stations).reset_index(drop=True)
         self.state_spec = state_spec
         self.ionosphere_radius = float(ionosphere_radius)
         self.ground_radius = float(ground_radius)

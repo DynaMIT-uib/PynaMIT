@@ -26,6 +26,24 @@ DEFAULT_ANALYSIS_WINDOW: TimeWindow = (
 )
 
 
+def normalize_station_metadata(stations: pd.DataFrame) -> pd.DataFrame:
+    """Return station metadata with canonical casing and longitude range.
+
+    The notebook station CSV mixes longitudes in ``[-180, 180]`` and
+    ``[0, 360)``. Normalizing once keeps downstream geometry and labeling
+    logic simpler and avoids implicit wrap handling in multiple places.
+    """
+    normalized = stations.copy()
+    if "IAGA" in normalized.columns:
+        normalized["IAGA"] = normalized["IAGA"].astype(str).str.upper()
+    if "GEOLAT" in normalized.columns:
+        normalized["GEOLAT"] = pd.to_numeric(normalized["GEOLAT"], errors="coerce")
+    if "GEOLON" in normalized.columns:
+        lon = pd.to_numeric(normalized["GEOLON"], errors="coerce")
+        normalized["GEOLON"] = ((lon + 180.0) % 360.0) - 180.0
+    return normalized
+
+
 @dataclass(frozen=True)
 class ComparisonMetrics:
     correlations: dict[str, float]

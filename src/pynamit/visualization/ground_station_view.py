@@ -18,6 +18,7 @@ from pynamit.postprocess.ground_station import (
     StationMetrics,
     TimeWindow,
     calculate_station_metrics,
+    normalize_station_metadata,
 )
 
 
@@ -94,7 +95,7 @@ class GroundStationComparisonBuilder:
     ) -> None:
         self.simulation_start_time = simulation_start_time
         self.sim_datetime_index = pd.DatetimeIndex(pd.to_datetime(sim_datetime_index))
-        self.stations = stations.reset_index(drop=True).copy()
+        self.stations = normalize_station_metadata(stations).reset_index(drop=True)
         self.Br_inductive = np.asarray(Br_inductive, dtype=float)
         self.Bh_inductive = np.asarray(Bh_inductive, dtype=float)
         self.Br_steady = np.asarray(Br_steady, dtype=float)
