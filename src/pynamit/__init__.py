@@ -27,14 +27,16 @@ SHBasis : class
 """
 
 from .cubed_sphere import CSBasis
-from .primitives import (
-    Field,
-    Grid,
-    IO,
-    Mainfield,
-    Timeseries,
+from .primitives import Field, Grid, IO, Mainfield, Timeseries
+from .simulation import (
+    Dynamics,
+    RunStorageMigrationReport,
+    SimulationData,
+    State,
+    migrate_run_storage,
+    run_pynamit,
 )
-from .simulation import Dynamics, SimulationData, State, run_pynamit
+
 try:
     from .visualization import SimulationViewer, plot_global_map, plot_simulation_snapshot
 except ImportError:
@@ -59,6 +61,8 @@ __all__ = [
     "SHBasis",
     "State",
     "Timeseries",
+    "RunStorageMigrationReport",
+    "migrate_run_storage",
     "run_pynamit",
     "set_backend",
 ]

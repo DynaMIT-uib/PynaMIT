@@ -16,9 +16,7 @@ from pynamit.primitives.io import IO
 from pynamit.simulation.state import State
 from pynamit.primitives.input_manager import InputManager
 from pynamit.utils import asarray, set_backend, xp
-from pynamit.simulation.input import (
-    encode_conductance_input_for_storage,
-)
+from pynamit.simulation.input import encode_conductance_input_for_storage
 from pynamit.simulation.data import SimulationData
 
 # Import settings from dedicated module
@@ -40,7 +38,7 @@ class Dynamics:
     Manages the temporal evolution of the state of the ionosphere in
     response to field-aligned currents and neutral winds, giving rise to
     dynamic magnetosphere-ionosphere-thermosphere (MIT) coupling. Saves
-    and loads simulation data to and from NetCDF files.
+    and loads simulation data to and from persisted xarray artifacts.
 
     Attributes
     ----------
@@ -81,15 +79,11 @@ class Dynamics:
                 loaded_settings_dataset = None
             if loaded_settings_dataset is not None:
                 loaded_settings = DynamicsSettings.from_dataset(
-                    loaded_settings_dataset,
-                    DynamicsSettings(run_directory=resolved_directory),
+                    loaded_settings_dataset, DynamicsSettings(run_directory=resolved_directory)
                 )
                 settings = DynamicsSettings.coerce(loaded_settings, **settings_overrides)
             else:
-                settings_overrides = {
-                    "run_directory": str(settings_path),
-                    **settings_overrides,
-                }
+                settings_overrides = {"run_directory": str(settings_path), **settings_overrides}
                 settings = None
 
         self.settings = (
@@ -162,10 +156,15 @@ class Dynamics:
             self.current_time = np.float64(0)
         self._current_m_ind = None
         if self.data.has_dataset("state"):
-            state_entry = self.data.get_output_entry("state", self.current_time, interpolation=False)
+            state_entry = self.data.get_output_entry(
+                "state", self.current_time, interpolation=False
+            )
             if state_entry is not None and state_entry.get("m_ind") is not None:
                 self._current_m_ind = asarray(state_entry["m_ind"])
-            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION and state_entry is not None:
+            if (
+                self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION
+                and state_entry is not None
+            ):
                 psi_entry = state_entry.get("psi")
                 if psi_entry is not None:
                     self.state.psi = asarray(psi_entry)
@@ -178,11 +177,7 @@ class Dynamics:
             self.data.save_pfac_matrix(self.state.geometry.T_to_Ve, print_info=True)
 
     @classmethod
-    def from_directory(
-        cls,
-        run_directory: str | Path,
-        **settings_overrides: Any,
-    ) -> "Dynamics":
+    def from_directory(cls, run_directory: str | Path, **settings_overrides: Any) -> "Dynamics":
         """Construct a simulation by restarting from one saved run directory."""
         return cls(IO.discover_run_directory(run_directory), **settings_overrides)
 
@@ -251,7 +246,10 @@ class Dynamics:
             inductive_m_ind = asarray(self._current_m_ind)
             m_ind_finite = bool(np.all(np.isfinite(np.asarray(inductive_m_ind))))
             psi_finite = True
-            if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.state.psi is not None:
+            if (
+                self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION
+                and self.state.psi is not None
+            ):
                 psi_finite = bool(np.all(np.isfinite(np.asarray(self.state.psi))))
             if not (m_ind_finite and psi_finite):
                 run_directory = self.settings.run_directory
@@ -266,7 +264,7 @@ class Dynamics:
                 self.state.update(self.input_manager, self.current_time, interpolation=True)
                 E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
                 psi, inductive_m_ind = self.state.solve_steady_state_model_variables(
-                    E_coeffs_noind,
+                    E_coeffs_noind
                 )
             else:
                 self.current_time = np.float64(0)
@@ -276,11 +274,11 @@ class Dynamics:
 
         # Sync state psi if dynamic mode
         if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
-             if self.state.psi is None:
-                  self.state.psi = xp.zeros((self.state.solution_space.index_length,))
-             psi = self.state.psi
+            if self.state.psi is None:
+                self.state.psi = xp.zeros((self.state.solution_space.index_length,))
+            psi = self.state.psi
         else:
-             psi = None
+            psi = None
 
         while True:
             self.state.update(self.input_manager, self.current_time, interpolation=True)
@@ -298,9 +296,10 @@ class Dynamics:
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
                 )
                 if need_steady_state_for_step or need_steady_state_for_output:
-                    steady_state_psi, steady_state_m_ind = self.state.solve_steady_state_model_variables(
-                        E_coeffs_noind,
-                        update_state=False,
+                    steady_state_psi, steady_state_m_ind = (
+                        self.state.solve_steady_state_model_variables(
+                            E_coeffs_noind, update_state=False
+                        )
                     )
                     steady_state_psi = np.asarray(steady_state_psi)
                     steady_state_m_ind = np.asarray(steady_state_m_ind)
@@ -313,9 +312,10 @@ class Dynamics:
                 if self.settings.integrator == IntegratorKind.EXPONENTIAL or (
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
                 ):
-                    steady_state_psi, steady_state_m_ind = self.state.solve_steady_state_model_variables(
-                        E_coeffs_noind,
-                        update_state=False,
+                    steady_state_psi, steady_state_m_ind = (
+                        self.state.solve_steady_state_model_variables(
+                            E_coeffs_noind, update_state=False
+                        )
                     )
                     steady_state_m_ind = np.asarray(steady_state_m_ind)
                 else:
@@ -323,11 +323,17 @@ class Dynamics:
                 steady_state_psi = None
 
             if step % sampling_step_interval == 0:
-                self.add_state_to_timeseries("state", current_m_ind, E_coeffs_noind, m_imp_noind, psi=current_psi)
+                self.add_state_to_timeseries(
+                    "state", current_m_ind, E_coeffs_noind, m_imp_noind, psi=current_psi
+                )
 
                 if bool(self.settings.save_steady_states) and steady_state_m_ind is not None:
                     self.add_state_to_timeseries(
-                        "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind, psi=steady_state_psi
+                        "steady_state",
+                        steady_state_m_ind,
+                        E_coeffs_noind,
+                        m_imp_noind,
+                        psi=steady_state_psi,
                     )
 
                 # Save state and steady state time series.
@@ -375,7 +381,7 @@ class Dynamics:
             )
             if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
                 psi = psi_new
-            
+
             self.current_time = next_time
             self._current_m_ind = asarray(inductive_m_ind)
 
@@ -409,8 +415,7 @@ class Dynamics:
         self.state.update(self.input_manager, self.current_time, interpolation=interpolation)
         E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
         psi_ss, m_ind_ss = self.state.solve_steady_state_model_variables(
-            E_coeffs_noind,
-            update_state=True,
+            E_coeffs_noind, update_state=True
         )
         m_ind_ss = asarray(m_ind_ss)
         self._current_m_ind = m_ind_ss
@@ -418,14 +423,12 @@ class Dynamics:
             self.state.psi = None if psi_ss is None else asarray(psi_ss)
 
         if save and not self.benchmark_mode:
-            self.add_state_to_timeseries("state", m_ind_ss, E_coeffs_noind, m_imp_noind, psi=psi_ss)
+            self.add_state_to_timeseries(
+                "state", m_ind_ss, E_coeffs_noind, m_imp_noind, psi=psi_ss
+            )
             if bool(self.settings.save_steady_states):
                 self.add_state_to_timeseries(
-                    "steady_state",
-                    m_ind_ss,
-                    E_coeffs_noind,
-                    m_imp_noind,
-                    psi=psi_ss,
+                    "steady_state", m_ind_ss, E_coeffs_noind, m_imp_noind, psi=psi_ss
                 )
             self.data.save_output_dataset("state")
             if bool(self.settings.save_steady_states):
@@ -458,13 +461,13 @@ class Dynamics:
         # Calculate full fields if needed (only if m_ind provided)
         # If full induction, m_ind might be None.
         if m_ind is not None:
-             E_coeffs_ind, m_imp_ind = self.state.calculate_ind_coeffs(m_ind)
-             E_coeffs = np.asarray(E_coeffs) + E_coeffs_ind
-             m_imp = np.asarray(m_imp) + m_imp_ind
+            E_coeffs_ind, m_imp_ind = self.state.calculate_ind_coeffs(m_ind)
+            E_coeffs = np.asarray(E_coeffs) + E_coeffs_ind
+            m_imp = np.asarray(m_imp) + m_imp_ind
         else:
-             # Just use what was passed (no poloidal induction added)
-             E_coeffs = np.asarray(E_coeffs) if E_coeffs is not None else (np.zeros(1), np.zeros(1))
-             m_imp = np.asarray(m_imp)
+            # Just use what was passed (no poloidal induction added)
+            E_coeffs = np.asarray(E_coeffs) if E_coeffs is not None else (np.zeros(1), np.zeros(1))
+            m_imp = np.asarray(m_imp)
 
         # Append current state to time series.
         state_data = {
@@ -474,13 +477,13 @@ class Dynamics:
             "Phi": np.asarray(E_coeffs[0]),
             "W": np.asarray(E_coeffs[1]),
         }
-        
+
         # Ensure dummy zeros for missing fields if required by schema
         if state_data["m_ind"] is None and "m_ind" in self.output_variables[key]:
-             state_data["m_ind"] = np.zeros(self.state.solution_space.index_length)
-             
+            state_data["m_ind"] = np.zeros(self.state.solution_space.index_length)
+
         if state_data["psi"] is None and "psi" in self.output_variables[key]:
-             state_data["psi"] = np.zeros(self.state.solution_space.index_length)
+            state_data["psi"] = np.zeros(self.state.solution_space.index_length)
 
         self.data.add_output_entry(key, state_data, time=self.current_time)
 
@@ -702,11 +705,7 @@ class Dynamics:
         sigma_floor = float(self.settings.conductance_interpolation_floor)
 
         input_data = encode_conductance_input_for_storage(
-            Hall=Hall,
-            Pedersen=Pedersen,
-            mode=mode,
-            sigma_floor=sigma_floor,
-            logger=logger,
+            Hall=Hall, Pedersen=Pedersen, mode=mode, sigma_floor=sigma_floor, logger=logger
         )
 
         self._interpolate_and_store_input(

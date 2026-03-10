@@ -32,11 +32,13 @@ class Timeseries:
         """
         self.variables = variables
         self.storage_specs = {
-            key: self._normalize_storage_spec(key, spec)
-            for key, spec in storage_specs.items()
+            key: self._normalize_storage_spec(key, spec) for key, spec in storage_specs.items()
         }
 
         self.datasets = {}
+        self._pending_start: dict[str, int] = {}
+        self._full_save_required: dict[str, bool] = {}
+        self._storage_kinds: dict[str, str] = {}
 
         self.basis_multiindices = {}
         for key in self.variables.keys():
@@ -48,10 +50,7 @@ class Timeseries:
             elif field_type == "tangential":
                 index_arrays = self._get_storage_index_arrays(key)
                 self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    [
-                        np.tile(index_arrays[i], 2)
-                        for i in range(len(index_arrays))
-                    ],
+                    [np.tile(index_arrays[i], 2) for i in range(len(index_arrays))],
                     names=self._get_storage_index_names(key),
                 )
             else:
@@ -95,18 +94,19 @@ class Timeseries:
         return self.storage_specs[key]
 
     def load_all(self, io):
-        """Load all timeseries from NetCDF files."""
+        """Load all persisted timeseries datasets."""
         for key in self.variables.keys():
             self.load(key, io)
 
     def load(self, key, io):
-        """Load a timeseries from NetCDF file.
+        """Load a persisted timeseries dataset.
 
         Parameters
         ----------
         key : str
             The key identifying which timeseries to load.
         """
+        storage_kind = io.get_dataset_storage_kind(key)
         dataset = io.load_dataset(key)
 
         if dataset is not None:
@@ -123,12 +123,18 @@ class Timeseries:
             self.datasets[key] = dataset.drop_vars(
                 self._get_storage_index_names(key)
             ).assign_coords(coords)
+            self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
+            self._full_save_required[key] = False
+            if storage_kind is not None:
+                self._storage_kinds[key] = storage_kind
 
     def get_data_var_name(self, key, var):
         """Return the stored xarray variable name for one timeseries entry."""
         return f"{self.get_storage_spec(key).kind}_{var}"
 
-    def _build_entry_dataset(self, key: str, data: dict[str, np.ndarray], time: float) -> xr.Dataset:
+    def _build_entry_dataset(
+        self, key: str, data: dict[str, np.ndarray], time: float
+    ) -> xr.Dataset:
         """Build a one-sample dataset for appending/replacing a stored entry."""
         data_vars = {}
         for var in data:
@@ -138,8 +144,7 @@ class Timeseries:
             )
 
         coords = xr.Coordinates.from_pandas_multiindex(
-            self.basis_multiindices[key],
-            dim="i",
+            self.basis_multiindices[key], dim="i"
         ).merge({"time": [time]})
         return xr.Dataset(data_vars=data_vars, coords=coords)
 
@@ -159,6 +164,8 @@ class Timeseries:
 
         if key not in self.datasets:
             self.datasets[key] = dataset
+            self._pending_start[key] = 0
+            self._full_save_required[key] = False
             return
 
         existing = self.datasets[key]
@@ -167,20 +174,27 @@ class Timeseries:
 
         if time_coords.size == 0:
             self.datasets[key] = dataset
+            self._pending_start[key] = 0
+            self._full_save_required[key] = False
             return
 
         # Common case: strictly append in chronological order. This still copies
         # the underlying xarray arrays, but avoids an unnecessary drop/sort pass.
         if time_value > float(time_coords[-1]) + FLOAT_ERROR_MARGIN:
+            previous_size = int(existing.sizes.get("time", 0))
             self.datasets[key] = xr.concat([existing, dataset], dim="time")
+            pending_start = self._pending_start.get(key, previous_size)
+            self._pending_start[key] = min(pending_start, previous_size)
+            self._full_save_required[key] = bool(self._full_save_required.get(key, False))
             return
 
         # Replace existing sample at the same timestamp or keep chronological order
         # for out-of-order insertion.
         self.datasets[key] = xr.concat(
-            [existing.drop_sel(time=dataset.time, errors="ignore"), dataset],
-            dim="time",
+            [existing.drop_sel(time=dataset.time, errors="ignore"), dataset], dim="time"
         ).sortby("time")
+        self._pending_start[key] = 0
+        self._full_save_required[key] = True
 
     def get_entry(self, key, time, interpolation=False):
         """Select, and optionally interpolate, time series data.
@@ -206,7 +220,9 @@ class Timeseries:
             )
 
             for var in self.variables[key]:
-                current_data[var] = dataset_before[self.get_data_var_name(key, var)].values.flatten()
+                current_data[var] = dataset_before[
+                    self.get_data_var_name(key, var)
+                ].values.flatten()
                 # Default derivative is zero if no next point
                 current_derivative[var] = np.zeros_like(current_data[var])
 
@@ -217,17 +233,17 @@ class Timeseries:
                 dataset_after = self.datasets[key].sel(
                     time=[time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
-                
+
                 dt = float(dataset_after.time.item() - dataset_before.time.item())
                 if dt > 0:
-                     factor = (time - dataset_before.time.item()) / dt
-                     for var in self.variables[key]:
+                    factor = (time - dataset_before.time.item()) / dt
+                    for var in self.variables[key]:
                         y0 = dataset_before[self.get_data_var_name(key, var)].values.flatten()
                         y1 = dataset_after[self.get_data_var_name(key, var)].values.flatten()
-                        
+
                         slope = (y1 - y0) / dt
-                        
-                        current_data[var] += factor * (y1 - y0) # Optimized interp
+
+                        current_data[var] += factor * (y1 - y0)  # Optimized interp
                         current_derivative[var] = slope
 
             return current_data, current_derivative
@@ -237,4 +253,45 @@ class Timeseries:
 
     def save(self, key, io, *, print_info: bool = False):
         """Persist one stored series to disk."""
-        io.save_dataset(self.datasets[key].reset_index("i"), key, print_info=print_info)
+        dataset = self.datasets[key].reset_index("i")
+        time_size = int(dataset.sizes.get("time", 0))
+        pending_start = int(self._pending_start.get(key, 0))
+        full_save_required = bool(self._full_save_required.get(key, False))
+        existing_storage_kind = io.get_dataset_storage_kind(key)
+        target_storage_kind = self._storage_kinds.get(key)
+
+        if target_storage_kind is None:
+            target_storage_kind = (
+                existing_storage_kind
+                if existing_storage_kind is not None
+                else io.default_dataset_storage_kind(key)
+            )
+
+        if (
+            existing_storage_kind is not None
+            and not full_save_required
+            and pending_start >= time_size
+        ):
+            self._storage_kinds[key] = existing_storage_kind
+            return
+
+        if (
+            target_storage_kind == "zarr"
+            and existing_storage_kind == "zarr"
+            and not full_save_required
+            and 0 < pending_start < time_size
+        ):
+            dataset_to_save = dataset.isel(time=slice(pending_start, None))
+            io.save_dataset(
+                dataset_to_save, key, print_info=print_info, storage="zarr", append_dim="time"
+            )
+        else:
+            io.save_dataset(dataset, key, print_info=print_info, storage=target_storage_kind)
+
+        self._pending_start[key] = time_size
+        self._full_save_required[key] = False
+        self._storage_kinds[key] = (
+            existing_storage_kind
+            if existing_storage_kind is not None and target_storage_kind != "zarr"
+            else target_storage_kind
+        )

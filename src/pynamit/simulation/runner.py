@@ -63,14 +63,16 @@ def run_pynamit(
     benchmark_mode: bool = False,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
-    
+
     Parameters
     ----------
     ...
     run_directory : str or Path, optional
         Directory for one persisted run. If omitted, the run persists to a
         unique timestamped run directory under ``simulation/`` and artifacts are
-        written as ``<run_directory>/settings.ncdf``, ``state.ncdf``, etc.
+        written as ``<run_directory>/settings.zarr`` plus timeseries artifacts
+        such as ``state.zarr`` when the optional Zarr dependency is available,
+        otherwise the run uses ``.ncdf`` artifacts.
     use_jr : bool, optional
         Whether to drive with field aligned currents (default True).
     """
@@ -84,7 +86,9 @@ def run_pynamit(
     from pynamit.simulation.input import compute_spherical_input_sqrt_weights
     from pynamit.data import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
-    def _infer_structured_shape(lat_arr: np.ndarray, lon_arr: np.ndarray) -> Optional[tuple[int, int]]:
+    def _infer_structured_shape(
+        lat_arr: np.ndarray, lon_arr: np.ndarray
+    ) -> Optional[tuple[int, int]]:
         """Infer a structured 2D shape from flattened lat/lon arrays."""
         lat_flat = np.asarray(lat_arr)
         lon_flat = np.asarray(lon_arr)
@@ -102,13 +106,7 @@ def run_pynamit(
         return (n_lat, n_lon)
 
     def _get_sqrt_weights(
-        lat,
-        lon,
-        *,
-        weighting: Optional[str],
-        nmax: int,
-        vector: bool = False,
-        strict: bool = True,
+        lat, lon, *, weighting: Optional[str], nmax: int, vector: bool = False, strict: bool = True
     ):
         if weighting in (None, "unit"):
             return None
@@ -125,11 +123,7 @@ def run_pynamit(
             lat_2d = lat_arr.reshape(shape_2d)
             lon_2d = lon_arr.reshape(shape_2d)
             return compute_spherical_input_sqrt_weights(
-                lat_2d,
-                lon_2d,
-                weighting=weighting,
-                nmax=nmax,
-                vector=vector,
+                lat_2d, lon_2d, weighting=weighting, nmax=nmax, vector=vector
             )
         except ValueError:
             if strict:
@@ -190,10 +184,8 @@ def run_pynamit(
     settings = DynamicsSettings(**settings_kwargs)
     dynamics = Dynamics(settings, benchmark_mode=benchmark_mode)
 
-
     date = datetime.datetime(2001, 5, 12, 21, 45)
     time = np.linspace(0, final_time, 4) if multi_data else None
-
 
     conductance_lat = dynamics.state.geometry.grid.lat
     conductance_lon = dynamics.state.geometry.grid.lon
@@ -204,7 +196,7 @@ def run_pynamit(
     hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
         date, conductance_lat, conductance_lon, time
     )
-    
+
     w_cond = _get_sqrt_weights(
         conductance_lat,
         conductance_lon,
@@ -218,7 +210,7 @@ def run_pynamit(
     jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
     if not use_jr:
         jr = np.zeros_like(jr)
-    
+
     w_jr = _get_sqrt_weights(
         jr_lat,
         jr_lon,
@@ -249,18 +241,13 @@ def run_pynamit(
         lat=conductance_lat,
         lon=conductance_lon,
         reg_lambda=conductance_lambda,
-        sqrt_weights=w_cond, 
+        sqrt_weights=w_cond,
         time=time,
     )
 
     if use_jr:
         dynamics.set_jr(
-            jr, 
-            lat=jr_lat, 
-            lon=jr_lon, 
-            reg_lambda=jr_lambda, 
-            sqrt_weights=w_jr,
-            time=time
+            jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, sqrt_weights=w_jr, time=time
         )
 
     if wind_inputs is not None:

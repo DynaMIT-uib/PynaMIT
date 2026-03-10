@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from pynamit.math.constants import RE
+from pynamit.primitives.io import IO
 from pynamit.simulation.dynamics import Dynamics
 from pynamit.simulation.settings import (
     ConductanceInterpolationMode,
@@ -17,10 +18,17 @@ from pynamit.simulation.settings import (
 )
 
 
+def _artifact_path(run_directory: str, name: str, storage_kind: str) -> Path:
+    suffix = ".zarr" if storage_kind == "zarr" else ".ncdf"
+    return Path(run_directory) / f"{name}{suffix}"
+
+
 def test_dynamics_settings_default_conductance_mode_is_string() -> None:
     settings = DynamicsSettings()
 
-    assert settings.conductance_interpolation_mode == ConductanceInterpolationMode.LEGACY_ETA_LINEAR
+    assert (
+        settings.conductance_interpolation_mode == ConductanceInterpolationMode.LEGACY_ETA_LINEAR
+    )
     assert isinstance(settings.conductance_interpolation_mode, str)
     assert settings.mainfield_kind == MainfieldKind.DIPOLE
     assert settings.integrator == IntegratorKind.EULER
@@ -65,10 +73,7 @@ def test_dynamics_settings_coerce_applies_derived_defaults() -> None:
 
 def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
     settings = DynamicsSettings(
-        run_directory=str(tmp_path / "settings_ctor"),
-        Nmax=4,
-        Mmax=3,
-        Ncs=8,
+        run_directory=str(tmp_path / "settings_ctor"), Nmax=4, Mmax=3, Ncs=8
     )
 
     dynamics = Dynamics(settings, benchmark_mode=True)
@@ -87,9 +92,7 @@ def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
     ],
 )
 def test_dynamics_settings_reject_invalid_string_choices(
-    field_name: str,
-    value: str,
-    expected_fragment: str,
+    field_name: str, value: str, expected_fragment: str
 ) -> None:
     kwargs = {field_name: value}
 
@@ -112,17 +115,16 @@ def test_from_dataset_rejects_invalid_simulation_mode() -> None:
 
 
 def test_dynamics_uses_temporary_run_directory_when_no_run_directory() -> None:
-    settings = DynamicsSettings(
-        run_directory=None,
-        Nmax=4,
-        Mmax=3,
-        Ncs=8,
-    )
+    settings = DynamicsSettings(run_directory=None, Nmax=4, Mmax=3, Ncs=8)
 
     dynamics = Dynamics(settings, benchmark_mode=False)
 
     assert dynamics.uses_temporary_run_directory is True
     assert dynamics.run_directory is not None
     assert Path(dynamics.run_directory).name.startswith("pynamit-run-")
-    assert (Path(dynamics.run_directory) / "settings.ncdf").exists()
-    assert (Path(dynamics.run_directory) / "PFAC_matrix.ncdf").exists()
+    settings_storage = dynamics.io.get_dataset_storage_kind("settings")
+    pfac_storage = dynamics.io.get_dataset_storage_kind("PFAC_matrix")
+    assert settings_storage == ("zarr" if IO.zarr_available() else "netcdf")
+    assert pfac_storage == ("zarr" if IO.zarr_available() else "netcdf")
+    assert _artifact_path(dynamics.run_directory, "settings", settings_storage).exists()
+    assert _artifact_path(dynamics.run_directory, "PFAC_matrix", pfac_storage).exists()

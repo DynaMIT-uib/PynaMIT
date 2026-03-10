@@ -15,6 +15,7 @@ from .runner import run_pynamit
 from .settings import SimulationMode, DynamicsSettings, FLOAT_ERROR_MARGIN
 from .induction import PoloidalSystemMatrices, ToroidalSystemMatrices
 from .data import SimulationData
+from .migration import migrate_run_storage, RunStorageMigrationReport
 
 __all__ = [
     "Dynamics",
@@ -26,4 +27,6 @@ __all__ = [
     "ToroidalSystemMatrices",
     "PoloidalSystemMatrices",
     "SimulationData",
+    "migrate_run_storage",
+    "RunStorageMigrationReport",
 ]
