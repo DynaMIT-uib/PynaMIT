@@ -1,4 +1,3 @@
-
 """Cubed sphere basis module.
 
 This module contains the CSBasis class for representing the cubed sphere
@@ -34,6 +33,7 @@ class CSBasis(GridBasis):
     This module provides an implementation of the cubed sphere grid
     system following methods from Yin et al. (2017).
     """
+
     _GLOBAL_PROJECTION_CACHE: Dict[Tuple[int, int, int, str], Any] = {}
 
     def __init__(self, N: int):
@@ -57,7 +57,7 @@ class CSBasis(GridBasis):
         _, self.arr_theta, self.arr_phi = cs_math.cube2spherical(
             self.arr_xi, self.arr_eta, self.arr_block, deg=True
         )
-        
+
         # Initialize Grid object (Essential for GridBasis compatibility)
         self.grid = Grid(theta=self.arr_theta, phi=self.arr_phi)
         # Attach weights for compatibility with numerical integrators (like SH path)
@@ -77,11 +77,12 @@ class CSBasis(GridBasis):
     def get_laplacian_operator(self, r: float = 1.0) -> "LinearMap":
         """Get the Laplacian operator for CSBasis."""
         from pynamit.math.linear_map import as_linear_map
+
         return as_linear_map(self.laplacian(r))
 
     def get_gradient_operator(self, r: float = 1.0) -> "LinearMap":
         """Get the analytical gradient operator.
-        
+
         Returns a LinearMap that maps scalar potential coefficients to
         vector field components: E = -grad(φ) = (-d_θ φ, -(1/sin θ) d_φ φ) / r
         """
@@ -89,7 +90,7 @@ class CSBasis(GridBasis):
 
     def get_curl_operator(self, r: float = 1.0) -> "LinearMap":
         """Get the analytical curl operator (r × grad).
-        
+
         Returns a LinearMap that maps scalar potential coefficients to
         vector field components: E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
         """
@@ -98,12 +99,14 @@ class CSBasis(GridBasis):
     def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
         """Get the discrete radial curl operator on the grid."""
         from pynamit.math.linear_map import as_linear_map
+
         target_grid = grid if grid is not None else self.grid
         return as_linear_map(self._get_grid_curl(target_grid, r=1.0))
 
     def get_vector_divergence_operator(self, grid: Optional[Any] = None) -> "LinearMap":
         """Get the discrete divergence operator on the grid."""
         from pynamit.math.linear_map import as_linear_map
+
         target_grid = grid if grid is not None else self.grid
         return as_linear_map(self._get_grid_divergence(target_grid, r=1.0))
 
@@ -188,9 +191,7 @@ class CSBasis(GridBasis):
         return C
 
     def get_scalar_gauge_constraint_matrix(
-        self,
-        n_coeff: Optional[int] = None,
-        mode: str = "pin_first",
+        self, n_coeff: Optional[int] = None, mode: str = "pin_first"
     ) -> np.ndarray:
         """Return a single scalar gauge constraint row.
 
@@ -216,10 +217,7 @@ class CSBasis(GridBasis):
         return row
 
     def get_scalar_gauge_projector_for_operator(
-        self,
-        operator: np.ndarray,
-        mode: str = "pin_first",
-        rcond: Optional[float] = None,
+        self, operator: np.ndarray, mode: str = "pin_first", rcond: Optional[float] = None
     ) -> np.ndarray:
         """Return projector that enforces scalar gauge while preserving operator image.
 
@@ -241,7 +239,9 @@ class CSBasis(GridBasis):
             return self.get_mean_zero_projector(n_coeff=n).astype(A.dtype, copy=False)
 
         # pin_first: subtract only along null-space direction(s) so Ax is preserved.
-        z_const = self.get_constant_mode_vector(n_coeff=n).astype(A.dtype, copy=False).reshape(-1, 1)
+        z_const = (
+            self.get_constant_mode_vector(n_coeff=n).astype(A.dtype, copy=False).reshape(-1, 1)
+        )
         rel_const_null = np.linalg.norm(A @ z_const) / max(
             np.linalg.norm(A) * np.linalg.norm(z_const), 1e-30
         )
@@ -267,11 +267,15 @@ class CSBasis(GridBasis):
         pin_on_null_pinv = np.linalg.pinv(pin_on_null, rcond=max(float(rcond or 0.0), 0.0))
         return I - (null_basis @ pin_on_null_pinv @ pin_row)
 
-    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+    def get_toroidal_potential_coeffs(
+        self, coeffs: np.ndarray, grid: Optional[Any] = None
+    ) -> np.ndarray:
         """Extract toroidal potential coefficients from Helmholtz coefficients."""
         return self._extract_helmholtz_channel(coeffs, channel=1)
 
-    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+    def get_poloidal_potential_coeffs(
+        self, coeffs: np.ndarray, grid: Optional[Any] = None
+    ) -> np.ndarray:
         """Extract poloidal potential coefficients from Helmholtz coefficients."""
         return self._extract_helmholtz_channel(coeffs, channel=0)
 
@@ -290,11 +294,7 @@ class CSBasis(GridBasis):
         raise ValueError(f"Unknown vector_type: {vector_type}")
 
     def from_grid_values(
-        self,
-        values: np.ndarray,
-        grid: Any,
-        vector_type: str,
-        **kwargs,
+        self, values: np.ndarray, grid: Any, vector_type: str, **kwargs
     ) -> np.ndarray:
         """Project grid values to CS coefficients.
 
@@ -332,17 +332,18 @@ class CSBasis(GridBasis):
     ) -> "LinearMap":
         """Get the radial shift operator. Default to global SH-like scaling for now."""
         from pynamit.math.linear_map import diagonal_linear_map
+
         # Grid basis can follow same potential radial scaling as SH (physics-based)
         # We assume each point scales like a generic potential term.
-        # This is strictly true only for SH, but a reasonable "grid" approximation 
+        # This is strictly true only for SH, but a reasonable "grid" approximation
         # for potential fields if we don't have a better model.
         if kind == "external":
             # For Ve, usually n-dependent. If we don't have n, we assume a representative n=1?
             # Or we use a safe default of 1.0 if not supported.
-            factor = (start_r / end_r)
+            factor = start_r / end_r
         else:
             factor = (start_r / end_r) ** 2
-        
+
         return diagonal_linear_map(np.ones(self.index_length) * factor)
 
     def get_potential_scaling_operator(self) -> "LinearMap":
@@ -353,6 +354,7 @@ class CSBasis(GridBasis):
         applied here.
         """
         from pynamit.math.linear_map import diagonal_linear_map
+
         return diagonal_linear_map(np.ones(self.index_length))
 
     @property
@@ -680,94 +682,94 @@ class CSBasis(GridBasis):
     def _get_arbitrary_interpolation_matrix(self, grid, Ni=4):
         """Construct interpolation matrix for arbitrary target points (2D Tensor Product)."""
         import scipy.sparse
-        
+
         N = self.N
         # 1. Map target grid to CS coordinates
         xi_tgt, eta_tgt, k_tgt = cs_math.geo2cube(grid.phi, 90.0 - grid.theta)
-        
+
         # 2. Fractional indices
         h_scaling = (2 * N) / np.pi
         i_tgt = (xi_tgt + np.pi / 4) * h_scaling
         j_tgt = (eta_tgt + np.pi / 4) * h_scaling
-        
+
         # 3. Base integer indices (floor)
         i_base = np.floor(i_tgt).astype(int)
         j_base = np.floor(j_tgt).astype(int)
-        
+
         # 4. Prepare Stencil Iteration
         # Stencil range relative to base: e.g. -1, 0, 1, 2 for Ni=4
         start = -(Ni // 2) + 1  # -1 for Ni=4
         stencil_offsets = np.arange(start, start + Ni)
-        
+
         rows = []
         cols = []
         data = []
-        
+
         n_targets = i_tgt.size
         target_indices = np.arange(n_targets)
-        
+
         # Pre-calculate distances for weight computation
         # Lagrange weights for tensor product
         # w_total(di, dj) = w(di) * w(dj)
-        
+
         # Loop over the 2D stencil (Ni x Ni)
         for di in stencil_offsets:
             for dj in stencil_offsets:
                 # A. Identify Source Candidates (on the definition face k_tgt)
                 i_cand = i_base + di
                 j_cand = j_base + dj
-                
+
                 # B. Map Candidates to Valid Grid Nodes (Handle Face Crossing)
                 # Convert (k_tgt, i_cand, j_cand) -> (xi_cand, eta_cand)
                 # Note: This xi/eta might be outside [-pi/4, pi/4]
                 xi_cand = -np.pi / 4 + i_cand * np.pi / (2 * N)
                 eta_cand = -np.pi / 4 + j_cand * np.pi / (2 * N)
-                
+
                 # Map through sphere to canonical CS coordinates
                 r, th, ph = cs_math.cube2spherical(xi_cand, eta_cand, k_tgt, r=1.0, deg=True)
                 xi_prim, eta_prim, k_prim = cs_math.geo2cube(ph, 90.0 - th)
-                
+
                 # Convert back to indices on the new face
                 i_prim = np.rint((xi_prim + np.pi / 4) * h_scaling).astype(int)
                 j_prim = np.rint((eta_prim + np.pi / 4) * h_scaling).astype(int)
-                
-                # Clamp strict limits to avoid floating point noise issues at corners? 
+
+                # Clamp strict limits to avoid floating point noise issues at corners?
                 # geo2cube should handle it, but indices must be 0..N
-                i_prim = np.clip(i_prim, 0, N) 
+                i_prim = np.clip(i_prim, 0, N)
                 j_prim = np.clip(j_prim, 0, N)
-                
+
                 # Flattened Column Indices
-                # shape (6, N, N) -> (6, N+1, N+1)? 
-                # CSBasis typically N+1? 
-                # self.get_gridpoints(N) uses N+1. 
+                # shape (6, N, N) -> (6, N+1, N+1)?
+                # CSBasis typically N+1?
+                # self.get_gridpoints(N) uses N+1.
                 # get_gridpoints(flat=True) returns size 6*(N+1)*(N+1).
                 # Wait, CSBasis index length?
                 # line 49: k, i, j = self.get_gridpoints(N)
                 # line 52: i[:, :-1, :-1].
                 # It drops the last row/col?
-                # This implies "Centered" or "Element-based"? 
+                # This implies "Centered" or "Element-based"?
                 # Yin et al method usually LGL nodes or similar.
                 # Lines 52-54: i[:, :-1, :-1] + 0.5.
                 # This implies CELL CENTRED basis? Or nodes at 0.5?
                 # "xi = -pi/4 + (i+0.5)*..."
                 # If basis is defined at cell centers, N is number of cells.
-                
-                # My `i_tgt` calculation used `i_tgt = (xi + pi/4) / h`. 
+
+                # My `i_tgt` calculation used `i_tgt = (xi + pi/4) / h`.
                 # If xi = -pi/4 + (i_idx + 0.5)*h
                 # Then xi + pi/4 = (i_idx + 0.5)*h
                 # i_tgt (from xi) = i_idx + 0.5.
                 # So `i_tgt` is shifted by 0.5 relative to integer indices?
-                
+
                 # Let's check `xi` method:
                 # `return -np.pi / 4 + i * np.pi / (2 * N)`
                 # AND init uses `i[:, :-1, :-1] + 0.5`.
                 # So the STORED grid is at half-indices. 0.5, 1.5, ...
-                
+
                 # To align `i_tgt` with integer grid storage indices `0, 1, 2...` (representing 0.5, 1.5...):
                 # i_grid_idx = i_tgt - 0.5.
                 # Let's adjust i_tgt in Step 2.
-                
-                # Re-check. 
+
+                # Re-check.
                 # Basis stored at `indices` 0..N-1?
                 # `self.arr_xi` derived from `i + 0.5`.
                 # If I want to interpolate from values at `i+0.5`,
@@ -776,44 +778,42 @@ class CSBasis(GridBasis):
                 # `u - u0 = idx*h + 0.5*h`
                 # `(u-u0)/h = idx + 0.5`
                 # `idx = (u-u0)/h - 0.5`.
-                
+
                 # So my `i_tgt` calculation (which was `(xi-xi0)/h`) yields `idx + 0.5`.
                 # So I should subtract 0.5 to get `idx`.
                 # Correct.
-                
+
                 # C. Compute Weights (Lagrange Interpolation for Cell-Centered Grid)
                 # Nodes are at indices like 0.5, 1.5, etc.
                 # i_tgt is in these units.
                 # Relative to i_base, nodes are at (offset + 0.5)
                 # Target is at delta = (i_tgt - i_base)
-                
+
                 # w_i(di) = Product_{m in stencil, m!=di} (delta - (m+0.5)) / ((di+0.5) - (m+0.5))
                 #         = Product_{m!=di} (delta - m - 0.5) / (di - m)
-                
+
                 delta_i = i_tgt - i_base
                 delta_j = j_tgt - j_base
-                
+
                 w_i = np.ones_like(delta_i)
                 w_j = np.ones_like(delta_j)
-                
+
                 for m in stencil_offsets:
                     if m != di:
                         w_i *= (delta_i - m - 0.5) / (di - m)
                     if m != dj:
                         w_j *= (delta_j - m - 0.5) / (dj - m)
-                        
+
                 weight = w_i * w_j
-                
+
                 # D. Store in Sparse Lists
                 # flattened index for col: k, i, j
                 # Clip to valid index range 0..N-1 just in case
                 i_prim = np.clip(i_prim, 0, N - 1)
                 j_prim = np.clip(j_prim, 0, N - 1)
-                
-                col_indices = np.ravel_multi_index(
-                    (k_prim, i_prim, j_prim), (6, N, N)
-                )
-                
+
+                col_indices = np.ravel_multi_index((k_prim, i_prim, j_prim), (6, N, N))
+
                 rows.append(target_indices)
                 cols.append(col_indices)
                 data.append(weight)
@@ -822,8 +822,9 @@ class CSBasis(GridBasis):
         rows = np.concatenate(rows)
         cols = np.concatenate(cols)
         data = np.concatenate(data)
-        
+
         from scipy.sparse import coo_matrix
+
         return coo_matrix((data, (rows, cols)), shape=(n_targets, 6 * N * N))
 
     def laplacian(self, r=1.0):
@@ -846,14 +847,12 @@ class CSBasis(GridBasis):
         # be assembled from the unscaled d/dφ operator to avoid extra metric
         # scaling in the discrete CS operator.
         term1 = bundle["inv_sin_th"] @ bundle["D_theta"] @ bundle["sin_th"] @ bundle["D_theta"]
-        term2 = (
-            bundle["inv_sin2_th"]
-            @ bundle["D_phi_unscaled"]
-            @ bundle["D_phi_unscaled"]
-        )
+        term2 = bundle["inv_sin2_th"] @ bundle["D_phi_unscaled"] @ bundle["D_phi_unscaled"]
         return (term1 + term2) / (r**2)
 
-    def get_mimetic_laplacian_operator(self, grid: Optional[Any] = None, r: float = 1.0) -> np.ndarray:
+    def get_mimetic_laplacian_operator(
+        self, grid: Optional[Any] = None, r: float = 1.0
+    ) -> np.ndarray:
         """Return scalar Laplacian from discrete div/grad composition.
 
         Uses:
@@ -875,17 +874,20 @@ class CSBasis(GridBasis):
         return lap
 
     def get_mimetic_laplacian_pinv(
-        self,
-        grid: Optional[Any] = None,
-        r: float = 1.0,
-        rcond: Optional[float] = None,
+        self, grid: Optional[Any] = None, r: float = 1.0, rcond: Optional[float] = None
     ) -> np.ndarray:
         """Return mean-zero gauge-fixed pseudoinverse of mimetic Laplacian."""
         lap = np.asarray(self.get_mimetic_laplacian_operator(grid=grid, r=r))
         if rcond is None:
             rcond = self._default_pinv_rcond(lap.shape)
         key = (
-            int(getattr(grid if grid is not None else self.grid, "hash", id(grid if grid is not None else self.grid))),
+            int(
+                getattr(
+                    grid if grid is not None else self.grid,
+                    "hash",
+                    id(grid if grid is not None else self.grid),
+                )
+            ),
             float(r),
             float(max(rcond, 0.0)),
         )
@@ -931,48 +933,41 @@ class CSBasis(GridBasis):
         src_grid = Grid(theta=th_src, phi=ph_src)
         if src_grid == self.grid:
             return self._interpolator.interpolate_scalar(val, th_tgt, ph_tgt)
-            
+
         # Fallback to generic interpolation
         interp = create_interpolator(th_src, ph_src)
         return interp.interpolate_scalar(val, th_tgt, ph_tgt)
 
-    def interpolate_vector_components(
-        self, u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt
-    ):
+    def interpolate_vector_components(self, u_east, u_north, u_r, th_src, ph_src, th_tgt, ph_tgt):
         """Interpolate vector components."""
         # Use optimized interpolator if source matches this basis
         src_grid = Grid(theta=th_src, phi=ph_src)
         if src_grid == self.grid:
-            return self._interpolator.interpolate_vector(
-                 u_east, u_north, u_r, th_tgt, ph_tgt
-            )
-            
+            return self._interpolator.interpolate_vector(u_east, u_north, u_r, th_tgt, ph_tgt)
+
         # Fallback to generic interpolation
         interp = create_interpolator(th_src, ph_src)
         return interp.interpolate_vector(u_east, u_north, u_r, th_tgt, ph_tgt)
 
     def project_to_basis(
-        self,
-        input_values,
-        input_grid,
-        vector_type,
-        target_grid,
-        target_basis,
-        **kwargs,
+        self, input_values, input_grid, vector_type, target_grid, target_basis, **kwargs
     ):
         """Project input data onto the target basis."""
+        from pynamit.primitives.projection_pipeline import interpolate_then_project_batch
+
         if target_grid is None:
             raise ValueError("target_grid must be provided")
 
-        if vector_type == "scalar":
-            grid_values = self.interpolate_scalar(
-                input_values, input_grid.theta, input_grid.phi, target_grid.theta, target_grid.phi
-            )
-        elif vector_type == "tangential":
-            u_east = input_values[1]
-            u_north = -input_values[0]
-            u_r = np.zeros_like(u_north)
-            u_east_int, u_north_int, _ = self.interpolate_vector_components(
+        return interpolate_then_project_batch(
+            input_values,
+            input_grid=input_grid,
+            vector_type=vector_type,
+            target_grid=target_grid,
+            target_basis=target_basis,
+            scalar_interpolator=lambda values: self.interpolate_scalar(
+                values, input_grid.theta, input_grid.phi, target_grid.theta, target_grid.phi
+            ),
+            vector_interpolator=lambda u_east, u_north, u_r: self.interpolate_vector_components(
                 u_east,
                 u_north,
                 u_r,
@@ -980,25 +975,9 @@ class CSBasis(GridBasis):
                 input_grid.phi,
                 target_grid.theta,
                 target_grid.phi,
-            )
-            grid_values = np.vstack((-u_north_int, u_east_int))
-        else:
-            raise ValueError(f"Unknown vector_type: {vector_type}")
-
-        # Extract solve parameters from kwargs for the fit
-        # We override weights to None because input weights are not valid on the interpolated grid
-        fit_kwargs = kwargs.copy()
-        fit_kwargs["weights"] = None
-
-        coeffs = target_basis.from_grid_values(
-            grid_values,
-            target_grid,
-            vector_type,
-            **fit_kwargs,
+            ),
+            fit_kwargs=kwargs,
         )
-        return coeffs
-
-
 
     def construct_projection_matrix(self, grid) -> Any:
         """Construct the projection matrix mapping Grid Vector -> Scalar Potentials.
@@ -1049,9 +1028,7 @@ class CSBasis(GridBasis):
 
         # Equality-constrained solve with hard gauge rows.
         if n_coeff <= 0:
-            raise ValueError(
-                f"Cannot construct CS Helmholtz projection with n_coeff={n_coeff}."
-            )
+            raise ValueError(f"Cannot construct CS Helmholtz projection with n_coeff={n_coeff}.")
 
         n_total = 2 * n_coeff
         m_total = 2 * n_grid
@@ -1061,10 +1038,7 @@ class CSBasis(GridBasis):
 
         C = self.get_helmholtz_gauge_constraint_matrix(n_coeff=n_coeff)
         problem = LeastSquaresProblem(
-            A=[A],
-            solution_shape=(n_total,),
-            data_shapes=[(m_total,)],
-            matrix_free=False,
+            A=[A], solution_shape=(n_total,), data_shapes=[(m_total,)], matrix_free=False
         )
         try:
             ls_solver = LeastSquaresSolver(solver=solver_kind, tolerance=1e-15)
@@ -1099,6 +1073,7 @@ class CSBasis(GridBasis):
     def _get_grid_divergence(self, grid: Any, r: float = 1.0) -> Any:
         """Get the discrete divergence operator matrix on the grid."""
         import scipy.sparse
+
         bundle = self._get_grid_derivative_bundle(grid)
 
         # Div = (1/r sin th) [ d_th (E_th sin th) + d_ph E_ph ]
@@ -1116,6 +1091,7 @@ class CSBasis(GridBasis):
     def _get_grid_curl(self, grid: Any, r: float = 1.0) -> Any:
         """Get the discrete radial curl operator matrix on the grid."""
         import scipy.sparse
+
         bundle = self._get_grid_derivative_bundle(grid)
 
         # Curl_r = (1/r sin th) [ d_th (E_ph sin th) - d_ph E_th ]
@@ -1129,39 +1105,41 @@ class CSBasis(GridBasis):
 
     def _get_grid_gradient_operator(self, grid: Any, r: float = 1.0) -> "LinearMap":
         """Get gradient operator mapping spectral potential to vector grid field.
-        
+
         Returns a LinearMap that computes E = -grad(φ) = (-d_θ φ, -(1/sin θ) d_φ φ) / r
         The returned operator maps from scalar coefficients to stacked vector components.
         """
         from pynamit.math.linear_map import as_linear_map, block_linear_map
+
         bundle = self._get_grid_derivative_bundle(grid)
-        
+
         # E = -grad(phi) = (-d_th phi, -1/sin_th * d_ph phi) / r
         # D_phi_scaled already includes 1/sin(theta) scaling.
         op_phi_th = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
         op_phi_ph = as_linear_map(bundle["D_phi_scaled"]) * (-1.0 / r)
-        
+
         return block_linear_map([[op_phi_th], [op_phi_ph]])
 
     def _get_grid_curl_operator(self, grid: Any, r: float = 1.0) -> "LinearMap":
         """Get curl operator mapping spectral potential to vector grid field.
-        
+
         Returns a LinearMap that computes E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
         The returned operator maps from scalar coefficients to stacked vector components.
         """
         from pynamit.math.linear_map import as_linear_map, block_linear_map
+
         bundle = self._get_grid_derivative_bundle(grid)
-        
+
         # E = -r x grad(psi) = (1/sin_th * d_ph psi, -d_th psi) / r
         # D_phi_scaled already includes 1/sin(theta) scaling.
         op_psi_th = as_linear_map(bundle["D_phi_scaled"]) * (1.0 / r)
         op_psi_ph = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
-        
+
         return block_linear_map([[op_psi_th], [op_psi_ph]])
 
     def get_extended_basis(self) -> "CSBasis":
         """Return a basis extended to include the monopole term.
-        
+
         For CSBasis, the basis already includes all grid points.
         """
         return self
@@ -1182,6 +1160,7 @@ class CSBasis(GridBasis):
             Canonical Helmholtz tensor with shape ``(2, N_grid, 2, N_coeffs)``.
         """
         from pynamit.math.linear_map import block_linear_map
+
         # Use our grid-based Helmholtz operators (at r=1.0 for the basis definition)
         G_pol = self._get_grid_gradient_operator(grid, r=1.0)
         G_tor = self._get_grid_curl_operator(grid, r=1.0)

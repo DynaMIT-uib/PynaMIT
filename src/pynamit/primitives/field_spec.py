@@ -140,9 +140,7 @@ class FieldSpec:
         """Return the scalar evaluation matrix for this field space."""
         if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
             return self.basis.get_evaluation_matrix(
-                grid,
-                derivative=derivative,
-                mean_free=self.mean_free,
+                grid, derivative=derivative, mean_free=self.mean_free
             )
         return self.basis.get_evaluation_matrix(grid, derivative=derivative)
 
@@ -173,24 +171,20 @@ class FieldSpec:
                     vector_type=vector_type,
                 )
         return self.basis.grid_to_basis_fast(
-            data,
-            theta,
-            phi=phi,
-            weights=weights,
-            reg_lambda=reg_lambda,
-            vector_type=vector_type,
+            data, theta, phi=phi, weights=weights, reg_lambda=reg_lambda, vector_type=vector_type
         )
 
+    def supports_regular_grid_fast_path(self) -> bool:
+        """Return whether the wrapped basis supports regular-grid fast projection."""
+        return bool(self.basis.supports_regular_grid_fast_path())
+
     def get_regularization_matrix(
-        self,
-        scalar: bool = True,
-        reg_lambda: float | None = None,
+        self, scalar: bool = True, reg_lambda: float | None = None
     ) -> Any:
         """Return the regularization matrix for this field space."""
         if self.kind == "SH" and hasattr(self.basis, "_with_mean_free"):
             return self.basis._with_mean_free(bool(self.mean_free)).get_regularization_matrix(
-                scalar=scalar,
-                reg_lambda=reg_lambda,
+                scalar=scalar, reg_lambda=reg_lambda
             )
         return self.basis.get_regularization_matrix(scalar=scalar, reg_lambda=reg_lambda)
 
@@ -278,11 +272,7 @@ class FieldSpec:
         return self.basis.get_poloidal_potential_coeffs(coeffs, grid=grid)
 
     def from_grid_values(
-        self,
-        values: np.ndarray,
-        grid: Any,
-        vector_type: str,
-        **kwargs: Any,
+        self, values: np.ndarray, grid: Any, vector_type: str, **kwargs: Any
     ) -> np.ndarray:
         """Project grid values into this field space."""
         if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
@@ -302,26 +292,13 @@ class FieldSpec:
         if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
             kwargs.setdefault("mean_free", self.mean_free)
         return self.basis.project_to_basis(
-            input_values,
-            input_grid,
-            vector_type,
-            target_grid,
-            target_basis,
-            **kwargs,
+            input_values, input_grid, vector_type, target_grid, target_basis, **kwargs
         )
 
-    def evaluate(
-        self,
-        coeffs: np.ndarray,
-        grid: Any,
-        vector_type: str = "scalar",
-    ) -> np.ndarray:
+    def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
         """Evaluate coefficients in this field space on a grid."""
         if self.kind == "SH" and self.field_type in ("scalar", "tangential"):
             return self.basis.evaluate(
-                coeffs,
-                grid,
-                vector_type=vector_type,
-                mean_free=self.mean_free,
+                coeffs, grid, vector_type=vector_type, mean_free=self.mean_free
             )
         return self.basis.evaluate(coeffs, grid, vector_type=vector_type)

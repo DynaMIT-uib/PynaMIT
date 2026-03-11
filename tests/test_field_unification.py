@@ -2,8 +2,10 @@ import pytest
 import numpy as np
 from pynamit.primitives.field import Field
 from pynamit.primitives.field_spec import FieldSpec
+from pynamit.primitives.mainfield import Mainfield
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.primitives.grid import Grid
+from pynamit.simulation.settings import MainfieldKind
 
 
 def test_field_expansion_as_field():
@@ -75,9 +77,6 @@ def test_field_expansion_tangential():
 
 def test_mainfield_continuous_accessors():
     """Test accessing components of continuous Mainfield."""
-from pynamit.primitives.mainfield import Mainfield
-from pynamit.simulation.settings import MainfieldKind
-
     mf = Mainfield(kind=MainfieldKind.RADIAL, B0=30000e-9)
 
     # 1. Access components directly
@@ -122,8 +121,6 @@ from pynamit.simulation.settings import MainfieldKind
 
 def test_mainfield_as_field_provider_backend():
     """Mainfield can be wrapped behind the generic Field facade."""
-    from pynamit.primitives.mainfield import Mainfield
-
     mf = Mainfield(kind=MainfieldKind.RADIAL, B0=30000e-9)
     field = mf.as_field()
 

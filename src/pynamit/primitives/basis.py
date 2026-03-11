@@ -128,11 +128,13 @@ class Basis(ABC):
         pass
 
     @abstractmethod
-    def get_product_operator(self, coeffs_a: np.ndarray, grid: Optional[Any] = None) -> "LinearMap":
+    def get_product_operator(
+        self, coeffs_a: np.ndarray, grid: Optional[Any] = None
+    ) -> "LinearMap":
         """
         Get a LinearMap that performs multiplication by a field in this basis.
-        
-        Applying the resulting operator to coeffs_b should yield the 
+
+        Applying the resulting operator to coeffs_b should yield the
         coefficients of the field product c = a * b.
 
         Parameters
@@ -162,6 +164,9 @@ class Basis(ABC):
         """
         return False
 
+    def supports_regular_grid_fast_path(self) -> bool:
+        """Return whether this basis supports the regular-grid fast projection path."""
+        return False
 
     @abstractmethod
     def get_vector_curl_operator(self, grid: Optional[Any] = None) -> "LinearMap":
@@ -196,47 +201,42 @@ class Basis(ABC):
         pass
 
     @abstractmethod
-    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+    def get_toroidal_potential_coeffs(
+        self, coeffs: np.ndarray, grid: Optional[Any] = None
+    ) -> np.ndarray:
         """Extract toroidal potential coefficients from vector coefficients."""
         pass
 
     @abstractmethod
-    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+    def get_poloidal_potential_coeffs(
+        self, coeffs: np.ndarray, grid: Optional[Any] = None
+    ) -> np.ndarray:
         """Extract poloidal potential coefficients from vector coefficients."""
         pass
 
-
-
     @abstractmethod
-    def evaluate(
-        self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar"
-    ) -> np.ndarray:
+    def evaluate(self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar") -> np.ndarray:
         """Evaluate basis on a grid (interpolate coeffs)."""
         pass
 
     @abstractmethod
     def from_grid_values(
-        self,
-        values: np.ndarray,
-        grid: Any,
-        vector_type: str,
-        **kwargs,
+        self, values: np.ndarray, grid: Any, vector_type: str, **kwargs
     ) -> np.ndarray:
         """Convert grid values to coefficients."""
         pass
 
-
     @abstractmethod
     def get_evaluation_matrix(self, grid: Any, derivative: str = None) -> Any:
         """Get matrix evaluating basis (or derivatives) on a grid.
-        
+
         Parameters
         ----------
         grid : Grid
             Target grid.
         derivative : str, optional
             'theta', 'phi', or None.
-            
+
         Returns
         -------
         matrix : np.ndarray or sparse matrix
@@ -246,7 +246,7 @@ class Basis(ABC):
 
     def get_gradient_matrix(self, grid: Any) -> Any:
         """Get gradient operator matrix (components [d/dtheta, 1/sin d/dphi]).
-        
+
         Returns
         -------
         matrix : array-like
@@ -254,7 +254,7 @@ class Basis(ABC):
         """
         G_th = self.get_evaluation_matrix(grid, "theta")
         G_ph = self.get_evaluation_matrix(grid, "phi")
-        
+
         # Ensure consistent array/matrix types via backend utils?
         # For now, rely on subclass implementation or simple stacking
         # This default implementation assumes subclasses return compatible types
@@ -262,19 +262,20 @@ class Basis(ABC):
         # So maybe abstract is safer, or explicit check.
         # Converting to dense for safety in default impl:
         try:
-             import scipy.sparse
-             is_sparse = scipy.sparse.issparse(G_th)
-             if is_sparse:
-                  G_th = G_th.toarray()
-                  G_ph = G_ph.toarray()
+            import scipy.sparse
+
+            is_sparse = scipy.sparse.issparse(G_th)
+            if is_sparse:
+                G_th = G_th.toarray()
+                G_ph = G_ph.toarray()
         except ImportError:
-             pass
-        
+            pass
+
         return np.array([G_th, G_ph])
 
     def get_curl_matrix(self, grid: Any) -> Any:
         """Get curl (R x Grad) operator matrix.
-        
+
         Returns
         -------
         matrix : array-like
@@ -282,7 +283,7 @@ class Basis(ABC):
         """
         G_grad = self.get_gradient_matrix(grid)
         G_th, G_ph = G_grad[0], G_grad[1]
-        
+
         # Option 1: Uniform Potential Convention (-,-)
         # Poloidal: -Grad V
         # Toroidal: Curl(Tr) = -r x Grad T
@@ -291,13 +292,13 @@ class Basis(ABC):
 
     def get_vector_basis_matrix(self, grid: Any) -> Any:
         """Get vector basis evaluation matrix (Helmholtz decomposition).
-        
+
         Maps [Poloidal_Coeffs; Toroidal_Coeffs] -> [Vector_Theta; Vector_Phi].
-        
+
         Definition (Uniform Potential Convention):
         Poloidal: -Grad P
         Toroidal: Curl(T r) = -r x Grad T
-        
+
         Returns
         -------
         matrix : array-like
@@ -308,53 +309,57 @@ class Basis(ABC):
         # get_curl_matrix now returns Curl(T r) = -r x Grad.
         G_grad = self.get_gradient_matrix(grid)
         G_curl_Tr = self.get_curl_matrix(grid)
-        
+
         # Poloidal = -Grad
         G_pol = -G_grad
-        
+
         return np.stack([G_pol, G_curl_Tr], axis=2)
 
     def get_scaled_matrix(self, grid: Any, factor: Any) -> Any:
         """Get evaluation matrix scaled by a factor (row or column).
-        
+
         Parameters
         ----------
         grid : Grid
             Target grid.
         factor : scalar or array-like
             Scaling factor. If array, detects row/col scaling by shape.
-            
+
         Returns
         -------
         matrix : array-like
             Scaled matrix G.
         """
         import scipy.sparse
+
         G = self.get_evaluation_matrix(grid)
-        
+
         if np.isscalar(factor):
             return factor * G
-        
+
         factor_arr = np.asarray(factor).ravel()
         rows, cols = G.shape
         is_sparse = scipy.sparse.issparse(G)
-        
+
         if factor_arr.size == rows:
-             if is_sparse:
-                 return scipy.sparse.diags(factor_arr) @ G
-             else:
-                 return G * factor_arr.reshape(-1, 1)
+            if is_sparse:
+                return scipy.sparse.diags(factor_arr) @ G
+            else:
+                return G * factor_arr.reshape(-1, 1)
         elif factor_arr.size == cols:
-             if is_sparse:
-                  return G @ scipy.sparse.diags(factor_arr)
-             else:
-                  return G * factor_arr
+            if is_sparse:
+                return G @ scipy.sparse.diags(factor_arr)
+            else:
+                return G * factor_arr
         else:
-             raise ValueError(
-                 f"Factor size {factor_arr.size} does not match G shape {G.shape} "
-                 "for either row or column scaling."
-             )
-    def get_regularization_matrix(self, scalar: bool = True, reg_lambda: Optional[float] = None) -> Optional[np.ndarray]:
+            raise ValueError(
+                f"Factor size {factor_arr.size} does not match G shape {G.shape} "
+                "for either row or column scaling."
+            )
+
+    def get_regularization_matrix(
+        self, scalar: bool = True, reg_lambda: Optional[float] = None
+    ) -> Optional[np.ndarray]:
         """Get the regularization matrix for this basis. Default is None."""
         return None
 
@@ -381,9 +386,7 @@ class Basis(ABC):
         from pynamit.primitives.field_spec import FieldSpec
 
         spec = FieldSpec(
-            basis=self,
-            field_type="scalar",
-            mean_free=bool(getattr(self, "mean_free", False)),
+            basis=self, field_type="scalar", mean_free=bool(getattr(self, "mean_free", False))
         )
         return get_scalar_projection_matrix(spec, grid)
 
@@ -416,10 +419,7 @@ class Basis(ABC):
                 )
             solver = self._helmholtz_solvers[solver_type]
             problem = get_helmholtz_least_squares_problem(
-                spec,
-                grid,
-                sqrt_weights=weights,
-                reg_lambda=reg_lambda,
+                spec, grid, sqrt_weights=weights, reg_lambda=reg_lambda
             )
         else:
             if solver_type not in self._scalar_solvers:
@@ -428,10 +428,7 @@ class Basis(ABC):
                 )
             solver = self._scalar_solvers[solver_type]
             problem = get_scalar_least_squares_problem(
-                spec,
-                grid,
-                sqrt_weights=weights,
-                reg_lambda=reg_lambda,
+                spec, grid, sqrt_weights=weights, reg_lambda=reg_lambda
             )
 
         # Basis-specific gauge constraints (e.g., CS Helmholtz constant-mode nulls).
@@ -451,7 +448,11 @@ class Basis(ABC):
         return solver.solve(problem=problem, rhs=[values])
 
     def basis_to_grid(
-        self, coeffs: np.ndarray, grid: Any, derivative: Optional[str] = None, helmholtz: bool = False
+        self,
+        coeffs: np.ndarray,
+        grid: Any,
+        derivative: Optional[str] = None,
+        helmholtz: bool = False,
     ) -> np.ndarray:
         """Interpolate coefficients to a grid."""
         if derivative:
@@ -465,18 +466,22 @@ class Basis(ABC):
             return G.dot(coeffs)
 
     def regularization_term(
-        self, coeffs: np.ndarray, grid: Any, vector_type: str = "scalar", reg_lambda: Optional[float] = None
+        self,
+        coeffs: np.ndarray,
+        grid: Any,
+        vector_type: str = "scalar",
+        reg_lambda: Optional[float] = None,
     ) -> float:
         """Compute the regularization penalty term."""
         if reg_lambda is None or reg_lambda == 0:
             return 0.0
-            
+
         is_scalar = vector_type == "scalar"
         L = self.get_regularization_matrix(scalar=is_scalar, reg_lambda=reg_lambda)
         if L is None:
             return 0.0
-            
+
         if not is_scalar:
-             return np.tensordot(L, coeffs, 2)
+            return np.tensordot(L, coeffs, 2)
         else:
-             return np.dot(coeffs, np.dot(L, coeffs))
+            return np.dot(coeffs, np.dot(L, coeffs))

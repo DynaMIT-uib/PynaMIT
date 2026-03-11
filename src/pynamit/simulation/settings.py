@@ -121,7 +121,15 @@ def _enum_values(enum_cls: type[StringChoiceEnum]) -> set[str]:
 
 
 _VALID_MAINFIELD_KINDS = _enum_values(MainfieldKind)
-_VALID_INTEGRATORS = _enum_values(IntegratorKind)
+_SCIPY_SOLVE_IVP_INTEGRATORS = {
+    "rk23": "RK23",
+    "rk45": "RK45",
+    "dop853": "DOP853",
+    "radau": "Radau",
+    "bdf": "BDF",
+    "lsoda": "LSODA",
+}
+_VALID_INTEGRATORS = _enum_values(IntegratorKind) | set(_SCIPY_SOLVE_IVP_INTEGRATORS)
 _VALID_BACKENDS = {"auto", "numpy", "jax"}
 _VALID_DYNAMICS_MODES = _enum_values(DynamicsMode)
 _VALID_WEIGHTINGS = _enum_values(WeightingMode)
@@ -210,6 +218,49 @@ def _coerce_enum_choice(
         ) from None
 
 
+def _normalize_integrator_choice(value: Any) -> IntegratorKind | str:
+    """Return one canonical integrator choice.
+
+    Built-in PynaMIT integrators remain ``IntegratorKind`` enum values.
+    Supported SciPy ``solve_ivp`` methods are normalized to the canonical
+    mixed-case strings expected by SciPy, e.g. ``"DOP853"``.
+    """
+    if isinstance(value, IntegratorKind):
+        return value
+    if isinstance(value, Enum):
+        value = value.value
+    if isinstance(value, np.generic):
+        value = value.item()
+    if not isinstance(value, str):
+        valid = [member.value for member in IntegratorKind] + list(
+            _SCIPY_SOLVE_IVP_INTEGRATORS.values()
+        )
+        raise ValueError(f"integrator must be one of {valid}, got {value!r}.")
+
+    normalized = value.strip()
+    lowered = normalized.lower()
+    if lowered in _enum_values(IntegratorKind):
+        return IntegratorKind(lowered)
+    if lowered in _SCIPY_SOLVE_IVP_INTEGRATORS:
+        return _SCIPY_SOLVE_IVP_INTEGRATORS[lowered]
+
+    valid = [member.value for member in IntegratorKind] + list(
+        _SCIPY_SOLVE_IVP_INTEGRATORS.values()
+    )
+    matches = get_close_matches(normalized, valid, n=1, cutoff=0.7)
+    if not matches:
+        matches = get_close_matches(lowered, [item.lower() for item in valid], n=1, cutoff=0.7)
+        suggestion = ""
+        if matches:
+            lower_to_canonical = {item.lower(): item for item in valid}
+            suggestion = f" Did you mean {lower_to_canonical[matches[0]]!r}?"
+        else:
+            suggestion = ""
+    else:
+        suggestion = f" Did you mean {matches[0]!r}?"
+    raise ValueError(f"Invalid integrator {normalized!r}. Valid options: {valid}.{suggestion}")
+
+
 def _normalize_backend_choice(value: Any) -> str:
     """Return canonical backend string."""
     if isinstance(value, Enum):
@@ -275,7 +326,8 @@ class DynamicsSettings:
     save_steady_states : bool
         Whether to save steady state solutions.
     integrator : str
-        Time integration method: "euler" or "exponential".
+        Time integration method: "euler", "exponential", or one supported
+        SciPy ``solve_ivp`` method such as "DOP853" or "RK45".
     backend : str
         Computation backend: "auto", "numpy", or "jax".
     run_directory : str, optional
@@ -322,7 +374,7 @@ class DynamicsSettings:
     vector_u: bool = True
     t0: str = "2020-01-01 00:00:00"
     save_steady_states: bool = True
-    integrator: IntegratorKind = IntegratorKind.EULER
+    integrator: IntegratorKind | str = IntegratorKind.EULER
     backend: Union[Literal["auto", "numpy", "jax"], bool] = "auto"
     run_directory: Optional[str] = None
     artifact_storage: ArtifactStorageKind = ArtifactStorageKind.AUTO
@@ -386,9 +438,7 @@ class DynamicsSettings:
         self.mainfield_kind = _coerce_enum_choice(
             MainfieldKind, "mainfield_kind", self.mainfield_kind, case="lower"
         )
-        self.integrator = _coerce_enum_choice(
-            IntegratorKind, "integrator", self.integrator, case="lower"
-        )
+        self.integrator = _normalize_integrator_choice(self.integrator)
         self.backend = _normalize_backend_choice(self.backend)
         self.dynamics_mode = _coerce_enum_choice(
             DynamicsMode, "dynamics_mode", self.dynamics_mode, case="lower"

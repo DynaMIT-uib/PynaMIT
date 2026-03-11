@@ -295,3 +295,22 @@ class Timeseries:
             if existing_storage_kind is not None and target_storage_kind != "zarr"
             else target_storage_kind
         )
+
+    def trim_in_memory(self, key: str, *, keep_last: int) -> None:
+        """Drop older in-memory samples while preserving future append bookkeeping."""
+        if keep_last < 0:
+            raise ValueError(f"keep_last must be non-negative, got {keep_last!r}.")
+        if key not in self.datasets:
+            return
+
+        dataset = self.datasets[key]
+        time_size = int(dataset.sizes.get("time", 0))
+        if time_size == 0:
+            return
+        if keep_last >= time_size:
+            return
+
+        trimmed = dataset.isel(time=slice(time_size - keep_last, None))
+        self.datasets[key] = trimmed
+        trimmed_size = int(trimmed.sizes.get("time", 0))
+        self._pending_start[key] = min(int(self._pending_start.get(key, 0)), trimmed_size)

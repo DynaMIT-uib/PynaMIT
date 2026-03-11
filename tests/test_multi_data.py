@@ -24,7 +24,9 @@ def _get_state_coeff_array(dynamics: Dynamics) -> np.ndarray:
     return np.hstack((state_ds["SH_m_ind"].values[-1], state_ds["SH_m_imp"].values[-1]))
 
 
-def _build_multi_data_dynamics(run_directory: str, *, artifact_storage: str = "auto") -> Dynamics:
+def _build_multi_data_dynamics(
+    run_directory: str, *, artifact_storage: str = "auto", enable_fast_input_path: bool = False
+) -> Dynamics:
     """Construct the same multi-data wind case as ``test_multi_data``."""
     settings = DynamicsSettings(
         run_directory=run_directory,
@@ -41,6 +43,7 @@ def _build_multi_data_dynamics(run_directory: str, *, artifact_storage: str = "a
         vector_jr=True,
         vector_conductance=True,
         vector_u=True,
+        enable_fast_input_path=enable_fast_input_path,
     )
     dynamics = Dynamics(settings)
 
@@ -172,6 +175,24 @@ def test_multi_data_restart_matches_direct_run(tmp_path):
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
     assert actual_n_coeffs == expected_n_coeffs
+
+
+@pytest.mark.wind
+def test_multi_data_fast_input_path_matches_reference(tmp_path):
+    """Fast regular-grid input projection should match the legacy multi-data result."""
+    reference_run_directory = str(tmp_path / "multi_data_reference")
+    fast_run_directory = str(tmp_path / "multi_data_fast")
+
+    reference = _build_multi_data_dynamics(reference_run_directory, enable_fast_input_path=False)
+    _evolve_multi_data_case(reference, t=15.0)
+    reference_coeffs = _get_state_coeff_array(reference)
+
+    fast = _build_multi_data_dynamics(fast_run_directory, enable_fast_input_path=True)
+    assert fast.input_manager.enable_fast_path is True
+    _evolve_multi_data_case(fast, t=15.0)
+    fast_coeffs = _get_state_coeff_array(fast)
+
+    np.testing.assert_allclose(fast_coeffs, reference_coeffs, rtol=1e-9, atol=1e-12)
 
 
 @pytest.mark.wind

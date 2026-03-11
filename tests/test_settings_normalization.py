@@ -109,6 +109,12 @@ def test_dynamics_settings_normalizes_backend_bool_to_canonical_string() -> None
     assert settings.backend == "jax"
 
 
+def test_dynamics_settings_accepts_scipy_integrator_name() -> None:
+    settings = DynamicsSettings(integrator="DOP853")
+
+    assert settings.integrator == "DOP853"
+
+
 def test_from_dataset_rejects_invalid_simulation_mode() -> None:
     ds = DynamicsSettings().to_dataset()
     ds.attrs["simulation_mode"] = "cs_domnant"

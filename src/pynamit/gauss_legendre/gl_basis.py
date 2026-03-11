@@ -86,22 +86,17 @@ class GLBasis(GridBasis):
 
         # Build grid (theta, phi meshgrid flattened)
         th_mesh, ph_mesh = np.meshgrid(self.theta_rad, self.phi_rad, indexing="ij")
-        self._grid = Grid(
-            theta=np.rad2deg(th_mesh.flatten()), phi=np.rad2deg(ph_mesh.flatten())
-        )
+        self._grid = Grid(theta=np.rad2deg(th_mesh.flatten()), phi=np.rad2deg(ph_mesh.flatten()))
 
         # Quadrature weights: W_i = w_theta[i] * w_phi
         # These weights satisfy: sum_i W_i * f(theta_i, phi_i) ≈ integral f dOmega
-        self._weights = (
-            np.tile(self.w_theta[:, None], (1, self.n_phi)) * self.w_phi
-        ).flatten()
-        
+        self._weights = (np.tile(self.w_theta[:, None], (1, self.n_phi)) * self.w_phi).flatten()
+
         # Attach weights to grid for integration purposes (used by ToroidalSystemMatrices)
         self._grid.weights = self._weights
 
         logger.info(
-            f"GLBasis initialized: Nmax={Nmax}, res={self.res}, "
-            f"grid_size={self.index_length}"
+            f"GLBasis initialized: Nmax={Nmax}, res={self.res}, grid_size={self.index_length}"
         )
 
     @property
@@ -154,7 +149,7 @@ class GLBasis(GridBasis):
         # Weighted least-squares: A = (G^T W G)^{-1} G^T W
         # This works for any normalization convention
         GtW = G.T * self._weights  # (N_sh, N_grid), broadcast multiply
-        GtWG = GtW @ G            # (N_sh, N_sh) - the mass matrix
+        GtWG = GtW @ G  # (N_sh, N_sh) - the mass matrix
         A = np.linalg.solve(GtWG, GtW)
         return A
 
@@ -180,9 +175,7 @@ class GLBasis(GridBasis):
             G = G.toarray()
         return G
 
-    def get_evaluation_matrix(
-        self, grid: Any, derivative: Optional[str] = None
-    ) -> np.ndarray:
+    def get_evaluation_matrix(self, grid: Any, derivative: Optional[str] = None) -> np.ndarray:
         """Get evaluation matrix from this basis to a target grid.
 
         For GLBasis, this requires interpolation if the target grid
@@ -218,13 +211,7 @@ class GLBasis(GridBasis):
         )
 
     def project_to_basis(
-        self,
-        input_values,
-        input_grid,
-        vector_type,
-        target_grid,
-        target_basis,
-        **kwargs,
+        self, input_values, input_grid, vector_type, target_grid, target_basis, **kwargs
     ):
         """Project input data onto the target basis.
 
@@ -252,42 +239,23 @@ class GLBasis(GridBasis):
             Coefficients in target_basis.
         """
         from pynamit.primitives.grid.interpolation import create_interpolator
+        from pynamit.primitives.projection_pipeline import interpolate_then_project_batch
 
         if target_grid is None:
             raise ValueError("target_grid must be provided")
 
         interp = create_interpolator(input_grid.theta, input_grid.phi)
-
-        if vector_type == "scalar":
-            grid_values = interp.interpolate_scalar(
-                input_values, target_grid.theta, target_grid.phi
-            )
-        elif vector_type == "tangential":
-            # Input values are [u_theta, u_phi] = [-u_north, u_east]
-            u_east = input_values[1]
-            u_north = -input_values[0]
-            u_r = np.zeros_like(u_north)
-
-            u_east_int, u_north_int, _ = interp.interpolate_vector(
-                u_east,
-                u_north,
-                u_r,
-                target_grid.theta,
-                target_grid.phi,
-            )
-            # Convert back to [u_theta, u_phi]
-            grid_values = np.hstack((-u_north_int, u_east_int))
-        else:
-            raise ValueError(f"Unknown vector_type: {vector_type}")
-
-        # Override weights since input weights are not valid on interpolated grid
-        fit_kwargs = kwargs.copy()
-        fit_kwargs["weights"] = None
-
-        coeffs = target_basis.from_grid_values(
-            grid_values,
-            target_grid,
-            vector_type,
-            **fit_kwargs,
+        return interpolate_then_project_batch(
+            input_values,
+            input_grid=input_grid,
+            vector_type=vector_type,
+            target_grid=target_grid,
+            target_basis=target_basis,
+            scalar_interpolator=lambda values: interp.interpolate_scalar(
+                values, target_grid.theta, target_grid.phi
+            ),
+            vector_interpolator=lambda u_east, u_north, u_r: interp.interpolate_vector(
+                u_east, u_north, u_r, target_grid.theta, target_grid.phi
+            ),
+            fit_kwargs=kwargs,
         )
-        return coeffs

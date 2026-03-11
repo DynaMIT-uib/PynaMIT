@@ -13,6 +13,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import xarray as xr
 
 NETCDF_SUFFIX = ".ncdf"
@@ -118,18 +119,35 @@ class IO:
         return Path(self.run_directory) / f"{name}{suffix}"
 
     @staticmethod
-    def _prepare_dataset_for_zarr_write(dataset: xr.Dataset) -> xr.Dataset:
+    def _requires_materialization(data) -> bool:
+        """Return whether one xarray payload must be loaded before writing."""
+        return not isinstance(data, np.ndarray)
+
+    @classmethod
+    def _prepare_dataset_for_zarr_write(cls, dataset: xr.Dataset) -> xr.Dataset:
         """Return a materialized dataset without stale Zarr chunk encodings."""
-        prepared = dataset.load()
-        for variable in prepared.variables.values():
+        if any(
+            cls._requires_materialization(variable.data) for variable in dataset.data_vars.values()
+        ):
+            prepared = dataset.load()
+        else:
+            prepared = dataset.copy(deep=False)
+
+        for variable_name in prepared.variables:
+            variable = prepared[variable_name]
+            variable.encoding = dict(variable.encoding)
             variable.encoding.pop("chunks", None)
             variable.encoding.pop("preferred_chunks", None)
         return prepared
 
-    @staticmethod
-    def _prepare_dataarray_for_zarr_write(dataarray: xr.DataArray) -> xr.DataArray:
+    @classmethod
+    def _prepare_dataarray_for_zarr_write(cls, dataarray: xr.DataArray) -> xr.DataArray:
         """Return a materialized data array without stale Zarr chunk encodings."""
-        prepared = dataarray.load()
+        if cls._requires_materialization(dataarray.data):
+            prepared = dataarray.load()
+        else:
+            prepared = dataarray.copy(deep=False)
+        prepared.encoding = dict(prepared.encoding)
         prepared.encoding.pop("chunks", None)
         prepared.encoding.pop("preferred_chunks", None)
         return prepared

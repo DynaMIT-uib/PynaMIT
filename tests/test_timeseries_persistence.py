@@ -100,6 +100,31 @@ def test_timeseries_rewrites_full_store_for_same_time_replacement(tmp_path):
     assert io.calls[1] == {"name": "state", "storage": "zarr", "append_dim": None, "time_size": 1}
 
 
+def test_timeseries_trim_in_memory_preserves_future_zarr_appends(tmp_path):
+    simulation_data = _build_simulation_data(tmp_path)
+    timeseries = simulation_data.output_timeseries
+    n_solution = simulation_data.solution_spec.index_length
+    io = RecordingDatasetIO(default_storage="zarr")
+
+    timeseries.add_entry("state", _state_payload(n_solution, 0.0), time=0.0)
+    timeseries.save("state", io)
+    timeseries.add_entry("state", _state_payload(n_solution, 10.0), time=1.0)
+    timeseries.save("state", io)
+
+    timeseries.trim_in_memory("state", keep_last=1)
+    assert int(timeseries.datasets["state"].sizes["time"]) == 1
+
+    timeseries.add_entry("state", _state_payload(n_solution, 20.0), time=2.0)
+    timeseries.save("state", io)
+
+    assert io.calls[2] == {
+        "name": "state",
+        "storage": "zarr",
+        "append_dim": "time",
+        "time_size": 1,
+    }
+
+
 def test_timeseries_use_real_zarr_store_when_available(tmp_path):
     pytest.importorskip("zarr")
 

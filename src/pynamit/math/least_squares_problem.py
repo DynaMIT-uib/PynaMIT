@@ -189,9 +189,7 @@ class LeastSquaresProblem:
         return xp.vstack(all_rows)
 
     def get_normal_equation_components(
-        self,
-        *,
-        data_term_index: int = 0,
+        self, *, data_term_index: int = 0
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Return ``(H, A_T_W)`` for a selected data term.
 
@@ -239,7 +237,9 @@ class LeastSquaresProblem:
         if self.matrix_free:
             return None
         G = np.asarray(
-            self.dense_system_matrix if include_regularization else self.data_operator.linear_map.to_dense()
+            self.dense_system_matrix
+            if include_regularization
+            else self.data_operator.linear_map.to_dense()
         )
         if G.ndim != 2 or G.shape[1] != self.solution_size:
             return None
@@ -652,9 +652,7 @@ class LeastSquaresProblem:
         if isinstance(op, LinearMap):
             out_shape = output_shape if output_shape is not None else (op.shape[0],)
             in_shape = input_shape if input_shape is not None else (op.shape[1],)
-            return ProcessedOperator(
-                linear_map=op, output_shape=out_shape, input_shape=in_shape
-            )
+            return ProcessedOperator(linear_map=op, output_shape=out_shape, input_shape=in_shape)
 
         raise TypeError(
             f"Input must be a numpy array, TensorChain, LinearOperator, or sparse matrix, got {type(op)}"
@@ -667,6 +665,22 @@ class LeastSquaresProblem:
             return None, None
         b = asarray(b_val)
         flat_data_size = math.prod(data_shape)
+
+        if b.shape == data_shape:
+            return xp.reshape(b, (flat_data_size, 1)), ()
+
+        n_data_dims = len(data_shape)
+        if b.ndim >= n_data_dims and tuple(b.shape[-n_data_dims:]) == data_shape:
+            scenario_shape = b.shape[:-n_data_dims]
+            num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
+            b_col_block = xp.reshape(b, (num_scenarios, flat_data_size)).T
+            return b_col_block, scenario_shape
+
+        if b.ndim >= n_data_dims and tuple(b.shape[:n_data_dims]) == data_shape:
+            scenario_shape = b.shape[n_data_dims:]
+            num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
+            b_col_block = xp.reshape(b, (flat_data_size, num_scenarios))
+            return b_col_block, scenario_shape
 
         # Determine scenarios
         total_size = b.size

@@ -1,8 +1,9 @@
-"""Run the 2011 MAGE forcing case with optional delayed-start windowing."""
+"""Run the 2011 MAGE forcing case with precompute and simulation stages."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py as h5
@@ -23,16 +24,12 @@ LATITUDE_BOUNDARY = 35
 
 PLOT = True
 
-# Regularization parameters
 BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 3
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
 
-# Input-fit weighting policies.
-# Regular ionosphere-grid inputs support unit/sin_theta/mw.
 IONOSPHERE_WEIGHTING = "mw"
-# Magnetosphere Br grid is curvilinear in geographic coordinates.
 BR_WEIGHTING = "geom_area"
 
 DEFAULT_RUN_DIRECTORY = "results_mage_2011_full_induction"
@@ -40,6 +37,19 @@ DEFAULT_PLOT_FILENAME = "input_vs_fitted_comparison_full_induction.png"
 DEFAULT_H5_PATH = Path(__file__).resolve().parent / "mage_2011" / "data_H_int.h5"
 NMAX, MMAX, NCS = 50, 30, 40
 DT = 10.0
+
+
+@dataclass(frozen=True)
+class MageProjectionContext:
+    """Static MAGE grid metadata and projection weights."""
+
+    ionosphere_lat: np.ndarray
+    ionosphere_lon: np.ndarray
+    magnetosphere_lat: np.ndarray
+    magnetosphere_lon: np.ndarray
+    sqrt_weights_iono_scalar: np.ndarray
+    sqrt_weights_iono_vector: np.ndarray
+    sqrt_weights_mag_geom: np.ndarray
 
 
 def dipole_radial_sampling(
@@ -86,6 +96,342 @@ def _default_plot_timesteps(num_steps: int, count: int = 5) -> list[int]:
     return sorted({int(round(value)) for value in values})
 
 
+def _resolve_projection_batch_size(num_steps: int, projection_batch_size: int | None) -> int:
+    """Return the effective projection batch size."""
+    if projection_batch_size is None:
+        return num_steps
+    if projection_batch_size <= 0:
+        raise ValueError(
+            f"projection_batch_size must be positive when provided, got {projection_batch_size!r}."
+        )
+    return min(int(projection_batch_size), max(num_steps, 1))
+
+
+def _iter_batch_bounds(num_steps: int, projection_batch_size: int | None):
+    """Yield half-open batch bounds over one selected time window."""
+    batch_size = _resolve_projection_batch_size(num_steps, projection_batch_size)
+    for start in range(0, num_steps, batch_size):
+        yield start, min(start + batch_size, num_steps)
+
+
+def _trim_persisted_input_history(dynamics: pynamit.Dynamics, key: str) -> None:
+    """Drop older in-memory samples after persisting one input datatype."""
+    dynamics.input_timeseries.trim_in_memory(key, keep_last=1)
+
+
+def _build_projection_context(file: h5.File) -> MageProjectionContext:
+    """Load static MAGE grids and reusable projection weights."""
+    ionosphere_lat = file["glat"][:]
+    ionosphere_lon = file["glon"][:]
+    magnetosphere_lat = file["Blat"][:]
+    magnetosphere_lon = file["Blon"][:]
+
+    return MageProjectionContext(
+        ionosphere_lat=ionosphere_lat,
+        ionosphere_lon=ionosphere_lon,
+        magnetosphere_lat=magnetosphere_lat,
+        magnetosphere_lon=magnetosphere_lon,
+        sqrt_weights_iono_scalar=compute_spherical_input_sqrt_weights(
+            ionosphere_lat, ionosphere_lon, weighting=IONOSPHERE_WEIGHTING, nmax=NMAX
+        ),
+        sqrt_weights_iono_vector=compute_spherical_input_sqrt_weights(
+            ionosphere_lat, ionosphere_lon, weighting=IONOSPHERE_WEIGHTING, nmax=NMAX, vector=True
+        ),
+        sqrt_weights_mag_geom=compute_spherical_input_sqrt_weights(
+            magnetosphere_lat, magnetosphere_lon, weighting=BR_WEIGHTING, periodic_lon=True
+        ),
+    )
+
+
+def _build_dynamics(run_directory: str, *, t0: str) -> pynamit.Dynamics:
+    """Create one Dynamics object for this MAGE case."""
+    rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
+    return pynamit.Dynamics(
+        run_directory=run_directory,
+        Nmax=NMAX,
+        Mmax=MMAX,
+        Ncs=NCS,
+        RI=RI,
+        RM=1.5 * RI,
+        mainfield_kind=MainfieldKind.DIPOLE,
+        FAC_integration_steps=rk,
+        ignore_PFAC=False,
+        connect_hemispheres=True,
+        latitude_boundary=LATITUDE_BOUNDARY,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        magnetospheric_toroidal_lock=True,
+        magnetospheric_poloidal_lock=False,
+        least_squares_solver="normal_eq",
+        t0=t0,
+        integrator=IntegratorKind.EXPONENTIAL,
+        exponential_solver=ExponentialSolverKind.EXPM_MULTIPLY,
+        enable_fast_input_path=True,
+    )
+
+
+def _log_batch(label: str, *, batch_start: int, batch_end: int, num_steps: int) -> None:
+    """Print one concise batch progress line."""
+    print(f"Precomputing {label}: samples {batch_start + 1}-{batch_end} of {num_steps}")
+
+
+def _precompute_br(
+    dynamics: pynamit.Dynamics,
+    file: h5.File,
+    *,
+    window: MageTimeWindow,
+    context: MageProjectionContext,
+    projection_batch_size: int | None,
+) -> None:
+    """Project and persist Delta Br inputs for the selected window."""
+    num_steps = window.indices.size
+    for batch_start, batch_end in _iter_batch_bounds(num_steps, projection_batch_size):
+        _log_batch("Br", batch_start=batch_start, batch_end=batch_end, num_steps=num_steps)
+        source_indices = window.indices[batch_start:batch_end]
+        batch_times = window.relative_seconds[batch_start:batch_end]
+        delta_br = np.asarray(file["Bu"][source_indices, :, :], dtype=float).reshape(
+            batch_end - batch_start, -1
+        )
+        delta_br *= 1e-9
+
+        if np.any(np.isnan(delta_br)):
+            raise ValueError("Br input contains NaN values.")
+
+        dynamics.set_Br(
+            delta_br,
+            lat=context.magnetosphere_lat,
+            lon=context.magnetosphere_lon,
+            time=batch_times,
+            sqrt_weights=context.sqrt_weights_mag_geom,
+            reg_lambda=BR_LAMBDA,
+        )
+        _trim_persisted_input_history(dynamics, "Br")
+
+
+def _precompute_fac(
+    dynamics: pynamit.Dynamics,
+    file: h5.File,
+    *,
+    window: MageTimeWindow,
+    context: MageProjectionContext,
+    projection_batch_size: int | None,
+) -> None:
+    """Project and persist FAC inputs for the selected window."""
+    num_steps = window.indices.size
+    northern_mask = context.ionosphere_lat.reshape(-1) > 0
+    for batch_start, batch_end in _iter_batch_bounds(num_steps, projection_batch_size):
+        _log_batch("FAC", batch_start=batch_start, batch_end=batch_end, num_steps=num_steps)
+        source_indices = window.indices[batch_start:batch_end]
+        batch_times = window.relative_seconds[batch_start:batch_end]
+        fac = np.asarray(file["FAC"][source_indices, :, :], dtype=float).reshape(
+            batch_end - batch_start, -1
+        )
+        fac *= 1e-6
+
+        if np.any(np.isnan(fac)):
+            print("FAC input contains NaN values. Setting to 0.")
+            fac = fac.copy()
+            fac[np.isnan(fac)] = 0
+
+        fac[:, northern_mask] *= -1
+
+        dynamics.set_FAC(
+            fac,
+            lat=context.ionosphere_lat,
+            lon=context.ionosphere_lon,
+            time=batch_times,
+            sqrt_weights=context.sqrt_weights_iono_scalar,
+            reg_lambda=JR_LAMBDA,
+        )
+        _trim_persisted_input_history(dynamics, "jr")
+
+
+def _precompute_conductance(
+    dynamics: pynamit.Dynamics,
+    file: h5.File,
+    *,
+    window: MageTimeWindow,
+    context: MageProjectionContext,
+    projection_batch_size: int | None,
+) -> None:
+    """Project and persist conductance inputs for the selected window."""
+    num_steps = window.indices.size
+    for batch_start, batch_end in _iter_batch_bounds(num_steps, projection_batch_size):
+        _log_batch(
+            "conductance", batch_start=batch_start, batch_end=batch_end, num_steps=num_steps
+        )
+        source_indices = window.indices[batch_start:batch_end]
+        batch_times = window.relative_seconds[batch_start:batch_end]
+        conductance_hall = np.asarray(file["SH"][source_indices, :, :], dtype=float).reshape(
+            batch_end - batch_start, -1
+        )
+        conductance_pedersen = np.asarray(file["SP"][source_indices, :, :], dtype=float).reshape(
+            batch_end - batch_start, -1
+        )
+
+        if np.any(np.isnan(conductance_hall)):
+            raise ValueError("Hall conductance input contains NaN values.")
+        if np.any(np.isnan(conductance_pedersen)):
+            raise ValueError("Pedersen conductance input contains NaN values.")
+        if np.any(conductance_hall <= 0):
+            raise ValueError("Hall conductance input contains non-positive values.")
+        if np.any(conductance_pedersen <= 0):
+            raise ValueError("Pedersen conductance input contains non-positive values.")
+
+        dynamics.set_conductance(
+            conductance_hall,
+            conductance_pedersen,
+            lat=context.ionosphere_lat,
+            lon=context.ionosphere_lon,
+            time=batch_times,
+            sqrt_weights=context.sqrt_weights_iono_scalar,
+            reg_lambda=CONDUCTANCE_LAMBDA,
+        )
+        _trim_persisted_input_history(dynamics, "conductance")
+
+
+def _precompute_wind(
+    dynamics: pynamit.Dynamics,
+    file: h5.File,
+    *,
+    window: MageTimeWindow,
+    context: MageProjectionContext,
+    projection_batch_size: int | None,
+) -> None:
+    """Project and persist wind inputs for the selected window."""
+    num_steps = window.indices.size
+    for batch_start, batch_end in _iter_batch_bounds(num_steps, projection_batch_size):
+        _log_batch("wind", batch_start=batch_start, batch_end=batch_end, num_steps=num_steps)
+        source_indices = window.indices[batch_start:batch_end]
+        batch_times = window.relative_seconds[batch_start:batch_end]
+        u_east = np.asarray(file["We"][source_indices, :, :], dtype=float).reshape(
+            batch_end - batch_start, -1
+        )
+        u_north = np.asarray(file["Wn"][source_indices, :, :], dtype=float).reshape(
+            batch_end - batch_start, -1
+        )
+        u_theta = -u_north
+        u_phi = u_east
+
+        if np.any(np.isnan(u_theta)):
+            raise ValueError("Wind input contains NaN values.")
+        if np.any(np.isnan(u_phi)):
+            raise ValueError("Wind input contains NaN values.")
+
+        dynamics.set_u(
+            u_theta=u_theta,
+            u_phi=u_phi,
+            lat=context.ionosphere_lat,
+            lon=context.ionosphere_lon,
+            time=batch_times,
+            sqrt_weights=context.sqrt_weights_iono_vector,
+            reg_lambda=U_LAMBDA,
+        )
+        _trim_persisted_input_history(dynamics, "u")
+
+
+def precompute_inputs(
+    *,
+    h5_filepath: str | Path,
+    window: MageTimeWindow,
+    run_directory: str,
+    projection_batch_size: int | None,
+) -> str:
+    """Project all selected MAGE inputs and persist them before simulation."""
+    h5_path = Path(h5_filepath).expanduser().resolve()
+    print("Precompute stage")
+    print("Run directory:", run_directory)
+    print(
+        "Selected MAGE window:",
+        f"{window.start.isoformat(sep=' ')} -> {window.end.isoformat(sep=' ')}",
+        f"({window.indices.size} samples)",
+    )
+
+    with h5.File(h5_path, "r") as file:
+        context = _build_projection_context(file)
+        dynamics = _build_dynamics(run_directory, t0=window.start.strftime("%Y-%m-%d %H:%M:%S"))
+
+        _precompute_br(
+            dynamics,
+            file,
+            window=window,
+            context=context,
+            projection_batch_size=projection_batch_size,
+        )
+        _precompute_fac(
+            dynamics,
+            file,
+            window=window,
+            context=context,
+            projection_batch_size=projection_batch_size,
+        )
+        _precompute_conductance(
+            dynamics,
+            file,
+            window=window,
+            context=context,
+            projection_batch_size=projection_batch_size,
+        )
+        _precompute_wind(
+            dynamics,
+            file,
+            window=window,
+            context=context,
+            projection_batch_size=projection_batch_size,
+        )
+
+    return run_directory
+
+
+def _latest_precomputed_input_time(dynamics: pynamit.Dynamics) -> float:
+    """Return the latest saved time across all precomputed input datasets."""
+    latest_times: list[float] = []
+    for key, dataset in dynamics.input_timeseries.datasets.items():
+        if int(dataset.sizes.get("time", 0)) > 0:
+            latest_times.append(float(np.max(dataset.time.values)))
+    if not latest_times:
+        raise ValueError(
+            f"No precomputed input datasets were found in run_directory={dynamics.run_directory!r}."
+        )
+    return float(max(latest_times))
+
+
+def simulate_from_precomputed(*, run_directory: str) -> pynamit.Dynamics:
+    """Restart from one precomputed run directory and evolve the simulation."""
+    print("Simulation stage")
+    dynamics = pynamit.Dynamics.from_directory(run_directory)
+    final_time = _latest_precomputed_input_time(dynamics)
+
+    if final_time <= 0:
+        print("Selected window contains a single input sample; skipping time evolution.")
+        return dynamics
+
+    print(f"Evolving from precomputed inputs to t = {final_time:.1f} s")
+    dynamics.evolve_to_time(final_time, dt=DT, sampling_step_interval=1, saving_sample_interval=1)
+    return dynamics
+
+
+def _plot_precomputed_inputs(
+    *, h5_filepath: str | Path, run_directory: str, window: MageTimeWindow
+) -> None:
+    """Plot saved projected inputs against the selected raw MAGE slices."""
+    print("Plotting input data")
+    timesteps_for_figure = _default_plot_timesteps(window.indices.size)
+    data_types_for_figure = ["Br", "jr", "u_mag", "SP", "SH"]
+
+    pynamit.visualization.plot_input_vs_interpolated(
+        h5_filepath=str(Path(h5_filepath).expanduser().resolve()),
+        interpolated_run_directory=run_directory,
+        timesteps_to_plot=timesteps_for_figure,
+        data_types_to_plot=data_types_for_figure,
+        input_dt=DT,
+        noon_longitude=0,
+        h5_timestep_offset=int(window.indices[0]),
+        vmin_percentile=0,
+        vmax_percentile=95,
+        output_filename=_resolve_plot_filename(window),
+    )
+
+
 def _build_argument_parser() -> argparse.ArgumentParser:
     """Create the CLI parser for the MAGE forcing script."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -105,7 +451,22 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the MAGE HDF5 file. Defaults to the bundled 2011 dataset.",
     )
     parser.add_argument(
-        "--no-plot", action="store_true", help="Disable the input-vs-interpolated diagnostic plot."
+        "--projection-batch-size",
+        type=int,
+        default=None,
+        help="Number of timesteps to project at once during the precompute stage. "
+        "Default: all selected timesteps.",
+    )
+    parser.add_argument(
+        "--stage",
+        choices=("all", "precompute", "simulate"),
+        default="all",
+        help="Which stage to run: project inputs, simulate from precomputed inputs, or both.",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="Disable the input-vs-interpolated diagnostic plot after precompute.",
     )
     return parser
 
@@ -116,196 +477,34 @@ def run_simulation(
     start: str | None = None,
     end: str | None = None,
     run_directory: str | None = None,
+    projection_batch_size: int | None = None,
+    stage: str = "all",
     plot: bool = PLOT,
-) -> pynamit.Dynamics:
-    """Run the MAGE forcing simulation for one selected input window."""
-    rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
+) -> pynamit.Dynamics | None:
+    """Run the selected MAGE workflow."""
     h5_path = Path(h5_filepath).expanduser().resolve()
 
     with h5.File(h5_path, "r") as file:
         window = select_mage_time_window(file["time"][:], start=start, end=end)
-        resolved_run_directory = _resolve_run_directory(run_directory, window=window)
 
-        print(
-            "Selected MAGE window:",
-            f"{window.start.isoformat(sep=' ')} -> {window.end.isoformat(sep=' ')}",
-            f"({window.indices.size} samples)",
-        )
-        print("Run directory:", resolved_run_directory)
+    resolved_run_directory = _resolve_run_directory(run_directory, window=window)
 
-        ionosphere_lat = file["glat"][:]
-        ionosphere_lon = file["glon"][:]
-        magnetosphere_lat = file["Blat"][:]
-        magnetosphere_lon = file["Blon"][:]
-
-        sqrt_weights_iono_scalar = compute_spherical_input_sqrt_weights(
-            ionosphere_lat, ionosphere_lon, weighting=IONOSPHERE_WEIGHTING, nmax=NMAX
-        )
-        sqrt_weights_iono_vector = compute_spherical_input_sqrt_weights(
-            ionosphere_lat, ionosphere_lon, weighting=IONOSPHERE_WEIGHTING, nmax=NMAX, vector=True
-        )
-        sqrt_weights_mag_geom = compute_spherical_input_sqrt_weights(
-            magnetosphere_lat, magnetosphere_lon, weighting=BR_WEIGHTING, periodic_lon=True
-        )
-
-        print("Setting up simulation object")
-        dynamics = pynamit.Dynamics(
+    if stage in {"all", "precompute"}:
+        precompute_inputs(
+            h5_filepath=h5_path,
+            window=window,
             run_directory=resolved_run_directory,
-            Nmax=NMAX,
-            Mmax=MMAX,
-            Ncs=NCS,
-            RI=RI,
-            RM=1.5 * RI,
-            mainfield_kind=MainfieldKind.DIPOLE,
-            FAC_integration_steps=rk,
-            ignore_PFAC=False,
-            connect_hemispheres=True,
-            latitude_boundary=LATITUDE_BOUNDARY,
-            dynamics_mode=DynamicsMode.FULL_INDUCTION,
-            magnetospheric_toroidal_lock=True,
-            magnetospheric_poloidal_lock=False,
-            least_squares_solver="normal_eq",
-            t0=window.start.strftime("%Y-%m-%d %H:%M:%S"),
-            integrator=IntegratorKind.EXPONENTIAL,
-            exponential_solver=ExponentialSolverKind.EXPM_MULTIPLY,
+            projection_batch_size=projection_batch_size,
         )
-
-        for local_step, source_step in enumerate(window.indices):
-            input_time = float(window.relative_seconds[local_step])
-            source_timestamp = window.timestamps[local_step]
-            print(
-                "Processing input step",
-                local_step + 1,
-                "of",
-                window.indices.size,
-                f"(source index {source_step}, {source_timestamp.isoformat(sep=' ')})",
+        if plot:
+            _plot_precomputed_inputs(
+                h5_filepath=h5_path, run_directory=resolved_run_directory, window=window
             )
 
-            delta_Br = file["Bu"][source_step, :, :].flatten() * 1e-9
-            if np.any(np.isnan(delta_Br)):
-                raise ValueError("Br input contains NaN values.")
+    if stage == "precompute":
+        return None
 
-            print("Setting Delta Br with (abs. min, RMS, abs. max):")
-            print(
-                f"\t({np.min(np.abs(delta_Br))}, "
-                f"{np.sqrt(np.mean(delta_Br**2))}, "
-                f"{np.max(np.abs(delta_Br))})"
-            )
-
-            dynamics.set_Br(
-                delta_Br,
-                lat=magnetosphere_lat,
-                lon=magnetosphere_lon,
-                time=input_time,
-                sqrt_weights=sqrt_weights_mag_geom,
-                reg_lambda=BR_LAMBDA,
-            )
-
-            fac = file["FAC"][source_step, :, :] * 1e-6
-            if np.any(np.isnan(fac)):
-                print("FAC input contains NaN values. Setting to 0.")
-                fac[np.isnan(fac)] = 0
-            fac[ionosphere_lat > 0] *= -1
-
-            print("Setting FAC with (abs. min, RMS, abs. max):")
-            print(f"\t({np.min(np.abs(fac))}, {np.sqrt(np.mean(fac**2))}, {np.max(np.abs(fac))})")
-
-            dynamics.set_FAC(
-                fac,
-                lat=ionosphere_lat,
-                lon=ionosphere_lon,
-                time=input_time,
-                sqrt_weights=sqrt_weights_iono_scalar,
-                reg_lambda=JR_LAMBDA,
-            )
-
-            conductance_hall = file["SH"][source_step, :, :].flatten()
-            conductance_pedersen = file["SP"][source_step, :, :].flatten()
-
-            if np.any(np.isnan(conductance_hall)):
-                raise ValueError("Hall conductance input contains NaN values.")
-            if np.any(np.isnan(conductance_pedersen)):
-                raise ValueError("Pedersen conductance input contains NaN values.")
-            if np.any(conductance_hall <= 0):
-                raise ValueError("Hall conductance input contains non-positive values.")
-            if np.any(conductance_pedersen <= 0):
-                raise ValueError("Pedersen conductance input contains non-positive values.")
-
-            print("Setting Hall conductance with (min, RMS, max):")
-            print(
-                f"\t({np.min(np.abs(conductance_hall))}, "
-                f"{np.sqrt(np.mean(conductance_hall**2))}, "
-                f"{np.max(np.abs(conductance_hall))})"
-            )
-            print("Setting Pedersen conductance with (min, RMS, max):")
-            print(
-                f"\t({np.min(np.abs(conductance_pedersen))}, "
-                f"{np.sqrt(np.mean(conductance_pedersen**2))}, "
-                f"{np.max(np.abs(conductance_pedersen))})"
-            )
-
-            dynamics.set_conductance(
-                conductance_hall,
-                conductance_pedersen,
-                lat=ionosphere_lat,
-                lon=ionosphere_lon,
-                time=input_time,
-                sqrt_weights=sqrt_weights_iono_scalar,
-                reg_lambda=CONDUCTANCE_LAMBDA,
-            )
-
-            u_east = file["We"][source_step, :, :]
-            u_north = file["Wn"][source_step, :, :]
-            u_theta, u_phi = (-u_north.flatten(), u_east.flatten())
-
-            if np.any(np.isnan(u_theta)):
-                raise ValueError("Wind input contains NaN values.")
-            if np.any(np.isnan(u_phi)):
-                raise ValueError("Wind input contains NaN values.")
-
-            print("Setting wind with (abs. min, RMS, abs. max):")
-            print(
-                f"\t({np.min(np.sqrt(u_theta**2 + u_phi**2))}, "
-                f"{np.sqrt(np.mean(u_theta**2 + u_phi**2))}, "
-                f"{np.max(np.sqrt(u_theta**2 + u_phi**2))})"
-            )
-
-            dynamics.set_u(
-                u_theta=u_theta,
-                u_phi=u_phi,
-                lat=ionosphere_lat,
-                lon=ionosphere_lon,
-                time=input_time,
-                sqrt_weights=sqrt_weights_iono_vector,
-                reg_lambda=U_LAMBDA,
-            )
-
-    if plot:
-        print("Plotting input data")
-        timesteps_for_figure = _default_plot_timesteps(window.indices.size)
-        data_types_for_figure = ["Br", "jr", "u_mag", "SP", "SH"]
-
-        pynamit.visualization.plot_input_vs_interpolated(
-            h5_filepath=str(h5_path),
-            interpolated_run_directory=resolved_run_directory,
-            timesteps_to_plot=timesteps_for_figure,
-            data_types_to_plot=data_types_for_figure,
-            input_dt=DT,
-            noon_longitude=0,
-            h5_timestep_offset=int(window.indices[0]),
-            vmin_percentile=0,
-            vmax_percentile=95,
-            output_filename=_resolve_plot_filename(window),
-        )
-
-    print("Time evolution")
-    final_time = float(window.relative_seconds[-1])
-    if final_time <= 0:
-        print("Selected window contains a single input sample; skipping time evolution.")
-        return dynamics
-
-    dynamics.evolve_to_time(final_time, dt=DT, sampling_step_interval=1, saving_sample_interval=1)
-    return dynamics
+    return simulate_from_precomputed(run_directory=resolved_run_directory)
 
 
 def main() -> None:
@@ -317,6 +516,8 @@ def main() -> None:
         start=args.start,
         end=args.end,
         run_directory=args.run_directory,
+        projection_batch_size=args.projection_batch_size,
+        stage=args.stage,
         plot=not args.no_plot,
     )
 

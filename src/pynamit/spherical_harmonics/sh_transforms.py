@@ -18,7 +18,7 @@ def grid_to_basis_fast(
     phi: np.ndarray = None,
     weights: np.ndarray = None,
     reg_lambda: float = None,
-    vector_type: str = "scalar"
+    vector_type: str = "scalar",
 ) -> np.ndarray:
     """Fast Spherical Harmonic Transform for Regular Grids via Separation of Variables.
 
@@ -56,26 +56,47 @@ def grid_to_basis_fast(
     N_theta = theta.size
 
     # Setup and Validation
-    is_vector = (vector_type == "tangential")
+    is_vector = vector_type == "tangential"
 
     if is_vector:
         if not isinstance(data, (tuple, list)) or len(data) != 2:
             raise ValueError("For vector_type='tangential', data must be (u_theta, u_phi)")
-        d_th_in, d_ph_in = data
-        N_theta, N_phi = d_th_in.shape
+        d_th_in = np.asarray(data[0], dtype=float)
+        d_ph_in = np.asarray(data[1], dtype=float)
+        if d_th_in.shape != d_ph_in.shape:
+            raise ValueError(
+                "Tangential fast-path inputs must share the same shape, got "
+                f"{d_th_in.shape} and {d_ph_in.shape}."
+            )
+        if d_th_in.ndim == 2:
+            d_th_in = d_th_in[np.newaxis, ...]
+            d_ph_in = d_ph_in[np.newaxis, ...]
+        elif d_th_in.ndim != 3:
+            raise ValueError(
+                "Tangential fast-path inputs must have shape (N_theta, N_phi) or "
+                f"(N_time, N_theta, N_phi), got {d_th_in.shape}."
+            )
+        n_scenarios, N_theta, N_phi = d_th_in.shape
     else:
-        d_in = data
-        N_theta, N_phi = d_in.shape
+        d_in = np.asarray(data, dtype=float)
+        if d_in.ndim == 2:
+            d_in = d_in[np.newaxis, ...]
+        elif d_in.ndim != 3:
+            raise ValueError(
+                "Scalar fast-path inputs must have shape (N_theta, N_phi) or "
+                f"(N_time, N_theta, N_phi), got {d_in.shape}."
+            )
+        n_scenarios, N_theta, N_phi = d_in.shape
 
     if len(theta) != N_theta:
         raise ValueError(f"Theta shape {theta.shape} mismatch with data rows {N_theta}")
 
     # FFT in Longitude (index-space periodic ordering)
     if is_vector:
-        fft_th = np.fft.fft(d_th_in, axis=1) / N_phi
-        fft_ph = np.fft.fft(d_ph_in, axis=1) / N_phi
+        fft_th = np.fft.fft(d_th_in, axis=2) / N_phi
+        fft_ph = np.fft.fft(d_ph_in, axis=2) / N_phi
     else:
-        fft_scalar = np.fft.fft(d_in, axis=1) / N_phi
+        fft_scalar = np.fft.fft(d_in, axis=2) / N_phi
 
     # Correct FFT phase when the longitude samples are uniformly spaced but
     # start at phi0 != 0 (e.g. [-180, 180) grids starting at 180 deg).
@@ -90,15 +111,17 @@ def grid_to_basis_fast(
             phi_unwrapped = np.unwrap(phi_arr)
             dphi = np.diff(phi_unwrapped)
             dphi_ref = 2 * np.pi / N_phi
-            if np.allclose(dphi, dphi[0], rtol=0.0, atol=1e-10) and np.isclose(abs(dphi[0]), dphi_ref, rtol=0.0, atol=1e-10):
+            if np.allclose(dphi, dphi[0], rtol=0.0, atol=1e-10) and np.isclose(
+                abs(dphi[0]), dphi_ref, rtol=0.0, atol=1e-10
+            ):
                 phase_sign = 1.0 if dphi[0] > 0 else -1.0
                 m_idx = np.arange(N_phi, dtype=float)
                 phase = np.exp(-1j * phase_sign * m_idx * phi_unwrapped[0])
                 if is_vector:
-                    fft_th = fft_th * phase[None, :]
-                    fft_ph = fft_ph * phase[None, :]
+                    fft_th = fft_th * phase[None, None, :]
+                    fft_ph = fft_ph * phase[None, None, :]
                 else:
-                    fft_scalar = fft_scalar * phase[None, :]
+                    fft_scalar = fft_scalar * phase[None, None, :]
             # If the grid is not the expected uniform periodic grid, we silently skip
             # phase correction and rely on the caller's fast-path regularity checks.
 
@@ -109,8 +132,8 @@ def grid_to_basis_fast(
     G_0 = basis.get_evaluation_matrix(grid_1d, derivative=None)
 
     if is_vector:
-        G_th = basis.get_evaluation_matrix(grid_1d, derivative='theta')
-        G_ph = basis.get_evaluation_matrix(grid_1d, derivative='phi')
+        G_th = basis.get_evaluation_matrix(grid_1d, derivative="theta")
+        G_ph = basis.get_evaluation_matrix(grid_1d, derivative="phi")
 
     # Regularization Setup
     reg_L = None
@@ -129,7 +152,7 @@ def grid_to_basis_fast(
 
     # Indices
     offset_s = basis.cnm.n.size
-    coeffs = np.zeros(basis.index_length * (2 if is_vector else 1), dtype=float)
+    coeffs = np.zeros((basis.index_length * (2 if is_vector else 1), n_scenarios), dtype=float)
 
     # Solve per m
     limit_m = min(basis.Mmax, N_phi // 2)
@@ -143,12 +166,12 @@ def grid_to_basis_fast(
         all_norms_L = []
 
         for m in range(limit_m + 1):
-            mask_c = (basis.cnm.m.flatten() == m)
+            mask_c = basis.cnm.m.flatten() == m
             if not np.any(mask_c):
                 continue
             idx_c_out = np.where(mask_c)[0]
 
-            mask_s = (basis.snm.m.flatten() == m)
+            mask_s = basis.snm.m.flatten() == m
             idx_s_out = (np.where(mask_s)[0] + offset_s) if np.any(mask_s) else []
 
             # L-Penalty Norms
@@ -168,7 +191,7 @@ def grid_to_basis_fast(
                 l_vals = reg_L[idx_c_out]
                 all_norms_L.append(l_vals**2)
                 if np.any(mask_s):
-                    all_norms_L.append(reg_L[idx_s_out]**2)
+                    all_norms_L.append(reg_L[idx_s_out] ** 2)
 
             # A-Matrix Norms
             phi_factor = N_phi / 2.0 if m > 0 else float(N_phi)
@@ -186,7 +209,7 @@ def grid_to_basis_fast(
                 Gang = np.zeros_like(Gp)
                 if m > 0:
                     Gang = G_ph[:, idx_c_out]
-                term = (Gp**2 + Gang**2) * (w_eff[:, None]**2)
+                term = (Gp**2 + Gang**2) * (w_eff[:, None] ** 2)
                 n_vec = np.sum(term, axis=0) * phi_factor
                 all_norms_A.append(n_vec)
                 all_norms_A.append(n_vec)
@@ -206,12 +229,12 @@ def grid_to_basis_fast(
 
     for m in range(limit_m + 1):
         # Identify active L-indices for this m
-        mask_c = (basis.cnm.m.flatten() == m)
+        mask_c = basis.cnm.m.flatten() == m
         if not np.any(mask_c):
             continue
         idx_c_out = np.where(mask_c)[0]
 
-        mask_s = (basis.snm.m.flatten() == m)
+        mask_s = basis.snm.m.flatten() == m
         has_sine = np.any(mask_s)
         idx_s_out = (np.where(mask_s)[0] + offset_s) if has_sine else []
 
@@ -219,30 +242,70 @@ def grid_to_basis_fast(
         if not is_vector:
             G_sub_c = G_0[:, idx_c_out]
             d_c, d_s = _get_fft_targets(fft_scalar, m)
-            _solve_stacked(G_sub_c, d_c, coeffs, idx_c_out, W_diag, reg_lambda, reg_L,
-                          idx_c_out, scale_A_global, scale_L_global)
+            _solve_stacked(
+                G_sub_c,
+                d_c,
+                coeffs,
+                idx_c_out,
+                W_diag,
+                reg_lambda,
+                reg_L,
+                idx_c_out,
+                scale_A_global,
+                scale_L_global,
+            )
             if has_sine:
-                _solve_stacked(G_sub_c, d_s, coeffs, idx_s_out, W_diag, reg_lambda, reg_L,
-                              idx_c_out, scale_A_global, scale_L_global)
+                _solve_stacked(
+                    G_sub_c,
+                    d_s,
+                    coeffs,
+                    idx_s_out,
+                    W_diag,
+                    reg_lambda,
+                    reg_L,
+                    idx_c_out,
+                    scale_A_global,
+                    scale_L_global,
+                )
 
         # VECTOR CASE
         else:
             if m == 0:
                 # Decoupled Logic for Zonal Flow
-                d_th = fft_th[:, 0].real
-                d_ph = fft_ph[:, 0].real
+                d_th = fft_th[:, :, 0].real.T
+                d_ph = fft_ph[:, :, 0].real.T
 
                 Gp = G_th[:, idx_c_out]
 
                 # Poloidal Solve
                 idx_pol = idx_c_out
-                _solve_stacked(-Gp, d_th, coeffs, idx_pol, W_diag, reg_lambda, reg_L,
-                              (idx_pol, []), scale_A_global, scale_L_global)
+                _solve_stacked(
+                    -Gp,
+                    d_th,
+                    coeffs,
+                    idx_pol,
+                    W_diag,
+                    reg_lambda,
+                    reg_L,
+                    (idx_pol, []),
+                    scale_A_global,
+                    scale_L_global,
+                )
 
                 # Toroidal Solve
                 idx_tor = idx_c_out + basis.index_length
-                _solve_stacked(-Gp, d_ph, coeffs, idx_tor, W_diag, reg_lambda, reg_L,
-                              ([], idx_tor), scale_A_global, scale_L_global)
+                _solve_stacked(
+                    -Gp,
+                    d_ph,
+                    coeffs,
+                    idx_tor,
+                    W_diag,
+                    reg_lambda,
+                    reg_L,
+                    ([], idx_tor),
+                    scale_A_global,
+                    scale_L_global,
+                )
             else:
                 # Coupled Logic (m > 0)
                 t_th_c, t_th_s = _get_fft_targets(fft_th, m)
@@ -260,18 +323,28 @@ def grid_to_basis_fast(
                 A_22 = -Gp
 
                 A_block1 = np.block([[A_11, A_12], [A_21, A_22]])
-                b1 = np.concatenate([t_th_c, t_ph_s])
+                b1 = np.concatenate([t_th_c, t_ph_s], axis=0)
 
                 idx_pol_c = idx_c_out
                 idx_tor_s = idx_s_out + basis.index_length
                 dest_indices_1 = np.concatenate([idx_pol_c, idx_tor_s])
 
-                _solve_stacked(A_block1, b1, coeffs, dest_indices_1, W_block, reg_lambda,
-                              reg_L, (idx_c_out, idx_s_out), scale_A_global, scale_L_global)
+                _solve_stacked(
+                    A_block1,
+                    b1,
+                    coeffs,
+                    dest_indices_1,
+                    W_block,
+                    reg_lambda,
+                    reg_L,
+                    (idx_c_out, idx_s_out),
+                    scale_A_global,
+                    scale_L_global,
+                )
 
                 # Block 2
                 if has_sine:
-                    b2 = np.concatenate([t_th_s, t_ph_c])
+                    b2 = np.concatenate([t_th_s, t_ph_c], axis=0)
                     A_11 = -Gp
                     A_12 = -G_ang
                     A_21 = -G_ang
@@ -281,9 +354,20 @@ def grid_to_basis_fast(
                     idx_pol_s = idx_s_out
                     idx_tor_c = idx_c_out + basis.index_length
                     dest_indices_2 = np.concatenate([idx_pol_s, idx_tor_c])
-                    _solve_stacked(A_block2, b2, coeffs, dest_indices_2, W_block, reg_lambda,
-                                  reg_L, (idx_s_out, idx_c_out), scale_A_global, scale_L_global)
-
+                    _solve_stacked(
+                        A_block2,
+                        b2,
+                        coeffs,
+                        dest_indices_2,
+                        W_block,
+                        reg_lambda,
+                        reg_L,
+                        (idx_s_out, idx_c_out),
+                        scale_A_global,
+                        scale_L_global,
+                    )
+    if n_scenarios == 1:
+        return coeffs[:, 0]
     return coeffs
 
 
@@ -303,9 +387,9 @@ def _get_fft_targets(fft_data: np.ndarray, m: int) -> Tuple[np.ndarray, Optional
         Cosine and Sine targets.
     """
     if m == 0:
-        return fft_data[:, 0].real, None
+        return fft_data[:, :, 0].real.T, None
     else:
-        return 2 * fft_data[:, m].real, -2 * fft_data[:, m].imag
+        return 2 * fft_data[:, :, m].real.T, -2 * fft_data[:, :, m].imag.T
 
 
 def _solve_stacked(
@@ -318,7 +402,7 @@ def _solve_stacked(
     reg_L,
     reg_idxs_source,
     scale_A_forced: Optional[float] = None,
-    scale_L_forced: Optional[float] = None
+    scale_L_forced: Optional[float] = None,
 ) -> None:
     """Solve weighted regularized system using Stacked Matrices.
 
@@ -329,7 +413,7 @@ def _solve_stacked(
     A : np.ndarray
         Design matrix.
     b : np.ndarray
-        Target vector.
+        Target vector or RHS block with shape ``(n_rows,)`` or ``(n_rows, n_rhs)``.
     coeffs_out : np.ndarray
         Output coefficient array (modified in place).
     dest_idxs : np.ndarray
@@ -353,7 +437,10 @@ def _solve_stacked(
     # Apply weights
     if weights is not None:
         A_w = A * weights[:, None]
-        b_w = b * weights
+        if np.asarray(b).ndim == 1:
+            b_w = b * weights
+        else:
+            b_w = b * weights[:, None]
     else:
         A_w = A
         b_w = b
@@ -368,10 +455,7 @@ def _solve_stacked(
             idx_p = np.asarray(idx_p, dtype=int)
             idx_t = np.asarray(idx_t, dtype=int)
 
-            L_vals = np.concatenate([
-                pen_pol[idx_p % len(pen_pol)],
-                pen_tor[idx_t % len(pen_tor)]
-            ])
+            L_vals = np.concatenate([pen_pol[idx_p % len(pen_pol)], pen_tor[idx_t % len(pen_tor)]])
         else:
             idx_source = reg_idxs_source
             L_vals = reg_L[idx_source]
@@ -394,16 +478,22 @@ def _solve_stacked(
         effective_lam = np.sqrt(reg_lambda) * factor
 
         L_block = np.diag(effective_lam * L_vals)
-        zeros_rhs = np.zeros(n_cols)
+        num_rhs = 1 if np.asarray(b_w).ndim == 1 else int(np.asarray(b_w).shape[1])
+        zeros_rhs = np.zeros((n_cols, num_rhs), dtype=A_w.dtype)
 
         A_final = np.vstack([A_w, L_block])
-        b_final = np.concatenate([b_w, zeros_rhs])
+        if num_rhs == 1:
+            b_final = np.concatenate([np.asarray(b_w).reshape(-1), zeros_rhs.reshape(-1)])
+        else:
+            b_final = np.vstack([b_w, zeros_rhs])
     else:
         A_final = A_w
         b_final = b_w
 
     # Solve
     x, _, _, _ = np.linalg.lstsq(A_final, b_final, rcond=None)
+    if coeffs_out.ndim == 2 and np.asarray(x).ndim == 1:
+        x = np.asarray(x).reshape(-1, 1)
     coeffs_out[dest_idxs] = x
 
 

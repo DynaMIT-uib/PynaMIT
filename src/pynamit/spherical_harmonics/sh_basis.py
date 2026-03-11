@@ -12,6 +12,7 @@ from pynamit.utils import asarray
 
 # --- SHIndices and normalization helpers (merged from helpers.py) ---
 
+
 class SHIndices:
     """Container for (n,m) index pairs."""
 
@@ -186,10 +187,9 @@ class SHBasis(Basis):
         self._minimum_phi_sampling = 2 * Mmax + 1
         super().__init__()
         self._related_basis_cache: dict[bool, "SHBasis"] = {}
-        
+
         # DEBUG: Backend inspection
         # print(f"DEBUG: SHBasis Init. Backend: {self.backend}. Normalized: {self.is_normalized}")
-
 
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
@@ -286,7 +286,9 @@ class SHBasis(Basis):
             return self.m[1:]
         return np.concatenate([np.array([0], dtype=self.m.dtype), self.m])
 
-    def scalar_index_arrays(self, mean_free: Optional[bool] = None) -> tuple[np.ndarray, np.ndarray]:
+    def scalar_index_arrays(
+        self, mean_free: Optional[bool] = None
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(n, m)`` arrays for the requested scalar coefficient space."""
         return self.scalar_degrees(mean_free=mean_free), self.scalar_orders(mean_free=mean_free)
 
@@ -359,10 +361,7 @@ class SHBasis(Basis):
     # --- Basis Function Evaluation ---
 
     def get_evaluation_matrix(
-        self,
-        grid,
-        derivative: Optional[str] = None,
-        mean_free: Optional[bool] = None,
+        self, grid, derivative: Optional[str] = None, mean_free: Optional[bool] = None
     ) -> np.ndarray:
         """Compute basis evaluation (or derivative) matrix on the provided grid.
 
@@ -384,8 +383,7 @@ class SHBasis(Basis):
                 full_matrix = self.get_evaluation_matrix(grid, derivative=derivative)
                 return full_matrix[:, 1:]
             return self._with_mean_free(target_mean_free).get_evaluation_matrix(
-                grid,
-                derivative=derivative,
+                grid, derivative=derivative
             )
 
         phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
@@ -503,9 +501,7 @@ class SHBasis(Basis):
     ) -> np.ndarray:
         """Factor to radially shift external potential coefficients."""
         return sh_operators.get_radial_shift_Ve_factor(
-            self.scalar_degrees(mean_free=mean_free),
-            start,
-            end,
+            self.scalar_degrees(mean_free=mean_free), start, end
         )
 
     def radial_shift_Vi(
@@ -513,9 +509,7 @@ class SHBasis(Basis):
     ) -> np.ndarray:
         """Factor to radially shift internal potential coefficients."""
         return sh_operators.get_radial_shift_Vi_factor(
-            self.scalar_degrees(mean_free=mean_free),
-            start,
-            end,
+            self.scalar_degrees(mean_free=mean_free), start, end
         )
 
     # --- Linear Map Operators ---
@@ -558,9 +552,7 @@ class SHBasis(Basis):
         basis = self._basis_for_scalar_mode(mean_free)
         return sh_operators.build_gradient_operator(basis, r)
 
-    def get_curl_operator(
-        self, r: float = 1.0, mean_free: Optional[bool] = None
-    ) -> "LinearMap":
+    def get_curl_operator(self, r: float = 1.0, mean_free: Optional[bool] = None) -> "LinearMap":
         """Get the analytical curl operator (r x grad) in spectral space."""
         basis = self._basis_for_scalar_mode(mean_free)
         return sh_operators.build_curl_operator(basis, r)
@@ -574,7 +566,7 @@ class SHBasis(Basis):
 
     def get_vector_divergence_operator(self, grid: Optional[Any] = None) -> "LinearMap":
         """Get the analytical divergence operator for vector fields.
-        
+
         For SHBasis, this is radius-independent in spectral space (mapped to r=1 coefficients).
         """
         # Note: In PynaMIT, VSH vectors are typically defined at the simulation radius RI.
@@ -590,29 +582,37 @@ class SHBasis(Basis):
         """Get the analytical radial curl operator for vector fields."""
         return sh_operators.build_vector_curl_operator(self, r=1.0)
 
-    def get_toroidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+    def get_toroidal_potential_coeffs(
+        self, coeffs: np.ndarray, grid: Optional[Any] = None
+    ) -> np.ndarray:
         """Extract toroidal potential coefficients. For SH, this is the second half."""
         n = self.index_length
         coeffs = asarray(coeffs)
         if coeffs.shape[0] == 2:
-             return coeffs[1]
+            return coeffs[1]
         if coeffs.shape[0] == 2 * n:
-             if coeffs.ndim == 1:
-                  return coeffs.reshape(2, n)[1]
-             return coeffs.reshape(2, n, -1)[1].reshape((n,) + coeffs.shape[1:])
-        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
+            if coeffs.ndim == 1:
+                return coeffs.reshape(2, n)[1]
+            return coeffs.reshape(2, n, -1)[1].reshape((n,) + coeffs.shape[1:])
+        raise ValueError(
+            f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}"
+        )
 
-    def get_poloidal_potential_coeffs(self, coeffs: np.ndarray, grid: Optional[Any] = None) -> np.ndarray:
+    def get_poloidal_potential_coeffs(
+        self, coeffs: np.ndarray, grid: Optional[Any] = None
+    ) -> np.ndarray:
         """Extract poloidal potential coefficients. For SH, this is the first half."""
         n = self.index_length
         coeffs = asarray(coeffs)
         if coeffs.shape[0] == 2:
-             return coeffs[0]
+            return coeffs[0]
         if coeffs.shape[0] == 2 * n:
-             if coeffs.ndim == 1:
-                  return coeffs.reshape(2, n)[0]
-             return coeffs.reshape(2, n, -1)[0].reshape((n,) + coeffs.shape[1:])
-        raise ValueError(f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}")
+            if coeffs.ndim == 1:
+                return coeffs.reshape(2, n)[0]
+            return coeffs.reshape(2, n, -1)[0].reshape((n,) + coeffs.shape[1:])
+        raise ValueError(
+            f"Full E-field must have 2 components or 2*Ncoeffs. Got shape {coeffs.shape}"
+        )
 
     def get_product_operator(
         self, coeffs_a: np.ndarray, grid: Optional[Any] = None, method: str = "transform"
@@ -652,20 +652,13 @@ class SHBasis(Basis):
             raise ValueError(f"Unknown vector_type: {vector_type}")
 
     def from_grid_values(
-        self,
-        values: np.ndarray,
-        grid: Any,
-        vector_type: str,
-        **kwargs,
+        self, values: np.ndarray, grid: Any, vector_type: str, **kwargs
     ) -> np.ndarray:
         """Convert grid values to coefficients."""
         mean_free = kwargs.pop("mean_free", None)
         if mean_free is not None and bool(mean_free) != self.mean_free:
             return self._with_mean_free(bool(mean_free)).from_grid_values(
-                values,
-                grid,
-                vector_type,
-                **kwargs,
+                values, grid, vector_type, **kwargs
             )
         weights = kwargs.get("weights")
         reg_lambda = kwargs.get("reg_lambda")
@@ -674,13 +667,23 @@ class SHBasis(Basis):
 
         if vector_type == "scalar":
             return self.grid_to_basis(
-                values, grid, helmholtz=False, weights=weights, reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol, solver_type=solver_type
+                values,
+                grid,
+                helmholtz=False,
+                weights=weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                solver_type=solver_type,
             )
         elif vector_type == "tangential":
             return self.grid_to_basis(
-                values, grid, helmholtz=True, weights=weights, reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol, solver_type=solver_type
+                values,
+                grid,
+                helmholtz=True,
+                weights=weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                solver_type=solver_type,
             )
         else:
             raise ValueError(f"Unknown vector_type: {vector_type}")
@@ -689,6 +692,10 @@ class SHBasis(Basis):
         """Compute regularization penalty term."""
         return super().regularization_term(coeffs, grid, vector_type, reg_lambda=reg_lambda)
 
+    def supports_regular_grid_fast_path(self) -> bool:
+        """Return whether the basis supports fast regular-grid projection."""
+        return True
+
     def grid_to_basis_fast(
         self,
         data: Union[np.ndarray, Tuple[np.ndarray, np.ndarray]],
@@ -696,7 +703,7 @@ class SHBasis(Basis):
         phi: np.ndarray = None,
         weights: np.ndarray = None,
         reg_lambda: float = None,
-        vector_type: str = "scalar"
+        vector_type: str = "scalar",
     ) -> np.ndarray:
         """Fast Spherical Harmonic Transform for Regular Grids via Separation of Variables."""
         return sh_transforms.grid_to_basis_fast(
@@ -704,21 +711,10 @@ class SHBasis(Basis):
         )
 
     def project_to_basis(
-        self,
-        input_values,
-        input_grid,
-        vector_type,
-        target_grid,
-        target_basis,
-        **kwargs,
+        self, input_values, input_grid, vector_type, target_grid, target_basis, **kwargs
     ) -> np.ndarray:
         """Project input data onto the target basis."""
-        coeffs = self.from_grid_values(
-            input_values,
-            input_grid,
-            vector_type,
-            **kwargs,
-        )
+        coeffs = self.from_grid_values(input_values, input_grid, vector_type, **kwargs)
         return coeffs
 
     def construct_projection_matrix(self, grid) -> np.ndarray:

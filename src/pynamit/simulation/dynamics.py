@@ -561,9 +561,20 @@ class Dynamics:
         FAC_b_field = self.mainfield.discretize(
             Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.settings.RI
         )
+        fac_array = np.asarray(FAC, dtype=float)
+        radial_factor = np.asarray(FAC_b_field.vec.r / FAC_b_field.magnitude, dtype=float).reshape(
+            -1
+        )
+        n_points = radial_factor.size
+        if fac_array.size % n_points != 0:
+            raise ValueError(
+                "FAC input size must be an integer multiple of the spatial grid size. "
+                f"Got FAC.size={fac_array.size} for grid size {n_points}."
+            )
+        jr = fac_array.reshape(-1, n_points) * radial_factor.reshape(1, -1)
 
         self.set_jr(
-            FAC.flatten() * FAC_b_field.vec.r / FAC_b_field.magnitude,
+            jr,
             lat=lat,
             lon=lon,
             theta=theta,
