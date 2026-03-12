@@ -14,7 +14,7 @@ from pynamit.math.linear_map import LinearMap, as_linear_map
 from pynamit.primitives.basis import is_cs_like_basis, is_sh_basis
 from pynamit.simulation.induction.poloidal_solver import MImpFeedbackSystem
 from pynamit.simulation.core.coupled_solver import CoupledSteadyStateSolver
-from pynamit.simulation.settings import DynamicsMode, ExponentialSolverKind
+from pynamit.simulation.settings import DynamicsMode, ExponentialSolverKind, LLConstraintMode
 from pynamit.utils import asarray, to_numpy, xp
 
 TimedSolveFn = Callable[..., np.ndarray]
@@ -27,16 +27,26 @@ class StateInduction:
     """Expose induction/coupled orchestration on top of a `State` instance."""
 
     def __init__(
-        self, state: Any, *, timed_solve: TimedSolveFn, available_memory_bytes: AvailableMemoryFn
+        self,
+        state: Any,
+        *,
+        timed_solve: TimedSolveFn,
+        timed_structured_solve: TimedSolveFn,
+        available_memory_bytes: AvailableMemoryFn,
     ) -> None:
         self._state = state
         self._timed_solve = timed_solve
+        self._timed_structured_solve = timed_structured_solve
         self._available_memory_bytes = available_memory_bytes
 
     def _legacy_connect_hemispheres(self) -> bool:
         """Return whether legacy poloidal feedback closes hemispheres."""
         st = self._state
-        return bool(st.connect_hemispheres and st.dynamics_mode != DynamicsMode.FULL_INDUCTION)
+        return bool(
+            st.connect_hemispheres
+            and st.dynamics_mode != DynamicsMode.FULL_INDUCTION
+            and st.get_effective_ll_constraint_mode() != LLConstraintMode.OFF
+        )
 
     def build_m_imp_feedback_system(self) -> MImpFeedbackSystem:
         """Build the bundled reduced ``m_imp`` feedback solve definition."""
@@ -51,21 +61,29 @@ class StateInduction:
             and st.E_map_constraint_operator is not None
         ):
             e_constraint_op = st.E_map_constraint_operator
+        ll_mode = st.get_effective_ll_constraint_mode()
 
         constraint_scalar_operator = st.geometry.get_constraint_scalar_operator(st.solution_space)
 
-        problem = st.geometry.poloidal_matrices.build_least_squares_problem(
+        subproblem = st.geometry.poloidal_matrices.build_least_squares_subproblem(
             constraint_scalar_operator=constraint_scalar_operator,
             E_constraint_operator=e_constraint_op,
-            connect_hemispheres=(e_constraint_op is not None),
+            connect_hemispheres=(e_constraint_op is not None and ll_mode == LLConstraintMode.SOFT),
             ih_constraint_scaling=st.ih_constraint_scaling,
             regularization_lambda=st.m_imp_regularization_lambda,
             m_imp_selector=np.asarray(m_imp_reduced_system.selector, dtype=float),
             weighting=st.poloidal_weighting,
         )
-        preconditioner = st.m_imp_solver.build_preconditioner(problem=problem, num_scenarios=1)
+        preconditioner = st.m_imp_solver.build_preconditioner(
+            problem=subproblem.problem, num_scenarios=1
+        )
+        solve_system = subproblem.with_equality()
+        if e_constraint_op is not None and ll_mode == LLConstraintMode.HARD:
+            selector = np.asarray(m_imp_reduced_system.selector, dtype=float)
+            equality_operator = as_linear_map(e_constraint_op) @ as_linear_map(selector)
+            solve_system = solve_system.with_equality(equality_operator=equality_operator)
         return MImpFeedbackSystem(
-            problem=problem,
+            solve_system=solve_system,
             selector=np.asarray(m_imp_reduced_system.selector, dtype=float),
             preconditioner=preconditioner,
         )
@@ -128,6 +146,7 @@ class StateInduction:
     def solve_dt_psi(self, E_known: np.ndarray) -> np.ndarray:
         """Solve constrained system for `dpsi/dt`."""
         st = self._state
+        constraint_system = st.dt_alpha_constraint_system
         dt_alpha_driver_coeffs = st._get_dt_alpha_driver_coeffs()
         rhs_physics = st.toroidal_matrices.compute_toroidal_rhs_from_E(asarray(E_known))
         if dt_alpha_driver_coeffs is not None:
@@ -138,13 +157,14 @@ class StateInduction:
 
         solution = st.toroidal_matrices.solve_dt_psi_superposed(
             rhs_physics=rhs_physics,
-            rhs_constraint=st._build_dt_alpha_constraint_rhs(dt_alpha_driver_coeffs),
-            constraint_operator=st.dt_alpha_constraint_operator_hard,
+            rhs_constraint=constraint_system.build_hard_rhs(dt_alpha_driver_coeffs),
+            constraint_operator=constraint_system.hard_operator,
             m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
             weighting=st.toroidal_weighting,
             regularization_lambda=st.toroidal_regularization_lambda,
-            penalty_operator=None,
-            penalty_scaling=0.0,
+            penalty_operator=constraint_system.soft_operator,
+            penalty_scaling=float(constraint_system.soft_scaling),
+            penalty_rhs=constraint_system.build_soft_rhs(dt_alpha_driver_coeffs),
             hinv_rtol=0.0,
             apply_psi_gauge=st.apply_psi_gauge,
         )
@@ -166,12 +186,18 @@ class StateInduction:
             jr_vec = np.asarray(jr_coeffs).reshape(-1)
             return asarray(m_imp_from_jr @ jr_vec)
 
-        use_e_constraint = st.connect_hemispheres and st.E_map_constraint_operator is not None
+        ll_mode = st.get_effective_ll_constraint_mode()
+        use_e_constraint = (
+            st.connect_hemispheres
+            and st.E_map_constraint_operator is not None
+            and ll_mode != LLConstraintMode.OFF
+        )
         if jr_coeffs is None and not use_e_constraint:
             return xp.zeros(n)
         feedback_system = st.m_imp_feedback_system
 
         rhs_entries: list[Optional[Any]] = [None] * feedback_system.problem.num_data_terms
+        equality_rhs_input: Optional[Any] = None
         if jr_coeffs is not None:
             op_rhs = st.geometry.get_constraint_scalar_operator(st.jr.spec if st.jr else None)
             rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
@@ -190,14 +216,21 @@ class StateInduction:
                     "E_coeffs_to_E_apex_ll_diff must provide an 'apply' method "
                     "(ConstraintOperator)."
                 )
-            rhs_entries[1] = st.ih_constraint_scaling * xp.reshape(b_E, (-1,))
+            b_E_flat = xp.reshape(b_E, (-1,))
+            if ll_mode == LLConstraintMode.SOFT:
+                rhs_entries[1] = st.ih_constraint_scaling * b_E_flat
+            elif ll_mode == LLConstraintMode.HARD:
+                equality_rhs_input = b_E_flat
+        if equality_rhs_input is not None and all(entry is None for entry in rhs_entries):
+            rhs_entries[0] = xp.zeros(int(feedback_system.problem.A[0].num_rows), dtype=float)
 
-        solution = self._timed_solve(
+        solution = self._timed_structured_solve(
             "state.m_imp",
+            feedback_system.solve_system,
             st.m_imp_solver,
-            problem=feedback_system.problem,
-            rhs=rhs_entries,
+            rhs_entries,
             preconditioner=feedback_system.preconditioner,
+            equality_rhs_input=equality_rhs_input,
         )
         if solution is None:
             solution = xp.zeros(feedback_system.problem.solution_size)

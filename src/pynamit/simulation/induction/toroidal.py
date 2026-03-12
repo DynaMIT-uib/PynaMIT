@@ -10,6 +10,19 @@ The field-line feedback part is assembled in the dt_alpha-native psi rewrite:
 where ``dt_psi`` is understood as the toroidal magnetic-potential response
 induced by ``dt_alpha`` through the static ``jr <-> psi`` relation.
 
+Important convention note:
+    ``A_raw`` is assembled in unit-sphere angular-derivative form
+    ``B0s · grad_Omega(.)``, not directly as ``B0s · grad_S(.)``. Since
+    ``grad_Omega = R * grad_S``, the feedback block naturally appears as
+    ``A_raw @ ((1/R) * dt_psi + d_r(dt_psi))``. This is equivalent to the
+    surface-gradient form ``(B0s · grad_S)(dt_psi + R * d_r(dt_psi))``.
+
+    The toroidal magnetic scalar ``psi`` uses the same sign convention as the
+    imposed toroidal scalar ``m_imp``. With the negative-semidefinite spherical
+    Laplacian used by the basis operators, the code relation
+    ``jr = (R / mu0) * Laplacian(psi)`` is the same as the physical identity
+    ``jr = -(R / mu0) * Delta_S psi`` on the mean-zero subspace.
+
 Design note for CS-dominant full induction:
     - The toroidal closure operator is assembled in one auxiliary SH basis
       on the same grid.
@@ -816,8 +829,10 @@ class ToroidalSystemMatrices:
         """Return raw field-line advection operator ``A_raw``.
 
         This is the weak-form discretization of
-            ``B0s · grad_Omega(.)``
+            ``B0s · grad_Omega(.) = R * B0s · grad_S(.)``
         before applying the inverse-Laplacian toroidal-potential map.
+        The unit-sphere form is intentional; it is why the final feedback block
+        carries explicit ``1/R`` factors in front of ``dt_psi``.
         """
         logger.info("Building raw field-line advection operator...")
 
@@ -916,6 +931,12 @@ class ToroidalSystemMatrices:
         so
             ``psi = mu0 * R * Delta_Omega^{-1}(jr)``
         on the mean-zero scalar subspace.
+
+        Since the basis Laplacian is negative semidefinite,
+            ``Laplacian(Y_lm) = -l(l+1)/R^2 * Y_lm``,
+        this is exactly the same sign convention as
+            ``jr = -(R / mu0) * Delta_S psi``
+        in surface-gradient notation.
         """
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices
@@ -1077,6 +1098,7 @@ class ToroidalSystemMatrices:
         regularization_lambda: float = 0.0,
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
+        penalty_rhs: Any = None,
         hinv_rtol: float = 0.0,
         apply_psi_gauge: bool = False,
     ) -> np.ndarray:
@@ -1090,6 +1112,7 @@ class ToroidalSystemMatrices:
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
             penalty_scaling=penalty_scaling,
+            penalty_rhs=penalty_rhs,
             hinv_rtol=hinv_rtol,
             apply_psi_gauge=apply_psi_gauge,
         )

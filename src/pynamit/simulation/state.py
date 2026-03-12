@@ -29,6 +29,7 @@ from pynamit.math.integration import (
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.core import (
     CoupledOperators,
+    DtAlphaConstraintSystem,
     StateDiagnostics,
     StateConstraints,
     StateInduction,
@@ -45,6 +46,7 @@ from pynamit.simulation.settings import (
     DynamicsMode,
     DynamicsSettings,
     IntegratorKind,
+    LLConstraintMode,
     SimulationMode,
 )
 from pynamit.simulation.input import decode_conductance_representation_to_grids
@@ -59,6 +61,21 @@ def _timed_solve(label: str, solver: LeastSquaresSolver, *args: Any, **kwargs: A
         return solver.solve(*args, **kwargs)
     t0 = time.perf_counter()
     out = solver.solve(*args, **kwargs)
+    dt = time.perf_counter() - t0
+    solver_name = getattr(solver, "solver", "unknown")
+    print(f"TIMING solve[{label}] ({solver_name}): {dt:.3f}s", flush=True)
+    return out
+
+
+def _timed_structured_solve(
+    label: str, solve_system: Any, solver: LeastSquaresSolver, *args: Any, **kwargs: Any
+) -> np.ndarray:
+    """Optionally time structured subproblem solves when timing is enabled."""
+    kwargs.setdefault("warning_label", label)
+    if os.getenv("PYNAMIT_TIMING_SOLVES", "").strip() in ("", "0"):
+        return solve_system.solve(solver, *args, **kwargs)
+    t0 = time.perf_counter()
+    out = solve_system.solve(solver, *args, **kwargs)
     dt = time.perf_counter() - t0
     solver_name = getattr(solver, "solver", "unknown")
     print(f"TIMING solve[{label}] ({solver_name}): {dt:.3f}s", flush=True)
@@ -205,7 +222,10 @@ class State:
     def induction(self) -> StateInduction:
         """Induction/coupled orchestration helper layered on top of `State`."""
         return StateInduction(
-            self, timed_solve=_timed_solve, available_memory_bytes=_available_memory_bytes
+            self,
+            timed_solve=_timed_solve,
+            timed_structured_solve=_timed_structured_solve,
+            available_memory_bytes=_available_memory_bytes,
         )
 
     # ----- Initialization Helpers -----
@@ -225,6 +245,7 @@ class State:
         self.RI = normalized_settings.RI
         self.RM = normalized_settings.RM
         self.ih_constraint_scaling = normalized_settings.ih_constraint_scaling
+        self.ll_constraint_mode = normalized_settings.ll_constraint_mode
         self.apply_psi_gauge = bool(normalized_settings.apply_psi_gauge)
         self.induction_null_diagnostics = bool(normalized_settings.induction_null_diagnostics)
         self.induction_null_svd_rtol = float(normalized_settings.induction_null_svd_rtol)
@@ -400,23 +421,6 @@ class State:
             cached = as_linear_map(op, input_shape=input_shape, output_shape=output_shape)
             self._operator_linear_map_cache[cache_key] = cached
         return cached
-        if ll_mask is None:
-            raise RuntimeError(
-                "LL mask is required for full_induction with connect_hemispheres=True."
-            )
-        row_mask = np.asarray(ll_mask, dtype=bool).reshape(-1)
-
-        op_lm = as_linear_map(op)
-        if row_mask.size != op_lm.shape[0]:
-            raise RuntimeError(
-                f"LL mask size mismatch: mask={int(row_mask.size)} rows={int(op_lm.shape[0])}."
-            )
-        if not np.any(row_mask):
-            raise RuntimeError("LL mask contains no active rows for full_induction constraints.")
-
-        if hasattr(op, "tocsr"):
-            return op.tocsr()[row_mask]
-        return np.ascontiguousarray(to_dense(op_lm)[row_mask, :])
 
     @cached_property
     def diagnostics(self) -> StateDiagnostics:
@@ -433,16 +437,24 @@ class State:
         """Return LL/HL conflict diagnostics for live toroidal forcing channels."""
         return self.diagnostics.get_toroidal_driver_balance_report()
 
+    def get_effective_ll_constraint_mode(self) -> LLConstraintMode:
+        """Resolve the configured LL compatibility policy for the active dynamics mode."""
+        mode = LLConstraintMode(self.ll_constraint_mode)
+        if mode != LLConstraintMode.AUTO:
+            return mode
+        if not self.connect_hemispheres:
+            return LLConstraintMode.OFF
+        if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
+            return LLConstraintMode.HARD
+        return LLConstraintMode.SOFT
+
     @cached_property
-    def dt_alpha_constraint_operator_hard(self) -> Optional[np.ndarray]:
-        """Hard-constraint operator represented in ``dt_alpha`` solve space."""
-        constraint_op = self.constraints.induction_constraint_operator_hard
-        if constraint_op is None:
-            return None
-        C_alpha = np.asarray(to_dense(as_linear_map(constraint_op)), dtype=float)
-        if C_alpha.ndim != 2:
-            C_alpha = C_alpha.reshape(C_alpha.shape[0], -1)
-        return C_alpha
+    def dt_alpha_constraint_system(self) -> DtAlphaConstraintSystem:
+        """Bundle active LL/HL constraint handling for the full-induction ``dt_alpha`` solve."""
+        return self.constraints.build_dt_alpha_constraint_system(
+            ll_mode=self.get_effective_ll_constraint_mode(),
+            soft_scaling=float(self.ih_constraint_scaling),
+        )
 
     def _get_dt_alpha_driver_coeffs(self) -> Optional[np.ndarray]:
         """Return ``dt_alpha`` driver projected to HL modes."""
@@ -453,56 +465,6 @@ class State:
         m_imp_to_jr = as_linear_map(self.poloidal_matrices.m_imp_to_jr)
         jr_to_alpha = as_linear_map(self.toroidal_matrices.jr_to_alpha_coeff_operator)
         return asarray(jr_to_alpha.matvec(m_imp_to_jr.matvec(dt_m_imp))).reshape(-1)
-
-    def _build_dt_alpha_constraint_rhs(
-        self, dt_alpha_driver_coeffs: Optional[np.ndarray]
-    ) -> np.ndarray:
-        """Build hard-constraint RHS for residual ``dt_alpha`` solve."""
-        constraint_op = self.dt_alpha_constraint_operator_hard
-        if constraint_op is None:
-            return xp.zeros(0)
-
-        constraint_lm = as_linear_map(constraint_op)
-        n_rows = int(constraint_lm.shape[0])
-        if n_rows <= 0:
-            return xp.zeros(0)
-        if dt_alpha_driver_coeffs is None:
-            return xp.zeros(n_rows)
-
-        driver = np.asarray(dt_alpha_driver_coeffs).reshape(-1)
-        bundle = self.constraints.induction_constraint_bundle_hard
-        if bundle is None:
-            if constraint_lm.shape[1] != driver.size and float(np.linalg.norm(driver)) == 0.0:
-                driver = np.zeros(int(constraint_lm.shape[1]), dtype=float)
-            if constraint_lm.shape[1] != driver.size:
-                raise RuntimeError(
-                    "Constraint RHS assembly mismatch for non-bundled alpha constraints: "
-                    "constraint operator columns do not match driver dimension."
-                )
-            return -asarray(constraint_lm.matvec(driver))
-
-        C_ll_alpha = np.asarray(bundle["C_ll"], dtype=float)
-        C_hl_alpha = np.asarray(bundle["C_hl"], dtype=float)
-        C_total_alpha = np.vstack([C_ll_alpha, C_hl_alpha])
-
-        if C_total_alpha.shape[1] != driver.size:
-            if float(np.linalg.norm(driver)) == 0.0:
-                driver = np.zeros(int(C_total_alpha.shape[1]), dtype=float)
-            else:
-                raise RuntimeError(
-                    "Constraint RHS assembly mismatch: alpha bundle columns do not "
-                    "match dt_alpha driver dimension."
-                )
-
-        if C_total_alpha.shape[0] == n_rows and C_total_alpha.shape[1] == driver.size:
-            rhs_ll = -C_ll_alpha @ driver if C_ll_alpha.shape[0] > 0 else np.zeros(0, dtype=float)
-            rhs_hl = np.zeros(C_hl_alpha.shape[0], dtype=float)
-            return asarray(np.concatenate([rhs_ll, rhs_hl]))
-
-        raise RuntimeError(
-            "Constraint RHS assembly mismatch: alpha bundle rows/cols do not match "
-            "constraint operator and driver dimensions."
-        )
 
     def _project_to_hl_modes(self, values: np.ndarray) -> np.ndarray:
         """Project coefficient-space vector onto the HL mode subspace."""

@@ -3,11 +3,12 @@
 from .coupled_solver import CoupledOperators, CoupledSteadyStateSolver
 from .state_diagnostics import StateDiagnostics
 from .state_induction import StateInduction
-from .state_constraints import StateConstraints
+from .state_constraints import DtAlphaConstraintSystem, StateConstraints
 
 __all__ = [
     "CoupledOperators",
     "CoupledSteadyStateSolver",
+    "DtAlphaConstraintSystem",
     "StateDiagnostics",
     "StateConstraints",
     "StateInduction",

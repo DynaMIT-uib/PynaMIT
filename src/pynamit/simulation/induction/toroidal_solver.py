@@ -8,11 +8,17 @@ exported solve/dynamics maps in one helper object.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
 from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.math.structured_least_squares import (
+    ConstrainedStructuredLeastSquaresSubproblem,
+    StructuredLeastSquaresDataTerm,
+    StructuredLeastSquaresSubproblem,
+)
 from pynamit.simulation.induction.operator_utils import (
     build_linear_map,
     coerce_dense_operator_matrix,
@@ -20,7 +26,85 @@ from pynamit.simulation.induction.operator_utils import (
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray, to_numpy
 
+if TYPE_CHECKING:
+    from pynamit.math.least_squares_problem import LeastSquaresProblem
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DtAlphaSolveSystem:
+    """Bundle the structured ``dt_alpha`` least-squares solve definition."""
+
+    solve_system: ConstrainedStructuredLeastSquaresSubproblem
+    r_grid: np.ndarray
+    penalty_term_index: Optional[int] = None
+
+    @property
+    def subproblem(self) -> StructuredLeastSquaresSubproblem:
+        """Compatibility view of the unconstrained structured subproblem."""
+        return self.solve_system.subproblem
+
+    @property
+    def problem(self) -> "LeastSquaresProblem":
+        """Compatibility view of the underlying least-squares problem."""
+        return self.solve_system.problem
+
+    @property
+    def n_coeff(self) -> int:
+        """Return the flattened ``dt_alpha`` coefficient dimension."""
+        return int(self.solve_system.solution_size)
+
+    @property
+    def grid_rows(self) -> int:
+        """Return the number of grid residual rows in the physics term."""
+        return int(np.asarray(self.r_grid, dtype=float).shape[0])
+
+    def physics_rhs_to_grid_rhs(self, rhs_coeffs: np.ndarray) -> np.ndarray:
+        """Map coefficient-space RHS columns to grid-space RHS columns."""
+        r_grid = np.asarray(self.r_grid, dtype=float)
+        rhs_arr = np.asarray(to_numpy(rhs_coeffs))
+        if rhs_arr.ndim == 1:
+            return r_grid @ rhs_arr.reshape(-1, 1)
+        rhs_2d = rhs_arr.reshape(rhs_arr.shape[0], -1)
+        return r_grid @ rhs_2d
+
+    def build_rhs_terms(
+        self,
+        rhs_physics_coeffs: np.ndarray,
+        *,
+        penalty_rhs: Optional[np.ndarray] = None,
+        penalty_scaling: float = 0.0,
+    ) -> list[np.ndarray]:
+        """Assemble structured RHS terms for the ``dt_alpha`` least-squares solve."""
+        rhs_grid = np.asarray(self.physics_rhs_to_grid_rhs(rhs_physics_coeffs))
+        if rhs_grid.ndim == 1:
+            rhs_grid = rhs_grid.reshape(-1, 1)
+        n_scenarios = int(rhs_grid.shape[1])
+        rhs_terms = [rhs_grid]
+        for term_index in range(1, int(self.problem.num_data_terms)):
+            n_rows = int(self.problem.A[term_index].num_rows)
+            rhs_terms.append(np.zeros((n_rows, n_scenarios), dtype=rhs_grid.dtype))
+        if self.penalty_term_index is not None and penalty_rhs is not None:
+            penalty_rhs_arr = np.asarray(to_numpy(penalty_rhs))
+            n_rows = int(self.problem.A[self.penalty_term_index].num_rows)
+            if penalty_rhs_arr.ndim == 1:
+                if penalty_rhs_arr.shape[0] != n_rows:
+                    raise ValueError(
+                        f"penalty_rhs length {penalty_rhs_arr.shape[0]} != penalty rows {n_rows}"
+                    )
+                penalty_rhs_arr = np.repeat(penalty_rhs_arr[:, None], n_scenarios, axis=1)
+            else:
+                penalty_rhs_arr = penalty_rhs_arr.reshape(n_rows, -1)
+                if penalty_rhs_arr.shape[1] == 1 and n_scenarios > 1:
+                    penalty_rhs_arr = np.repeat(penalty_rhs_arr, n_scenarios, axis=1)
+                if penalty_rhs_arr.shape[1] != n_scenarios:
+                    raise ValueError(
+                        "penalty_rhs scenario shape mismatch: "
+                        f"expected {n_scenarios}, got {penalty_rhs_arr.shape[1]}"
+                    )
+            rhs_terms[self.penalty_term_index] = np.asarray(penalty_scaling) * penalty_rhs_arr
+        return rhs_terms
 
 
 class ToroidalSolver:
@@ -29,15 +113,22 @@ class ToroidalSolver:
     def __init__(self, matrices: Any) -> None:
         self._mats = matrices
 
-    def _get_problem_bundle(
+    @staticmethod
+    def _coerce_equality_rhs(rhs: Any) -> Any:
+        """Normalize cached equality RHS inputs without changing scenario layout."""
+        if rhs is None:
+            return None
+        return np.asarray(to_numpy(rhs))
+
+    def _get_dtalpha_solve_system(
         self,
         *,
         weighting: str,
         regularization_lambda: float,
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
-    ) -> dict[str, Any]:
-        """Build or fetch the weighted least-squares bundle for ``dt_alpha``."""
+    ) -> DtAlphaSolveSystem:
+        """Build or fetch the weighted least-squares solve system for ``dt_alpha``."""
         mats = self._mats
         cache_key = (
             weighting,
@@ -49,7 +140,6 @@ class ToroidalSolver:
         if cached is not None:
             return cached
 
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
         from pynamit.math.linear_map import as_linear_map, diagonal_linear_map
 
         dtalpha_operator = np.asarray(to_numpy(mats.dtalpha_operator))
@@ -58,35 +148,43 @@ class ToroidalSolver:
         op_a_grid = as_linear_map(a_grid)
         physics_weight = mats._build_physics_sqrt_weight(op_a_grid.shape[0], weighting)
 
-        operators = [op_a_grid]
-        data_shapes = [(op_a_grid.shape[0],)]
-        sqrt_weights = [physics_weight]
+        data_terms = [
+            StructuredLeastSquaresDataTerm(
+                operator=op_a_grid, data_shape=(op_a_grid.shape[0],), sqrt_weight=physics_weight
+            )
+        ]
+        penalty_term_index: Optional[int] = None
 
         if penalty_operator is not None and penalty_scaling > 0:
             op_penalty = as_linear_map(penalty_operator) * penalty_scaling
-            operators.append(op_penalty)
-            data_shapes.append((op_penalty.shape[0],))
-            sqrt_weights.append(None)
+            penalty_term_index = len(data_terms)
+            data_terms.append(
+                StructuredLeastSquaresDataTerm(
+                    operator=op_penalty, data_shape=(op_penalty.shape[0],), sqrt_weight=None
+                )
+            )
 
         if regularization_lambda > 0:
             op_reg = diagonal_linear_map(np.ones(n_coeff)) * float(
                 np.sqrt(max(regularization_lambda, 0.0))
             )
-            operators.append(op_reg)
-            data_shapes.append((op_reg.shape[0],))
-            sqrt_weights.append(None)
+            data_terms.append(
+                StructuredLeastSquaresDataTerm(
+                    operator=op_reg, data_shape=(op_reg.shape[0],), sqrt_weight=None
+                )
+            )
 
-        problem = LeastSquaresProblem(
-            A=operators, solution_shape=n_coeff, data_shapes=data_shapes, sqrt_weights=sqrt_weights
+        subproblem = StructuredLeastSquaresSubproblem(
+            solution_shape=n_coeff, data_terms=tuple(data_terms)
         )
-        bundle = {
-            "problem": problem,
-            "R_grid": np.asarray(r_grid),
-            "n_coeff": int(n_coeff),
-            "grid_rows": int(op_a_grid.shape[0]),
-        }
-        mats._toroidal_problem_cache[cache_key] = bundle
-        return bundle
+        solve_system = subproblem.with_equality()
+        solve_bundle = DtAlphaSolveSystem(
+            solve_system=solve_system,
+            r_grid=np.asarray(r_grid, dtype=float),
+            penalty_term_index=penalty_term_index,
+        )
+        mats._toroidal_problem_cache[cache_key] = solve_bundle
+        return solve_bundle
 
     def _resolve_rcond(self, *, n_coeff: int, hinv_rtol: float) -> float:
         """Resolve pseudoinverse cutoff used by constrained elimination."""
@@ -97,15 +195,6 @@ class ToroidalSolver:
         logger.info("Auto hard-solve rtol (default pseudoinverse cutoff): %.3e", float(rcond))
         return float(max(rcond, 0.0))
 
-    @staticmethod
-    def _coeff_rhs_to_grid_rhs(r_grid: np.ndarray, rhs_coeffs: np.ndarray) -> np.ndarray:
-        """Map coefficient-space RHS columns to grid-space RHS columns."""
-        rhs_arr = np.asarray(to_numpy(rhs_coeffs))
-        if rhs_arr.ndim == 1:
-            return r_grid @ rhs_arr.reshape(-1, 1)
-        rhs_2d = rhs_arr.reshape(rhs_arr.shape[0], -1)
-        return r_grid @ rhs_2d
-
     def _solve_dtalpha_problem(
         self,
         rhs_physics_coeffs: np.ndarray,
@@ -114,6 +203,7 @@ class ToroidalSolver:
         regularization_lambda: float,
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
+        penalty_rhs: Optional[np.ndarray] = None,
         hinv_rtol: float = 0.0,
         equality_operator: Any = None,
         equality_rhs: Optional[np.ndarray] = None,
@@ -122,26 +212,25 @@ class ToroidalSolver:
         from pynamit.math.least_squares_solver import LeastSquaresSolver
 
         mats = self._mats
-        bundle = self._get_problem_bundle(
+        solve_bundle = self._get_dtalpha_solve_system(
             weighting=weighting,
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
             penalty_scaling=penalty_scaling,
         )
-        problem = bundle["problem"]
-        r_grid = bundle["R_grid"]
-        n_coeff = int(bundle["n_coeff"])
+        solve_system = solve_bundle.solve_system
+        if equality_operator is not None:
+            solve_system = solve_system.with_equality(
+                equality_operator=equality_operator, equality_rhs_builder=self._coerce_equality_rhs
+            )
+        problem = solve_system.problem
+        n_coeff = int(solve_bundle.n_coeff)
         rcond = self._resolve_rcond(n_coeff=n_coeff, hinv_rtol=hinv_rtol)
 
-        rhs_grid = self._coeff_rhs_to_grid_rhs(r_grid, rhs_physics_coeffs)
-        rhs_grid_arr = np.asarray(rhs_grid)
-        if rhs_grid_arr.ndim == 1:
-            rhs_grid_arr = rhs_grid_arr.reshape(-1, 1)
-        n_scenarios = int(rhs_grid_arr.shape[1])
-        rhs_terms = [rhs_grid_arr]
-        for term_index in range(1, int(problem.num_data_terms)):
-            n_rows = int(problem.A[term_index].num_rows)
-            rhs_terms.append(np.zeros((n_rows, n_scenarios), dtype=rhs_grid_arr.dtype))
+        rhs_terms = solve_bundle.build_rhs_terms(
+            rhs_physics_coeffs, penalty_rhs=penalty_rhs, penalty_scaling=penalty_scaling
+        )
+        n_scenarios = int(np.asarray(rhs_terms[0]).shape[1])
 
         solver = LeastSquaresSolver(
             solver=mats.toroidal_solver,
@@ -156,12 +245,11 @@ class ToroidalSolver:
                 num_scenarios=n_scenarios,
                 pinv_rcond=rcond,
             )
-        sol = solver.solve(
-            problem,
+        sol = solve_system.solve(
+            solver,
             rhs_terms,
             preconditioner=preconditioner,
-            equality_operator=equality_operator,
-            equality_rhs=equality_rhs,
+            equality_rhs_input=equality_rhs,
             elimination_rcond=rcond,
         )
         return np.asarray(sol)
@@ -177,13 +265,13 @@ class ToroidalSolver:
     ) -> np.ndarray:
         """Return cached dense map ``rhs_physics -> dt_alpha``."""
         mats = self._mats
-        bundle = self._get_problem_bundle(
+        solve_bundle = self._get_dtalpha_solve_system(
             weighting=weighting,
             regularization_lambda=regularization_lambda,
             penalty_operator=penalty_operator,
             penalty_scaling=penalty_scaling,
         )
-        n_coeff = int(bundle["n_coeff"])
+        n_coeff = int(solve_bundle.n_coeff)
         rcond = self._resolve_rcond(n_coeff=n_coeff, hinv_rtol=hinv_rtol)
         key = (
             weighting,
@@ -288,6 +376,7 @@ class ToroidalSolver:
         regularization_lambda: float = 0.0,
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
+        penalty_rhs: Optional[np.ndarray] = None,
         hinv_rtol: float = 0.0,
         apply_psi_gauge: bool = False,
     ) -> np.ndarray:
@@ -306,6 +395,19 @@ class ToroidalSolver:
                 hinv_rtol=hinv_rtol,
             )
             dtalpha = M_alpha @ rhs_p
+            if penalty_operator is not None and penalty_scaling > 0 and penalty_rhs is not None:
+                penalty_rhs_vec = np.asarray(to_numpy(penalty_rhs)).reshape(-1)
+                dtalpha = dtalpha + np.asarray(
+                    self._solve_dtalpha_problem(
+                        rhs_physics_coeffs=np.zeros_like(rhs_p),
+                        weighting=weighting,
+                        regularization_lambda=regularization_lambda,
+                        penalty_operator=penalty_operator,
+                        penalty_scaling=penalty_scaling,
+                        penalty_rhs=penalty_rhs_vec,
+                        hinv_rtol=hinv_rtol,
+                    )
+                ).reshape(-1)
             return asarray((dtalpha_to_dt_psi @ dtalpha).reshape(-1))
 
         maps = self._get_constrained_dtalpha_maps(
@@ -320,6 +422,21 @@ class ToroidalSolver:
         dtalpha = maps["M_phys_dtalpha"] @ rhs_p
         if maps["M_corr_dtalpha"].shape[1] > 0:
             dtalpha = dtalpha + maps["M_corr_dtalpha"] @ rhs_c
+        if penalty_operator is not None and penalty_scaling > 0 and penalty_rhs is not None:
+            penalty_rhs_vec = np.asarray(to_numpy(penalty_rhs)).reshape(-1)
+            dtalpha = dtalpha + np.asarray(
+                self._solve_dtalpha_problem(
+                    rhs_physics_coeffs=np.zeros_like(rhs_p),
+                    weighting=weighting,
+                    regularization_lambda=regularization_lambda,
+                    penalty_operator=penalty_operator,
+                    penalty_scaling=penalty_scaling,
+                    penalty_rhs=penalty_rhs_vec,
+                    hinv_rtol=hinv_rtol,
+                    equality_operator=constraint_operator,
+                    equality_rhs=np.zeros_like(rhs_c),
+                )
+            ).reshape(-1)
         dt_psi = dtalpha_to_dt_psi @ dtalpha
         return asarray(dt_psi.reshape(-1))
 

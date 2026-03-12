@@ -14,7 +14,7 @@ import numpy as np
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.primitives.basis import is_cs_like_basis
-from pynamit.simulation.settings import DynamicsMode
+from pynamit.simulation.settings import DynamicsMode, LLConstraintMode
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray
 
@@ -47,6 +47,99 @@ class ReducedScalarSystem:
 
     def project_vector(self, vector: Any) -> np.ndarray:
         return self.expand_vector(self.reduce_vector(vector))
+
+
+@dataclass(frozen=True)
+class DtAlphaConstraintSystem:
+    """Bundle LL/HL constraint handling for the full-induction ``dt_alpha`` solve."""
+
+    ll_mode: LLConstraintMode
+    c_ll: np.ndarray
+    c_hl: np.ndarray
+    hard_operator: Optional[np.ndarray]
+    soft_operator: Optional[np.ndarray]
+    soft_scaling: float = 0.0
+
+    @staticmethod
+    def _as_2d_matrix(operator: Any) -> np.ndarray:
+        """Normalize one constraint operator to a dense 2-D matrix."""
+        arr = np.asarray(operator, dtype=float)
+        if arr.ndim != 2:
+            arr = arr.reshape(arr.shape[0], -1)
+        return arr
+
+    @property
+    def c_total(self) -> np.ndarray:
+        """Return the full LL+HL row block independent of active LL mode."""
+        if self.c_ll.shape[0] == 0:
+            return np.asarray(self.c_hl, dtype=float)
+        if self.c_hl.shape[0] == 0:
+            return np.asarray(self.c_ll, dtype=float)
+        return np.asarray(np.vstack([self.c_ll, self.c_hl]), dtype=float)
+
+    @property
+    def n_coeff(self) -> int:
+        """Return the flattened ``dt_alpha`` coefficient dimension."""
+        for operator in (self.hard_operator, self.soft_operator, self.c_total):
+            if operator is None:
+                continue
+            arr = self._as_2d_matrix(operator)
+            if arr.shape[1] > 0:
+                return int(arr.shape[1])
+        return 0
+
+    def _resolve_driver(self, driver_coeffs: Optional[np.ndarray], n_coeff: int) -> np.ndarray:
+        """Coerce driver coefficients to the expected ``dt_alpha`` size."""
+        if n_coeff <= 0:
+            return np.zeros(0, dtype=float)
+        if driver_coeffs is None:
+            return np.zeros(n_coeff, dtype=float)
+
+        driver = np.asarray(driver_coeffs, dtype=float).reshape(-1)
+        if driver.size == n_coeff:
+            return driver
+        if float(np.linalg.norm(driver)) == 0.0:
+            return np.zeros(n_coeff, dtype=float)
+        raise RuntimeError(
+            "Constraint RHS assembly mismatch: dt_alpha driver dimension does not match "
+            f"constraint operator columns ({driver.size} != {n_coeff})."
+        )
+
+    def build_hard_rhs(self, driver_coeffs: Optional[np.ndarray]) -> np.ndarray:
+        """Build the hard-constraint RHS in active solve coordinates."""
+        if self.hard_operator is None:
+            return np.zeros(0, dtype=float)
+
+        hard = self._as_2d_matrix(self.hard_operator)
+        if hard.shape[0] == 0:
+            return np.zeros(0, dtype=float)
+
+        driver = self._resolve_driver(driver_coeffs, hard.shape[1])
+        if self.ll_mode == LLConstraintMode.HARD and self.c_ll.shape[0] > 0:
+            rhs_ll = -np.asarray(self.c_ll, dtype=float) @ driver
+            rhs_hl = np.zeros(self.c_hl.shape[0], dtype=float)
+            rhs = np.concatenate([rhs_ll, rhs_hl])
+        else:
+            rhs = np.zeros(hard.shape[0], dtype=float)
+
+        if rhs.shape[0] != hard.shape[0]:
+            raise RuntimeError(
+                "Constraint RHS assembly mismatch: hard RHS row count does not match "
+                "active dt_alpha hard-constraint rows."
+            )
+        return np.asarray(rhs, dtype=float)
+
+    def build_soft_rhs(self, driver_coeffs: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """Build the soft LL penalty RHS in active solve coordinates."""
+        if self.soft_operator is None:
+            return None
+
+        soft = self._as_2d_matrix(self.soft_operator)
+        if soft.shape[0] == 0:
+            return None
+
+        driver = self._resolve_driver(driver_coeffs, soft.shape[1])
+        return np.asarray(-(soft @ driver), dtype=float)
 
 
 def _as_square_linear_map(operator: Any, *, n_total: int) -> LinearMap:
@@ -830,3 +923,56 @@ class StateConstraints:
         if bundle is None or bundle["C_total"].shape[0] == 0:
             raise RuntimeError("Hard induction constraint bundle is missing or empty.")
         return bundle["C_total"]
+
+    def build_dt_alpha_constraint_system(
+        self, *, ll_mode: LLConstraintMode, soft_scaling: float
+    ) -> DtAlphaConstraintSystem:
+        """Build the active LL/HL constraint system for full-induction ``dt_alpha``."""
+        n_coeff = int(self.solution_space.index_length)
+        if self.dynamics_mode != DynamicsMode.FULL_INDUCTION:
+            return DtAlphaConstraintSystem(
+                ll_mode=ll_mode,
+                c_ll=np.zeros((0, n_coeff), dtype=float),
+                c_hl=np.zeros((0, n_coeff), dtype=float),
+                hard_operator=None,
+                soft_operator=None,
+                soft_scaling=0.0,
+            )
+
+        bundle = self.induction_constraint_bundle_hard
+        if bundle is None:
+            return DtAlphaConstraintSystem(
+                ll_mode=ll_mode,
+                c_ll=np.zeros((0, n_coeff), dtype=float),
+                c_hl=np.zeros((0, n_coeff), dtype=float),
+                hard_operator=None,
+                soft_operator=None,
+                soft_scaling=0.0,
+            )
+
+        c_ll = np.asarray(bundle.get("C_ll", np.zeros((0, 0), dtype=float)), dtype=float)
+        c_hl = np.asarray(bundle.get("C_hl", np.zeros((0, 0), dtype=float)), dtype=float)
+        if c_ll.ndim != 2:
+            c_ll = c_ll.reshape(c_ll.shape[0], -1)
+        if c_hl.ndim != 2:
+            c_hl = c_hl.reshape(c_hl.shape[0], -1)
+
+        if ll_mode == LLConstraintMode.HARD:
+            hard_operator = (
+                np.vstack([c_ll, c_hl]) if (c_ll.shape[0] + c_hl.shape[0]) > 0 else None
+            )
+            soft_operator = None
+        else:
+            hard_operator = c_hl if c_hl.shape[0] > 0 else None
+            soft_operator = (
+                c_ll if ll_mode == LLConstraintMode.SOFT and c_ll.shape[0] > 0 else None
+            )
+
+        return DtAlphaConstraintSystem(
+            ll_mode=ll_mode,
+            c_ll=np.asarray(c_ll, dtype=float),
+            c_hl=np.asarray(c_hl, dtype=float),
+            hard_operator=hard_operator,
+            soft_operator=soft_operator,
+            soft_scaling=float(soft_scaling) if soft_operator is not None else 0.0,
+        )

@@ -725,16 +725,16 @@ class CoupledOperators:
             return cached
 
         st = self.state
-        constraint_op = st.dt_alpha_constraint_operator_hard
+        constraint_system = st.dt_alpha_constraint_system
         feedback_reg_lambda = self._toroidal_feedback_regularization_lambda()
         dt_psi_from_rhs = np.asarray(
             st.toroidal_matrices.build_dt_psi_from_toroidal_rhs_matrix(
                 m_imp_to_jr_operator=st.poloidal_matrices.m_imp_to_jr,
-                constraint_operator=constraint_op,
+                constraint_operator=constraint_system.hard_operator,
                 weighting=st.toroidal_weighting,
                 regularization_lambda=feedback_reg_lambda,
-                penalty_operator=None,
-                penalty_scaling=0.0,
+                penalty_operator=constraint_system.soft_operator,
+                penalty_scaling=float(constraint_system.soft_scaling),
                 hinv_rtol=0.0,
                 apply_psi_gauge=apply_psi_gauge,
             ),

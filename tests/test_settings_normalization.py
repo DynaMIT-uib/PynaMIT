@@ -12,6 +12,7 @@ from pynamit.simulation.settings import (
     DynamicsMode,
     DynamicsSettings,
     IntegratorKind,
+    LLConstraintMode,
     MainfieldKind,
     SimulationMode,
     SolutionBasisKind,
@@ -35,6 +36,7 @@ def test_dynamics_settings_default_conductance_mode_is_string() -> None:
     assert settings.integrator == IntegratorKind.EULER
     assert settings.dynamics_mode == DynamicsMode.LEGACY
     assert settings.apply_m_imp_gauge is True
+    assert settings.ll_constraint_mode == LLConstraintMode.AUTO
     assert settings.run_directory is None
     assert settings.artifact_storage == ArtifactStorageKind.AUTO
 
@@ -55,6 +57,7 @@ class PartialSettings:
     integrator: IntegratorKind = IntegratorKind.EULER
     m_imp_regularization_lambda: float = 0.0
     ih_constraint_scaling: float = 1e-5
+    ll_constraint_mode: LLConstraintMode = LLConstraintMode.AUTO
     simulation_mode: SimulationMode = SimulationMode.CS_DOMINANT
     dynamics_mode: DynamicsMode = DynamicsMode.FULL_INDUCTION
     apply_m_imp_gauge: bool = False
@@ -92,6 +95,7 @@ def test_dynamics_accepts_normalized_settings_object(tmp_path) -> None:
         ("mainfield_kind", "IGRFf", "Did you mean 'igrf'?"),
         ("conductance_interpolation_mode", "sigma_lgo", "Did you mean 'sigma_log'?"),
         ("artifact_storage", "zra", "Valid options: \\['auto', 'netcdf', 'zarr'\\]"),
+        ("ll_constraint_mode", "sof", "Did you mean 'soft'?"),
     ],
 )
 def test_dynamics_settings_reject_invalid_string_choices(
@@ -127,6 +131,14 @@ def test_dynamics_settings_roundtrips_induction_null_diagnostics() -> None:
     assert restored.induction_null_diagnostics is True
     assert restored.induction_null_svd_rtol == pytest.approx(1e-6)
     assert restored.induction_null_warn_ratio == pytest.approx(0.25)
+
+
+def test_dynamics_settings_roundtrips_ll_constraint_mode() -> None:
+    settings = DynamicsSettings(ll_constraint_mode="soft")
+
+    restored = DynamicsSettings.from_dataset(settings.to_dataset(), defaults=DynamicsSettings())
+
+    assert restored.ll_constraint_mode == LLConstraintMode.SOFT
 
 
 def test_from_dataset_rejects_invalid_simulation_mode() -> None:

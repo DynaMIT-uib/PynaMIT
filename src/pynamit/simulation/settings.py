@@ -88,6 +88,13 @@ class WeightingMode(StringChoiceEnum):
     QUADRATIC = "quadratic"
 
 
+class LLConstraintMode(StringChoiceEnum):
+    AUTO = "auto"
+    OFF = "off"
+    SOFT = "soft"
+    HARD = "hard"
+
+
 class ConductanceInterpolationMode(StringChoiceEnum):
     LEGACY_ETA_LINEAR = "legacy_eta_linear"
     SIGMA_LINEAR = "sigma_linear"
@@ -313,6 +320,8 @@ class DynamicsSettings:
         Latitude boundary for hemisphere connection.
     ih_constraint_scaling : float
         Scaling for interhemispheric constraint.
+    ll_constraint_mode : str
+        LL compatibility policy: "auto", "off", "soft", or "hard".
     vector_jr : bool
         Use vector representation for radial current.
     vector_Br : bool
@@ -362,6 +371,7 @@ class DynamicsSettings:
     connect_hemispheres: bool = False
     latitude_boundary: float = 50.0
     ih_constraint_scaling: float = 1e-5
+    ll_constraint_mode: LLConstraintMode = LLConstraintMode.AUTO
     apply_psi_gauge: bool = True
     apply_m_ind_gauge: bool = True
     apply_m_imp_gauge: bool = True
@@ -454,6 +464,9 @@ class DynamicsSettings:
         )
         self.poloidal_weighting = _coerce_enum_choice(
             WeightingMode, "poloidal_weighting", self.poloidal_weighting, case="lower"
+        )
+        self.ll_constraint_mode = _coerce_enum_choice(
+            LLConstraintMode, "ll_constraint_mode", self.ll_constraint_mode, case="lower"
         )
         self.least_squares_preconditioner = _normalize_lower_choice(
             "least_squares_preconditioner",
@@ -609,6 +622,7 @@ class DynamicsSettings:
         attrs["poloidal_weighting"] = self.poloidal_weighting
         attrs["conductance_interpolation_mode"] = self.conductance_interpolation_mode
         attrs["conductance_interpolation_floor"] = self.conductance_interpolation_floor
+        attrs["ll_constraint_mode"] = self.ll_constraint_mode
         # Remove backend as it is runtime configuration
         if "backend" in attrs:
             del attrs["backend"]
@@ -661,6 +675,7 @@ class DynamicsSettings:
             connect_hemispheres=bool(get("connect_hemispheres", defaults.connect_hemispheres)),
             latitude_boundary=get("latitude_boundary", defaults.latitude_boundary),
             ih_constraint_scaling=get("ih_constraint_scaling", defaults.ih_constraint_scaling),
+            ll_constraint_mode=get("ll_constraint_mode", defaults.ll_constraint_mode),
             apply_psi_gauge=bool(get("apply_psi_gauge", defaults.apply_psi_gauge)),
             apply_m_ind_gauge=bool(get("apply_m_ind_gauge", defaults.apply_m_ind_gauge)),
             apply_m_imp_gauge=bool(get("apply_m_imp_gauge", defaults.apply_m_imp_gauge)),

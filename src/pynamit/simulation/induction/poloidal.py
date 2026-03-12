@@ -19,6 +19,11 @@ from functools import cached_property
 
 from pynamit.utils import to_numpy, asarray, xp, tensor_pinv
 from pynamit.math.linear_map import as_linear_map, LinearMap
+from pynamit.math.structured_least_squares import (
+    StructuredLeastSquaresDataTerm,
+    StructuredLeastSquaresRegularizationTerm,
+    StructuredLeastSquaresSubproblem,
+)
 from pynamit.math.constants import mu0
 from pynamit.simulation.induction.poloidal_closure import (
     PoloidalClosureProjector,
@@ -44,6 +49,21 @@ def _timed_solve(label: str, solver: Any, *args: Any, **kwargs: Any) -> np.ndarr
         return solver.solve(*args, **kwargs)
     t0 = time.perf_counter()
     out = solver.solve(*args, **kwargs)
+    dt = time.perf_counter() - t0
+    solver_name = getattr(solver, "solver", "unknown")
+    print(f"TIMING solve[{label}] ({solver_name}): {dt:.3f}s", flush=True)
+    return out
+
+
+def _timed_structured_solve(
+    label: str, solve_system: Any, solver: Any, *args: Any, **kwargs: Any
+) -> np.ndarray:
+    """Optionally time structured subproblem solves when PYNAMIT_TIMING_SOLVES is set."""
+    kwargs.setdefault("warning_label", label)
+    if os.getenv("PYNAMIT_TIMING_SOLVES", "").strip() in ("", "0"):
+        return solve_system.solve(solver, *args, **kwargs)
+    t0 = time.perf_counter()
+    out = solve_system.solve(solver, *args, **kwargs)
     dt = time.perf_counter() - t0
     solver_name = getattr(solver, "solver", "unknown")
     print(f"TIMING solve[{label}] ({solver_name}): {dt:.3f}s", flush=True)
@@ -120,7 +140,9 @@ class PoloidalSystemMatrices:
         """Helper exposing solve/orchestration routines built on poloidal operators."""
         from pynamit.simulation.induction.poloidal_solver import PoloidalSolver
 
-        return PoloidalSolver(self, timed_solve=_timed_solve)
+        return PoloidalSolver(
+            self, timed_solve=_timed_solve, timed_structured_solve=_timed_structured_solve
+        )
 
     # -------------------------------------------------------------------------
     # Core Operators (Laplacian-based)
@@ -411,7 +433,7 @@ class PoloidalSystemMatrices:
     # Least-Squares Problem Construction
     # -------------------------------------------------------------------------
 
-    def build_least_squares_problem(
+    def build_least_squares_subproblem(
         self,
         constraint_scalar_operator: np.ndarray,
         E_constraint_operator: Optional[LinearMap] = None,
@@ -420,8 +442,8 @@ class PoloidalSystemMatrices:
         regularization_lambda: float = 0.0,
         m_imp_selector: np.ndarray = None,
         weighting: str = "none",
-    ) -> "LeastSquaresProblem":
-        """Build the least-squares problem for m_imp.
+    ) -> StructuredLeastSquaresSubproblem:
+        """Build the structured least-squares subproblem for ``m_imp``.
 
         The problem structure is:
             minimize || A @ m_imp - b ||^2
@@ -449,15 +471,12 @@ class PoloidalSystemMatrices:
 
         Returns
         -------
-        LeastSquaresProblem
-            The assembled least-squares problem.
+        StructuredLeastSquaresSubproblem
+            The assembled structured subproblem.
         """
-        from pynamit.math.least_squares_problem import LeastSquaresProblem
         from pynamit.math.linear_map import diagonal_linear_map
 
-        operators = []
-        data_shapes = []
-        sqrt_weights = []
+        data_terms: list[StructuredLeastSquaresDataTerm] = []
         n_full = int(self.solution_space.index_length)
         selector = np.asarray(m_imp_selector, dtype=float)
         if selector.ndim != 2 or selector.shape[0] != n_full:
@@ -473,9 +492,6 @@ class PoloidalSystemMatrices:
         op_m_to_jr = as_linear_map(self.m_imp_to_jr)
         op_jr = (op_apex @ op_m_to_jr) @ selector_map
 
-        operators.append(op_jr)
-        data_shapes.append((op_jr.shape[0],))
-
         # Calculate weights for the jr constraint (Br-based weighting to handle equatorial singularity)
         jr_weight = None
         if weighting != "none":
@@ -487,32 +503,58 @@ class PoloidalSystemMatrices:
             # Normalize to avoid scaling rows too far from other constraint magnitudes
             if jr_weight is not None and np.max(jr_weight) > 0:
                 jr_weight = jr_weight / np.max(jr_weight)
-        sqrt_weights.append(jr_weight)
+        data_terms.append(
+            StructuredLeastSquaresDataTerm(
+                operator=op_jr, data_shape=(op_jr.shape[0],), sqrt_weight=jr_weight
+            )
+        )
 
         # 2. E-field mapping constraint (interhemispheric)
         if connect_hemispheres and E_constraint_operator is not None:
             op_E = as_linear_map(E_constraint_operator) * ih_constraint_scaling
             op_E = op_E @ selector_map
-            operators.append(op_E)
-            data_shapes.append((op_E.shape[0],))
-            sqrt_weights.append(None)  # No weighting for E-field constraint
+            data_terms.append(
+                StructuredLeastSquaresDataTerm(
+                    operator=op_E, data_shape=(op_E.shape[0],), sqrt_weight=None
+                )
+            )
 
         # 3. Tikhonov regularization
-        reg_ops = []
-        reg_weights = []
+        regularization_terms: list[StructuredLeastSquaresRegularizationTerm] = []
         if regularization_lambda > 0:
             identity_op = diagonal_linear_map(xp.ones(solution_size))
-            reg_ops.append(identity_op)
-            reg_weights.append(regularization_lambda)
+            regularization_terms.append(
+                StructuredLeastSquaresRegularizationTerm(
+                    operator=identity_op, weight=float(regularization_lambda)
+                )
+            )
 
-        return LeastSquaresProblem(
-            A=operators,
+        return StructuredLeastSquaresSubproblem(
             solution_shape=solution_size,
-            data_shapes=data_shapes,
-            sqrt_weights=sqrt_weights,
-            regularization_matrices=reg_ops,
-            regularization_weights=reg_weights,
+            data_terms=tuple(data_terms),
+            regularization_terms=tuple(regularization_terms),
         )
+
+    def build_least_squares_problem(
+        self,
+        constraint_scalar_operator: np.ndarray,
+        E_constraint_operator: Optional[LinearMap] = None,
+        connect_hemispheres: bool = True,
+        ih_constraint_scaling: float = 1.0,
+        regularization_lambda: float = 0.0,
+        m_imp_selector: np.ndarray = None,
+        weighting: str = "none",
+    ) -> "LeastSquaresProblem":
+        """Compatibility wrapper returning the materialized LS problem."""
+        return self.build_least_squares_subproblem(
+            constraint_scalar_operator=constraint_scalar_operator,
+            E_constraint_operator=E_constraint_operator,
+            connect_hemispheres=connect_hemispheres,
+            ih_constraint_scaling=ih_constraint_scaling,
+            regularization_lambda=regularization_lambda,
+            m_imp_selector=m_imp_selector,
+            weighting=weighting,
+        ).problem
 
     def compute_rhs_from_jr(
         self, jr_coeffs: np.ndarray, constraint_scalar_operator: np.ndarray

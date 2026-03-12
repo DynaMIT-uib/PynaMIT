@@ -14,6 +14,10 @@ from typing import Any, Callable, Optional, TYPE_CHECKING
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
+from pynamit.math.structured_least_squares import (
+    ConstrainedStructuredLeastSquaresSubproblem,
+    StructuredLeastSquaresSubproblem,
+)
 from pynamit.simulation.induction.operator_utils import (
     build_linear_map,
     coerce_dense_operator_matrix,
@@ -32,22 +36,32 @@ logger = logging.getLogger(__name__)
 class MImpFeedbackSystem:
     """Bundle the reduced ``m_imp`` solve definition with selector-based mappings."""
 
-    problem: "LeastSquaresProblem"
+    solve_system: ConstrainedStructuredLeastSquaresSubproblem
     selector: Optional[np.ndarray] = None
     preconditioner: Optional[Any] = None
+
+    @property
+    def subproblem(self) -> StructuredLeastSquaresSubproblem:
+        """Compatibility view of the unconstrained structured subproblem."""
+        return self.solve_system.subproblem
+
+    @property
+    def problem(self) -> "LeastSquaresProblem":
+        """Compatibility view of the underlying least-squares problem."""
+        return self.solve_system.problem
 
     @property
     def full_size(self) -> int:
         """Return the full ``m_imp`` coefficient dimension."""
         if self.selector is None:
-            return int(self.problem.solution_size)
+            return int(self.solve_system.solution_size)
         return int(np.asarray(self.selector, dtype=float).shape[0])
 
     @property
     def reduced_size(self) -> int:
         """Return the reduced ``m_imp`` coefficient dimension."""
         if self.selector is None:
-            return int(self.problem.solution_size)
+            return int(self.solve_system.solution_size)
         return int(np.asarray(self.selector, dtype=float).shape[1])
 
     def reduce_solution(self, m_imp_solution: np.ndarray) -> np.ndarray:
@@ -151,9 +165,15 @@ class MImpFeedbackSystem:
 class PoloidalSolver:
     """Expose solve/orchestration routines built on top of poloidal operators."""
 
-    def __init__(self, matrices: "PoloidalSystemMatrices", timed_solve: TimedSolveFn) -> None:
+    def __init__(
+        self,
+        matrices: "PoloidalSystemMatrices",
+        timed_solve: TimedSolveFn,
+        timed_structured_solve: TimedSolveFn,
+    ) -> None:
         self._mats = matrices
         self._timed_solve = timed_solve
+        self._timed_structured_solve = timed_structured_solve
 
     def build_induction_matrix(
         self,
@@ -175,20 +195,35 @@ class PoloidalSolver:
             m_ind_to_E_operator, n_component_rows=2, n_cols=n
         ).reshape(2, n, n)
 
-        rhs_entries = self._mats._build_m_imp_rhs_entries(
-            feedback_system.problem,
-            E_direct_coeffs=E_direct_dense,
-            E_constraint_operator=E_map_constraint_operator,
-            ih_constraint_scaling=ih_constraint_scaling,
-            connect_hemispheres=connect_hemispheres,
-        )
-        m_imp_block = self._mats._solve_m_imp_feedback_block(
-            problem=feedback_system.problem,
-            solver=solver,
-            rhs_entries=rhs_entries,
-            num_expected_scenarios=n,
-        )
-        m_imp_block = feedback_system.expand_solution(m_imp_block)
+        if feedback_system.solve_system.equality_operator is not None:
+            m_imp_cols = []
+            for scenario_index in range(n):
+                m_imp_col, _ = self.solve_for_m_imp(
+                    E_direct_coeffs=E_direct_dense[:, :, scenario_index],
+                    feedback_system=feedback_system,
+                    solver=solver,
+                    E_map_constraint_operator=E_map_constraint_operator,
+                    ih_constraint_scaling=ih_constraint_scaling,
+                    connect_hemispheres=connect_hemispheres,
+                    m_imp_to_E_operator=m_imp_to_E_operator,
+                )
+                m_imp_cols.append(np.asarray(m_imp_col).reshape(-1))
+            m_imp_block = asarray(np.column_stack(m_imp_cols))
+        else:
+            rhs_entries = self._mats._build_m_imp_rhs_entries(
+                feedback_system.problem,
+                E_direct_coeffs=E_direct_dense,
+                E_constraint_operator=E_map_constraint_operator,
+                ih_constraint_scaling=ih_constraint_scaling,
+                connect_hemispheres=connect_hemispheres,
+            )
+            m_imp_block = self._mats._solve_m_imp_feedback_block(
+                problem=feedback_system.problem,
+                solver=solver,
+                rhs_entries=rhs_entries,
+                num_expected_scenarios=n,
+            )
+            m_imp_block = feedback_system.expand_solution(m_imp_block)
 
         m_imp_to_E = as_linear_map(m_imp_to_E_operator)
         E_imp_flat = m_imp_to_E.matmat(asarray(m_imp_block))
@@ -260,6 +295,7 @@ class PoloidalSolver:
         m_imp_to_E_operator: Any = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Solve for `m_imp` given direct E coefficients and return `(m_imp, E_imp)`."""
+        ll_equality_rhs = None
         rhs_entries = self._mats._build_m_imp_rhs_entries(
             feedback_system.problem,
             E_direct_coeffs=E_direct_coeffs,
@@ -267,12 +303,24 @@ class PoloidalSolver:
             ih_constraint_scaling=ih_constraint_scaling,
             connect_hemispheres=connect_hemispheres,
         )
-        solution = self._timed_solve(
+        if (
+            connect_hemispheres
+            and E_map_constraint_operator is not None
+            and feedback_system.solve_system.equality_operator is not None
+        ):
+            b_E = self._mats._apply_E_constraint_operator(
+                E_map_constraint_operator, E_direct_coeffs
+            )
+            ll_equality_rhs = self._mats._reshape_constraint_rhs_block(b_E)
+        if ll_equality_rhs is not None and all(entry is None for entry in rhs_entries):
+            rhs_entries[0] = xp.zeros(int(feedback_system.problem.A[0].num_rows), dtype=float)
+        solution = self._timed_structured_solve(
             "poloidal.m_imp",
+            feedback_system.solve_system,
             solver,
-            problem=feedback_system.problem,
-            rhs=rhs_entries,
+            rhs_entries,
             preconditioner=feedback_system.preconditioner,
+            equality_rhs_input=ll_equality_rhs,
         )
         if solution is None:
             m_imp_solution = xp.zeros(feedback_system.problem.solution_size)

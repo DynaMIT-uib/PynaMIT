@@ -149,23 +149,18 @@ class StateDiagnostics:
         e_shape = (2, n)
         zero_e = np.zeros(e_shape, dtype=float)
 
-        bundle = st.constraints.induction_constraint_bundle_hard
-        if bundle is None:
-            c_ll = np.zeros((0, n), dtype=float)
-            c_hl = np.zeros((0, n), dtype=float)
-            c_total = np.zeros((0, n), dtype=float)
-        else:
-            c_ll = np.asarray(bundle.get("C_ll", np.zeros((0, n), dtype=float)), dtype=float)
-            c_hl = np.asarray(bundle.get("C_hl", np.zeros((0, n), dtype=float)), dtype=float)
-            c_total = np.asarray(bundle.get("C_total", np.zeros((0, n), dtype=float)), dtype=float)
+        constraint_system = st.dt_alpha_constraint_system
+        c_ll = np.asarray(constraint_system.c_ll, dtype=float)
+        c_hl = np.asarray(constraint_system.c_hl, dtype=float)
+        c_total = np.asarray(constraint_system.c_total, dtype=float)
 
         dtalpha_from_rhs = np.asarray(
             st.toroidal_matrices.build_dtalpha_from_toroidal_rhs_matrix(
                 constraint_operator=None,
                 weighting=st.toroidal_weighting,
                 regularization_lambda=st.toroidal_regularization_lambda,
-                penalty_operator=None,
-                penalty_scaling=0.0,
+                penalty_operator=constraint_system.soft_operator,
+                penalty_scaling=float(constraint_system.soft_scaling),
                 hinv_rtol=0.0,
             ),
             dtype=float,
