@@ -1,10 +1,11 @@
 """Constraint and Gauge mapping module for the simulation state.
 
-This module isolates the extraction of LL mismatch constraints, 
+This module isolates the extraction of LL mismatch constraints,
 row compression, metric construction, and gauge projection rules.
 """
 
 from __future__ import annotations
+from dataclasses import dataclass
 import logging
 from typing import Any, Tuple, Optional, Dict
 from functools import cached_property
@@ -19,6 +20,125 @@ from pynamit.utils import asarray
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(frozen=True)
+class ReducedScalarSystem:
+    """Gauge-reduced scalar system shared by legacy steady-state and time stepping."""
+
+    selector: np.ndarray
+    full_operator: Optional[LinearMap] = None
+    reduced_operator: Optional[LinearMap] = None
+
+    @property
+    def n_total(self) -> int:
+        return int(self.selector.shape[0])
+
+    @property
+    def n_reduced(self) -> int:
+        return int(self.selector.shape[1])
+
+    def reduce_vector(self, vector: Any) -> np.ndarray:
+        arr = np.asarray(vector, dtype=float).reshape(self.n_total)
+        return np.asarray(self.selector.T @ arr, dtype=float).reshape(self.n_reduced)
+
+    def expand_vector(self, reduced_vector: Any) -> np.ndarray:
+        arr = np.asarray(reduced_vector, dtype=float).reshape(self.n_reduced)
+        return np.asarray(self.selector @ arr, dtype=float).reshape(self.n_total)
+
+    def project_vector(self, vector: Any) -> np.ndarray:
+        return self.expand_vector(self.reduce_vector(vector))
+
+
+def _as_square_linear_map(operator: Any, *, n_total: int) -> LinearMap:
+    """Return a square operator as ``LinearMap`` with a 2-D dense fallback."""
+    operator_obj = operator
+    if not hasattr(operator_obj, "matvec"):
+        operator_arr = asarray(operator_obj)
+        if operator_arr.ndim != 2:
+            operator_obj = operator_arr.reshape(n_total, n_total)
+        else:
+            operator_obj = operator_arr
+
+    operator_map = as_linear_map(operator_obj)
+    if operator_map._to_dense is None:
+        return operator_map
+
+    dense_base_op = operator_map
+
+    def _to_dense_2d() -> np.ndarray:
+        dense = np.asarray(dense_base_op.to_dense(), dtype=float)
+        if dense.ndim != 2:
+            dense = dense.reshape(n_total, n_total)
+        return dense
+
+    return LinearMap(
+        shape=(n_total, n_total),
+        dtype=dense_base_op.dtype,
+        _matvec=dense_base_op.matvec,
+        _rmatvec=dense_base_op.rmatvec,
+        _matmat=dense_base_op.matmat,
+        _rmatmat=dense_base_op.rmatmat,
+        _to_dense=_to_dense_2d,
+        source=dense_base_op,
+    )
+
+
+def _build_projected_square_linear_map(operator_map: LinearMap, selector: np.ndarray) -> LinearMap:
+    """Return reduced square operator ``S^T L S`` as ``LinearMap``."""
+    selector_arr = np.asarray(selector, dtype=float)
+    n_total, n_reduced = selector_arr.shape
+    if n_reduced == n_total:
+        return operator_map
+
+    def matvec(x: np.ndarray) -> np.ndarray:
+        x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
+        return np.asarray(
+            selector_arr.T @ np.asarray(operator_map.matvec(selector_arr @ x_arr), dtype=float),
+            dtype=float,
+        ).reshape(n_reduced)
+
+    def rmatvec(x: np.ndarray) -> np.ndarray:
+        x_arr = np.asarray(x, dtype=float).reshape(n_reduced)
+        return np.asarray(
+            selector_arr.T @ np.asarray(operator_map.rmatvec(selector_arr @ x_arr), dtype=float),
+            dtype=float,
+        ).reshape(n_reduced)
+
+    def matmat(x: np.ndarray) -> np.ndarray:
+        x_arr = np.asarray(x, dtype=float).reshape(n_reduced, -1)
+        return np.asarray(
+            selector_arr.T @ np.asarray(operator_map.matmat(selector_arr @ x_arr), dtype=float),
+            dtype=float,
+        ).reshape(n_reduced, -1)
+
+    def rmatmat(x: np.ndarray) -> np.ndarray:
+        x_arr = np.asarray(x, dtype=float).reshape(n_reduced, -1)
+        return np.asarray(
+            selector_arr.T @ np.asarray(operator_map.rmatmat(selector_arr @ x_arr), dtype=float),
+            dtype=float,
+        ).reshape(n_reduced, -1)
+
+    reduced_to_dense = None
+    if operator_map._to_dense is not None:
+
+        def reduced_to_dense() -> np.ndarray:
+            dense = np.asarray(operator_map.to_dense(), dtype=float)
+            if dense.ndim != 2:
+                dense = dense.reshape(n_total, n_total)
+            return np.asarray(selector_arr.T @ dense @ selector_arr, dtype=float)
+
+    return LinearMap(
+        shape=(n_reduced, n_reduced),
+        dtype=operator_map.dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _to_dense=reduced_to_dense,
+        source=(operator_map, selector_arr),
+    )
+
+
 class StateConstraints:
     """Manages constraint subspaces, gauge projections, and metrics for the simulation state."""
 
@@ -31,6 +151,7 @@ class StateConstraints:
         magnetospheric_toroidal_lock: bool,
         apply_psi_gauge: bool,
         apply_m_ind_gauge: bool,
+        apply_m_imp_gauge: bool,
     ):
         self.geometry = geometry
         self.solution_space = solution_space
@@ -39,13 +160,12 @@ class StateConstraints:
         self.magnetospheric_toroidal_lock = magnetospheric_toroidal_lock
         self.apply_psi_gauge = apply_psi_gauge
         self.apply_m_ind_gauge = apply_m_ind_gauge
+        self.apply_m_imp_gauge = apply_m_imp_gauge
 
     def _extract_ll_constraint_rows(self) -> Any:
         """Extract low-latitude (LL) rows from the constraint-scalar operator."""
         op = self.geometry.get_constraint_scalar_operator(self.solution_space)
-        if not (
-            self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres
-        ):
+        if not (self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres):
             return op
 
         ll_mask = getattr(self.geometry, "ll_mask", None)
@@ -58,13 +178,10 @@ class StateConstraints:
         op_lm = as_linear_map(op)
         if row_mask.size != op_lm.shape[0]:
             raise RuntimeError(
-                "LL mask size mismatch: "
-                f"mask={int(row_mask.size)} rows={int(op_lm.shape[0])}."
+                f"LL mask size mismatch: mask={int(row_mask.size)} rows={int(op_lm.shape[0])}."
             )
         if not np.any(row_mask):
-            raise RuntimeError(
-                "LL mask contains no active rows for full_induction constraints."
-            )
+            raise RuntimeError("LL mask contains no active rows for full_induction constraints.")
 
         if hasattr(op, "tocsr"):
             return op.tocsr()[row_mask]
@@ -86,10 +203,7 @@ class StateConstraints:
         return np.ascontiguousarray(u[:, keep])
 
     def _m_orthonormalize_columns(
-        self,
-        A: np.ndarray,
-        metric: np.ndarray,
-        rtol: float,
+        self, A: np.ndarray, metric: np.ndarray, rtol: float
     ) -> np.ndarray:
         """Return an ``M``-orthonormal basis spanning ``col(A)``."""
         A = np.asarray(A, dtype=float)
@@ -156,8 +270,7 @@ class StateConstraints:
             try:
                 row = np.asarray(
                     self.solution_space.get_scalar_gauge_constraint_matrix(
-                        n_coeff=n_coeff,
-                        mode="mean_zero",
+                        n_coeff=n_coeff, mode="mean_zero"
                     )
                 )
                 if row.ndim == 1:
@@ -177,6 +290,75 @@ class StateConstraints:
     def get_m_imp_gauge_row(self, n_coeff: int) -> np.ndarray:
         """Return scalar gauge row for m_imp coefficients."""
         return self.get_psi_gauge_row(n_coeff)
+
+    def _build_scalar_selector(
+        self, *, n_coeff: int, apply_gauge: bool, gauge_row: np.ndarray
+    ) -> np.ndarray:
+        """Return an orthonormal selector spanning the scalar gauge subspace."""
+        n = int(n_coeff)
+        if not apply_gauge or n <= 0:
+            return np.eye(n, dtype=float)
+
+        row = np.asarray(gauge_row, dtype=float)
+        if row.ndim == 1:
+            row = row.reshape(1, -1)
+        if row.ndim != 2 or row.shape[1] != n or row.shape[0] == 0:
+            return np.eye(n, dtype=float)
+
+        pin_row = np.zeros((1, n), dtype=float)
+        pin_row[0, 0] = 1.0
+        if row.shape == (1, n) and float(np.linalg.norm(row - pin_row)) <= 1e-12:
+            selector = np.zeros((n, max(n - 1, 0)), dtype=float)
+            if n > 1:
+                selector[1:, np.arange(n - 1)] = 1.0
+            return selector
+
+        _, s_row, vh_row = np.linalg.svd(row, full_matrices=True)
+        if s_row.size == 0:
+            return np.eye(n, dtype=float)
+        rtol = float(np.finfo(float).eps * max(row.shape))
+        cutoff = rtol * float(s_row[0])
+        rank = int(np.sum(s_row > cutoff))
+        return np.asarray(vh_row[rank:].T, dtype=float)
+
+    def _get_reduced_scalar_system(
+        self, *, apply_gauge: bool, gauge_row: np.ndarray, linear_operator: Any | None = None
+    ) -> ReducedScalarSystem:
+        """Return a gauge-reduced scalar system for the configured solution space."""
+        n = int(self.solution_space.index_length)
+        selector = self._build_scalar_selector(
+            n_coeff=n, apply_gauge=bool(apply_gauge), gauge_row=gauge_row
+        )
+        if linear_operator is None:
+            return ReducedScalarSystem(selector=np.asarray(selector, dtype=float))
+
+        operator_map = _as_square_linear_map(linear_operator, n_total=n)
+        reduced_operator = _build_projected_square_linear_map(operator_map, selector)
+        return ReducedScalarSystem(
+            selector=np.asarray(selector, dtype=float),
+            full_operator=operator_map,
+            reduced_operator=reduced_operator,
+        )
+
+    def get_m_ind_reduced_system(
+        self, *, linear_operator: Any | None = None
+    ) -> ReducedScalarSystem:
+        """Return the gauge-reduced scalar system used by legacy ``m_ind`` evolution."""
+        return self._get_reduced_scalar_system(
+            apply_gauge=bool(self.apply_m_ind_gauge),
+            gauge_row=self.get_m_ind_gauge_row(int(self.solution_space.index_length)),
+            linear_operator=linear_operator,
+        )
+
+    def get_m_imp_reduced_system(
+        self, *, linear_operator: Any | None = None
+    ) -> ReducedScalarSystem:
+        """Return the gauge-reduced scalar system used by imposed ``m_imp`` solves."""
+        return self._get_reduced_scalar_system(
+            apply_gauge=bool(self.apply_m_imp_gauge),
+            gauge_row=self.get_m_imp_gauge_row(int(self.solution_space.index_length)),
+            linear_operator=linear_operator,
+        )
 
     @cached_property
     def m_ind_gauge_projector(self) -> np.ndarray:
@@ -204,7 +386,7 @@ class StateConstraints:
     def m_imp_gauge_projector(self) -> np.ndarray:
         """Dense scalar gauge projector for imposed toroidal scalar m_imp."""
         n = self.solution_space.index_length
-        if not is_cs_like_basis(self.solution_space):
+        if not self.apply_m_imp_gauge or not is_cs_like_basis(self.solution_space):
             return np.eye(n, dtype=float)
 
         row = np.asarray(self.get_m_imp_gauge_row(n), dtype=float)
@@ -253,10 +435,7 @@ class StateConstraints:
         if s.size == 0 or s[0] <= 0:
             return np.zeros((0, C.shape[1]), dtype=float)
         if rtol <= 0:
-            rtol = self._resolve_constraint_rank_rtol(
-                spectrum=s,
-                label="LL row compression",
-            )
+            rtol = self._resolve_constraint_rank_rtol(spectrum=s, label="LL row compression")
         thresh = max(float(rtol), 0.0) * float(s[0])
         keep = s > thresh
         if not np.any(keep):
@@ -310,10 +489,7 @@ class StateConstraints:
         return auto
 
     def _build_energy_metric_pair(
-        self,
-        ll_mask: np.ndarray,
-        weights: np.ndarray,
-        n_coeffs: int,
+        self, ll_mask: np.ndarray, weights: np.ndarray, n_coeffs: int
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Build global and HL magnetic-energy metrics in coefficient space."""
         try:
@@ -364,10 +540,7 @@ class StateConstraints:
         return M, M_hl
 
     def _build_apex_metric_pair(
-        self,
-        ll_mask: np.ndarray,
-        weights: np.ndarray,
-        n_coeffs: int,
+        self, ll_mask: np.ndarray, weights: np.ndarray, n_coeffs: int
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Build global and HL Gram metrics in apex sample space."""
         apex_op = self.geometry.get_constraint_scalar_reference_operator(self.solution_space)
@@ -375,8 +548,7 @@ class StateConstraints:
         A_apex = np.asarray(to_dense(as_linear_map(apex_op)), dtype=float)
         if A_apex.ndim != 2:
             logger.warning(
-                "Apex-metric split skipped: unexpected apex map shape %s.",
-                tuple(A_apex.shape),
+                "Apex-metric split skipped: unexpected apex map shape %s.", tuple(A_apex.shape)
             )
             return None, None
         if A_apex.shape[0] != ll_mask.size or A_apex.shape[1] != n_coeffs:
@@ -401,7 +573,9 @@ class StateConstraints:
         B_hl = 0.5 * (B_hl + B_hl.T)
         return B, B_hl
 
-    def _build_hl_ll_subspaces(self, n_coeffs: int, ll_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _build_hl_ll_subspaces(
+        self, n_coeffs: int, ll_mask: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Build compact HL/LL dominant subspaces in coefficient space."""
         ll_mask = np.asarray(ll_mask, dtype=bool).reshape(-1)
         hl_mask = ~ll_mask
@@ -425,10 +599,7 @@ class StateConstraints:
         U, svals, _ = np.linalg.svd(M, full_matrices=False)
         if svals.size == 0 or svals[0] <= 0:
             return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-        rtol = self._resolve_constraint_rank_rtol(
-            spectrum=svals,
-            label="HL/LL split",
-        )
+        rtol = self._resolve_constraint_rank_rtol(spectrum=svals, label="HL/LL split")
         keep_s = svals > (rtol * float(svals[0]))
         if not np.any(keep_s):
             return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
@@ -447,9 +618,7 @@ class StateConstraints:
         if n_modes < 3:
             hl_idx_raw = np.array([0], dtype=int) if n_modes > 0 else np.zeros(0, dtype=int)
             ll_idx_raw = (
-                np.array([n_modes - 1], dtype=int)
-                if n_modes > 1
-                else np.zeros(0, dtype=int)
+                np.array([n_modes - 1], dtype=int) if n_modes > 1 else np.zeros(0, dtype=int)
             )
             shannon_hl = int(np.rint(float(np.sum(lambda_desc)))) if n_modes > 0 else 0
             K = int(np.clip(shannon_hl, 0, max(n_modes - 1, 0)))
@@ -540,9 +709,7 @@ class StateConstraints:
     @cached_property
     def induction_constraint_bundle_hard(self) -> Optional[Dict[str, np.ndarray]]:
         """Build compact hard-constraint blocks for LL symmetry and optional HL lock."""
-        if not (
-            self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres
-        ):
+        if not (self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres):
             return None
 
         ll_op = self._extract_ll_constraint_rows()
@@ -577,20 +744,14 @@ class StateConstraints:
         else:
             weights = weights / wsum
         M_total, _ = self._build_apex_metric_pair(
-            ll_mask=ll_mask_np,
-            weights=weights,
-            n_coeffs=C_ll_raw.shape[1],
+            ll_mask=ll_mask_np, weights=weights, n_coeffs=C_ll_raw.shape[1]
         )
         if M_total is None or M_total.shape != (C_ll_raw.shape[1], C_ll_raw.shape[1]):
-            raise RuntimeError(
-                "Failed to build apex metric for hard induction constraints."
-            )
+            raise RuntimeError("Failed to build apex metric for hard induction constraints.")
 
         ll_anchor_rtol = max(float(np.finfo(float).eps * max(M_total.shape)), 0.0)
         Q_ll_anchor = self._m_orthonormalize_columns(
-            C_ll_raw.T,
-            metric=M_total,
-            rtol=ll_anchor_rtol,
+            C_ll_raw.T, metric=M_total, rtol=ll_anchor_rtol
         )
         if Q_ll_anchor.shape[1] == 0:
             raise RuntimeError(
@@ -598,7 +759,9 @@ class StateConstraints:
                 "metric-orthonormal LL mismatch row-space basis."
             )
 
-        gram_ll = 0.5 * ((Q_ll_anchor.T @ M_total @ Q_ll_anchor) + (Q_ll_anchor.T @ M_total @ Q_ll_anchor).T)
+        gram_ll = 0.5 * (
+            (Q_ll_anchor.T @ M_total @ Q_ll_anchor) + (Q_ll_anchor.T @ M_total @ Q_ll_anchor).T
+        )
         rcond_ll = float(np.finfo(float).eps * max(gram_ll.shape))
         gram_ll_pinv = np.linalg.pinv(gram_ll, rcond=rcond_ll)
         P_ll = Q_ll_anchor @ (gram_ll_pinv @ (Q_ll_anchor.T @ M_total))
@@ -616,9 +779,7 @@ class StateConstraints:
         q_hl_raw = np.asarray(Q_hl, dtype=float)
         if q_hl_raw.ndim == 2 and q_hl_raw.shape[1] > 0:
             Q_hl = self._m_orthonormalize_columns(
-                q_hl_raw - (P_ll @ q_hl_raw),
-                metric=M_total,
-                rtol=ll_anchor_rtol,
+                q_hl_raw - (P_ll @ q_hl_raw), metric=M_total, rtol=ll_anchor_rtol
             )
         else:
             Q_hl = np.zeros((C_ll_raw.shape[1], 0), dtype=float)
@@ -639,6 +800,24 @@ class StateConstraints:
             "Q_metric": np.asarray(M_total, dtype=float),
         }
 
+    def get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
+        """Return the dense full-space HL projector from the hard-constraint bundle."""
+        bundle = self.induction_constraint_bundle_hard
+        if bundle is None:
+            return np.eye(n_coeffs, dtype=float)
+
+        q_hl = np.asarray(bundle.get("Q_hl", np.zeros((n_coeffs, 0), dtype=float)))
+        m_metric = np.asarray(bundle.get("Q_metric", np.eye(n_coeffs, dtype=float)))
+        if (
+            q_hl.ndim == 2
+            and q_hl.shape[0] == n_coeffs
+            and q_hl.shape[1] > 0
+            and m_metric.ndim == 2
+            and m_metric.shape == (n_coeffs, n_coeffs)
+        ):
+            return np.asarray(q_hl @ (q_hl.T @ m_metric), dtype=float)
+        return np.eye(n_coeffs, dtype=float)
+
     @cached_property
     def induction_constraint_operator_hard(self) -> Any:
         """Hard constraint operator for LL symmetry and optional HL lock."""
@@ -649,7 +828,5 @@ class StateConstraints:
 
         bundle = self.induction_constraint_bundle_hard
         if bundle is None or bundle["C_total"].shape[0] == 0:
-            raise RuntimeError(
-                "Hard induction constraint bundle is missing or empty."
-            )
+            raise RuntimeError("Hard induction constraint bundle is missing or empty.")
         return bundle["C_total"]

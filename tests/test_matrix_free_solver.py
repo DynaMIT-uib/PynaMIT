@@ -5,10 +5,11 @@ import numpy as np
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.settings import DynamicsMode, MainfieldKind, SimulationMode
 
+
 @pytest.mark.parametrize("solver", ["lsmr", "cgls"])
 def test_full_induction_iterative_solvers(solver):
     """Verify that full induction runs successfully with iterative solvers.
-    
+
     This ensures the matrix-free path (State.steady_state_coupled with LinearMap)
     is correctly exercised and converges, unlike test_dynamic_solver which forces SVD.
     """
@@ -30,23 +31,23 @@ def test_full_induction_iterative_solvers(solver):
         # Ensure we don't carry over persistent state issues
         steady_state_initialization=True,
     )
-    
+
     # Check that output exists and is finite
     state_ds = sim.io.load_dataset("state")
     assert state_ds is not None
-    
+
     m_ind = state_ds["SH_m_ind"].values[-1]
     psi = state_ds["SH_psi"].values[-1]
-    
+
     assert np.all(np.isfinite(m_ind))
     assert np.all(np.isfinite(psi))
-    
+
     # Check norm is reasonable (not zero, not explosive)
     nm_mind = np.linalg.norm(m_ind)
     nm_psi = np.linalg.norm(psi)
-    
+
     print(f"Solver {solver}: |m_ind|={nm_mind:.4e}, |psi|={nm_psi:.4e}")
-    
+
     # Basic sanity bounds (based on typical IGRF responses)
     assert nm_mind > 1e-15
     assert nm_mind < 1e-3
@@ -108,7 +109,6 @@ def test_full_induction_coupled_column_scale_cache(tmp_path):
         solution_shape=(2, n),
         solver="lsmr",
         preconditioner=None,
-        use_pinning=st.apply_psi_gauge,
     )
     cache_after = getattr(st, "_coupled_steady_state_column_scale_cache")
     assert cache_key in cache_after

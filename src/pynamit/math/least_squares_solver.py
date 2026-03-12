@@ -67,8 +67,6 @@ class LeastSquaresSolver:
         rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else xp.float64
-            # return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
-            # Fix: shape concatenation
             return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
         rhs_block = asarray(rhs_block)
@@ -110,16 +108,6 @@ class LeastSquaresSolver:
             dtype = problem.A[0].dtype if problem.A else xp.float64
             return xp.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
-        if preconditioner is not None:
-            warnings.warn(
-                self._format_warning_message(
-                    warning_label,
-                    "Preconditioner is ignored for equality-constrained solve; "
-                    "preconditioning is not yet mapped through the null-space reduction.",
-                ),
-                RuntimeWarning,
-            )
-
         G = np.asarray(problem.dense_system_matrix)
         b = np.asarray(rhs_block).reshape(G.shape[0], num_scenarios)
         n = int(problem.solution_size)
@@ -128,18 +116,22 @@ class LeastSquaresSolver:
         if C.ndim == 1:
             C = C.reshape(1, -1)
         if C.ndim != 2 or C.shape[1] != n:
-            raise ValueError(
-                f"equality_operator must be 2D with {n} columns, got {C.shape}"
-            )
+            raise ValueError(f"equality_operator must be 2D with {n} columns, got {C.shape}")
 
         if C.shape[0] == 0:
             # No constraints: fall back to standard solve path.
             return self.solve(
-                problem,
-                rhs,
-                preconditioner=preconditioner,
-                warning_label=warning_label,
-                **kwargs,
+                problem, rhs, preconditioner=preconditioner, warning_label=warning_label, **kwargs
+            )
+
+        if preconditioner is not None:
+            warnings.warn(
+                self._format_warning_message(
+                    warning_label,
+                    "Preconditioner is ignored for equality-constrained solve; "
+                    "preconditioning is not yet mapped through the null-space reduction.",
+                ),
+                RuntimeWarning,
             )
 
         rcond = self.tolerance if elimination_rcond is None else max(float(elimination_rcond), 0.0)
@@ -209,12 +201,7 @@ class LeastSquaresSolver:
             )
         return d_block
 
-    def _solve_reduced_system(
-        self,
-        A_red: np.ndarray,
-        b_red: np.ndarray,
-        **kwargs,
-    ) -> np.ndarray:
+    def _solve_reduced_system(self, A_red: np.ndarray, b_red: np.ndarray, **kwargs) -> np.ndarray:
         """Solve reduced unconstrained LS for all scenarios."""
         warning_label = kwargs.pop("warning_label", None)
         equilibrate_columns = bool(kwargs.pop("equilibrate_columns", True))
@@ -232,16 +219,16 @@ class LeastSquaresSolver:
             except np.linalg.LinAlgError:
                 return np.linalg.lstsq(AtA, Atb, rcond=self.tolerance)[0]
 
+        A_eff, inv_col_scale = self._prepare_reduced_dense_system(
+            A_red, equilibrate_columns=equilibrate_columns
+        )
+
         if self.solver == "lsmr":
-            m, k = A_red.shape
-            A_eff = A_red
-            inv_col_scale = None
-            if equilibrate_columns:
-                A_eff, inv_col_scale = self._equilibrate_columns_dense(A_red)
             # Reduced constrained solves can be noticeably harder than the
             # unreduced row-form problem after null-space elimination. Give
             # reduced LSMR a much larger default budget to avoid istop=7 on
             # well-behaved but slow-converging constrained problems.
+            m, k = A_red.shape
             max_iter = kwargs.pop(
                 "maxiter", 10 * ITERATION_SAFETY_FACTOR * min(m, k) if m > 0 and k > 0 else k
             )
@@ -252,56 +239,107 @@ class LeastSquaresSolver:
                 "damp": 0.0,
                 **kwargs,
             }
-            y_scaled = np.zeros((A_eff.shape[1], b_red.shape[1]), dtype=A_eff.dtype)
-            for j in range(b_red.shape[1]):
-                lsmr_result = lsmr(A_eff, b_red[:, j], **lsmr_kwargs)
-                y_j = lsmr_result[0]
-                istop = int(lsmr_result[1])
-                if not self._lsmr_stop_is_acceptable(istop):
-                    warnings.warn(
-                        self._format_warning_message(
-                            warning_label,
-                            f"Reduced LSMR may not have converged (istop={istop}).",
-                        ),
-                        RuntimeWarning,
-                    )
-                y_scaled[:, j] = y_j
-            if inv_col_scale is None:
-                return y_scaled
-            return inv_col_scale[:, None] * y_scaled
+            y_scaled = self._solve_reduced_scenarios(
+                num_unknowns=A_eff.shape[1],
+                num_scenarios=b_red.shape[1],
+                dtype=A_eff.dtype,
+                scenario_solver=lambda j: self._solve_reduced_lsmr_scenario(
+                    A_eff=A_eff,
+                    b_column=b_red[:, j],
+                    warning_label=warning_label,
+                    lsmr_kwargs=lsmr_kwargs,
+                ),
+            )
+            return self._restore_reduced_dense_solution(y_scaled, inv_col_scale)
 
         if self.solver == "cgls":
-            A_eff = A_red
-            inv_col_scale = None
-            if equilibrate_columns:
-                A_eff, inv_col_scale = self._equilibrate_columns_dense(A_red)
-
             AtA = A_eff.T @ A_eff
             Atb = A_eff.T @ b_red
             max_iter = kwargs.pop("maxiter", 10 * ITERATION_SAFETY_FACTOR * A_red.shape[1])
-            y_scaled = np.zeros((A_eff.shape[1], b_red.shape[1]), dtype=A_eff.dtype)
-            for j in range(b_red.shape[1]):
-                y_j, exit_code = cg(
-                    AtA,
-                    Atb[:, j],
-                    rtol=self.tolerance,
-                    maxiter=max_iter,
-                    **kwargs,
-                )
-                if exit_code != 0:
-                    warnings.warn(
-                        self._format_warning_message(
-                            warning_label,
-                            f"Reduced CG did not converge (exit_code={exit_code}).",
-                        ),
-                        RuntimeWarning,
-                    )
-                y_scaled[:, j] = y_j
-            if inv_col_scale is None:
-                return y_scaled
-            return inv_col_scale[:, None] * y_scaled
+            cg_kwargs = {"rtol": self.tolerance, "maxiter": max_iter, **kwargs}
+            y_scaled = self._solve_reduced_scenarios(
+                num_unknowns=A_eff.shape[1],
+                num_scenarios=b_red.shape[1],
+                dtype=A_eff.dtype,
+                scenario_solver=lambda j: self._solve_reduced_cg_scenario(
+                    AtA=AtA, Atb_column=Atb[:, j], warning_label=warning_label, cg_kwargs=cg_kwargs
+                ),
+            )
+            return self._restore_reduced_dense_solution(y_scaled, inv_col_scale)
 
         raise ValueError(f"Unsupported solver type '{self.solver}' for reduced solve.")
+
+    @staticmethod
+    def _prepare_reduced_dense_system(
+        a_red: np.ndarray, *, equilibrate_columns: bool
+    ) -> tuple[np.ndarray, Optional[np.ndarray]]:
+        """Return reduced dense system with optional right equilibration."""
+        if not equilibrate_columns:
+            return np.asarray(a_red), None
+        return LeastSquaresSolver._equilibrate_columns_dense(a_red)
+
+    @staticmethod
+    def _restore_reduced_dense_solution(
+        y_scaled: np.ndarray, inv_col_scale: Optional[np.ndarray]
+    ) -> np.ndarray:
+        """Undo right scaling after a reduced dense solve."""
+        if inv_col_scale is None:
+            return y_scaled
+        return inv_col_scale[:, None] * y_scaled
+
+    @staticmethod
+    def _solve_reduced_scenarios(
+        *,
+        num_unknowns: int,
+        num_scenarios: int,
+        dtype: np.dtype,
+        scenario_solver: Callable[[int], np.ndarray],
+    ) -> np.ndarray:
+        """Solve one reduced dense system per RHS scenario."""
+        y_scaled = np.zeros((num_unknowns, num_scenarios), dtype=dtype)
+        for j in range(num_scenarios):
+            y_scaled[:, j] = np.asarray(scenario_solver(j), dtype=dtype).reshape(num_unknowns)
+        return y_scaled
+
+    def _solve_reduced_lsmr_scenario(
+        self,
+        *,
+        A_eff: np.ndarray,
+        b_column: np.ndarray,
+        warning_label: Optional[str],
+        lsmr_kwargs: dict[str, object],
+    ) -> np.ndarray:
+        """Solve one reduced RHS with LSMR."""
+        lsmr_result = lsmr(A_eff, b_column, **lsmr_kwargs)
+        y_j = np.asarray(lsmr_result[0], dtype=A_eff.dtype)
+        istop = int(lsmr_result[1])
+        if not self._lsmr_stop_is_acceptable(istop):
+            warnings.warn(
+                self._format_warning_message(
+                    warning_label, f"Reduced LSMR may not have converged (istop={istop})."
+                ),
+                RuntimeWarning,
+            )
+        return y_j
+
+    def _solve_reduced_cg_scenario(
+        self,
+        *,
+        AtA: np.ndarray,
+        Atb_column: np.ndarray,
+        warning_label: Optional[str],
+        cg_kwargs: dict[str, object],
+    ) -> np.ndarray:
+        """Solve one reduced RHS with CG on the normal equations."""
+        y_j, exit_code = cg(AtA, Atb_column, **cg_kwargs)
+        if exit_code != 0:
+            warnings.warn(
+                self._format_warning_message(
+                    warning_label, f"Reduced CG did not converge (exit_code={exit_code})."
+                ),
+                RuntimeWarning,
+            )
+        return np.asarray(y_j, dtype=AtA.dtype)
 
     @staticmethod
     def _equilibrate_columns_dense(a: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -353,20 +391,12 @@ class LeastSquaresSolver:
             )
         if self.solver == "lsmr":
             return self._build_lsmr_preconditioner(
-                problem,
-                p_type,
-                num_scenarios,
-                pinv_rcond=pinv_rcond,
-                pinv_mode=pinv_mode,
+                problem, p_type, num_scenarios, pinv_rcond=pinv_rcond, pinv_mode=pinv_mode
             )
         return None
 
     def build_equality_constrained_components_from_normal(
-        self,
-        H: np.ndarray,
-        C: np.ndarray,
-        *,
-        pinv_rcond: Optional[float] = None,
+        self, H: np.ndarray, C: np.ndarray, *, pinv_rcond: Optional[float] = None
     ) -> dict[str, np.ndarray]:
         """Build linear maps for the hard-constrained quadratic system.
 
@@ -382,9 +412,7 @@ class LeastSquaresSolver:
         if H_np.ndim != 2 or H_np.shape[0] != H_np.shape[1]:
             raise ValueError(f"H must be square 2D array, got shape {H_np.shape}")
         if C_np.ndim != 2 or C_np.shape[1] != H_np.shape[0]:
-            raise ValueError(
-                f"C must be 2D with {H_np.shape[0]} columns, got shape {C_np.shape}"
-            )
+            raise ValueError(f"C must be 2D with {H_np.shape[0]} columns, got shape {C_np.shape}")
 
         rcond = self.tolerance if pinv_rcond is None else max(float(pinv_rcond), 0.0)
         n_x = H_np.shape[0]
@@ -522,8 +550,7 @@ class LeastSquaresSolver:
         if not self._lsmr_stop_is_acceptable(istop):
             warnings.warn(
                 self._format_warning_message(
-                    warning_label,
-                    f"LSMR may not have converged (istop={istop}).",
+                    warning_label, f"LSMR may not have converged (istop={istop})."
                 ),
                 RuntimeWarning,
             )
@@ -593,8 +620,7 @@ class LeastSquaresSolver:
             if info is not None and info != 0:
                 warnings.warn(
                     self._format_warning_message(
-                        warning_label,
-                        f"JAX CG solver may not have converged (info={int(info)}).",
+                        warning_label, f"JAX CG solver may not have converged (info={int(info)})."
                     ),
                     RuntimeWarning,
                 )
@@ -617,8 +643,7 @@ class LeastSquaresSolver:
             if exit_code != 0:
                 warnings.warn(
                     self._format_warning_message(
-                        warning_label,
-                        f"CG solver did not converge (exit_code={exit_code}).",
+                        warning_label, f"CG solver did not converge (exit_code={exit_code})."
                     ),
                     RuntimeWarning,
                 )
@@ -628,10 +653,7 @@ class LeastSquaresSolver:
         return sol_flat.reshape(problem.solution_size, num_scenarios)
 
     def _get_problem_column_equilibration_inverse(
-        self,
-        problem: LeastSquaresProblem,
-        *,
-        include_regularization: bool,
+        self, problem: LeastSquaresProblem, *, include_regularization: bool
     ) -> Optional[np.ndarray]:
         """Return inverse column scaling for semantics-preserving right scaling."""
         col_scale = problem.get_column_scale(include_regularization=include_regularization)
@@ -689,9 +711,7 @@ class LeastSquaresSolver:
         if p_type == "jacobi":
             # Build Jacobi from the full system map (data + explicit regularization rows)
             # so the preconditioner matches the solved normal equations.
-            full_map = problem.get_system_linear_map(
-                num_scenarios=1, include_regularization=True
-            )
+            full_map = problem.get_system_linear_map(num_scenarios=1, include_regularization=True)
             full_item = ProcessedOperator(
                 linear_map=full_map,
                 output_shape=(full_map.shape[0],),
@@ -735,9 +755,7 @@ class LeastSquaresSolver:
         if p_type == "jacobi":
             # Build Jacobi from the full system map (data + explicit regularization rows)
             # so LSMR preconditioning reflects any regularization present in the problem.
-            full_map = problem.get_system_linear_map(
-                num_scenarios=1, include_regularization=True
-            )
+            full_map = problem.get_system_linear_map(num_scenarios=1, include_regularization=True)
             full_item = ProcessedOperator(
                 linear_map=full_map,
                 output_shape=(full_map.shape[0],),
@@ -746,18 +764,18 @@ class LeastSquaresSolver:
             diag = LeastSquaresProblem._compute_normal_matrix_diag(full_item)
             sqrt_inv = xp.sqrt(xp.where(diag != 0, 1.0 / diag, 1.0))
             if xp is not np:
-                 # JAX compatible replacement for 'out' behavior (set zeros to 1s before sqrt, then mask?)
-                 # The logic above 'xp.ones_like(diag)' implies where diag==0 result is 1.
-                 # My replacement `1.0/diag` on diag==0 is inf.
-                 # Better:
-                 safe_diag = xp.where(diag != 0, diag, 1.0)
-                 sqrt_inv = xp.sqrt(1.0 / safe_diag)
-                 # Restore 1s where diag was 0 (matches out=ones_like)
-                 # Actually out=ones_like sets default value.
-                 # So if diag==0, result is 1.
-                 # My code does 1.0/1.0 = 1.0. Correct.
+                # JAX compatible replacement for 'out' behavior (set zeros to 1s before sqrt, then mask?)
+                # The logic above 'xp.ones_like(diag)' implies where diag==0 result is 1.
+                # My replacement `1.0/diag` on diag==0 is inf.
+                # Better:
+                safe_diag = xp.where(diag != 0, diag, 1.0)
+                sqrt_inv = xp.sqrt(1.0 / safe_diag)
+                # Restore 1s where diag was 0 (matches out=ones_like)
+                # Actually out=ones_like sets default value.
+                # So if diag==0, result is 1.
+                # My code does 1.0/1.0 = 1.0. Correct.
             else:
-                 sqrt_inv = xp.sqrt(1.0 / diag, where=diag != 0, out=xp.ones_like(diag))
+                sqrt_inv = xp.sqrt(1.0 / diag, where=diag != 0, out=xp.ones_like(diag))
             full_sqrt_inv = xp.tile(sqrt_inv, num_scenarios)
 
             def matvec(v):
@@ -794,6 +812,7 @@ class LeastSquaresSolver:
                     x_block = u @ (s_pinv[:, None] * (vt @ y_block))
                     return x_block.flatten()
             else:
+
                 def matvec(y_flat):
                     y_block = y_flat.reshape(problem.solution_size, num_scenarios)
                     x_block = vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
@@ -806,11 +825,7 @@ class LeastSquaresSolver:
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for LSMR solver.")
 
     def _get_pinv_components(
-        self,
-        problem: LeastSquaresProblem,
-        tol: float,
-        *,
-        pinv_rcond: Optional[float] = None,
+        self, problem: LeastSquaresProblem, tol: float, *, pinv_rcond: Optional[float] = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         u, s, vt = problem.svd
         s_pinv = xp.zeros_like(s)

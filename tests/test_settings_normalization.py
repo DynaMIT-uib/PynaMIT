@@ -115,6 +115,20 @@ def test_dynamics_settings_accepts_scipy_integrator_name() -> None:
     assert settings.integrator == "DOP853"
 
 
+def test_dynamics_settings_roundtrips_induction_null_diagnostics() -> None:
+    settings = DynamicsSettings(
+        induction_null_diagnostics=True,
+        induction_null_svd_rtol=1e-6,
+        induction_null_warn_ratio=0.25,
+    )
+
+    restored = DynamicsSettings.from_dataset(settings.to_dataset(), defaults=DynamicsSettings())
+
+    assert restored.induction_null_diagnostics is True
+    assert restored.induction_null_svd_rtol == pytest.approx(1e-6)
+    assert restored.induction_null_warn_ratio == pytest.approx(0.25)
+
+
 def test_from_dataset_rejects_invalid_simulation_mode() -> None:
     ds = DynamicsSettings().to_dataset()
     ds.attrs["simulation_mode"] = "cs_domnant"

@@ -9,14 +9,7 @@ from pynamit.simulation.settings import SimulationMode
 from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
-def _build_state(
-    sim_mode: SimulationMode,
-    *,
-    nmax: int,
-    mmax: int,
-    ncs: int,
-    run_directory: str,
-):
+def _build_state(sim_mode: SimulationMode, *, nmax: int, mmax: int, ncs: int, run_directory: str):
     from pynamit.simulation.dynamics import Dynamics
 
     dynamics = Dynamics(
@@ -41,22 +34,11 @@ def _build_state(
     theta = np.deg2rad(90.0 - conductance_lat)
     hall = 0.3 + 0.1 * np.sin(theta)
     pedersen = 1.0 + 0.2 * np.cos(theta) ** 2
-    dynamics.set_conductance(
-        hall,
-        pedersen,
-        lat=conductance_lat,
-        lon=conductance_lon,
-        time=None,
-    )
+    dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon, time=None)
 
     jr_lat = dynamics.state.geometry.grid.lat
     jr_lon = dynamics.state.geometry.grid.lon
-    dynamics.set_jr(
-        np.zeros_like(jr_lat),
-        lat=jr_lat,
-        lon=jr_lon,
-        time=None,
-    )
+    dynamics.set_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon, time=None)
 
     dynamics.state.update(dynamics.input_manager, np.float64(0), interpolation=True)
     return dynamics.state
@@ -153,12 +135,12 @@ def _stage_errors(*, nmax: int, mmax: int, ncs: int, output_prefix: str) -> dict
     m_imp_to_jr_cs = state_cs.geometry.get_potential_to_JS_operator("m_imp", mode=None)
     dtalpha_to_dt_psi_st = np.asarray(
         state_st.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
-            m_imp_to_jr_operator=m_imp_to_jr_st, use_pinning=False
+            m_imp_to_jr_operator=m_imp_to_jr_st, apply_psi_gauge=False
         )
     )
     dtalpha_to_dt_psi_cs = np.asarray(
         state_cs.toroidal_matrices.solver._get_dtalpha_to_dt_psi_map_cached(
-            m_imp_to_jr_operator=m_imp_to_jr_cs, use_pinning=False
+            m_imp_to_jr_operator=m_imp_to_jr_cs, apply_psi_gauge=False
         )
     )
     dtalpha_to_dt_psi_st_sh = b_st @ dtalpha_to_dt_psi_st @ a_st
@@ -176,18 +158,8 @@ def test_toroidal_stage_parity_converges_with_resolution(tmp_path) -> None:
     """CS-dominant stage operators should approach ST-CS as resolution increases."""
 
     # Keep Nmax/Ncs below Nyquist warning threshold to avoid alias-dominated runs.
-    low = _stage_errors(
-        nmax=6,
-        mmax=6,
-        ncs=10,
-        output_prefix=str(tmp_path / "stage_low"),
-    )
-    high = _stage_errors(
-        nmax=8,
-        mmax=8,
-        ncs=14,
-        output_prefix=str(tmp_path / "stage_high"),
-    )
+    low = _stage_errors(nmax=6, mmax=6, ncs=10, output_prefix=str(tmp_path / "stage_low"))
+    high = _stage_errors(nmax=8, mmax=8, ncs=14, output_prefix=str(tmp_path / "stage_high"))
 
     # For the dominant discrepancy stages, require clear improvement.
     assert high["psi_to_e"] < low["psi_to_e"] * 0.95

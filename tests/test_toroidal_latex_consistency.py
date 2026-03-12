@@ -66,37 +66,30 @@ def test_state_dpsi_solver_accepts_direct_e_forcing() -> None:
 
 def test_coupled_dt_psi_from_m_ind_matches_direct_e_chain() -> None:
     """Coupled ``dt_psi_from_m_ind`` block is exactly the direct ``m_ind -> E -> dt_psi`` chain."""
-    state = _build_state(
-        simulation_mode=SimulationMode.PURE_SPECTRAL,
-        nmax=8,
-        mmax=4,
-    )
-    blocks = state.get_coupled_induction_blocks(source="dense", use_pinning=state.apply_psi_gauge)
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=8, mmax=4)
+    blocks = state.get_coupled_induction_blocks(source="dense")
     api = state.coupled_operators
     dt_psi_from_E = np.asarray(
-        api._get_dt_psi_from_E_dense(use_pinning=state.apply_psi_gauge),
-        dtype=float,
+        api._get_dt_psi_from_E_dense(apply_psi_gauge=state.apply_psi_gauge), dtype=float
     )
-    m_ind_to_E = np.asarray(api._dense_E_coeff_operator_matrix(state.m_ind_to_E_coeffs), dtype=float)
+    m_ind_to_E = np.asarray(
+        api._dense_E_coeff_operator_matrix(state.m_ind_to_E_coeffs), dtype=float
+    )
     expected = dt_psi_from_E @ m_ind_to_E
 
-    assert np.allclose(np.asarray(blocks["dt_psi_from_m_ind"], dtype=float), expected, rtol=1e-10, atol=1e-10)
+    assert np.allclose(
+        np.asarray(blocks["dt_psi_from_m_ind"], dtype=float), expected, rtol=1e-10, atol=1e-10
+    )
 
 
 def test_coupled_dense_sparse_parity() -> None:
     """Coupled dense and sparse assembly remain consistent."""
-    state = _build_state(
-        simulation_mode=SimulationMode.PURE_SPECTRAL,
-        nmax=8,
-        mmax=4,
-    )
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=8, mmax=4)
     dense = np.asarray(
-        state.get_coupled_induction_matrix(source="dense", flatten=True, use_pinning=state.apply_psi_gauge),
-        dtype=float,
+        state.get_coupled_induction_matrix(source="dense", flatten=True), dtype=float
     )
     sparse = np.asarray(
-        state.get_coupled_induction_matrix(source="sparse", flatten=True, use_pinning=state.apply_psi_gauge),
-        dtype=float,
+        state.get_coupled_induction_matrix(source="sparse", flatten=True), dtype=float
     )
     assert np.allclose(dense, sparse, rtol=1e-9, atol=1e-9)
 
@@ -170,12 +163,7 @@ def test_mass_dtalpha_matrix_is_symmetric() -> None:
 
 def test_cs_div_rxcurl_identity() -> None:
     """Discrete identity: div(rhat×a) = -curl(a) on CS derivative operators."""
-    state = _build_state(
-        simulation_mode=SimulationMode.CS_DOMINANT,
-        nmax=8,
-        mmax=4,
-        ncs=12,
-    )
+    state = _build_state(simulation_mode=SimulationMode.CS_DOMINANT, nmax=8, mmax=4, ncs=12)
     tor = state.toroidal_matrices
     D_th, D_ph, _ = [np.asarray(x, dtype=float) for x in tor.cs_grid_derivative_operators]
     theta = np.deg2rad(np.asarray(state.geometry.grid.theta, dtype=float).reshape(-1))

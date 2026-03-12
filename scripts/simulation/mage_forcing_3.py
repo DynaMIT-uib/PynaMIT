@@ -119,6 +119,38 @@ def _trim_persisted_input_history(dynamics: pynamit.Dynamics, key: str) -> None:
     dynamics.input_timeseries.trim_in_memory(key, keep_last=1)
 
 
+def _print_toroidal_driver_balance_report(dynamics: pynamit.Dynamics, *, time: float) -> None:
+    """Print one compact LL-conflict summary for the current toroidal forcing channels."""
+    dynamics.state.update(dynamics.input_manager, time, interpolation=True)
+    report = dynamics.state.get_toroidal_driver_balance_report()
+    print(
+        "Toroidal driver balance report "
+        f"(t={time:.1f} s, LL rows={report['constraint_rows']['ll']}, "
+        f"HL rows={report['constraint_rows']['hl']})"
+    )
+    ordered_names = (
+        "wind",
+        "Br",
+        "magnetic_imposed",
+        "magnetic_driver_raw",
+        "magnetic_driver",
+        "driver_feedback_rhs",
+        "residual_after_driver_subtraction",
+        "total_external",
+    )
+    components = report["components"]
+    for name in ordered_names:
+        component = components.get(name)
+        if component is None:
+            continue
+        print(
+            f"  {name:>31s}: "
+            f"||dt_alpha||={component['dt_alpha_norm']:.3e}, "
+            f"||C_ll dt_alpha||={component['ll_conflict_norm']:.3e}, "
+            f"ratio={component['ll_conflict_ratio']:.3e}"
+        )
+
+
 def _build_projection_context(file: h5.File) -> MageProjectionContext:
     """Load static MAGE grids and reusable projection weights."""
     ionosphere_lat = file["glat"][:]
@@ -377,6 +409,10 @@ def precompute_inputs(
             window=window,
             context=context,
             projection_batch_size=projection_batch_size,
+        )
+        _print_toroidal_driver_balance_report(
+            dynamics,
+            time=float(window.relative_seconds[-1]) if window.relative_seconds.size > 0 else 0.0,
         )
 
     return run_directory

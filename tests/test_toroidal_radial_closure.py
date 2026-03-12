@@ -51,12 +51,11 @@ def test_radial_isotropic_toroidal_closure_is_diffusive() -> None:
     assert np.linalg.norm(forcing) < 1e-12
 
     a00 = np.asarray(
-        state.get_coupled_induction_blocks(source="dense", use_pinning=True)["dt_psi_from_psi"],
-        dtype=float,
+        state.get_coupled_induction_blocks(source="dense")["dt_psi_from_psi"], dtype=float
     )
     max_real_a00 = float(np.max(np.linalg.eigvals(a00).real))
     assert max_real_a00 <= 1e-12
 
-    report = state.get_coupled_stability_report(source="dense", use_pinning=True)
+    report = state.get_coupled_stability_report(source="dense")
     assert float(report["positive_real_count"]) == 0.0
     assert float(report["max_real"]) <= 1e-12

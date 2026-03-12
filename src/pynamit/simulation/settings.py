@@ -402,6 +402,12 @@ class DynamicsSettings:
     # Force dense assembly/use of full linear evolution operators for both
     # legacy and full-induction dynamics paths.
     dense_full_operators: bool = False
+    # Optional diagnostics for coupled full-induction near-null modes.
+    # When enabled, the run computes a near-null basis for the coupled operator
+    # and warns if the forcing projects strongly onto it.
+    induction_null_diagnostics: bool = False
+    induction_null_svd_rtol: float = 1e-8
+    induction_null_warn_ratio: float = 0.5
     # Use SH fast input projection path on regular lat/lon grids when available.
     # Disabled by default to preserve legacy baseline behavior.
     enable_fast_input_path: bool = False
@@ -485,6 +491,12 @@ class DynamicsSettings:
         self.conductance_interpolation_floor = float(
             max(self.conductance_interpolation_floor, 0.0)
         )
+        self.induction_null_svd_rtol = float(self.induction_null_svd_rtol)
+        if self.induction_null_svd_rtol < 0.0:
+            raise ValueError("induction_null_svd_rtol must be >= 0.0.")
+        self.induction_null_warn_ratio = float(self.induction_null_warn_ratio)
+        if not (0.0 <= self.induction_null_warn_ratio <= 1.0):
+            raise ValueError("induction_null_warn_ratio must be between 0.0 and 1.0.")
 
         if self.simulation_mode == SimulationMode.CS_DOMINANT:
             self.solution_basis_kind = SolutionBasisKind.CS
@@ -583,6 +595,9 @@ class DynamicsSettings:
         attrs["magnetospheric_toroidal_lock"] = int(self.magnetospheric_toroidal_lock)
         attrs["magnetospheric_poloidal_lock"] = int(self.magnetospheric_poloidal_lock)
         attrs["dense_full_operators"] = int(self.dense_full_operators)
+        attrs["induction_null_diagnostics"] = int(self.induction_null_diagnostics)
+        attrs["induction_null_svd_rtol"] = self.induction_null_svd_rtol
+        attrs["induction_null_warn_ratio"] = self.induction_null_warn_ratio
         attrs["enable_fast_input_path"] = int(self.enable_fast_input_path)
         attrs["exponential_solver"] = self.exponential_solver
 
@@ -692,6 +707,15 @@ class DynamicsSettings:
                 "toroidal_regularization_lambda", defaults.toroidal_regularization_lambda
             ),
             dense_full_operators=bool(get("dense_full_operators", defaults.dense_full_operators)),
+            induction_null_diagnostics=bool(
+                get("induction_null_diagnostics", defaults.induction_null_diagnostics)
+            ),
+            induction_null_svd_rtol=get(
+                "induction_null_svd_rtol", defaults.induction_null_svd_rtol
+            ),
+            induction_null_warn_ratio=get(
+                "induction_null_warn_ratio", defaults.induction_null_warn_ratio
+            ),
             enable_fast_input_path=bool(
                 get("enable_fast_input_path", defaults.enable_fast_input_path)
             ),

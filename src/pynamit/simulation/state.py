@@ -6,10 +6,11 @@ for simulating ionospheric electrodynamics.
 """
 
 from __future__ import annotations
+import hashlib
 import logging
 import os
 import time
-from typing import Optional, Tuple, Any, List, Dict, Literal, Callable
+from typing import Optional, Tuple, Any, List, Dict, Literal, Callable, TYPE_CHECKING
 
 import numpy as np
 from functools import cached_property
@@ -19,7 +20,11 @@ from pynamit.primitives.basis import is_cs_basis
 from pynamit.primitives.field_spec import FieldSpec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.integration import EulerIntegrator, ExponentialIntegrator, ScipySolveIVPIntegrator
+from pynamit.math.integration import (
+    EulerIntegrator,
+    ExponentialIntegrator,
+    ScipySolveIVPIntegrator,
+)
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
 from pynamit.simulation.core import (
@@ -33,15 +38,16 @@ from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.basis import Basis
 from pynamit.utils import asarray, xp, to_numpy
 from pynamit.simulation.spatial import to_dense, canonicalize_vector_basis_matrix
+
+if TYPE_CHECKING:
+    from pynamit.simulation.induction.poloidal_solver import MImpFeedbackSystem
 from pynamit.simulation.settings import (
     DynamicsMode,
     DynamicsSettings,
     IntegratorKind,
     SimulationMode,
 )
-from pynamit.simulation.input import (
-    decode_conductance_representation_to_grids,
-)
+from pynamit.simulation.input import decode_conductance_representation_to_grids
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +95,7 @@ class State:
         solution_space: Optional[Any] = None,
     ) -> None:
         """Initialize the State object.
-        
+
         Parameters
         ----------
         basis : Basis
@@ -108,7 +114,7 @@ class State:
         self.basis = basis
         self.solution_space = solution_space if solution_space is not None else basis
         self._init_settings(settings)
-        
+
         # Toroidal magnetic scalar (inductive), analogous to m_imp but time-evolved.
         self.psi: Optional[np.ndarray] = None
         self.d_psi_dt: Optional[np.ndarray] = None
@@ -117,6 +123,7 @@ class State:
         self._imposed_toroidal_dirty: bool = True
         self._coupled_null_basis: Optional[np.ndarray] = None
         self._coupled_null_threshold: Optional[float] = None
+        self._coupled_null_signature: Optional[tuple[int, int, float, str]] = None
         self._coupled_null_warned: bool = False
 
         # Encapsulate all geometry, mappings, and evaluators
@@ -132,6 +139,7 @@ class State:
             magnetospheric_toroidal_lock=self.magnetospheric_toroidal_lock,
             apply_psi_gauge=self.apply_psi_gauge,
             apply_m_ind_gauge=self.apply_m_ind_gauge,
+            apply_m_imp_gauge=self.apply_m_imp_gauge,
         )
 
         # Initialize Toroidal System Matrices if in full_induction mode
@@ -139,8 +147,8 @@ class State:
         if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             closure_basis = self.geometry.pfac_closure_basis
             self.toroidal_matrices = ToroidalSystemMatrices(
-                basis=self.solution_space, 
-                grid=self.geometry.grid, 
+                basis=self.solution_space,
+                grid=self.geometry.grid,
                 b_field=self.geometry.b_field,
                 RI=self.RI,
                 closure_derivative_basis=closure_basis,
@@ -149,9 +157,7 @@ class State:
             )
             try:
                 self.toroidal_matrices.configure_toroidal_solver(
-                    solver=self.solver_type,
-                    preconditioner=self.preconditioner,
-                    tolerance=1e-13,
+                    solver=self.solver_type, preconditioner=self.preconditioner, tolerance=1e-13
                 )
             except ValueError:
                 logger.warning(
@@ -160,9 +166,7 @@ class State:
                     self.solver_type,
                 )
                 self.toroidal_matrices.configure_toroidal_solver(
-                    solver="normal_eq",
-                    preconditioner=self.preconditioner,
-                    tolerance=1e-13,
+                    solver="normal_eq", preconditioner=self.preconditioner, tolerance=1e-13
                 )
             if self.mode == SimulationMode.CS_DOMINANT:
                 logger.info(
@@ -181,7 +185,7 @@ class State:
         self.jr: Optional[Field] = None
         # Full-induction driver-rate representation in toroidal magnetic space.
         self.dt_m_imp_driver: Optional[Field] = None
-        
+
         self.etaP: Optional[Field] = None
         self.etaH: Optional[Field] = None
 
@@ -201,9 +205,7 @@ class State:
     def induction(self) -> StateInduction:
         """Induction/coupled orchestration helper layered on top of `State`."""
         return StateInduction(
-            self,
-            timed_solve=_timed_solve,
-            available_memory_bytes=_available_memory_bytes,
+            self, timed_solve=_timed_solve, available_memory_bytes=_available_memory_bytes
         )
 
     # ----- Initialization Helpers -----
@@ -224,16 +226,16 @@ class State:
         self.RM = normalized_settings.RM
         self.ih_constraint_scaling = normalized_settings.ih_constraint_scaling
         self.apply_psi_gauge = bool(normalized_settings.apply_psi_gauge)
-        self.induction_null_diagnostics = False
-        self.induction_null_svd_rtol = 1e-8
-        self.induction_null_warn_ratio = 0.5
+        self.induction_null_diagnostics = bool(normalized_settings.induction_null_diagnostics)
+        self.induction_null_svd_rtol = float(normalized_settings.induction_null_svd_rtol)
+        self.induction_null_warn_ratio = float(normalized_settings.induction_null_warn_ratio)
         self.apply_m_ind_gauge = bool(normalized_settings.apply_m_ind_gauge)
         self.apply_m_imp_gauge = bool(normalized_settings.apply_m_imp_gauge)
-        self.magnetospheric_toroidal_lock = bool(
-            normalized_settings.magnetospheric_toroidal_lock
-        )
+        self.magnetospheric_toroidal_lock = bool(normalized_settings.magnetospheric_toroidal_lock)
         self.conductance_interpolation_mode = normalized_settings.conductance_interpolation_mode
-        self.conductance_interpolation_floor = float(normalized_settings.conductance_interpolation_floor)
+        self.conductance_interpolation_floor = float(
+            normalized_settings.conductance_interpolation_floor
+        )
         self.toroidal_regularization_lambda = normalized_settings.toroidal_regularization_lambda
         self.dense_full_operators = bool(normalized_settings.dense_full_operators)
         self.exponential_solver = normalized_settings.exponential_solver
@@ -274,7 +276,7 @@ class State:
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients.
-        
+
         Calculates M such that E_coeffs = M @ u_coeffs.
         E = u x B.
         Logic: v = u x B.
@@ -286,18 +288,18 @@ class State:
             self.geometry.basis.get_vector_basis_matrix(self.geometry.grid),
             basis_index_length=self.geometry.basis.index_length,
         )
-        
+
         # 1. Normalize shapes
-        
+
         # bu is expected as flattened grid tensor: (2, 2, N_grid)
         if bu.ndim != 3:
             raise ValueError(
                 f"Unexpected bu shape {bu.shape}; expected canonical flattened (2, 2, N_grid)."
             )
         bu_flat = bu
-            
+
         n_grid = bu_flat.shape[2]
-        
+
         # G_raw: (Component, N_grid, PotentialType, Coeffs)
         # Flatten potential/coefficient axes for linear algebra below.
         G_flat = G_raw.reshape(G_raw.shape[0], G_raw.shape[1], -1)
@@ -305,17 +307,17 @@ class State:
             raise ValueError(
                 f"Grid size mismatch between bu ({n_grid}) and vector basis ({G_flat.shape[1]})."
             )
-             
+
         if G_flat.shape[0] != bu_flat.shape[1]:
             raise ValueError(f"Component mismatch: bu {bu_flat.shape[1]}, G {G_flat.shape[0]}")
-             
+
         # 2. Compute Matrix Product: M = bu @ G
         # bu: (i, j, p). G: (j, p, c). Result: (i, p, c).
         # Elementwise on grid (p). Matrix product on components (j).
         M_grid = xp.einsum("ijp,jpc->ipc", bu_flat, G_flat, optimize=True)
-        
+
         n_coeffs = M_grid.shape[2]
-        
+
         # 3. Flatten for Projection (2*N_grid, N_coeffs)
         # Component Major: i=0... then i=1...
         # M_grid (2, N_grid, Coeffs) -> (2*N_grid, Coeffs)
@@ -323,12 +325,12 @@ class State:
 
         # 4. Projection
         P_matrix = self.geometry.projection_matrix
-        
+
         if hasattr(P_matrix, "dot"):
             res_flat = P_matrix.dot(M_flat)
         else:
             res_flat = asarray(P_matrix) @ M_flat
-            
+
         return res_flat.reshape(2, -1, n_coeffs)
 
     @cached_property
@@ -342,9 +344,10 @@ class State:
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
-        # m_imp_problem depends on conductance only if we include the E-field
-        # interhemispheric constraint (legacy path). In full_induction or when
-        # IH coupling is disabled, it is conductance-independent.
+        # The bundled m_imp feedback system depends on conductance only if we
+        # include the legacy E-field interhemispheric constraint. In
+        # full_induction or when IH coupling is disabled, it is conductance-
+        # independent.
         invalidate_m_imp = (
             self.connect_hemispheres
             and self.dynamics_mode != DynamicsMode.FULL_INDUCTION
@@ -368,7 +371,7 @@ class State:
         ]
 
         if invalidate_m_imp:
-            invalidate_attrs.extend(["m_imp_problem", "m_imp_preconditioner"])
+            invalidate_attrs.extend(["m_imp_feedback_system"])
 
         for attr in invalidate_attrs:
             try:
@@ -378,11 +381,10 @@ class State:
         self._operator_linear_map_cache: Dict[
             Tuple[int, Tuple[int, ...], Tuple[int, ...]], Any
         ] = {}
-        self._coupled_steady_state_column_scale_cache: Dict[
-            Tuple[bool, int], np.ndarray
-        ] = {}
+        self._coupled_steady_state_column_scale_cache: Dict[Tuple[bool, int], np.ndarray] = {}
         self._coupled_null_basis = None
         self._coupled_null_threshold = None
+        self._coupled_null_signature = None
         self._coupled_null_warned = False
         if "diagnostics" in self.__dict__:
             self.diagnostics.reset_stability_warnings()
@@ -407,13 +409,10 @@ class State:
         op_lm = as_linear_map(op)
         if row_mask.size != op_lm.shape[0]:
             raise RuntimeError(
-                "LL mask size mismatch: "
-                f"mask={int(row_mask.size)} rows={int(op_lm.shape[0])}."
+                f"LL mask size mismatch: mask={int(row_mask.size)} rows={int(op_lm.shape[0])}."
             )
         if not np.any(row_mask):
-            raise RuntimeError(
-                "LL mask contains no active rows for full_induction constraints."
-            )
+            raise RuntimeError("LL mask contains no active rows for full_induction constraints.")
 
         if hasattr(op, "tocsr"):
             return op.tocsr()[row_mask]
@@ -425,16 +424,14 @@ class State:
         return StateDiagnostics(self)
 
     def get_coupled_stability_report(
-        self,
-        *,
-        source: Literal["dense", "sparse", "auto"] = "dense",
-        use_pinning: Optional[bool] = None,
+        self, *, source: Literal["dense", "sparse", "auto"] = "dense"
     ) -> Dict[str, float]:
         """Return spectral stability report for the coupled full-induction operator."""
-        return self.diagnostics.get_coupled_stability_report(
-            source=source,
-            use_pinning=use_pinning,
-        )
+        return self.diagnostics.get_coupled_stability_report(source=source)
+
+    def get_toroidal_driver_balance_report(self) -> Dict[str, Any]:
+        """Return LL/HL conflict diagnostics for live toroidal forcing channels."""
+        return self.diagnostics.get_toroidal_driver_balance_report()
 
     @cached_property
     def dt_alpha_constraint_operator_hard(self) -> Optional[np.ndarray]:
@@ -458,8 +455,7 @@ class State:
         return asarray(jr_to_alpha.matvec(m_imp_to_jr.matvec(dt_m_imp))).reshape(-1)
 
     def _build_dt_alpha_constraint_rhs(
-        self,
-        dt_alpha_driver_coeffs: Optional[np.ndarray],
+        self, dt_alpha_driver_coeffs: Optional[np.ndarray]
     ) -> np.ndarray:
         """Build hard-constraint RHS for residual ``dt_alpha`` solve."""
         constraint_op = self.dt_alpha_constraint_operator_hard
@@ -511,22 +507,14 @@ class State:
     def _project_to_hl_modes(self, values: np.ndarray) -> np.ndarray:
         """Project coefficient-space vector onto the HL mode subspace."""
         vec = np.asarray(values).reshape(-1)
-        bundle = self.constraints.induction_constraint_bundle_hard
-        if bundle is None:
-            return asarray(vec)
-
-        Q_hl = np.asarray(bundle.get("Q_hl", np.zeros((vec.size, 0), dtype=float)))
-        M_metric = np.asarray(bundle.get("Q_metric", np.eye(vec.size, dtype=float)))
-        if (
-            Q_hl.ndim == 2
-            and Q_hl.shape[0] == vec.size
-            and Q_hl.shape[1] > 0
-        ):
-            if M_metric.ndim == 2 and M_metric.shape == (vec.size, vec.size):
-                vec = Q_hl @ (Q_hl.T @ (M_metric @ vec))
-            else:
-                vec = Q_hl @ (Q_hl.T @ vec)
-        return asarray(vec)
+        feedback_system = self.m_imp_feedback_system
+        if feedback_system.full_size == int(vec.size):
+            return asarray(
+                feedback_system.project_hl(
+                    vec, self.constraints.get_hl_projection_matrix(vec.size)
+                )
+            )
+        return asarray(self._get_hl_projection_matrix(vec.size) @ vec)
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -537,46 +525,46 @@ class State:
             raise RuntimeError(
                 "Conductance must be set before accessing conductance-dependent properties."
             )
-        
+
         # Evaluate conductance fields on the simulation grid
         # This works regardless of the storage basis (SH, CS, etc.)
         theta = self.geometry.grid.theta
         phi = self.geometry.grid.phi
         r_dummy = self.geometry.RI
-        
+
         etaP_val, _, _ = self.etaP.evaluate(r_dummy, theta, phi)
         etaH_val, _, _ = self.etaH.evaluate(r_dummy, theta, phi)
-        
+
         eta_stacked = xp.stack([asarray(etaP_val), asarray(etaH_val)], axis=0)
         b_stacked = xp.stack([asarray(self.geometry.bP), asarray(self.geometry.bH)], axis=0)
-        
+
         # Robust Shape Handling
         # Flatten spatial dimensions to (S, Tensor1, Tensor2, N_points)
         # b_stacked shape: (S, T1, T2, Spatial...)
-        if b_stacked.ndim > 4: # e.g. (S, T1, T2, Lat, Lon)
+        if b_stacked.ndim > 4:  # e.g. (S, T1, T2, Lat, Lon)
             s, t1, t2 = b_stacked.shape[:3]
             b_flat = b_stacked.reshape(s, t1, t2, -1)
-        else: # (S, T1, T2, Grid)
+        else:  # (S, T1, T2, Grid)
             b_flat = b_stacked
-            
+
         # eta_stacked shape: (S, Spatial...)
         if eta_stacked.ndim > 2:
             s_eta = eta_stacked.shape[0]
             eta_flat = eta_stacked.reshape(s_eta, -1)
         else:
             eta_flat = eta_stacked
-            
+
         # Contract species (s) and grid points (k)
         # b_flat: (s, i, j, k)
         # eta_flat: (s, k)
         # output: (i, j, k) -> (T1, T2, N_points)
         M_flat = xp.einsum("sijk,sk->ijk", b_flat, eta_flat, optimize=True)
-        
+
         # Reshape output back to original spatialdims if needed?
         # Operators usually expect flattened grid for vector ops.
         # But if SH legacy expects (3, 3, Lat, Lon)...
         # LinearMap expects flattened.
-        
+
         # If geometry uses 2D grid, we might need to reshape back.
         # But LinearMap usually wraps flat arrays or handles reshaping internally.
         # Let's verify what `LinearMap` expects?
@@ -612,9 +600,8 @@ class State:
             potential_type=potential_type,
             eta_grid=self.M_total_on_grid,
             etaP=etaP_field,
-            etaH=etaH_field
+            etaH=etaH_field,
         )
-        
 
     @cached_property
     def m_ind_to_E_coeffs(self) -> Optional[LinearMap]:
@@ -644,16 +631,16 @@ class State:
         """Operator enforcing E-field mapping at low latitudes."""
         # Tensor shape is canonical (2, n_mask, 2, n_coeffs).
         op_obj = self.geometry.E_coeffs_to_E_apex_ll_diff
-        
+
         if op_obj is None:
             return None
 
         # Extract underlying tensor if wrapped
         if hasattr(op_obj, "tensor"):
-             outer_t = asarray(op_obj.tensor)
+            outer_t = asarray(op_obj.tensor)
         else:
-             outer_t = asarray(op_obj)
-        
+            outer_t = asarray(op_obj)
+
         if outer_t.ndim != 4 or outer_t.shape[2] != 2:
             raise ValueError(
                 "Constraint tensor must have canonical shape (2, n_mask, 2, n_coeffs), "
@@ -672,14 +659,19 @@ class State:
 
     # ----- Solver Setup and Execution -----
     @cached_property
-    def m_imp_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for `m_imp`."""
-        return self.induction.build_m_imp_problem()
+    def m_imp_feedback_system(self) -> "MImpFeedbackSystem":
+        """Bundled reduced ``m_imp`` feedback solve definition."""
+        return self.induction.build_m_imp_feedback_system()
 
-    @cached_property
+    @property
+    def m_imp_problem(self) -> LeastSquaresProblem:
+        """Compatibility view of the bundled ``m_imp`` least-squares problem."""
+        return self.m_imp_feedback_system.problem
+
+    @property
     def m_imp_preconditioner(self) -> Optional[LinearMap]:
-        """Preconditioner for the m_imp least-squares problem."""
-        return self.induction.build_m_imp_preconditioner()
+        """Compatibility view of the bundled ``m_imp`` preconditioner."""
+        return self.m_imp_feedback_system.preconditioner
 
     @cached_property
     def coupled_preconditioner(self) -> Optional[LinearMap]:
@@ -690,9 +682,7 @@ class State:
         return self.coupled_operators.build_coupled_preconditioner()
 
     def _build_imposed_toroidal_baseline(
-        self,
-        jr_coeffs: Optional[np.ndarray],
-        E_direct_coeffs: Optional[np.ndarray] = None,
+        self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """Build imposed toroidal baseline `m_imp` from external driver inputs.
 
@@ -701,10 +691,7 @@ class State:
         """
         return self.induction.build_imposed_toroidal_baseline(jr_coeffs, E_direct_coeffs)
 
-    def _map_dt_jr_driver_to_dt_m_imp(
-        self,
-        dt_jr_coeffs: np.ndarray,
-    ) -> np.ndarray:
+    def _map_dt_jr_driver_to_dt_m_imp(self, dt_jr_coeffs: np.ndarray) -> np.ndarray:
         """Map driver derivative ``dt_jr`` to toroidal driver derivative ``dt_m_imp``."""
         return self.induction.map_dt_jr_driver_to_dt_m_imp(dt_jr_coeffs)
 
@@ -728,38 +715,31 @@ class State:
     def _ensure_basis(self, field: Field, field_type: str = "scalar") -> Field:
         """Ensure the field is represented in the solution basis."""
         if field.basis is self.solution_space or field.basis == self.solution_space:
-             return field
-             
+            return field
+
         # Handle projection to CS/Nodal basis
         if is_cs_basis(self.solution_space):
-             grid = self.geometry.grid
-             # Evaluate on grid
-             v1, v2, v3 = field.evaluate(self.geometry.RI, grid.theta, grid.phi)
-             
-             if field_type == "scalar":
-                  return Field.from_coefficients(
-                      self.solution_space, 
-                      coeffs=asarray(v1).flatten(), 
-                      field_type="scalar"
-                  )
-             elif field_type == "tangential":
-                  # u (wind): theta, phi components
-                  v2_flat = asarray(v2).flatten()
-                  v3_flat = asarray(v3).flatten()
-                  new_coeffs = xp.stack([v2_flat, v3_flat], axis=0)
-                  return Field.from_coefficients(
-                      self.solution_space, 
-                      coeffs=new_coeffs, 
-                      field_type="tangential"
-                  )
-        
+            grid = self.geometry.grid
+            # Evaluate on grid
+            v1, v2, v3 = field.evaluate(self.geometry.RI, grid.theta, grid.phi)
+
+            if field_type == "scalar":
+                return Field.from_coefficients(
+                    self.solution_space, coeffs=asarray(v1).flatten(), field_type="scalar"
+                )
+            elif field_type == "tangential":
+                # u (wind): theta, phi components
+                v2_flat = asarray(v2).flatten()
+                v3_flat = asarray(v3).flatten()
+                new_coeffs = xp.stack([v2_flat, v3_flat], axis=0)
+                return Field.from_coefficients(
+                    self.solution_space, coeffs=new_coeffs, field_type="tangential"
+                )
+
         return field
 
     def _decode_conductance_input_to_eta_coeffs(
-        self,
-        *,
-        storage_spec: FieldSpec,
-        updated_input: dict,
+        self, *, storage_spec: FieldSpec, updated_input: dict
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Decode conductance input representation and return ``(etaP, etaH)`` coeffs.
 
@@ -780,10 +760,7 @@ class State:
         target_shape = tuple(np.asarray(grid.theta).shape)
 
         def _eval_scalar(coeffs: np.ndarray) -> np.ndarray:
-            field = Field.from_coefficients(
-                storage_spec,
-                coeffs=coeffs,
-            )
+            field = Field.from_coefficients(storage_spec, coeffs=coeffs)
             vals, _, _ = field.evaluate(r_eval, grid.theta, grid.phi)
             return np.asarray(vals, dtype=float).reshape(target_shape)
 
@@ -796,12 +773,12 @@ class State:
         etaP_grid = np.asarray(etaP_grid, dtype=float).reshape(-1)
         etaH_grid = np.asarray(etaH_grid, dtype=float).reshape(-1)
 
-        etaP_coeffs = np.asarray(
-            storage_spec.from_grid_values(etaP_grid, grid, "scalar")
-        ).reshape(-1)
-        etaH_coeffs = np.asarray(
-            storage_spec.from_grid_values(etaH_grid, grid, "scalar")
-        ).reshape(-1)
+        etaP_coeffs = np.asarray(storage_spec.from_grid_values(etaP_grid, grid, "scalar")).reshape(
+            -1
+        )
+        etaH_coeffs = np.asarray(storage_spec.from_grid_values(etaH_grid, grid, "scalar")).reshape(
+            -1
+        )
         return etaP_coeffs, etaH_coeffs
 
     def update(self, input_manager: Any, time: float, interpolation: bool = False) -> None:
@@ -821,13 +798,15 @@ class State:
 
             # Update cache and proceed
             updated_input = current_data
- 
+
             # Check for derivatives
             current_deriv = None
             if key == "jr" and hasattr(input_manager, "get_entry_with_derivative"):
                 # This assumes InputManager has been updated to provide derivatives methods.
                 # We need interpolation to get correct derivatives from sparse time points
-                _, current_deriv = input_manager.get_entry_with_derivative(key, time, interpolation=True)
+                _, current_deriv = input_manager.get_entry_with_derivative(
+                    key, time, interpolation=True
+                )
                 # Fallback: finite-difference derivative from the previously seen jr input.
                 if (
                     current_deriv is None
@@ -847,36 +826,23 @@ class State:
             if key == "conductance":
                 conductance_updated = True
                 etaP_coeffs, etaH_coeffs = self._decode_conductance_input_to_eta_coeffs(
-                    storage_spec=storage_spec,
-                    updated_input=updated_input,
+                    storage_spec=storage_spec, updated_input=updated_input
                 )
-                f_etaP = Field.from_coefficients(
-                    storage_spec,
-                    coeffs=etaP_coeffs,
-                )
-                f_etaH = Field.from_coefficients(
-                    storage_spec,
-                    coeffs=etaH_coeffs,
-                )
+                f_etaP = Field.from_coefficients(storage_spec, coeffs=etaP_coeffs)
+                f_etaH = Field.from_coefficients(storage_spec, coeffs=etaH_coeffs)
                 self.etaP = self._ensure_basis(f_etaP, "scalar")
                 self.etaH = self._ensure_basis(f_etaH, "scalar")
             elif key == "jr":
-                f_jr = Field.from_coefficients(
-                    storage_spec,
-                    coeffs=updated_input["jr"],
-                )
+                f_jr = Field.from_coefficients(storage_spec, coeffs=updated_input["jr"])
                 self.jr = self._ensure_basis(f_jr, "scalar")
                 # Driver changed: rebuild imposed toroidal baseline on next use.
                 self._imposed_toroidal_dirty = True
                 if current_deriv is not None:
                     if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
-                        f_dt_jr = Field.from_coefficients(
-                            storage_spec,
-                            coeffs=current_deriv["jr"],
-                        )
+                        f_dt_jr = Field.from_coefficients(storage_spec, coeffs=current_deriv["jr"])
                         dt_jr_solution = self._ensure_basis(f_dt_jr, "scalar")
                         dt_m_imp_coeffs = self._map_dt_jr_driver_to_dt_m_imp(
-                            dt_jr_coeffs=asarray(dt_jr_solution.coeffs),
+                            dt_jr_coeffs=asarray(dt_jr_solution.coeffs)
                         )
                         self.dt_m_imp_driver = Field.from_coefficients(
                             self.solution_space,
@@ -890,10 +856,7 @@ class State:
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                f_Br = Field.from_coefficients(
-                    storage_spec,
-                    coeffs=updated_input["Br"],
-                )
+                f_Br = Field.from_coefficients(storage_spec, coeffs=updated_input["Br"])
                 self.Br = self._ensure_basis(f_Br, "scalar")
             elif key == "u":
                 f_u = Field.from_coefficients(
@@ -977,16 +940,11 @@ class State:
     # _calculate_d_m_ind_dt refactored to PoloidalSystemMatrices.compute_rates
 
     def _apply_state_linear_operator(
-        self,
-        operator: Any,
-        state: np.ndarray,
-        output_shape: Optional[Tuple[int, ...]] = None,
+        self, operator: Any, state: np.ndarray, output_shape: Optional[Tuple[int, ...]] = None
     ) -> np.ndarray:
         """Apply a state-space linear operator to a flattened/stacked state."""
         return self.induction.apply_state_linear_operator(
-            operator,
-            state,
-            output_shape=output_shape,
+            operator, state, output_shape=output_shape
         )
 
     def _evolve_linear_state(
@@ -1019,7 +977,6 @@ class State:
         solution_shape: Tuple[int, ...],
         solver: Optional[str] = None,
         preconditioner: Optional[LinearMap] = None,
-        use_pinning: Optional[bool] = None,
     ) -> np.ndarray:
         """Solve a linear steady-state system `A x = -forcing` for arbitrary state shape."""
         return self.induction.solve_linear_steady_state(
@@ -1028,7 +985,6 @@ class State:
             solution_shape=solution_shape,
             solver=solver,
             preconditioner=preconditioner,
-            use_pinning=use_pinning,
         )
 
     def build_coupled_forcing(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
@@ -1036,15 +992,11 @@ class State:
         return self.induction.build_coupled_forcing(E_coeffs_noind)
 
     def solve_steady_state_model_variables(
-        self,
-        E_coeffs_noind: np.ndarray,
-        *,
-        update_state: bool = True,
+        self, E_coeffs_noind: np.ndarray, *, update_state: bool = True
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Compute steady-state initialization for current dynamics mode."""
         return self.induction.solve_steady_state_model_variables(
-            E_coeffs_noind,
-            update_state=update_state,
+            E_coeffs_noind, update_state=update_state
         )
 
     def evolve_model_variables(
@@ -1079,23 +1031,21 @@ class State:
         """Internal coupled-operator assembly/exposure helper."""
         return CoupledOperators(self)
 
-    def get_coupled_induction_tensor(self, use_pinning: Optional[bool] = None) -> np.ndarray:
+    def get_coupled_induction_tensor(self) -> np.ndarray:
         """Build the coupled tensor ``L_coupled`` with shape ``(2, N, 2, N)``."""
-        return self.coupled_operators.get_coupled_induction_tensor(use_pinning=use_pinning)
+        return self.coupled_operators.get_coupled_induction_tensor()
 
     @cached_property
     def coupled_induction_tensor(self) -> np.ndarray:
         """Default coupled induction tensor (delegates to get_coupled_induction_tensor)."""
-        return self.coupled_operators.get_coupled_induction_tensor(use_pinning=self.apply_psi_gauge)
+        return self.coupled_operators.get_coupled_induction_tensor()
 
     @cached_property
     def coupled_induction_operator_sparse(self) -> "LinearMap":
         """Cached matrix-free coupled operator for non-exponential stepping."""
         solver = self.solver_type if self.solver_type in ("lsmr", "cgls") else "lsmr"
         return self.coupled_operators.get_coupled_induction_operator(
-            matrix_free=True,
-            solver=solver,
-            use_pinning=self.apply_psi_gauge,
+            matrix_free=True, solver=solver
         )
 
     @cached_property
@@ -1107,62 +1057,51 @@ class State:
     @cached_property
     def coupled_induction_blocks_dense(self) -> Dict[str, np.ndarray]:
         """Cached dense coupled blocks keyed by physical role."""
-        return self.coupled_operators.get_coupled_induction_blocks(
-            source="dense",
-            use_pinning=self.apply_psi_gauge,
-        )
+        return self.coupled_operators.get_coupled_induction_blocks(source="dense")
 
     def _densify_linear_operator(self, operator: Any, n_total: int) -> np.ndarray:
         """Convert a linear operator to dense ``(2N, 2N)``."""
         return self.coupled_operators._densify_linear_operator(operator, n_total)
 
     def get_coupled_induction_matrix(
-        self,
-        source: Literal["dense", "sparse", "auto"] = "auto",
-        flatten: bool = True,
-        use_pinning: Optional[bool] = None,
+        self, source: Literal["dense", "sparse", "auto"] = "auto", flatten: bool = True
     ) -> np.ndarray:
         """Expose coupled operator matrix in dense form."""
-        return self.coupled_operators.get_coupled_induction_matrix(
-            source=source,
-            flatten=flatten,
-            use_pinning=use_pinning,
-        )
+        return self.coupled_operators.get_coupled_induction_matrix(source=source, flatten=flatten)
 
     def get_coupled_induction_blocks(
-        self,
-        source: Literal["dense", "sparse", "auto"] = "auto",
-        use_pinning: Optional[bool] = None,
+        self, source: Literal["dense", "sparse", "auto"] = "auto"
     ) -> Dict[str, np.ndarray]:
         """Expose coupled block matrices keyed by physical role."""
-        return self.coupled_operators.get_coupled_induction_blocks(
-            source=source,
-            use_pinning=use_pinning,
-        )
+        return self.coupled_operators.get_coupled_induction_blocks(source=source)
 
-    def get_coupled_operator_for_steady_state(
-        self,
-        *,
-        solver: Optional[str] = None,
-        use_pinning: Optional[bool] = None,
-    ) -> Any:
+    def get_coupled_operator_for_steady_state(self, *, solver: Optional[str] = None) -> Any:
         """Return coupled operator used by steady-state coupled solve."""
-        return self.coupled_operators.get_coupled_operator_for_steady_state(
-            solver=solver,
-            use_pinning=use_pinning,
-        )
+        return self.coupled_operators.get_coupled_operator_for_steady_state(solver=solver)
 
     def get_coupled_operator_for_time_integration(
-        self,
-        *,
-        use_dense: Optional[bool] = None,
-        use_pinning: Optional[bool] = None,
+        self, *, use_dense: Optional[bool] = None
     ) -> Any:
-        """Return coupled operator used by non-exponential full-induction stepping."""
+        """Return the full-space coupled operator assembled for time stepping."""
         return self.coupled_operators.get_coupled_operator_for_time_integration(
-            use_dense=use_dense,
-            use_pinning=use_pinning,
+            use_dense=use_dense
         )
+
+    def get_coupled_reduced_time_integration_system(
+        self, *, use_dense: Optional[bool] = None
+    ) -> Any:
+        """Return the gauge-reduced coupled system used by runtime time stepping."""
+        return self.coupled_operators.get_coupled_reduced_time_integration_system(
+            use_dense=use_dense
+        )
+
+    def get_m_ind_reduced_system(self, *, linear_operator: Any | None = None) -> Any:
+        """Return the gauge-reduced scalar system used by legacy ``m_ind`` stepping."""
+        return self.constraints.get_m_ind_reduced_system(linear_operator=linear_operator)
+
+    def get_m_imp_reduced_system(self, *, linear_operator: Any | None = None) -> Any:
+        """Return the gauge-reduced scalar system used by imposed ``m_imp`` solves."""
+        return self.constraints.get_m_imp_reduced_system(linear_operator=linear_operator)
 
     def _get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
         """Return dense projector used by `_project_to_hl_modes`."""
@@ -1172,11 +1111,11 @@ class State:
         """Expose dense linear map from input `jr` coefficients to imposed `m_imp`."""
         return self.coupled_operators.get_m_imp_from_jr_matrix(input_basis=input_basis)
 
-    def get_external_forcing_matrices(self, input_basis_jr: Optional[Any] = None) -> Dict[str, np.ndarray]:
+    def get_external_forcing_matrices(
+        self, input_basis_jr: Optional[Any] = None
+    ) -> Dict[str, np.ndarray]:
         """Expose dense rate maps from `u` and `jr` into the coupled system."""
-        return self.coupled_operators.get_external_forcing_matrices(
-            input_basis_jr=input_basis_jr
-        )
+        return self.coupled_operators.get_external_forcing_matrices(input_basis_jr=input_basis_jr)
 
     def get_coupled_induction_operator(
         self,
@@ -1186,7 +1125,6 @@ class State:
         dt_m_ind_from_m_ind: Any = None,
         matrix_free: bool = False,
         solver: str = "lsmr",
-        use_pinning: Optional[bool] = None,
     ) -> "LinearMap":
         """Build coupled operator for ``y=[psi, m_ind]`` dynamics."""
         return self.coupled_operators.get_coupled_induction_operator(
@@ -1196,7 +1134,6 @@ class State:
             dt_m_ind_from_m_ind=dt_m_ind_from_m_ind,
             matrix_free=matrix_free,
             solver=solver,
-            use_pinning=use_pinning,
         )
 
     def _update_coupled_null_basis(self, L_flat: np.ndarray) -> None:
@@ -1204,13 +1141,16 @@ class State:
         if not self.induction_null_diagnostics:
             return
         m = L_flat.shape[0]
-        if self._coupled_null_basis is not None and self._coupled_null_basis.shape[0] == m:
+        signature = self._get_coupled_null_signature(L_flat)
+        if signature == self._coupled_null_signature and self._coupled_null_basis is not None:
             return
 
         _, svals, vt = np.linalg.svd(np.asarray(L_flat), full_matrices=False)
         if svals.size == 0:
             self._coupled_null_basis = np.zeros((m, 0), dtype=float)
             self._coupled_null_threshold = 0.0
+            self._coupled_null_signature = signature
+            self._coupled_null_warned = False
             return
 
         threshold = float(self.induction_null_svd_rtol) * float(svals[0])
@@ -1219,6 +1159,7 @@ class State:
 
         self._coupled_null_basis = basis
         self._coupled_null_threshold = threshold
+        self._coupled_null_signature = signature
         self._coupled_null_warned = False
         logger.info(
             "Coupled null diagnostic: s_max=%.3e, s_min=%.3e, near_null=%d (rtol=%.1e).",
@@ -1250,3 +1191,47 @@ class State:
                 float(self.induction_null_warn_ratio),
             )
             self._coupled_null_warned = True
+
+    def _get_coupled_null_signature(self, L_flat: np.ndarray) -> tuple[int, int, float, str]:
+        """Return a stable fingerprint for the dense coupled operator."""
+        dense = np.ascontiguousarray(np.asarray(L_flat, dtype=float))
+        digest = hashlib.blake2b(dense.view(np.uint8), digest_size=16).hexdigest()
+        return (
+            int(dense.shape[0]),
+            int(dense.shape[1]),
+            float(self.induction_null_svd_rtol),
+            digest,
+        )
+
+    def run_coupled_null_diagnostics(self, linear_operator: Any, forcing_flat: Any) -> None:
+        """Inspect coupled operator/forcing for strong near-null excitation."""
+        if not self.induction_null_diagnostics:
+            return
+
+        forcing = np.asarray(to_numpy(forcing_flat), dtype=float).reshape(-1)
+        n_total = int(forcing.size)
+        if n_total == 0:
+            return
+
+        avail_bytes = _available_memory_bytes()
+        dense_bytes = int(n_total) * int(n_total) * np.dtype(float).itemsize
+        estimated_peak_bytes = 6 * dense_bytes
+        if avail_bytes is not None and estimated_peak_bytes > int(0.25 * avail_bytes):
+            logger.warning(
+                "Skipping coupled null diagnostic: estimated SVD memory %.2f GiB exceeds "
+                "25%% of available memory %.2f GiB.",
+                estimated_peak_bytes / float(1024**3),
+                avail_bytes / float(1024**3),
+            )
+            return
+
+        try:
+            L_flat = np.asarray(
+                self._densify_linear_operator(linear_operator, n_total), dtype=float
+            ).reshape(n_total, n_total)
+            self._update_coupled_null_basis(L_flat)
+            self._check_forcing_null_projection(forcing)
+        except np.linalg.LinAlgError as exc:
+            logger.warning("Skipping coupled null diagnostic: SVD failed (%s).", exc)
+        except Exception as exc:
+            logger.warning("Skipping coupled null diagnostic: %s.", exc)

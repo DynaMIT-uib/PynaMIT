@@ -77,10 +77,7 @@ class ToroidalSolver:
             sqrt_weights.append(None)
 
         problem = LeastSquaresProblem(
-            A=operators,
-            solution_shape=n_coeff,
-            data_shapes=data_shapes,
-            sqrt_weights=sqrt_weights,
+            A=operators, solution_shape=n_coeff, data_shapes=data_shapes, sqrt_weights=sqrt_weights
         )
         bundle = {
             "problem": problem,
@@ -97,10 +94,7 @@ class ToroidalSolver:
         if hinv_rtol > 0:
             return max(float(hinv_rtol), 0.0)
         rcond = mats._default_pinv_rcond((n_coeff, n_coeff))
-        logger.info(
-            "Auto hard-solve rtol (default pseudoinverse cutoff): %.3e",
-            float(rcond),
-        )
+        logger.info("Auto hard-solve rtol (default pseudoinverse cutoff): %.3e", float(rcond))
         return float(max(rcond, 0.0))
 
     @staticmethod
@@ -295,13 +289,12 @@ class ToroidalSolver:
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
         hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
+        apply_psi_gauge: bool = False,
     ) -> np.ndarray:
         """Solve for `dpsi/dt` via one-shot constrained `dt_alpha` solve."""
         rhs_p = np.asarray(to_numpy(rhs_physics)).reshape(-1)
         dtalpha_to_dt_psi = self._get_dtalpha_to_dt_psi_map_cached(
-            m_imp_to_jr_operator=m_imp_to_jr_operator,
-            use_pinning=use_pinning,
+            m_imp_to_jr_operator=m_imp_to_jr_operator, apply_psi_gauge=apply_psi_gauge
         )
 
         if constraint_operator is None:
@@ -331,17 +324,15 @@ class ToroidalSolver:
         return asarray(dt_psi.reshape(-1))
 
     def _get_psi_gauge_projector_dense(
-        self,
-        m_imp_to_jr_operator: Any,
-        use_pinning: Optional[bool] = None,
+        self, m_imp_to_jr_operator: Any, apply_psi_gauge: Optional[bool] = None
     ) -> np.ndarray:
         """Return explicit gauge projector applied after MP inversion."""
         mats = self._mats
-        if use_pinning is None:
-            use_pinning = mats.is_cs
+        if apply_psi_gauge is None:
+            apply_psi_gauge = mats.is_cs
 
         gauge_mode = "mean_zero"
-        cache_key = (id(m_imp_to_jr_operator), bool(use_pinning), gauge_mode)
+        cache_key = (id(m_imp_to_jr_operator), bool(apply_psi_gauge), gauge_mode)
         cached = mats._psi_gauge_projector_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -351,7 +342,7 @@ class ToroidalSolver:
         n = int(m_to_jr_dense.shape[1])
         identity = np.eye(n, dtype=m_to_jr_dense.dtype)
 
-        if not use_pinning:
+        if not apply_psi_gauge:
             mats._psi_gauge_projector_cache[cache_key] = identity
             return identity
 
@@ -369,10 +360,7 @@ class ToroidalSolver:
         gauge_row = None
         if hasattr(mats.basis, "get_scalar_gauge_constraint_matrix"):
             gauge_row = np.asarray(
-                mats.basis.get_scalar_gauge_constraint_matrix(
-                    n_coeff=n,
-                    mode=gauge_mode,
-                )
+                mats.basis.get_scalar_gauge_constraint_matrix(n_coeff=n, mode=gauge_mode)
             )
         if gauge_row is None:
             if not hasattr(mats.basis, "get_evaluation_matrix"):
@@ -380,7 +368,9 @@ class ToroidalSolver:
                     "Scalar gauge projector requested, but basis does not provide "
                     "get_scalar_gauge_constraint_matrix() or get_evaluation_matrix(grid)."
                 )
-            g_mat = np.asarray(to_dense(as_linear_map(mats.basis.get_evaluation_matrix(mats.grid))))
+            g_mat = np.asarray(
+                to_dense(as_linear_map(mats.basis.get_evaluation_matrix(mats.grid)))
+            )
             if g_mat.ndim != 2 or g_mat.shape[1] != n:
                 raise RuntimeError(
                     "Failed to build generic scalar gauge row from basis.get_evaluation_matrix(grid)."
@@ -435,14 +425,11 @@ class ToroidalSolver:
         return gauge_projector
 
     def _get_dtalpha_to_dt_psi_map_cached(
-        self,
-        *,
-        m_imp_to_jr_operator: Any,
-        use_pinning: bool,
+        self, *, m_imp_to_jr_operator: Any, apply_psi_gauge: bool
     ) -> np.ndarray:
         """Return cached dense map `dt_alpha -> dpsi/dt`."""
         mats = self._mats
-        key = (id(m_imp_to_jr_operator), bool(use_pinning))
+        key = (id(m_imp_to_jr_operator), bool(apply_psi_gauge))
         cached = mats._dtalpha_to_dt_psi_map_cache.get(key)
         if cached is not None:
             return cached
@@ -450,8 +437,7 @@ class ToroidalSolver:
         alpha_to_psi = np.asarray(to_numpy(mats.alpha_to_psi_coeff_operator))
         gauge_projector = np.asarray(
             self._get_psi_gauge_projector_dense(
-                m_imp_to_jr_operator,
-                use_pinning=use_pinning,
+                m_imp_to_jr_operator, apply_psi_gauge=apply_psi_gauge
             )
         )
         map_dtalpha_to_dt_psi = gauge_projector @ alpha_to_psi
@@ -467,7 +453,7 @@ class ToroidalSolver:
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
         hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
+        apply_psi_gauge: bool = False,
     ) -> np.ndarray:
         """Build dense map `toroidal_rhs -> dpsi/dt`."""
         mats = self._mats
@@ -491,10 +477,41 @@ class ToroidalSolver:
             )
 
         dtalpha_to_dt_psi = self._get_dtalpha_to_dt_psi_map_cached(
-            m_imp_to_jr_operator=m_imp_to_jr_operator,
-            use_pinning=use_pinning,
+            m_imp_to_jr_operator=m_imp_to_jr_operator, apply_psi_gauge=apply_psi_gauge
         )
         return asarray(dtalpha_to_dt_psi @ dtalpha_from_K)
+
+    def build_dtalpha_from_toroidal_rhs_matrix(
+        self,
+        *,
+        constraint_operator: Any = None,
+        weighting: str = "none",
+        regularization_lambda: float = 0.0,
+        penalty_operator: Any = None,
+        penalty_scaling: float = 0.0,
+        hinv_rtol: float = 0.0,
+    ) -> np.ndarray:
+        """Build dense map ``toroidal_rhs -> dt_alpha``."""
+        if constraint_operator is not None:
+            maps = self._get_constrained_dtalpha_maps(
+                alpha_map_operator=constraint_operator,
+                weighting=weighting,
+                regularization_lambda=regularization_lambda,
+                penalty_operator=penalty_operator,
+                penalty_scaling=penalty_scaling,
+                hinv_rtol=hinv_rtol,
+            )
+            return asarray(maps["M_phys_dtalpha"])
+
+        return asarray(
+            self._get_unconstrained_dtalpha_map_cached(
+                weighting=weighting,
+                regularization_lambda=regularization_lambda,
+                penalty_operator=penalty_operator,
+                penalty_scaling=penalty_scaling,
+                hinv_rtol=hinv_rtol,
+            )
+        )
 
     def build_psi_dynamics_matrix(
         self,
@@ -506,17 +523,13 @@ class ToroidalSolver:
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
         hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
+        apply_psi_gauge: bool = False,
     ) -> np.ndarray:
         """Build the linear operator `psi -> dpsi/dt`."""
         mats = self._mats
         N = mats.basis.index_length
         E_to_rhs = to_numpy(mats.toroidal_rhs_from_E_operator)
-        psi_to_E = coerce_dense_operator_matrix(
-            psi_to_E_operator,
-            n_component_rows=2,
-            n_cols=N,
-        )
+        psi_to_E = coerce_dense_operator_matrix(psi_to_E_operator, n_component_rows=2, n_cols=N)
 
         dt_psi_from_K = self.build_dt_psi_from_toroidal_rhs_matrix(
             m_imp_to_jr_operator=m_imp_to_jr_operator,
@@ -526,7 +539,7 @@ class ToroidalSolver:
             penalty_operator=penalty_operator,
             penalty_scaling=penalty_scaling,
             hinv_rtol=hinv_rtol,
-            use_pinning=use_pinning,
+            apply_psi_gauge=apply_psi_gauge,
         )
         return asarray((dt_psi_from_K @ E_to_rhs) @ psi_to_E)
 
@@ -541,7 +554,7 @@ class ToroidalSolver:
         penalty_operator: Any = None,
         penalty_scaling: float = 0.0,
         hinv_rtol: float = 0.0,
-        use_pinning: bool = False,
+        apply_psi_gauge: bool = False,
     ) -> "LinearMap":
         """Get linear operator `psi -> dpsi/dt`."""
         mats = self._mats
@@ -557,7 +570,7 @@ class ToroidalSolver:
                 penalty_operator=penalty_operator,
                 penalty_scaling=penalty_scaling,
                 hinv_rtol=hinv_rtol,
-                use_pinning=use_pinning,
+                apply_psi_gauge=apply_psi_gauge,
             )
             return as_linear_map(L_dense)
 
@@ -565,11 +578,7 @@ class ToroidalSolver:
             psi_to_E_op = psi_to_E_operator
         else:
             psi_to_E_op = as_linear_map(
-                coerce_dense_operator_matrix(
-                    psi_to_E_operator,
-                    n_component_rows=2,
-                    n_cols=N,
-                )
+                coerce_dense_operator_matrix(psi_to_E_operator, n_component_rows=2, n_cols=N)
             )
 
         E_to_rhs_op = as_linear_map(np.asarray(to_numpy(mats.toroidal_rhs_from_E_operator)))
@@ -584,8 +593,7 @@ class ToroidalSolver:
         )
         dtalpha_to_dt_psi_op = as_linear_map(
             self._get_dtalpha_to_dt_psi_map_cached(
-                m_imp_to_jr_operator=m_imp_to_jr_operator,
-                use_pinning=use_pinning,
+                m_imp_to_jr_operator=m_imp_to_jr_operator, apply_psi_gauge=apply_psi_gauge
             )
         )
 
@@ -613,7 +621,7 @@ class ToroidalSolver:
                 penalty_operator=penalty_operator,
                 penalty_scaling=penalty_scaling,
                 hinv_rtol=hinv_rtol,
-                use_pinning=use_pinning,
+                apply_psi_gauge=apply_psi_gauge,
             )
 
         return build_linear_map(

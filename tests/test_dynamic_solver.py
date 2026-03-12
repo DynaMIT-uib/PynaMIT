@@ -57,7 +57,9 @@ def _run_dynamic_ramp_test(
     actual_mind_norm = np.linalg.norm(m_ind_1)
 
     print(f"DEBUG: {test_name} - Actual Psi={actual_psi_norm}, Expected Psi={expected_psi_norm}")
-    print(f"DEBUG: {test_name} - Actual Mind={actual_mind_norm}, Expected Mind={expected_mind_norm}")
+    print(
+        f"DEBUG: {test_name} - Actual Mind={actual_mind_norm}, Expected Mind={expected_mind_norm}"
+    )
 
     assert actual_psi_norm == pytest.approx(expected_psi_norm, rel=rel_tol)
     assert actual_mind_norm == pytest.approx(expected_mind_norm, rel=rel_tol)
@@ -116,10 +118,12 @@ def test_dynamic_ramp_spectral_transform_cs(tmp_path):
 
 def test_dynamic_ramp_cs_dominant(backend: str, tmp_path):
     """Test CS dominant mode with dual induction."""
-    # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
-    # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 2.0203700322434142e-07
-    expected_mind_norm = 1.9512331416159726e-07
+    # Baselines updated 2026-03-12 after coupled runtime stepping switched to
+    # the same reduced gauge-constrained coordinates as the coupled steady-state
+    # solve. CS-dominant was the only mode whose old Euler baseline was still
+    # reflecting unconstrained full-space drift.
+    expected_psi_norm = 3.2158174332409124e-07
+    expected_mind_norm = 3.0968544093099376e-07
     rel_tol = 1e-2
 
     _run_dynamic_ramp_test(

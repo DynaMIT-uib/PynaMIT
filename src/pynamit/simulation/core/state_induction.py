@@ -12,6 +12,7 @@ from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map
 from pynamit.primitives.basis import is_cs_like_basis, is_sh_basis
+from pynamit.simulation.induction.poloidal_solver import MImpFeedbackSystem
 from pynamit.simulation.core.coupled_solver import CoupledSteadyStateSolver
 from pynamit.simulation.settings import DynamicsMode, ExponentialSolverKind
 from pynamit.utils import asarray, to_numpy, xp
@@ -26,11 +27,7 @@ class StateInduction:
     """Expose induction/coupled orchestration on top of a `State` instance."""
 
     def __init__(
-        self,
-        state: Any,
-        *,
-        timed_solve: TimedSolveFn,
-        available_memory_bytes: AvailableMemoryFn,
+        self, state: Any, *, timed_solve: TimedSolveFn, available_memory_bytes: AvailableMemoryFn
     ) -> None:
         self._state = state
         self._timed_solve = timed_solve
@@ -41,10 +38,11 @@ class StateInduction:
         st = self._state
         return bool(st.connect_hemispheres and st.dynamics_mode != DynamicsMode.FULL_INDUCTION)
 
-    def build_m_imp_problem(self) -> LeastSquaresProblem:
-        """Build the least-squares problem definition for ``m_imp``."""
+    def build_m_imp_feedback_system(self) -> MImpFeedbackSystem:
+        """Build the bundled reduced ``m_imp`` feedback solve definition."""
         st = self._state
         logger.info("Defining new least-squares problem for m_imp.")
+        m_imp_reduced_system = st.get_m_imp_reduced_system()
 
         e_constraint_op = None
         if (
@@ -54,30 +52,26 @@ class StateInduction:
         ):
             e_constraint_op = st.E_map_constraint_operator
 
-        constraint_scalar_operator = st.geometry.get_constraint_scalar_operator(
-            st.solution_space
-        )
+        constraint_scalar_operator = st.geometry.get_constraint_scalar_operator(st.solution_space)
 
-        return st.geometry.poloidal_matrices.build_least_squares_problem(
+        problem = st.geometry.poloidal_matrices.build_least_squares_problem(
             constraint_scalar_operator=constraint_scalar_operator,
             E_constraint_operator=e_constraint_op,
             connect_hemispheres=(e_constraint_op is not None),
             ih_constraint_scaling=st.ih_constraint_scaling,
             regularization_lambda=st.m_imp_regularization_lambda,
-            use_pinning=is_cs_like_basis(st.solution_space),
+            m_imp_selector=np.asarray(m_imp_reduced_system.selector, dtype=float),
             weighting=st.poloidal_weighting,
         )
-
-    def build_m_imp_preconditioner(self) -> Optional[LinearMap]:
-        """Build the preconditioner for the ``m_imp`` least-squares problem."""
-        st = self._state
-        logger.info("Building new preconditioner for m_imp solver.")
-        return st.m_imp_solver.build_preconditioner(problem=st.m_imp_problem, num_scenarios=1)
+        preconditioner = st.m_imp_solver.build_preconditioner(problem=problem, num_scenarios=1)
+        return MImpFeedbackSystem(
+            problem=problem,
+            selector=np.asarray(m_imp_reduced_system.selector, dtype=float),
+            preconditioner=preconditioner,
+        )
 
     def _calculate_total_E_field(
-        self,
-        E_direct_coeffs: np.ndarray,
-        jr_coeffs: Optional[np.ndarray],
+        self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Apply imposed toroidal baseline to a direct electric field."""
         st = self._state
@@ -93,17 +87,9 @@ class StateInduction:
         if st.u is None:
             E_direct = xp.zeros(E_shape)
         else:
-            E_direct = st._apply_operator(
-                st.u_coeffs_to_E_coeffs,
-                asarray(st.u.coeffs),
-                E_shape,
-            )
+            E_direct = st._apply_operator(st.u_coeffs_to_E_coeffs, asarray(st.u.coeffs), E_shape)
         if st.Br is not None:
-            E_direct += st._apply_operator(
-                st.Br_to_E_coeffs,
-                asarray(st.Br.coeffs),
-                E_shape,
-            )
+            E_direct += st._apply_operator(st.Br_to_E_coeffs, asarray(st.Br.coeffs), E_shape)
 
         jr_coeffs = None if st.jr is None else asarray(st.jr.coeffs)
         if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
@@ -111,9 +97,7 @@ class StateInduction:
         return self._calculate_total_E_field(E_direct, jr_coeffs)
 
     def _calculate_dynamic_state(
-        self,
-        E_direct_coeffs: np.ndarray,
-        jr_coeffs: Optional[np.ndarray],
+        self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Assemble non-inductive forcing and update toroidal residual rate."""
         st = self._state
@@ -162,16 +146,14 @@ class StateInduction:
             penalty_operator=None,
             penalty_scaling=0.0,
             hinv_rtol=0.0,
-            use_pinning=st.apply_psi_gauge,
+            apply_psi_gauge=st.apply_psi_gauge,
         )
         if solution is None:
             raise RuntimeError("Toroidal superposed dpsi/dt solve returned no solution.")
         return asarray(solution)
 
     def build_imposed_toroidal_baseline(
-        self,
-        jr_coeffs: Optional[np.ndarray],
-        E_direct_coeffs: Optional[np.ndarray] = None,
+        self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """Build imposed toroidal baseline ``m_imp`` from external driver inputs."""
         st = self._state
@@ -182,13 +164,14 @@ class StateInduction:
             input_basis = st.jr.spec if st.jr is not None else None
             m_imp_from_jr = np.asarray(st.get_m_imp_from_jr_matrix(input_basis=input_basis))
             jr_vec = np.asarray(jr_coeffs).reshape(-1)
-            return st.constraints.apply_m_imp_gauge_projection(m_imp_from_jr @ jr_vec)
+            return asarray(m_imp_from_jr @ jr_vec)
 
         use_e_constraint = st.connect_hemispheres and st.E_map_constraint_operator is not None
         if jr_coeffs is None and not use_e_constraint:
             return xp.zeros(n)
+        feedback_system = st.m_imp_feedback_system
 
-        rhs_entries: list[Optional[Any]] = [None] * st.m_imp_problem.num_data_terms
+        rhs_entries: list[Optional[Any]] = [None] * feedback_system.problem.num_data_terms
         if jr_coeffs is not None:
             op_rhs = st.geometry.get_constraint_scalar_operator(st.jr.spec if st.jr else None)
             rhs_entries[0] = as_linear_map(op_rhs).matvec(asarray(jr_coeffs).reshape(-1))
@@ -212,13 +195,13 @@ class StateInduction:
         solution = self._timed_solve(
             "state.m_imp",
             st.m_imp_solver,
-            problem=st.m_imp_problem,
+            problem=feedback_system.problem,
             rhs=rhs_entries,
-            preconditioner=st.m_imp_preconditioner,
+            preconditioner=feedback_system.preconditioner,
         )
         if solution is None:
-            solution = xp.zeros(n)
-        return st.constraints.apply_m_imp_gauge_projection(solution)
+            solution = xp.zeros(feedback_system.problem.solution_size)
+        return asarray(feedback_system.expand_solution(solution))
 
     def map_dt_jr_driver_to_dt_m_imp(self, dt_jr_coeffs: np.ndarray) -> np.ndarray:
         """Map driver derivative ``dt_jr`` to toroidal driver derivative ``dt_m_imp``."""
@@ -230,9 +213,7 @@ class StateInduction:
                 "dt_jr -> dt_m_imp mapping dimension mismatch: "
                 f"map={m_imp_from_jr.shape}, driver={dt_jr_vec.shape}."
             )
-        dt_m_imp = m_imp_from_jr @ dt_jr_vec
-        dt_m_imp = st._project_to_hl_modes(dt_m_imp)
-        return st.constraints.apply_m_imp_gauge_projection(dt_m_imp)
+        return asarray(m_imp_from_jr @ dt_jr_vec)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total induced E-field coefficients."""
@@ -253,7 +234,7 @@ class StateInduction:
         """Dense matrix mapping `m_ind` to div-free E-field."""
         st = self._state
         return st.poloidal_matrices.build_induction_matrix(
-            problem=st.m_imp_problem,
+            feedback_system=st.m_imp_feedback_system,
             solver=st.m_imp_solver,
             E_map_constraint_operator=st.geometry.E_coeffs_to_E_apex_ll_diff,
             ih_constraint_scaling=st.ih_constraint_scaling,
@@ -292,9 +273,8 @@ class StateInduction:
         """Get matrix-free induction operator (`m_ind -> E_df`)."""
         st = self._state
         return st.poloidal_matrices.get_induction_operator(
-            problem=st.m_imp_problem,
+            feedback_system=st.m_imp_feedback_system,
             solver=st.m_imp_solver,
-            preconditioner=st.m_imp_preconditioner,
             E_map_constraint_operator=st.geometry.E_coeffs_to_E_apex_ll_diff,
             ih_constraint_scaling=st.ih_constraint_scaling,
             connect_hemispheres=self._legacy_connect_hemispheres(),
@@ -303,10 +283,7 @@ class StateInduction:
         )
 
     def apply_state_linear_operator(
-        self,
-        operator: Any,
-        state: np.ndarray,
-        output_shape: Optional[Tuple[int, ...]] = None,
+        self, operator: Any, state: np.ndarray, output_shape: Optional[Tuple[int, ...]] = None
     ) -> np.ndarray:
         """Apply a state-space linear operator to a flattened/stacked state."""
         state_arr = asarray(state)
@@ -343,7 +320,9 @@ class StateInduction:
         st = self._state
         y_arr = asarray(y)
         y_shape = tuple(y_arr.shape)
-        forcing_arr = xp.zeros_like(y_arr) if forcing is None else asarray(forcing).reshape(y_shape)
+        forcing_arr = (
+            xp.zeros_like(y_arr) if forcing is None else asarray(forcing).reshape(y_shape)
+        )
 
         if isinstance(st.poloidal_integrator, ExponentialIntegrator):
             if linear_operator is None:
@@ -357,8 +336,7 @@ class StateInduction:
                     step_kwargs["affine_expm_mode"] = "action"
                 else:
                     raise ValueError(
-                        "Unknown exponential_solver setting: "
-                        f"{st.exponential_solver!r}"
+                        f"Unknown exponential_solver setting: {st.exponential_solver!r}"
                     )
             affine_mode = str(step_kwargs.get("affine_expm_mode", "auto")).lower()
 
@@ -367,9 +345,9 @@ class StateInduction:
                 if hasattr(linear_operator, "matvec"):
                     linear_operator_for_step = linear_operator
                 else:
-                    linear_operator_for_step = np.asarray(asarray(linear_operator), dtype=float).reshape(
-                        n_total, n_total
-                    )
+                    linear_operator_for_step = np.asarray(
+                        asarray(linear_operator), dtype=float
+                    ).reshape(n_total, n_total)
             else:
                 if hasattr(linear_operator, "matvec"):
                     l_dense = st._densify_linear_operator(linear_operator, n_total)
@@ -377,7 +355,11 @@ class StateInduction:
                     l_dense = asarray(linear_operator).reshape(n_total, n_total)
                 linear_operator_for_step = np.asarray(l_dense, dtype=float)
 
-            forcing_flat = None if forcing is None else np.asarray(asarray(forcing_arr), dtype=float).reshape(n_total)
+            forcing_flat = (
+                None
+                if forcing is None
+                else np.asarray(asarray(forcing_arr), dtype=float).reshape(n_total)
+            )
             steady_state_flat = (
                 None
                 if steady_state is None
@@ -404,9 +386,7 @@ class StateInduction:
             def default_rates_func(y_curr: np.ndarray, _t: float) -> np.ndarray:
                 y_curr_arr = asarray(y_curr).reshape(y_shape)
                 rates = self.apply_state_linear_operator(
-                    linear_operator,
-                    y_curr_arr,
-                    output_shape=y_shape,
+                    linear_operator, y_curr_arr, output_shape=y_shape
                 )
                 return asarray(rates + forcing_arr)
 
@@ -422,20 +402,12 @@ class StateInduction:
                 rates_curr = asarray(rates(y_curr_shaped, t_curr)).reshape(y_shape)
                 return asarray(rates_curr).reshape(-1)
 
-            y_next_flat = st.poloidal_integrator.step(
-                y=y0_flat,
-                dt=dt,
-                rates_func=scipy_rates,
-            )
+            y_next_flat = st.poloidal_integrator.step(y=y0_flat, dt=dt, rates_func=scipy_rates)
             return asarray(y_next_flat).reshape(y_shape)
 
-        return asarray(
-            st.poloidal_integrator.step(
-                y=y_arr,
-                dt=dt,
-                rates_func=rates,
-            )
-        ).reshape(y_shape)
+        return asarray(st.poloidal_integrator.step(y=y_arr, dt=dt, rates_func=rates)).reshape(
+            y_shape
+        )
 
     def solve_linear_steady_state(
         self,
@@ -445,7 +417,6 @@ class StateInduction:
         solution_shape: Tuple[int, ...],
         solver: Optional[str] = None,
         preconditioner: Optional[LinearMap] = None,
-        use_pinning: Optional[bool] = None,
     ) -> np.ndarray:
         """Solve a linear steady-state system ``A x = -forcing``."""
         st = self._state
@@ -457,8 +428,7 @@ class StateInduction:
             and int(solution_shape[0]) == 2
             and int(solution_shape[1]) == st.solution_space.index_length
         ):
-            if use_pinning is None:
-                use_pinning = st.apply_psi_gauge
+            apply_psi_gauge = bool(st.apply_psi_gauge)
             if solver is None:
                 solver = st.solver_type
 
@@ -466,10 +436,7 @@ class StateInduction:
             using_default_coupled_operator = False
             if coupled_operator is None:
                 using_default_coupled_operator = True
-                coupled_operator = st.get_coupled_operator_for_steady_state(
-                    solver=solver,
-                    use_pinning=use_pinning,
-                )
+                coupled_operator = st.get_coupled_operator_for_steady_state(solver=solver)
             steady_solver = CoupledSteadyStateSolver(
                 n_scalar=st.solution_space.index_length,
                 apply_m_ind_gauge=st.apply_m_ind_gauge,
@@ -483,16 +450,13 @@ class StateInduction:
             )
             column_scale_cache_key = None
             if using_default_coupled_operator:
-                column_scale_cache_key = (
-                    bool(use_pinning),
-                    int(st.solution_space.index_length),
-                )
+                column_scale_cache_key = (apply_psi_gauge, int(st.solution_space.index_length))
             y_ss_flat = steady_solver.solve(
                 coupled_operator=coupled_operator,
                 forcing_flat=rhs,
                 solver=solver,
                 preconditioner=preconditioner,
-                use_pinning=bool(use_pinning),
+                apply_psi_gauge=apply_psi_gauge,
                 column_scale_cache_key=column_scale_cache_key,
             )
             return asarray(y_ss_flat).reshape(solution_shape)
@@ -501,45 +465,28 @@ class StateInduction:
             raise ValueError("Single-state steady-state solve requires linear_operator.")
 
         vec_b = -rhs
-        induction_obj = linear_operator
-        if not hasattr(induction_obj, "matvec"):
-            induction_obj = asarray(induction_obj).reshape(n_total, n_total)
-        induction_op = as_linear_map(induction_obj)
+        reduced_system = st.get_m_ind_reduced_system(linear_operator=linear_operator)
+        if reduced_system.n_reduced == 0:
+            return asarray(np.zeros((n_total,), dtype=float)).reshape(solution_shape)
 
-        equality_operator = None
-        equality_rhs = None
-        if st.apply_m_ind_gauge:
-            gauge_row = np.asarray(st.constraints.get_m_ind_gauge_row(n_total), dtype=float)
-            if gauge_row.ndim == 1:
-                gauge_row = gauge_row.reshape(1, -1)
-            if gauge_row.ndim == 2 and gauge_row.shape[1] == n_total and gauge_row.shape[0] > 0:
-                equality_operator = gauge_row
-                equality_rhs = np.zeros(gauge_row.shape[0], dtype=float)
+        induction_op = reduced_system.reduced_operator
+        if induction_op is None:
+            raise RuntimeError("Reduced m_ind steady-state solve requires a reduced operator.")
 
         ls_problem = LeastSquaresProblem(
             A=[induction_op],
-            solution_shape=solution_shape,
-            data_shapes=[solution_shape],
+            solution_shape=(reduced_system.n_reduced,),
+            data_shapes=[(reduced_system.n_reduced,)],
         )
-        ls_solver = LeastSquaresSolver(
-            solver=(solver or "lsmr"),
-            tolerance=1e-10,
-        )
-        solve_kwargs: Dict[str, Any] = {
-            "preconditioner": preconditioner if equality_operator is None else None,
-        }
-        if equality_operator is not None:
-            solve_kwargs["equality_operator"] = equality_operator
-            solve_kwargs["equality_rhs"] = equality_rhs
-
-        sol = self._timed_solve(
+        ls_solver = LeastSquaresSolver(solver=(solver or "lsmr"), tolerance=1e-10)
+        sol_reduced = self._timed_solve(
             "state.steady_state_single",
             ls_solver,
             ls_problem,
-            [vec_b],
-            **solve_kwargs,
+            [reduced_system.reduce_vector(vec_b)],
+            preconditioner=preconditioner if reduced_system.n_reduced == n_total else None,
         )
-        return asarray(sol).reshape(solution_shape)
+        return asarray(reduced_system.expand_vector(sol_reduced)).reshape(solution_shape)
 
     def build_coupled_forcing(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Build coupled forcing tensor `K` for `[psi, m_ind]` dynamics."""
@@ -556,10 +503,7 @@ class StateInduction:
         return xp.stack([k0, k1])
 
     def solve_steady_state_model_variables(
-        self,
-        E_coeffs_noind: np.ndarray,
-        *,
-        update_state: bool = True,
+        self, E_coeffs_noind: np.ndarray, *, update_state: bool = True
     ) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """Compute steady-state initialization for the current dynamics mode."""
         st = self._state
@@ -570,7 +514,6 @@ class StateInduction:
                 forcing=self.build_coupled_forcing(E_coeffs_noind),
                 solution_shape=(2, N),
                 solver=st.solver_type,
-                use_pinning=st.apply_psi_gauge,
             )
             psi = asarray(y_ss[0])
             m_ind = asarray(y_ss[1])
@@ -608,14 +551,10 @@ class StateInduction:
                 psi = st.psi
 
             y = xp.stack([asarray(psi), asarray(m_ind)])
+            K = self.build_coupled_forcing(E_coeffs_noind)
             if isinstance(st.poloidal_integrator, ExponentialIntegrator):
-                use_pinning = st.apply_psi_gauge
                 N = st.solution_space.index_length
-                m = 2 * N
-                exp_kwargs: Dict[str, Any] = {
-                    "max_step_scale": 10.0,
-                    "max_substeps": 32768,
-                }
+                exp_kwargs: Dict[str, Any] = {"max_step_scale": 10.0, "max_substeps": 32768}
                 if st.exponential_solver == ExponentialSolverKind.EXPM:
                     exp_kwargs["affine_expm_mode"] = "dense"
                 elif st.exponential_solver == ExponentialSolverKind.EXPM_MULTIPLY:
@@ -626,103 +565,121 @@ class StateInduction:
                     )
 
                 use_dense_coupled_operator = bool(st.dense_full_operators)
+                reduced_system = st.get_coupled_reduced_time_integration_system(
+                    use_dense=use_dense_coupled_operator
+                )
+                m_reduced = reduced_system.n_reduced
                 avail_bytes = self._available_memory_bytes()
                 if use_dense_coupled_operator and avail_bytes is not None:
-                    matrix_bytes = int(m) * int(m) * np.dtype(float).itemsize
-                    peak_factor = 3 if st.exponential_solver == ExponentialSolverKind.EXPM_MULTIPLY else 8
+                    matrix_bytes = int(m_reduced) * int(m_reduced) * np.dtype(float).itemsize
+                    peak_factor = (
+                        3 if st.exponential_solver == ExponentialSolverKind.EXPM_MULTIPLY else 8
+                    )
                     estimated_peak_bytes = int(peak_factor * matrix_bytes)
                     if estimated_peak_bytes > int(0.80 * avail_bytes):
-                        need_gib = estimated_peak_bytes / float(1024 ** 3)
-                        avail_gib = avail_bytes / float(1024 ** 3)
+                        need_gib = estimated_peak_bytes / float(1024**3)
+                        avail_gib = avail_bytes / float(1024**3)
                         raise MemoryError(
                             "Coupled exponential step would likely exceed available memory: "
                             f"need ~{need_gib:.2f} GiB, available ~{avail_gib:.2f} GiB. "
                             "Reduce resolution or use a non-exponential integrator for this run."
                         )
 
-                coupled_dynamics_operator = st.get_coupled_operator_for_time_integration(
-                    use_dense=use_dense_coupled_operator,
-                    use_pinning=use_pinning,
-                )
-                if steady_state_psi is None or steady_state_m_ind is None:
-                    steady_state_psi, steady_state_m_ind = self.solve_steady_state_model_variables(
-                        E_coeffs_noind,
-                        update_state=False,
-                    )
-                y_ss = np.stack(
-                    [
-                        np.asarray(steady_state_psi, dtype=float).reshape(N),
-                        np.asarray(steady_state_m_ind, dtype=float).reshape(N),
-                    ]
-                )
-
-                y_new = self.evolve_linear_state(
-                    y=np.asarray(y).reshape(m),
+                y_reduced = reduced_system.reduce_vector(y)
+                K_reduced = reduced_system.reduce_vector(K)
+                st.run_coupled_null_diagnostics(reduced_system.reduced_operator, K_reduced)
+                y_new_reduced = self.evolve_linear_state(
+                    y=y_reduced,
                     dt=float(dt),
-                    linear_operator=coupled_dynamics_operator,
-                    steady_state=y_ss.reshape(m),
+                    linear_operator=reduced_system.reduced_operator,
+                    forcing=K_reduced,
                     exponential_kwargs=exp_kwargs,
-                ).reshape(2, N)
+                )
+                y_new = reduced_system.expand_vector(y_new_reduced).reshape(2, N)
             else:
-                K = self.build_coupled_forcing(E_coeffs_noind)
-                coupled_operator = st.get_coupled_operator_for_time_integration(
-                    use_dense=st.dense_full_operators,
-                    use_pinning=st.apply_psi_gauge,
+                reduced_system = st.get_coupled_reduced_time_integration_system(
+                    use_dense=st.dense_full_operators
                 )
-                y_new = self.evolve_linear_state(
-                    y=y,
+                y_reduced = reduced_system.reduce_vector(y)
+                K_reduced = reduced_system.reduce_vector(K)
+                st.run_coupled_null_diagnostics(reduced_system.reduced_operator, K_reduced)
+                y_new_reduced = self.evolve_linear_state(
+                    y=y_reduced,
                     dt=dt,
-                    linear_operator=coupled_operator,
-                    forcing=K,
+                    linear_operator=reduced_system.reduced_operator,
+                    forcing=K_reduced,
                 )
+                N = st.solution_space.index_length
+                y_new = reduced_system.expand_vector(y_new_reduced).reshape(2, N)
             psi_new = asarray(y_new[0])
             m_ind_new = asarray(y_new[1])
             st.psi = psi_new
             return psi_new, m_ind_new
 
-        use_dense_rate_operator = bool(
-            st.dense_full_operators or isinstance(st.poloidal_integrator, ExponentialIntegrator)
-        )
-        forcing = None
-        rates_func: Optional[Callable[[np.ndarray, float], np.ndarray]]
+        use_exponential_integrator = isinstance(st.poloidal_integrator, ExponentialIntegrator)
+        use_frozen_steady_state = use_exponential_integrator and steady_state_m_ind is not None
+        use_dense_rate_operator = bool(st.dense_full_operators or use_exponential_integrator)
+
         if use_dense_rate_operator:
             scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-            linear_operator = scale * asarray(st.m_ind_to_E_df_matrix)
-            E_noind_field = st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(
-                E_coeffs_noind
-            )
-            forcing = asarray(scale * E_noind_field)
-            rates_func = None
-        else:
-            linear_operator = None
+            full_linear_operator = scale * asarray(st.m_ind_to_E_df_matrix)
+            reduced_system = st.get_m_ind_reduced_system(linear_operator=full_linear_operator)
+            if reduced_system.n_reduced == 0:
+                return None, asarray(reduced_system.expand_vector(np.zeros((0,), dtype=float)))
 
-            def rates_func(y: np.ndarray, t: float) -> np.ndarray:
-                return st.poloidal_matrices.compute_rates(
-                    m_ind=y,
-                    t=t,
-                    E_coeffs_noind=E_coeffs_noind,
-                    induction_matrix=None,
-                    m_ind_to_E_operator=st.m_ind_to_E_coeffs,
-                    problem=st.m_imp_problem,
-                    solver=st.m_imp_solver,
-                    preconditioner=st.m_imp_preconditioner,
-                    E_map_constraint_operator=st.geometry.E_coeffs_to_E_apex_ll_diff,
-                    ih_constraint_scaling=st.ih_constraint_scaling,
-                    connect_hemispheres=self._legacy_connect_hemispheres(),
-                    m_imp_to_E_operator=st.m_imp_to_E_coeffs,
+            forcing_reduced = None
+            if not use_frozen_steady_state:
+                E_noind_field = st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(
+                    E_coeffs_noind
                 )
+                full_forcing = asarray(scale * E_noind_field)
+                forcing_reduced = reduced_system.reduce_vector(full_forcing)
 
-        if isinstance(st.poloidal_integrator, ExponentialIntegrator) and linear_operator is None:
-            scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-            linear_operator = scale * st.m_ind_to_E_df_matrix
+            steady_state_reduced = (
+                reduced_system.reduce_vector(steady_state_m_ind)
+                if steady_state_m_ind is not None
+                else None
+            )
+            m_ind_new_reduced = self.evolve_linear_state(
+                y=reduced_system.reduce_vector(asarray(m_ind)),
+                dt=dt,
+                linear_operator=reduced_system.reduced_operator,
+                forcing=forcing_reduced,
+                rates_func=None,
+                steady_state=steady_state_reduced,
+            )
+            return None, asarray(reduced_system.expand_vector(m_ind_new_reduced))
 
-        m_ind_new = self.evolve_linear_state(
-            y=asarray(m_ind),
+        reduced_system = st.get_m_ind_reduced_system()
+        if reduced_system.n_reduced == 0:
+            return None, asarray(reduced_system.expand_vector(np.zeros((0,), dtype=float)))
+
+        def full_rates_func(y: np.ndarray, t: float) -> np.ndarray:
+            return st.poloidal_matrices.compute_rates(
+                m_ind=y,
+                t=t,
+                E_coeffs_noind=E_coeffs_noind,
+                induction_matrix=None,
+                m_ind_to_E_operator=st.m_ind_to_E_coeffs,
+                feedback_system=st.m_imp_feedback_system,
+                solver=st.m_imp_solver,
+                E_map_constraint_operator=st.geometry.E_coeffs_to_E_apex_ll_diff,
+                ih_constraint_scaling=st.ih_constraint_scaling,
+                connect_hemispheres=self._legacy_connect_hemispheres(),
+                m_imp_to_E_operator=st.m_imp_to_E_coeffs,
+            )
+
+        def reduced_rates_func(y_reduced: np.ndarray, t: float) -> np.ndarray:
+            y_full = reduced_system.expand_vector(y_reduced)
+            rates_full = full_rates_func(y_full, t)
+            return reduced_system.reduce_vector(rates_full)
+
+        m_ind_new_reduced = self.evolve_linear_state(
+            y=reduced_system.reduce_vector(asarray(m_ind)),
             dt=dt,
-            linear_operator=linear_operator,
-            forcing=forcing,
-            rates_func=rates_func,
-            steady_state=asarray(steady_state_m_ind) if steady_state_m_ind is not None else None,
+            linear_operator=None,
+            forcing=None,
+            rates_func=reduced_rates_func,
+            steady_state=None,
         )
-        m_ind_new = st.constraints.apply_m_ind_gauge_projection(m_ind_new)
-        return None, asarray(m_ind_new)
+        return None, asarray(reduced_system.expand_vector(m_ind_new_reduced))

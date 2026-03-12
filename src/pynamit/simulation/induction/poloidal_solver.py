@@ -8,6 +8,7 @@ orchestration in one small helper object.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
 import numpy as np
@@ -27,6 +28,126 @@ TimedSolveFn = Callable[..., np.ndarray]
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class MImpFeedbackSystem:
+    """Bundle the reduced ``m_imp`` solve definition with selector-based mappings."""
+
+    problem: "LeastSquaresProblem"
+    selector: Optional[np.ndarray] = None
+    preconditioner: Optional[Any] = None
+
+    @property
+    def full_size(self) -> int:
+        """Return the full ``m_imp`` coefficient dimension."""
+        if self.selector is None:
+            return int(self.problem.solution_size)
+        return int(np.asarray(self.selector, dtype=float).shape[0])
+
+    @property
+    def reduced_size(self) -> int:
+        """Return the reduced ``m_imp`` coefficient dimension."""
+        if self.selector is None:
+            return int(self.problem.solution_size)
+        return int(np.asarray(self.selector, dtype=float).shape[1])
+
+    def reduce_solution(self, m_imp_solution: np.ndarray) -> np.ndarray:
+        """Reduce full ``m_imp`` coefficients to the gauge-constrained coordinates."""
+        m_imp_arr = asarray(m_imp_solution)
+        if self.selector is None:
+            return asarray(m_imp_arr)
+
+        selector = np.asarray(self.selector, dtype=float)
+        if m_imp_arr.ndim == 1:
+            if m_imp_arr.size != selector.shape[0]:
+                raise ValueError(
+                    "Full m_imp vector has incompatible size: "
+                    f"{m_imp_arr.size} != {selector.shape[0]}."
+                )
+            return asarray(
+                selector.T @ np.asarray(m_imp_arr, dtype=float).reshape(selector.shape[0])
+            )
+
+        block = np.asarray(m_imp_arr, dtype=float).reshape(selector.shape[0], -1)
+        return asarray(selector.T @ block).reshape(selector.shape[1], -1)
+
+    def expand_solution(self, m_imp_solution: np.ndarray) -> np.ndarray:
+        """Expand reduced ``m_imp`` coefficients to the full solution coordinates."""
+        m_imp_arr = asarray(m_imp_solution)
+        if self.selector is None:
+            return asarray(m_imp_arr)
+
+        expander = as_linear_map(np.asarray(self.selector, dtype=float))
+        if m_imp_arr.ndim == 1:
+            if m_imp_arr.size != expander.shape[1]:
+                raise ValueError(
+                    "Reduced m_imp vector has incompatible size: "
+                    f"{m_imp_arr.size} != {expander.shape[1]}."
+                )
+            return asarray(expander.matvec(m_imp_arr.reshape(expander.shape[1])))
+
+        block = m_imp_arr.reshape(expander.shape[1], -1)
+        return asarray(expander.matmat(block)).reshape(expander.shape[0], -1)
+
+    def reduce_full_operator(self, operator: Any) -> np.ndarray:
+        """Project a full-space operator to reduced ``m_imp`` coordinates."""
+        operator_arr = np.asarray(operator, dtype=float).reshape(self.full_size, self.full_size)
+        if self.selector is None:
+            return operator_arr
+        selector = np.asarray(self.selector, dtype=float)
+        return np.asarray(selector.T @ operator_arr @ selector, dtype=float)
+
+    def expand_reduced_operator(self, operator: Any) -> np.ndarray:
+        """Lift a reduced-space operator back to full ``m_imp`` coordinates."""
+        operator_arr = np.asarray(operator, dtype=float).reshape(
+            self.reduced_size, self.reduced_size
+        )
+        if self.selector is None:
+            return operator_arr
+        selector = np.asarray(self.selector, dtype=float)
+        return np.asarray(selector @ operator_arr @ selector.T, dtype=float)
+
+    def get_hl_projection_reduced(self, full_hl_projection: Any) -> np.ndarray:
+        """Return the reduced-coordinate HL projector for ``m_imp`` coefficients."""
+        return self.reduce_full_operator(full_hl_projection)
+
+    def get_hl_projection_full(self, full_hl_projection: Any) -> np.ndarray:
+        """Return the full-space HL projector induced by the reduced ``m_imp`` subspace."""
+        return self.expand_reduced_operator(self.get_hl_projection_reduced(full_hl_projection))
+
+    def project_hl(self, values: np.ndarray, full_hl_projection: Any) -> np.ndarray:
+        """Apply the ``m_imp`` HL projector in either reduced or full coordinates."""
+        values_arr = asarray(values)
+        hl_reduced = self.get_hl_projection_reduced(full_hl_projection)
+
+        if values_arr.ndim == 1:
+            size = int(values_arr.size)
+            if size == self.reduced_size:
+                return asarray(
+                    hl_reduced @ np.asarray(values_arr, dtype=float).reshape(self.reduced_size)
+                )
+            if size == self.full_size:
+                reduced = self.reduce_solution(values_arr)
+                return asarray(self.expand_solution(hl_reduced @ np.asarray(reduced, dtype=float)))
+            raise ValueError(
+                "m_imp HL projection size mismatch: "
+                f"got {size}, expected {self.reduced_size} or {self.full_size}."
+            )
+
+        n_rows = int(values_arr.shape[0])
+        block = np.asarray(values_arr, dtype=float).reshape(n_rows, -1)
+        if n_rows == self.reduced_size:
+            return asarray(hl_reduced @ block).reshape(self.reduced_size, -1)
+        if n_rows == self.full_size:
+            reduced = self.reduce_solution(block)
+            return asarray(
+                self.expand_solution(hl_reduced @ np.asarray(reduced, dtype=float))
+            ).reshape(self.full_size, -1)
+        raise ValueError(
+            "m_imp HL projection shape mismatch: "
+            f"got leading dimension {n_rows}, expected {self.reduced_size} or {self.full_size}."
+        )
+
+
 class PoloidalSolver:
     """Expose solve/orchestration routines built on top of poloidal operators."""
 
@@ -36,7 +157,7 @@ class PoloidalSolver:
 
     def build_induction_matrix(
         self,
-        problem: "LeastSquaresProblem",
+        feedback_system: MImpFeedbackSystem,
         solver: Any,
         E_map_constraint_operator: Optional[Any] = None,
         ih_constraint_scaling: float = 1.0,
@@ -51,24 +172,23 @@ class PoloidalSolver:
         if m_ind_to_E_operator is None:
             raise ValueError("m_ind_to_E_operator is required")
         E_direct_dense = coerce_dense_operator_matrix(
-            m_ind_to_E_operator,
-            n_component_rows=2,
-            n_cols=n,
+            m_ind_to_E_operator, n_component_rows=2, n_cols=n
         ).reshape(2, n, n)
 
         rhs_entries = self._mats._build_m_imp_rhs_entries(
-            problem,
+            feedback_system.problem,
             E_direct_coeffs=E_direct_dense,
             E_constraint_operator=E_map_constraint_operator,
             ih_constraint_scaling=ih_constraint_scaling,
             connect_hemispheres=connect_hemispheres,
         )
         m_imp_block = self._mats._solve_m_imp_feedback_block(
-            problem=problem,
+            problem=feedback_system.problem,
             solver=solver,
             rhs_entries=rhs_entries,
             num_expected_scenarios=n,
         )
+        m_imp_block = feedback_system.expand_solution(m_imp_block)
 
         m_imp_to_E = as_linear_map(m_imp_to_E_operator)
         E_imp_flat = m_imp_to_E.matmat(asarray(m_imp_block))
@@ -81,9 +201,8 @@ class PoloidalSolver:
 
     def get_induction_operator(
         self,
-        problem: "LeastSquaresProblem",
+        feedback_system: MImpFeedbackSystem,
         solver: Any,
-        preconditioner: Optional[Any] = None,
         E_map_constraint_operator: Optional[Any] = None,
         ih_constraint_scaling: float = 1.0,
         connect_hemispheres: bool = True,
@@ -100,7 +219,7 @@ class PoloidalSolver:
 
         def _build_dense() -> np.ndarray:
             return self.build_induction_matrix(
-                problem=problem,
+                feedback_system=feedback_system,
                 solver=solver,
                 E_map_constraint_operator=E_map_constraint_operator,
                 ih_constraint_scaling=ih_constraint_scaling,
@@ -112,12 +231,11 @@ class PoloidalSolver:
         def matvec(m_ind_vec: np.ndarray) -> np.ndarray:
             m_ind_vec = asarray(m_ind_vec).flatten()
             E_ind_coeffs = m_ind_to_E.matvec(m_ind_vec).reshape(2, -1)
-            if connect_hemispheres and problem is not None:
+            if connect_hemispheres:
                 _, E_imp = self.solve_for_m_imp(
                     E_direct_coeffs=E_ind_coeffs,
-                    problem=problem,
+                    feedback_system=feedback_system,
                     solver=solver,
-                    preconditioner=preconditioner,
                     E_map_constraint_operator=E_map_constraint_operator,
                     ih_constraint_scaling=ih_constraint_scaling,
                     connect_hemispheres=connect_hemispheres,
@@ -128,18 +246,14 @@ class PoloidalSolver:
             return asarray(E_df).flatten()
 
         return build_linear_map(
-            shape=(n, n),
-            matvec=matvec,
-            dense_builder=_build_dense,
-            dtype=np.float64,
+            shape=(n, n), matvec=matvec, dense_builder=_build_dense, dtype=np.float64
         )
 
     def solve_for_m_imp(
         self,
         E_direct_coeffs: np.ndarray,
-        problem: "LeastSquaresProblem",
+        feedback_system: MImpFeedbackSystem,
         solver: Any,
-        preconditioner: Optional[Any] = None,
         E_map_constraint_operator: Optional[Any] = None,
         ih_constraint_scaling: float = 1.0,
         connect_hemispheres: bool = True,
@@ -147,7 +261,7 @@ class PoloidalSolver:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Solve for `m_imp` given direct E coefficients and return `(m_imp, E_imp)`."""
         rhs_entries = self._mats._build_m_imp_rhs_entries(
-            problem,
+            feedback_system.problem,
             E_direct_coeffs=E_direct_coeffs,
             E_constraint_operator=E_map_constraint_operator,
             ih_constraint_scaling=ih_constraint_scaling,
@@ -156,14 +270,15 @@ class PoloidalSolver:
         solution = self._timed_solve(
             "poloidal.m_imp",
             solver,
-            problem=problem,
+            problem=feedback_system.problem,
             rhs=rhs_entries,
-            preconditioner=preconditioner,
+            preconditioner=feedback_system.preconditioner,
         )
         if solution is None:
-            m_imp = xp.zeros(self._mats.solution_space.index_length)
+            m_imp_solution = xp.zeros(feedback_system.problem.solution_size)
         else:
-            m_imp = asarray(solution)
+            m_imp_solution = asarray(solution)
+        m_imp = feedback_system.expand_solution(m_imp_solution)
 
         if m_imp_to_E_operator is None:
             raise ValueError("m_imp_to_E_operator is required")
@@ -178,9 +293,8 @@ class PoloidalSolver:
         E_coeffs_noind: np.ndarray,
         induction_matrix: Optional[np.ndarray] = None,
         m_ind_to_E_operator: Any = None,
-        problem: Optional[Any] = None,
+        feedback_system: Optional[MImpFeedbackSystem] = None,
         solver: Optional[Any] = None,
-        preconditioner: Optional[Any] = None,
         E_map_constraint_operator: Optional[Any] = None,
         ih_constraint_scaling: float = 1.0,
         connect_hemispheres: bool = True,
@@ -199,12 +313,11 @@ class PoloidalSolver:
             E_df_ind = asarray(induction_matrix) @ backend_m_ind
         else:
             E_ind_coeffs = m_ind_to_E_operator.matvec(backend_m_ind).reshape(2, -1)
-            if connect_hemispheres and problem is not None:
+            if connect_hemispheres and feedback_system is not None:
                 _, E_imp = self.solve_for_m_imp(
                     E_direct_coeffs=E_ind_coeffs,
-                    problem=problem,
+                    feedback_system=feedback_system,
                     solver=solver,
-                    preconditioner=preconditioner,
                     E_map_constraint_operator=E_map_constraint_operator,
                     ih_constraint_scaling=ih_constraint_scaling,
                     connect_hemispheres=connect_hemispheres,
@@ -217,10 +330,7 @@ class PoloidalSolver:
         return self._mats.E_df_to_d_m_ind_dt * E_df_total
 
     def steady_state_m_ind(
-        self,
-        E_coeffs_noind: np.ndarray,
-        induction_matrix: Any,
-        solver: str = "lsmr",
+        self, E_coeffs_noind: np.ndarray, induction_matrix: Any, solver: str = "lsmr"
     ) -> np.ndarray:
         """Calculate the steady-state induced potential."""
         vec_b = -self._mats._extract_toroidal_potential_coeffs(E_coeffs_noind)
@@ -232,18 +342,12 @@ class PoloidalSolver:
             n = self._mats.solution_space.index_length
             induction_op = as_linear_map(induction_matrix)
             problem = LeastSquaresProblem(
-                A=[induction_op],
-                solution_shape=(n,),
-                data_shapes=[(n,)],
+                A=[induction_op], solution_shape=(n,), data_shapes=[(n,)]
             )
             ls_solver = LeastSquaresSolver(solver=solver, tolerance=1e-10)
             return asarray(
                 self._timed_solve(
-                    "poloidal.steady_state_m_ind",
-                    ls_solver,
-                    problem,
-                    [vec_b],
-                    maxiter=5000,
+                    "poloidal.steady_state_m_ind", ls_solver, problem, [vec_b], maxiter=5000
                 )
             )
 
