@@ -135,6 +135,10 @@ class PoloidalSystemMatrices:
         """RM coupling operators represented in solution coefficient space."""
         return self._poloidal_closure_projector.rm_coupling_solution_operators
 
+    def lift_closure_scalar_output_operator_to_solution(self, operator: np.ndarray) -> np.ndarray:
+        """Lift a closure-basis scalar-output operator into solution coefficients."""
+        return self._poloidal_closure_projector.lift_scalar_output_operator_to_solution(operator)
+
     @cached_property
     def solver(self) -> "PoloidalSolver":
         """Helper exposing solve/orchestration routines built on poloidal operators."""
@@ -296,20 +300,41 @@ class PoloidalSystemMatrices:
         return self._apply_rm_poloidal_closure(t_to_ve)
 
     def _dynamic_psi_lock_enabled(self) -> bool:
-        """Return whether dynamic psi PFAC should use RM-closed boundary policy."""
+        """Return whether dynamic psi PFAC should use RM-closed boundary policy.
+
+        This follows the toroidal RM closure setting. The live electromagnetic
+        RM reaction of the dynamic toroidal/FAC channel is the PFAC closed-open
+        operator difference, not a separate shell-roundtrip correction on the
+        ``dt_psi`` maps themselves.
+        """
         if self._pfac.RM is None:
             return False
-        return bool(
-            self._pfac.magnetospheric_poloidal_lock and self._pfac.lock_toroidal_source_channels
-        )
+        return bool(self._pfac.magnetospheric_toroidal_lock)
 
     def _get_dynamic_toroidal_pfac_operator(self) -> np.ndarray:
-        """Return effective dynamic psi PFAC operator from lock state."""
-        # Lock-on -> RM-closed kernel, lock-off -> open kernel.
+        """Return effective dynamic psi PFAC operator from toroidal RM closure."""
+        # Toroidal lock-on -> RM-closed boundary kernel, lock-off -> open kernel.
         return (
-            np.asarray(self.T_to_Ve)
+            np.asarray(self.dynamic_toroidal_pfac_closed_operator)
             if self._dynamic_psi_lock_enabled()
-            else np.asarray(self.T_to_Ve_open)
+            else np.asarray(self.dynamic_toroidal_pfac_open_operator)
+        )
+
+    @cached_property
+    def dynamic_toroidal_pfac_open_operator(self) -> np.ndarray:
+        """Open-boundary PFAC operator for the dynamic ``psi`` channel."""
+        return np.asarray(self.T_to_Ve_open)
+
+    @cached_property
+    def dynamic_toroidal_pfac_closed_operator(self) -> np.ndarray:
+        """RM-closed PFAC operator for the dynamic ``psi`` channel."""
+        return np.asarray(self.T_to_Ve)
+
+    @cached_property
+    def dynamic_toroidal_pfac_reaction_operator(self) -> np.ndarray:
+        """Incremental RM reaction on the dynamic ``psi`` PFAC operator."""
+        return np.asarray(
+            self.dynamic_toroidal_pfac_closed_operator - self.dynamic_toroidal_pfac_open_operator
         )
 
     @cached_property
@@ -381,6 +406,11 @@ class PoloidalSystemMatrices:
             self.G_Ve_to_JS_closure, self.grid, rm_boundary_mode="open"
         )
         return T_to_Ve_da.values
+
+    @cached_property
+    def toroidal_rm_closure_operators(self):
+        """Operators describing the ``R_M`` normal-current closure of dynamic ``alpha``."""
+        return self._pfac.compute_toroidal_rm_closure_operators(self.grid)
 
     @cached_property
     def G_Ve_to_JS_closure(self) -> np.ndarray:

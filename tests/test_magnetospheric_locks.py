@@ -11,17 +11,9 @@ from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
-def _build_dynamics(
-    tmp_path,
-    *,
-    toroidal_lock: bool,
-    poloidal_lock: bool,
-) -> Dynamics:
+def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dynamics:
     return Dynamics(
-        run_directory=str(
-            tmp_path
-            / f"locks_t{int(toroidal_lock)}_p{int(poloidal_lock)}"
-        ),
+        run_directory=str(tmp_path / f"locks_t{int(toroidal_lock)}_p{int(poloidal_lock)}"),
         Nmax=8,
         Mmax=4,
         Ncs=10,
@@ -59,30 +51,25 @@ def _build_legacy_dynamics(tmp_path, *, poloidal_lock: bool) -> Dynamics:
 def test_full_induction_magnetospheric_locks(
     tmp_path, toroidal_lock: bool, poloidal_lock: bool
 ) -> None:
-    """Verify lock toggles wire into hard constraints and RM coupling operators."""
-    dynamics = _build_dynamics(
-        tmp_path,
-        toroidal_lock=toroidal_lock,
-        poloidal_lock=poloidal_lock,
-    )
+    """Verify lock toggles wire into LL constraints and RM coupling operators."""
+    dynamics = _build_dynamics(tmp_path, toroidal_lock=toroidal_lock, poloidal_lock=poloidal_lock)
     state = dynamics.state
     geometry = state.geometry
     basis = state.basis
     n_coeffs = basis.index_length
 
-    # --- Toroidal lock: optional HL hard rows in constraint bundle ---
+    # --- LL constraints are independent of toroidal RM boundary lock ---
     bundle = state.constraints.induction_constraint_bundle_hard
     assert bundle is not None
     assert bundle["C_ll"].shape[1] == n_coeffs
-    assert bundle["C_hl"].shape[1] == n_coeffs
     assert bundle["C_total"].shape[1] == n_coeffs
-    assert bundle["C_total"].shape[0] == bundle["C_ll"].shape[0] + bundle["C_hl"].shape[0]
-    if toroidal_lock:
-        assert bundle["C_hl"].shape[0] > 0
-    else:
-        assert bundle["C_hl"].shape[0] == 0
+    assert bundle["C_total"].shape[0] == bundle["C_ll"].shape[0]
+    assert bundle["C_ll"].shape[0] > 0
 
-    # --- Poloidal lock: RM coupling on induced pathways; imposed Br is always closed ---
+    # --- Boundary locks: poloidal lock affects induced poloidal/FAC pathways
+    # --- from ``m_ind``/``Br``, while toroidal lock affects the dynamic
+    # --- toroidal/FAC PFAC reaction of ``psi``. Imposed RM driver channels
+    # --- remain closed.
     op_m_ind = geometry.get_potential_to_JS_operator("m_ind", mode=None)
     op_br = geometry.get_potential_to_JS_operator("Br", mode=None)
     op_m_imp = geometry.get_potential_to_JS_operator("m_imp", mode=None)
@@ -104,7 +91,9 @@ def test_full_induction_magnetospheric_locks(
     scaling = np.asarray(to_dense(basis.get_potential_scaling_operator()))
     expected_t_m_ind = (-1.0 / mu0) * scaling
 
-    br_rm_to_ri_shift, br_ri_to_rm_shift, rm_roundtrip_denominator = geometry._pfac.get_coupling_factors()
+    br_rm_to_ri_shift, br_ri_to_rm_shift, rm_roundtrip_denominator = (
+        geometry._pfac.get_coupling_factors()
+    )
     rm_feedback_term = (br_rm_to_ri_shift * br_ri_to_rm_shift) / rm_roundtrip_denominator
     if poloidal_lock:
         expected_t_m_ind = expected_t_m_ind * (1.0 + rm_feedback_term)
@@ -130,7 +119,7 @@ def test_full_induction_magnetospheric_locks(
     expected_p_psi = (1.0 / mu0) * np.eye(n_coeffs)
     expected_t_psi = (
         np.asarray(state.poloidal_matrices.T_to_Ve)
-        if poloidal_lock
+        if toroidal_lock
         else np.asarray(state.poloidal_matrices.T_to_Ve_open)
     )
 
@@ -140,7 +129,7 @@ def test_full_induction_magnetospheric_locks(
 
 @pytest.mark.parametrize("poloidal_lock", [False, True])
 def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, poloidal_lock: bool) -> None:
-    """Legacy mode keeps m_imp locked while psi channel remains unlocked."""
+    """Legacy mode keeps the imposed RM-closed source baseline; dynamic psi stays open."""
     dynamics = _build_legacy_dynamics(tmp_path, poloidal_lock=poloidal_lock)
     state = dynamics.state
     geometry = state.geometry
@@ -160,51 +149,109 @@ def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, poloidal_lock: boo
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
 
 
-@pytest.mark.parametrize("poloidal_lock", [False, True])
-def test_full_induction_lock_numeric_snapshot(tmp_path, poloidal_lock: bool) -> None:
-    """Numeric regression snapshot for lock semantics (full-induction, RM=4*RE)."""
-    dynamics = _build_dynamics(
-        tmp_path,
-        toroidal_lock=False,
-        poloidal_lock=poloidal_lock,
+def test_full_induction_toroidal_lock_keeps_dynamic_dtpsi_runtime_open(tmp_path) -> None:
+    """Toroidal lock should not alter the live shell ``dt_psi`` operators."""
+    dyn_open = _build_dynamics(tmp_path, toroidal_lock=False, poloidal_lock=False)
+    dyn_closed = _build_dynamics(tmp_path, toroidal_lock=True, poloidal_lock=False)
+
+    mats_open = dyn_open.state.toroidal_matrices
+    mats_closed = dyn_closed.state.toroidal_matrices
+    assert mats_open is not None
+    assert mats_closed is not None
+
+    alpha_to_psi_open = np.asarray(mats_open.alpha_to_psi_coeff_operator)
+    alpha_to_psi_closed = np.asarray(mats_closed.alpha_to_psi_coeff_operator)
+    radial_open = np.asarray(mats_open.radial_closure_dt_psi_from_dtalpha)
+    radial_closed = np.asarray(mats_closed.radial_closure_dt_psi_from_dtalpha)
+
+    np.testing.assert_allclose(
+        alpha_to_psi_closed,
+        alpha_to_psi_open,
+        atol=1e-10,
+        rtol=1e-10,
     )
-    state = dynamics.state
-    geometry = state.geometry
-    n_coeffs = state.basis.index_length
+    np.testing.assert_allclose(
+        radial_closed,
+        radial_open,
+        atol=1e-10,
+        rtol=1e-10,
+    )
 
-    bundle = state.constraints.induction_constraint_bundle_hard
-    assert bundle is not None
-    # LL hard constraints are expressed in mismatch space projected to LL modes.
-    assert bundle["C_ll"].shape[0] > 0
-    assert bundle["C_ll"].shape[1] == n_coeffs
-    assert bundle["C_hl"].shape[0] == 0
 
-    op_m_ind = geometry.get_potential_to_JS_operator("m_ind", mode=None)
-    op_br = geometry.get_potential_to_JS_operator("Br", mode=None)
-    op_m_imp = geometry.get_potential_to_JS_operator("m_imp", mode=None)
-    op_psi = geometry.get_potential_to_JS_operator("psi", mode=None)
+def test_toroidal_rm_reaction_prototype_exposes_runtime_and_boundary_operator(tmp_path) -> None:
+    """RM prototype should expose runtime-open and explicit boundary operators."""
+    dynamics = _build_dynamics(tmp_path, toroidal_lock=True, poloidal_lock=False)
+    proto = dynamics.state.toroidal_rm_reaction_prototype
+    report = dynamics.state.get_toroidal_rm_reaction_report()
 
-    t_m_ind = np.asarray(to_dense(op_m_ind))[n_coeffs:, :]
-    t_br = np.asarray(to_dense(op_br))[n_coeffs:, :]
-    t_m_imp = np.asarray(to_dense(op_m_imp))[n_coeffs:, :]
-    t_psi = np.asarray(to_dense(op_psi))[n_coeffs:, :]
+    np.testing.assert_allclose(
+        proto.alpha_to_psi_closed,
+        proto.alpha_to_psi_open + proto.alpha_to_psi_reaction,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.radial_closure_dt_psi_closed,
+        proto.radial_closure_dt_psi_open + proto.radial_closure_dt_psi_reaction,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.toroidal_feedback_dtalpha_closed,
+        proto.toroidal_feedback_dtalpha_open + proto.toroidal_feedback_dtalpha_reaction,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.dynamic_pfac_closed,
+        proto.dynamic_pfac_open + proto.dynamic_pfac_reaction,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.alpha_to_psi_closed,
+        proto.alpha_to_psi_open,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.radial_closure_dt_psi_closed,
+        proto.radial_closure_dt_psi_open,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.closure_denominator @ proto.alpha_to_psi_shell_closed,
+        proto.alpha_to_psi_open,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.alpha_to_psi_shell_closed,
+        proto.alpha_to_psi_open + (proto.roundtrip_gain @ proto.alpha_to_psi_shell_closed),
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    np.testing.assert_allclose(
+        proto.alpha_to_psi_shell_closed - proto.alpha_to_psi_open,
+        proto.shell_reaction_operator @ proto.alpha_to_psi_open,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+    assert np.linalg.norm(proto.alpha_to_psi_reaction) < 1e-12
+    assert np.linalg.norm(proto.alpha_to_psi_shell_closed - proto.alpha_to_psi_closed) > 0.0
+    assert np.linalg.norm(proto.alpha_to_normal_current_rm_grid) > 0.0
+    assert np.linalg.norm(proto.alpha_to_divergent_closure_current_rm_grid) > 0.0
+    assert np.linalg.norm(proto.alpha_to_sheet_boundary_psi_rm) > 0.0
+    assert np.linalg.norm(proto.alpha_to_dynamic_pfac_reaction) > 0.0
 
-    expected = {
-        False: {
-            "norm_t_m_ind": 73193972.32756677,
-            "norm_t_br": 2137241.9153284496,
-            "norm_t_m_imp": 0.7223795135300719,
-            "norm_t_psi": 0.7253300455734074,
-        },
-        True: {
-            "norm_t_m_ind": 73199298.94320045,
-            "norm_t_br": 2137241.9153284496,
-            "norm_t_m_imp": 0.7223795135300719,
-            "norm_t_psi": 0.7162627561888577,
-        },
-    }[poloidal_lock]
-
-    assert float(np.linalg.norm(t_m_ind)) == pytest.approx(expected["norm_t_m_ind"], rel=1e-10)
-    assert float(np.linalg.norm(t_br)) == pytest.approx(expected["norm_t_br"], rel=1e-10)
-    assert float(np.linalg.norm(t_m_imp)) == pytest.approx(expected["norm_t_m_imp"], rel=1e-12)
-    assert float(np.linalg.norm(t_psi)) == pytest.approx(expected["norm_t_psi"], rel=1e-12)
+    assert report["shell_boundary_closure"]["fixed_point_residual_norm"] < 1e-12
+    assert report["shell_boundary_closure"]["denominator_residual_norm"] < 1e-12
+    assert report["shell_boundary_closure"]["reaction_operator_residual_norm"] < 1e-12
+    assert report["shell_boundary_closure"]["sheet_rm_value_mismatch_norm"] > 0.0
+    assert report["shell_boundary_closure"]["runtime_vs_shell_closed_mismatch_norm"] > 0.0
+    assert report["shell_boundary_closure"]["runtime_vs_shell_radial_mismatch_norm"] > 0.0
+    assert report["alpha_to_psi"]["reaction_norm"] < 1e-12
+    assert report["rm_boundary_closure"]["normal_current_operator_norm"] > 0.0
+    assert report["dynamic_pfac"]["alpha_reaction_norm"] > 0.0
+    assert report["alpha_to_psi"]["closure_residual_norm"] < 1e-12

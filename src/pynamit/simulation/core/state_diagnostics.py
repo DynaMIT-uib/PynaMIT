@@ -82,19 +82,16 @@ class StateDiagnostics:
         dt_alpha: np.ndarray,
         *,
         c_ll: np.ndarray,
-        c_hl: np.ndarray,
-        c_total: np.ndarray,
+        alpha_to_normal_current_rm_grid: Optional[np.ndarray] = None,
+        alpha_to_closure_potential_rm_coeff: Optional[np.ndarray] = None,
+        alpha_to_divergent_closure_current_rm_grid: Optional[np.ndarray] = None,
         rhs_physics: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Return norms and constraint conflicts for one ``dt_alpha`` component."""
         dt_alpha_vec = np.asarray(dt_alpha, dtype=float).reshape(-1)
         ll_conflict = c_ll @ dt_alpha_vec if c_ll.size > 0 else np.zeros(0, dtype=float)
-        hl_conflict = c_hl @ dt_alpha_vec if c_hl.size > 0 else np.zeros(0, dtype=float)
-        total_conflict = c_total @ dt_alpha_vec if c_total.size > 0 else np.zeros(0, dtype=float)
         dt_alpha_norm = float(np.linalg.norm(dt_alpha_vec))
         ll_conflict_norm = float(np.linalg.norm(ll_conflict))
-        hl_conflict_norm = float(np.linalg.norm(hl_conflict))
-        total_conflict_norm = float(np.linalg.norm(total_conflict))
 
         summary: Dict[str, Any] = {
             "name": name,
@@ -103,13 +100,28 @@ class StateDiagnostics:
             "ll_conflict": ll_conflict,
             "ll_conflict_norm": ll_conflict_norm,
             "ll_conflict_ratio": ll_conflict_norm / max(dt_alpha_norm, 1e-30),
-            "hl_conflict": hl_conflict,
-            "hl_conflict_norm": hl_conflict_norm,
-            "hl_conflict_ratio": hl_conflict_norm / max(dt_alpha_norm, 1e-30),
-            "constraint_conflict": total_conflict,
-            "constraint_conflict_norm": total_conflict_norm,
-            "constraint_conflict_ratio": total_conflict_norm / max(dt_alpha_norm, 1e-30),
+            "constraint_conflict": ll_conflict,
+            "constraint_conflict_norm": ll_conflict_norm,
+            "constraint_conflict_ratio": ll_conflict_norm / max(dt_alpha_norm, 1e-30),
         }
+        if alpha_to_normal_current_rm_grid is not None:
+            jn_rm = np.asarray(alpha_to_normal_current_rm_grid, dtype=float) @ dt_alpha_vec
+            summary["rm_normal_current"] = jn_rm
+            summary["rm_normal_current_norm"] = float(np.linalg.norm(jn_rm))
+        if alpha_to_closure_potential_rm_coeff is not None:
+            chi_rm = np.asarray(alpha_to_closure_potential_rm_coeff, dtype=float) @ dt_alpha_vec
+            summary["rm_closure_potential"] = chi_rm
+            summary["rm_closure_potential_norm"] = float(np.linalg.norm(chi_rm))
+        if alpha_to_divergent_closure_current_rm_grid is not None:
+            closure_current_rm = np.tensordot(
+                np.asarray(alpha_to_divergent_closure_current_rm_grid, dtype=float),
+                dt_alpha_vec,
+                axes=([2], [0]),
+            )
+            summary["rm_divergent_closure_current"] = closure_current_rm
+            summary["rm_divergent_closure_current_norm"] = float(
+                np.linalg.norm(closure_current_rm.reshape(-1))
+            )
         if rhs_physics is not None:
             rhs_vec = np.asarray(rhs_physics, dtype=float).reshape(-1)
             summary["rhs_physics"] = rhs_vec
@@ -123,8 +135,9 @@ class StateDiagnostics:
         *,
         dtalpha_from_rhs: np.ndarray,
         c_ll: np.ndarray,
-        c_hl: np.ndarray,
-        c_total: np.ndarray,
+        alpha_to_normal_current_rm_grid: Optional[np.ndarray] = None,
+        alpha_to_closure_potential_rm_coeff: Optional[np.ndarray] = None,
+        alpha_to_divergent_closure_current_rm_grid: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Return toroidal forcing diagnostics for one electric-field component."""
         st = self._state
@@ -134,13 +147,19 @@ class StateDiagnostics:
         ).reshape(-1)
         dt_alpha = np.asarray(dtalpha_from_rhs @ rhs_physics, dtype=float).reshape(-1)
         summary = self._summarize_dtalpha_component(
-            name, dt_alpha, c_ll=c_ll, c_hl=c_hl, c_total=c_total, rhs_physics=rhs_physics
+            name,
+            dt_alpha,
+            c_ll=c_ll,
+            alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+            alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+            alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
+            rhs_physics=rhs_physics,
         )
         summary["E_coeff_norm"] = float(np.linalg.norm(e_vec.reshape(-1)))
         return summary
 
     def get_toroidal_driver_balance_report(self) -> Dict[str, Any]:
-        """Report LL/HL conflict diagnostics for the live toroidal forcing channels."""
+        """Report LL-compatibility diagnostics for the live toroidal forcing channels."""
         st = self._state
         if st.dynamics_mode != DynamicsMode.FULL_INDUCTION or st.toroidal_matrices is None:
             raise ValueError("Toroidal driver balance diagnostics require full_induction mode.")
@@ -151,8 +170,16 @@ class StateDiagnostics:
 
         constraint_system = st.dt_alpha_constraint_system
         c_ll = np.asarray(constraint_system.c_ll, dtype=float)
-        c_hl = np.asarray(constraint_system.c_hl, dtype=float)
-        c_total = np.asarray(constraint_system.c_total, dtype=float)
+        rm_closure_ops = st.poloidal_matrices.toroidal_rm_closure_operators
+        alpha_to_normal_current_rm_grid = np.asarray(
+            rm_closure_ops.alpha_to_normal_current_rm_grid, dtype=float
+        )
+        alpha_to_closure_potential_rm_coeff = np.asarray(
+            rm_closure_ops.alpha_to_closure_potential_rm_coeff, dtype=float
+        )
+        alpha_to_divergent_closure_current_rm_grid = np.asarray(
+            rm_closure_ops.alpha_to_divergent_closure_current_rm_grid, dtype=float
+        )
 
         dtalpha_from_rhs = np.asarray(
             st.toroidal_matrices.build_dtalpha_from_toroidal_rhs_matrix(
@@ -199,32 +226,36 @@ class StateDiagnostics:
                 e_wind,
                 dtalpha_from_rhs=dtalpha_from_rhs,
                 c_ll=c_ll,
-                c_hl=c_hl,
-                c_total=c_total,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
             ),
             "Br": self._summarize_e_component(
                 "Br",
                 e_br,
                 dtalpha_from_rhs=dtalpha_from_rhs,
                 c_ll=c_ll,
-                c_hl=c_hl,
-                c_total=c_total,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
             ),
             "magnetic_imposed": self._summarize_e_component(
                 "magnetic_imposed",
                 e_magnetic,
                 dtalpha_from_rhs=dtalpha_from_rhs,
                 c_ll=c_ll,
-                c_hl=c_hl,
-                c_total=c_total,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
             ),
             "total_external": self._summarize_e_component(
                 "total_external",
                 e_total,
                 dtalpha_from_rhs=dtalpha_from_rhs,
                 c_ll=c_ll,
-                c_hl=c_hl,
-                c_total=c_total,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
             ),
         }
 
@@ -238,7 +269,12 @@ class StateDiagnostics:
                 jr_to_alpha.matvec(m_imp_to_jr.matvec(dt_m_imp_raw)), dtype=float
             ).reshape(-1)
             components["magnetic_driver_raw"] = self._summarize_dtalpha_component(
-                "magnetic_driver_raw", dt_alpha_driver_raw, c_ll=c_ll, c_hl=c_hl, c_total=c_total
+                "magnetic_driver_raw",
+                dt_alpha_driver_raw,
+                c_ll=c_ll,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
             )
 
         l_alpha = np.asarray(to_numpy(st.toroidal_matrices.dtalpha_operator), dtype=float).reshape(
@@ -247,7 +283,12 @@ class StateDiagnostics:
         if dt_alpha_driver is not None:
             dt_alpha_driver_vec = np.asarray(dt_alpha_driver, dtype=float).reshape(-1)
             components["magnetic_driver"] = self._summarize_dtalpha_component(
-                "magnetic_driver", dt_alpha_driver_vec, c_ll=c_ll, c_hl=c_hl, c_total=c_total
+                "magnetic_driver",
+                dt_alpha_driver_vec,
+                c_ll=c_ll,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
             )
             rhs_driver_feedback = -(l_alpha @ dt_alpha_driver_vec)
             dtalpha_driver_feedback = np.asarray(
@@ -257,8 +298,9 @@ class StateDiagnostics:
                 "driver_feedback_rhs",
                 dtalpha_driver_feedback,
                 c_ll=c_ll,
-                c_hl=c_hl,
-                c_total=c_total,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
                 rhs_physics=rhs_driver_feedback,
             )
             rhs_residual = (
@@ -269,8 +311,9 @@ class StateDiagnostics:
                 "residual_after_driver_subtraction",
                 dtalpha_residual,
                 c_ll=c_ll,
-                c_hl=c_hl,
-                c_total=c_total,
+                alpha_to_normal_current_rm_grid=alpha_to_normal_current_rm_grid,
+                alpha_to_closure_potential_rm_coeff=alpha_to_closure_potential_rm_coeff,
+                alpha_to_divergent_closure_current_rm_grid=alpha_to_divergent_closure_current_rm_grid,
                 rhs_physics=rhs_residual,
             )
 
@@ -280,10 +323,101 @@ class StateDiagnostics:
             "apply_psi_gauge": bool(st.apply_psi_gauge),
             "n_solution_coeffs": n,
             "n_dt_alpha": int(dtalpha_from_rhs.shape[0]),
-            "constraint_rows": {
-                "ll": int(c_ll.shape[0]),
-                "hl": int(c_hl.shape[0]),
-                "total": int(c_total.shape[0]),
-            },
+            "constraint_rows": {"ll": int(c_ll.shape[0]), "total": int(c_ll.shape[0])},
             "components": components,
+        }
+
+    def get_toroidal_rm_reaction_report(self) -> Dict[str, Any]:
+        """Summarize runtime-open, shell-surrogate, and RM boundary-source operators."""
+        st = self._state
+        proto = st.toroidal_rm_reaction_prototype
+
+        def _norm(arr: Any) -> float:
+            return float(np.linalg.norm(np.asarray(arr, dtype=float).reshape(-1)))
+
+        return {
+            "magnetospheric_toroidal_lock": bool(st.magnetospheric_toroidal_lock),
+            "RM": None if st.RM is None else float(st.RM),
+            "shell_boundary_closure": {
+                "rm_to_ri_norm": _norm(proto.rm_to_ri),
+                "ri_to_rm_norm": _norm(proto.ri_to_rm),
+                "roundtrip_gain_norm": _norm(proto.roundtrip_gain),
+                "closure_denominator_norm": _norm(proto.closure_denominator),
+                "closure_inv_norm": _norm(proto.closure_inv),
+                "reaction_operator_norm": _norm(proto.shell_reaction_operator),
+                "sheet_boundary_psi_rm_norm": _norm(proto.alpha_to_sheet_boundary_psi_rm),
+                "fixed_point_residual_norm": _norm(
+                    proto.alpha_to_psi_shell_closed
+                    - proto.alpha_to_psi_open
+                    - (proto.roundtrip_gain @ proto.alpha_to_psi_shell_closed)
+                ),
+                "denominator_residual_norm": _norm(
+                    (proto.closure_denominator @ proto.alpha_to_psi_shell_closed)
+                    - proto.alpha_to_psi_open
+                ),
+                "reaction_operator_residual_norm": _norm(
+                    (proto.alpha_to_psi_shell_closed - proto.alpha_to_psi_open)
+                    - (proto.shell_reaction_operator @ proto.alpha_to_psi_open)
+                ),
+                "runtime_vs_shell_closed_mismatch_norm": _norm(
+                    proto.alpha_to_psi_closed - proto.alpha_to_psi_shell_closed
+                ),
+                "runtime_vs_shell_radial_mismatch_norm": _norm(
+                    proto.radial_closure_dt_psi_closed - proto.radial_closure_dt_psi_shell_closed
+                ),
+                "sheet_rm_value_mismatch_norm": _norm(
+                    proto.alpha_to_sheet_boundary_psi_rm
+                    - (proto.ri_to_rm @ proto.alpha_to_psi_open)
+                ),
+            },
+            "alpha_to_psi": {
+                "open_norm": _norm(proto.alpha_to_psi_open),
+                "closed_norm": _norm(proto.alpha_to_psi_closed),
+                "reaction_norm": _norm(proto.alpha_to_psi_reaction),
+                "closure_residual_norm": _norm(
+                    proto.alpha_to_psi_closed
+                    - proto.alpha_to_psi_open
+                    - proto.alpha_to_psi_reaction
+                ),
+            },
+            "radial_closure_dt_psi": {
+                "open_norm": _norm(proto.radial_closure_dt_psi_open),
+                "closed_norm": _norm(proto.radial_closure_dt_psi_closed),
+                "reaction_norm": _norm(proto.radial_closure_dt_psi_reaction),
+                "closure_residual_norm": _norm(
+                    proto.radial_closure_dt_psi_closed
+                    - proto.radial_closure_dt_psi_open
+                    - proto.radial_closure_dt_psi_reaction
+                ),
+            },
+            "toroidal_feedback_dtalpha": {
+                "open_norm": _norm(proto.toroidal_feedback_dtalpha_open),
+                "closed_norm": _norm(proto.toroidal_feedback_dtalpha_closed),
+                "reaction_norm": _norm(proto.toroidal_feedback_dtalpha_reaction),
+                "closure_residual_norm": _norm(
+                    proto.toroidal_feedback_dtalpha_closed
+                    - proto.toroidal_feedback_dtalpha_open
+                    - proto.toroidal_feedback_dtalpha_reaction
+                ),
+            },
+            "dynamic_pfac": {
+                "open_norm": _norm(proto.dynamic_pfac_open),
+                "closed_norm": _norm(proto.dynamic_pfac_closed),
+                "reaction_norm": _norm(proto.dynamic_pfac_reaction),
+                "alpha_reaction_norm": _norm(proto.alpha_to_dynamic_pfac_reaction),
+                "closure_residual_norm": _norm(
+                    proto.dynamic_pfac_closed
+                    - proto.dynamic_pfac_open
+                    - proto.dynamic_pfac_reaction
+                ),
+            },
+            "rm_boundary_closure": {
+                "normal_current_operator_norm": _norm(proto.alpha_to_normal_current_rm_grid),
+                "closure_potential_operator_norm": _norm(
+                    proto.alpha_to_closure_potential_rm_coeff
+                ),
+                "divergent_closure_current_operator_norm": _norm(
+                    proto.alpha_to_divergent_closure_current_rm_grid
+                ),
+            },
         }

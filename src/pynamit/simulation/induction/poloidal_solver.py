@@ -120,47 +120,6 @@ class MImpFeedbackSystem:
         selector = np.asarray(self.selector, dtype=float)
         return np.asarray(selector @ operator_arr @ selector.T, dtype=float)
 
-    def get_hl_projection_reduced(self, full_hl_projection: Any) -> np.ndarray:
-        """Return the reduced-coordinate HL projector for ``m_imp`` coefficients."""
-        return self.reduce_full_operator(full_hl_projection)
-
-    def get_hl_projection_full(self, full_hl_projection: Any) -> np.ndarray:
-        """Return the full-space HL projector induced by the reduced ``m_imp`` subspace."""
-        return self.expand_reduced_operator(self.get_hl_projection_reduced(full_hl_projection))
-
-    def project_hl(self, values: np.ndarray, full_hl_projection: Any) -> np.ndarray:
-        """Apply the ``m_imp`` HL projector in either reduced or full coordinates."""
-        values_arr = asarray(values)
-        hl_reduced = self.get_hl_projection_reduced(full_hl_projection)
-
-        if values_arr.ndim == 1:
-            size = int(values_arr.size)
-            if size == self.reduced_size:
-                return asarray(
-                    hl_reduced @ np.asarray(values_arr, dtype=float).reshape(self.reduced_size)
-                )
-            if size == self.full_size:
-                reduced = self.reduce_solution(values_arr)
-                return asarray(self.expand_solution(hl_reduced @ np.asarray(reduced, dtype=float)))
-            raise ValueError(
-                "m_imp HL projection size mismatch: "
-                f"got {size}, expected {self.reduced_size} or {self.full_size}."
-            )
-
-        n_rows = int(values_arr.shape[0])
-        block = np.asarray(values_arr, dtype=float).reshape(n_rows, -1)
-        if n_rows == self.reduced_size:
-            return asarray(hl_reduced @ block).reshape(self.reduced_size, -1)
-        if n_rows == self.full_size:
-            reduced = self.reduce_solution(block)
-            return asarray(
-                self.expand_solution(hl_reduced @ np.asarray(reduced, dtype=float))
-            ).reshape(self.full_size, -1)
-        raise ValueError(
-            "m_imp HL projection shape mismatch: "
-            f"got leading dimension {n_rows}, expected {self.reduced_size} or {self.full_size}."
-        )
-
 
 class PoloidalSolver:
     """Expose solve/orchestration routines built on top of poloidal operators."""

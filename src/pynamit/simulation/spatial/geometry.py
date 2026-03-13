@@ -117,9 +117,8 @@ class Geometry:
             magnetospheric_poloidal_lock=bool(
                 getattr(settings, "magnetospheric_poloidal_lock", True)
             ),
-            lock_toroidal_source_channels=(
-                getattr(settings, "dynamics_mode", DynamicsMode.LEGACY)
-                == DynamicsMode.FULL_INDUCTION
+            magnetospheric_toroidal_lock=bool(
+                getattr(settings, "magnetospheric_toroidal_lock", False)
             ),
         )
 
@@ -180,10 +179,7 @@ class Geometry:
         return self._poloidal_matrices
 
     def get_poloidal_results_operators(
-        self,
-        grid: Optional[Grid] = None,
-        *,
-        basis: Optional[Any] = None,
+        self, grid: Optional[Grid] = None, *, basis: Optional[Any] = None
     ) -> Any:
         """Return explicit postprocessing operators for a target grid.
 
@@ -205,8 +201,7 @@ class Geometry:
         t_to_ve = np.asarray(self.poloidal_matrices.T_to_Ve, dtype=float)
         if hasattr(self.poloidal_matrices, "_apply_imposed_toroidal_poloidal_lock"):
             t_to_ve = np.asarray(
-                self.poloidal_matrices._apply_imposed_toroidal_poloidal_lock(t_to_ve),
-                dtype=float,
+                self.poloidal_matrices._apply_imposed_toroidal_poloidal_lock(t_to_ve), dtype=float
             )
 
         bundle = build_poloidal_results_operators(
@@ -257,8 +252,7 @@ class Geometry:
                 return tensor_pinv(G_dense, n_leading_flattened=1)
         except Exception:
             logger.warning(
-                "Failed to initialize basis adapter. Proceeding without one.",
-                exc_info=True
+                "Failed to initialize basis adapter. Proceeding without one.", exc_info=True
             )
         return None
 
@@ -287,9 +281,7 @@ class Geometry:
         return xp.moveaxis(res, 0, -1)
 
     def get_potential_to_JS_operator(
-        self,
-        potential_type: str,
-        mode: Optional[Any] = None
+        self, potential_type: str, mode: Optional[Any] = None
     ) -> "LinearMap":
         """Get operator mapping potential coefficients to JS-like representation.
 
@@ -311,7 +303,7 @@ class Geometry:
             For grid mode: Operator mapping potential coeffs to JS-like grid values.
         """
         # Determine if we should use spectral (VSH) or grid representation
-        use_spectral = (mode is None or mode == SimulationMode.PURE_SPECTRAL)
+        use_spectral = mode is None or mode == SimulationMode.PURE_SPECTRAL
 
         if use_spectral:
             return self._get_JS_operator_spectral(potential_type)
@@ -320,7 +312,7 @@ class Geometry:
 
     def _get_JS_operator_spectral(self, potential_type: str) -> "LinearMap":
         """Get spectral (VSH) JS-like operator for given potential type.
-        
+
         Delegates to PoloidalSystemMatrices.
         """
         return self.poloidal_matrices.get_potential_to_JS_operator(potential_type)
@@ -352,18 +344,11 @@ class Geometry:
                 )
                 # (2, N_grid, 2, N_coeffs) -> (2*N_grid, 2*N_coeffs)
                 op_eval = as_linear_map(
-                    G_vec.reshape(
-                        G_vec.shape[0] * G_vec.shape[1],
-                        G_vec.shape[2] * G_vec.shape[3],
-                    )
+                    G_vec.reshape(G_vec.shape[0] * G_vec.shape[1], G_vec.shape[2] * G_vec.shape[3])
                 )
                 return op_eval @ op_js_coeff
             except Exception as exc:
-                logger.warning(
-                    "Grid JS fallback failed for %s (%s).",
-                    potential_type,
-                    exc,
-                )
+                logger.warning("Grid JS fallback failed for %s (%s).", potential_type, exc)
                 return None
         return as_linear_map(G_grid.reshape(-1, G_grid.shape[-1]))
 
@@ -373,7 +358,7 @@ class Geometry:
         potential_type: str,
         eta_grid: np.ndarray,
         etaP: Optional[Any] = None,
-        etaH: Optional[Any] = None
+        etaH: Optional[Any] = None,
     ) -> "LinearMap":
         """Construct a unified conductivity operator (Potential -> E_coeffs).
 
@@ -401,9 +386,7 @@ class Geometry:
         from pynamit.utils import to_numpy
 
         if mode == SimulationMode.PURE_SPECTRAL:
-            return self._get_conductivity_operator_spectral(
-                potential_type, eta_grid, etaP, etaH
-            )
+            return self._get_conductivity_operator_spectral(potential_type, eta_grid, etaP, etaH)
         else:
             return self._get_conductivity_operator_grid(potential_type, eta_grid)
 
@@ -417,11 +400,7 @@ class Geometry:
     ) -> "LinearMap":
         """Explicit name for Potential -> E operator (post-resistivity)."""
         return self.get_conductivity_operator(
-            mode=mode,
-            potential_type=potential_type,
-            eta_grid=eta_grid,
-            etaP=etaP,
-            etaH=etaH,
+            mode=mode, potential_type=potential_type, eta_grid=eta_grid, etaP=etaP, etaH=etaH
         )
 
     def _get_conductivity_operator_spectral(
@@ -429,7 +408,7 @@ class Geometry:
         potential_type: str,
         eta_grid: np.ndarray,
         etaP: Optional[Any] = None,
-        etaH: Optional[Any] = None
+        etaH: Optional[Any] = None,
     ) -> "LinearMap":
         """Build spectral (Galerkin) conductivity operator."""
         from pynamit.utils import to_numpy
@@ -443,9 +422,7 @@ class Geometry:
         return as_linear_map(M_vsh) @ op_JS
 
     def _get_conductivity_operator_grid(
-        self,
-        potential_type: str,
-        eta_grid: np.ndarray
+        self, potential_type: str, eta_grid: np.ndarray
     ) -> Optional["LinearMap"]:
         """Build grid-based (transform) conductivity operator."""
         # Get potential-to-JS operator (grid representation)
@@ -456,17 +433,13 @@ class Geometry:
         # Apply resistivity tensor and project back to coefficients
         op_eta = ResistivityTensorOperator(eta_grid).to_linear_map()
         op_P = as_linear_map(self.projection_matrix)
-        
-        # DEBUG: Isolate backend divergence
 
+        # DEBUG: Isolate backend divergence
 
         return op_P @ op_eta @ op_JS
 
     def _build_resistivity_interaction_matrix(
-        self,
-        eta_grid: np.ndarray,
-        etaP: Optional[Any] = None,
-        etaH: Optional[Any] = None
+        self, eta_grid: np.ndarray, etaP: Optional[Any] = None, etaH: Optional[Any] = None
     ) -> np.ndarray:
         """Build resistivity interaction matrix in VSH space.
 
@@ -479,8 +452,9 @@ class Geometry:
 
         # Try isotropic analytic path
         use_isotropic = (
-            etaP is not None and etaH is not None and
-            getattr(self.mainfield, "kind", MainfieldKind.DIPOLE) == MainfieldKind.RADIAL
+            etaP is not None
+            and etaH is not None
+            and getattr(self.mainfield, "kind", MainfieldKind.DIPOLE) == MainfieldKind.RADIAL
         )
 
         if use_isotropic:
@@ -614,10 +588,7 @@ class Geometry:
         self.E_coeffs_to_E_apex_ll_diff = mappings.E_coeffs_to_E_apex_ll_diff
 
     def _adapt_constraint_scalar_operator(
-        self,
-        spectral_operator: np.ndarray,
-        sim_operator: np.ndarray,
-        input_basis: Any,
+        self, spectral_operator: np.ndarray, sim_operator: np.ndarray, input_basis: Any
     ) -> np.ndarray:
         """Adapt a constraint scalar operator to the requested coefficient space."""
         if input_basis is None:
@@ -645,9 +616,7 @@ class Geometry:
     def get_constraint_scalar_operator(self, input_basis: Any = None) -> np.ndarray:
         """Get the operator mapping coefficients to the configured constraint scalar."""
         return self._adapt_constraint_scalar_operator(
-            self.constraint_scalar_map_spectral,
-            self.constraint_scalar_map_sim,
-            input_basis,
+            self.constraint_scalar_map_spectral, self.constraint_scalar_map_sim, input_basis
         )
 
     def get_constraint_scalar_reference_operator(self, input_basis: Any = None) -> np.ndarray:

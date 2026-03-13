@@ -115,10 +115,10 @@ def test_exponential_integrator_pure_spectral(tmp_path):
     # Baselines updated 2026-03-11 after restoring the affine full-induction
     # exponential step. The saved steady state is kept as a separate diagnostic
     # and is not used as the step center in this multi-data case.
-    expected_psi_norm = 8.255493212580842e-09
-    expected_mind_norm = 1.0188838768808942e-09
-    expected_steady_psi_norm = 3.099536468178148e-10
-    expected_steady_mind_norm = 1.5573562544848735e-09
+    expected_psi_norm = 1.0385777162078207e-08
+    expected_mind_norm = 2.5031827572287588e-09
+    expected_steady_psi_norm = 1.8757839161180914e-09
+    expected_steady_mind_norm = 3.852979750457087e-09
 
     _run_exponential_integrator_test(
         SimulationMode.PURE_SPECTRAL,
@@ -134,10 +134,10 @@ def test_exponential_integrator_pure_spectral(tmp_path):
 
 def test_exponential_integrator_spectral_transform_gl(tmp_path):
     """Test exponential integrator with spectral_transform (GL grid)."""
-    expected_psi_norm = 8.257319925014478e-09
-    expected_mind_norm = 1.0404304639838835e-09
-    expected_steady_psi_norm = 3.5179187947607367e-10
-    expected_steady_mind_norm = 1.5864283896874843e-09
+    expected_psi_norm = 1.0495095482425548e-08
+    expected_mind_norm = 3.121936716285918e-09
+    expected_steady_psi_norm = 2.3277852017216185e-09
+    expected_steady_mind_norm = 4.761661511558356e-09
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -153,10 +153,10 @@ def test_exponential_integrator_spectral_transform_gl(tmp_path):
 
 def test_exponential_integrator_spectral_transform_cs(tmp_path):
     """Test exponential integrator with spectral_transform (CS grid)."""
-    expected_psi_norm = 4.115377731336339e-09
-    expected_mind_norm = 9.778085304768368e-10
-    expected_steady_psi_norm = 6.698131734643239e-10
-    expected_steady_mind_norm = 1.4805749868640484e-09
+    expected_psi_norm = 6.7289251493402295e-09
+    expected_mind_norm = 1.607111250866314e-09
+    expected_steady_psi_norm = 1.2429246252773314e-09
+    expected_steady_mind_norm = 2.4508085823180446e-09
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
@@ -176,10 +176,10 @@ def test_exponential_integrator_cs_dominant(tmp_path):
     This verifies the matrix densification path works for CS basis
     with finite differences.
     """
-    expected_psi_norm = 3.215817434239666e-07
-    expected_mind_norm = 3.096212728682901e-07
-    expected_steady_psi_norm = 4.702539669765862e-07
-    expected_steady_mind_norm = 4.645281527075507e-07
+    expected_psi_norm = 5.76428799308547e-07
+    expected_mind_norm = 7.439230532998737e-07
+    expected_steady_psi_norm = 8.385378855490387e-07
+    expected_steady_mind_norm = 1.1157124050357981e-06
 
     _run_exponential_integrator_test(
         SimulationMode.CS_DOMINANT,

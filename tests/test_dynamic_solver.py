@@ -68,9 +68,9 @@ def _run_dynamic_ramp_test(
 def test_dynamic_ramp_pure_spectral(tmp_path):
     """Test pure spectral mode with dual induction."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
-    # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 8.255493120634494e-09
-    expected_mind_norm = 1.0382374674678734e-09
+    # LL hard-constraint mapping cleanup.
+    expected_psi_norm = 1.0385777162078206e-08
+    expected_mind_norm = 2.568653637402905e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.PURE_SPECTRAL,
@@ -85,9 +85,9 @@ def test_dynamic_ramp_pure_spectral(tmp_path):
 def test_dynamic_ramp_spectral_transform_gl(tmp_path):
     """Test spectral transform GL mode with dual induction."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
-    # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 8.25732003096468e-09
-    expected_mind_norm = 1.0576189485121287e-09
+    # LL hard-constraint mapping cleanup.
+    expected_psi_norm = 1.0495095482425548e-08
+    expected_mind_norm = 3.174441925162736e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -102,9 +102,9 @@ def test_dynamic_ramp_spectral_transform_gl(tmp_path):
 def test_dynamic_ramp_spectral_transform_cs(tmp_path):
     """Test spectral transform CS mode with dual induction."""
     # Baselines updated 2026-02-27 (pynamit-minimal) after full-induction
-    # alpha-space HL/LL hard-constraint mapping.
-    expected_psi_norm = 4.1153778728659436e-09
-    expected_mind_norm = 9.87049993973558e-10
+    # LL hard-constraint mapping cleanup.
+    expected_psi_norm = 6.728925149340229e-09
+    expected_mind_norm = 1.6338724703851135e-09
 
     _run_dynamic_ramp_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,
@@ -118,12 +118,12 @@ def test_dynamic_ramp_spectral_transform_cs(tmp_path):
 
 def test_dynamic_ramp_cs_dominant(backend: str, tmp_path):
     """Test CS dominant mode with dual induction."""
-    # Baselines updated 2026-03-12 after coupled runtime stepping switched to
-    # the same reduced gauge-constrained coordinates as the coupled steady-state
-    # solve. CS-dominant was the only mode whose old Euler baseline was still
-    # reflecting unconstrained full-space drift.
-    expected_psi_norm = 3.2158174332409124e-07
-    expected_mind_norm = 3.0968544093099376e-07
+    # Baselines updated 2026-03-12 after removing the old HL projection path
+    # from the active full-induction toroidal runtime semantics. CS-dominant is
+    # the most sensitive mode because its external toroidal channel was the most
+    # directly shaped by the previous HL machinery.
+    expected_psi_norm = 5.76428799682049e-07
+    expected_mind_norm = 7.439323207913103e-07
     rel_tol = 1e-2
 
     _run_dynamic_ramp_test(

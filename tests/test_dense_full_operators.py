@@ -8,8 +8,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from pynamit.math.constants import RE
 from pynamit.math.integration import EulerIntegrator
+from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.settings import DynamicsMode, IntegratorKind, SimulationMode
 
 
@@ -539,8 +543,15 @@ def test_toroidal_driver_balance_report_decomposes_live_forcing(tmp_path: Path) 
         components = report["components"]
 
         assert report["constraint_rows"]["ll"] > 0
+        assert report["constraint_rows"]["total"] == report["constraint_rows"]["ll"]
         assert components["wind"]["dt_alpha_norm"] > 0.0
         assert components["magnetic_imposed"]["dt_alpha_norm"] > 0.0
+        assert "rm_normal_current_norm" in components["total_external"]
+        assert "rm_divergent_closure_current_norm" in components["total_external"]
+        assert "rm_closure_potential_norm" in components["total_external"]
+        assert np.isfinite(components["total_external"]["rm_normal_current_norm"])
+        assert np.isfinite(components["total_external"]["rm_divergent_closure_current_norm"])
+        assert np.isfinite(components["total_external"]["rm_closure_potential_norm"])
 
         np.testing.assert_allclose(
             np.asarray(components["total_external"]["rhs_physics"]),
@@ -568,6 +579,50 @@ def test_toroidal_driver_balance_report_decomposes_live_forcing(tmp_path: Path) 
                 atol=1e-12,
             )
             assert "magnetic_driver_raw" in components
+    finally:
+        os.chdir(previous_cwd)
+
+
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_toroidal_rm_closure_operators_satisfy_boundary_continuity(tmp_path: Path) -> None:
+    """RM closure diagnostics should satisfy ``Delta_S chi = j_n`` on the closure basis."""
+    previous_cwd = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        sim = run_pynamit(
+            final_time=0.0,
+            dt=1.0,
+            plotsteps=1,
+            Nmax=6,
+            Mmax=3,
+            Ncs=10,
+            RM=4.0 * RE,
+            dynamics_mode=DynamicsMode.FULL_INDUCTION,
+            simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
+            least_squares_solver="svd",
+            integrator=IntegratorKind.EULER,
+            dense_full_operators=False,
+            connect_hemispheres=True,
+            benchmark_mode=True,
+        )
+        state = sim.state
+        ops = state.poloidal_matrices.toroidal_rm_closure_operators
+        assert state.RM is not None
+        lap_rm = np.asarray(
+            to_dense(state.poloidal_matrices._pfac.basis.get_laplacian_operator(state.RM)),
+            dtype=float,
+        )
+        assert np.linalg.norm(ops.alpha_to_normal_current_rm_coeff) > 0.0
+        assert np.linalg.norm(ops.alpha_to_closure_potential_rm_coeff) > 0.0
+        assert np.linalg.norm(ops.alpha_to_divergent_closure_current_rm_grid) > 0.0
+
+        rng = np.random.default_rng(20260313)
+        alpha = rng.standard_normal(state.solution_space.index_length)
+        jn_rm = np.asarray(ops.alpha_to_normal_current_rm_coeff @ alpha, dtype=float)
+        chi_rm = np.asarray(ops.alpha_to_closure_potential_rm_coeff @ alpha, dtype=float)
+
+        np.testing.assert_allclose(lap_rm @ chi_rm, jn_rm, rtol=1e-10, atol=1e-10)
     finally:
         os.chdir(previous_cwd)
 
@@ -609,8 +664,8 @@ def test_full_induction_m_imp_from_jr_matrix_is_gauge_preserving(tmp_path: Path)
 
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
-def test_full_induction_hl_projection_is_lifted_from_reduced_m_imp_system(tmp_path: Path) -> None:
-    """The exposed HL projector should be the full-space lift of the reduced m_imp operator."""
+def test_full_induction_m_imp_from_jr_matrix_is_direct_reduced_solve(tmp_path: Path) -> None:
+    """The exposed ``m_imp_from_jr`` map should be the direct reduced m_imp solve."""
     previous_cwd = Path.cwd()
     os.chdir(tmp_path)
     try:
@@ -631,22 +686,21 @@ def test_full_induction_hl_projection_is_lifted_from_reduced_m_imp_system(tmp_pa
         )
         state = sim.state
         feedback_system = state.m_imp_feedback_system
-        n = state.solution_space.index_length
+        op_rhs = as_linear_map(state.geometry.get_constraint_scalar_operator(state.solution_space))
+        rhs0 = np.asarray(to_dense(op_rhs))
+        n_scenarios = int(rhs0.shape[1]) if rhs0.ndim == 2 else 1
+        rhs_terms = [rhs0]
+        for term_index in range(1, feedback_system.problem.num_data_terms):
+            n_rows = int(feedback_system.problem.A[term_index].num_rows)
+            rhs_terms.append(np.zeros((n_rows, n_scenarios), dtype=rhs0.dtype))
 
-        hl_raw = np.asarray(state.constraints.get_hl_projection_matrix(n), dtype=float)
-        hl_expected = np.asarray(feedback_system.get_hl_projection_full(hl_raw), dtype=float)
-        hl_exposed = np.asarray(state._get_hl_projection_matrix(n), dtype=float)
-        np.testing.assert_allclose(hl_exposed, hl_expected, rtol=1e-13, atol=1e-13)
-
-        rng = np.random.default_rng(20260312)
-        values = rng.standard_normal(n)
-        projected_expected = feedback_system.project_hl(values, hl_raw)
-        np.testing.assert_allclose(
-            np.asarray(state._project_to_hl_modes(values)),
-            np.asarray(projected_expected),
-            rtol=1e-13,
-            atol=1e-13,
+        solver = LeastSquaresSolver(solver="svd", tolerance=1e-15)
+        reduced_direct = np.asarray(solver.solve(feedback_system.problem, rhs_terms)).reshape(
+            feedback_system.problem.solution_size, n_scenarios
         )
+        expected = np.asarray(feedback_system.expand_solution(reduced_direct))
+        exposed = np.asarray(state.get_external_forcing_matrices()["m_imp_from_jr"])
+        np.testing.assert_allclose(exposed, expected, rtol=1e-13, atol=1e-13)
     finally:
         os.chdir(previous_cwd)
 

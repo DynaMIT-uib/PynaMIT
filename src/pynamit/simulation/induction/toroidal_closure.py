@@ -67,11 +67,7 @@ class ToroidalClosureProjector:
         op = np.asarray(operator)
         if not self.uses_auxiliary_basis:
             return op
-        return np.asarray(
-            self.closure_to_state_scalar_map
-            @ op
-            @ self.state_to_closure_scalar_map
-        )
+        return np.asarray(self.closure_to_state_scalar_map @ op @ self.state_to_closure_scalar_map)
 
     def project_vector_rhs_operator_to_state(self, operator: np.ndarray) -> np.ndarray:
         """Project vector-valued RHS map from closure basis to state basis.
@@ -91,3 +87,89 @@ class ToroidalClosureProjector:
         t_in[:n_closure, :n_state] = s2c
         t_in[n_closure:, n_state:] = s2c
         return np.asarray(c2s @ op @ t_in)
+
+
+@dataclass(frozen=True)
+class ToroidalRMBoundaryOperators:
+    """Closed-boundary shell operators for the dynamic toroidal ``R_M`` lock.
+
+    These operators make the current shell-level toroidal lock explicit as a
+    fixed-point closure in coefficient space:
+
+        ``closure_denominator @ psi_closed = psi_open``
+
+    with
+
+        ``closure_denominator = I - roundtrip_gain``
+        ``closure_inv = closure_denominator^{-1}``
+        ``reaction = closure_inv - I``.
+
+    The ``roundtrip_gain`` operator is the shell-level surrogate for one
+    ionosphere-to-``R_M``-to-ionosphere induced toroidal roundtrip. It is kept
+    for diagnostics/comparison only; the runtime toroidal channel now uses the
+    open shell operator and relies on the PFAC/poloidal closure for the actual
+    RM electromagnetic reaction. This surrogate is distinct from the explicit
+    ``R_M`` normal-current closure-current diagnostics in ``pfac.py``.
+    """
+
+    rm_to_ri: np.ndarray
+    ri_to_rm: np.ndarray
+    roundtrip_gain: np.ndarray
+    closure_denominator: np.ndarray
+    closure_inv: np.ndarray
+    reaction: np.ndarray
+
+
+@dataclass(frozen=True)
+class ToroidalRMBoundarySourceOperators:
+    """Explicit source-side toroidal boundary operator at ``R_M``.
+
+    This captures the physically unambiguous part of the toroidal closure:
+
+        ``alpha(R_I) -> j_n(R_M) -> chi_M(R_M) -> psi(R_M^-)``
+
+    with
+
+        ``psi(R_M^-) = (mu0 / R_M) * chi_M``.
+
+    No downward continuation back to ``R_I`` is implied here.
+    """
+
+    alpha_to_sheet_boundary_psi_rm: np.ndarray
+
+
+@dataclass(frozen=True)
+class ToroidalRMReactionPrototype:
+    """Standalone comparison bundle for open vs closed RM toroidal response.
+
+    This is intentionally diagnostic/prototype-only. It exposes the current
+    runtime shell surrogate, the corresponding open response, and the explicit
+    source-side ``R_M`` boundary toroidal operator together with the normal-current
+    closure operators.
+    """
+
+    rm_to_ri: np.ndarray
+    ri_to_rm: np.ndarray
+    roundtrip_gain: np.ndarray
+    closure_denominator: np.ndarray
+    closure_inv: np.ndarray
+    shell_reaction_operator: np.ndarray
+    alpha_to_psi_shell_closed: np.ndarray
+    radial_closure_dt_psi_shell_closed: np.ndarray
+    alpha_to_sheet_boundary_psi_rm: np.ndarray
+    alpha_to_psi_open: np.ndarray
+    alpha_to_psi_closed: np.ndarray
+    alpha_to_psi_reaction: np.ndarray
+    radial_closure_dt_psi_open: np.ndarray
+    radial_closure_dt_psi_closed: np.ndarray
+    radial_closure_dt_psi_reaction: np.ndarray
+    toroidal_feedback_dtalpha_open: np.ndarray
+    toroidal_feedback_dtalpha_closed: np.ndarray
+    toroidal_feedback_dtalpha_reaction: np.ndarray
+    dynamic_pfac_open: np.ndarray
+    dynamic_pfac_closed: np.ndarray
+    dynamic_pfac_reaction: np.ndarray
+    alpha_to_dynamic_pfac_reaction: np.ndarray
+    alpha_to_normal_current_rm_grid: np.ndarray
+    alpha_to_closure_potential_rm_coeff: np.ndarray
+    alpha_to_divergent_closure_current_rm_grid: np.ndarray

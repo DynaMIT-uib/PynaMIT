@@ -321,7 +321,17 @@ class DynamicsSettings:
     ih_constraint_scaling : float
         Scaling for interhemispheric constraint.
     ll_constraint_mode : str
-        LL compatibility policy: "auto", "off", "soft", or "hard".
+        Low-latitude ionospheric compatibility policy:
+        "auto", "off", "soft", or "hard".
+    magnetospheric_toroidal_lock : bool
+        If True, enable the explicit ``R_M`` toroidal boundary-source
+        diagnostics for the dynamic FAC/``dt_alpha`` channel. The live
+        electromagnetic RM reaction remains on the PFAC/poloidal side;
+        this flag no longer applies a shell roundtrip closure directly to the
+        runtime ``dt_psi`` operators.
+    magnetospheric_poloidal_lock : bool
+        If True, apply the RM-closed boundary closure to induced poloidal
+        feedback pathways.
     vector_jr : bool
         Use vector representation for radial current.
     vector_Br : bool

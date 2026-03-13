@@ -8,6 +8,7 @@ external toroidal potential to poloidal potential.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -25,6 +26,30 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ToroidalRMClosureOperators:
+    """Cached operators for RM normal-current termination diagnostics.
+
+    These operators capture the unambiguous parts of the dynamic toroidal
+    boundary closure problem:
+    - map ionospheric ``alpha`` coefficients to the incoming normal current at
+      ``R_M`` along field lines,
+    - solve the surface-divergence closure potential ``chi`` from
+      ``Delta_S chi = j_n(R_M)``,
+    - and recover the resulting divergent horizontal closure current on the
+      ``R_M`` boundary.
+
+    The electromagnetic reaction of that closure current below ``R_M`` is a
+    separate operator and is intentionally not folded into these diagnostics.
+    """
+
+    alpha_to_normal_current_rm_grid: np.ndarray
+    alpha_to_normal_current_rm_coeff: np.ndarray
+    alpha_to_closure_potential_rm_coeff: np.ndarray
+    alpha_to_boundary_psi_rm_coeff: np.ndarray
+    alpha_to_divergent_closure_current_rm_grid: np.ndarray
 
 
 class PFACIntegrator:
@@ -52,13 +77,15 @@ class PFACIntegrator:
         If True, return zero operator (radial field approximation).
     magnetospheric_poloidal_lock : bool
         If True, include RM shielding-style roundtrip coupling for induced
-        pathways (for example ``m_ind`` and, when enabled, dynamic toroidal
-        source channels). Explicit imposed boundary channels remain closed.
-    lock_toroidal_source_channels : bool
-        If True, apply the RM poloidal lock to toroidal-source channels
-        (m_imp/psi PFAC branch) in addition to m_ind/Br pathways.
+        poloidal pathways. Explicit imposed boundary channels remain closed.
+    magnetospheric_toroidal_lock : bool
+        If True, expose the explicit ``R_M`` toroidal boundary-source
+        diagnostics for the dynamic toroidal/FAC channel. The runtime
+        electromagnetic RM reaction is handled on the PFAC/poloidal side.
     """
+
     _T_TO_VE_CACHE: dict[tuple[Any, ...], np.ndarray] = {}
+    _TOROIDAL_RM_CLOSURE_CACHE: dict[tuple[Any, ...], ToroidalRMClosureOperators] = {}
 
     def __init__(
         self,
@@ -70,7 +97,7 @@ class PFACIntegrator:
         FAC_integration_steps: Any,
         ignore_PFAC: bool = False,
         magnetospheric_poloidal_lock: bool = True,
-        lock_toroidal_source_channels: bool = False,
+        magnetospheric_toroidal_lock: bool = False,
     ) -> None:
         self.basis = basis
         self.solution_space = solution_space
@@ -80,7 +107,7 @@ class PFACIntegrator:
         self.FAC_integration_steps = FAC_integration_steps
         self.ignore_PFAC = ignore_PFAC
         self.magnetospheric_poloidal_lock = bool(magnetospheric_poloidal_lock)
-        self.lock_toroidal_source_channels = bool(lock_toroidal_source_channels)
+        self.magnetospheric_toroidal_lock = bool(magnetospheric_toroidal_lock)
 
     def get_coupling_factors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute magnetospheric coupling factors.
@@ -114,11 +141,7 @@ class PFACIntegrator:
         return br_rm_to_ri_shift, br_ri_to_rm_shift, rm_roundtrip_denominator
 
     def compute_T_to_Ve(
-        self,
-        G_Ve_to_JS_closure: np.ndarray,
-        grid: Grid,
-        *,
-        rm_boundary_mode: str = "closed",
+        self, G_Ve_to_JS_closure: np.ndarray, grid: Grid, *, rm_boundary_mode: str = "closed"
     ) -> xr.DataArray:
         """Construct the T_to_Ve operator by integrating radially.
 
@@ -184,7 +207,9 @@ class PFACIntegrator:
         rks = rk_steps[:-1] + 0.5 * Delta_k
 
         # Integration backbone (spectral space)
-        G_inv_sh = tensor_pinv(G_Ve_to_JS_closure, n_leading_flattened=2, rtol=1e-12).reshape(n_sh, -1)
+        G_inv_sh = tensor_pinv(G_Ve_to_JS_closure, n_leading_flattened=2, rtol=1e-12).reshape(
+            n_sh, -1
+        )
 
         # Source operator factor in solution-basis coefficients: RI/mu0 * Laplacian
         # (built once and reused for all radial quadrature steps).
@@ -194,8 +219,7 @@ class PFACIntegrator:
             if hasattr(self.solution_space, "get_mean_zero_projector"):
                 try:
                     P_sol = np.asarray(
-                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol),
-                        dtype=float,
+                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol), dtype=float
                     )
                     if P_sol.shape == (n_sol, n_sol):
                         m_imp_to_jr_sol_op = m_imp_to_jr_sol_op @ P_sol
@@ -210,13 +234,7 @@ class PFACIntegrator:
 
         for i, rk in enumerate(rks):
             step_mat = self._compute_integration_step(
-                rk,
-                grid,
-                G_inv_sh,
-                m_imp_to_jr_sol_op,
-                n_sol,
-                n_sh,
-                rm_boundary_mode=rm_mode,
+                rk, grid, G_inv_sh, m_imp_to_jr_sol_op, n_sol, n_sh, rm_boundary_mode=rm_mode
             )
             T_accum += Delta_k[i] * step_mat
 
@@ -234,8 +252,7 @@ class PFACIntegrator:
             if hasattr(self.solution_space, "get_mean_zero_projector"):
                 try:
                     P_g = np.asarray(
-                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol),
-                        dtype=float,
+                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol), dtype=float
                     )
                     if P_g.shape == (n_sol, n_sol):
                         T_to_Ve.values = P_g @ T_to_Ve.values
@@ -244,6 +261,102 @@ class PFACIntegrator:
 
         PFACIntegrator._T_TO_VE_CACHE[cache_key] = T_to_Ve.values.copy()
         return T_to_Ve
+
+    def compute_toroidal_rm_closure_operators(self, grid: Grid) -> ToroidalRMClosureOperators:
+        """Build operators for the ``R_M`` normal-current closure of dynamic ``alpha``.
+
+        The closure is defined by:
+            ``j_n(R_M) = alpha(R_M) * B0r(R_M)``
+            ``Delta_S chi(R_M) = j_n(R_M)``
+            ``K_div(R_M) = -grad_S chi(R_M)``
+
+        These operators do not include any downward electromagnetic reaction;
+        they only describe the current system placed on the ``R_M`` boundary.
+        """
+        n_sol = int(self.solution_space.index_length)
+        n_closure = int(self.basis.index_length)
+        n_grid = int(np.asarray(grid.theta).size)
+
+        if self.RM is None:
+            return ToroidalRMClosureOperators(
+                alpha_to_normal_current_rm_grid=np.zeros((n_grid, n_sol)),
+                alpha_to_normal_current_rm_coeff=np.zeros((n_closure, n_sol)),
+                alpha_to_closure_potential_rm_coeff=np.zeros((n_closure, n_sol)),
+                alpha_to_boundary_psi_rm_coeff=np.zeros((n_closure, n_sol)),
+                alpha_to_divergent_closure_current_rm_grid=np.zeros((2, n_grid, n_sol)),
+            )
+
+        cache_key = (
+            getattr(self.basis, "kind", None),
+            int(getattr(self.basis, "index_length", -1)),
+            int(getattr(self.basis, "Nmax", -1)),
+            int(getattr(self.basis, "Mmax", -1)),
+            getattr(self.solution_space, "kind", None),
+            int(getattr(self.solution_space, "index_length", -1)),
+            int(getattr(self.solution_space, "N", -1)),
+            int(getattr(grid, "hash", id(grid))),
+            float(self.RI),
+            float(self.RM),
+            getattr(self.mainfield, "kind", None),
+            int(getattr(self.mainfield, "epoch", 0)),
+            float(getattr(self.mainfield, "B0", 0.0) or 0.0),
+        )
+        cached = PFACIntegrator._TOROIDAL_RM_CLOSURE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        theta_ri, phi_ri = self.mainfield.map_coords(self.RI, self.RM, grid.theta, grid.phi)
+        footprint_grid = Grid(theta=theta_ri, phi=phi_ri)
+
+        alpha_eval = np.asarray(
+            to_dense(self.solution_space.get_evaluation_matrix(footprint_grid))
+        )
+        if alpha_eval.ndim != 2:
+            alpha_eval = alpha_eval.reshape(alpha_eval.shape[0], -1)
+
+        b_rm = self.mainfield.discretize(grid, self.RM)
+        br_rm = np.asarray(b_rm.vec.r).reshape(-1)
+        if br_rm.size != alpha_eval.shape[0]:
+            raise ValueError(
+                "RM normal-current assembly mismatch: "
+                f"B0r(R_M)={br_rm.shape}, alpha_eval={alpha_eval.shape}."
+            )
+
+        alpha_to_normal_current_rm_grid = br_rm[:, None] * alpha_eval
+
+        proj_closure = np.asarray(to_dense(self.basis.construct_scalar_projection_matrix(grid)))
+        alpha_to_normal_current_rm_coeff = proj_closure @ alpha_to_normal_current_rm_grid
+
+        lap_rm = np.asarray(to_dense(self.basis.get_laplacian_operator(self.RM)))
+        if lap_rm.ndim != 2:
+            lap_rm = lap_rm.reshape(lap_rm.shape[0], -1)
+        lap_rm_pinv = np.asarray(tensor_pinv(lap_rm, n_leading_flattened=1))
+        alpha_to_closure_potential_rm_coeff = lap_rm_pinv @ alpha_to_normal_current_rm_coeff
+        alpha_to_boundary_psi_rm_coeff = (
+            float(mu0) / float(self.RM)
+        ) * alpha_to_closure_potential_rm_coeff
+
+        grad_rm = np.asarray(to_dense(self.basis.get_gradient_matrix(grid)))
+        if grad_rm.ndim != 3 or grad_rm.shape[2] != alpha_to_closure_potential_rm_coeff.shape[0]:
+            raise ValueError(
+                "RM closure gradient assembly mismatch: "
+                f"grad={grad_rm.shape}, chi={alpha_to_closure_potential_rm_coeff.shape}."
+            )
+        alpha_to_divergent_closure_current_rm_grid = -(1.0 / float(self.RM)) * np.tensordot(
+            grad_rm, alpha_to_closure_potential_rm_coeff, axes=([2], [0])
+        )
+
+        operators = ToroidalRMClosureOperators(
+            alpha_to_normal_current_rm_grid=np.asarray(alpha_to_normal_current_rm_grid),
+            alpha_to_normal_current_rm_coeff=np.asarray(alpha_to_normal_current_rm_coeff),
+            alpha_to_closure_potential_rm_coeff=np.asarray(alpha_to_closure_potential_rm_coeff),
+            alpha_to_boundary_psi_rm_coeff=np.asarray(alpha_to_boundary_psi_rm_coeff),
+            alpha_to_divergent_closure_current_rm_grid=np.asarray(
+                alpha_to_divergent_closure_current_rm_grid
+            ),
+        )
+        PFACIntegrator._TOROIDAL_RM_CLOSURE_CACHE[cache_key] = operators
+        return operators
 
     def _compute_integration_step(
         self,
@@ -279,9 +392,7 @@ class PFACIntegrator:
             Contribution to T_to_Ve from this integration step.
         """
         # Coordinate mapping
-        theta_m, phi_m = self.mainfield.map_coords(
-            self.RI, rk, grid.theta, grid.phi
-        )
+        theta_m, phi_m = self.mainfield.map_coords(self.RI, rk, grid.theta, grid.phi)
         m_grid = Grid(theta=theta_m, phi=phi_m)
         rk_b = self.mainfield.discretize(grid, rk)
         m_b = self.mainfield.discretize(m_grid, self.RI)
@@ -294,7 +405,7 @@ class PFACIntegrator:
             "ij,jk->ijk",
             [rk_b.vec.theta / m_b.vec.r, rk_b.vec.phi / m_b.vec.r],
             M_source @ m_imp_to_jr_sol_op,
-            optimize=True
+            optimize=True,
         ).reshape(-1, n_sol)
 
         # Radial propagation factors (exact spectral decay)

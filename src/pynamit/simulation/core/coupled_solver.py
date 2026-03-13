@@ -990,14 +990,6 @@ class CoupledOperators:
             apply_psi_gauge=bool(st.apply_psi_gauge),
         )
 
-    def get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
-        """Return the full-space HL projector induced by the reduced ``m_imp`` system."""
-        hl_projection = self.state.constraints.get_hl_projection_matrix(n_coeffs)
-        feedback_system = self.state.m_imp_feedback_system
-        if feedback_system.full_size == int(n_coeffs):
-            return feedback_system.get_hl_projection_full(hl_projection)
-        return hl_projection
-
     def get_m_imp_from_jr_matrix(self, input_basis: Optional[Any] = None) -> np.ndarray:
         """Expose dense map from input ``jr`` coefficients to imposed ``m_imp``."""
         st = self.state
@@ -1021,11 +1013,6 @@ class CoupledOperators:
         m_imp_from_jr_reduced = np.asarray(
             solver.solve(feedback_system.problem, rhs_terms)
         ).reshape(feedback_system.problem.solution_size, n_scenarios)
-        if st.dynamics_mode == DynamicsMode.FULL_INDUCTION:
-            hl_projection = st.constraints.get_hl_projection_matrix(feedback_system.full_size)
-            m_imp_from_jr_reduced = np.asarray(
-                feedback_system.project_hl(m_imp_from_jr_reduced, hl_projection), dtype=float
-            )
         m_imp_from_jr = np.asarray(feedback_system.expand_solution(m_imp_from_jr_reduced))
         return asarray(m_imp_from_jr)
 

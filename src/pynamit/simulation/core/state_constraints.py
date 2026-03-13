@@ -7,7 +7,7 @@ row compression, metric construction, and gauge projection rules.
 from __future__ import annotations
 from dataclasses import dataclass
 import logging
-from typing import Any, Tuple, Optional, Dict
+from typing import Any, Optional, Dict
 from functools import cached_property
 
 import numpy as np
@@ -51,11 +51,10 @@ class ReducedScalarSystem:
 
 @dataclass(frozen=True)
 class DtAlphaConstraintSystem:
-    """Bundle LL/HL constraint handling for the full-induction ``dt_alpha`` solve."""
+    """Bundle LL compatibility handling for the full-induction ``dt_alpha`` solve."""
 
     ll_mode: LLConstraintMode
     c_ll: np.ndarray
-    c_hl: np.ndarray
     hard_operator: Optional[np.ndarray]
     soft_operator: Optional[np.ndarray]
     soft_scaling: float = 0.0
@@ -69,18 +68,9 @@ class DtAlphaConstraintSystem:
         return arr
 
     @property
-    def c_total(self) -> np.ndarray:
-        """Return the full LL+HL row block independent of active LL mode."""
-        if self.c_ll.shape[0] == 0:
-            return np.asarray(self.c_hl, dtype=float)
-        if self.c_hl.shape[0] == 0:
-            return np.asarray(self.c_ll, dtype=float)
-        return np.asarray(np.vstack([self.c_ll, self.c_hl]), dtype=float)
-
-    @property
     def n_coeff(self) -> int:
         """Return the flattened ``dt_alpha`` coefficient dimension."""
-        for operator in (self.hard_operator, self.soft_operator, self.c_total):
+        for operator in (self.hard_operator, self.soft_operator, self.c_ll):
             if operator is None:
                 continue
             arr = self._as_2d_matrix(operator)
@@ -114,14 +104,11 @@ class DtAlphaConstraintSystem:
         if hard.shape[0] == 0:
             return np.zeros(0, dtype=float)
 
-        driver = self._resolve_driver(driver_coeffs, hard.shape[1])
-        if self.ll_mode == LLConstraintMode.HARD and self.c_ll.shape[0] > 0:
-            rhs_ll = -np.asarray(self.c_ll, dtype=float) @ driver
-            rhs_hl = np.zeros(self.c_hl.shape[0], dtype=float)
-            rhs = np.concatenate([rhs_ll, rhs_hl])
-        else:
-            rhs = np.zeros(hard.shape[0], dtype=float)
+        if self.ll_mode != LLConstraintMode.HARD or self.c_ll.shape[0] == 0:
+            return np.zeros(hard.shape[0], dtype=float)
 
+        driver = self._resolve_driver(driver_coeffs, hard.shape[1])
+        rhs = -np.asarray(self.c_ll, dtype=float) @ driver
         if rhs.shape[0] != hard.shape[0]:
             raise RuntimeError(
                 "Constraint RHS assembly mismatch: hard RHS row count does not match "
@@ -241,7 +228,6 @@ class StateConstraints:
         solution_space: Any,
         dynamics_mode: DynamicsMode | str,
         connect_hemispheres: bool,
-        magnetospheric_toroidal_lock: bool,
         apply_psi_gauge: bool,
         apply_m_ind_gauge: bool,
         apply_m_imp_gauge: bool,
@@ -250,7 +236,6 @@ class StateConstraints:
         self.solution_space = solution_space
         self.dynamics_mode = DynamicsMode(str(dynamics_mode))
         self.connect_hemispheres = connect_hemispheres
-        self.magnetospheric_toroidal_lock = magnetospheric_toroidal_lock
         self.apply_psi_gauge = apply_psi_gauge
         self.apply_m_ind_gauge = apply_m_ind_gauge
         self.apply_m_imp_gauge = apply_m_imp_gauge
@@ -576,201 +561,10 @@ class StateConstraints:
         return float(np.clip(rtol, min_rel, max_rel))
 
     def _resolve_constraint_rank_rtol(self, spectrum: np.ndarray, label: str) -> float:
-        """Resolve rank cutoff for HL/LL constraint decomposition."""
+        """Resolve a relative rank cutoff for compressed constraint rows."""
         auto = self._auto_relative_cutoff_from_spectrum(spectrum)
         logger.info("Auto %s rank rtol from spectral gap: %.3e", label, auto)
         return auto
-
-    def _build_energy_metric_pair(
-        self, ll_mask: np.ndarray, weights: np.ndarray, n_coeffs: int
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Build global and HL magnetic-energy metrics in coefficient space."""
-        try:
-            curl = np.asarray(self.solution_space.get_curl_matrix(self.geometry.grid), dtype=float)
-        except Exception:
-            logger.warning("Energy-metric split: curl operator unavailable.", exc_info=True)
-            return None, None
-
-        if curl.ndim != 3 or curl.shape[0] != 2:
-            logger.warning(
-                "Energy-metric split skipped: unexpected curl shape %s (expected (2, N_grid, N_coeffs)).",
-                tuple(curl.shape),
-            )
-            return None, None
-        G_th = curl[0]
-        G_ph = curl[1]
-
-        if (
-            G_th.ndim != 2
-            or G_ph.ndim != 2
-            or G_th.shape != G_ph.shape
-            or G_th.shape[0] != ll_mask.size
-            or G_th.shape[1] != n_coeffs
-        ):
-            logger.warning(
-                "Energy-metric split skipped: derivative shapes incompatible (G_th=%s, G_ph=%s, expected=(%d,%d)).",
-                tuple(G_th.shape),
-                tuple(G_ph.shape),
-                int(ll_mask.size),
-                int(n_coeffs),
-            )
-            return None, None
-
-        hl_mask = ~ll_mask
-        sqrt_w = np.sqrt(weights)
-        sqrt_w_hl = np.sqrt(weights * hl_mask.astype(float))
-
-        Gth_w = sqrt_w.reshape(-1, 1) * G_th
-        Gph_w = sqrt_w.reshape(-1, 1) * G_ph
-        M = (Gth_w.T @ Gth_w) + (Gph_w.T @ Gph_w)
-
-        Gth_w_hl = sqrt_w_hl.reshape(-1, 1) * G_th
-        Gph_w_hl = sqrt_w_hl.reshape(-1, 1) * G_ph
-        M_hl = (Gth_w_hl.T @ Gth_w_hl) + (Gph_w_hl.T @ Gph_w_hl)
-
-        M = 0.5 * (M + M.T)
-        M_hl = 0.5 * (M_hl + M_hl.T)
-        return M, M_hl
-
-    def _build_apex_metric_pair(
-        self, ll_mask: np.ndarray, weights: np.ndarray, n_coeffs: int
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Build global and HL Gram metrics in apex sample space."""
-        apex_op = self.geometry.get_constraint_scalar_reference_operator(self.solution_space)
-
-        A_apex = np.asarray(to_dense(as_linear_map(apex_op)), dtype=float)
-        if A_apex.ndim != 2:
-            logger.warning(
-                "Apex-metric split skipped: unexpected apex map shape %s.", tuple(A_apex.shape)
-            )
-            return None, None
-        if A_apex.shape[0] != ll_mask.size or A_apex.shape[1] != n_coeffs:
-            logger.warning(
-                "Apex-metric split skipped: apex map shape %s incompatible with "
-                "mask size %d and n_coeffs %d.",
-                tuple(A_apex.shape),
-                int(ll_mask.size),
-                int(n_coeffs),
-            )
-            return None, None
-
-        hl_mask = ~ll_mask
-        sqrt_w = np.sqrt(weights).reshape(-1, 1)
-        sqrt_w_hl = np.sqrt(weights * hl_mask.astype(float)).reshape(-1, 1)
-
-        A_w = sqrt_w * A_apex
-        A_w_hl = sqrt_w_hl * A_apex
-        B = A_w.T @ A_w
-        B_hl = A_w_hl.T @ A_w_hl
-        B = 0.5 * (B + B.T)
-        B_hl = 0.5 * (B_hl + B_hl.T)
-        return B, B_hl
-
-    def _build_hl_ll_subspaces(
-        self, n_coeffs: int, ll_mask: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Build compact HL/LL dominant subspaces in coefficient space."""
-        ll_mask = np.asarray(ll_mask, dtype=bool).reshape(-1)
-        hl_mask = ~ll_mask
-        if not np.any(ll_mask) or not np.any(hl_mask):
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-
-        weights = np.asarray(self.geometry.grid.weights).reshape(-1)
-        if weights.size != ll_mask.size:
-            weights = np.ones(ll_mask.size, dtype=float)
-        weights = np.maximum(weights, 0.0)
-        wsum = float(np.sum(weights))
-        if not np.isfinite(wsum) or wsum <= 0:
-            weights = np.ones_like(weights) / max(weights.size, 1)
-        else:
-            weights = weights / wsum
-
-        M, M_hl = self._build_apex_metric_pair(ll_mask=ll_mask, weights=weights, n_coeffs=n_coeffs)
-        if M is None or M_hl is None:
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-
-        U, svals, _ = np.linalg.svd(M, full_matrices=False)
-        if svals.size == 0 or svals[0] <= 0:
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-        rtol = self._resolve_constraint_rank_rtol(spectrum=svals, label="HL/LL split")
-        keep_s = svals > (rtol * float(svals[0]))
-        if not np.any(keep_s):
-            return np.zeros((n_coeffs, 0), dtype=float), np.zeros((n_coeffs, 0), dtype=float)
-        U_r = U[:, keep_s]
-        s_r = svals[keep_s]
-        S_inv_half = U_r / np.sqrt(s_r).reshape(1, -1)
-
-        B = S_inv_half.T @ M_hl @ S_inv_half
-        B = 0.5 * (B + B.T)
-        evals, evecs = np.linalg.eigh(B)
-        order = np.argsort(evals)[::-1]
-        lambda_desc = np.clip(np.asarray(evals[order], dtype=float), 0.0, 1.0)
-        V_desc = S_inv_half @ evecs[:, order]
-
-        n_modes = int(lambda_desc.size)
-        if n_modes < 3:
-            hl_idx_raw = np.array([0], dtype=int) if n_modes > 0 else np.zeros(0, dtype=int)
-            ll_idx_raw = (
-                np.array([n_modes - 1], dtype=int) if n_modes > 1 else np.zeros(0, dtype=int)
-            )
-            shannon_hl = int(np.rint(float(np.sum(lambda_desc)))) if n_modes > 0 else 0
-            K = int(np.clip(shannon_hl, 0, max(n_modes - 1, 0)))
-            hl_cut = float(lambda_desc[0]) if n_modes > 0 else 0.0
-            ll_cut = float(lambda_desc[-1]) if n_modes > 0 else 0.0
-        else:
-            shannon_hl = int(np.rint(float(np.sum(lambda_desc))))
-            K = int(np.clip(shannon_hl, 1, n_modes - 2))
-            gaps = lambda_desc[:-1] - lambda_desc[1:]
-
-            idx_h = int(np.argmax(gaps[:K]))
-            idx_l = int(K + np.argmax(gaps[K:]))
-
-            if idx_h >= idx_l:
-                idx_h = max(0, K - 1)
-                idx_l = min(n_modes - 2, K)
-
-            hl_idx_raw = np.arange(0, idx_h + 1, dtype=int)
-            ll_idx_raw = np.arange(idx_l + 1, n_modes, dtype=int)
-
-            hl_cut = float(0.5 * (lambda_desc[idx_h] + lambda_desc[idx_h + 1]))
-            ll_cut = float(0.5 * (lambda_desc[idx_l] + lambda_desc[idx_l + 1]))
-
-        hl_sel = np.zeros_like(lambda_desc, dtype=bool)
-        ll_sel = np.zeros_like(lambda_desc, dtype=bool)
-        hl_sel[hl_idx_raw] = True
-        ll_sel[ll_idx_raw] = True
-
-        Q_hl = (
-            self._m_orthonormalize_columns(V_desc[:, hl_sel], metric=M, rtol=rtol)
-            if np.any(hl_sel)
-            else np.zeros((n_coeffs, 0), dtype=float)
-        )
-        Q_ll = (
-            self._m_orthonormalize_columns(V_desc[:, ll_sel], metric=M, rtol=rtol)
-            if np.any(ll_sel)
-            else np.zeros((n_coeffs, 0), dtype=float)
-        )
-
-        n_modes = int(V_desc.shape[1])
-        n_hl = int(Q_hl.shape[1])
-        n_ll = int(Q_ll.shape[1])
-        hl_conc = float(np.mean(lambda_desc[hl_sel])) if np.any(hl_sel) else 0.0
-        ll_conc = float(np.mean(1.0 - lambda_desc[ll_sel])) if np.any(ll_sel) else 0.0
-        logger.info(
-            "Energy split (shannon-two-gap): n=%d, K=%d, hl=%d, ll=%d, mid=%d, hl_raw=%d, ll_raw=%d, hl_cut=%.3f, ll_cut=%.3f, mean_hl=%.3f, mean_ll=%.3f",
-            n_modes,
-            int(K),
-            n_hl,
-            n_ll,
-            int(max(n_modes - n_hl - n_ll, 0)),
-            int(hl_idx_raw.size),
-            int(ll_idx_raw.size),
-            float(hl_cut),
-            float(ll_cut),
-            hl_conc,
-            ll_conc,
-        )
-        return Q_hl, Q_ll
 
     def _get_ll_constraint_row_weights(self, n_rows: int, dtype: Any) -> np.ndarray:
         """Area weights aligned with LL constraint rows."""
@@ -801,7 +595,7 @@ class StateConstraints:
 
     @cached_property
     def induction_constraint_bundle_hard(self) -> Optional[Dict[str, np.ndarray]]:
-        """Build compact hard-constraint blocks for LL symmetry and optional HL lock."""
+        """Build compact hard-constraint blocks for LL compatibility."""
         if not (self.dynamics_mode == DynamicsMode.FULL_INDUCTION and self.connect_hemispheres):
             return None
 
@@ -825,95 +619,19 @@ class StateConstraints:
                 "LL mask/grid size mismatch for hard split: "
                 f"mask={int(ll_mask_np.size)} grid={int(self.geometry.grid.size)}."
             )
-
-        Q_hl, Q_ll = self._build_hl_ll_subspaces(C_ll_raw.shape[1], ll_mask_np)
-        weights = np.asarray(self.geometry.grid.weights).reshape(-1)
-        if weights.size != ll_mask_np.size:
-            weights = np.ones(ll_mask_np.size, dtype=float)
-        weights = np.maximum(weights, 0.0)
-        wsum = float(np.sum(weights))
-        if not np.isfinite(wsum) or wsum <= 0:
-            weights = np.ones_like(weights) / max(weights.size, 1)
-        else:
-            weights = weights / wsum
-        M_total, _ = self._build_apex_metric_pair(
-            ll_mask=ll_mask_np, weights=weights, n_coeffs=C_ll_raw.shape[1]
-        )
-        if M_total is None or M_total.shape != (C_ll_raw.shape[1], C_ll_raw.shape[1]):
-            raise RuntimeError("Failed to build apex metric for hard induction constraints.")
-
-        ll_anchor_rtol = max(float(np.finfo(float).eps * max(M_total.shape)), 0.0)
-        Q_ll_anchor = self._m_orthonormalize_columns(
-            C_ll_raw.T, metric=M_total, rtol=ll_anchor_rtol
-        )
-        if Q_ll_anchor.shape[1] == 0:
-            raise RuntimeError(
-                "LL hard-constraint subspace is empty: unable to build "
-                "metric-orthonormal LL mismatch row-space basis."
-            )
-
-        gram_ll = 0.5 * (
-            (Q_ll_anchor.T @ M_total @ Q_ll_anchor) + (Q_ll_anchor.T @ M_total @ Q_ll_anchor).T
-        )
-        rcond_ll = float(np.finfo(float).eps * max(gram_ll.shape))
-        gram_ll_pinv = np.linalg.pinv(gram_ll, rcond=rcond_ll)
-        P_ll = Q_ll_anchor @ (gram_ll_pinv @ (Q_ll_anchor.T @ M_total))
-
-        C_ll_mode = C_ll_raw @ P_ll
-        w_ll = self._get_ll_constraint_row_weights(C_ll_mode.shape[0], float)
-        C_ll_mode = np.sqrt(w_ll).reshape(-1, 1) * C_ll_mode
-        C_ll = self._normalize_constraint_rows(C_ll_mode)
+        w_ll = self._get_ll_constraint_row_weights(C_ll_raw.shape[0], float)
+        C_ll_weighted = np.sqrt(w_ll).reshape(-1, 1) * C_ll_raw
+        C_ll = self._normalize_constraint_rows(C_ll_weighted)
         C_ll = self._compress_constraint_rows(C_ll, rtol=0.0)
         if C_ll.shape[0] == 0:
-            raise RuntimeError(
-                "LL hard-constraint row set is empty after LL row-space projection."
-            )
+            raise RuntimeError("LL hard-constraint row set is empty after row compression.")
 
-        q_hl_raw = np.asarray(Q_hl, dtype=float)
-        if q_hl_raw.ndim == 2 and q_hl_raw.shape[1] > 0:
-            Q_hl = self._m_orthonormalize_columns(
-                q_hl_raw - (P_ll @ q_hl_raw), metric=M_total, rtol=ll_anchor_rtol
-            )
-        else:
-            Q_hl = np.zeros((C_ll_raw.shape[1], 0), dtype=float)
-
-        Q_ll = Q_ll_anchor
-
-        if self.magnetospheric_toroidal_lock and Q_hl.shape[1] > 0:
-            C_hl = self._normalize_constraint_rows(Q_hl.T @ M_total)
-        else:
-            C_hl = np.zeros((0, C_ll_raw.shape[1]), dtype=float)
-        C_total = np.ascontiguousarray(np.vstack([C_ll, C_hl]))
-        return {
-            "C_total": C_total,
-            "C_ll": C_ll,
-            "C_hl": C_hl,
-            "Q_ll": Q_ll,
-            "Q_hl": Q_hl,
-            "Q_metric": np.asarray(M_total, dtype=float),
-        }
-
-    def get_hl_projection_matrix(self, n_coeffs: int) -> np.ndarray:
-        """Return the dense full-space HL projector from the hard-constraint bundle."""
-        bundle = self.induction_constraint_bundle_hard
-        if bundle is None:
-            return np.eye(n_coeffs, dtype=float)
-
-        q_hl = np.asarray(bundle.get("Q_hl", np.zeros((n_coeffs, 0), dtype=float)))
-        m_metric = np.asarray(bundle.get("Q_metric", np.eye(n_coeffs, dtype=float)))
-        if (
-            q_hl.ndim == 2
-            and q_hl.shape[0] == n_coeffs
-            and q_hl.shape[1] > 0
-            and m_metric.ndim == 2
-            and m_metric.shape == (n_coeffs, n_coeffs)
-        ):
-            return np.asarray(q_hl @ (q_hl.T @ m_metric), dtype=float)
-        return np.eye(n_coeffs, dtype=float)
+        C_total = np.ascontiguousarray(C_ll)
+        return {"C_total": C_total, "C_ll": C_ll}
 
     @cached_property
     def induction_constraint_operator_hard(self) -> Any:
-        """Hard constraint operator for LL symmetry and optional HL lock."""
+        """Hard constraint operator for LL compatibility."""
         if self.dynamics_mode == DynamicsMode.FULL_INDUCTION and not self.connect_hemispheres:
             return None
         if self.dynamics_mode != DynamicsMode.FULL_INDUCTION:
@@ -927,13 +645,12 @@ class StateConstraints:
     def build_dt_alpha_constraint_system(
         self, *, ll_mode: LLConstraintMode, soft_scaling: float
     ) -> DtAlphaConstraintSystem:
-        """Build the active LL/HL constraint system for full-induction ``dt_alpha``."""
+        """Build the active LL constraint system for full-induction ``dt_alpha``."""
         n_coeff = int(self.solution_space.index_length)
         if self.dynamics_mode != DynamicsMode.FULL_INDUCTION:
             return DtAlphaConstraintSystem(
                 ll_mode=ll_mode,
                 c_ll=np.zeros((0, n_coeff), dtype=float),
-                c_hl=np.zeros((0, n_coeff), dtype=float),
                 hard_operator=None,
                 soft_operator=None,
                 soft_scaling=0.0,
@@ -944,26 +661,20 @@ class StateConstraints:
             return DtAlphaConstraintSystem(
                 ll_mode=ll_mode,
                 c_ll=np.zeros((0, n_coeff), dtype=float),
-                c_hl=np.zeros((0, n_coeff), dtype=float),
                 hard_operator=None,
                 soft_operator=None,
                 soft_scaling=0.0,
             )
 
         c_ll = np.asarray(bundle.get("C_ll", np.zeros((0, 0), dtype=float)), dtype=float)
-        c_hl = np.asarray(bundle.get("C_hl", np.zeros((0, 0), dtype=float)), dtype=float)
         if c_ll.ndim != 2:
             c_ll = c_ll.reshape(c_ll.shape[0], -1)
-        if c_hl.ndim != 2:
-            c_hl = c_hl.reshape(c_hl.shape[0], -1)
 
         if ll_mode == LLConstraintMode.HARD:
-            hard_operator = (
-                np.vstack([c_ll, c_hl]) if (c_ll.shape[0] + c_hl.shape[0]) > 0 else None
-            )
+            hard_operator = c_ll if c_ll.shape[0] > 0 else None
             soft_operator = None
         else:
-            hard_operator = c_hl if c_hl.shape[0] > 0 else None
+            hard_operator = None
             soft_operator = (
                 c_ll if ll_mode == LLConstraintMode.SOFT and c_ll.shape[0] > 0 else None
             )
@@ -971,7 +682,6 @@ class StateConstraints:
         return DtAlphaConstraintSystem(
             ll_mode=ll_mode,
             c_ll=np.asarray(c_ll, dtype=float),
-            c_hl=np.asarray(c_hl, dtype=float),
             hard_operator=hard_operator,
             soft_operator=soft_operator,
             soft_scaling=float(soft_scaling) if soft_operator is not None else 0.0,

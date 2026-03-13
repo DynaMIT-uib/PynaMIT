@@ -75,10 +75,19 @@ class PoloidalClosureProjector:
         if not self.uses_auxiliary_basis:
             return op
         return np.asarray(
-            self.closure_to_solution_scalar_map
-            @ op
-            @ self.solution_to_closure_scalar_map
+            self.closure_to_solution_scalar_map @ op @ self.solution_to_closure_scalar_map
         )
+
+    def lift_scalar_output_operator_to_solution(self, operator: np.ndarray) -> np.ndarray:
+        """Lift a closure-basis scalar-output operator into solution coefficients.
+
+        This is used when an operator already takes solution coefficients as its
+        input but returns closure-basis scalar coefficients.
+        """
+        op = np.asarray(operator)
+        if not self.uses_auxiliary_basis:
+            return op
+        return np.asarray(self.closure_to_solution_scalar_map @ op)
 
     @cached_property
     def rm_coupling_solution_operators(self) -> Optional[RMCouplingOperators]:

@@ -63,20 +63,20 @@ def _run_full_induction_exponential_mode(
 @pytest.mark.parametrize(
     "label,dense_full_operators,exponential_solver,expected_psi_norm,expected_mind_norm",
     [
-        ("dense_expm", True, "expm", 5.048226712788322e-10, 1.6874470337361025e-09),
+        ("dense_expm", True, "expm", 1.515262548040939e-09, 5.520344452645031e-09),
         (
             "dense_expm_multiply",
             True,
             "expm_multiply",
-            5.048226712788322e-10,
-            1.6874470337361025e-09,
+            1.515262548040939e-09,
+            5.5203444526450305e-09,
         ),
         (
             "matrixfree_expm_multiply",
             False,
             "expm_multiply",
-            5.048226712788322e-10,
-            1.6874470337361025e-09,
+            1.515262548040939e-09,
+            5.5203444526450305e-09,
         ),
     ],
 )
