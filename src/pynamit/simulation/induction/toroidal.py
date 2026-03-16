@@ -18,10 +18,14 @@ Important convention note:
     surface-gradient form ``(B0s · grad_S)(dt_psi + R * d_r(dt_psi))``.
 
     The toroidal magnetic scalar ``psi`` uses the same sign convention as the
-    imposed toroidal scalar ``m_imp``. With the negative-semidefinite spherical
-    Laplacian used by the basis operators, the code relation
-    ``jr = (R / mu0) * Laplacian(psi)`` is the same as the physical identity
-    ``jr = -(R / mu0) * Delta_S psi`` on the mean-zero subspace.
+    imposed toroidal scalar ``m_imp``. Both are interpreted through the basis
+    surface-Laplacian operator:
+        ``jr = (R / mu0) * Laplacian_R(potential)``
+    where ``Laplacian_R`` is the negative-semidefinite radius-``R`` surface
+    Laplacian returned by the basis. For SH modes this means
+        ``potential_lm = -(mu0 * R) / (l(l+1)) * jr_lm`` for ``l >= 1``.
+    If an external note uses the opposite toroidal-field sign convention, that
+    note must be converted before comparing formulas to this code path.
 
 Design note for CS-dominant full induction:
     - The toroidal closure operator is assembled in one auxiliary SH basis
@@ -929,17 +933,13 @@ class ToroidalSystemMatrices:
     def jr_to_psi_coeff_operator(self) -> np.ndarray:
         """Coefficient-space map from ``dt_jr`` to ``dt_psi``.
 
-        In code convention,
-            ``jr = (R / mu0) * Laplacian(psi)``,
-        so
-            ``psi = mu0 * R * Delta_Omega^{-1}(jr)``
-        on the mean-zero scalar subspace.
-
-        Since the basis Laplacian is negative semidefinite,
-            ``Laplacian(Y_lm) = -l(l+1)/R^2 * Y_lm``,
-        this is exactly the same sign convention as
-            ``jr = -(R / mu0) * Delta_S psi``
-        in surface-gradient notation.
+        This uses the same sign convention as ``m_imp``:
+            ``jr = (R / mu0) * Laplacian_R(psi)``,
+        where ``Laplacian_R`` is the negative-semidefinite radius-``R`` surface
+        Laplacian returned by the basis operators. On the mean-zero SH
+        subspace this gives
+            ``psi_lm = -(mu0 * R) / (l(l+1)) * jr_lm``
+        for ``l >= 1``.
         """
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices

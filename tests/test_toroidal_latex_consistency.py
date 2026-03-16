@@ -125,6 +125,21 @@ def test_sh_advection_and_psi_scalings_match_closed_form() -> None:
     assert np.linalg.norm(jr_to_psi[:, ~mask]) < 1e-12
 
 
+def test_jr_to_psi_matches_m_imp_inverse_sign_convention() -> None:
+    """``psi`` and ``m_imp`` should invert ``jr`` with the same sign convention."""
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
+    tor = state.toroidal_matrices
+
+    m_imp_to_jr = np.asarray(state.poloidal_matrices.m_imp_to_jr, dtype=float)
+    jr_to_psi = np.asarray(tor.jr_to_psi_coeff_operator, dtype=float)
+    l = np.asarray(state.basis.n, dtype=float).reshape(-1)
+    mask = (l * (l + 1.0)) > 0.0
+    projector = np.diag(mask.astype(float))
+
+    assert np.allclose(jr_to_psi @ m_imp_to_jr, projector, rtol=1e-10, atol=1e-10)
+    assert np.allclose(m_imp_to_jr @ jr_to_psi, projector, rtol=1e-10, atol=1e-10)
+
+
 def test_dtalpha_feedback_psi_rewrite_matches_dtjr_form() -> None:
     """Psi rewrite of the feedback block must equal the direct dt_alpha closed form."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
