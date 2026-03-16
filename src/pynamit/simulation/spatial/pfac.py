@@ -134,6 +134,21 @@ class PFACIntegrator:
         rm_roundtrip_denominator = 1.0 - rm_roundtrip
         return br_rm_to_ri_shift, br_ri_to_rm_shift, rm_roundtrip_denominator
 
+    def _get_solution_space_mean_zero_projector(self, n_coeff: int) -> Optional[np.ndarray]:
+        """Return validated solution-space mean-zero projector when available."""
+        projector_builder = getattr(self.solution_space, "get_mean_zero_projector", None)
+        if projector_builder is None:
+            return None
+
+        projector = np.asarray(projector_builder(n_coeff=n_coeff), dtype=float)
+        expected_shape = (n_coeff, n_coeff)
+        if projector.shape != expected_shape:
+            raise ValueError(
+                "Solution-space mean-zero projector has invalid shape "
+                f"{projector.shape}; expected {expected_shape}."
+            )
+        return projector
+
     def compute_T_to_Ve(
         self, G_Ve_to_JS_closure: np.ndarray, grid: Grid, *, rm_boundary_mode: str = "closed"
     ) -> xr.DataArray:
@@ -210,15 +225,9 @@ class PFACIntegrator:
         L_sol = to_dense(self.solution_space.get_laplacian_operator(self.RI))
         m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
         if is_cs_like_basis(self.solution_space):
-            if hasattr(self.solution_space, "get_mean_zero_projector"):
-                try:
-                    P_sol = np.asarray(
-                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol), dtype=float
-                    )
-                    if P_sol.shape == (n_sol, n_sol):
-                        m_imp_to_jr_sol_op = m_imp_to_jr_sol_op @ P_sol
-                except Exception:
-                    pass
+            P_sol = self._get_solution_space_mean_zero_projector(n_sol)
+            if P_sol is not None:
+                m_imp_to_jr_sol_op = m_imp_to_jr_sol_op @ P_sol
 
         # Is this a pure spectral simulation?
         is_pure_sh = self.solution_space is self.basis or is_sh_basis(self.solution_space)
@@ -243,15 +252,9 @@ class PFACIntegrator:
             T_to_Ve.values = (P_sol @ E_sh) @ T_accum
 
         if is_cs_like_basis(self.solution_space):
-            if hasattr(self.solution_space, "get_mean_zero_projector"):
-                try:
-                    P_g = np.asarray(
-                        self.solution_space.get_mean_zero_projector(n_coeff=n_sol), dtype=float
-                    )
-                    if P_g.shape == (n_sol, n_sol):
-                        T_to_Ve.values = P_g @ T_to_Ve.values
-                except Exception:
-                    pass
+            P_g = self._get_solution_space_mean_zero_projector(n_sol)
+            if P_g is not None:
+                T_to_Ve.values = P_g @ T_to_Ve.values
 
         PFACIntegrator._T_TO_VE_CACHE[cache_key] = T_to_Ve.values.copy()
         return T_to_Ve

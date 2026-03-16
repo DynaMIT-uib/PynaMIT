@@ -538,7 +538,10 @@ class StateConstraints:
         arr = np.asarray(asarray(coeffs)).reshape(-1)
         P = np.asarray(self.m_ind_gauge_projector)
         if P.shape != (arr.size, arr.size):
-            return asarray(arr)
+            raise ValueError(
+                f"m_ind gauge projector shape {P.shape} does not match coefficient size "
+                f"{arr.size}."
+            )
         return asarray(P @ arr)
 
     def apply_m_imp_gauge_projection(self, coeffs: np.ndarray) -> np.ndarray:
@@ -546,7 +549,10 @@ class StateConstraints:
         arr = np.asarray(asarray(coeffs)).reshape(-1)
         P = np.asarray(self.m_imp_gauge_projector)
         if P.shape != (arr.size, arr.size):
-            return asarray(arr)
+            raise ValueError(
+                f"m_imp gauge projector shape {P.shape} does not match coefficient size "
+                f"{arr.size}."
+            )
         return asarray(P @ arr)
 
     def _compress_constraint_rows(self, C: np.ndarray, rtol: float) -> np.ndarray:

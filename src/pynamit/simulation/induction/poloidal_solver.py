@@ -241,7 +241,12 @@ class PoloidalSolver:
             return asarray(E_df).flatten()
 
         return build_linear_map(
-            shape=(n, n), matvec=matvec, dense_builder=_build_dense, dtype=np.float64
+            shape=(n, n),
+            matvec=matvec,
+            dense_builder=_build_dense,
+            dtype=np.float64,
+            domain_space="m_ind_coeffs",
+            codomain_space="E_df_coeffs",
         )
 
     def solve_for_m_imp(

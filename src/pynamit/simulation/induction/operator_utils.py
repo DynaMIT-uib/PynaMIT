@@ -62,6 +62,8 @@ def build_linear_map(
     rmatvec: Optional[VectorMap] = None,
     dense_builder: Optional[DenseBuilder] = None,
     dtype: Any = np.float64,
+    domain_space: Optional[str] = None,
+    codomain_space: Optional[str] = None,
 ) -> LinearMap:
     """Build a `LinearMap` with optional cached dense fallback."""
     cached_dense = cached_dense_builder(dense_builder) if dense_builder is not None else None
@@ -79,6 +81,8 @@ def build_linear_map(
     return LinearMap(
         shape=shape,
         dtype=np.dtype(dtype),
+        domain_space=domain_space,
+        codomain_space=codomain_space,
         _matvec=_matvec,
         _rmatvec=_rmatvec,
         _to_dense=cached_dense,

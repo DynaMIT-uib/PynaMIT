@@ -169,3 +169,28 @@ def test_reduced_scalar_system_rejects_wrong_preconditioner_space_id():
 
     with pytest.raises(ValueError, match="Invalid preconditioner space"):
         system.reduce_preconditioner(tagged)
+
+
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_gauge_projection_rejects_wrong_coefficient_size():
+    """Gauge projection helpers should fail fast on mismatched coefficient sizes."""
+    sim = run_pynamit(
+        final_time=0.0,
+        dt=1.0,
+        Nmax=4,
+        Mmax=2,
+        Ncs=6,
+        dynamics_mode=DynamicsMode.LEGACY,
+        simulation_mode=SimulationMode.CS_DOMINANT,
+        ignore_PFAC=True,
+        benchmark_mode=True,
+    )
+    constraints = sim.state.constraints
+    n = sim.state.solution_space.index_length
+
+    with pytest.raises(ValueError, match="m_ind gauge projector shape"):
+        constraints.apply_m_ind_gauge_projection(np.zeros(n - 1, dtype=float))
+
+    with pytest.raises(ValueError, match="m_imp gauge projector shape"):
+        constraints.apply_m_imp_gauge_projection(np.zeros(n - 1, dtype=float))

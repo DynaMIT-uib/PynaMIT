@@ -747,4 +747,6 @@ class ToroidalSolver:
             rmatvec=rmatvec,
             dense_builder=to_dense_func,
             dtype=np.float64,
+            domain_space="psi_coeffs",
+            codomain_space="dt_psi_coeffs",
         )

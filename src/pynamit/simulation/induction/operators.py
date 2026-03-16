@@ -220,6 +220,8 @@ class BlockCoupledOperator:
         return LinearMap(
             shape=self.shape,
             dtype=self.dtype,
+            domain_space="coupled_state",
+            codomain_space="coupled_state",
             _matvec=self.matvec,
             _rmatvec=self.rmatvec,
             _matmat=self.matmat,

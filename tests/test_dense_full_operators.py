@@ -13,6 +13,7 @@ from pynamit.math.integration import EulerIntegrator
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.spatial.pfac import PFACIntegrator
 from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.settings import DynamicsMode, IntegratorKind, SimulationMode
 
@@ -625,6 +626,55 @@ def test_toroidal_rm_closure_operators_satisfy_boundary_continuity(tmp_path: Pat
         np.testing.assert_allclose(lap_rm @ chi_rm, jn_rm, rtol=1e-10, atol=1e-10)
     finally:
         os.chdir(previous_cwd)
+
+
+def test_pfac_mean_zero_projector_validation() -> None:
+    """PFAC should only skip absent mean-zero projectors, not malformed ones."""
+
+    class BasisWithoutProjector:
+        pass
+
+    class BasisWithBadProjector:
+        def get_mean_zero_projector(self, n_coeff: int) -> np.ndarray:
+            return np.eye(max(n_coeff - 1, 0), dtype=float)
+
+    class BasisWithGoodProjector:
+        def get_mean_zero_projector(self, n_coeff: int) -> np.ndarray:
+            return np.eye(n_coeff, dtype=float)
+
+    integrator_missing = PFACIntegrator(
+        basis=BasisWithoutProjector(),
+        solution_space=BasisWithoutProjector(),
+        mainfield=None,
+        RI=RE,
+        RM=4.0 * RE,
+        FAC_integration_steps=np.array([RE, 2.0 * RE]),
+    )
+    assert integrator_missing._get_solution_space_mean_zero_projector(4) is None
+
+    integrator_good = PFACIntegrator(
+        basis=BasisWithGoodProjector(),
+        solution_space=BasisWithGoodProjector(),
+        mainfield=None,
+        RI=RE,
+        RM=4.0 * RE,
+        FAC_integration_steps=np.array([RE, 2.0 * RE]),
+    )
+    np.testing.assert_allclose(
+        integrator_good._get_solution_space_mean_zero_projector(4),
+        np.eye(4, dtype=float),
+    )
+
+    integrator_bad = PFACIntegrator(
+        basis=BasisWithBadProjector(),
+        solution_space=BasisWithBadProjector(),
+        mainfield=None,
+        RI=RE,
+        RM=4.0 * RE,
+        FAC_integration_steps=np.array([RE, 2.0 * RE]),
+    )
+    with pytest.raises(ValueError, match="mean-zero projector has invalid shape"):
+        integrator_bad._get_solution_space_mean_zero_projector(4)
 
 
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])

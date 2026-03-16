@@ -579,12 +579,18 @@ class State:
         etaP_field = getattr(self, "etaP", None)
         etaH_field = getattr(self, "etaH", None)
 
-        return self.geometry.get_potential_to_E_coeffs_operator(
+        op = self.geometry.get_potential_to_E_coeffs_operator(
             mode=self.mode,
             potential_type=potential_type,
             eta_grid=self.M_total_on_grid,
             etaP=etaP_field,
             etaH=etaH_field,
+        )
+        if op is None:
+            return None
+        return as_linear_map(op).with_spaces(
+            domain_space=f"{potential_type}_coeffs",
+            codomain_space="E_coeffs",
         )
 
     @cached_property
@@ -631,7 +637,10 @@ class State:
                 f"got {outer_t.shape}."
             )
         n_mask, n_in = outer_t.shape[1], outer_t.shape[3]
-        op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in))
+        op_outer = as_linear_map(outer_t.reshape(2 * n_mask, 2 * n_in)).with_spaces(
+            domain_space="E_coeffs",
+            codomain_space="E_ll_constraint",
+        )
 
         # Inner: m_imp -> E-field
         op_inner = self.m_imp_to_E_coeffs
