@@ -10,7 +10,7 @@ import numpy as np
 from pynamit.math.integration import ExponentialIntegrator, ScipySolveIVPIntegrator
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.primitives.basis import is_cs_like_basis, is_sh_basis
 from pynamit.simulation.induction.poloidal_solver import MImpFeedbackSystem
 from pynamit.simulation.core.coupled_solver import CoupledSteadyStateSolver
@@ -74,8 +74,12 @@ class StateInduction:
             m_imp_selector=np.asarray(m_imp_reduced_system.selector, dtype=float),
             weighting=st.poloidal_weighting,
         )
+        preconditioner_type = st.get_effective_least_squares_preconditioner(
+            "legacy_m_imp_feedback"
+        )
         preconditioner = st.m_imp_solver.build_preconditioner(
             problem=subproblem.problem,
+            preconditioner_type=preconditioner_type,
             num_scenarios=1,
             space_kind="reduced",
             space_id="m_imp",
@@ -476,13 +480,17 @@ class StateInduction:
             steady_solver = CoupledSteadyStateSolver(
                 n_scalar=st.solution_space.index_length,
                 apply_m_ind_gauge=st.apply_m_ind_gauge,
-                preconditioner_type=st.preconditioner,
+                preconditioner_type=st.get_effective_least_squares_preconditioner(
+                    "full_induction_coupled_steady_state"
+                ),
                 psi_gauge_row_builder=st.constraints.get_psi_gauge_row,
                 m_ind_gauge_row_builder=st.constraints.get_m_ind_gauge_row,
                 timed_solve=self._timed_solve,
                 column_scale_cache=st._coupled_steady_state_column_scale_cache,
                 solver_tolerance=float(getattr(st.m_imp_solver, "tolerance", 1e-13)),
-                steady_state_regularization_lambda=1e-10,
+                steady_state_regularization_lambda=st.get_effective_steady_state_regularization_lambda(
+                    "full_induction_coupled_steady_state"
+                ),
             )
             column_scale_cache_key = None
             if using_default_coupled_operator:
@@ -514,15 +522,32 @@ class StateInduction:
             solution_shape=(reduced_system.n_reduced,),
             data_shapes=[(reduced_system.n_reduced,)],
         )
+        steady_state_regularization_lambda = st.get_effective_steady_state_regularization_lambda(
+            "legacy_scalar_steady_state"
+        )
+        if steady_state_regularization_lambda > 0.0:
+            ls_problem = LeastSquaresProblem(
+                A=[induction_op],
+                solution_shape=(reduced_system.n_reduced,),
+                data_shapes=[(reduced_system.n_reduced,)],
+                regularization_matrices=[
+                    diagonal_linear_map(np.ones(reduced_system.n_reduced, dtype=float))
+                ],
+                regularization_weights=[steady_state_regularization_lambda],
+            )
+        preconditioner_type = st.get_effective_least_squares_preconditioner(
+            "legacy_scalar_steady_state"
+        )
         ls_solver = LeastSquaresSolver(
             solver=(solver or "lsmr"),
             tolerance=1e-10,
-            preconditioner=st.preconditioner,
+            preconditioner=preconditioner_type,
         )
         reduced_preconditioner = reduced_system.reduce_preconditioner(preconditioner)
-        if reduced_preconditioner is None:
+        if reduced_preconditioner is None and preconditioner_type is not None:
             reduced_preconditioner = ls_solver.build_preconditioner(
                 problem=ls_problem,
+                preconditioner_type=preconditioner_type,
                 num_scenarios=1,
                 space_kind="reduced",
                 space_id=reduced_system.space_id,

@@ -118,6 +118,12 @@ class ArtifactStorageKind(StringChoiceEnum):
     ZARR = "zarr"
 
 
+class StabilizationPolicy(StringChoiceEnum):
+    AUTO = "auto"
+    PRECONDITIONED = "preconditioned"
+    REGULARIZED = "regularized"
+
+
 # Safety margin for floating point errors
 FLOAT_ERROR_MARGIN = 1e-6
 
@@ -145,6 +151,7 @@ _VALID_CONDUCTANCE_INTERPOLATION_MODES = _enum_values(ConductanceInterpolationMo
 _VALID_EXPONENTIAL_SOLVERS = _enum_values(ExponentialSolverKind)
 _VALID_SOLUTION_BASES = _enum_values(SolutionBasisKind)
 _VALID_ARTIFACT_STORAGES = _enum_values(ArtifactStorageKind)
+_VALID_STABILIZATION_POLICIES = _enum_values(StabilizationPolicy)
 
 
 def _normalize_choice(name: str, value: Any, *, valid: set[str], allow_none: bool = False) -> Any:
@@ -355,8 +362,14 @@ class DynamicsSettings:
         Operational mode of the simulation.
     least_squares_solver : str
         Solver type for least squares problems.
+    stabilization_policy : str
+        Global solver-stabilization policy:
+        "auto", "preconditioned", or "regularized".
     m_imp_regularization_lambda : float
         Regularization parameter for imposed field.
+    steady_state_regularization_lambda : float
+        Shared Tikhonov regularization level for steady-state solves that use
+        the global stabilization policy.
     solution_basis_kind : str
         Basis for solution: "SH" or "CS".
     """
@@ -395,12 +408,15 @@ class DynamicsSettings:
     dynamics_mode: DynamicsMode = DynamicsMode.LEGACY
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "lsmr"
+    stabilization_policy: StabilizationPolicy = StabilizationPolicy.AUTO
     m_imp_regularization_lambda: float = 0.0
     # Weighting strategies for handling equatorial singularity (Br -> 0)
     toroidal_weighting: WeightingMode = WeightingMode.NONE
     poloidal_weighting: WeightingMode = WeightingMode.NONE
     # Preconditioner for least-squares solver
     least_squares_preconditioner: Optional[Literal["jacobi", "pinv"]] = "pinv"
+    # Shared Tikhonov level for steady-state stabilization policies.
+    steady_state_regularization_lambda: float = 1e-10
     # Conductance input interpolation policy:
     # - legacy_eta_linear: convert Sigma->eta first, then interpolate eta (legacy behavior)
     # - sigma_linear: interpolate Sigma directly, then convert to eta at state update
@@ -478,6 +494,9 @@ class DynamicsSettings:
             valid=_VALID_PRECONDITIONERS,
             allow_none=True,
         )
+        self.stabilization_policy = _coerce_enum_choice(
+            StabilizationPolicy, "stabilization_policy", self.stabilization_policy, case="lower"
+        )
         self.conductance_interpolation_mode = _coerce_enum_choice(
             ConductanceInterpolationMode,
             "conductance_interpolation_mode",
@@ -514,6 +533,9 @@ class DynamicsSettings:
         self.induction_null_warn_ratio = float(self.induction_null_warn_ratio)
         if not (0.0 <= self.induction_null_warn_ratio <= 1.0):
             raise ValueError("induction_null_warn_ratio must be between 0.0 and 1.0.")
+        self.steady_state_regularization_lambda = float(self.steady_state_regularization_lambda)
+        if self.steady_state_regularization_lambda < 0.0:
+            raise ValueError("steady_state_regularization_lambda must be >= 0.0.")
 
         if self.simulation_mode == SimulationMode.CS_DOMINANT:
             self.solution_basis_kind = SolutionBasisKind.CS
@@ -630,7 +652,9 @@ class DynamicsSettings:
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
         attrs["least_squares_solver"] = self.least_squares_solver
+        attrs["stabilization_policy"] = self.stabilization_policy
         attrs["least_squares_preconditioner"] = self.least_squares_preconditioner
+        attrs["steady_state_regularization_lambda"] = self.steady_state_regularization_lambda
         attrs["toroidal_weighting"] = self.toroidal_weighting
         attrs["poloidal_weighting"] = self.poloidal_weighting
         attrs["conductance_interpolation_mode"] = self.conductance_interpolation_mode
@@ -673,6 +697,7 @@ class DynamicsSettings:
         return DynamicsSettings(
             simulation_mode=sim_mode,
             least_squares_solver=get("least_squares_solver", defaults.least_squares_solver),
+            stabilization_policy=get("stabilization_policy", defaults.stabilization_policy),
             Nmax=get("Nmax", defaults.Nmax),
             Mmax=get("Mmax", defaults.Mmax),
             Ncs=get("Ncs", defaults.Ncs),
@@ -718,6 +743,10 @@ class DynamicsSettings:
             poloidal_weighting=get("poloidal_weighting", defaults.poloidal_weighting),
             least_squares_preconditioner=get(
                 "least_squares_preconditioner", defaults.least_squares_preconditioner
+            ),
+            steady_state_regularization_lambda=get(
+                "steady_state_regularization_lambda",
+                defaults.steady_state_regularization_lambda,
             ),
             conductance_interpolation_mode=get(
                 "conductance_interpolation_mode", defaults.conductance_interpolation_mode

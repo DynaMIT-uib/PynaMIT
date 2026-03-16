@@ -6,7 +6,11 @@ from pynamit.math.linear_map import as_linear_map
 from pynamit.math.preconditioner import make_preconditioner
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.core.state_constraints import ReducedScalarSystem
-from pynamit.simulation.settings import DynamicsMode, MainfieldKind, SimulationMode
+from pynamit.simulation.settings import (
+    DynamicsMode,
+    MainfieldKind,
+    SimulationMode,
+)
 
 
 @pytest.mark.parametrize("solver", ["lsmr", "cgls"])
@@ -169,6 +173,122 @@ def test_reduced_scalar_system_rejects_wrong_preconditioner_space_id():
 
     with pytest.raises(ValueError, match="Invalid preconditioner space"):
         system.reduce_preconditioner(tagged)
+
+
+def test_auto_stabilization_policy_uses_regularized_full_induction_paths(tmp_path):
+    dynamics = run_pynamit(
+        final_time=0.0,
+        dt=1.0,
+        plotsteps=1,
+        run_directory=str(tmp_path / "auto_full_induction"),
+        Nmax=4,
+        Mmax=2,
+        Ncs=6,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
+        ignore_PFAC=False,
+        mainfield_kind=MainfieldKind.IGRF,
+        connect_hemispheres=True,
+        stabilization_policy="auto",
+        benchmark_mode=True,
+    )
+    state = dynamics.state
+
+    assert state.get_effective_least_squares_preconditioner("full_induction_toroidal") is None
+    assert (
+        state.get_effective_least_squares_preconditioner("full_induction_coupled_steady_state")
+        is None
+    )
+    assert state.toroidal_matrices is not None
+    assert state.toroidal_matrices.toroidal_preconditioner is None
+    assert state.coupled_preconditioner is None
+    assert state.get_effective_steady_state_regularization_lambda(
+        "full_induction_coupled_steady_state"
+    ) == pytest.approx(state.steady_state_regularization_lambda)
+
+
+def test_auto_stabilization_policy_keeps_legacy_scalar_steady_state_preconditioned(tmp_path):
+    dynamics = run_pynamit(
+        final_time=0.0,
+        dt=1.0,
+        plotsteps=1,
+        run_directory=str(tmp_path / "auto_legacy"),
+        Nmax=4,
+        Mmax=2,
+        Ncs=6,
+        dynamics_mode=DynamicsMode.LEGACY,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
+        ignore_PFAC=False,
+        mainfield_kind=MainfieldKind.IGRF,
+        connect_hemispheres=True,
+        stabilization_policy="auto",
+        benchmark_mode=True,
+    )
+    state = dynamics.state
+
+    assert state.get_effective_least_squares_preconditioner("legacy_scalar_steady_state") == "pinv"
+    assert state.get_effective_steady_state_regularization_lambda(
+        "legacy_scalar_steady_state"
+    ) == pytest.approx(0.0)
+
+
+def test_preconditioned_policy_restores_full_induction_preconditioners(tmp_path):
+    dynamics = run_pynamit(
+        final_time=0.0,
+        dt=1.0,
+        plotsteps=1,
+        run_directory=str(tmp_path / "preconditioned_full_induction"),
+        Nmax=4,
+        Mmax=2,
+        Ncs=6,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
+        ignore_PFAC=False,
+        mainfield_kind=MainfieldKind.IGRF,
+        connect_hemispheres=True,
+        stabilization_policy="preconditioned",
+        benchmark_mode=True,
+    )
+    state = dynamics.state
+
+    assert state.toroidal_matrices is not None
+    assert state.get_effective_least_squares_preconditioner("full_induction_toroidal") == "pinv"
+    assert (
+        state.get_effective_least_squares_preconditioner("full_induction_coupled_steady_state")
+        == "pinv"
+    )
+    assert state.toroidal_matrices.toroidal_preconditioner == "pinv"
+    assert state.coupled_preconditioner is not None
+    assert state.get_effective_steady_state_regularization_lambda(
+        "full_induction_coupled_steady_state"
+    ) == pytest.approx(0.0)
+
+
+def test_regularized_policy_disables_legacy_preconditioners(tmp_path):
+    dynamics = run_pynamit(
+        final_time=0.0,
+        dt=1.0,
+        plotsteps=1,
+        run_directory=str(tmp_path / "regularized_legacy"),
+        Nmax=4,
+        Mmax=2,
+        Ncs=6,
+        dynamics_mode=DynamicsMode.LEGACY,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
+        ignore_PFAC=False,
+        mainfield_kind=MainfieldKind.IGRF,
+        connect_hemispheres=True,
+        stabilization_policy="regularized",
+        benchmark_mode=True,
+    )
+    state = dynamics.state
+
+    assert state.get_effective_least_squares_preconditioner("legacy_m_imp_feedback") is None
+    assert state.get_effective_least_squares_preconditioner("legacy_scalar_steady_state") is None
+    assert state.m_imp_feedback_system.preconditioner is None
+    assert state.get_effective_steady_state_regularization_lambda(
+        "legacy_scalar_steady_state"
+    ) == pytest.approx(state.steady_state_regularization_lambda)
 
 
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])

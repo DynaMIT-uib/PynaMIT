@@ -50,6 +50,7 @@ from pynamit.simulation.settings import (
     IntegratorKind,
     LLConstraintMode,
     SimulationMode,
+    StabilizationPolicy,
 )
 from pynamit.simulation.input import decode_conductance_representation_to_grids
 
@@ -103,6 +104,22 @@ class State:
     orchestrates the time evolution of the system. It uses a Geometry
     object to manage the underlying grid and mappings.
     """
+
+    _STABILIZATION_CONTEXTS: tuple[str, ...] = (
+        "legacy_m_imp_feedback",
+        "legacy_scalar_steady_state",
+        "full_induction_toroidal",
+        "full_induction_coupled_steady_state",
+    )
+    _AUTO_REGULARIZED_CONTEXTS: frozenset[str] = frozenset(
+        {"full_induction_toroidal", "full_induction_coupled_steady_state"}
+    )
+    _AUTO_STEADY_STATE_REGULARIZATION_CONTEXTS: frozenset[str] = frozenset(
+        {"full_induction_coupled_steady_state"}
+    )
+    _STEADY_STATE_REGULARIZATION_CONTEXTS: frozenset[str] = frozenset(
+        {"legacy_scalar_steady_state", "full_induction_coupled_steady_state"}
+    )
 
     def __init__(
         self,
@@ -164,6 +181,9 @@ class State:
         self.toroidal_matrices: Optional[ToroidalSystemMatrices] = None
         if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
             closure_basis = self.geometry.pfac_closure_basis
+            toroidal_preconditioner = self.get_effective_least_squares_preconditioner(
+                "full_induction_toroidal"
+            )
             self.toroidal_matrices = ToroidalSystemMatrices(
                 basis=self.solution_space,
                 grid=self.geometry.grid,
@@ -176,7 +196,9 @@ class State:
             )
             try:
                 self.toroidal_matrices.configure_toroidal_solver(
-                    solver=self.solver_type, preconditioner=self.preconditioner, tolerance=1e-13
+                    solver=self.solver_type,
+                    preconditioner=toroidal_preconditioner,
+                    tolerance=1e-13,
                 )
             except ValueError:
                 logger.warning(
@@ -185,7 +207,7 @@ class State:
                     self.solver_type,
                 )
                 self.toroidal_matrices.configure_toroidal_solver(
-                    solver="normal_eq", preconditioner=self.preconditioner, tolerance=1e-13
+                    solver="normal_eq", preconditioner=toroidal_preconditioner, tolerance=1e-13
                 )
             if self.mode == SimulationMode.CS_DOMINANT:
                 logger.info(
@@ -195,7 +217,10 @@ class State:
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
-            solver=self.solver_type, preconditioner=self.preconditioner
+            solver=self.solver_type,
+            preconditioner=self.get_effective_least_squares_preconditioner(
+                "legacy_m_imp_feedback"
+            ),
         )
 
         # Initialize state variables
@@ -242,8 +267,12 @@ class State:
         self.Ncs = int(normalized_settings.Ncs)
         self.solver_type = normalized_settings.least_squares_solver
         self.preconditioner = normalized_settings.least_squares_preconditioner
+        self.stabilization_policy = normalized_settings.stabilization_policy
         self.integrator = normalized_settings.integrator
         self.m_imp_regularization_lambda = normalized_settings.m_imp_regularization_lambda
+        self.steady_state_regularization_lambda = (
+            normalized_settings.steady_state_regularization_lambda
+        )
         self.RI = normalized_settings.RI
         self.RM = normalized_settings.RM
         self.ih_constraint_scaling = normalized_settings.ih_constraint_scaling
@@ -296,6 +325,40 @@ class State:
         else:
             # Assume it's a scipy method (DOP853, RK45, etc.)
             self.poloidal_integrator = ScipySolveIVPIntegrator(method=self.integrator)
+
+    def _normalize_stabilization_context(self, context: str) -> str:
+        """Return one canonical stabilization context identifier."""
+        normalized = str(context).strip().lower()
+        if normalized not in self._STABILIZATION_CONTEXTS:
+            raise ValueError(
+                f"Unknown stabilization context {context!r}. "
+                f"Valid options: {list(self._STABILIZATION_CONTEXTS)!r}."
+            )
+        return normalized
+
+    def get_effective_least_squares_preconditioner(self, context: str) -> Optional[str]:
+        """Return the effective preconditioner policy for one solve context."""
+        normalized = self._normalize_stabilization_context(context)
+        if self.stabilization_policy == StabilizationPolicy.PRECONDITIONED:
+            return self.preconditioner
+        if self.stabilization_policy == StabilizationPolicy.REGULARIZED:
+            return None
+        if normalized in self._AUTO_REGULARIZED_CONTEXTS:
+            return None
+        return self.preconditioner
+
+    def get_effective_steady_state_regularization_lambda(self, context: str) -> float:
+        """Return the effective shared steady-state regularization for one context."""
+        normalized = self._normalize_stabilization_context(context)
+        if normalized not in self._STEADY_STATE_REGULARIZATION_CONTEXTS:
+            return 0.0
+        if self.stabilization_policy == StabilizationPolicy.PRECONDITIONED:
+            return 0.0
+        if self.stabilization_policy == StabilizationPolicy.REGULARIZED:
+            return float(self.steady_state_regularization_lambda)
+        if normalized not in self._AUTO_STEADY_STATE_REGULARIZATION_CONTEXTS:
+            return 0.0
+        return float(self.steady_state_regularization_lambda)
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients.

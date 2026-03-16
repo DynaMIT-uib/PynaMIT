@@ -16,6 +16,7 @@ from pynamit.simulation.settings import (
     MainfieldKind,
     SimulationMode,
     SolutionBasisKind,
+    StabilizationPolicy,
     WeightingMode,
 )
 
@@ -39,6 +40,8 @@ def test_dynamics_settings_default_conductance_mode_is_string() -> None:
     assert settings.ll_constraint_mode == LLConstraintMode.AUTO
     assert settings.run_directory is None
     assert settings.artifact_storage == ArtifactStorageKind.AUTO
+    assert settings.stabilization_policy == StabilizationPolicy.AUTO
+    assert settings.steady_state_regularization_lambda == pytest.approx(1e-10)
 
 
 @dataclass
@@ -139,6 +142,18 @@ def test_dynamics_settings_roundtrips_ll_constraint_mode() -> None:
     restored = DynamicsSettings.from_dataset(settings.to_dataset(), defaults=DynamicsSettings())
 
     assert restored.ll_constraint_mode == LLConstraintMode.SOFT
+
+
+def test_dynamics_settings_roundtrips_stabilization_policy() -> None:
+    settings = DynamicsSettings(
+        stabilization_policy="regularized",
+        steady_state_regularization_lambda=3e-9,
+    )
+
+    restored = DynamicsSettings.from_dataset(settings.to_dataset(), defaults=DynamicsSettings())
+
+    assert restored.stabilization_policy == StabilizationPolicy.REGULARIZED
+    assert restored.steady_state_regularization_lambda == pytest.approx(3e-9)
 
 
 def test_from_dataset_rejects_invalid_simulation_mode() -> None:

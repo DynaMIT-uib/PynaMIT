@@ -697,17 +697,20 @@ class CoupledOperators:
     def build_coupled_preconditioner(self) -> Optional[LinearMap]:
         """Build the preconditioner for the coupled ``(2N, 2N)`` induction system."""
         st = self.state
-        if st.preconditioner is None:
+        preconditioner_type = st.get_effective_least_squares_preconditioner(
+            "full_induction_coupled_steady_state"
+        )
+        if preconditioner_type is None:
             return None
 
         n = st.solution_space.index_length
         l_tensor = st.coupled_induction_tensor
         l_map = as_linear_map(asarray(l_tensor).reshape(2 * n, 2 * n))
         problem = LeastSquaresProblem(A=[l_map], solution_shape=(2 * n,), data_shapes=[(2 * n,)])
-        solver = LeastSquaresSolver(solver=st.solver_type, preconditioner=st.preconditioner)
+        solver = LeastSquaresSolver(solver=st.solver_type, preconditioner=preconditioner_type)
         return solver.build_preconditioner(
             problem=problem,
-            preconditioner_type=st.preconditioner,
+            preconditioner_type=preconditioner_type,
             num_scenarios=1,
             space_kind="full",
             space_id="coupled",
