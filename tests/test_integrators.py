@@ -8,12 +8,11 @@ import pytest
 from scipy.sparse.linalg import LinearOperator
 
 from pynamit.math.integration import ExponentialIntegrator, ScipySolveIVPIntegrator
-from pynamit.utils import use_jax
 
 
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
 def test_exponential_action_path_supplies_trace_for_small_linear_operator() -> None:
-    if use_jax():
-        pytest.skip("expm_multiply action path is intentionally unavailable on the JAX backend.")
 
     integrator = ExponentialIntegrator()
     dense = np.array([[-2.0, 0.0], [0.0, -1.0]], dtype=float)
