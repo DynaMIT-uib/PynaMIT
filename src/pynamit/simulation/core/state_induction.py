@@ -75,7 +75,10 @@ class StateInduction:
             weighting=st.poloidal_weighting,
         )
         preconditioner = st.m_imp_solver.build_preconditioner(
-            problem=subproblem.problem, num_scenarios=1
+            problem=subproblem.problem,
+            num_scenarios=1,
+            space_kind="reduced",
+            space_id="m_imp",
         )
         solve_system = subproblem.with_equality()
         if e_constraint_op is not None and ll_mode == LLConstraintMode.HARD:
@@ -511,13 +514,25 @@ class StateInduction:
             solution_shape=(reduced_system.n_reduced,),
             data_shapes=[(reduced_system.n_reduced,)],
         )
-        ls_solver = LeastSquaresSolver(solver=(solver or "lsmr"), tolerance=1e-10)
+        ls_solver = LeastSquaresSolver(
+            solver=(solver or "lsmr"),
+            tolerance=1e-10,
+            preconditioner=st.preconditioner,
+        )
+        reduced_preconditioner = reduced_system.reduce_preconditioner(preconditioner)
+        if reduced_preconditioner is None:
+            reduced_preconditioner = ls_solver.build_preconditioner(
+                problem=ls_problem,
+                num_scenarios=1,
+                space_kind="reduced",
+                space_id=reduced_system.space_id,
+            )
         sol_reduced = self._timed_solve(
             "state.steady_state_single",
             ls_solver,
             ls_problem,
             [reduced_system.reduce_vector(vec_b)],
-            preconditioner=preconditioner if reduced_system.n_reduced == n_total else None,
+            preconditioner=reduced_preconditioner,
         )
         return asarray(reduced_system.expand_vector(sol_reduced)).reshape(solution_shape)
 

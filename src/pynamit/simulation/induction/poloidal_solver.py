@@ -14,6 +14,7 @@ from typing import Any, Callable, Optional, TYPE_CHECKING
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
+from pynamit.math.linear_map import LinearMap
 from pynamit.math.structured_least_squares import (
     ConstrainedStructuredLeastSquaresSubproblem,
     StructuredLeastSquaresSubproblem,
@@ -38,7 +39,7 @@ class MImpFeedbackSystem:
 
     solve_system: ConstrainedStructuredLeastSquaresSubproblem
     selector: Optional[np.ndarray] = None
-    preconditioner: Optional[Any] = None
+    preconditioner: Optional[LinearMap] = None
 
     @property
     def subproblem(self) -> StructuredLeastSquaresSubproblem:

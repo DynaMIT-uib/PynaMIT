@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem, Shape
 from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.math.linear_map import LinearMap
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,7 @@ class StructuredLeastSquaresSubproblem:
         solver: LeastSquaresSolver,
         rhs: Any,
         *,
-        preconditioner: Optional[Any] = None,
+        preconditioner: Optional[LinearMap] = None,
         equality_operator: Optional[Any] = None,
         equality_rhs: Optional[Any] = None,
         elimination_rcond: Optional[float] = None,
@@ -152,7 +153,7 @@ class ConstrainedStructuredLeastSquaresSubproblem:
         solver: LeastSquaresSolver,
         rhs: Any,
         *,
-        preconditioner: Optional[Any] = None,
+        preconditioner: Optional[LinearMap] = None,
         equality_rhs_input: Optional[Any] = None,
         equality_rhs: Optional[Any] = None,
         elimination_rcond: Optional[float] = None,

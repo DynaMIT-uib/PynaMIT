@@ -37,6 +37,8 @@ class LinearMap:
     _rmatmat: Optional[VectorizedMapFunc] = None
     _to_dense: Optional[Callable[[], np.ndarray]] = None
     source: Any = None
+    domain_space: Optional[str] = None
+    codomain_space: Optional[str] = None
 
     def matvec(self, x: Any) -> Any:
         return self._matvec(x)
@@ -69,6 +71,26 @@ class LinearMap:
             raise ValueError("Dense representation not available for this LinearMap.")
         return self._to_dense()
 
+    def with_spaces(
+        self,
+        *,
+        domain_space: Optional[str] = None,
+        codomain_space: Optional[str] = None,
+    ) -> LinearMap:
+        """Return a copy with explicit domain/codomain metadata."""
+        return LinearMap(
+            shape=self.shape,
+            dtype=self.dtype,
+            domain_space=domain_space,
+            codomain_space=codomain_space,
+            _matvec=self._matvec,
+            _rmatvec=self._rmatvec,
+            _matmat=self._matmat,
+            _rmatmat=self._rmatmat,
+            _to_dense=self._to_dense,
+            source=self.source,
+        )
+
     def __matmul__(self, other: Any) -> Any:
         """Matrix-vector product (if other is array) or Composition (if other is manager)."""
         # Allow array operands so the class behaves like a matrix in most call sites.
@@ -85,6 +107,16 @@ class LinearMap:
         if self.shape[1] != other_map.shape[0]:
             raise ValueError(
                 f"Dimension mismatch for composition: {self.shape} @ {other_map.shape}"
+            )
+        if (
+            self.domain_space is not None
+            and other_map.codomain_space is not None
+            and self.domain_space != other_map.codomain_space
+        ):
+            raise ValueError(
+                "Space mismatch for composition: "
+                f"{self.codomain_space!r} <- {self.domain_space!r} @ "
+                f"{other_map.codomain_space!r} <- {other_map.domain_space!r}"
             )
 
         flat_out = self.shape[0]
@@ -113,6 +145,8 @@ class LinearMap:
         return LinearMap(
             shape=(flat_out, flat_in),
             dtype=dtype,
+            domain_space=other_map.domain_space,
+            codomain_space=self.codomain_space,
             _matvec=matvec,
             _rmatvec=rmatvec,
             _matmat=matmat_opt,
@@ -126,6 +160,20 @@ class LinearMap:
         other_map = as_linear_map(other)
         if self.shape != other_map.shape:
             raise ValueError(f"Shape mismatch for addition: {self.shape} + {other_map.shape}")
+        if (
+            self.domain_space is not None
+            and other_map.domain_space is not None
+            and self.domain_space != other_map.domain_space
+        ) or (
+            self.codomain_space is not None
+            and other_map.codomain_space is not None
+            and self.codomain_space != other_map.codomain_space
+        ):
+            raise ValueError(
+                "Space mismatch for addition: "
+                f"{self.codomain_space!r} <- {self.domain_space!r} + "
+                f"{other_map.codomain_space!r} <- {other_map.domain_space!r}"
+            )
 
         def matvec(x):
             return self.matvec(x) + other_map.matvec(x)
@@ -145,6 +193,14 @@ class LinearMap:
         return LinearMap(
             shape=self.shape,
             dtype=np.promote_types(self.dtype, other_map.dtype),
+            domain_space=(
+                self.domain_space if self.domain_space is not None else other_map.domain_space
+            ),
+            codomain_space=(
+                self.codomain_space
+                if self.codomain_space is not None
+                else other_map.codomain_space
+            ),
             _matvec=matvec,
             _rmatvec=rmatvec,
             _matmat=matmat,
@@ -177,6 +233,8 @@ class LinearMap:
         return LinearMap(
             shape=self.shape,
             dtype=np.result_type(self.dtype, scalar),
+            domain_space=self.domain_space,
+            codomain_space=self.codomain_space,
             _matvec=matvec,
             _rmatvec=rmatvec,
             _matmat=matmat,

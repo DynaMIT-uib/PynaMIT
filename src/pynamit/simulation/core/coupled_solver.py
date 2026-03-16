@@ -17,6 +17,11 @@ from scipy.sparse.linalg import lsmr as scipy_lsmr, LinearOperator as ScipyLinea
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.math.preconditioner import (
+    preconditioner_space_kind,
+    preconditioner_space_name,
+    validate_preconditioner,
+)
 from pynamit.simulation.settings import DynamicsMode, IntegratorKind, SimulationMode
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.utils import asarray, xp
@@ -357,7 +362,11 @@ class CoupledSteadyStateSolver:
         preconditioner_to_use = preconditioner
         if preconditioner is None:
             preconditioner_to_use = ls_solver.build_preconditioner(
-                problem=problem, preconditioner_type=self.preconditioner_type, num_scenarios=1
+                problem=problem,
+                preconditioner_type=self.preconditioner_type,
+                num_scenarios=1,
+                space_kind="reduced",
+                space_id="coupled",
             )
         elif n_reduced != n_total:
             preconditioner_to_use = self._reduce_preconditioner(
@@ -637,18 +646,25 @@ class CoupledSteadyStateSolver:
 
     @staticmethod
     def _reduce_preconditioner(
-        *, preconditioner: LinearMap, selector: np.ndarray, n_total: int, n_reduced: int
+        *,
+        preconditioner: LinearMap,
+        selector: np.ndarray,
+        n_total: int,
+        n_reduced: int,
     ) -> LinearMap:
         """Map full-space preconditioner into reduced coordinates."""
-        pre_map = as_linear_map(preconditioner)
+        pre = validate_preconditioner(preconditioner, system_id="coupled")
+        if pre is None:
+            raise ValueError("Coupled reduced preconditioner mapping requires a preconditioner.")
+        if preconditioner_space_kind(pre, system_id="coupled") == "reduced":
+            return pre
+        pre_map = pre
         selector_arr = asarray(selector)
 
-        if pre_map.shape == (n_reduced, n_reduced):
-            return pre_map
         if pre_map.shape != (n_total, n_total):
             raise ValueError(
-                f"Invalid coupled preconditioner shape {pre_map.shape}; "
-                f"expected {(n_total, n_total)} or {(n_reduced, n_reduced)}."
+                f"Invalid full-space coupled preconditioner shape {pre_map.shape}; "
+                f"expected {(n_total, n_total)}."
             )
 
         def reduced_p_matvec(v: np.ndarray) -> np.ndarray:
@@ -662,6 +678,8 @@ class CoupledSteadyStateSolver:
         return LinearMap(
             shape=(n_reduced, n_reduced),
             dtype=pre_map.dtype,
+            domain_space=preconditioner_space_name("coupled", "reduced"),
+            codomain_space=preconditioner_space_name("coupled", "reduced"),
             _matvec=reduced_p_matvec,
             _rmatvec=reduced_p_rmatvec,
         )
@@ -688,7 +706,11 @@ class CoupledOperators:
         problem = LeastSquaresProblem(A=[l_map], solution_shape=(2 * n,), data_shapes=[(2 * n,)])
         solver = LeastSquaresSolver(solver=st.solver_type, preconditioner=st.preconditioner)
         return solver.build_preconditioner(
-            problem=problem, preconditioner_type=st.preconditioner, num_scenarios=1
+            problem=problem,
+            preconditioner_type=st.preconditioner,
+            num_scenarios=1,
+            space_kind="full",
+            space_id="coupled",
         )
 
     def _dense_E_coeff_operator_matrix(self, op: Any) -> np.ndarray:

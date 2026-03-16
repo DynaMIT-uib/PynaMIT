@@ -13,6 +13,11 @@ from functools import cached_property
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map, LinearMap
+from pynamit.math.preconditioner import (
+    preconditioner_space_name,
+    preconditioner_space_kind,
+    validate_preconditioner,
+)
 from pynamit.primitives.basis import is_cs_like_basis
 from pynamit.simulation.settings import DynamicsMode, LLConstraintMode
 from pynamit.simulation.spatial.geometry_utils import to_dense
@@ -26,6 +31,7 @@ class ReducedScalarSystem:
     """Gauge-reduced scalar system shared by legacy steady-state and time stepping."""
 
     selector: np.ndarray
+    space_id: Optional[str] = None
     full_operator: Optional[LinearMap] = None
     reduced_operator: Optional[LinearMap] = None
 
@@ -47,6 +53,43 @@ class ReducedScalarSystem:
 
     def project_vector(self, vector: Any) -> np.ndarray:
         return self.expand_vector(self.reduce_vector(vector))
+
+    def reduce_preconditioner(self, preconditioner: LinearMap | None) -> Optional[LinearMap]:
+        """Project a full-space preconditioner into reduced coordinates."""
+        if preconditioner is None:
+            return None
+
+        pre = validate_preconditioner(preconditioner, system_id=self.space_id)
+        if pre is None:
+            return None
+        if preconditioner_space_kind(pre, system_id=self.space_id) == "reduced":
+            return pre
+
+        pre_map = pre
+        if pre_map.shape != (self.n_total, self.n_total):
+            raise ValueError(
+                f"Invalid full-space preconditioner shape {pre_map.shape}; "
+                f"expected {(self.n_total, self.n_total)}."
+            )
+
+        selector_arr = np.asarray(self.selector, dtype=float)
+
+        def reduced_p_matvec(v: Any) -> np.ndarray:
+            v_arr = np.asarray(v, dtype=float).reshape(self.n_reduced)
+            return np.asarray(selector_arr.T @ pre_map.matvec(selector_arr @ v_arr), dtype=float)
+
+        def reduced_p_rmatvec(v: Any) -> np.ndarray:
+            v_arr = np.asarray(v, dtype=float).reshape(self.n_reduced)
+            return np.asarray(selector_arr.T @ pre_map.rmatvec(selector_arr @ v_arr), dtype=float)
+
+        return LinearMap(
+            shape=(self.n_reduced, self.n_reduced),
+            dtype=pre_map.dtype,
+            domain_space=preconditioner_space_name(self.space_id, "reduced"),
+            codomain_space=preconditioner_space_name(self.space_id, "reduced"),
+            _matvec=reduced_p_matvec,
+            _rmatvec=reduced_p_rmatvec,
+        )
 
 
 @dataclass(frozen=True)
@@ -400,7 +443,12 @@ class StateConstraints:
         return np.asarray(vh_row[rank:].T, dtype=float)
 
     def _get_reduced_scalar_system(
-        self, *, apply_gauge: bool, gauge_row: np.ndarray, linear_operator: Any | None = None
+        self,
+        *,
+        apply_gauge: bool,
+        gauge_row: np.ndarray,
+        space_id: str,
+        linear_operator: Any | None = None,
     ) -> ReducedScalarSystem:
         """Return a gauge-reduced scalar system for the configured solution space."""
         n = int(self.solution_space.index_length)
@@ -408,12 +456,13 @@ class StateConstraints:
             n_coeff=n, apply_gauge=bool(apply_gauge), gauge_row=gauge_row
         )
         if linear_operator is None:
-            return ReducedScalarSystem(selector=np.asarray(selector, dtype=float))
+            return ReducedScalarSystem(selector=np.asarray(selector, dtype=float), space_id=space_id)
 
         operator_map = _as_square_linear_map(linear_operator, n_total=n)
         reduced_operator = _build_projected_square_linear_map(operator_map, selector)
         return ReducedScalarSystem(
             selector=np.asarray(selector, dtype=float),
+            space_id=space_id,
             full_operator=operator_map,
             reduced_operator=reduced_operator,
         )
@@ -425,6 +474,7 @@ class StateConstraints:
         return self._get_reduced_scalar_system(
             apply_gauge=bool(self.apply_m_ind_gauge),
             gauge_row=self.get_m_ind_gauge_row(int(self.solution_space.index_length)),
+            space_id="m_ind",
             linear_operator=linear_operator,
         )
 
@@ -435,6 +485,7 @@ class StateConstraints:
         return self._get_reduced_scalar_system(
             apply_gauge=bool(self.apply_m_imp_gauge),
             gauge_row=self.get_m_imp_gauge_row(int(self.solution_space.index_length)),
+            space_id="m_imp",
             linear_operator=linear_operator,
         )
 

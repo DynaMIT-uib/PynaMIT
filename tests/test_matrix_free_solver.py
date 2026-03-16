@@ -2,7 +2,10 @@
 
 import pytest
 import numpy as np
+from pynamit.math.linear_map import as_linear_map
+from pynamit.math.preconditioner import make_preconditioner
 from pynamit.simulation.runner import run_pynamit
+from pynamit.simulation.core.state_constraints import ReducedScalarSystem
 from pynamit.simulation.settings import DynamicsMode, MainfieldKind, SimulationMode
 
 
@@ -117,3 +120,52 @@ def test_full_induction_coupled_column_scale_cache(tmp_path):
     # Conductance updates clear this via State._invalidate_caches(); test the clear directly.
     st._invalidate_caches()
     assert getattr(st, "_coupled_steady_state_column_scale_cache") == {}
+
+
+def test_reduced_scalar_system_projects_full_space_preconditioner():
+    """Reduced scalar systems should preserve full-space preconditioning in reduced coordinates."""
+    selector = np.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],
+        ]
+    )
+    system = ReducedScalarSystem(selector=selector)
+    full_preconditioner = make_preconditioner(
+        np.array(
+            [
+                [4.0, 1.0, 2.0],
+                [1.0, 3.0, 0.5],
+                [2.0, 0.5, 5.0],
+            ]
+        ),
+        system_id=None,
+        space_kind="full",
+    )
+
+    reduced = system.reduce_preconditioner(full_preconditioner)
+    assert reduced is not None
+    assert reduced is not None
+    assert reduced.shape == (2, 2)
+    assert reduced.domain_space == "reduced"
+    assert reduced.codomain_space == "reduced"
+
+    vec = np.array([2.0, -1.0])
+    expected = selector.T @ np.asarray(full_preconditioner.to_dense()) @ selector @ vec
+    actual = np.asarray(reduced.matvec(vec))
+
+    assert np.allclose(actual, expected)
+
+
+def test_reduced_scalar_system_rejects_wrong_preconditioner_space_id():
+    """Tagged preconditioners should fail fast when handed to the wrong reduced system."""
+    selector = np.eye(2, dtype=float)
+    system = ReducedScalarSystem(selector=selector, space_id="m_ind")
+    tagged = as_linear_map(np.eye(2, dtype=float)).with_spaces(
+        domain_space="m_imp:reduced",
+        codomain_space="m_imp:reduced",
+    )
+
+    with pytest.raises(ValueError, match="Invalid preconditioner space"):
+        system.reduce_preconditioner(tagged)

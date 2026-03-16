@@ -9,6 +9,7 @@ from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
 from .least_squares_problem import LeastSquaresProblem, ProcessedOperator
 from .linear_map import LinearMap, as_linear_map
+from .preconditioner import make_preconditioner, validate_preconditioner
 from pynamit.utils import xp, asarray, use_jax
 
 ITERATION_SAFETY_FACTOR: Final = 10
@@ -44,7 +45,7 @@ class LeastSquaresSolver:
         self,
         problem: LeastSquaresProblem,
         rhs: RHSInput,
-        preconditioner: Optional[LinearOperator | LinearMap] = None,
+        preconditioner: Optional[LinearMap] = None,
         equality_operator: Optional[np.ndarray | LinearOperator | LinearMap] = None,
         equality_rhs: Optional[np.ndarray] = None,
         elimination_rcond: Optional[float] = None,
@@ -52,11 +53,12 @@ class LeastSquaresSolver:
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
         warning_label = kwargs.pop("warning_label", None)
+        preconditioner_map = validate_preconditioner(preconditioner)
         if equality_operator is not None:
             return self._solve_with_equality_constraints(
                 problem=problem,
                 rhs=rhs,
-                preconditioner=preconditioner,
+                preconditioner=preconditioner_map,
                 equality_operator=equality_operator,
                 equality_rhs=equality_rhs,
                 elimination_rcond=elimination_rcond,
@@ -71,13 +73,13 @@ class LeastSquaresSolver:
 
         rhs_block = asarray(rhs_block)
 
-        self._validate_preconditioner_shape(problem, preconditioner, num_scenarios)
+        self._validate_preconditioner_shape(problem, preconditioner_map, num_scenarios)
         solver_func = self._solve_methods[self.solver]
         solution_block = solver_func(
             problem,
             rhs_block,
             num_scenarios,
-            preconditioner,
+            preconditioner_map,
             warning_label=warning_label,
             **kwargs,
         )
@@ -376,6 +378,8 @@ class LeastSquaresSolver:
         num_scenarios: int = 1,
         pinv_rcond: Optional[float] = None,
         pinv_mode: str = "symmetric",
+        space_kind: str = "full",
+        space_id: Optional[str] = None,
     ) -> Optional[LinearMap]:
         """Build preconditioner for the specified solver and problem."""
         p_type = (
@@ -386,13 +390,15 @@ class LeastSquaresSolver:
         if p_type not in self.VALID_PRECONDITIONERS:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
         if self.solver in ["cgls", "normal_eq"]:
-            return self._build_normal_eq_preconditioner(
+            pre_map = self._build_normal_eq_preconditioner(
                 problem, p_type, num_scenarios, pinv_rcond=pinv_rcond
             )
+            return make_preconditioner(pre_map, system_id=space_id, space_kind=space_kind)
         if self.solver == "lsmr":
-            return self._build_lsmr_preconditioner(
+            pre_map = self._build_lsmr_preconditioner(
                 problem, p_type, num_scenarios, pinv_rcond=pinv_rcond, pinv_mode=pinv_mode
             )
+            return make_preconditioner(pre_map, system_id=space_id, space_kind=space_kind)
         return None
 
     def build_equality_constrained_components_from_normal(
