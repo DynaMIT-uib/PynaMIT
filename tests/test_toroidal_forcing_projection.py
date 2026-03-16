@@ -15,10 +15,7 @@ def _weighted_rms(values: np.ndarray, weights: np.ndarray) -> float:
 
 
 def _forcing_rms_for_smooth_psi(
-    sim_mode: SimulationMode,
-    *,
-    ncs: int = 10,
-    northern_apex: bool = False,
+    sim_mode: SimulationMode, *, ncs: int = 10, northern_apex: bool = False
 ) -> float:
     from pynamit.simulation.runner import run_pynamit
     from pynamit.simulation.spatial import to_dense
@@ -38,7 +35,6 @@ def _forcing_rms_for_smooth_psi(
         multi_data=True,
         connect_hemispheres=True,
         least_squares_solver="svd",
-        magnetospheric_toroidal_lock=False,
         northern_hemisphere_apex_constraints=northern_apex,
     )
     state = sim.state
@@ -49,17 +45,21 @@ def _forcing_rms_for_smooth_psi(
     weights = np.asarray(grid.weights).reshape(-1)
     theta = np.deg2rad(np.asarray(grid.theta).reshape(-1))
     psi_grid = np.cos(theta)
-    psi_coeffs = np.asarray(
-        basis.from_grid_values(psi_grid, grid, vector_type="scalar")
-    ).reshape(-1).copy()
+    psi_coeffs = (
+        np.asarray(basis.from_grid_values(psi_grid, grid, vector_type="scalar")).reshape(-1).copy()
+    )
 
     psi_eval = np.asarray(basis.evaluate(psi_coeffs, grid, vector_type="scalar")).reshape(-1)
     psi_coeffs *= 1.0 / max(_weighted_rms(psi_eval, weights), 1e-30)
 
     psi_to_E = np.asarray(to_dense(state.toroidal_to_E_coeffs)).reshape(2 * n, n)
     E_coeffs = (psi_to_E @ psi_coeffs).reshape(2, n)
-    forcing_coeffs = np.asarray(state.toroidal_matrices.toroidal_rhs_from_E_operator) @ E_coeffs.reshape(-1)
-    forcing_grid = np.asarray(basis.evaluate(forcing_coeffs, grid, vector_type="scalar")).reshape(-1)
+    forcing_coeffs = np.asarray(
+        state.toroidal_matrices.toroidal_rhs_from_E_operator
+    ) @ E_coeffs.reshape(-1)
+    forcing_grid = np.asarray(basis.evaluate(forcing_coeffs, grid, vector_type="scalar")).reshape(
+        -1
+    )
     return _weighted_rms(forcing_grid, weights)
 
 
@@ -70,13 +70,9 @@ def test_cs_dominant_toroidal_forcing_not_area_suppressed() -> None:
     forcing projection (which can suppress forcing by ~cell area).
     """
     forcing_st = _forcing_rms_for_smooth_psi(
-        SimulationMode.SPECTRAL_TRANSFORM_CS,
-        northern_apex=False,
+        SimulationMode.SPECTRAL_TRANSFORM_CS, northern_apex=False
     )
-    forcing_cs = _forcing_rms_for_smooth_psi(
-        SimulationMode.CS_DOMINANT,
-        northern_apex=True,
-    )
+    forcing_cs = _forcing_rms_for_smooth_psi(SimulationMode.CS_DOMINANT, northern_apex=True)
     ratio = forcing_cs / max(forcing_st, 1e-30)
 
     # Broad tolerance: implementations differ (global SH-like vs grid-dominant),
@@ -103,7 +99,6 @@ def test_cs_dominant_uses_auxiliary_sh_toroidal_closure_basis() -> None:
         multi_data=True,
         connect_hemispheres=True,
         least_squares_solver="svd",
-        magnetospheric_toroidal_lock=False,
         northern_hemisphere_apex_constraints=True,
         use_jr=False,
         wind=False,

@@ -1,7 +1,5 @@
 """Dipole, PFAC and exponential test."""
 
-import os
-import tempfile
 import pytest
 
 from pynamit.simulation.runner import run_pynamit
@@ -17,10 +15,6 @@ def test_2d_dipole_pfac_exp():
     expected_coeff_max = 8.006258968163613e-10
     expected_coeff_min = -5.063807785683825e-09
     expected_n_coeffs = 240
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     dynamics = run_pynamit(

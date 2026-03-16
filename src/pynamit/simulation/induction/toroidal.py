@@ -43,13 +43,10 @@ from functools import cached_property
 
 from pynamit.primitives.basis import is_cs_basis, is_sh_basis
 from pynamit.utils import to_numpy, asarray, tensor_pinv
-from pynamit.simulation.spatial.geometry_utils import to_dense, get_radial_shift_diagonal
+from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.math.constants import mu0
 from pynamit.spherical_harmonics.gaunt import GauntEngine
-from pynamit.simulation.induction.toroidal_closure import (
-    ToroidalClosureProjector,
-    ToroidalRMBoundaryOperators,
-)
+from pynamit.simulation.induction.toroidal_closure import ToroidalClosureProjector
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +82,6 @@ class ToroidalSystemMatrices:
         b_field: Any,
         RI: float,
         RM: Optional[float] = None,
-        magnetospheric_toroidal_lock: bool = False,
         closure_derivative_basis: Optional[Any] = None,
         rhs_derivative_basis: Optional[Any] = None,
         radial_derivative_basis: Optional[Any] = None,
@@ -98,7 +94,6 @@ class ToroidalSystemMatrices:
         self.b_field = b_field
         self.RI = RI
         self.RM = RM
-        self.magnetospheric_toroidal_lock = bool(magnetospheric_toroidal_lock)
         # Derivative operators:
         # - closure_derivative_basis/rhs_derivative_basis: primary derivative
         #   basis for toroidal closure assembly.
@@ -147,7 +142,6 @@ class ToroidalSystemMatrices:
             b_field=self.b_field,
             RI=self.RI,
             RM=self.RM,
-            magnetospheric_toroidal_lock=False,
             closure_derivative_basis=closure_basis,
             rhs_derivative_basis=closure_basis,
             radial_derivative_basis=closure_basis,
@@ -284,127 +278,6 @@ class ToroidalSystemMatrices:
         div_op = np.asarray(to_dense(cs_basis.get_vector_divergence_operator(self.grid)))
         lap_op = -(div_op @ grad_op)
         return np.asarray(lap_op)
-
-    @cached_property
-    def toroidal_rm_boundary_operators(self) -> ToroidalRMBoundaryOperators:
-        """Return the shell-level closed-boundary surrogate for toroidal lock.
-
-        This is retained for diagnostics/comparison only. It is the old
-        shell-level toroidal lock surrogate, where one induced toroidal
-        roundtrip from ``R_I`` to ``R_M`` and back is encoded in
-        ``roundtrip_gain`` and the closed response solves
-
-            ``closure_denominator @ psi_closed = psi_open``.
-        """
-        n = int(self.basis.index_length)
-        eye = np.eye(n, dtype=float)
-        if self.RM is None:
-            return ToroidalRMBoundaryOperators(
-                rm_to_ri=eye,
-                ri_to_rm=eye,
-                roundtrip_gain=np.zeros((n, n), dtype=float),
-                closure_denominator=eye,
-                closure_inv=eye,
-                reaction=np.zeros((n, n), dtype=float),
-            )
-
-        rm_to_ri_diag = np.diag(
-            np.asarray(
-                get_radial_shift_diagonal(
-                    self.basis, float(self.RM), float(self.RI), kind="external"
-                ),
-                dtype=float,
-            ).reshape(-1)
-        )
-        ri_to_rm_diag = np.diag(
-            np.asarray(
-                get_radial_shift_diagonal(
-                    self.basis, float(self.RI), float(self.RM), kind="internal"
-                ),
-                dtype=float,
-            ).reshape(-1)
-        )
-        closure_denominator_diag = np.diag(
-            np.asarray(
-                1.0
-                - (
-                    get_radial_shift_diagonal(
-                        self.basis, float(self.RM), float(self.RI), kind="external"
-                    )
-                    * get_radial_shift_diagonal(
-                        self.basis, float(self.RI), float(self.RM), kind="internal"
-                    )
-                ),
-                dtype=float,
-            ).reshape(-1)
-        )
-
-        if self._use_auxiliary_closure_basis:
-            rm_to_ri = self._project_aux_square_operator_to_state(rm_to_ri_diag)
-            ri_to_rm = self._project_aux_square_operator_to_state(ri_to_rm_diag)
-            closure_denominator = self._project_aux_square_operator_to_state(
-                closure_denominator_diag
-            )
-            rcond = max(float(np.finfo(float).eps * max(n, 1)), 1e-15)
-            closure_inv = np.linalg.pinv(closure_denominator, rcond=rcond)
-        else:
-            rm_to_ri = np.asarray(rm_to_ri_diag, dtype=float)
-            ri_to_rm = np.asarray(ri_to_rm_diag, dtype=float)
-            closure_denominator = np.asarray(closure_denominator_diag, dtype=float)
-            denom_vec = np.asarray(np.diag(closure_denominator), dtype=float).reshape(-1)
-            tol = max(float(np.finfo(float).eps * max(denom_vec.size, 1)), 1e-15)
-            inv_vec = np.zeros_like(denom_vec)
-            keep = np.abs(denom_vec) > tol
-            inv_vec[keep] = 1.0 / denom_vec[keep]
-            closure_inv = np.diag(inv_vec)
-
-        roundtrip_gain = np.asarray(eye - closure_denominator, dtype=float)
-        reaction = np.asarray(closure_inv - eye, dtype=float)
-        return ToroidalRMBoundaryOperators(
-            rm_to_ri=np.asarray(rm_to_ri, dtype=float),
-            ri_to_rm=np.asarray(ri_to_rm, dtype=float),
-            roundtrip_gain=roundtrip_gain,
-            closure_denominator=np.asarray(closure_denominator, dtype=float),
-            closure_inv=np.asarray(closure_inv, dtype=float),
-            reaction=reaction,
-        )
-
-    @cached_property
-    def _rm_toroidal_roundtrip_inv(self) -> np.ndarray:
-        """Backward-compatible alias for the shell-level surrogate inverse."""
-        if not self.magnetospheric_toroidal_lock:
-            n = int(self.basis.index_length)
-            return np.eye(n, dtype=float)
-        return np.asarray(self.toroidal_rm_boundary_operators.closure_inv, dtype=float)
-
-    def _apply_rm_toroidal_closure(self, operator: np.ndarray) -> np.ndarray:
-        """Apply the diagnostic shell surrogate to a ``psi``-space operator."""
-        op = np.asarray(operator, dtype=float)
-        roundtrip_inv = np.asarray(self._rm_toroidal_roundtrip_inv, dtype=float)
-        if roundtrip_inv.shape[1] != op.shape[0]:
-            raise ValueError(
-                "RM toroidal closure shape mismatch: "
-                f"{roundtrip_inv.shape} cannot left-multiply {op.shape}."
-            )
-        return np.asarray(roundtrip_inv @ op, dtype=float)
-
-    def build_with_toroidal_lock(self, enabled: bool) -> "ToroidalSystemMatrices":
-        """Build a sibling toroidal assembler with the requested RM lock state."""
-        clone = ToroidalSystemMatrices(
-            basis=self.basis,
-            grid=self.grid,
-            b_field=self.b_field,
-            RI=self.RI,
-            RM=self.RM,
-            magnetospheric_toroidal_lock=bool(enabled),
-            closure_derivative_basis=self.closure_derivative_basis,
-            rhs_derivative_basis=self.rhs_derivative_basis,
-            radial_derivative_basis=self.radial_derivative_basis,
-            toroidal_solver=self.toroidal_solver,
-            toroidal_preconditioner=self.toroidal_preconditioner,
-            toroidal_tolerance=self.toroidal_tolerance,
-        )
-        return clone
 
     def _get_cs_grid_derivative_operators(
         self, deriv_basis: Any

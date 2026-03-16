@@ -10,8 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 import importlib.util
 import os
+import shutil
 import tempfile
+import warnings
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import xarray as xr
@@ -152,6 +155,44 @@ class IO:
         prepared.encoding.pop("preferred_chunks", None)
         return prepared
 
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        """Remove one file or directory path if it exists."""
+        if not path.exists():
+            return
+        if path.is_dir():
+            shutil.rmtree(path)
+            return
+        path.unlink()
+
+    @classmethod
+    def _write_zarr_atomically(cls, target: Path, write_fn: Callable[[Path], None]) -> None:
+        """Write one complete Zarr store via a sibling temporary directory."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_store = Path(
+            tempfile.mkdtemp(prefix=f".{target.name}.tmp-", dir=str(target.parent))
+        )
+        try:
+            write_fn(temp_store)
+            if target.exists():
+                cls._remove_path(target)
+            os.replace(temp_store, target)
+        except Exception:
+            cls._remove_path(temp_store)
+            raise
+
+    @classmethod
+    def _write_netcdf_atomically(cls, target: Path, write_fn: Callable[[Path], None]) -> None:
+        """Write one complete NetCDF file via a sibling temporary file."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_target = target.with_suffix(target.suffix + ".tmp")
+        try:
+            write_fn(temp_target)
+            os.replace(temp_target, target)
+        except Exception:
+            cls._remove_path(temp_target)
+            raise
+
     def default_dataset_storage_kind(self, name: str) -> str:
         """Return the preferred storage format for one dataset artifact."""
         if self.preferred_dataset_storage != "auto":
@@ -222,25 +263,40 @@ class IO:
         append_dim: str | None = None,
     ):
         """Persist one Dataset using the configured storage backend."""
+        requested_storage = "auto" if storage is None else str(storage)
+        requested_storage_kind = self._normalize_storage_kind(requested_storage)
+        existing_storage_kind = self.get_dataset_storage_kind(name)
         storage_kind = self._resolve_dataset_storage_kind(name, storage)
         filename = self._path_for(name, storage=storage_kind)
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
             dataset = self._prepare_dataset_for_zarr_write(dataset)
-            if append_dim is None:
-                dataset.to_zarr(filename, mode="w")
-            else:
-                dataset.to_zarr(filename, append_dim=append_dim)
-        else:
-            tmp_filename = filename.with_suffix(filename.suffix + ".tmp")
             try:
-                dataset.to_netcdf(tmp_filename)
-                os.replace(tmp_filename, filename)
-            except Exception as e:
-                if tmp_filename.exists():
-                    tmp_filename.unlink()
-                raise e
+                if append_dim is None:
+                    self._write_zarr_atomically(
+                        filename, lambda temp_store: dataset.to_zarr(temp_store, mode="w")
+                    )
+                else:
+                    dataset.to_zarr(filename, append_dim=append_dim)
+            except PermissionError:
+                can_fallback = (
+                    requested_storage_kind == "auto"
+                    and existing_storage_kind is None
+                    and append_dim is None
+                )
+                if not can_fallback:
+                    raise
+                warnings.warn(
+                    f"Falling back to NetCDF for {name!r} after Zarr permission error at "
+                    f"{str(filename)!r}.",
+                    RuntimeWarning,
+                )
+                storage_kind = "netcdf"
+                filename = self._path_for(name, storage=storage_kind)
+                self._write_netcdf_atomically(filename, lambda temp_file: dataset.to_netcdf(temp_file))
+        else:
+            self._write_netcdf_atomically(filename, lambda temp_file: dataset.to_netcdf(temp_file))
 
         if print_info:
             suffix = "" if append_dim is None else f" (append_dim={append_dim!r})"
@@ -287,23 +343,37 @@ class IO:
 
     def save_dataarray(self, dataarray, name, print_info=False, *, storage: str | None = None):
         """Save a DataArray using the configured storage backend."""
+        requested_storage = "auto" if storage is None else str(storage)
+        requested_storage_kind = self._normalize_storage_kind(requested_storage)
+        existing_storage_kind = self.get_dataset_storage_kind(name)
         storage_kind = self._resolve_dataset_storage_kind(name, storage=storage)
         filename = self._path_for(name, storage=storage_kind)
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
             dataarray = self._prepare_dataarray_for_zarr_write(dataarray)
-            dataarray.to_zarr(filename, mode="w")
-        else:
-            tmp_filename = filename.with_suffix(filename.suffix + ".tmp")
-
             try:
-                dataarray.to_netcdf(tmp_filename)
-                os.replace(tmp_filename, filename)
-            except Exception as e:
-                if tmp_filename.exists():
-                    tmp_filename.unlink()
-                raise e
+                self._write_zarr_atomically(
+                    filename, lambda temp_store: dataarray.to_zarr(temp_store, mode="w")
+                )
+            except PermissionError:
+                can_fallback = requested_storage_kind == "auto" and existing_storage_kind is None
+                if not can_fallback:
+                    raise
+                warnings.warn(
+                    f"Falling back to NetCDF for {name!r} after Zarr permission error at "
+                    f"{str(filename)!r}.",
+                    RuntimeWarning,
+                )
+                storage_kind = "netcdf"
+                filename = self._path_for(name, storage=storage_kind)
+                self._write_netcdf_atomically(
+                    filename, lambda temp_file: dataarray.to_netcdf(temp_file)
+                )
+        else:
+            self._write_netcdf_atomically(
+                filename, lambda temp_file: dataarray.to_netcdf(temp_file)
+            )
 
         if print_info:
             print(f"Saved DataArray to {filename}", flush=True)

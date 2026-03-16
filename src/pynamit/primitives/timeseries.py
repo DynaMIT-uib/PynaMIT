@@ -290,10 +290,9 @@ class Timeseries:
 
         self._pending_start[key] = time_size
         self._full_save_required[key] = False
+        actual_storage_kind = io.get_dataset_storage_kind(key)
         self._storage_kinds[key] = (
-            existing_storage_kind
-            if existing_storage_kind is not None and target_storage_kind != "zarr"
-            else target_storage_kind
+            target_storage_kind if actual_storage_kind is None else actual_storage_kind
         )
 
     def trim_in_memory(self, key: str, *, keep_last: int) -> None:

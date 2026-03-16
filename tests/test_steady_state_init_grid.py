@@ -1,7 +1,5 @@
 """Grid-based steady state initialization test."""
 
-import os
-import tempfile
 import pytest
 
 from pynamit.simulation.runner import run_pynamit
@@ -16,10 +14,6 @@ def test_steady_state_init_grid():
     expected_coeff_max = 1.715597619760354e-09
     expected_coeff_min = -4.859489437731163e-09
     expected_n_coeffs = 228
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     dynamics = run_pynamit(

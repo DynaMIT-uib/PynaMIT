@@ -34,6 +34,23 @@ class RMCouplingOperators:
 
 
 @dataclass(frozen=True)
+class PoloidalRMBoundaryOperators:
+    """Induced poloidal boundary operators just above ``R_M``.
+
+    These operators expose the induced poloidal field/potential that would be
+    present at the magnetospheric boundary in the open case, together with the
+    effective above-boundary operator under the configured RM lock policy.
+    """
+
+    m_ind_to_br_rm_open: np.ndarray
+    m_ind_to_br_rm_effective: np.ndarray
+    m_ind_to_br_rm_shielding: np.ndarray
+    dynamic_psi_to_ve_rm_open: np.ndarray
+    dynamic_psi_to_ve_rm_effective: np.ndarray
+    dynamic_psi_to_ve_rm_shielding: np.ndarray
+
+
+@dataclass(frozen=True)
 class PoloidalClosureProjector:
     """Project poloidal closure operators into solution coefficient space."""
 

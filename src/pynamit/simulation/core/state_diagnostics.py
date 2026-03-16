@@ -319,7 +319,6 @@ class StateDiagnostics:
 
         return {
             "dynamics_mode": str(st.dynamics_mode),
-            "magnetospheric_toroidal_lock": bool(st.magnetospheric_toroidal_lock),
             "apply_psi_gauge": bool(st.apply_psi_gauge),
             "n_solution_coeffs": n,
             "n_dt_alpha": int(dtalpha_from_rhs.shape[0]),
@@ -327,97 +326,34 @@ class StateDiagnostics:
             "components": components,
         }
 
-    def get_toroidal_rm_reaction_report(self) -> Dict[str, Any]:
-        """Summarize runtime-open, shell-surrogate, and RM boundary-source operators."""
+    def get_magnetospheric_boundary_report(self) -> Dict[str, Any]:
+        """Summarize induced boundary operators at ``R_M``."""
         st = self._state
-        proto = st.toroidal_rm_reaction_prototype
+        ops = st.poloidal_rm_boundary_operators
+        tor_ops = st.toroidal_rm_boundary_operators
 
         def _norm(arr: Any) -> float:
             return float(np.linalg.norm(np.asarray(arr, dtype=float).reshape(-1)))
 
+        toroidal_boundary_open = np.asarray(tor_ops.alpha_to_boundary_psi_rm, dtype=float)
+        toroidal_boundary_effective = np.asarray(toroidal_boundary_open, dtype=float)
+
         return {
-            "magnetospheric_toroidal_lock": bool(st.magnetospheric_toroidal_lock),
+            "magnetospheric_shielding": bool(st.magnetospheric_shielding),
             "RM": None if st.RM is None else float(st.RM),
-            "shell_boundary_closure": {
-                "rm_to_ri_norm": _norm(proto.rm_to_ri),
-                "ri_to_rm_norm": _norm(proto.ri_to_rm),
-                "roundtrip_gain_norm": _norm(proto.roundtrip_gain),
-                "closure_denominator_norm": _norm(proto.closure_denominator),
-                "closure_inv_norm": _norm(proto.closure_inv),
-                "reaction_operator_norm": _norm(proto.shell_reaction_operator),
-                "sheet_boundary_psi_rm_norm": _norm(proto.alpha_to_sheet_boundary_psi_rm),
-                "fixed_point_residual_norm": _norm(
-                    proto.alpha_to_psi_shell_closed
-                    - proto.alpha_to_psi_open
-                    - (proto.roundtrip_gain @ proto.alpha_to_psi_shell_closed)
-                ),
-                "denominator_residual_norm": _norm(
-                    (proto.closure_denominator @ proto.alpha_to_psi_shell_closed)
-                    - proto.alpha_to_psi_open
-                ),
-                "reaction_operator_residual_norm": _norm(
-                    (proto.alpha_to_psi_shell_closed - proto.alpha_to_psi_open)
-                    - (proto.shell_reaction_operator @ proto.alpha_to_psi_open)
-                ),
-                "runtime_vs_shell_closed_mismatch_norm": _norm(
-                    proto.alpha_to_psi_closed - proto.alpha_to_psi_shell_closed
-                ),
-                "runtime_vs_shell_radial_mismatch_norm": _norm(
-                    proto.radial_closure_dt_psi_closed - proto.radial_closure_dt_psi_shell_closed
-                ),
-                "sheet_rm_value_mismatch_norm": _norm(
-                    proto.alpha_to_sheet_boundary_psi_rm
-                    - (proto.ri_to_rm @ proto.alpha_to_psi_open)
-                ),
+            "m_ind_to_br_rm": {
+                "open_norm": _norm(ops.m_ind_to_br_rm_open),
+                "effective_norm": _norm(ops.m_ind_to_br_rm_effective),
+                "shielding_norm": _norm(ops.m_ind_to_br_rm_shielding),
             },
-            "alpha_to_psi": {
-                "open_norm": _norm(proto.alpha_to_psi_open),
-                "closed_norm": _norm(proto.alpha_to_psi_closed),
-                "reaction_norm": _norm(proto.alpha_to_psi_reaction),
-                "closure_residual_norm": _norm(
-                    proto.alpha_to_psi_closed
-                    - proto.alpha_to_psi_open
-                    - proto.alpha_to_psi_reaction
-                ),
+            "dynamic_psi_to_ve_rm": {
+                "open_norm": _norm(ops.dynamic_psi_to_ve_rm_open),
+                "effective_norm": _norm(ops.dynamic_psi_to_ve_rm_effective),
+                "shielding_norm": _norm(ops.dynamic_psi_to_ve_rm_shielding),
             },
-            "radial_closure_dt_psi": {
-                "open_norm": _norm(proto.radial_closure_dt_psi_open),
-                "closed_norm": _norm(proto.radial_closure_dt_psi_closed),
-                "reaction_norm": _norm(proto.radial_closure_dt_psi_reaction),
-                "closure_residual_norm": _norm(
-                    proto.radial_closure_dt_psi_closed
-                    - proto.radial_closure_dt_psi_open
-                    - proto.radial_closure_dt_psi_reaction
-                ),
-            },
-            "toroidal_feedback_dtalpha": {
-                "open_norm": _norm(proto.toroidal_feedback_dtalpha_open),
-                "closed_norm": _norm(proto.toroidal_feedback_dtalpha_closed),
-                "reaction_norm": _norm(proto.toroidal_feedback_dtalpha_reaction),
-                "closure_residual_norm": _norm(
-                    proto.toroidal_feedback_dtalpha_closed
-                    - proto.toroidal_feedback_dtalpha_open
-                    - proto.toroidal_feedback_dtalpha_reaction
-                ),
-            },
-            "dynamic_pfac": {
-                "open_norm": _norm(proto.dynamic_pfac_open),
-                "closed_norm": _norm(proto.dynamic_pfac_closed),
-                "reaction_norm": _norm(proto.dynamic_pfac_reaction),
-                "alpha_reaction_norm": _norm(proto.alpha_to_dynamic_pfac_reaction),
-                "closure_residual_norm": _norm(
-                    proto.dynamic_pfac_closed
-                    - proto.dynamic_pfac_open
-                    - proto.dynamic_pfac_reaction
-                ),
-            },
-            "rm_boundary_closure": {
-                "normal_current_operator_norm": _norm(proto.alpha_to_normal_current_rm_grid),
-                "closure_potential_operator_norm": _norm(
-                    proto.alpha_to_closure_potential_rm_coeff
-                ),
-                "divergent_closure_current_operator_norm": _norm(
-                    proto.alpha_to_divergent_closure_current_rm_grid
-                ),
+            "dynamic_alpha_to_psi_rm": {
+                "open_norm": _norm(toroidal_boundary_open),
+                "effective_norm": _norm(toroidal_boundary_effective),
+                "shielding_norm": _norm(toroidal_boundary_effective - toroidal_boundary_open),
             },
         }

@@ -4,8 +4,6 @@ Tests the SPECTRAL_TRANSFORM_GL simulation mode which uses exact
 Gauss-Legendre quadrature for SH transforms.
 """
 
-import os
-import tempfile
 import pytest
 
 from pynamit.simulation.runner import run_pynamit
@@ -27,10 +25,6 @@ def test_spectral_transform_gl():
     expected_coeff_max = 3.188123429263445e-09
     expected_coeff_min = -1.6261933724953575e-08
     expected_n_coeffs = 228
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit_gl")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     dynamics = run_pynamit(

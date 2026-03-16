@@ -125,8 +125,7 @@ def _print_toroidal_driver_balance_report(dynamics: pynamit.Dynamics, *, time: f
     report = dynamics.state.get_toroidal_driver_balance_report()
     print(
         "Toroidal driver balance report "
-        f"(t={time:.1f} s, LL rows={report['constraint_rows']['ll']}, "
-        f"toroidal_lock={int(report['magnetospheric_toroidal_lock'])})"
+        f"(t={time:.1f} s, LL rows={report['constraint_rows']['ll']})"
     )
     ordered_names = (
         "wind",
@@ -191,8 +190,7 @@ def _build_dynamics(run_directory: str, *, t0: str) -> pynamit.Dynamics:
         connect_hemispheres=True,
         latitude_boundary=LATITUDE_BOUNDARY,
         dynamics_mode=DynamicsMode.FULL_INDUCTION,
-        magnetospheric_toroidal_lock=True,
-        magnetospheric_poloidal_lock=False,
+        magnetospheric_shielding=False,
         least_squares_solver="normal_eq",
         t0=t0,
         integrator=IntegratorKind.EXPONENTIAL,

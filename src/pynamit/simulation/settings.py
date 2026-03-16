@@ -323,15 +323,10 @@ class DynamicsSettings:
     ll_constraint_mode : str
         Low-latitude ionospheric compatibility policy:
         "auto", "off", "soft", or "hard".
-    magnetospheric_toroidal_lock : bool
-        If True, enable the explicit ``R_M`` toroidal boundary-source
-        diagnostics for the dynamic FAC/``dt_alpha`` channel. The live
-        electromagnetic RM reaction remains on the PFAC/poloidal side;
-        this flag no longer applies a shell roundtrip closure directly to the
-        runtime ``dt_psi`` operators.
-    magnetospheric_poloidal_lock : bool
-        If True, apply the RM-closed boundary closure to induced poloidal
-        feedback pathways.
+    magnetospheric_shielding : bool
+        If True, apply the RM shielding closure to induced above-``R_M``
+        poloidal response pathways, including the dynamic ``psi -> Ve`` PFAC
+        response.
     vector_jr : bool
         Use vector representation for radial current.
     vector_Br : bool
@@ -385,8 +380,7 @@ class DynamicsSettings:
     apply_psi_gauge: bool = True
     apply_m_ind_gauge: bool = True
     apply_m_imp_gauge: bool = True
-    magnetospheric_toroidal_lock: bool = False
-    magnetospheric_poloidal_lock: bool = True
+    magnetospheric_shielding: bool = True
     northern_hemisphere_apex_constraints: bool = False
     vector_jr: bool = True
     vector_Br: bool = True
@@ -570,6 +564,18 @@ class DynamicsSettings:
         """Return normalized settings from a full or partial settings object."""
         field_names = {field_def.name for field_def in fields(cls)}
         values: dict[str, Any] = {}
+        unknown_overrides = [key for key in overrides if key not in field_names]
+
+        if unknown_overrides:
+            unknown = sorted(unknown_overrides)
+            detail_parts = []
+            for key in unknown:
+                matches = get_close_matches(key, sorted(field_names), n=1, cutoff=0.7)
+                if matches:
+                    detail_parts.append(f"{key!r} (did you mean {matches[0]!r}?)")
+                else:
+                    detail_parts.append(repr(key))
+            raise TypeError(f"Unknown DynamicsSettings override(s): {', '.join(detail_parts)}.")
 
         if settings is not None:
             if isinstance(settings, Mapping):
@@ -586,10 +592,8 @@ class DynamicsSettings:
                         if name == "FAC_integration_steps" and value is None:
                             continue
                         values[name] = value
-
         for key, value in overrides.items():
-            if key in field_names:
-                values[key] = value
+            values[key] = value
 
         return cls(**values)
 
@@ -615,8 +619,7 @@ class DynamicsSettings:
         attrs["apply_psi_gauge"] = int(self.apply_psi_gauge)
         attrs["apply_m_ind_gauge"] = int(self.apply_m_ind_gauge)
         attrs["apply_m_imp_gauge"] = int(self.apply_m_imp_gauge)
-        attrs["magnetospheric_toroidal_lock"] = int(self.magnetospheric_toroidal_lock)
-        attrs["magnetospheric_poloidal_lock"] = int(self.magnetospheric_poloidal_lock)
+        attrs["magnetospheric_shielding"] = int(self.magnetospheric_shielding)
         attrs["dense_full_operators"] = int(self.dense_full_operators)
         attrs["induction_null_diagnostics"] = int(self.induction_null_diagnostics)
         attrs["induction_null_svd_rtol"] = self.induction_null_svd_rtol
@@ -689,11 +692,8 @@ class DynamicsSettings:
             apply_psi_gauge=bool(get("apply_psi_gauge", defaults.apply_psi_gauge)),
             apply_m_ind_gauge=bool(get("apply_m_ind_gauge", defaults.apply_m_ind_gauge)),
             apply_m_imp_gauge=bool(get("apply_m_imp_gauge", defaults.apply_m_imp_gauge)),
-            magnetospheric_toroidal_lock=bool(
-                get("magnetospheric_toroidal_lock", defaults.magnetospheric_toroidal_lock)
-            ),
-            magnetospheric_poloidal_lock=bool(
-                get("magnetospheric_poloidal_lock", defaults.magnetospheric_poloidal_lock)
+            magnetospheric_shielding=bool(
+                get("magnetospheric_shielding", defaults.magnetospheric_shielding)
             ),
             northern_hemisphere_apex_constraints=bool(
                 get(

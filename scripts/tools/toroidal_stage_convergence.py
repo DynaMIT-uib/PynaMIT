@@ -78,7 +78,6 @@ def _build_state(
         mainfield_epoch=2020,
         connect_hemispheres=connect_hemispheres,
         least_squares_solver="svd",
-        magnetospheric_toroidal_lock=False,
         northern_hemisphere_apex_constraints=True,
         backend=backend,
         dense_full_operators=dense_full_operators,

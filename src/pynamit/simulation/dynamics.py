@@ -90,11 +90,10 @@ class Dynamics:
                 settings_overrides = {"run_directory": str(settings_path), **settings_overrides}
                 settings = None
 
-        self.settings = (
-            DynamicsSettings(**settings_overrides)
-            if settings is None
-            else DynamicsSettings.coerce(settings, **settings_overrides)
-        )
+        if settings is None:
+            self.settings = DynamicsSettings(**settings_overrides)
+        else:
+            self.settings = DynamicsSettings.coerce(settings, **settings_overrides)
         self.backend = set_backend(self.settings.backend)
         self.benchmark_mode = bool(benchmark_mode)
 

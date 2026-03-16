@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
+from pathlib import Path
 from typing import List, Tuple
 
 import pytest
 
 from pynamit.data import get_input_source, set_input_source
 from pynamit.data.loaders import native_inputs_available
+from pynamit.primitives.io import IO
 from pynamit.utils import JAX_AVAILABLE, set_backend, use_jax
 
 BACKEND_OPTION_NAME = "--backend"
@@ -137,43 +138,61 @@ def configure_runtime(backend: str, data_source: str):
     previous_source_env = os.environ.get("PYNAMIT_INPUT_SOURCE")
     previous_mplconfig = os.environ.get("MPLCONFIGDIR")
     previous_xdg_cache = os.environ.get("XDG_CACHE_HOME")
-    cache_root = tempfile.mkdtemp(prefix="pynamit-test-cache-")
-    mplconfig_dir = os.path.join(cache_root, "matplotlib")
-    xdg_cache_dir = os.path.join(cache_root, "xdg-cache")
-    os.makedirs(mplconfig_dir, exist_ok=True)
-    os.makedirs(xdg_cache_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="pynamit-test-cache-") as cache_root:
+        mplconfig_dir = os.path.join(cache_root, "matplotlib")
+        xdg_cache_dir = os.path.join(cache_root, "xdg-cache")
+        os.makedirs(mplconfig_dir, exist_ok=True)
+        os.makedirs(xdg_cache_dir, exist_ok=True)
 
-    try:
-        # Enforce JAX 64-bit precision to match Numpy results for regression testing
-        if JAX_AVAILABLE:
-            from jax import config
-            config.update("jax_enable_x64", True)
+        try:
+            # Enforce JAX 64-bit precision to match Numpy results for regression testing
+            if JAX_AVAILABLE:
+                from jax import config
 
-        os.environ["MPLCONFIGDIR"] = mplconfig_dir
-        os.environ["XDG_CACHE_HOME"] = xdg_cache_dir
-        set_backend(backend)
-        set_input_source(data_source)
-        yield
-    finally:
-        set_backend(previous_backend)
-        set_input_source(previous_source)
-        if previous_backend_env is None:
-            os.environ.pop("PYNAMIT_USE_JAX", None)
-        else:
-            os.environ["PYNAMIT_USE_JAX"] = previous_backend_env
-        if previous_source_env is None:
-            os.environ.pop("PYNAMIT_INPUT_SOURCE", None)
-        else:
-            os.environ["PYNAMIT_INPUT_SOURCE"] = previous_source_env
-        if previous_mplconfig is None:
-            os.environ.pop("MPLCONFIGDIR", None)
-        else:
-            os.environ["MPLCONFIGDIR"] = previous_mplconfig
-        if previous_xdg_cache is None:
-            os.environ.pop("XDG_CACHE_HOME", None)
-        else:
-            os.environ["XDG_CACHE_HOME"] = previous_xdg_cache
-        shutil.rmtree(cache_root, ignore_errors=True)
+                config.update("jax_enable_x64", True)
+
+            os.environ["MPLCONFIGDIR"] = mplconfig_dir
+            os.environ["XDG_CACHE_HOME"] = xdg_cache_dir
+            set_backend(backend)
+            set_input_source(data_source)
+            yield
+        finally:
+            set_backend(previous_backend)
+            set_input_source(previous_source)
+            if previous_backend_env is None:
+                os.environ.pop("PYNAMIT_USE_JAX", None)
+            else:
+                os.environ["PYNAMIT_USE_JAX"] = previous_backend_env
+            if previous_source_env is None:
+                os.environ.pop("PYNAMIT_INPUT_SOURCE", None)
+            else:
+                os.environ["PYNAMIT_INPUT_SOURCE"] = previous_source_env
+            if previous_mplconfig is None:
+                os.environ.pop("MPLCONFIGDIR", None)
+            else:
+                os.environ["MPLCONFIGDIR"] = previous_mplconfig
+            if previous_xdg_cache is None:
+                os.environ.pop("XDG_CACHE_HOME", None)
+            else:
+                os.environ["XDG_CACHE_HOME"] = previous_xdg_cache
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_run_directories(tmp_path, monkeypatch):
+    """Route implicit ``run_pynamit`` output directories into per-test temp space."""
+    original_builder = IO.build_temporary_run_directory_in_directory
+
+    def _build_temporary_run_directory_in_directory(directory: str | os.PathLike[str]) -> str:
+        target = Path(directory)
+        if not target.is_absolute() and str(target) == "simulation":
+            return original_builder(tmp_path / target)
+        return original_builder(directory)
+
+    monkeypatch.setattr(
+        IO,
+        "build_temporary_run_directory_in_directory",
+        staticmethod(_build_temporary_run_directory_in_directory),
+    )
 
 
 @pytest.fixture

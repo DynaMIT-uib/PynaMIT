@@ -389,14 +389,14 @@ class SimulationData:
         """Return the saved PFAC operator with imposed RM closure applied."""
         if self.pfac_matrix is None:
             return None
-        return self._apply_imposed_toroidal_poloidal_lock(
+        return self._apply_imposed_toroidal_shielding(
             np.asarray(self.pfac_matrix, dtype=float), solution_space=self.solution_spec
         )
 
-    def _apply_imposed_toroidal_poloidal_lock(
+    def _apply_imposed_toroidal_shielding(
         self, operator: np.ndarray, *, solution_space: Any
     ) -> np.ndarray:
-        """Apply the imposed toroidal-poloidal RM closure in solution space."""
+        """Apply the imposed toroidal RM shielding closure in solution space."""
         rm = None if self.settings.RM in (None, 0) else float(self.settings.RM)
         if rm is None:
             return np.asarray(operator, dtype=float)

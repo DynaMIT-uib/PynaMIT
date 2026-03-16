@@ -36,10 +36,7 @@ from pynamit.simulation.core import (
     StateInduction,
 )
 from pynamit.simulation.induction import ToroidalSystemMatrices
-from pynamit.simulation.induction.toroidal_closure import (
-    ToroidalRMBoundarySourceOperators,
-    ToroidalRMReactionPrototype,
-)
+from pynamit.simulation.induction.toroidal_closure import ToroidalRMBoundaryOperators
 from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.basis import Basis
 from pynamit.utils import asarray, xp, to_numpy
@@ -173,7 +170,6 @@ class State:
                 b_field=self.geometry.b_field,
                 RI=self.RI,
                 RM=self.RM,
-                magnetospheric_toroidal_lock=self.magnetospheric_toroidal_lock,
                 closure_derivative_basis=closure_basis,
                 rhs_derivative_basis=closure_basis,
                 radial_derivative_basis=closure_basis,
@@ -258,7 +254,7 @@ class State:
         self.induction_null_warn_ratio = float(normalized_settings.induction_null_warn_ratio)
         self.apply_m_ind_gauge = bool(normalized_settings.apply_m_ind_gauge)
         self.apply_m_imp_gauge = bool(normalized_settings.apply_m_imp_gauge)
-        self.magnetospheric_toroidal_lock = bool(normalized_settings.magnetospheric_toroidal_lock)
+        self.magnetospheric_shielding = bool(normalized_settings.magnetospheric_shielding)
         self.conductance_interpolation_mode = normalized_settings.conductance_interpolation_mode
         self.conductance_interpolation_floor = float(
             normalized_settings.conductance_interpolation_floor
@@ -443,9 +439,9 @@ class State:
         """Return LL-compatibility diagnostics for live toroidal forcing channels."""
         return self.diagnostics.get_toroidal_driver_balance_report()
 
-    def get_toroidal_rm_reaction_report(self) -> Dict[str, Any]:
-        """Return open/closed/reaction summary for the RM toroidal prototype."""
-        return self.diagnostics.get_toroidal_rm_reaction_report()
+    def get_magnetospheric_boundary_report(self) -> Dict[str, Any]:
+        """Return induced boundary diagnostics at ``R_M``."""
+        return self.diagnostics.get_magnetospheric_boundary_report()
 
     def get_effective_ll_constraint_mode(self) -> LLConstraintMode:
         """Resolve the configured LL compatibility policy for the active dynamics mode."""
@@ -467,8 +463,8 @@ class State:
         )
 
     @cached_property
-    def toroidal_rm_boundary_source_operators(self) -> ToroidalRMBoundarySourceOperators:
-        """Explicit source-side toroidal boundary operator at ``R_M``.
+    def toroidal_rm_boundary_operators(self) -> ToroidalRMBoundaryOperators:
+        """Explicit toroidal boundary operator at ``R_M``.
 
         This captures the physically unambiguous source-side part:
         - field-line mapping of ``dt_alpha`` to the incoming normal current at ``R_M``,
@@ -481,110 +477,19 @@ class State:
         n_sol = int(self.solution_space.index_length)
         if self.RM in (None, 0):
             zeros = np.zeros((n_sol, n_sol), dtype=float)
-            return ToroidalRMBoundarySourceOperators(alpha_to_sheet_boundary_psi_rm=zeros)
+            return ToroidalRMBoundaryOperators(alpha_to_boundary_psi_rm=zeros)
         rm_ops = self.poloidal_matrices.toroidal_rm_closure_operators
         lift = self.poloidal_matrices.lift_closure_scalar_output_operator_to_solution
-        return ToroidalRMBoundarySourceOperators(
-            alpha_to_sheet_boundary_psi_rm=np.asarray(
+        return ToroidalRMBoundaryOperators(
+            alpha_to_boundary_psi_rm=np.asarray(
                 lift(rm_ops.alpha_to_boundary_psi_rm_coeff), dtype=float
             )
         )
 
     @cached_property
-    def toroidal_rm_reaction_prototype(self) -> ToroidalRMReactionPrototype:
-        """Bundle standalone open/closed/reaction operators for RM toroidal closure.
-
-        This is diagnostic-only. The runtime toroidal ``dt_psi`` channel stays
-        on the open shell operator; the actual electromagnetic RM reaction of
-        the dynamic toroidal/FAC channel is the PFAC closed-open difference
-        composed with the open ``dt_alpha -> dt_psi`` map. The old shell
-        roundtrip lock is retained here only as a comparison surrogate against
-        the explicit ``R_M`` boundary-source construction.
-        """
-        if self.dynamics_mode != DynamicsMode.FULL_INDUCTION or self.toroidal_matrices is None:
-            raise ValueError("Toroidal RM reaction prototype requires full_induction mode.")
-
-        mats_open = (
-            self.toroidal_matrices
-            if not self.magnetospheric_toroidal_lock
-            else self.toroidal_matrices.build_with_toroidal_lock(False)
-        )
-        mats_closed = (
-            self.toroidal_matrices
-            if self.magnetospheric_toroidal_lock
-            else self.toroidal_matrices.build_with_toroidal_lock(True)
-        )
-        rm_shell = mats_closed.toroidal_rm_boundary_operators
-
-        alpha_to_psi_open = np.asarray(
-            to_numpy(mats_open.alpha_to_psi_coeff_operator), dtype=float
-        )
-        alpha_to_psi_closed = np.asarray(
-            to_numpy(mats_closed.alpha_to_psi_coeff_operator), dtype=float
-        )
-        radial_open = np.asarray(
-            to_numpy(mats_open.radial_closure_dt_psi_from_dtalpha), dtype=float
-        )
-        radial_closed = np.asarray(
-            to_numpy(mats_closed.radial_closure_dt_psi_from_dtalpha), dtype=float
-        )
-        feedback_open = np.asarray(
-            to_numpy(mats_open.toroidal_potential_feedback_dtalpha_operator), dtype=float
-        )
-        feedback_closed = np.asarray(
-            to_numpy(mats_closed.toroidal_potential_feedback_dtalpha_operator), dtype=float
-        )
-
-        pfac_open = np.asarray(
-            self.poloidal_matrices.dynamic_toroidal_pfac_open_operator, dtype=float
-        )
-        pfac_closed = np.asarray(
-            self.poloidal_matrices.dynamic_toroidal_pfac_closed_operator, dtype=float
-        )
-        alpha_to_dynamic_pfac_reaction = np.asarray(
-            (pfac_closed - pfac_open) @ alpha_to_psi_open, dtype=float
-        )
-        boundary_source = self.toroidal_rm_boundary_source_operators
-        sheet_boundary_psi_rm = np.asarray(boundary_source.alpha_to_sheet_boundary_psi_rm, dtype=float)
-        alpha_to_psi_shell_closed = np.asarray(
-            rm_shell.closure_inv @ alpha_to_psi_open, dtype=float
-        )
-        radial_shell_closed = np.asarray(rm_shell.closure_inv @ radial_open, dtype=float)
-        rm_ops = self.poloidal_matrices.toroidal_rm_closure_operators
-
-        return ToroidalRMReactionPrototype(
-            rm_to_ri=np.asarray(rm_shell.rm_to_ri, dtype=float),
-            ri_to_rm=np.asarray(rm_shell.ri_to_rm, dtype=float),
-            roundtrip_gain=np.asarray(rm_shell.roundtrip_gain, dtype=float),
-            closure_denominator=np.asarray(rm_shell.closure_denominator, dtype=float),
-            closure_inv=np.asarray(rm_shell.closure_inv, dtype=float),
-            shell_reaction_operator=np.asarray(rm_shell.reaction, dtype=float),
-            alpha_to_psi_shell_closed=alpha_to_psi_shell_closed,
-            radial_closure_dt_psi_shell_closed=radial_shell_closed,
-            alpha_to_sheet_boundary_psi_rm=sheet_boundary_psi_rm,
-            alpha_to_psi_open=alpha_to_psi_open,
-            alpha_to_psi_closed=alpha_to_psi_closed,
-            alpha_to_psi_reaction=alpha_to_psi_closed - alpha_to_psi_open,
-            radial_closure_dt_psi_open=radial_open,
-            radial_closure_dt_psi_closed=radial_closed,
-            radial_closure_dt_psi_reaction=radial_closed - radial_open,
-            toroidal_feedback_dtalpha_open=feedback_open,
-            toroidal_feedback_dtalpha_closed=feedback_closed,
-            toroidal_feedback_dtalpha_reaction=feedback_closed - feedback_open,
-            dynamic_pfac_open=pfac_open,
-            dynamic_pfac_closed=pfac_closed,
-            dynamic_pfac_reaction=pfac_closed - pfac_open,
-            alpha_to_dynamic_pfac_reaction=alpha_to_dynamic_pfac_reaction,
-            alpha_to_normal_current_rm_grid=np.asarray(
-                rm_ops.alpha_to_normal_current_rm_grid, dtype=float
-            ),
-            alpha_to_closure_potential_rm_coeff=np.asarray(
-                rm_ops.alpha_to_closure_potential_rm_coeff, dtype=float
-            ),
-            alpha_to_divergent_closure_current_rm_grid=np.asarray(
-                rm_ops.alpha_to_divergent_closure_current_rm_grid, dtype=float
-            ),
-        )
+    def poloidal_rm_boundary_operators(self):
+        """Induced poloidal boundary operators just above ``R_M``."""
+        return self.poloidal_matrices.poloidal_rm_boundary_operators
 
     def _get_dt_alpha_driver_coeffs(self) -> Optional[np.ndarray]:
         """Return ``dt_alpha`` driver from the imposed toroidal-source derivative."""

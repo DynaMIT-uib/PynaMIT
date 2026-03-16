@@ -75,13 +75,9 @@ class PFACIntegrator:
         Radial steps for FAC integration.
     ignore_PFAC : bool
         If True, return zero operator (radial field approximation).
-    magnetospheric_poloidal_lock : bool
+    magnetospheric_shielding : bool
         If True, include RM shielding-style roundtrip coupling for induced
         poloidal pathways. Explicit imposed boundary channels remain closed.
-    magnetospheric_toroidal_lock : bool
-        If True, expose the explicit ``R_M`` toroidal boundary-source
-        diagnostics for the dynamic toroidal/FAC channel. The runtime
-        electromagnetic RM reaction is handled on the PFAC/poloidal side.
     """
 
     _T_TO_VE_CACHE: dict[tuple[Any, ...], np.ndarray] = {}
@@ -96,8 +92,7 @@ class PFACIntegrator:
         RM: Optional[float],
         FAC_integration_steps: Any,
         ignore_PFAC: bool = False,
-        magnetospheric_poloidal_lock: bool = True,
-        magnetospheric_toroidal_lock: bool = False,
+        magnetospheric_shielding: bool = True,
     ) -> None:
         self.basis = basis
         self.solution_space = solution_space
@@ -106,8 +101,7 @@ class PFACIntegrator:
         self.RM = RM
         self.FAC_integration_steps = FAC_integration_steps
         self.ignore_PFAC = ignore_PFAC
-        self.magnetospheric_poloidal_lock = bool(magnetospheric_poloidal_lock)
-        self.magnetospheric_toroidal_lock = bool(magnetospheric_toroidal_lock)
+        self.magnetospheric_shielding = bool(magnetospheric_shielding)
 
     def get_coupling_factors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute magnetospheric coupling factors.

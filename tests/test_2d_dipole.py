@@ -1,7 +1,5 @@
 """Dipole test."""
 
-import os
-import tempfile
 import pytest
 
 from pynamit.simulation.runner import run_pynamit
@@ -16,10 +14,6 @@ def test_2d_dipole():
     expected_coeff_max = 8.055963863707044e-10
     expected_coeff_min = -5.092285532812617e-09
     expected_n_coeffs = 336
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     dynamics = run_pynamit(

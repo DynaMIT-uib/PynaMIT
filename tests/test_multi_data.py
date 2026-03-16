@@ -1,7 +1,5 @@
 """Multi-data test module."""
 
-import os
-import tempfile
 import datetime
 
 import pytest
@@ -92,10 +90,6 @@ def test_multi_data():
     expected_coeff_max = 6.133350112801935e-09
     expected_coeff_min = -8.876382135048725e-09
     expected_n_coeffs = 228
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     dynamics = run_pynamit(

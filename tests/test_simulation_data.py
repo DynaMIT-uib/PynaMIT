@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from pynamit.primitives.io import IO
@@ -203,3 +204,29 @@ def test_simulation_data_builds_results_operator_bundle(tmp_path):
     )
     assert bundle.scalar_evaluation_matrix.shape[0] == 1
     assert bundle is bundle_cached
+
+
+def test_io_auto_storage_falls_back_to_netcdf_on_zarr_permission_error(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "io_zarr_fallback"
+    io = IO(str(run_dir))
+    ds = xr.Dataset({"value": ("x", np.array([1.0, 2.0]))})
+
+    monkeypatch.setattr(IO, "zarr_available", staticmethod(lambda: True))
+
+    original_to_zarr = xr.Dataset.to_zarr
+
+    def raising_to_zarr(self, store, *args, **kwargs):
+        raise PermissionError("simulated zarr permission failure")
+
+    monkeypatch.setattr(xr.Dataset, "to_zarr", raising_to_zarr)
+
+    with pytest.warns(RuntimeWarning, match="Falling back to NetCDF"):
+        io.save_dataset(ds, "state")
+
+    monkeypatch.setattr(xr.Dataset, "to_zarr", original_to_zarr)
+
+    assert io.get_dataset_storage_kind("state") == "netcdf"
+    assert (run_dir / "state.ncdf").exists()
+    assert not (run_dir / "state.zarr").exists()

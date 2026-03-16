@@ -24,7 +24,6 @@ def _build_state(sim_mode: SimulationMode, *, nmax: int, mmax: int, ncs: int, ru
         mainfield_epoch=2020,
         connect_hemispheres=True,
         least_squares_solver="svd",
-        magnetospheric_toroidal_lock=False,
         northern_hemisphere_apex_constraints=True,
         benchmark_mode=True,
     )

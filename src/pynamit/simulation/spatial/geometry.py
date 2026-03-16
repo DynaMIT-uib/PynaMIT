@@ -114,12 +114,7 @@ class Geometry:
             RM=self.RM,
             FAC_integration_steps=self.FAC_integration_steps,
             ignore_PFAC=self.ignore_PFAC,
-            magnetospheric_poloidal_lock=bool(
-                getattr(settings, "magnetospheric_poloidal_lock", True)
-            ),
-            magnetospheric_toroidal_lock=bool(
-                getattr(settings, "magnetospheric_toroidal_lock", False)
-            ),
+            magnetospheric_shielding=bool(getattr(settings, "magnetospheric_shielding", True)),
         )
 
         # Initialize apex mapper and constraint mappings
@@ -199,9 +194,9 @@ class Geometry:
             return cached
 
         t_to_ve = np.asarray(self.poloidal_matrices.T_to_Ve, dtype=float)
-        if hasattr(self.poloidal_matrices, "_apply_imposed_toroidal_poloidal_lock"):
+        if hasattr(self.poloidal_matrices, "_apply_imposed_toroidal_shielding"):
             t_to_ve = np.asarray(
-                self.poloidal_matrices._apply_imposed_toroidal_poloidal_lock(t_to_ve), dtype=float
+                self.poloidal_matrices._apply_imposed_toroidal_shielding(t_to_ve), dtype=float
             )
 
         bundle = build_poloidal_results_operators(

@@ -26,6 +26,7 @@ from pynamit.math.structured_least_squares import (
 )
 from pynamit.math.constants import mu0
 from pynamit.simulation.induction.poloidal_closure import (
+    PoloidalRMBoundaryOperators,
     PoloidalClosureProjector,
     RMCouplingOperators,
 )
@@ -256,7 +257,7 @@ class PoloidalSystemMatrices:
         np.ndarray
             Shape (L, L) operator mapping m_imp to toroidal JS-like component.
         """
-        return self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
+        return self._apply_imposed_toroidal_shielding(self.T_to_Ve)
 
     @cached_property
     def m_imp_to_JS_coeffs(self) -> np.ndarray:
@@ -295,30 +296,32 @@ class PoloidalSystemMatrices:
             )
             return t_to_ve
 
-    def _apply_imposed_toroidal_poloidal_lock(self, t_to_ve: np.ndarray) -> np.ndarray:
-        """Apply RM closure for imposed toroidal source (m_imp) unconditionally."""
+    def _apply_imposed_toroidal_shielding(self, t_to_ve: np.ndarray) -> np.ndarray:
+        """Apply RM shielding for imposed toroidal source (m_imp) unconditionally."""
         return self._apply_rm_poloidal_closure(t_to_ve)
 
-    def _dynamic_psi_lock_enabled(self) -> bool:
-        """Return whether dynamic psi PFAC should use RM-closed boundary policy.
+    def _dynamic_psi_shielding_enabled(self) -> bool:
+        """Return whether dynamic ``psi -> Ve`` PFAC should use RM shielding.
 
-        This follows the toroidal RM closure setting. The live electromagnetic
-        RM reaction of the dynamic toroidal/FAC channel is the PFAC closed-open
-        operator difference, not a separate shell-roundtrip correction on the
-        ``dt_psi`` maps themselves.
+        The dynamic ``psi`` channel is a toroidal source, but the ``psi -> Ve``
+        pathway is an induced poloidal response. It should therefore follow the
+        magnetospheric shielding policy.
         """
         if self._pfac.RM is None:
             return False
-        return bool(self._pfac.magnetospheric_toroidal_lock)
+        return bool(self._pfac.magnetospheric_shielding)
 
     def _get_dynamic_toroidal_pfac_operator(self) -> np.ndarray:
-        """Return effective dynamic psi PFAC operator from toroidal RM closure."""
-        # Toroidal lock-on -> RM-closed boundary kernel, lock-off -> open kernel.
-        return (
-            np.asarray(self.dynamic_toroidal_pfac_closed_operator)
-            if self._dynamic_psi_lock_enabled()
-            else np.asarray(self.dynamic_toroidal_pfac_open_operator)
-        )
+        """Return runtime dynamic-psi PFAC operator.
+
+        This pathway carries the induced poloidal response of the dynamic
+        toroidal source, so it follows the magnetospheric shielding policy:
+        open when ``magnetospheric_shielding`` is false and RM-closed
+        when it is true.
+        """
+        if self._dynamic_psi_shielding_enabled():
+            return np.asarray(self.dynamic_toroidal_pfac_closed_operator)
+        return np.asarray(self.dynamic_toroidal_pfac_open_operator)
 
     @cached_property
     def dynamic_toroidal_pfac_open_operator(self) -> np.ndarray:
@@ -326,15 +329,69 @@ class PoloidalSystemMatrices:
         return np.asarray(self.T_to_Ve_open)
 
     @cached_property
+    def dynamic_toroidal_pfac_reaction_operator(self) -> np.ndarray:
+        """Incremental runtime RM reaction on the dynamic ``psi`` PFAC operator."""
+        if not self._dynamic_psi_shielding_enabled():
+            shape = np.asarray(self.dynamic_toroidal_pfac_open_operator).shape
+            return np.zeros(shape, dtype=float)
+        return np.asarray(
+            self.dynamic_toroidal_pfac_closed_operator - self.dynamic_toroidal_pfac_open_operator,
+            dtype=float,
+        )
+
+    @cached_property
     def dynamic_toroidal_pfac_closed_operator(self) -> np.ndarray:
         """RM-closed PFAC operator for the dynamic ``psi`` channel."""
         return np.asarray(self.T_to_Ve)
 
     @cached_property
-    def dynamic_toroidal_pfac_reaction_operator(self) -> np.ndarray:
-        """Incremental RM reaction on the dynamic ``psi`` PFAC operator."""
-        return np.asarray(
-            self.dynamic_toroidal_pfac_closed_operator - self.dynamic_toroidal_pfac_open_operator
+    def poloidal_rm_boundary_operators(self) -> PoloidalRMBoundaryOperators:
+        """Induced poloidal boundary operators just above ``R_M``.
+
+        The open operators represent the induced above-``R_M`` continuation.
+        When ``magnetospheric_shielding`` is enabled, the effective induced
+        boundary operators are set to zero by construction and the shielding
+        operators are the canceled open branch.
+        """
+        n = int(self.solution_space.index_length)
+        zeros = np.zeros((n, n), dtype=float)
+        ops = self._rm_coupling_solution_operators
+        if ops is None:
+            return PoloidalRMBoundaryOperators(
+                m_ind_to_br_rm_open=zeros,
+                m_ind_to_br_rm_effective=zeros,
+                m_ind_to_br_rm_shielding=zeros,
+                dynamic_psi_to_ve_rm_open=zeros,
+                dynamic_psi_to_ve_rm_effective=zeros,
+                dynamic_psi_to_ve_rm_shielding=zeros,
+            )
+
+        ri_to_rm = np.asarray(ops.ri_to_rm, dtype=float)
+        m_ind_to_br_rm_open = np.asarray(
+            ri_to_rm @ np.asarray(to_dense(self.m_ind_to_Br)), dtype=float
+        )
+        dynamic_psi_to_ve_rm_open = np.asarray(
+            ri_to_rm @ np.asarray(self.dynamic_toroidal_pfac_open_operator), dtype=float
+        )
+
+        if self._pfac.magnetospheric_shielding:
+            m_ind_to_br_rm_effective = zeros
+            dynamic_psi_to_ve_rm_effective = zeros
+        else:
+            m_ind_to_br_rm_effective = m_ind_to_br_rm_open
+            dynamic_psi_to_ve_rm_effective = dynamic_psi_to_ve_rm_open
+
+        return PoloidalRMBoundaryOperators(
+            m_ind_to_br_rm_open=m_ind_to_br_rm_open,
+            m_ind_to_br_rm_effective=m_ind_to_br_rm_effective,
+            m_ind_to_br_rm_shielding=np.asarray(
+                m_ind_to_br_rm_effective - m_ind_to_br_rm_open, dtype=float
+            ),
+            dynamic_psi_to_ve_rm_open=dynamic_psi_to_ve_rm_open,
+            dynamic_psi_to_ve_rm_effective=dynamic_psi_to_ve_rm_effective,
+            dynamic_psi_to_ve_rm_shielding=np.asarray(
+                dynamic_psi_to_ve_rm_effective - dynamic_psi_to_ve_rm_open, dtype=float
+            ),
         )
 
     @cached_property
@@ -355,7 +412,7 @@ class PoloidalSystemMatrices:
         G_total = to_dense(G_grad).reshape(2, -1, self.solution_space.index_length)
 
         # Add PFAC coupling: JS += G_Ve_to_JS @ T_to_Ve @ m_imp
-        T_to_Ve_eff = self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
+        T_to_Ve_eff = self._apply_imposed_toroidal_shielding(self.T_to_Ve)
         JS_coupling = np.tensordot(self.G_Ve_to_JS, T_to_Ve_eff, axes=([2], [0]))
         G_total = G_total + JS_coupling
 
@@ -708,7 +765,7 @@ class PoloidalSystemMatrices:
         G = self.G_Ve_to_JS.copy()
 
         # Add magnetospheric coupling if RM is defined and lock is enabled
-        if self._pfac.RM is not None and self._pfac.magnetospheric_poloidal_lock:
+        if self._pfac.RM is not None and self._pfac.magnetospheric_shielding:
             ops = self._rm_coupling_solution_operators
             if ops is not None:
                 rm_feedback_op = np.asarray(ops.feedback)
@@ -826,7 +883,7 @@ class PoloidalSystemMatrices:
             p_op = (1.0 / mu0) * np.eye(L)
             # PFAC coupling contributes to toroidal component of JS-like vector.
             if potential_type == "m_imp":
-                t_op = self._apply_imposed_toroidal_poloidal_lock(self.T_to_Ve)
+                t_op = self._apply_imposed_toroidal_shielding(self.T_to_Ve)
             else:
                 t_op = self._get_dynamic_toroidal_pfac_operator()
             return as_linear_map(np.vstack([p_op, t_op]))
@@ -836,7 +893,7 @@ class PoloidalSystemMatrices:
             scaling = self.solution_space.get_potential_scaling_operator()
             t_mat = (-1.0 / mu0) * to_dense(scaling)
 
-            if self._pfac.RM is not None and self._pfac.magnetospheric_poloidal_lock:
+            if self._pfac.RM is not None and self._pfac.magnetospheric_shielding:
                 ops = self._rm_coupling_solution_operators
                 if ops is not None:
                     rm_feedback_op = np.asarray(ops.feedback)

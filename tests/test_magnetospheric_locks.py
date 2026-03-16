@@ -1,4 +1,4 @@
-"""Regression tests for magnetospheric toroidal/poloidal lock options."""
+"""Regression tests for magnetospheric shielding and RM boundary diagnostics."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.settings import DynamicsMode, MainfieldKind
 
 
-def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dynamics:
+def _build_dynamics(tmp_path, *, shielding: bool) -> Dynamics:
     return Dynamics(
-        run_directory=str(tmp_path / f"locks_t{int(toroidal_lock)}_p{int(poloidal_lock)}"),
+        run_directory=str(tmp_path / f"locks_p{int(shielding)}"),
         Nmax=8,
         Mmax=4,
         Ncs=10,
@@ -24,14 +24,13 @@ def _build_dynamics(tmp_path, *, toroidal_lock: bool, poloidal_lock: bool) -> Dy
         connect_hemispheres=True,
         dynamics_mode=DynamicsMode.FULL_INDUCTION,
         simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
-        magnetospheric_toroidal_lock=toroidal_lock,
-        magnetospheric_poloidal_lock=poloidal_lock,
+        magnetospheric_shielding=shielding,
     )
 
 
-def _build_legacy_dynamics(tmp_path, *, poloidal_lock: bool) -> Dynamics:
+def _build_legacy_dynamics(tmp_path, *, shielding: bool) -> Dynamics:
     return Dynamics(
-        run_directory=str(tmp_path / f"legacy_lock_p{int(poloidal_lock)}"),
+        run_directory=str(tmp_path / f"legacy_lock_p{int(shielding)}"),
         Nmax=8,
         Mmax=4,
         Ncs=10,
@@ -42,17 +41,14 @@ def _build_legacy_dynamics(tmp_path, *, poloidal_lock: bool) -> Dynamics:
         connect_hemispheres=True,
         dynamics_mode=DynamicsMode.LEGACY,
         simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
-        magnetospheric_poloidal_lock=poloidal_lock,
+        magnetospheric_shielding=shielding,
     )
 
 
-@pytest.mark.parametrize("toroidal_lock", [False, True])
-@pytest.mark.parametrize("poloidal_lock", [False, True])
-def test_full_induction_magnetospheric_locks(
-    tmp_path, toroidal_lock: bool, poloidal_lock: bool
-) -> None:
-    """Verify lock toggles wire into LL constraints and RM coupling operators."""
-    dynamics = _build_dynamics(tmp_path, toroidal_lock=toroidal_lock, poloidal_lock=poloidal_lock)
+@pytest.mark.parametrize("shielding", [False, True])
+def test_full_induction_magnetospheric_shielding(tmp_path, shielding: bool) -> None:
+    """Verify shielding toggles wire into LL constraints and RM coupling operators."""
+    dynamics = _build_dynamics(tmp_path, shielding=shielding)
     state = dynamics.state
     geometry = state.geometry
     basis = state.basis
@@ -66,10 +62,10 @@ def test_full_induction_magnetospheric_locks(
     assert bundle["C_total"].shape[0] == bundle["C_ll"].shape[0]
     assert bundle["C_ll"].shape[0] > 0
 
-    # --- Boundary locks: poloidal lock affects induced poloidal/FAC pathways
-    # --- from ``m_ind``/``Br``, while toroidal lock affects the dynamic
-    # --- toroidal/FAC PFAC reaction of ``psi``. Imposed RM driver channels
-    # --- remain closed.
+    # --- Magnetospheric shielding affects induced poloidal/FAC pathways from
+    # --- ``m_ind``/``Br`` and the dynamic ``psi -> Ve`` response, while the
+    # --- toroidal boundary object remains diagnostic/interface-only. Imposed
+    # --- RM driver channels remain closed.
     op_m_ind = geometry.get_potential_to_JS_operator("m_ind", mode=None)
     op_br = geometry.get_potential_to_JS_operator("Br", mode=None)
     op_m_imp = geometry.get_potential_to_JS_operator("m_imp", mode=None)
@@ -95,7 +91,7 @@ def test_full_induction_magnetospheric_locks(
         geometry._pfac.get_coupling_factors()
     )
     rm_feedback_term = (br_rm_to_ri_shift * br_ri_to_rm_shift) / rm_roundtrip_denominator
-    if poloidal_lock:
+    if shielding:
         expected_t_m_ind = expected_t_m_ind * (1.0 + rm_feedback_term)
 
     np.testing.assert_allclose(p_m_ind, 0.0, atol=1e-12, rtol=0.0)
@@ -117,20 +113,19 @@ def test_full_induction_magnetospheric_locks(
     np.testing.assert_allclose(t_m_imp, expected_t_m_imp, atol=1e-10, rtol=1e-10)
 
     expected_p_psi = (1.0 / mu0) * np.eye(n_coeffs)
-    expected_t_psi = (
-        np.asarray(state.poloidal_matrices.T_to_Ve)
-        if toroidal_lock
-        else np.asarray(state.poloidal_matrices.T_to_Ve_open)
-    )
+    if shielding:
+        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve)
+    else:
+        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve_open)
 
     np.testing.assert_allclose(p_psi, expected_p_psi, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
 
 
-@pytest.mark.parametrize("poloidal_lock", [False, True])
-def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, poloidal_lock: bool) -> None:
-    """Legacy mode keeps the imposed RM-closed source baseline; dynamic psi stays open."""
-    dynamics = _build_legacy_dynamics(tmp_path, poloidal_lock=poloidal_lock)
+@pytest.mark.parametrize("shielding", [False, True])
+def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, shielding: bool) -> None:
+    """Legacy mode keeps imposed RM-closed source baseline; dynamic ``psi`` follows shielding."""
+    dynamics = _build_legacy_dynamics(tmp_path, shielding=shielding)
     state = dynamics.state
     geometry = state.geometry
     n_coeffs = state.basis.index_length
@@ -144,114 +139,90 @@ def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, poloidal_lock: boo
     expected_t_m_imp = np.asarray(state.poloidal_matrices.T_to_Ve)
     _, _, rm_roundtrip_denominator = geometry._pfac.get_coupling_factors()
     expected_t_m_imp = (1.0 / rm_roundtrip_denominator)[:, None] * expected_t_m_imp
-    expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve_open)
+    if shielding:
+        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve)
+    else:
+        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve_open)
     np.testing.assert_allclose(t_m_imp, expected_t_m_imp, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
 
 
-def test_full_induction_toroidal_lock_keeps_dynamic_dtpsi_runtime_open(tmp_path) -> None:
-    """Toroidal lock should not alter the live shell ``dt_psi`` operators."""
-    dyn_open = _build_dynamics(tmp_path, toroidal_lock=False, poloidal_lock=False)
-    dyn_closed = _build_dynamics(tmp_path, toroidal_lock=True, poloidal_lock=False)
+def test_toroidal_rm_boundary_diagnostics_expose_runtime_and_boundary_operator(tmp_path) -> None:
+    """Runtime stays open while explicit ``R_M`` boundary diagnostics remain available."""
+    dynamics = _build_dynamics(tmp_path, shielding=False)
+    state = dynamics.state
+    boundary_source = state.toroidal_rm_boundary_operators
+    rm_ops = state.poloidal_matrices.toroidal_rm_closure_operators
 
-    mats_open = dyn_open.state.toroidal_matrices
-    mats_closed = dyn_closed.state.toroidal_matrices
-    assert mats_open is not None
-    assert mats_closed is not None
-
-    alpha_to_psi_open = np.asarray(mats_open.alpha_to_psi_coeff_operator)
-    alpha_to_psi_closed = np.asarray(mats_closed.alpha_to_psi_coeff_operator)
-    radial_open = np.asarray(mats_open.radial_closure_dt_psi_from_dtalpha)
-    radial_closed = np.asarray(mats_closed.radial_closure_dt_psi_from_dtalpha)
-
-    np.testing.assert_allclose(
-        alpha_to_psi_closed,
-        alpha_to_psi_open,
-        atol=1e-10,
-        rtol=1e-10,
+    assert np.linalg.norm(np.asarray(boundary_source.alpha_to_boundary_psi_rm)) > 0.0
+    assert (
+        np.linalg.norm(np.asarray(state.poloidal_matrices.dynamic_toroidal_pfac_reaction_operator))
+        < 1e-12
     )
-    np.testing.assert_allclose(
-        radial_closed,
-        radial_open,
-        atol=1e-10,
-        rtol=1e-10,
-    )
+    assert np.linalg.norm(np.asarray(rm_ops.alpha_to_normal_current_rm_grid)) > 0.0
+    assert np.linalg.norm(np.asarray(rm_ops.alpha_to_closure_potential_rm_coeff)) > 0.0
+    assert np.linalg.norm(np.asarray(rm_ops.alpha_to_divergent_closure_current_rm_grid)) > 0.0
 
 
-def test_toroidal_rm_reaction_prototype_exposes_runtime_and_boundary_operator(tmp_path) -> None:
-    """RM prototype should expose runtime-open and explicit boundary operators."""
-    dynamics = _build_dynamics(tmp_path, toroidal_lock=True, poloidal_lock=False)
-    proto = dynamics.state.toroidal_rm_reaction_prototype
-    report = dynamics.state.get_toroidal_rm_reaction_report()
+def test_shielding_closes_dynamic_psi_pfac_path(tmp_path) -> None:
+    """Magnetospheric shielding should close the dynamic ``psi -> Ve`` PFAC pathway."""
+    dyn_open = _build_dynamics(tmp_path, shielding=False)
+    dyn_closed = _build_dynamics(tmp_path, shielding=True)
+
+    state_open = dyn_open.state
+    state_closed = dyn_closed.state
 
     np.testing.assert_allclose(
-        proto.alpha_to_psi_closed,
-        proto.alpha_to_psi_open + proto.alpha_to_psi_reaction,
+        np.asarray(state_open.poloidal_matrices.dynamic_toroidal_pfac_reaction_operator),
+        0.0,
         atol=1e-10,
         rtol=1e-10,
     )
     np.testing.assert_allclose(
-        proto.radial_closure_dt_psi_closed,
-        proto.radial_closure_dt_psi_open + proto.radial_closure_dt_psi_reaction,
+        np.asarray(state_closed.poloidal_matrices.dynamic_toroidal_pfac_closed_operator),
+        np.asarray(state_closed.poloidal_matrices.T_to_Ve),
         atol=1e-10,
         rtol=1e-10,
     )
     np.testing.assert_allclose(
-        proto.toroidal_feedback_dtalpha_closed,
-        proto.toroidal_feedback_dtalpha_open + proto.toroidal_feedback_dtalpha_reaction,
+        np.asarray(state_closed.poloidal_matrices.dynamic_toroidal_pfac_open_operator)
+        + np.asarray(state_closed.poloidal_matrices.dynamic_toroidal_pfac_reaction_operator),
+        np.asarray(state_closed.poloidal_matrices.dynamic_toroidal_pfac_closed_operator),
         atol=1e-10,
         rtol=1e-10,
     )
-    np.testing.assert_allclose(
-        proto.dynamic_pfac_closed,
-        proto.dynamic_pfac_open + proto.dynamic_pfac_reaction,
-        atol=1e-10,
-        rtol=1e-10,
+    assert (
+        np.linalg.norm(
+            np.asarray(state_closed.poloidal_matrices.dynamic_toroidal_pfac_reaction_operator)
+        )
+        > 0.0
     )
-    np.testing.assert_allclose(
-        proto.alpha_to_psi_closed,
-        proto.alpha_to_psi_open,
-        atol=1e-10,
-        rtol=1e-10,
-    )
-    np.testing.assert_allclose(
-        proto.radial_closure_dt_psi_closed,
-        proto.radial_closure_dt_psi_open,
-        atol=1e-10,
-        rtol=1e-10,
-    )
-    np.testing.assert_allclose(
-        proto.closure_denominator @ proto.alpha_to_psi_shell_closed,
-        proto.alpha_to_psi_open,
-        atol=1e-10,
-        rtol=1e-10,
-    )
-    np.testing.assert_allclose(
-        proto.alpha_to_psi_shell_closed,
-        proto.alpha_to_psi_open + (proto.roundtrip_gain @ proto.alpha_to_psi_shell_closed),
-        atol=1e-10,
-        rtol=1e-10,
-    )
-    np.testing.assert_allclose(
-        proto.alpha_to_psi_shell_closed - proto.alpha_to_psi_open,
-        proto.shell_reaction_operator @ proto.alpha_to_psi_open,
-        atol=1e-10,
-        rtol=1e-10,
-    )
-    assert np.linalg.norm(proto.alpha_to_psi_reaction) < 1e-12
-    assert np.linalg.norm(proto.alpha_to_psi_shell_closed - proto.alpha_to_psi_closed) > 0.0
-    assert np.linalg.norm(proto.alpha_to_normal_current_rm_grid) > 0.0
-    assert np.linalg.norm(proto.alpha_to_divergent_closure_current_rm_grid) > 0.0
-    assert np.linalg.norm(proto.alpha_to_sheet_boundary_psi_rm) > 0.0
-    assert np.linalg.norm(proto.alpha_to_dynamic_pfac_reaction) > 0.0
 
-    assert report["shell_boundary_closure"]["fixed_point_residual_norm"] < 1e-12
-    assert report["shell_boundary_closure"]["denominator_residual_norm"] < 1e-12
-    assert report["shell_boundary_closure"]["reaction_operator_residual_norm"] < 1e-12
-    assert report["shell_boundary_closure"]["sheet_rm_value_mismatch_norm"] > 0.0
-    assert report["shell_boundary_closure"]["runtime_vs_shell_closed_mismatch_norm"] > 0.0
-    assert report["shell_boundary_closure"]["runtime_vs_shell_radial_mismatch_norm"] > 0.0
-    assert report["alpha_to_psi"]["reaction_norm"] < 1e-12
-    assert report["rm_boundary_closure"]["normal_current_operator_norm"] > 0.0
-    assert report["dynamic_pfac"]["alpha_reaction_norm"] > 0.0
-    assert report["alpha_to_psi"]["closure_residual_norm"] < 1e-12
+
+def test_magnetospheric_boundary_diagnostics_follow_shielding(tmp_path) -> None:
+    """Induced boundary diagnostics should vanish above ``R_M`` when shielding is enabled."""
+    dyn_open = _build_dynamics(tmp_path, shielding=False)
+    dyn_closed = _build_dynamics(tmp_path, shielding=True)
+
+    report_open = dyn_open.state.get_magnetospheric_boundary_report()
+    report_closed = dyn_closed.state.get_magnetospheric_boundary_report()
+
+    assert report_open["m_ind_to_br_rm"]["open_norm"] > 0.0
+    assert report_open["m_ind_to_br_rm"]["effective_norm"] > 0.0
+    assert report_open["m_ind_to_br_rm"]["shielding_norm"] < 1e-12
+    assert report_open["dynamic_psi_to_ve_rm"]["open_norm"] > 0.0
+    assert report_open["dynamic_psi_to_ve_rm"]["effective_norm"] > 0.0
+    assert report_open["dynamic_psi_to_ve_rm"]["shielding_norm"] < 1e-12
+    assert report_open["dynamic_alpha_to_psi_rm"]["open_norm"] > 0.0
+    assert report_open["dynamic_alpha_to_psi_rm"]["effective_norm"] > 0.0
+    assert report_open["dynamic_alpha_to_psi_rm"]["shielding_norm"] < 1e-12
+
+    assert report_closed["m_ind_to_br_rm"]["open_norm"] > 0.0
+    assert report_closed["m_ind_to_br_rm"]["effective_norm"] < 1e-12
+    assert report_closed["m_ind_to_br_rm"]["shielding_norm"] > 0.0
+    assert report_closed["dynamic_psi_to_ve_rm"]["open_norm"] > 0.0
+    assert report_closed["dynamic_psi_to_ve_rm"]["effective_norm"] < 1e-12
+    assert report_closed["dynamic_psi_to_ve_rm"]["shielding_norm"] > 0.0
+    assert report_closed["dynamic_alpha_to_psi_rm"]["open_norm"] > 0.0
+    assert report_closed["dynamic_alpha_to_psi_rm"]["effective_norm"] > 0.0
+    assert report_closed["dynamic_alpha_to_psi_rm"]["shielding_norm"] < 1e-12

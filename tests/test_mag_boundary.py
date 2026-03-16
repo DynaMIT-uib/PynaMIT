@@ -1,7 +1,5 @@
 """Magnetosphere boundary test."""
 
-import os
-import tempfile
 import pytest
 
 from pynamit.simulation.runner import run_pynamit
@@ -19,10 +17,6 @@ def test_mag_boundary():
     expected_coeff_max = 1.5366179015725894e-09
     expected_coeff_min = -3.861634234284512e-09
     expected_n_coeffs = 228
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     dynamics = run_pynamit(

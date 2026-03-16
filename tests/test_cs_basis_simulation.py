@@ -1,7 +1,5 @@
 """End-to-end simulation test using CSBasis."""
 
-import os
-import tempfile
 import pytest
 import numpy as np
 
@@ -40,10 +38,6 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
     # We use small integration time for speed.
     final_time = 0.003
     dt = 0.001
-
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit_cs")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
 
     # Act.
     # Run simulation with solution_basis_kind=SolutionBasisKind.CS
