@@ -134,10 +134,10 @@ def test_exponential_integrator_pure_spectral(tmp_path):
 
 def test_exponential_integrator_spectral_transform_gl(tmp_path):
     """Test exponential integrator with spectral_transform (GL grid)."""
-    expected_psi_norm = 1.0495095482425548e-08
-    expected_mind_norm = 3.121936716285918e-09
-    expected_steady_psi_norm = 2.3277852017216185e-09
-    expected_steady_mind_norm = 4.761661511558356e-09
+    expected_psi_norm = 1.0295375760679248e-08
+    expected_mind_norm = 2.383869071166071e-09
+    expected_steady_psi_norm = 1.5500692870120035e-09
+    expected_steady_mind_norm = 3.683288112243564e-09
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_GL,
@@ -153,10 +153,10 @@ def test_exponential_integrator_spectral_transform_gl(tmp_path):
 
 def test_exponential_integrator_spectral_transform_cs(tmp_path):
     """Test exponential integrator with spectral_transform (CS grid)."""
-    expected_psi_norm = 6.7289251493402295e-09
-    expected_mind_norm = 1.607111250866314e-09
-    expected_steady_psi_norm = 1.2429246252773314e-09
-    expected_steady_mind_norm = 2.4508085823180446e-09
+    expected_psi_norm = 6.707427162100316e-09
+    expected_mind_norm = 1.5349727196517994e-09
+    expected_steady_psi_norm = 1.2120821915824613e-09
+    expected_steady_mind_norm = 2.3341514954809695e-09
 
     _run_exponential_integrator_test(
         SimulationMode.SPECTRAL_TRANSFORM_CS,

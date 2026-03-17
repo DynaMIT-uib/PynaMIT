@@ -5,6 +5,12 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.primitives.grid import Grid
+from pynamit.spherical_harmonics.sh_basis import SHBasis
+
+
+def _dense(arr: object) -> np.ndarray:
+    return arr.toarray() if hasattr(arr, "toarray") else np.asarray(arr, dtype=float)
 
 
 def test_cs_basis_extracts_helmholtz_channels_directly() -> None:
@@ -43,3 +49,35 @@ def test_cs_basis_tangential_evaluate_uses_helmholtz_operator() -> None:
     eval_via_matrix = np.tensordot(G_vec, coeffs, 2)
 
     np.testing.assert_allclose(eval_via_api, eval_via_matrix, rtol=1e-12, atol=1e-12)
+
+
+def test_sh_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
+    """SH df basis should be ``-r x grad``, opposite to the paper's ``+r x grad``."""
+    basis = SHBasis(6, 3)
+    grid = Grid(lat=np.array([50.0, 65.0]), lon=np.array([10.0, 40.0]))
+
+    g_th = _dense(basis.get_evaluation_matrix(grid, derivative="theta"))
+    g_ph = _dense(basis.get_evaluation_matrix(grid, derivative="phi"))
+    repo_df = _dense(basis.get_curl_matrix(grid))
+    paper_df = np.array([-g_ph, g_th])
+
+    np.testing.assert_allclose(repo_df, -paper_df, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        _dense(basis.get_vector_basis_matrix(grid))[:, :, 1, :],
+        repo_df,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_cs_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
+    """CS df basis should also be ``-r x grad``, opposite to the paper sign."""
+    basis = CSBasis(8)
+    grid = basis.grid
+
+    g_th = _dense(basis.get_evaluation_matrix(grid, derivative="theta"))
+    g_ph = _dense(basis.get_evaluation_matrix(grid, derivative="phi"))
+    repo_df = _dense(basis.get_vector_basis_matrix(grid))[:, :, 1, :]
+    paper_df = np.array([-g_ph, g_th])
+
+    np.testing.assert_allclose(repo_df, -paper_df, rtol=1e-12, atol=1e-12)

@@ -71,6 +71,22 @@ def test_results_operator_bundle_exposes_expected_jeq_scaling() -> None:
     assert np.allclose(bundle.m_ind_to_Jeq, expected)
 
 
+def test_sh_induced_m_ind_matches_paper_kl_scalings() -> None:
+    """SH ``m_ind`` should match the paper's induced ``k,l`` coefficient family."""
+    state = _build_state()
+    basis = state.solution_space
+    n = np.asarray(basis.n, dtype=float).reshape(-1)
+
+    m_ind_to_br = np.asarray(to_dense(state.poloidal_matrices.m_ind_to_Br), dtype=float)
+    m_ind_to_jeq = np.asarray(state.geometry.get_poloidal_results_operators().m_ind_to_Jeq, dtype=float)
+
+    expected_br = np.diag(n * (n + 1.0))
+    expected_jeq = np.diag((-(state.RI / mu0)) * (2.0 * n + 1.0))
+
+    np.testing.assert_allclose(m_ind_to_br, expected_br, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(m_ind_to_jeq, expected_jeq, rtol=1e-12, atol=1e-12)
+
+
 def test_results_operator_bundle_builders_agree_for_live_state() -> None:
     state = _build_state()
 

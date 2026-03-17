@@ -10,9 +10,9 @@ from pynamit.simulation.settings import MainfieldKind
 def test_multi_data_dop853():
     """Test simulation with multiple data points and DOP853."""
     # Arrange.
-    expected_coeff_norm = 2.5686566061400986e-08
-    expected_coeff_max = 6.133350112801935e-09
-    expected_coeff_min = -8.876382135048725e-09
+    expected_coeff_norm = 2.259543086510045e-08
+    expected_coeff_max = 8.553407138489334e-09
+    expected_coeff_min = -2.558558213603089e-09
     expected_n_coeffs = 228
 
     # Act.

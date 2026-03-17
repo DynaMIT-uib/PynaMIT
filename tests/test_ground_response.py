@@ -28,7 +28,7 @@ def test_ground_response_matches_manual_sh_formula():
     )
     manual_horizontal = (
         state_spec.get_gradient_matrix(grid)
-        * ((-(degrees + 1.0) * ve_to_ground)[None, None, :])
+        * (((degrees + 1.0) * ve_to_ground)[None, None, :])
     )
 
     rng = np.random.default_rng(0)

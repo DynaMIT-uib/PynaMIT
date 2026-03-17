@@ -94,6 +94,52 @@ def test_coupled_dense_sparse_parity() -> None:
     assert np.allclose(dense, sparse, rtol=1e-9, atol=1e-9)
 
 
+def test_wind_cross_product_tensor_matches_minus_u_cross_b() -> None:
+    """Geometry ``bu`` should implement ``E = -u x B = B x u`` for horizontal winds."""
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=8, mmax=4)
+
+    bu = np.asarray(state.geometry.bu, dtype=float)
+    br = np.asarray(state.geometry.b_field.vec.r, dtype=float).reshape(-1)
+    rng = np.random.default_rng(19)
+    u_grid = rng.normal(size=(2, br.size))
+
+    actual = np.einsum("abg,bg->ag", bu, u_grid, optimize=True)
+    expected = np.vstack((-br * u_grid[1], br * u_grid[0]))
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_poloidal_grid_js_sign_identities_match_operator_definitions() -> None:
+    """Grid-level JS operators should match the intended ``m_ind`` and PFAC sign chain."""
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=8, mmax=4)
+    mats = state.poloidal_matrices
+
+    grad = np.asarray(
+        to_dense(state.solution_space.get_gradient_matrix(state.geometry.grid)), dtype=float
+    ).reshape(2, -1, state.solution_space.index_length)
+    curl = np.asarray(
+        to_dense(state.solution_space.get_curl_matrix(state.geometry.grid)), dtype=float
+    ).reshape(2, -1, state.solution_space.index_length)
+    scaling = np.asarray(
+        to_dense(state.solution_space.get_potential_scaling_operator()), dtype=float
+    )
+
+    expected_g_ve = np.tensordot((-1.0 / mu0) * curl, scaling, axes=([2], [0]))
+    expected_g_mimp_local = (-1.0 / mu0) * grad
+    expected_g_mimp = expected_g_mimp_local + np.tensordot(
+        expected_g_ve,
+        np.asarray(mats._apply_imposed_toroidal_shielding(mats.T_to_Ve), dtype=float),
+        axes=([2], [0]),
+    )
+
+    np.testing.assert_allclose(np.asarray(mats.G_Ve_to_JS), expected_g_ve, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        np.asarray(mats.G_m_ind_to_JS), expected_g_ve, rtol=1e-12, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        np.asarray(mats.G_m_imp_to_JS), expected_g_mimp, rtol=1e-12, atol=1e-12
+    )
+
+
 def test_sh_advection_and_psi_scalings_match_closed_form() -> None:
     """Check raw advection and jr->psi scalings against direct SH assembly."""
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
@@ -118,7 +164,7 @@ def test_sh_advection_and_psi_scalings_match_closed_form() -> None:
     inverse_laplacian_eigenvalues = np.zeros_like(laplacian_eigenvalues)
     inverse_laplacian_eigenvalues[mask] = 1.0 / laplacian_eigenvalues[mask]
 
-    jr_to_psi_ref = np.diag(-mu0 * float(state.RI) * inverse_laplacian_eigenvalues)
+    jr_to_psi_ref = np.diag(mu0 * float(state.RI) * inverse_laplacian_eigenvalues)
 
     assert np.allclose(advection_raw, A, rtol=1e-10, atol=1e-10)
     assert np.allclose(jr_to_psi[:, mask], jr_to_psi_ref[:, mask], rtol=1e-10, atol=1e-10)
@@ -130,7 +176,7 @@ def test_jr_to_psi_matches_m_imp_inverse_sign_convention() -> None:
     state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
     tor = state.toroidal_matrices
 
-    m_imp_to_jr = np.asarray(state.poloidal_matrices.m_imp_to_jr, dtype=float)
+    m_imp_to_jr = np.asarray(to_dense(state.poloidal_matrices.m_imp_to_jr), dtype=float)
     jr_to_psi = np.asarray(tor.jr_to_psi_coeff_operator, dtype=float)
     l = np.asarray(state.basis.n, dtype=float).reshape(-1)
     mask = (l * (l + 1.0)) > 0.0
@@ -138,6 +184,25 @@ def test_jr_to_psi_matches_m_imp_inverse_sign_convention() -> None:
 
     assert np.allclose(jr_to_psi @ m_imp_to_jr, projector, rtol=1e-10, atol=1e-10)
     assert np.allclose(m_imp_to_jr @ jr_to_psi, projector, rtol=1e-10, atol=1e-10)
+
+
+def test_m_imp_modal_scaling_is_negated_relative_to_paper_t_coefficients() -> None:
+    """Repo ``m_imp`` uses the opposite SH sign from the paper's ``psi,xi`` family."""
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=10, mmax=5)
+
+    m_imp_to_jr = np.asarray(to_dense(state.poloidal_matrices.m_imp_to_jr), dtype=float)
+    n = np.asarray(state.basis.n, dtype=float).reshape(-1)
+
+    # Repo convention: jr = -(R/mu0) Delta_S(m_imp)
+    # -> jr_nm = +(n(n+1)/(mu0 R)) * m_imp_nm
+    expected_repo = np.diag((n * (n + 1.0)) / (mu0 * float(state.RI)))
+    np.testing.assert_allclose(m_imp_to_jr, expected_repo, rtol=1e-12, atol=1e-12)
+
+    # Paper convention (Eq. 26): jr_nm = -(n(n+1)/(mu0 R)) * T_nm
+    expected_paper = -expected_repo
+    assert np.linalg.norm(m_imp_to_jr - expected_paper) > 1e-6 * max(
+        np.linalg.norm(expected_paper), 1.0
+    )
 
 
 def test_dtalpha_feedback_psi_rewrite_matches_dtjr_form() -> None:
@@ -165,6 +230,35 @@ def test_dtalpha_feedback_psi_rewrite_matches_dtjr_form() -> None:
         rtol=1e-10,
         atol=1e-10,
     )
+
+
+def test_wind_and_jr_forcing_superpose_linearly_in_dt_psi() -> None:
+    """Wind-driven and ``jr``-driven toroidal forcing should remain odd and linear."""
+    state = _build_state(simulation_mode=SimulationMode.PURE_SPECTRAL, nmax=8, mmax=4)
+    n = int(state.solution_space.index_length)
+    rng = np.random.default_rng(23)
+
+    u_coeffs = rng.normal(size=(2, n))
+    jr_coeffs = rng.normal(size=n)
+
+    e_u = np.asarray(
+        state._apply_operator(state.u_coeffs_to_E_coeffs, u_coeffs, (2, n)), dtype=float
+    )
+    m_imp_from_jr = np.asarray(
+        state.get_m_imp_from_jr_matrix(input_basis=state.solution_space), dtype=float
+    )
+    m_imp = m_imp_from_jr @ jr_coeffs
+    e_jr = np.asarray(
+        state._apply_operator(state.m_imp_to_E_coeffs, m_imp, (2, n)), dtype=float
+    )
+
+    dt_psi_u = np.asarray(state.solve_dt_psi(e_u), dtype=float)
+    dt_psi_jr = np.asarray(state.solve_dt_psi(e_jr), dtype=float)
+    dt_psi_sum = np.asarray(state.solve_dt_psi(e_u + e_jr), dtype=float)
+    dt_psi_neg_u = np.asarray(state.solve_dt_psi(-e_u), dtype=float)
+
+    np.testing.assert_allclose(dt_psi_neg_u, -dt_psi_u, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(dt_psi_sum, dt_psi_u + dt_psi_jr, rtol=1e-10, atol=1e-10)
 
 
 def test_mass_dtalpha_matrix_is_symmetric() -> None:

@@ -54,7 +54,13 @@ def build_ground_magnetic_response_operators(
         dtype=float,
     ) * (ve_to_ground * m_ind_to_br)[None, :]
 
-    horizontal_scale = -np.asarray(state_spec.n, dtype=float).reshape(-1) - 1.0
+    # ``m_ind`` follows the induced ``k_nm, l_nm`` convention. Below the
+    # ionosphere the field is ``B = -grad(V^e)`` with
+    # ``V^e_nm = -(n+1) * (r/R)^n * m_ind_nm`` up to the common SH basis
+    # normalization. Since ``get_gradient_matrix()`` returns the raw surface
+    # gradient tensor ``[d_theta, d_phi]``, the tangential field carries the
+    # positive modal factor ``+(n+1)`` here.
+    horizontal_scale = np.asarray(state_spec.n, dtype=float).reshape(-1) + 1.0
     horizontal_scale = horizontal_scale * ve_to_ground
     horizontal_matrix = np.asarray(
         state_spec.get_gradient_matrix(ground_grid),

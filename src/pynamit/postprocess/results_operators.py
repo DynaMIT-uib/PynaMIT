@@ -96,10 +96,13 @@ def build_poloidal_results_operators(
     scalar_evaluation_matrix = np.asarray(to_dense(basis.get_evaluation_matrix(grid)), dtype=float)
 
     laplacian_operator = np.asarray(to_dense(basis.get_laplacian_operator(RI)), dtype=float)
-    m_imp_to_jr = (float(RI) / mu0) * laplacian_operator
+    m_imp_to_jr = -(float(RI) / mu0) * laplacian_operator
     m_ind_to_Br = -(float(RI) ** 2) * laplacian_operator
 
     potential_scaling = np.asarray(to_dense(basis.get_potential_scaling_operator()), dtype=float)
+    # For SH bases, ``m_ind`` matches the paper's induced ``k_nm, l_nm``
+    # coefficients, so this gives the equivalent-current function from
+    # Eq. (23): Psi_eq_nm = -(R/mu0) * (2n+1) * m_ind_nm.
     m_ind_to_Jeq = (-float(RI) / mu0) * potential_scaling
 
     curl_operator = as_linear_map(basis.get_curl_matrix(grid))

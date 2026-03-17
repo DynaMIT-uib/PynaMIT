@@ -13,9 +13,9 @@ def test_mag_boundary():
     # Arrange.
     # Baseline updated after PFAC RM shielding row-scaling fix
     # (factor_vec applied per spectral output row).
-    expected_coeff_norm = 9.202435703166067e-09
-    expected_coeff_max = 1.5366179015725894e-09
-    expected_coeff_min = -3.861634234284512e-09
+    expected_coeff_norm = 9.902517208061867e-09
+    expected_coeff_max = 4.199425219821715e-09
+    expected_coeff_min = -4.919563503047457e-10
     expected_n_coeffs = 228
 
     # Act.

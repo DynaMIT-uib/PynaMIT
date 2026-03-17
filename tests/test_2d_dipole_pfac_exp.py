@@ -11,9 +11,9 @@ from pynamit.simulation.settings import IntegratorKind, MainfieldKind, Simulatio
 def test_2d_dipole_pfac_exp():
     """Test 2D simulation with dipole, PFAC and exponential."""
     # Arrange.
-    expected_coeff_norm = 1.1342052545869683e-08
-    expected_coeff_max = 8.006258968163613e-10
-    expected_coeff_min = -5.063807785683825e-09
+    expected_coeff_norm = 1.1342051166780896e-08
+    expected_coeff_max = 5.063807785684275e-09
+    expected_coeff_min = -8.006258968162339e-10
     expected_n_coeffs = 240
 
     # Act.

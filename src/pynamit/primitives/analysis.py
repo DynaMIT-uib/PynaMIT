@@ -173,6 +173,9 @@ def get_helmholtz_projection_matrix(spec: Any, grid: Any) -> Any:
         g_ph = g_ph.toarray() if hasattr(g_ph, "toarray") else g_ph
         g_grad = np.array([g_th, g_ph])
         g_rxgrad = np.array([g_ph, -g_th])
+        # Canonical repo Helmholtz basis: ``[-grad, -r x grad]``. The paper
+        # convention in Laundal et al. (2025) Appendix C1 instead uses
+        # ``[-grad, +r x grad]``, so the df channel here is its negative.
         g_helmholtz = np.stack([-g_grad, g_rxgrad], axis=2)
         projection = tensor_pinv(g_helmholtz, n_leading_flattened=2)
     else:

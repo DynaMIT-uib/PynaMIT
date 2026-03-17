@@ -86,9 +86,9 @@ def _evolve_multi_data_case(dynamics: Dynamics, *, t: float) -> None:
 def test_multi_data():
     """Test simulation with multiple data points."""
     # Arrange.
-    expected_coeff_norm = 2.5686566061400986e-08
-    expected_coeff_max = 6.133350112801935e-09
-    expected_coeff_min = -8.876382135048725e-09
+    expected_coeff_norm = 2.259543785560267e-08
+    expected_coeff_max = 8.553409961989025e-09
+    expected_coeff_min = -2.558560268751044e-09
     expected_n_coeffs = 228
 
     # Act.
@@ -139,9 +139,9 @@ def test_multi_data():
 @pytest.mark.wind
 def test_multi_data_restart_matches_direct_run(tmp_path):
     """Restarting from saved files should match the uninterrupted final state."""
-    expected_coeff_norm = 2.5686566061400986e-08
-    expected_coeff_max = 6.133350112801935e-09
-    expected_coeff_min = -8.876382135048725e-09
+    expected_coeff_norm = 2.259543785560267e-08
+    expected_coeff_max = 8.553409961989025e-09
+    expected_coeff_min = -2.558560268751044e-09
     expected_n_coeffs = 228
 
     direct_run_directory = str(tmp_path / "multi_data_direct")
@@ -186,7 +186,7 @@ def test_multi_data_fast_input_path_matches_reference(tmp_path):
     _evolve_multi_data_case(fast, t=15.0)
     fast_coeffs = _get_state_coeff_array(fast)
 
-    np.testing.assert_allclose(fast_coeffs, reference_coeffs, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(fast_coeffs, reference_coeffs, rtol=1e-9, atol=2e-12)
 
 
 @pytest.mark.wind

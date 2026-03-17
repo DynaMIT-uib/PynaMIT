@@ -13,6 +13,7 @@ import pynamit
 from pynamit.simulation.input import compute_spherical_input_sqrt_weights
 from pynamit.simulation.mage_time_window import MageTimeWindow, select_mage_time_window
 from pynamit.simulation.settings import (
+    ConductanceInterpolationMode,
     DynamicsMode,
     ExponentialSolverKind,
     IntegratorKind,
@@ -196,6 +197,7 @@ def _build_dynamics(run_directory: str, *, t0: str) -> pynamit.Dynamics:
         integrator=IntegratorKind.EXPONENTIAL,
         exponential_solver=ExponentialSolverKind.EXPM_MULTIPLY,
         enable_fast_input_path=True,
+        conductance_interpolation_mode=ConductanceInterpolationMode.SIGMA_LOG,
     )
 
 

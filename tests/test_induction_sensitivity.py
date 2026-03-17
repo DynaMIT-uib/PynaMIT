@@ -5,7 +5,7 @@ def test_induction_sensitivity(tmp_path):
     
     This test runs with:
     1. Zero Magnetospheric Driver (jr = 0) -> Eliminates overwhelming constraint.
-    2. Non-zero neutral wind -> Provides source for induction (v x B).
+    2. Non-zero neutral wind -> Provides source for induction (-v x B).
     3. Full Induction Mode -> Physics terms active.
     
     We expect a non-zero toroidal potential (psi) driven purely by the wind-driven induction.

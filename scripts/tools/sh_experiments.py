@@ -75,7 +75,7 @@ if False:
     ugrid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
     Gphi, Gtheta = (ubasis.get_evaluation_matrix(ugrid, derivative="phi"), ubasis.get_evaluation_matrix(ugrid, derivative="theta"))
-    G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
+    G_df = np.vstack((-Gphi, Gtheta))  # u_df = -r x grad()
     G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()
 
     d = np.hstack((u_theta.flatten(), u_phi.flatten()))

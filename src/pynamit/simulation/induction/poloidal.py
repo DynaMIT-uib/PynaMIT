@@ -78,13 +78,14 @@ class PoloidalSystemMatrices:
     poloidal induction uses a constrained least-squares formulation.
 
     Note on terminology:
-    - The variable `m_imp` is the toroidal magnetic scalar (T), since
-      jr = (RI/mu0) * Laplacian(m_imp).
+    - The variable `m_imp` is the toroidal magnetic scalar (T), with the
+      basis convention ``Curl(T r) = -r x Grad T``. Accordingly,
+      ``jr = -(RI/mu0) * Laplacian(m_imp)``.
     - This module name ("poloidal") refers to the electrostatic/current-system
       solve, not the magnetic-scalar naming convention.
 
     The imposed toroidal magnetic potential m_imp relates to:
-    - Radial current: jr = (RI/mu0) * Laplacian(m_imp)
+    - Radial current: jr = -(RI/mu0) * Laplacian(m_imp)
     - Pre-resistivity vector (JS-like):
         J = -grad(m_imp)/mu0 + Tor(Ve) via PFAC coupling
       (Ve is a magnetic poloidal potential; resistivity maps J -> E)
@@ -157,22 +158,32 @@ class PoloidalSystemMatrices:
     def m_imp_to_jr(self) -> np.ndarray:
         """Operator mapping m_imp to radial current jr.
 
-        Physics: jr = (RI/mu0) * Laplacian(m_imp).
+        Physics: jr = -(RI/mu0) * Laplacian(m_imp).
         (m_imp is the toroidal magnetic scalar T.)
+
+        Under the repo convention ``Curl(T r) = -r x Grad T``, ``m_imp`` uses
+        the opposite SH coefficient sign from Laundal et al. (2025), where the
+        toroidal contribution is written ``+ r x grad(T)`` with coefficients
+        ``psi_nm, xi_nm``. In other words, for direct paper-to-code comparison
+        on the toroidal branch, ``m_imp_code = -T_paper`` mode by mode.
 
         Returns
         -------
         np.ndarray
             Operator (matrix or diagonal) mapping potential to current.
         """
-        return (self.RI / mu0) * self.solution_space.get_laplacian_operator(self.RI)
+        return -(self.RI / mu0) * self.solution_space.get_laplacian_operator(self.RI)
 
     @cached_property
     def m_ind_to_Br(self) -> np.ndarray:
         """Operator mapping induced potential m_ind to radial field Br.
 
         Physics: Br = -(RI^2) * Laplacian(m_ind).
-        (m_ind is the poloidal magnetic scalar P.)
+        Here ``m_ind`` is the induced poloidal magnetic scalar used to
+        parameterize the field on both sides of ``R_I``. In the notation of
+        Laundal et al. (2025), its SH coefficients correspond to the
+        ``k_nm, l_nm`` family from Eqs. (19)-(21), so on SH modes this operator
+        evaluates ``Br_nm = n(n+1) * m_ind_nm``.
 
         Returns
         -------
@@ -198,14 +209,14 @@ class PoloidalSystemMatrices:
     def E_df_to_d_m_ind_dt(self) -> float:
         """Scaling factor for induction equation.
 
-        Physics: d(m_ind)/dt = (1/RI) * E_df
+        Physics: d(m_ind)/dt = -(1/RI) * E_df
 
         Returns
         -------
         float
             Scaling factor for time derivative.
         """
-        return 1.0 / self.RI
+        return -1.0 / self.RI
 
     def _project_scalar_coeffs_to_basis(self, coeffs: np.ndarray, target_basis: Any) -> np.ndarray:
         """Project scalar coefficients to ``target_basis`` through grid values."""

@@ -483,7 +483,12 @@ class Geometry:
     def projection_matrix(self) -> np.ndarray:
         """Projection matrix (Grid Vector -> Basis Coefficients).
 
-        For Helmholtz decomposition of vector fields E = -grad(Φ) + r×grad(Ψ).
+        For Helmholtz decomposition of vector fields
+        ``E = -grad(Phi) - r x grad(Psi)``.
+
+        This follows the repo-wide ``[-grad, -r x grad]`` convention, so the
+        divergence-free channel is the negative of the surface-vector
+        convention used in Laundal et al. (2025) Appendix C1.
 
         For Gauss-Legendre grids with quadrature weights, uses exact analysis:
             A = G^T @ diag(weights)
@@ -522,12 +527,13 @@ class Geometry:
         n_grid = G_th.shape[0]
         n_sh = G_th.shape[1]
 
-        # Build Helmholtz basis vectors
+        # Build Helmholtz basis vectors in the canonical convention
+        # ``[-grad, -r x grad]``.
         G_grad = np.array([G_th, G_ph])
-        G_rxgrad = np.array([G_ph, -G_th])
+        G_tor = np.array([G_ph, -G_th])
 
         # G_helmholtz: (vec_comp, grid_pt, pot_type, sh_idx)
-        G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
+        G_helmholtz = np.stack([-G_grad, G_tor], axis=2)
 
         # Flatten to 2D: (2*N_grid, 2*N_sh)
         G_flat = G_helmholtz.transpose(0, 1, 2, 3).reshape(2 * n_grid, 2 * n_sh)
@@ -641,7 +647,7 @@ class Geometry:
 
     @cached_property
     def bu(self) -> np.ndarray:
-        """Geometric factor for u x B electric field."""
+        """Geometric factor for tangential ``E = -u x B = B x u``."""
         Br = self.b_field.vec.r
         return -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
 

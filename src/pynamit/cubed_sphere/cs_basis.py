@@ -89,7 +89,7 @@ class CSBasis(GridBasis):
         return self._get_grid_gradient_operator(self.grid, r=r)
 
     def get_curl_operator(self, r: float = 1.0) -> "LinearMap":
-        """Get the analytical curl operator (r × grad).
+        """Get the analytical toroidal operator ``-r x grad``.
 
         Returns a LinearMap that maps scalar potential coefficients to
         vector field components: E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
@@ -1124,7 +1124,10 @@ class CSBasis(GridBasis):
         """Get curl operator mapping spectral potential to vector grid field.
 
         Returns a LinearMap that computes E = -r × grad(ψ) = ((1/sin θ) d_φ ψ, -d_θ ψ) / r
-        The returned operator maps from scalar coefficients to stacked vector components.
+        The returned operator maps from scalar coefficients to stacked vector
+        components. This is also the repo-wide df Helmholtz sign convention,
+        opposite to the ``+r x grad`` df basis used in Laundal et al. (2025)
+        Appendix C1 for generic tangential vector fields.
         """
         from pynamit.math.linear_map import as_linear_map, block_linear_map
 
@@ -1153,6 +1156,10 @@ class CSBasis(GridBasis):
         This method returns the matrix G such that E_grid = G @ [phi_coeffs; psi_coeffs].
         G = [ G_pol, G_tor ] where G_pol maps potential to -grad(phi)
         and G_tor maps potential to -r x grad(psi).
+
+        So, as in the SH path, the CS Helmholtz basis is ``[-grad, -r x grad]``.
+        Relative to Laundal et al. (2025) Appendix C1, only the df channel is
+        sign-flipped.
 
         Returns
         -------

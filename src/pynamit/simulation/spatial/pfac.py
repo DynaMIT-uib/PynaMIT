@@ -220,10 +220,11 @@ class PFACIntegrator:
             n_sh, -1
         )
 
-        # Source operator factor in solution-basis coefficients: RI/mu0 * Laplacian
+        # Source operator factor in solution-basis coefficients:
+        # -(RI/mu0) * Laplacian
         # (built once and reused for all radial quadrature steps).
         L_sol = to_dense(self.solution_space.get_laplacian_operator(self.RI))
-        m_imp_to_jr_sol_op = (self.RI / mu0) * L_sol
+        m_imp_to_jr_sol_op = -(self.RI / mu0) * L_sol
         if is_cs_like_basis(self.solution_space):
             P_sol = self._get_solution_space_mean_zero_projector(n_sol)
             if P_sol is not None:

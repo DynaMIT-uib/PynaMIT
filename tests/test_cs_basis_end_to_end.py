@@ -138,15 +138,16 @@ def test_cs_basis_state_end_to_end():
     # Eigenfunction of L is Y_lm. Y_10 is cos(theta). L Y_10 = -2 Y_10.
     # So m should be -0.5 * jr (roughly, dependent on units/constants).
 
-    # Units: m_imp_to_jr = RI/mu0 * Laplacian(RI) = RI/mu0 * (1/RI^2 * L_sphere) = 1/(mu0*RI) * L_sphere
-    # jr = 1/(mu0*RI) * (-2) * m_imp
-    # m_imp = - (mu0 * RI / 2) * jr
+    # Units: m_imp_to_jr = -(RI/mu0) * Laplacian(RI)
+    # = -(RI/mu0) * (1/RI^2 * L_sphere) = -(1/(mu0*RI)) * L_sphere
+    # jr = -(1/(mu0*RI)) * (-2) * m_imp = (2/(mu0*RI)) * m_imp
+    # m_imp = + (mu0 * RI / 2) * jr
 
     from pynamit.math.constants import mu0
 
     vals_jr = input_manager.get_entry("jr", 0, False)["jr"]
 
-    expected_m_imp_scale = -(mu0 * state.RI) / 2.0
+    expected_m_imp_scale = (mu0 * state.RI) / 2.0
     expected_m_imp = vals_jr * expected_m_imp_scale
 
     # Check correlation or scale

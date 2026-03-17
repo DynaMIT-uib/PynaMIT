@@ -10,9 +10,9 @@ from pynamit.simulation.settings import MainfieldKind
 def test_2d_igrf_pfac_hc_wind_grid():
     """Test 2D grid-based simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
-    expected_coeff_norm = 8.017966615753342e-09
-    expected_coeff_max = 2.371670930644875e-09
-    expected_coeff_min = -3.218941002096898e-09
+    expected_coeff_norm = 7.379720036885432e-09
+    expected_coeff_max = 3.316207079799351e-09
+    expected_coeff_min = -1.7128802885832715e-09
     expected_n_coeffs = 228
 
     # Act.

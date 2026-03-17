@@ -364,9 +364,11 @@ class State:
         """Operator mapping wind coefficients to E coefficients.
 
         Calculates M such that E_coeffs = M @ u_coeffs.
-        E = u x B.
-        Logic: v = u x B.
-        Geometry.bu provides the cross-product tensor B_x such that v = B_x @ u.
+        The tangential motional electric field is
+            ``E = -u x B = B x u``.
+        For horizontal neutral winds, only the radial background field enters
+        the tangential components, so ``Geometry.bu`` provides the tangential
+        ``B x u`` cross-product tensor such that ``E = bu @ u``.
         bu has shape (2, 2, Spatial...).
         """
         bu = asarray(self.geometry.bu)

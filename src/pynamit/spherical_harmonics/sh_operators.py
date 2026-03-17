@@ -181,7 +181,7 @@ def build_gradient_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
 
 
 def build_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
-    """Build the analytical curl operator (r x grad) in spectral space.
+    """Build the analytical toroidal curl operator ``Curl(T r) = -r x grad(T)``.
 
     Maps scalar coefficients to Toroidal Vector coefficients.
 
@@ -208,7 +208,7 @@ def build_divergence_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
 
     Maps [Poloidal; Toroidal] vector coefficients to scalar coefficients.
 
-    div(c_pol * (-grad Y) + c_tor * (rxgrad Y)) = c_pol * (-laplacian Y)
+    div(c_pol * (-grad Y) + c_tor * (-r x grad Y)) = c_pol * (-laplacian Y)
 
     Parameters
     ----------

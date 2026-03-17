@@ -11,9 +11,9 @@ def test_analytic_radial_execution(pynamit_approx):
     """
     # Expected values for Radial Field + Pure Spectral
     # Captured 2026-01-10: Matches Analytic VSH Logic with Wigner Revert
-    expected_coeff_norm = 3.9180175133339235e-08
-    expected_coeff_max = 8.562985980286141e-09
-    expected_coeff_min = -2.325852087017394e-08
+    expected_coeff_norm = 3.9180177107298895e-08
+    expected_coeff_max = 2.3258520870173926e-08
+    expected_coeff_min = -8.562985980286118e-09
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(

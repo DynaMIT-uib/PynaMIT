@@ -21,9 +21,9 @@ def test_spectral_transform_gl():
     on the GL grid.
     """
     # Expected values for GL mode with exact quadrature Helmholtz decomposition
-    expected_coeff_norm = 3.611476307534931e-08
-    expected_coeff_max = 3.188123429263445e-09
-    expected_coeff_min = -1.6261933724953575e-08
+    expected_coeff_norm = 4.084000490306086e-08
+    expected_coeff_max = 1.7676542541784497e-08
+    expected_coeff_min = -4.93733331734062e-09
     expected_n_coeffs = 228
 
     # Act.

@@ -467,19 +467,30 @@ class SHBasis(Basis):
         return np.array([G_th, G_ph])
 
     def get_curl_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
-        """Return tangential ``-r x grad`` operator evaluation tensor on ``grid``."""
+        """Return tangential ``-r x grad`` operator evaluation tensor on ``grid``.
+
+        This is the repo's canonical divergence-free Helmholtz sign. The paper
+        convention in Laundal et al. (2025) Appendix C1 uses ``+r x grad`` for
+        generic tangential vector fields, so the SH df channel here is its
+        negative.
+        """
         G_th = self.get_evaluation_matrix(grid, derivative="theta", mean_free=mean_free)
         G_ph = self.get_evaluation_matrix(grid, derivative="phi", mean_free=mean_free)
         return np.array([G_ph, -G_th])
 
     def get_vector_basis_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
-        """Return canonical Helmholtz vector basis tensor on ``grid``."""
+        """Return canonical Helmholtz vector basis tensor on ``grid``.
+
+        The tangential basis is ``[-grad, -r x grad]``. Compared with Laundal
+        et al. (2025) Appendix C1, the curl-free channel matches and the
+        divergence-free channel is sign-flipped.
+        """
         G_grad = self.get_gradient_matrix(grid, mean_free=mean_free)
         G_curl = self.get_curl_matrix(grid, mean_free=mean_free)
         return np.stack([-G_grad, G_curl], axis=2)
 
     def get_rxgrad_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
-        """Return the tangential ``r x grad`` operator evaluation tensor on ``grid``.
+        """Return the tangential ``-r x grad`` operator evaluation tensor on ``grid``.
 
         Returns the canonical coefficient-to-grid tensor with component ordering
         ``(theta, phi)``:
@@ -553,7 +564,7 @@ class SHBasis(Basis):
         return sh_operators.build_gradient_operator(basis, r)
 
     def get_curl_operator(self, r: float = 1.0, mean_free: Optional[bool] = None) -> "LinearMap":
-        """Get the analytical curl operator (r x grad) in spectral space."""
+        """Get the analytical toroidal curl operator ``Curl(T r) = -r x grad(T)``."""
         basis = self._basis_for_scalar_mode(mean_free)
         return sh_operators.build_curl_operator(basis, r)
 

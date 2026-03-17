@@ -18,14 +18,16 @@ Important convention note:
     surface-gradient form ``(B0s · grad_S)(dt_psi + R * d_r(dt_psi))``.
 
     The toroidal magnetic scalar ``psi`` uses the same sign convention as the
-    imposed toroidal scalar ``m_imp``. Both are interpreted through the basis
-    surface-Laplacian operator:
-        ``jr = (R / mu0) * Laplacian_R(potential)``
-    where ``Laplacian_R`` is the negative-semidefinite radius-``R`` surface
-    Laplacian returned by the basis. For SH modes this means
-        ``potential_lm = -(mu0 * R) / (l(l+1)) * jr_lm`` for ``l >= 1``.
-    If an external note uses the opposite toroidal-field sign convention, that
-    note must be converted before comparing formulas to this code path.
+    imposed toroidal scalar ``m_imp`` and the basis toroidal vector convention
+    ``Curl(T r) = -r x Grad T``. Equivalently,
+        ``jr = -(R / mu0) * Delta_S(potential)``
+    or
+        ``jr = -(1 / (mu0 * R)) * Delta_Omega(potential)``
+    depending on whether one writes the surface Laplacian on the radius-``R``
+    sphere or the unit-sphere Laplacian. The basis operators implement the same
+    negative-semidefinite scalar Laplacian in their native coordinates. For SH
+    modes this means
+        ``potential_lm = +(mu0 * R) / (l(l+1)) * jr_lm`` for ``l >= 1``.
 
 Design note for CS-dominant full induction:
     - The toroidal closure operator is assembled in one auxiliary SH basis
@@ -933,12 +935,13 @@ class ToroidalSystemMatrices:
     def jr_to_psi_coeff_operator(self) -> np.ndarray:
         """Coefficient-space map from ``dt_jr`` to ``dt_psi``.
 
-        This uses the same sign convention as ``m_imp``:
-            ``jr = (R / mu0) * Laplacian_R(psi)``,
-        where ``Laplacian_R`` is the negative-semidefinite radius-``R`` surface
-        Laplacian returned by the basis operators. On the mean-zero SH
-        subspace this gives
-            ``psi_lm = -(mu0 * R) / (l(l+1)) * jr_lm``
+        This uses the same sign convention as ``m_imp`` and the basis toroidal
+        vector convention ``Curl(T r) = -r x Grad T``:
+            ``jr = -(R / mu0) * Delta_S(psi)``
+        or equivalently
+            ``jr = -(1 / (mu0 * R)) * Delta_Omega(psi)``.
+        On the mean-zero SH subspace this gives
+            ``psi_lm = +(mu0 * R) / (l(l+1)) * jr_lm``
         for ``l >= 1``.
         """
         if self._use_auxiliary_closure_basis:
@@ -948,7 +951,7 @@ class ToroidalSystemMatrices:
             )
 
         if self.is_cs:
-            return asarray(float(mu0 * self.RI) * np.asarray(self.cs_laplacian_inverse))
+            return asarray(float(-mu0 * self.RI) * np.asarray(self.cs_laplacian_inverse))
 
         if is_sh_basis(self.basis):
             l_arr = np.asarray(to_numpy(self.basis.n)).reshape(-1).astype(float)
@@ -958,13 +961,13 @@ class ToroidalSystemMatrices:
             inverse_laplacian_eigenvalues[mask_nonzero_modes] = (
                 -1.0 / laplacian_eigenvalues[mask_nonzero_modes]
             )
-            return asarray(np.diag(float(mu0 * self.RI) * inverse_laplacian_eigenvalues))
+            return asarray(np.diag(float(-mu0 * self.RI) * inverse_laplacian_eigenvalues))
 
         lap = np.asarray(to_dense(self.basis.get_laplacian_operator(self.RI)))
         if lap.ndim != 2:
             lap = lap.reshape(lap.shape[0], -1)
         lap_pinv = tensor_pinv(lap, n_leading_flattened=1)
-        return asarray(float(mu0 / self.RI) * lap_pinv)
+        return asarray(float(-mu0 / self.RI) * lap_pinv)
 
     @cached_property
     def alpha_to_psi_coeff_operator(self) -> np.ndarray:

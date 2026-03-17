@@ -274,12 +274,17 @@ class Basis(ABC):
         return np.array([G_th, G_ph])
 
     def get_curl_matrix(self, grid: Any) -> Any:
-        """Get curl (R x Grad) operator matrix.
+        """Get toroidal curl operator matrix ``Curl(T r) = -r x Grad T``.
+
+        This is also the repository-wide Helmholtz divergence-free sign
+        convention. For generic tangential vector fields we therefore use the
+        opposite df sign from Laundal et al. (2025) Appendix C1, which writes
+        the df basis as ``+r x grad``.
 
         Returns
         -------
         matrix : array-like
-            Shape (2, N_grid, N_coeffs). Stacked [-G_phi, G_theta].
+            Shape (2, N_grid, N_coeffs). Stacked [G_phi, -G_theta].
         """
         G_grad = self.get_gradient_matrix(grid)
         G_th, G_ph = G_grad[0], G_grad[1]
@@ -298,6 +303,10 @@ class Basis(ABC):
         Definition (Uniform Potential Convention):
         Poloidal: -Grad P
         Toroidal: Curl(T r) = -r x Grad T
+
+        For generic Helmholtz vector fields this means the repo uses
+        ``[-grad, -r x grad]``. Relative to Laundal et al. (2025) Appendix C1,
+        only the divergence-free channel changes sign.
 
         Returns
         -------
