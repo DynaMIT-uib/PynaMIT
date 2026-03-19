@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.primitives.basis import get_repo_cf_helmholtz_sign, get_repo_df_helmholtz_sign
 
 
 def _rel_rms(err: np.ndarray, ref: np.ndarray) -> float:
@@ -134,10 +135,12 @@ def test_cs_operator_identities_match_laplacian(n: int) -> None:
 
     lhs_div_grad = div_op @ (grad_op @ state)
     lhs_curl_curl = curl_vec_op @ (curl_op @ state)
-    rhs = -np.asarray(lap @ state)
+    lap_state = np.asarray(lap @ state)
+    rhs_div = float(get_repo_cf_helmholtz_sign()) * lap_state
+    rhs_curl = float(get_repo_df_helmholtz_sign()) * lap_state
 
-    rel_div = _rel_rms(lhs_div_grad - rhs, rhs)
-    rel_curl = _rel_rms(lhs_curl_curl - rhs, rhs)
+    rel_div = _rel_rms(lhs_div_grad - rhs_div, rhs_div)
+    rel_curl = _rel_rms(lhs_curl_curl - rhs_curl, rhs_curl)
 
     assert rel_div < 1e-12, f"Div(Grad) identity mismatch: {rel_div:.3e}"
     assert rel_curl < 1e-12, f"Curl(CurlOp) identity mismatch: {rel_curl:.3e}"

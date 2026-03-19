@@ -10,9 +10,9 @@ from pynamit.simulation.settings import MainfieldKind
 def test_regularization():
     """Test simulation with regularization."""
     # Arrange.
-    expected_coeff_norm = 1.267825884048604e-08
-    expected_coeff_max = 4.5631263467287875e-09
-    expected_coeff_min = -1.3277375390915026e-09
+    expected_coeff_norm = 1.2678258840583414e-08
+    expected_coeff_max = 4.563126346731734e-09
+    expected_coeff_min = -1.5182134523694253e-09
     expected_n_coeffs = 228
 
     # Act.

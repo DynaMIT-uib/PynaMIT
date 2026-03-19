@@ -786,10 +786,14 @@ class State:
                     self.solution_space, coeffs=asarray(v1).flatten(), field_type="scalar"
                 )
             elif field_type == "tangential":
-                # u (wind): theta, phi components
-                v2_flat = asarray(v2).flatten()
-                v3_flat = asarray(v3).flatten()
-                new_coeffs = xp.stack([v2_flat, v3_flat], axis=0)
+                # CS tangential fields are stored as Helmholtz potentials, not
+                # raw grid components. Project the physical grid vector to the
+                # active CS tangential convention instead of bypassing the
+                # basis transform.
+                grid_values = xp.stack([asarray(v2).flatten(), asarray(v3).flatten()], axis=0)
+                new_coeffs = self.solution_space.from_grid_values(
+                    grid_values, grid, vector_type="tangential"
+                )
                 return Field.from_coefficients(
                     self.solution_space, coeffs=new_coeffs, field_type="tangential"
                 )

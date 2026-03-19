@@ -565,15 +565,29 @@ class StateInduction:
         """Build coupled forcing tensor `K` for `[psi, m_ind]` dynamics."""
         st = self._state
         scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-        E_noind_field = st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(
-            E_coeffs_noind
-        )
+        E_noind_field = st.poloidal_matrices._extract_toroidal_potential_coeffs(E_coeffs_noind)
         k1 = asarray(scale * E_noind_field)
         if st.d_psi_dt is not None:
             k0 = asarray(st.d_psi_dt)
         else:
             k0 = xp.zeros_like(k1)
         return xp.stack([k0, k1])
+
+    def build_legacy_scalar_rate_problem(
+        self, E_coeffs_noind: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Build the legacy scalar rate-system ``(L, K)`` for ``dm_ind/dt = L m_ind + K``.
+
+        This uses the same scaled operator/forcing convention as the legacy
+        runtime evolution path, so steady-state solves and time stepping share
+        one sign/scaling definition.
+        """
+        st = self._state
+        scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
+        linear_operator = asarray(scale * asarray(st.m_ind_to_E_df_matrix))
+        E_noind_field = st.poloidal_matrices._extract_toroidal_potential_coeffs(E_coeffs_noind)
+        forcing = asarray(scale * E_noind_field)
+        return linear_operator, forcing
 
     def solve_steady_state_model_variables(
         self, E_coeffs_noind: np.ndarray, *, update_state: bool = True
@@ -594,12 +608,12 @@ class StateInduction:
                 st.psi = psi
             return psi, m_ind
 
-        k_legacy = asarray(
-            st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(E_coeffs_noind)
+        legacy_linear_operator, legacy_forcing = self.build_legacy_scalar_rate_problem(
+            E_coeffs_noind
         )
         m_ss = self.solve_linear_steady_state(
-            linear_operator=st.m_ind_to_E_df_matrix,
-            forcing=k_legacy,
+            linear_operator=legacy_linear_operator,
+            forcing=legacy_forcing,
             solution_shape=(N,),
             solver=st.solver_type,
         )
@@ -694,18 +708,15 @@ class StateInduction:
         use_dense_rate_operator = bool(st.dense_full_operators or use_exponential_integrator)
 
         if use_dense_rate_operator:
-            scale = st.poloidal_matrices.E_df_to_d_m_ind_dt
-            full_linear_operator = scale * asarray(st.m_ind_to_E_df_matrix)
+            full_linear_operator, full_forcing = self.build_legacy_scalar_rate_problem(
+                E_coeffs_noind
+            )
             reduced_system = st.get_m_ind_reduced_system(linear_operator=full_linear_operator)
             if reduced_system.n_reduced == 0:
                 return None, asarray(reduced_system.expand_vector(np.zeros((0,), dtype=float)))
 
             forcing_reduced = None
             if not use_frozen_steady_state:
-                E_noind_field = st.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(
-                    E_coeffs_noind
-                )
-                full_forcing = asarray(scale * E_noind_field)
                 forcing_reduced = reduced_system.reduce_vector(full_forcing)
 
             steady_state_reduced = (

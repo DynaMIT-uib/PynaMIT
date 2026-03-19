@@ -20,9 +20,10 @@ from pynamit.primitives.io import IO
 from pynamit.primitives.mainfield import Mainfield
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.simulation.induction.poloidal_closure import PoloidalClosureProjector
 from pynamit.simulation.input import conductance_timeseries_vars_for_mode
 from pynamit.simulation.settings import DynamicsSettings, SimulationMode, SolutionBasisKind
-from pynamit.simulation.spatial.geometry_utils import get_radial_shift_diagonal, to_dense
+from pynamit.simulation.spatial.pfac import PFACIntegrator
 
 
 def _build_simulation_bases(settings: DynamicsSettings) -> tuple[CSBasis, SHBasis]:
@@ -402,50 +403,30 @@ class SimulationData:
             return np.asarray(operator, dtype=float)
 
         closure_basis = self._get_pfac_closure_basis(solution_space)
-        br_rm_to_ri_shift = get_radial_shift_diagonal(
-            closure_basis, rm, float(self.settings.RI), kind="external"
-        )
-        br_ri_to_rm_shift = get_radial_shift_diagonal(
-            closure_basis, float(self.settings.RI), rm, kind="internal"
-        )
-        roundtrip_denominator = 1.0 - (br_rm_to_ri_shift * br_ri_to_rm_shift)
-        roundtrip_operator = np.diag(np.asarray(roundtrip_denominator, dtype=float))
-
-        if closure_basis is solution_space:
-            roundtrip_vec = np.asarray(roundtrip_denominator, dtype=float).reshape(-1)
-            tol = max(float(np.finfo(float).eps * max(roundtrip_vec.size, 1)), 1e-15)
-            inv_roundtrip_vec = np.zeros_like(roundtrip_vec)
-            keep = np.abs(roundtrip_vec) > tol
-            inv_roundtrip_vec[keep] = 1.0 / roundtrip_vec[keep]
-            roundtrip_inv = np.diag(inv_roundtrip_vec)
-        else:
-            grid = getattr(solution_space, "grid", None)
-            if grid is None:
-                raise ValueError(
-                    "Cannot project saved PFAC RM closure into solution space without "
-                    "a solution-basis grid."
-                )
-
-            solution_to_closure = np.asarray(
-                to_dense(closure_basis.construct_scalar_projection_matrix(grid))
-                @ to_dense(solution_space.get_evaluation_matrix(grid)),
-                dtype=float,
-            )
-            closure_to_solution = np.asarray(
-                to_dense(solution_space.construct_scalar_projection_matrix(grid))
-                @ to_dense(closure_basis.get_evaluation_matrix(grid)),
-                dtype=float,
-            )
-            roundtrip_solution = closure_to_solution @ roundtrip_operator @ solution_to_closure
-            rcond = float(np.finfo(float).eps * max(roundtrip_solution.shape))
-            roundtrip_inv = np.linalg.pinv(roundtrip_solution, rcond=max(rcond, 1e-15))
-
-        if roundtrip_inv.shape[1] != operator.shape[0]:
+        grid = getattr(solution_space, "grid", None)
+        if closure_basis is not solution_space and grid is None:
             raise ValueError(
-                "RM closure operator shape mismatch for saved PFAC matrix: "
-                f"{roundtrip_inv.shape} cannot left-multiply {operator.shape}."
+                "Cannot project saved PFAC RM closure into solution space without "
+                "a solution-basis grid."
             )
-        return np.asarray(roundtrip_inv @ np.asarray(operator, dtype=float))
+
+        pfac_integrator = PFACIntegrator(
+            basis=closure_basis,
+            solution_space=solution_space,
+            mainfield=None,
+            RI=float(self.settings.RI),
+            RM=rm,
+            FAC_integration_steps=np.asarray([], dtype=float),
+            ignore_PFAC=False,
+            magnetospheric_shielding=True,
+        )
+        projector = PoloidalClosureProjector(
+            solution_space=solution_space,
+            closure_basis=closure_basis,
+            grid=grid,
+            pfac_integrator=pfac_integrator,
+        )
+        return np.asarray(projector.apply_rm_closure(np.asarray(operator, dtype=float)))
 
     def _get_pfac_closure_basis(self, solution_space: Any) -> Any:
         """Return the closure basis used for PFAC/radial coupling semantics."""

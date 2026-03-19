@@ -118,12 +118,12 @@ def test_dynamic_ramp_spectral_transform_cs(tmp_path):
 
 def test_dynamic_ramp_cs_dominant(backend: str, tmp_path):
     """Test CS dominant mode with dual induction."""
-    # Baselines updated 2026-03-12 after removing the old HL projection path
-    # from the active full-induction toroidal runtime semantics. CS-dominant is
-    # the most sensitive mode because its external toroidal channel was the most
-    # directly shaped by the previous HL machinery.
-    expected_psi_norm = 5.76428799682049e-07
-    expected_mind_norm = 7.439323207913103e-07
+    # Baselines updated 2026-03-19 after aligning CS tangential fields with the
+    # active Helmholtz-potential representation and using the projected CS
+    # toroidal electric potential in the induction forcing path. These values
+    # are invariant under the repo cf/df sign choice.
+    expected_psi_norm = 2.0905274555193073e-07
+    expected_mind_norm = 8.026764424717288e-08
     rel_tol = 1e-2
 
     _run_dynamic_ramp_test(

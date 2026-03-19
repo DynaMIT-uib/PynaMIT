@@ -7,6 +7,7 @@ including gradient, curl, divergence, Laplacian, and product operators.
 from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
+from pynamit.primitives.basis import get_repo_cf_helmholtz_sign, get_repo_df_helmholtz_sign
 from pynamit.utils import xp
 
 if TYPE_CHECKING:
@@ -223,7 +224,7 @@ def build_divergence_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
         Block linear map of shape (L, 2L).
     """
     from pynamit.math.linear_map import diagonal_linear_map, block_linear_map
-    factors = basis.n * (basis.n + 1) / r
+    factors = (-get_repo_cf_helmholtz_sign()) * basis.n * (basis.n + 1) / r
     op_pol = diagonal_linear_map(factors)
     op_tor = diagonal_linear_map(xp.zeros(basis.index_length))
     return block_linear_map([[op_pol, op_tor]])
@@ -249,7 +250,7 @@ def build_vector_curl_operator(basis: "SHBasis", r: float = 1.0) -> "LinearMap":
         Block linear map of shape (L, 2L).
     """
     from pynamit.math.linear_map import diagonal_linear_map, block_linear_map
-    factors = basis.n * (basis.n + 1) / r
+    factors = (-get_repo_df_helmholtz_sign()) * basis.n * (basis.n + 1) / r
     op_pol = diagonal_linear_map(xp.zeros(basis.index_length))
     op_tor = diagonal_linear_map(factors)
     return block_linear_map([[op_pol, op_tor]])

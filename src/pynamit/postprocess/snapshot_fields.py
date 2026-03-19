@@ -106,14 +106,16 @@ class SnapshotFieldCache:
         }
 
         if br_mag is not None:
-            js_ind_state = self.plot_operators.evaluate_js_from_m_ind(m_ind)
-            js_imp_state = self.plot_operators.evaluate_js_from_m_imp(m_imp)
-            js_br_state = self.plot_operators.evaluate_js_from_br(br_mag)
-            js_state = js_ind_state + js_imp_state + js_br_state
-            js_ind_steady = self.plot_operators.evaluate_js_from_m_ind(m_ind_steady)
-            js_imp_steady = self.plot_operators.evaluate_js_from_m_imp(m_imp_steady)
-            js_br_steady = self.plot_operators.evaluate_js_from_br(br_mag)
-            js_steady = js_ind_steady + js_imp_steady + js_br_steady
+            js_state = self.plot_operators.evaluate_runtime_js(
+                m_ind=m_ind,
+                m_imp=m_imp,
+                br_coeffs=br_mag,
+            )
+            js_steady = self.plot_operators.evaluate_runtime_js(
+                m_ind=m_ind_steady,
+                m_imp=m_imp_steady,
+                br_coeffs=br_mag,
+            )
             state_fields["joule"] = resistance * np.sum(js_state**2, axis=0)
             steady_fields["joule"] = resistance * np.sum(js_steady**2, axis=0)
 

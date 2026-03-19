@@ -15,8 +15,11 @@ import xarray as xr
 from functools import cached_property
 import scipy.sparse
 
-from pynamit.math.constants import mu0
-from pynamit.primitives.basis import is_cs_basis, is_cs_like_basis, is_sh_basis
+from pynamit.primitives.basis import (
+    build_helmholtz_tensor_from_gradient_components,
+    is_cs_like_basis,
+    is_sh_basis,
+)
 from pynamit.primitives.field_spec import FieldSpec
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field import Field
@@ -199,12 +202,31 @@ class Geometry:
                 self.poloidal_matrices._apply_imposed_toroidal_shielding(t_to_ve), dtype=float
             )
 
+        runtime_operators = None
+        if target_grid is self.grid and target_basis is self.solution_space:
+            runtime_operators = {
+                "m_ind_to_Br": self.poloidal_matrices.m_ind_to_Br,
+                "m_imp_to_jr": self.poloidal_matrices.m_imp_to_jr,
+                "G_Ve_to_JS": self.poloidal_matrices.G_Ve_to_JS,
+                "G_m_ind_to_JS": self.poloidal_matrices.G_m_ind_to_JS,
+                "G_m_imp_to_JS": self.poloidal_matrices.G_m_imp_to_JS,
+            }
+            try:
+                runtime_operators["G_Br_to_JS"] = (
+                    self.poloidal_matrices.get_potential_to_JS_operator("Br").to_dense().reshape(
+                        2, target_basis.index_length, target_basis.index_length
+                    )
+                )
+            except Exception:
+                runtime_operators["G_Br_to_JS"] = None
+
         bundle = build_poloidal_results_operators(
             basis=target_basis,
             grid=target_grid,
             RI=float(self.RI),
             T_to_Ve=t_to_ve,
             RM=getattr(self, "RM", None),
+            runtime_operators=runtime_operators,
         )
         self._poloidal_results_operators_cache[cache_key] = bundle
         return bundle
@@ -527,13 +549,9 @@ class Geometry:
         n_grid = G_th.shape[0]
         n_sh = G_th.shape[1]
 
-        # Build Helmholtz basis vectors in the canonical convention
-        # ``[-grad, -r x grad]``.
-        G_grad = np.array([G_th, G_ph])
-        G_tor = np.array([G_ph, -G_th])
-
+        # Build Helmholtz basis vectors in the canonical repo convention.
         # G_helmholtz: (vec_comp, grid_pt, pot_type, sh_idx)
-        G_helmholtz = np.stack([-G_grad, G_tor], axis=2)
+        G_helmholtz = build_helmholtz_tensor_from_gradient_components(G_th, G_ph)
 
         # Flatten to 2D: (2*N_grid, 2*N_sh)
         G_flat = G_helmholtz.transpose(0, 1, 2, 3).reshape(2 * n_grid, 2 * n_sh)
@@ -653,35 +671,22 @@ class Geometry:
 
     @cached_property
     def T_to_Ve(self) -> xr.DataArray:
-        """Mapping external toroidal (T) to poloidal (Ve) potential."""
-        return self._pfac.compute_T_to_Ve(self.G_Ve_to_JS_closure, self.grid)
+        """Mapping external toroidal (T) to poloidal (Ve) potential.
 
-    def _compute_vsh_operator(self, basis: Basis) -> np.ndarray:
-        """Compute generic VSH induction operator (-1/mu0 * Curl @ Scaling)."""
-        scaling_op = basis.get_potential_scaling_operator()
-        curl_op = as_linear_map(basis.get_curl_matrix(self.grid))
-
-        G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
-        return to_dense(G_lin).reshape(2, -1, basis.index_length)
+        Delegate to ``PoloidalSystemMatrices`` so Geometry does not carry a
+        duplicate PFAC assembly path with its own sign logic.
+        """
+        return xr.DataArray(
+            np.asarray(self.poloidal_matrices.T_to_Ve, dtype=float),
+            dims=("current_pot", "field_pot"),
+        )
 
     @cached_property
     def G_Ve_to_JS_closure(self) -> np.ndarray:
         """Closure-basis induction operator for PFAC/radial coupling."""
-        return self._compute_vsh_operator(self._pfac.basis)
+        return np.asarray(self.poloidal_matrices.G_Ve_to_JS_closure, dtype=float)
 
     @cached_property
     def G_Ve_to_JS(self) -> np.ndarray:
-        """Grid-native Induction operator (Solution Basis)."""
-        if is_cs_basis(self.solution_space):
-            try:
-                return self._compute_vsh_operator(self.solution_space)
-            except (NotImplementedError, AttributeError):
-                logger.warning(
-                    "CS Basis does not support operator construction. Falling back to spectral."
-                )
-
-        # If SH basis (or fallback), reuse the SH operator
-        if self.solution_space is self.basis:
-            return self.G_Ve_to_JS_closure
-
-        return self._compute_vsh_operator(self.solution_space)
+        """Grid-native induction operator in the solution basis."""
+        return np.asarray(self.poloidal_matrices.G_Ve_to_JS, dtype=float)

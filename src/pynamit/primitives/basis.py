@@ -15,6 +15,48 @@ if TYPE_CHECKING:
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 
 
+# Canonical repo surface Helmholtz convention:
+#   cf: cf_sign * grad_S(phi)
+#   df: df_sign * (rhat x grad_S(psi))
+#
+# The current repo choice is ``[-grad_S, -rhat x grad_S]``.
+REPO_CF_HELMHOLTZ_SIGN = -1.0
+REPO_DF_HELMHOLTZ_SIGN = -1.0
+
+
+def get_repo_cf_helmholtz_sign() -> float:
+    """Return the canonical repo curl-free Helmholtz sign."""
+    return float(REPO_CF_HELMHOLTZ_SIGN)
+
+
+def get_repo_df_helmholtz_sign() -> float:
+    """Return the canonical repo divergence-free Helmholtz sign."""
+    return float(REPO_DF_HELMHOLTZ_SIGN)
+
+
+def apply_cf_helmholtz_sign(gradient_matrix: Any) -> Any:
+    """Apply the repo curl-free sign to a tangential gradient tensor."""
+    return get_repo_cf_helmholtz_sign() * gradient_matrix
+
+
+def build_df_helmholtz_from_gradient_components(G_th: Any, G_ph: Any) -> np.ndarray:
+    """Build the repo df tensor from angular derivative components.
+
+    The conventional ``+rhat x grad`` operator has component form
+    ``[-G_phi, G_theta]``. The repo df basis is the global sign multiple of
+    that operator.
+    """
+    df_sign = get_repo_df_helmholtz_sign()
+    return np.array([(-df_sign) * G_ph, df_sign * G_th])
+
+
+def build_helmholtz_tensor_from_gradient_components(G_th: Any, G_ph: Any) -> np.ndarray:
+    """Build the canonical repo Helmholtz tensor from angular derivatives."""
+    G_grad = np.array([G_th, G_ph])
+    G_df = build_df_helmholtz_from_gradient_components(G_th, G_ph)
+    return np.stack([apply_cf_helmholtz_sign(G_grad), G_df], axis=2)
+
+
 def basis_kind(basis: Any) -> Optional[str]:
     """Return the normalized basis-kind identifier, if present."""
     kind = getattr(basis, "kind", None)
@@ -74,7 +116,13 @@ class Basis(ABC):
     @property
     def signature(self) -> tuple[Any, ...]:
         """Return a stable cache signature for this basis instance."""
-        parts: list[Any] = [type(self).__module__, type(self).__qualname__, self.kind]
+        parts: list[Any] = [
+            type(self).__module__,
+            type(self).__qualname__,
+            self.kind,
+            ("repo_cf_sign", get_repo_cf_helmholtz_sign()),
+            ("repo_df_sign", get_repo_df_helmholtz_sign()),
+        ]
         for name in ("Nmax", "Mmax", "Nmin", "mean_free", "backend", "is_normalized", "N"):
             if hasattr(self, name):
                 parts.append((name, getattr(self, name)))
@@ -288,12 +336,7 @@ class Basis(ABC):
         """
         G_grad = self.get_gradient_matrix(grid)
         G_th, G_ph = G_grad[0], G_grad[1]
-
-        # Option 1: Uniform Potential Convention (-,-)
-        # Poloidal: -Grad V
-        # Toroidal: Curl(Tr) = -r x Grad T
-        # r x Grad = [-G_phi, G_theta] -> -r x Grad = [G_phi, -G_theta]
-        return np.array([G_ph, -G_th])
+        return build_df_helmholtz_from_gradient_components(G_th, G_ph)
 
     def get_vector_basis_matrix(self, grid: Any) -> Any:
         """Get vector basis evaluation matrix (Helmholtz decomposition).
@@ -313,16 +356,9 @@ class Basis(ABC):
         matrix : array-like
             Canonical Helmholtz tensor with shape ``(2, N_grid, 2, N_coeffs)``.
         """
-        # Default: Stack [-Grad, Curl(T r)]
-        # get_gradient_matrix returns Grad.
-        # get_curl_matrix now returns Curl(T r) = -r x Grad.
-        G_grad = self.get_gradient_matrix(grid)
-        G_curl_Tr = self.get_curl_matrix(grid)
-
-        # Poloidal = -Grad
-        G_pol = -G_grad
-
-        return np.stack([G_pol, G_curl_Tr], axis=2)
+        G_th = self.get_evaluation_matrix(grid, "theta")
+        G_ph = self.get_evaluation_matrix(grid, "phi")
+        return build_helmholtz_tensor_from_gradient_components(G_th, G_ph)
 
     def get_scaled_matrix(self, grid: Any, factor: Any) -> Any:
         """Get evaluation matrix scaled by a factor (row or column).

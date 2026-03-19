@@ -15,6 +15,11 @@ from scipy.sparse import coo_matrix
 
 from pynamit.cubed_sphere import diffutils
 from pynamit.cubed_sphere import cs_math
+from pynamit.primitives.basis import (
+    build_helmholtz_tensor_from_gradient_components,
+    get_repo_cf_helmholtz_sign,
+    get_repo_df_helmholtz_sign,
+)
 from pynamit.primitives.grid import Grid, GridBasis, create_interpolator
 from pynamit.primitives.grid.grid_utils import get_3D_determinants, constrain_values
 from pynamit.utils import asarray
@@ -34,7 +39,7 @@ class CSBasis(GridBasis):
     system following methods from Yin et al. (2017).
     """
 
-    _GLOBAL_PROJECTION_CACHE: Dict[Tuple[int, int, int, str], Any] = {}
+    _GLOBAL_PROJECTION_CACHE: Dict[Tuple[int, int, int, str, float, float], Any] = {}
 
     def __init__(self, N: int):
         """Initialize the cubed sphere basis."""
@@ -1001,7 +1006,14 @@ class CSBasis(GridBasis):
         if mode_key in by_mode:
             return by_mode[mode_key]
 
-        global_key = (int(self.N), int(getattr(grid, "size", 0)), int(grid_key), mode_key)
+        global_key = (
+            int(self.N),
+            int(getattr(grid, "size", 0)),
+            int(grid_key),
+            mode_key,
+            float(get_repo_cf_helmholtz_sign()),
+            float(get_repo_df_helmholtz_sign()),
+        )
         if global_key in CSBasis._GLOBAL_PROJECTION_CACHE:
             res = CSBasis._GLOBAL_PROJECTION_CACHE[global_key]
             by_mode[mode_key] = res
@@ -1021,9 +1033,7 @@ class CSBasis(GridBasis):
 
         # Build forward Helmholtz mapping using the canonical tensor layout.
         # This keeps flattening/ordering identical to the legacy tensor_pinv path.
-        G_grad = np.array([-G_th, -G_ph])
-        G_rxgrad = np.array([G_ph, -G_th])
-        G_helmholtz = np.stack([G_grad, G_rxgrad], axis=2)
+        G_helmholtz = build_helmholtz_tensor_from_gradient_components(G_th, G_ph)
         A = G_helmholtz.reshape(2 * n_grid, 2 * n_coeff)
 
         # Equality-constrained solve with hard gauge rows.
@@ -1113,10 +1123,11 @@ class CSBasis(GridBasis):
 
         bundle = self._get_grid_derivative_bundle(grid)
 
-        # E = -grad(phi) = (-d_th phi, -1/sin_th * d_ph phi) / r
+        cf_sign = get_repo_cf_helmholtz_sign()
+        # E = cf_sign * grad(phi) = (cf_sign * d_th phi, cf_sign * 1/sin_th * d_ph phi) / r
         # D_phi_scaled already includes 1/sin(theta) scaling.
-        op_phi_th = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
-        op_phi_ph = as_linear_map(bundle["D_phi_scaled"]) * (-1.0 / r)
+        op_phi_th = as_linear_map(bundle["D_theta"]) * (cf_sign / r)
+        op_phi_ph = as_linear_map(bundle["D_phi_scaled"]) * (cf_sign / r)
 
         return block_linear_map([[op_phi_th], [op_phi_ph]])
 
@@ -1133,10 +1144,12 @@ class CSBasis(GridBasis):
 
         bundle = self._get_grid_derivative_bundle(grid)
 
-        # E = -r x grad(psi) = (1/sin_th * d_ph psi, -d_th psi) / r
+        df_sign = get_repo_df_helmholtz_sign()
+        # E = df_sign * (r x grad psi) =
+        #     (-df_sign * 1/sin_th * d_ph psi, df_sign * d_th psi) / r
         # D_phi_scaled already includes 1/sin(theta) scaling.
-        op_psi_th = as_linear_map(bundle["D_phi_scaled"]) * (1.0 / r)
-        op_psi_ph = as_linear_map(bundle["D_theta"]) * (-1.0 / r)
+        op_psi_th = as_linear_map(bundle["D_phi_scaled"]) * ((-df_sign) / r)
+        op_psi_ph = as_linear_map(bundle["D_theta"]) * (df_sign / r)
 
         return block_linear_map([[op_psi_th], [op_psi_ph]])
 

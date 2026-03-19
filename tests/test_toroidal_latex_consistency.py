@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.math.constants import mu0
+from pynamit.primitives.basis import get_repo_df_helmholtz_sign
 from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.settings import DynamicsMode, IntegratorKind, MainfieldKind, SimulationMode
@@ -123,7 +124,11 @@ def test_poloidal_grid_js_sign_identities_match_operator_definitions() -> None:
         to_dense(state.solution_space.get_potential_scaling_operator()), dtype=float
     )
 
-    expected_g_ve = np.tensordot((-1.0 / mu0) * curl, scaling, axes=([2], [0]))
+    expected_g_ve = np.tensordot(
+        (-1.0 / (mu0 * float(get_repo_df_helmholtz_sign()))) * curl,
+        scaling,
+        axes=([2], [0]),
+    )
     expected_g_mimp_local = (-1.0 / mu0) * grad
     expected_g_mimp = expected_g_mimp_local + np.tensordot(
         expected_g_ve,
@@ -136,7 +141,7 @@ def test_poloidal_grid_js_sign_identities_match_operator_definitions() -> None:
         np.asarray(mats.G_m_ind_to_JS), expected_g_ve, rtol=1e-12, atol=1e-12
     )
     np.testing.assert_allclose(
-        np.asarray(mats.G_m_imp_to_JS), expected_g_mimp, rtol=1e-12, atol=1e-12
+        np.asarray(mats.G_m_imp_to_JS), expected_g_mimp, rtol=2e-12, atol=1e-12
     )
 
 

@@ -11,7 +11,7 @@ from pynamit.simulation.settings import IntegratorKind, MainfieldKind, Simulatio
 def test_2d_dipole_pfac_exp():
     """Test 2D simulation with dipole, PFAC and exponential."""
     # Arrange.
-    expected_coeff_norm = 1.1342051166780896e-08
+    expected_coeff_norm = 1.1342049528303597e-08
     expected_coeff_max = 5.063807785684275e-09
     expected_coeff_min = -8.006258968162339e-10
     expected_n_coeffs = 240
@@ -118,19 +118,15 @@ def test_legacy_exponential_steady_state_matches_affine_step(tmp_path, simulatio
         E_coeffs_noind, update_state=False
     )
 
-    scale = state.poloidal_matrices.E_df_to_d_m_ind_dt
-    full_linear_operator = np.asarray(scale * state.m_ind_to_E_df_matrix, dtype=float)
+    full_linear_operator, full_forcing = state.induction.build_legacy_scalar_rate_problem(
+        E_coeffs_noind
+    )
+    full_linear_operator = np.asarray(full_linear_operator, dtype=float)
     reduced_system = state.get_m_ind_reduced_system(linear_operator=full_linear_operator)
     linear_operator = reduced_system.reduced_operator
     assert linear_operator is not None
 
-    forcing = reduced_system.reduce_vector(
-        np.asarray(
-            scale
-            * state.poloidal_matrices.solution_space.get_toroidal_potential_coeffs(E_coeffs_noind),
-            dtype=float,
-        ).reshape(-1)
-    )
+    forcing = reduced_system.reduce_vector(np.asarray(full_forcing, dtype=float).reshape(-1))
     steady_state = reduced_system.reduce_vector(
         np.asarray(steady_state_m_ind, dtype=float).reshape(-1)
     )

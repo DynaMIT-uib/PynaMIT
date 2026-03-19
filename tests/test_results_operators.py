@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.math.constants import mu0
+from pynamit.primitives.basis import get_repo_df_helmholtz_sign
 from pynamit.simulation.runner import run_pynamit
 from pynamit.simulation.settings import DynamicsMode, IntegratorKind, MainfieldKind, SimulationMode
 from pynamit.simulation.spatial import to_dense
@@ -45,6 +46,10 @@ def test_results_operator_bundle_matches_state_poloidal_operators() -> None:
 
     assert np.allclose(bundle.m_imp_to_jr, np.asarray(to_dense(state.poloidal_matrices.m_imp_to_jr)))
     assert np.allclose(bundle.m_ind_to_Br, np.asarray(to_dense(state.poloidal_matrices.m_ind_to_Br)))
+    assert np.allclose(
+        bundle.G_m_ind_to_Jeq_vector,
+        np.asarray(state.geometry.get_poloidal_results_operators().G_m_ind_to_Jeq_vector),
+    )
     assert np.allclose(bundle.G_m_ind_to_JS, np.asarray(state.poloidal_matrices.G_m_ind_to_JS))
     assert np.allclose(bundle.G_m_imp_to_JS, np.asarray(state.poloidal_matrices.G_m_imp_to_JS))
 
@@ -99,7 +104,14 @@ def test_results_operator_bundle_builders_agree_for_live_state() -> None:
         RM=state.settings.RM,
     )
 
-    for attr in ("m_ind_to_Br", "m_imp_to_jr", "m_ind_to_Jeq", "G_m_ind_to_JS", "G_m_imp_to_JS"):
+    for attr in (
+        "m_ind_to_Br",
+        "m_imp_to_jr",
+        "m_ind_to_Jeq",
+        "G_m_ind_to_Jeq_vector",
+        "G_m_ind_to_JS",
+        "G_m_imp_to_JS",
+    ):
         expected = np.asarray(getattr(bundle_geometry, attr))
         assert np.allclose(np.asarray(getattr(bundle_explicit, attr)), expected)
 
@@ -122,16 +134,40 @@ def test_results_operator_bundle_evaluation_helpers_match_explicit_application()
     expected_br = bundle.scalar_evaluation_matrix @ (bundle.m_ind_to_Br @ m_ind)
     expected_jr = bundle.scalar_evaluation_matrix @ (bundle.m_imp_to_jr @ m_imp)
     expected_jeq = bundle.scalar_evaluation_matrix @ (bundle.m_ind_to_Jeq @ m_ind)
+    expected_jeq_vector = np.tensordot(bundle.G_m_ind_to_Jeq_vector, m_ind, axes=([2], [0]))
     expected_js_ind = np.tensordot(bundle.G_m_ind_to_JS, m_ind, axes=([2], [0]))
     expected_js_imp = np.tensordot(bundle.G_m_imp_to_JS, m_imp, axes=([2], [0]))
     expected_js_br = np.tensordot(bundle.G_Br_to_JS, m_ind, axes=([2], [0]))
+    expected_js_total = expected_js_ind + expected_js_imp + expected_js_br
 
     np.testing.assert_allclose(bundle.evaluate_br(m_ind), expected_br)
     np.testing.assert_allclose(bundle.evaluate_jr(m_imp), expected_jr)
     np.testing.assert_allclose(bundle.evaluate_jeq(m_ind), expected_jeq)
+    np.testing.assert_allclose(bundle.evaluate_jeq_vector(m_ind), expected_jeq_vector)
     np.testing.assert_allclose(bundle.evaluate_js_from_m_ind(m_ind), expected_js_ind)
     np.testing.assert_allclose(bundle.evaluate_js_from_m_imp(m_imp), expected_js_imp)
     np.testing.assert_allclose(bundle.evaluate_js_from_br(m_ind), expected_js_br)
+    np.testing.assert_allclose(
+        bundle.evaluate_runtime_js(m_ind=m_ind, m_imp=m_imp, br_coeffs=m_ind),
+        expected_js_total,
+    )
+
+
+def test_jeq_vector_matches_curl_of_conventional_equivalent_current_function() -> None:
+    state = _build_state()
+    bundle = state.geometry.get_poloidal_results_operators()
+
+    m_ind = np.arange(state.solution_space.index_length, dtype=float) + 0.5
+    psi_eq = np.asarray(bundle.m_ind_to_Jeq) @ m_ind
+    curl = np.asarray(
+        to_dense(state.solution_space.get_curl_matrix(state.geometry.grid)),
+        dtype=float,
+    ).reshape(2, -1, state.solution_space.index_length)
+    expected = (1.0 / (float(state.RI) * float(get_repo_df_helmholtz_sign()))) * np.tensordot(
+        curl, psi_eq, axes=([2], [0])
+    )
+
+    np.testing.assert_allclose(bundle.evaluate_jeq_vector(m_ind), expected)
 
 
 def test_simulation_data_results_operator_bundle_matches_live_geometry() -> None:
@@ -144,6 +180,7 @@ def test_simulation_data_results_operator_bundle_matches_live_geometry() -> None
         "m_ind_to_Br",
         "m_imp_to_jr",
         "m_ind_to_Jeq",
+        "G_m_ind_to_Jeq_vector",
         "G_m_ind_to_JS",
         "G_m_imp_to_JS",
         "G_Br_to_JS",

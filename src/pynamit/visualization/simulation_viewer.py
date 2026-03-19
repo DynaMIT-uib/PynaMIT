@@ -119,9 +119,7 @@ class SimulationViewer(_SimulationViewerState):
 
         # Calculate current.
         bundle = self.operator_bundles[region]
-        JS_imp = bundle.evaluate_js_from_m_imp(self.m_imp)
-        JS_ind = bundle.evaluate_js_from_m_ind(self.m_ind)
-        JS = JS_imp + JS_ind
+        JS = bundle.evaluate_runtime_js(m_ind=self.m_ind, m_imp=self.m_imp)
 
         # Calculate Joule heating.
         Q = JS[0] * E[0] + JS[1] * E[1]

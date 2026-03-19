@@ -25,6 +25,12 @@ from pynamit.math.structured_least_squares import (
     StructuredLeastSquaresSubproblem,
 )
 from pynamit.math.constants import mu0
+from pynamit.primitives.basis import (
+    get_repo_cf_helmholtz_sign,
+    get_repo_df_helmholtz_sign,
+    is_cs_like_basis,
+    is_sh_basis,
+)
 from pynamit.simulation.induction.poloidal_closure import (
     PoloidalRMBoundaryOperators,
     PoloidalClosureProjector,
@@ -209,14 +215,25 @@ class PoloidalSystemMatrices:
     def E_df_to_d_m_ind_dt(self) -> float:
         """Scaling factor for induction equation.
 
-        Physics: d(m_ind)/dt = -(1/RI) * E_df
+        In coefficient space, the induction rate follows the current internal
+        df Helmholtz sign. For the repo df basis
+
+            E_t = df_sign * (rhat x grad_S W)
+
+        For SH-like solution spaces, ``E_df`` is the raw df-basis coefficient,
+        so the repo df sign enters here directly. For CS/grid-like solution
+        spaces, the extracted toroidal potential is obtained through a
+        Helmholtz projection on the physical grid vector and is already
+        convention-invariant.
 
         Returns
         -------
         float
             Scaling factor for time derivative.
         """
-        return -1.0 / self.RI
+        if is_cs_like_basis(self.solution_space):
+            return -1.0 / self.RI
+        return float(get_repo_df_helmholtz_sign()) / self.RI
 
     def _project_scalar_coeffs_to_basis(self, coeffs: np.ndarray, target_basis: Any) -> np.ndarray:
         """Project scalar coefficients to ``target_basis`` through grid values."""
@@ -433,7 +450,21 @@ class PoloidalSystemMatrices:
     def G_Ve_to_JS(self) -> np.ndarray:
         """Operator mapping external potential Ve to sheet current.
 
-        This is the VSH induction operator: -1/mu0 * Curl @ Scaling.
+        For the induced poloidal branch, the physical sheet current comes from
+        the tangential magnetic-field jump across the ionospheric shell:
+
+            K = (1/mu0) * rhat x (B_t^+ - B_t^-)
+              = -(1/mu0) * rhat x grad_S(V^i - V^e)
+
+        The solution coefficients store ``m_ind`` with
+            (V^i - V^e) / RI = (2n + 1) * m_ind
+        so in the repo df basis this becomes
+            K = +(1/mu0) * curl_repo @ Scaling(m_ind)
+
+        ``get_curl_matrix()`` returns the repo df tensor
+        ``df_sign * (rhat x grad_Omega)``. The physical jump current must
+        remain invariant if the internal df-basis sign changes, so we divide
+        out that sign here instead of letting it leak into the grid current.
 
         Returns
         -------
@@ -443,7 +474,8 @@ class PoloidalSystemMatrices:
         scaling_op = self.solution_space.get_potential_scaling_operator()
         curl_op = as_linear_map(self.solution_space.get_curl_matrix(self.grid))
 
-        G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
+        repo_df_sign = float(get_repo_df_helmholtz_sign())
+        G_lin = (-(1.0 / (repo_df_sign * mu0))) * (curl_op @ scaling_op)
         return to_dense(G_lin).reshape(2, -1, self.solution_space.index_length)
 
     # -------------------------------------------------------------------------
@@ -493,7 +525,8 @@ class PoloidalSystemMatrices:
         scaling_op = closure_basis.get_potential_scaling_operator()
         curl_op = as_linear_map(closure_basis.get_curl_matrix(self.grid))
 
-        G_lin = (-1.0 / mu0) * (curl_op @ scaling_op)
+        repo_df_sign = float(get_repo_df_helmholtz_sign())
+        G_lin = (-(1.0 / (repo_df_sign * mu0))) * (curl_op @ scaling_op)
         return to_dense(G_lin).reshape(2, -1, closure_basis.index_length)
 
     # -------------------------------------------------------------------------
@@ -678,7 +711,27 @@ class PoloidalSystemMatrices:
 
     def _extract_toroidal_potential_coeffs(self, E_coeffs: Any) -> np.ndarray:
         """Extract the toroidal electric-potential coefficients from E coefficients."""
-        return asarray(self.solution_space.get_toroidal_potential_coeffs(E_coeffs))
+        coeffs_arr = np.asarray(to_numpy(asarray(E_coeffs)), dtype=float)
+
+        if is_sh_basis(self.solution_space):
+            return asarray(
+                np.asarray(self.solution_space.get_toroidal_potential_coeffs(coeffs_arr), dtype=float)
+            )
+
+        if is_cs_like_basis(self.solution_space):
+            P = np.asarray(self.solution_space.construct_projection_matrix(self.grid), dtype=float)
+            if coeffs_arr.ndim == 2:
+                return asarray(np.einsum("abc,bc->a", P[1], coeffs_arr, optimize=True))
+            if coeffs_arr.ndim == 3:
+                return asarray(np.einsum("abc,bcs->as", P[1], coeffs_arr, optimize=True))
+            raise ValueError(
+                "CS toroidal-potential extraction expects E coefficients shaped "
+                f"(2, n) or (2, n, s), got {coeffs_arr.shape}."
+            )
+
+        return asarray(
+            np.asarray(self.solution_space.get_toroidal_potential_coeffs(coeffs_arr), dtype=float)
+        )
 
     def _apply_E_constraint_operator(
         self, E_constraint_operator: Any, E_coeffs: Any
@@ -891,18 +944,26 @@ class PoloidalSystemMatrices:
 
         if potential_type in ("m_imp", "psi"):
             # Poloidal part from toroidal magnetic scalar source.
-            p_op = (1.0 / mu0) * np.eye(L)
+            repo_cf_sign = float(get_repo_cf_helmholtz_sign())
+            p_op = (-(1.0 / (repo_cf_sign * mu0))) * np.eye(L)
             # PFAC coupling contributes to toroidal component of JS-like vector.
+            repo_df_sign = float(get_repo_df_helmholtz_sign())
             if potential_type == "m_imp":
-                t_op = self._apply_imposed_toroidal_shielding(self.T_to_Ve)
+                t_op = (-(1.0 / repo_df_sign)) * self._apply_imposed_toroidal_shielding(
+                    self.T_to_Ve
+                )
             else:
-                t_op = self._get_dynamic_toroidal_pfac_operator()
+                t_op = (-(1.0 / repo_df_sign)) * self._get_dynamic_toroidal_pfac_operator()
             return as_linear_map(np.vstack([p_op, t_op]))
 
         elif potential_type == "m_ind":
-            # E_t = -1/mu0 * Scaling(m_ind) * Y^T
+            # The induced poloidal branch contributes the physical jump current
+            # associated with (V^i - V^e)/RI = (2n + 1) * m_ind. In the repo df
+            # coefficient basis we must divide out the internal df sign so the
+            # physical jump current remains convention-invariant.
             scaling = self.solution_space.get_potential_scaling_operator()
-            t_mat = (-1.0 / mu0) * to_dense(scaling)
+            repo_df_sign = float(get_repo_df_helmholtz_sign())
+            t_mat = (-(1.0 / (repo_df_sign * mu0))) * to_dense(scaling)
 
             if self._pfac.RM is not None and self._pfac.magnetospheric_shielding:
                 ops = self._rm_coupling_solution_operators
@@ -927,7 +988,11 @@ class PoloidalSystemMatrices:
             br_factor_op = -(rm_to_ri @ roundtrip_inv)
 
             scaling = np.asarray(to_dense(self.solution_space.get_potential_scaling_operator()))
-            t_mat = (-1.0 / mu0) * (scaling @ br_factor_op @ self.m_ind_to_Br_pinv)
+            repo_df_sign = float(get_repo_df_helmholtz_sign())
+            t_mat = (
+                -(1.0 / (repo_df_sign * mu0))
+                * (scaling @ br_factor_op @ self.m_ind_to_Br_pinv)
+            )
             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
 
         raise ValueError(f"Unknown potential_type: {potential_type}")

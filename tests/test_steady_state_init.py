@@ -10,9 +10,9 @@ from pynamit.simulation.settings import MainfieldKind
 def test_steady_state_init():
     """Test simulation with steady state initialization."""
     # Arrange.
-    expected_coeff_norm = 1.2683990761618204e-08
-    expected_coeff_max = 4.563633037949127e-09
-    expected_coeff_min = -1.3247604289901472e-09
+    expected_coeff_norm = 1.2683990761465465e-08
+    expected_coeff_max = 4.563633037931597e-09
+    expected_coeff_min = -1.5178150698782895e-09
     expected_n_coeffs = 228
 
     # Act.

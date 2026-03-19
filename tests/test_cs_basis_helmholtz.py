@@ -6,6 +6,7 @@ import numpy as np
 
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.primitives.grid import Grid
+from pynamit.primitives.basis import get_repo_df_helmholtz_sign
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 
@@ -51,8 +52,8 @@ def test_cs_basis_tangential_evaluate_uses_helmholtz_operator() -> None:
     np.testing.assert_allclose(eval_via_api, eval_via_matrix, rtol=1e-12, atol=1e-12)
 
 
-def test_sh_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
-    """SH df basis should be ``-r x grad``, opposite to the paper's ``+r x grad``."""
+def test_sh_df_channel_matches_active_surface_helmholtz_sign() -> None:
+    """SH df basis should track the configured repo surface Helmholtz sign."""
     basis = SHBasis(6, 3)
     grid = Grid(lat=np.array([50.0, 65.0]), lon=np.array([10.0, 40.0]))
 
@@ -61,7 +62,12 @@ def test_sh_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
     repo_df = _dense(basis.get_curl_matrix(grid))
     paper_df = np.array([-g_ph, g_th])
 
-    np.testing.assert_allclose(repo_df, -paper_df, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        repo_df,
+        float(get_repo_df_helmholtz_sign()) * paper_df,
+        rtol=1e-12,
+        atol=1e-12,
+    )
     np.testing.assert_allclose(
         _dense(basis.get_vector_basis_matrix(grid))[:, :, 1, :],
         repo_df,
@@ -70,8 +76,8 @@ def test_sh_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
     )
 
 
-def test_cs_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
-    """CS df basis should also be ``-r x grad``, opposite to the paper sign."""
+def test_cs_df_channel_matches_active_surface_helmholtz_sign() -> None:
+    """CS df basis should track the configured repo surface Helmholtz sign."""
     basis = CSBasis(8)
     grid = basis.grid
 
@@ -80,4 +86,9 @@ def test_cs_df_channel_is_opposite_of_paper_surface_helmholtz_sign() -> None:
     repo_df = _dense(basis.get_vector_basis_matrix(grid))[:, :, 1, :]
     paper_df = np.array([-g_ph, g_th])
 
-    np.testing.assert_allclose(repo_df, -paper_df, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        repo_df,
+        float(get_repo_df_helmholtz_sign()) * paper_df,
+        rtol=1e-12,
+        atol=1e-12,
+    )

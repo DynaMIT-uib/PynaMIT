@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from pynamit.math.constants import RE, mu0
+from pynamit.primitives.basis import get_repo_cf_helmholtz_sign, get_repo_df_helmholtz_sign
 from pynamit.simulation.dynamics import Dynamics, SimulationMode
 from pynamit.simulation.spatial import to_dense
 from pynamit.simulation.settings import DynamicsMode, MainfieldKind
@@ -83,9 +84,11 @@ def test_full_induction_magnetospheric_shielding(tmp_path, shielding: bool) -> N
     p_m_imp = dense_m_imp[:n_coeffs, :]
     t_psi = dense_psi[n_coeffs:, :]
     p_psi = dense_psi[:n_coeffs, :]
+    repo_cf_sign = float(get_repo_cf_helmholtz_sign())
+    repo_df_sign = float(get_repo_df_helmholtz_sign())
 
     scaling = np.asarray(to_dense(basis.get_potential_scaling_operator()))
-    expected_t_m_ind = (-1.0 / mu0) * scaling
+    expected_t_m_ind = (-(1.0 / (repo_df_sign * mu0))) * scaling
 
     br_rm_to_ri_shift, br_ri_to_rm_shift, rm_roundtrip_denominator = (
         geometry._pfac.get_coupling_factors()
@@ -100,23 +103,25 @@ def test_full_induction_magnetospheric_shielding(tmp_path, shielding: bool) -> N
     lap_diag = np.diag(np.asarray(to_dense(basis.get_laplacian_operator(state.RI))))
     m_ind_to_br = -(state.RI**2) * lap_diag
     br_factor = -br_rm_to_ri_shift / rm_roundtrip_denominator
-    expected_t_br = (-1.0 / mu0) * scaling * (br_factor / m_ind_to_br)[:, None]
+    expected_t_br = (-(1.0 / (repo_df_sign * mu0))) * scaling * (br_factor / m_ind_to_br)[:, None]
 
     np.testing.assert_allclose(p_br, 0.0, atol=1e-12, rtol=0.0)
     np.testing.assert_allclose(t_br, expected_t_br, atol=1e-10, rtol=1e-10)
 
-    expected_p_m_imp = (1.0 / mu0) * np.eye(n_coeffs)
-    expected_t_m_imp = np.asarray(state.poloidal_matrices.T_to_Ve)
+    expected_p_m_imp = (-(1.0 / (repo_cf_sign * mu0))) * np.eye(n_coeffs)
+    expected_t_m_imp = (-(1.0 / repo_df_sign)) * np.asarray(state.poloidal_matrices.T_to_Ve)
     expected_t_m_imp = (1.0 / rm_roundtrip_denominator)[:, None] * expected_t_m_imp
 
     np.testing.assert_allclose(p_m_imp, expected_p_m_imp, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_m_imp, expected_t_m_imp, atol=1e-10, rtol=1e-10)
 
-    expected_p_psi = (1.0 / mu0) * np.eye(n_coeffs)
+    expected_p_psi = (-(1.0 / (repo_cf_sign * mu0))) * np.eye(n_coeffs)
     if shielding:
-        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve)
+        expected_t_psi = (-(1.0 / repo_df_sign)) * np.asarray(state.poloidal_matrices.T_to_Ve)
     else:
-        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve_open)
+        expected_t_psi = (-(1.0 / repo_df_sign)) * np.asarray(
+            state.poloidal_matrices.T_to_Ve_open
+        )
 
     np.testing.assert_allclose(p_psi, expected_p_psi, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
@@ -136,13 +141,16 @@ def test_legacy_keeps_toroidal_source_pfac_baseline(tmp_path, shielding: bool) -
     dense_psi = np.asarray(to_dense(op_psi))
     t_m_imp = dense_m_imp[n_coeffs:, :]
     t_psi = dense_psi[n_coeffs:, :]
-    expected_t_m_imp = np.asarray(state.poloidal_matrices.T_to_Ve)
+    repo_df_sign = float(get_repo_df_helmholtz_sign())
+    expected_t_m_imp = (-(1.0 / repo_df_sign)) * np.asarray(state.poloidal_matrices.T_to_Ve)
     _, _, rm_roundtrip_denominator = geometry._pfac.get_coupling_factors()
     expected_t_m_imp = (1.0 / rm_roundtrip_denominator)[:, None] * expected_t_m_imp
     if shielding:
-        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve)
+        expected_t_psi = (-(1.0 / repo_df_sign)) * np.asarray(state.poloidal_matrices.T_to_Ve)
     else:
-        expected_t_psi = np.asarray(state.poloidal_matrices.T_to_Ve_open)
+        expected_t_psi = (-(1.0 / repo_df_sign)) * np.asarray(
+            state.poloidal_matrices.T_to_Ve_open
+        )
     np.testing.assert_allclose(t_m_imp, expected_t_m_imp, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(t_psi, expected_t_psi, atol=1e-10, rtol=1e-10)
 

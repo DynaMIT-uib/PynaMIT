@@ -100,6 +100,12 @@ def test_cs_basis_state_end_to_end():
     # Check shape of G_Ve_to_JS (2, N_grid, N_coeffs)
     # After refactor, G_Ve_to_JS uses solution_space (grid-native)
     assert state.geometry.G_Ve_to_JS.shape == (2, cs_basis.size, cs_basis.size)
+    np.testing.assert_allclose(
+        np.asarray(state.geometry.G_Ve_to_JS, dtype=float),
+        np.asarray(state.poloidal_matrices.G_Ve_to_JS, dtype=float),
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
     # Verify Poloidal matrices initialized with correct operator
     assert state.poloidal_matrices.m_imp_to_jr.shape == (cs_basis.size, cs_basis.size)

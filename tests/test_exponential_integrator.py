@@ -176,10 +176,14 @@ def test_exponential_integrator_cs_dominant(tmp_path):
     This verifies the matrix densification path works for CS basis
     with finite differences.
     """
-    expected_psi_norm = 5.76428799308547e-07
-    expected_mind_norm = 7.439230532998737e-07
-    expected_steady_psi_norm = 8.385378855490387e-07
-    expected_steady_mind_norm = 1.1157124050357981e-06
+    # Baselines updated 2026-03-19 after aligning CS tangential fields with the
+    # active Helmholtz-potential representation and using the projected CS
+    # toroidal electric potential in the induction forcing path. These values
+    # are invariant under the repo cf/df sign choice.
+    expected_psi_norm = 2.0905274555193079e-07
+    expected_mind_norm = 8.02964670903966e-08
+    expected_steady_psi_norm = 1.967846253931606e-07
+    expected_steady_mind_norm = 1.203922898436875e-07
 
     _run_exponential_integrator_test(
         SimulationMode.CS_DOMINANT,

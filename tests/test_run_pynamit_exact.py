@@ -183,7 +183,7 @@ def test_numerical_exactness_verified():
         # Regression Values (Captured 2026-01-13 via extraction script)
         expected_coeff_norm = 4.073168003504332e-06
         expected_coeff_max = 4.072258061289228e-06
-        expected_coeff_min = -7.443758228741212e-08
+        expected_coeff_min = -4.2325892606131447e-08
         expected_n_coeffs = 48
         
         actual_coeff_norm = np.linalg.norm(coeff_array)

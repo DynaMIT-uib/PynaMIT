@@ -24,12 +24,14 @@ def test_cs_basis_simulation_dop853(pynamit_approx, data_source):
     because FAC physics flows through the SH bottleneck, leaving most CS directions
     unconstrained.
     """
-    # Expected values averaged between numpy and JAX backends
-    # Updated after vector representation change (from component-based to Helmholtz potential-based)
-    # Updated 2026-02-18 after CS PFAC/m_ind gauge consistency updates.
-    expected_coeff_norm = 4.776992636605604e-07
-    expected_coeff_max = 9.770311087214419e-08
-    expected_coeff_min = -9.760018045835167e-08
+    # Expected values averaged between numpy and JAX backends.
+    # Updated 2026-03-19 after aligning CS tangential fields with the active
+    # Helmholtz-potential representation and using the projected CS toroidal
+    # electric potential in the induction forcing path. These values are
+    # invariant under the repo cf/df sign choice.
+    expected_coeff_norm = 3.5652303104310223e-07
+    expected_coeff_max = 1.095561287096179e-07
+    expected_coeff_min = -1.0754867720509506e-07
     expected_n_coeffs = 768
 
     # Using Northern Apex Constraints improved values (slightly higher energy due to different constraint)

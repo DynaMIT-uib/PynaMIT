@@ -10,9 +10,9 @@ def test_pure_spectral_execution(pynamit_approx):
     # Updated regression values for pure_spectral mode (Analytic Tensor Path)
     # Norm stabilized at 2.3585e-08 after Spin-2 Phase Fix (+1j) (2026-01-11)
     # Previous value (2.61e-08) reflected incorrect (-1j) Symmetric Off-Diagonal phase.
-    expected_coeff_norm = 2.3159902009519647e-08
-    expected_coeff_max = 1.56761544543959e-08
-    expected_coeff_min = -5.748168832759568e-09
+    expected_coeff_norm = 2.3159907915692284e-08
+    expected_coeff_max = 1.56761625057092e-08
+    expected_coeff_min = -5.74817003049988e-09
     expected_n_coeffs = 70
 
     dynamics = run_pynamit(

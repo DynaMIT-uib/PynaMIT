@@ -1,6 +1,7 @@
 """Gaunt engine for real spherical harmonics."""
 
 import numpy as np
+from pynamit.primitives.basis import apply_cf_helmholtz_sign, get_repo_cf_helmholtz_sign, get_repo_df_helmholtz_sign
 from pynamit.spherical_harmonics.wigner import wigner_3j
 
 
@@ -267,11 +268,13 @@ class GauntEngine:
         M_PT = -0.5j * (M_pp - M_mm + M_pm - M_mp)
         M_TP = 0.5j * (M_pp - M_mm - M_pm + M_mp)
 
-        # Uniform Potential Convention (CCW Toroidal): T = -r x Grad
-        # Gaunt Engine native integrals assume Standard (T = +r x Grad).
-        # Therefore, cross-terms involving ONE Toroidal component must be negated.
-        M_PT = -M_PT
-        M_TP = -M_TP
+        # The analytic spin-basis derivation uses the historical SH vector basis
+        # ``[-grad, +r x grad]``. Convert mixed PT/TP blocks into the active
+        # repo Helmholtz convention. PP and TT remain unchanged because the sign
+        # enters twice.
+        mixed_sign = float((-get_repo_cf_helmholtz_sign()) * get_repo_df_helmholtz_sign())
+        M_PT = mixed_sign * M_PT
+        M_TP = mixed_sign * M_TP
         
         # Mapping to Basis Layout
         M = np.zeros((2*self.basis.index_length, 2*self.basis.index_length), dtype=np.complex128)
@@ -298,7 +301,7 @@ class GauntEngine:
 
 
     def get_vector_interaction_matrix(self, tensor_sigma_quad):
-        G_vsh_P = -self.basis.get_gradient_matrix(self.quad_grid)
+        G_vsh_P = apply_cf_helmholtz_sign(self.basis.get_gradient_matrix(self.quad_grid))
         G_vsh_T = self.basis.get_curl_matrix(self.quad_grid)
         G_vsh = np.concatenate([G_vsh_P, G_vsh_T], axis=2)
         L, Q = self.basis.index_length, self.quad_grid.size

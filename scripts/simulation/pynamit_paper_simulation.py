@@ -41,7 +41,7 @@ dynamics = pynamit.Dynamics(
     connect_hemispheres=True,
     latitude_boundary=latitude_boundary,
     ih_constraint_scaling=1e-5,
-    dynamics_mode=DynamicsMode.FULL_INDUCTION,
+    dynamics_mode=DynamicsMode.LEGACY,
     conductance_interpolation_mode=ConductanceInterpolationMode.LEGACY_ETA_LINEAR,
     t0=str(date),
 )

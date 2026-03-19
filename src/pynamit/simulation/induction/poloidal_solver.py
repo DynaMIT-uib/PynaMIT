@@ -346,14 +346,15 @@ class PoloidalSolver:
         self, E_coeffs_noind: np.ndarray, induction_matrix: Any, solver: str = "lsmr"
     ) -> np.ndarray:
         """Calculate the steady-state induced potential."""
-        vec_b = -self._mats._extract_toroidal_potential_coeffs(E_coeffs_noind)
+        scale = self._mats.E_df_to_d_m_ind_dt
+        vec_b = -scale * self._mats._extract_toroidal_potential_coeffs(E_coeffs_noind)
 
         if hasattr(induction_matrix, "matvec"):
             from pynamit.math.least_squares_problem import LeastSquaresProblem
             from pynamit.math.least_squares_solver import LeastSquaresSolver
 
             n = self._mats.solution_space.index_length
-            induction_op = as_linear_map(induction_matrix)
+            induction_op = scale * as_linear_map(induction_matrix)
             problem = LeastSquaresProblem(
                 A=[induction_op], solution_shape=(n,), data_shapes=[(n,)]
             )
@@ -364,6 +365,6 @@ class PoloidalSolver:
                 )
             )
 
-        L = asarray(induction_matrix)
+        L = scale * asarray(induction_matrix)
         result = xp.linalg.lstsq(L, vec_b, rcond=1e-13)
         return asarray(result[0])

@@ -6,6 +6,10 @@ grid values and spherical harmonic coefficients on regular grids.
 
 from typing import Tuple, Union, Optional, TYPE_CHECKING
 import numpy as np
+from pynamit.primitives.basis import (
+    get_repo_cf_helmholtz_sign,
+    get_repo_df_helmholtz_sign,
+)
 
 if TYPE_CHECKING:
     from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -366,6 +370,14 @@ def grid_to_basis_fast(
                         scale_A_global,
                         scale_L_global,
                     )
+    if is_vector:
+        # The fast tangential transform is derived for the canonical historical
+        # SH basis ``[-grad, -rhat x grad]``. Convert the recovered Helmholtz
+        # coefficients to the active repo convention when the global cf/df
+        # signs are changed.
+        coeffs[: basis.index_length] *= (-1.0 / float(get_repo_cf_helmholtz_sign()))
+        coeffs[basis.index_length :] *= (-1.0 / float(get_repo_df_helmholtz_sign()))
+
     if n_scenarios == 1:
         return coeffs[:, 0]
     return coeffs

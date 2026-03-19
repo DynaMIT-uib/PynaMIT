@@ -6,6 +6,7 @@ from typing import Any, Optional, Union, TYPE_CHECKING, Tuple
 from functools import cached_property
 import scipy.sparse
 
+from pynamit.primitives.basis import build_helmholtz_tensor_from_gradient_components
 from pynamit.spherical_harmonics.legendre import LegendreFunctions
 from pynamit.utils import asarray
 
@@ -111,7 +112,11 @@ def schmidt_quasi_normalization_factors(Nmax: int, Mmax: int) -> np.ndarray:
 
 
 from pynamit.spherical_harmonics import sh_operators, sh_transforms
-from pynamit.primitives.basis import Basis
+from pynamit.primitives.basis import (
+    Basis,
+    build_df_helmholtz_from_gradient_components,
+    build_helmholtz_tensor_from_gradient_components,
+)
 from pynamit.utils import xp, tensor_pinv
 
 if TYPE_CHECKING:
@@ -476,7 +481,7 @@ class SHBasis(Basis):
         """
         G_th = self.get_evaluation_matrix(grid, derivative="theta", mean_free=mean_free)
         G_ph = self.get_evaluation_matrix(grid, derivative="phi", mean_free=mean_free)
-        return np.array([G_ph, -G_th])
+        return build_df_helmholtz_from_gradient_components(G_th, G_ph)
 
     def get_vector_basis_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
         """Return canonical Helmholtz vector basis tensor on ``grid``.
@@ -485,9 +490,9 @@ class SHBasis(Basis):
         et al. (2025) Appendix C1, the curl-free channel matches and the
         divergence-free channel is sign-flipped.
         """
-        G_grad = self.get_gradient_matrix(grid, mean_free=mean_free)
-        G_curl = self.get_curl_matrix(grid, mean_free=mean_free)
-        return np.stack([-G_grad, G_curl], axis=2)
+        G_th = self.get_evaluation_matrix(grid, derivative="theta", mean_free=mean_free)
+        G_ph = self.get_evaluation_matrix(grid, derivative="phi", mean_free=mean_free)
+        return build_helmholtz_tensor_from_gradient_components(G_th, G_ph)
 
     def get_rxgrad_matrix(self, grid, mean_free: Optional[bool] = None) -> np.ndarray:
         """Return the tangential ``-r x grad`` operator evaluation tensor on ``grid``.
@@ -735,9 +740,7 @@ class SHBasis(Basis):
 
         G_th = G_th.toarray() if scipy.sparse.issparse(G_th) else G_th
         G_ph = G_ph.toarray() if scipy.sparse.issparse(G_ph) else G_ph
-        G_grad = np.array([G_th, G_ph])
-        G_rxgrad = np.array([G_ph, -G_th])
-        G_helmholtz = np.stack([-G_grad, G_rxgrad], axis=2)
+        G_helmholtz = build_helmholtz_tensor_from_gradient_components(G_th, G_ph)
 
         # Return canonical Helmholtz analysis tensor:
         # (potential_type, coeff_index, vector_component, grid_index).
