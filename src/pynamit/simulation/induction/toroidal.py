@@ -943,6 +943,10 @@ class ToroidalSystemMatrices:
         On the mean-zero SH subspace this gives
             ``psi_lm = +(mu0 * R) / (l(l+1)) * jr_lm``
         for ``l >= 1``.
+
+        This relation is physics-fixed by the toroidal magnetic convention
+        ``Curl(T r) = -r x Grad(T)`` and should therefore remain invariant if
+        the generic surface Helmholtz df sign is changed elsewhere.
         """
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices

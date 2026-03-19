@@ -27,6 +27,11 @@ class PoloidalResultsOperators:
 
     These should not be conflated; they use different conventions and serve
     different purposes.
+
+    ``Jeq`` is a physical magnetic diagnostic defined by the poloidal field
+    jump. ``JS`` is the live current-like quantity used inside the runtime
+    conductivity/PFAC chain. The two agree only in special limits and should
+    not be used interchangeably.
     """
 
     RI: float
@@ -170,9 +175,9 @@ def build_poloidal_results_operators(
         m_ind_to_Br = -(float(RI) ** 2) * laplacian_operator
 
     potential_scaling = np.asarray(to_dense(basis.get_potential_scaling_operator()), dtype=float)
-    # For SH bases, ``m_ind`` matches the paper's induced ``k_nm, l_nm``
-    # coefficients, so this gives the equivalent-current function from
-    # Eq. (23): Psi_eq_nm = -(R/mu0) * (2n+1) * m_ind_nm.
+    # For SH bases, ``m_ind`` matches the induced ``k_nm, l_nm`` coefficients,
+    # so this gives the conventional equivalent-current function
+    #   Psi_eq_nm = -(R/mu0) * (2n+1) * m_ind_nm.
     m_ind_to_Jeq = _runtime_array("m_ind_to_Jeq")
     if m_ind_to_Jeq is None:
         m_ind_to_Jeq = (-float(RI) / mu0) * potential_scaling
@@ -185,8 +190,8 @@ def build_poloidal_results_operators(
     # ``df_sign * (rhat x grad_Omega)``. The physical equivalent-current vector
     # is always the conventional
     #   J_eq = +rhat x grad_S(Psi_eq)
-    # independent of the internal df-basis sign, so we must divide out the
-    # repo df sign here.
+    # independent of the internal df-basis sign, so we divide out the repo df
+    # sign here.
     G_m_ind_to_Jeq_vector = _runtime_array("G_m_ind_to_Jeq_vector")
     if G_m_ind_to_Jeq_vector is None:
         repo_df_sign = float(get_repo_df_helmholtz_sign())

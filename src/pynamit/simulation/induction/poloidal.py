@@ -215,6 +215,20 @@ class PoloidalSystemMatrices:
     def E_df_to_d_m_ind_dt(self) -> float:
         """Scaling factor for induction equation.
 
+        The physics-fixed relation is Faraday plus the induced poloidal field
+        definition
+
+            Br = -(RI^2) * Delta_S(m_ind)
+            dBr/dt = -(curl E)_r.
+
+        If the physical tangential electric field is written as
+
+            E_t = -rhat x grad_Omega(W) = -RI * rhat x grad_S(W)
+
+        then mode by mode
+
+            d(m_ind)/dt = -(1/RI) * W.
+
         In coefficient space, the induction rate follows the current internal
         df Helmholtz sign. For the repo df basis
 
@@ -465,6 +479,8 @@ class PoloidalSystemMatrices:
         ``df_sign * (rhat x grad_Omega)``. The physical jump current must
         remain invariant if the internal df-basis sign changes, so we divide
         out that sign here instead of letting it leak into the grid current.
+        This is one of the main places where representation sign and physics
+        sign must be kept separate.
 
         Returns
         -------
@@ -515,6 +531,10 @@ class PoloidalSystemMatrices:
     @cached_property
     def G_Ve_to_JS_closure(self) -> np.ndarray:
         """Closure-basis version of Ve-to-JS operator for PFAC integration.
+
+        This is the same physical jump-current operator as :meth:`G_Ve_to_JS`,
+        but expressed in the PFAC closure basis used for the radial
+        integration. The sign must therefore match ``G_Ve_to_JS`` exactly.
 
         Returns
         -------
@@ -939,14 +959,21 @@ class PoloidalSystemMatrices:
 
         This operator maps magnetic scalars to the JS-like vector coefficients.
         The resistivity operator (eta) is applied afterward to obtain E.
+
+        The returned coefficients live in the active Helmholtz basis
+        ``[cf, df]``. Physical currents are therefore converted to that basis
+        here by dividing out the active repo cf/df signs where needed.
         """
         L = self.solution_space.index_length
 
         if potential_type in ("m_imp", "psi"):
-            # Poloidal part from toroidal magnetic scalar source.
+            # Poloidal part from toroidal magnetic scalar source:
+            #   J_p = -(1/mu0) * grad(magnetic_scalar)
+            # represented in the active cf basis.
             repo_cf_sign = float(get_repo_cf_helmholtz_sign())
             p_op = (-(1.0 / (repo_cf_sign * mu0))) * np.eye(L)
-            # PFAC coupling contributes to toroidal component of JS-like vector.
+            # PFAC coupling contributes to the df/toroidal JS-like channel and
+            # must therefore be converted to the active df basis.
             repo_df_sign = float(get_repo_df_helmholtz_sign())
             if potential_type == "m_imp":
                 t_op = (-(1.0 / repo_df_sign)) * self._apply_imposed_toroidal_shielding(
@@ -974,7 +1001,9 @@ class PoloidalSystemMatrices:
             return as_linear_map(np.vstack([np.zeros((L, L)), t_mat]))
 
         elif potential_type == "Br":
-            # Br path is purely toroidal, represented in solution coefficient space.
+            # Br path is purely df/toroidal in solution coefficient space.
+            # The RM roundtrip branch is physical; only the final basis
+            # representation depends on the active repo df sign.
             ops = self._rm_coupling_solution_operators
             if ops is None:
                 raise ValueError(

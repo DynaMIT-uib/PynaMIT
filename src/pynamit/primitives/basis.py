@@ -19,6 +19,13 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 #   cf: cf_sign * grad_S(phi)
 #   df: df_sign * (rhat x grad_S(psi))
 #
+# These signs control only the representation of tangential vector fields.
+# They do not redefine the magnetic physics identities used elsewhere, e.g.
+#   B_ind = -grad(V),
+#   Curl(T r) = -r x Grad(T),
+#   Br = -(R^2) Delta_S(m_ind),
+#   jr = -(R/mu0) Delta_S(m_imp).
+#
 # The current repo choice is ``[-grad_S, -rhat x grad_S]``.
 REPO_CF_HELMHOLTZ_SIGN = -1.0
 REPO_DF_HELMHOLTZ_SIGN = -1.0
@@ -51,7 +58,12 @@ def build_df_helmholtz_from_gradient_components(G_th: Any, G_ph: Any) -> np.ndar
 
 
 def build_helmholtz_tensor_from_gradient_components(G_th: Any, G_ph: Any) -> np.ndarray:
-    """Build the canonical repo Helmholtz tensor from angular derivatives."""
+    """Build the canonical repo Helmholtz tensor from angular derivatives.
+
+    The raw angular derivative tensor is ``[grad_theta, grad_phi]``. We then
+    apply the active repo cf/df signs to obtain the tangential coefficient
+    basis used throughout SH/CS analysis and synthesis.
+    """
     G_grad = np.array([G_th, G_ph])
     G_df = build_df_helmholtz_from_gradient_components(G_th, G_ph)
     return np.stack([apply_cf_helmholtz_sign(G_grad), G_df], axis=2)

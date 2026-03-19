@@ -221,8 +221,11 @@ class PFACIntegrator:
         )
 
         # Source operator factor in solution-basis coefficients:
-        # -(RI/mu0) * Laplacian
-        # (built once and reused for all radial quadrature steps).
+        #   jr = -(RI/mu0) * Laplacian(m_imp)
+        # from the toroidal magnetic identity ``Curl(T r) = -r x Grad(T)``.
+        # This is a physics-fixed magnetic relation, not a generic Helmholtz
+        # representation choice, so it must stay unchanged when the internal
+        # cf/df signs are flipped.
         L_sol = to_dense(self.solution_space.get_laplacian_operator(self.RI))
         m_imp_to_jr_sol_op = -(self.RI / mu0) * L_sol
         if is_cs_like_basis(self.solution_space):
@@ -246,7 +249,9 @@ class PFACIntegrator:
         if is_pure_sh:
             T_to_Ve.values = T_accum
         else:
-            # Map integrated SH coefficients back to solver coefficients (hybrid)
+            # Map integrated SH coefficients back to solver coefficients
+            # (hybrid CS/SH architecture). This is a basis conversion, not a
+            # convention change in the underlying PFAC physics.
             E_sh = to_dense(self.basis.get_evaluation_matrix(grid))
             E_sol = to_dense(self.solution_space.get_evaluation_matrix(grid))
             P_sol = tensor_pinv(E_sol, rtol=1e-12)
