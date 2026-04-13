@@ -18,6 +18,8 @@ from pynamit.simulation.settings import (
     ExponentialSolverKind,
     IntegratorKind,
     MainfieldKind,
+    ExponentialStepForm,
+    LLConstraintMode,
 )
 
 RI = 6.5e6
@@ -189,15 +191,20 @@ def _build_dynamics(run_directory: str, *, t0: str) -> pynamit.Dynamics:
         FAC_integration_steps=rk,
         ignore_PFAC=False,
         connect_hemispheres=True,
+        # Hard LL constraints route the legacy m_imp solve through the current
+        # dense null-space elimination path, which is too expensive for the
+        # full MAGE case. Keep the operational script on the soft mode.
+        ll_constraint_mode=LLConstraintMode.SOFT,
         latitude_boundary=LATITUDE_BOUNDARY,
-        dynamics_mode=DynamicsMode.FULL_INDUCTION,
-        magnetospheric_shielding=False,
+        dynamics_mode=DynamicsMode.LEGACY,
+        magnetospheric_shielding=True,
         least_squares_solver="normal_eq",
         t0=t0,
         integrator=IntegratorKind.EXPONENTIAL,
         exponential_solver=ExponentialSolverKind.EXPM_MULTIPLY,
         enable_fast_input_path=True,
         conductance_interpolation_mode=ConductanceInterpolationMode.SIGMA_LOG,
+        exponential_step_form=ExponentialStepForm.AFFINE,
     )
 
 
@@ -410,10 +417,10 @@ def precompute_inputs(
             context=context,
             projection_batch_size=projection_batch_size,
         )
-        _print_toroidal_driver_balance_report(
-            dynamics,
-            time=float(window.relative_seconds[-1]) if window.relative_seconds.size > 0 else 0.0,
-        )
+        #_print_toroidal_driver_balance_report(
+        #    dynamics,
+        #    time=float(window.relative_seconds[-1]) if window.relative_seconds.size > 0 else 0.0,
+        #)
 
     return run_directory
 

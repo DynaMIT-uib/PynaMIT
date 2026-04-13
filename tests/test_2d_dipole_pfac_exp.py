@@ -5,7 +5,12 @@ import pytest
 from pynamit.simulation.runner import run_pynamit
 import numpy as np
 from pynamit.math.integration import ExponentialIntegrator
-from pynamit.simulation.settings import IntegratorKind, MainfieldKind, SimulationMode
+from pynamit.simulation.settings import (
+    ExponentialStepForm,
+    IntegratorKind,
+    MainfieldKind,
+    SimulationMode,
+)
 
 
 def test_2d_dipole_pfac_exp():
@@ -53,8 +58,8 @@ def test_2d_dipole_pfac_exp():
     assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-10)
 
 
-def test_legacy_exponential_freezes_forcing_between_steps(monkeypatch):
-    """Legacy exponential stepping should evolve around the frozen steady state."""
+def test_legacy_exponential_uses_affine_step_by_default(monkeypatch):
+    """Legacy exponential stepping should use the affine form by default."""
     original_step = ExponentialIntegrator.step
     seen_calls = []
 
@@ -78,6 +83,40 @@ def test_legacy_exponential_freezes_forcing_between_steps(monkeypatch):
         mainfield_kind=MainfieldKind.DIPOLE,
         ignore_PFAC=False,
         integrator=IntegratorKind.EXPONENTIAL,
+        steady_state_initialization=False,
+    )
+
+    assert seen_calls
+    assert seen_calls[0]["forcing_is_none"] is False
+    assert seen_calls[0]["has_steady_state"] is False
+
+
+def test_legacy_exponential_can_use_centered_step(monkeypatch):
+    """Legacy exponential stepping should still support the centered form explicitly."""
+    original_step = ExponentialIntegrator.step
+    seen_calls = []
+
+    def recording_step(self, y, dt, **kwargs):
+        seen_calls.append(
+            {
+                "forcing_is_none": kwargs.get("forcing") is None,
+                "has_steady_state": kwargs.get("steady_state") is not None,
+            }
+        )
+        return original_step(self, y, dt, **kwargs)
+
+    monkeypatch.setattr(ExponentialIntegrator, "step", recording_step)
+
+    run_pynamit(
+        final_time=0.1,
+        dt=0.1,
+        Nmax=5,
+        Mmax=5,
+        Ncs=10,
+        mainfield_kind=MainfieldKind.DIPOLE,
+        ignore_PFAC=False,
+        integrator=IntegratorKind.EXPONENTIAL,
+        exponential_step_form=ExponentialStepForm.CENTERED,
         steady_state_initialization=False,
     )
 

@@ -59,3 +59,15 @@ def test_radial_isotropic_toroidal_closure_is_diffusive() -> None:
     report = state.get_coupled_stability_report(source="dense")
     assert float(report["positive_real_count"]) == 0.0
     assert float(report["max_real"]) <= 1e-12
+
+
+def test_radial_isotropic_projected_and_perpendicular_tangential_operators_vanish() -> None:
+    """For pure radial background field there is no tangential shell direction to project onto."""
+    state = _build_radial_isotropic_state()
+    tor = state.toroidal_matrices
+
+    projected = np.asarray(tor.first_principles_projected_dtalpha_operator, dtype=float)
+    perpendicular = np.asarray(tor.first_principles_perpendicular_dtalpha_operator, dtype=float)
+
+    assert np.linalg.norm(projected) < 1e-12
+    assert np.linalg.norm(perpendicular) < 1e-12

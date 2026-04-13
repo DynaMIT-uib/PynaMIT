@@ -89,6 +89,24 @@ def test_legacy_and_full_induction_share_structured_subproblem_framework(tmp_pat
 
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_connected_legacy_runtime_feedback_problem_has_default_regularization(
+    tmp_path: Path,
+) -> None:
+    sim_legacy = _build_dynamics(
+        tmp_path,
+        dynamics_mode=DynamicsMode.LEGACY,
+        simulation_mode=SimulationMode.SPECTRAL_TRANSFORM_CS,
+        connect_hemispheres=True,
+    )
+
+    problem = sim_legacy.state.m_imp_feedback_system.problem
+
+    assert problem.num_reg_terms == 1
+    assert problem.regularization_weights == [pytest.approx(1e-10)]
+
+
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
 def test_legacy_ll_constraint_modes_wire_soft_vs_hard(tmp_path: Path) -> None:
     sim_soft = _build_dynamics(
         tmp_path,

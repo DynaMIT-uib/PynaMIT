@@ -10,6 +10,7 @@ from pynamit.utils import JAX_AVAILABLE
 from pynamit.simulation.settings import (
     DynamicsMode,
     ExponentialSolverKind,
+    ExponentialStepForm,
     IntegratorKind,
     MainfieldKind,
     SimulationMode,
@@ -165,6 +166,123 @@ def test_full_induction_exponential_uses_affine_forcing_step(tmp_path, monkeypat
     assert seen_calls
     assert seen_calls[0]["forcing_is_none"] is False
     assert seen_calls[0]["has_steady_state"] is False
+
+
+def test_full_induction_exponential_can_use_centered_step(tmp_path, monkeypatch):
+    from pynamit.simulation.runner import run_pynamit
+
+    original_step = ExponentialIntegrator.step
+    seen_calls = []
+
+    def recording_step(self, y, dt, **kwargs):
+        seen_calls.append(
+            {
+                "forcing_is_none": kwargs.get("forcing") is None,
+                "has_steady_state": kwargs.get("steady_state") is not None,
+            }
+        )
+        return original_step(self, y, dt, **kwargs)
+
+    monkeypatch.setattr(ExponentialIntegrator, "step", recording_step)
+
+    run_pynamit(
+        run_directory=str(tmp_path / "exp_centered_full_induction"),
+        final_time=1.0,
+        dt=1.0,
+        plotsteps=1,
+        Nmax=5,
+        Mmax=2,
+        Ncs=6,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
+        ignore_PFAC=False,
+        mainfield_kind=MainfieldKind.IGRF,
+        mainfield_epoch=2020,
+        multi_data=False,
+        connect_hemispheres=True,
+        least_squares_solver="svd",
+        integrator=IntegratorKind.EXPONENTIAL,
+        dense_full_operators=True,
+        exponential_solver=ExponentialSolverKind.EXPM,
+        exponential_step_form=ExponentialStepForm.CENTERED,
+    )
+
+    assert seen_calls
+    assert seen_calls[0]["forcing_is_none"] is True
+    assert seen_calls[0]["has_steady_state"] is True
+
+
+def test_full_induction_centered_step_matches_affine_step(tmp_path):
+    from pynamit.simulation.runner import run_pynamit
+
+    sim = run_pynamit(
+        run_directory=str(tmp_path / "exp_centered_affine_equiv_full_induction"),
+        final_time=0.0,
+        dt=0.1,
+        plotsteps=1,
+        Nmax=6,
+        Mmax=4,
+        Ncs=10,
+        dynamics_mode=DynamicsMode.FULL_INDUCTION,
+        simulation_mode=SimulationMode.PURE_SPECTRAL,
+        ignore_PFAC=False,
+        mainfield_kind=MainfieldKind.DIPOLE,
+        multi_data=False,
+        connect_hemispheres=True,
+        least_squares_solver="svd",
+        integrator=IntegratorKind.EXPONENTIAL,
+        dense_full_operators=True,
+        exponential_solver=ExponentialSolverKind.EXPM,
+    )
+
+    state = sim.state
+    E_coeffs_noind, _ = state.calculate_noind_coeffs()
+    steady_state_psi, steady_state_m_ind = state.solve_steady_state_model_variables(
+        E_coeffs_noind, update_state=False
+    )
+
+    y0 = np.random.default_rng(0).standard_normal(2 * state.solution_space.index_length)
+    y0 = y0.reshape(2, state.solution_space.index_length)
+    K = state.induction.build_coupled_forcing(E_coeffs_noind)
+    reduced_system = state.get_coupled_reduced_time_integration_system(use_dense=True)
+    L = reduced_system.reduced_operator
+    assert L is not None
+
+    y0_reduced = reduced_system.reduce_vector(y0)
+    K_reduced = reduced_system.reduce_vector(np.asarray(K, dtype=float))
+    yss_reduced = reduced_system.reduce_vector(
+        np.asarray(
+            np.stack([np.asarray(steady_state_psi, dtype=float), np.asarray(steady_state_m_ind)]),
+            dtype=float,
+        )
+    )
+
+    residual = np.linalg.norm(L.matvec(yss_reduced) + K_reduced) / max(
+        np.linalg.norm(K_reduced), 1e-30
+    )
+
+    integrator = ExponentialIntegrator()
+    affine_step = np.asarray(
+        integrator.step(
+            y=y0_reduced,
+            dt=0.1,
+            linear_operator=L,
+            forcing=K_reduced,
+            affine_expm_mode="dense",
+        )
+    )
+    centered_step = np.asarray(
+        integrator.step(
+            y=y0_reduced,
+            dt=0.1,
+            linear_operator=L,
+            steady_state=yss_reduced,
+            affine_expm_mode="dense",
+        )
+    )
+
+    assert residual < 1e-7
+    assert np.linalg.norm(affine_step - centered_step) < 1e-11
 
 
 def test_full_induction_exponential_uses_reduced_gauge_coordinates(tmp_path, monkeypatch):
