@@ -52,6 +52,16 @@ class ToroidalRMClosureOperators:
     alpha_to_divergent_closure_current_rm_grid: np.ndarray
 
 
+@dataclass(frozen=True)
+class PFACRadialSplitOperators:
+    """Dynamic PFAC return split relative to a chosen evaluation radius."""
+
+    open_internal: np.ndarray
+    open_external: np.ndarray
+    effective_internal: np.ndarray
+    effective_external: np.ndarray
+
+
 class PFACIntegrator:
     """Handles PFAC (Poloidal Field-Aligned Current) computation.
 
@@ -148,6 +158,44 @@ class PFACIntegrator:
                 f"{projector.shape}; expected {expected_shape}."
             )
         return projector
+
+    def _build_pfac_source_backbone(
+        self, G_Ve_to_JS_closure: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return the cached-independent PFAC source backbone."""
+        n_sol = int(self.solution_space.index_length)
+        n_sh = int(self.basis.index_length)
+        fac_steps = np.asarray(self.FAC_integration_steps, dtype=float)
+        delta_k = np.diff(fac_steps)
+        rks = fac_steps[:-1] + 0.5 * delta_k
+        G_inv_sh = tensor_pinv(G_Ve_to_JS_closure, n_leading_flattened=2, rtol=1e-12).reshape(
+            n_sh, -1
+        )
+        L_sol = to_dense(self.solution_space.get_laplacian_operator(self.RI))
+        m_imp_to_jr_sol_op = -(self.RI / mu0) * L_sol
+        if is_cs_like_basis(self.solution_space):
+            P_sol = self._get_solution_space_mean_zero_projector(n_sol)
+            if P_sol is not None:
+                m_imp_to_jr_sol_op = m_imp_to_jr_sol_op @ P_sol
+        return G_inv_sh, np.asarray(m_imp_to_jr_sol_op, dtype=float), fac_steps, delta_k, rks
+
+    def _map_closure_operator_to_solution(
+        self, closure_operator: np.ndarray, grid: Grid
+    ) -> np.ndarray:
+        """Map a closure-basis operator back to solution coefficients."""
+        if self.solution_space is self.basis or is_sh_basis(self.solution_space):
+            mapped = np.asarray(closure_operator, dtype=float)
+        else:
+            E_sh = to_dense(self.basis.get_evaluation_matrix(grid))
+            E_sol = to_dense(self.solution_space.get_evaluation_matrix(grid))
+            P_sol = tensor_pinv(E_sol, rtol=1e-12)
+            mapped = np.asarray((P_sol @ E_sh) @ closure_operator, dtype=float)
+
+        if is_cs_like_basis(self.solution_space):
+            P_g = self._get_solution_space_mean_zero_projector(int(self.solution_space.index_length))
+            if P_g is not None:
+                mapped = np.asarray(P_g @ mapped, dtype=float)
+        return mapped
 
     def compute_T_to_Ve(
         self, G_Ve_to_JS_closure: np.ndarray, grid: Grid, *, rm_boundary_mode: str = "closed"
@@ -264,6 +312,127 @@ class PFACIntegrator:
 
         PFACIntegrator._T_TO_VE_CACHE[cache_key] = T_to_Ve.values.copy()
         return T_to_Ve
+
+    def compute_T_to_Ve_radius_split(
+        self,
+        eval_radius: float,
+        G_Ve_to_JS_closure: np.ndarray,
+        grid: Grid,
+    ) -> PFACRadialSplitOperators:
+        """Return the dynamic PFAC ``T -> V_e`` split at an arbitrary radius.
+
+        The split is defined relative to ``eval_radius``:
+
+        - sources below ``eval_radius`` contribute to the internal branch;
+        - sources above ``eval_radius`` contribute to the external branch;
+        - the ``R_M`` closure/shielding reaction contributes through the
+          effective branch assembled from the same harmonic roundtrip used by
+          the runtime at ``R_I``.
+        """
+        n_sol = int(self.solution_space.index_length)
+        zeros = np.zeros((n_sol, n_sol), dtype=float)
+
+        if self.mainfield.kind == MainfieldKind.RADIAL or self.ignore_PFAC:
+            return PFACRadialSplitOperators(
+                open_internal=zeros,
+                open_external=zeros,
+                effective_internal=zeros,
+                effective_external=zeros,
+            )
+
+        r_eval = float(eval_radius)
+        tol = max(1e-12 * max(abs(self.RI), abs(r_eval), abs(self.RM or r_eval), 1.0), 1e-9)
+        if r_eval < float(self.RI) - tol:
+            raise ValueError(
+                f"PFAC radius split requires eval_radius >= RI; got {eval_radius!r} < {self.RI!r}."
+            )
+        if self.RM is not None and r_eval > float(self.RM) + tol:
+            raise ValueError(
+                f"PFAC radius split requires eval_radius <= RM; got {eval_radius!r} > {self.RM!r}."
+            )
+
+        # Exact boundary special case: the effective field at a locked RM boundary is zero.
+        if self.RM is not None and abs(r_eval - float(self.RM)) <= tol:
+            open_internal = np.asarray(
+                self.compute_T_to_Ve_radius_split(float(self.RM) - 10.0 * tol, G_Ve_to_JS_closure, grid).open_internal,
+                dtype=float,
+            )
+            open_external = np.zeros_like(open_internal)
+            if self.magnetospheric_shielding:
+                effective_internal = np.zeros_like(open_internal)
+                effective_external = np.zeros_like(open_internal)
+            else:
+                effective_internal = np.asarray(open_internal, dtype=float)
+                effective_external = np.asarray(open_external, dtype=float)
+            return PFACRadialSplitOperators(
+                open_internal=open_internal,
+                open_external=open_external,
+                effective_internal=effective_internal,
+                effective_external=effective_external,
+            )
+
+        G_inv_sh, m_imp_to_jr_sol_op, _fac_steps, delta_k, rks = self._build_pfac_source_backbone(
+            G_Ve_to_JS_closure
+        )
+        n_sh = int(self.basis.index_length)
+        open_internal = np.zeros((n_sh, n_sol), dtype=float)
+        open_external = np.zeros((n_sh, n_sol), dtype=float)
+        effective_internal = np.zeros((n_sh, n_sol), dtype=float)
+        effective_external = np.zeros((n_sh, n_sol), dtype=float)
+
+        use_rm_boundary = (self.RM is not None) and bool(self.magnetospheric_shielding)
+        if use_rm_boundary:
+            S_ext_RM = get_radial_shift_diagonal(self.basis, self.RM, r_eval, kind="external")
+            S_int_eval = get_radial_shift_diagonal(self.basis, r_eval, self.RM, kind="internal")
+            factor_vec = -1.0 / (1.0 - S_ext_RM * S_int_eval)
+        else:
+            S_ext_RM = np.zeros(n_sh, dtype=float)
+            factor_vec = -1.0 * np.ones(n_sh, dtype=float)
+
+        for i, rk in enumerate(rks):
+            theta_m, phi_m = self.mainfield.map_coords(self.RI, rk, grid.theta, grid.phi)
+            m_grid = Grid(theta=theta_m, phi=phi_m)
+            rk_b = self.mainfield.discretize(grid, rk)
+            m_b = self.mainfield.discretize(m_grid, self.RI)
+            M_source = to_dense(self.solution_space.get_evaluation_matrix(m_grid))
+            m_imp_to_JS_rk = np.einsum(
+                "ij,jk->ijk",
+                [rk_b.vec.theta / m_b.vec.r, rk_b.vec.phi / m_b.vec.r],
+                M_source @ m_imp_to_jr_sol_op,
+                optimize=True,
+            ).reshape(-1, n_sol)
+            base_step = np.asarray(G_inv_sh @ m_imp_to_JS_rk, dtype=float)
+
+            if rk < r_eval - tol:
+                prop_internal = get_radial_shift_diagonal(self.basis, rk, r_eval, kind="internal")
+                prop_external = np.zeros(n_sh, dtype=float)
+            elif rk > r_eval + tol:
+                prop_internal = np.zeros(n_sh, dtype=float)
+                prop_external = get_radial_shift_diagonal(self.basis, rk, r_eval, kind="external")
+            else:
+                # Midpoint quadrature should not land exactly on the evaluation radius in practice.
+                prop_internal = np.zeros(n_sh, dtype=float)
+                prop_external = get_radial_shift_diagonal(self.basis, rk, r_eval, kind="external")
+
+            open_internal += delta_k[i] * ((-prop_internal)[:, None] * base_step)
+            open_external += delta_k[i] * ((-prop_external)[:, None] * base_step)
+
+            if use_rm_boundary:
+                s_int_rk_rm = get_radial_shift_diagonal(self.basis, rk, self.RM, kind="internal")
+                effective_internal += delta_k[i] * ((factor_vec * prop_internal)[:, None] * base_step)
+                effective_external += delta_k[i] * (
+                    (factor_vec * (prop_external - S_ext_RM * s_int_rk_rm))[:, None] * base_step
+                )
+            else:
+                effective_internal += delta_k[i] * ((-prop_internal)[:, None] * base_step)
+                effective_external += delta_k[i] * ((-prop_external)[:, None] * base_step)
+
+        return PFACRadialSplitOperators(
+            open_internal=self._map_closure_operator_to_solution(open_internal, grid),
+            open_external=self._map_closure_operator_to_solution(open_external, grid),
+            effective_internal=self._map_closure_operator_to_solution(effective_internal, grid),
+            effective_external=self._map_closure_operator_to_solution(effective_external, grid),
+        )
 
     def compute_toroidal_rm_closure_operators(self, grid: Grid) -> ToroidalRMClosureOperators:
         """Build operators for the ``R_M`` normal-current closure of dynamic ``alpha``.

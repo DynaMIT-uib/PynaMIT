@@ -35,7 +35,11 @@ from pynamit.simulation.core import (
     StateConstraints,
     StateInduction,
 )
-from pynamit.simulation.induction import ToroidalSystemMatrices
+from pynamit.simulation.induction import (
+    MagneticRMBoundaryOperators,
+    PFACNonlocalRadialShellResponseModel,
+    ToroidalSystemMatrices,
+)
 from pynamit.simulation.induction.toroidal_closure import ToroidalRMBoundaryOperators
 from pynamit.simulation.spatial import Geometry
 from pynamit.primitives.basis import Basis
@@ -47,14 +51,20 @@ if TYPE_CHECKING:
 from pynamit.simulation.settings import (
     DynamicsMode,
     DynamicsSettings,
+    ExponentialStepForm,
     IntegratorKind,
     LLConstraintMode,
+    RadialShellForcingMode,
     SimulationMode,
     StabilizationPolicy,
+    ToroidalClosureMode,
 )
 from pynamit.simulation.input import decode_conductance_representation_to_grids
 
 logger = logging.getLogger(__name__)
+
+_CANONICAL_FULL_INDUCTION_CLOSURE = ToroidalClosureMode.RADIAL_SHELL
+_CANONICAL_FULL_INDUCTION_FORCING = RadialShellForcingMode.FROZEN_CONDUCTANCE_INCREMENTAL
 
 
 def _timed_solve(label: str, solver: LeastSquaresSolver, *args: Any, **kwargs: Any) -> np.ndarray:
@@ -129,6 +139,7 @@ class State:
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
         solution_space: Optional[Any] = None,
+        radial_shell_response_model: Optional[Any] = None,
     ) -> None:
         """Initialize the State object.
 
@@ -146,10 +157,17 @@ class State:
             Pre-computed PFAC.
         solution_space : Any, optional
             The basis for solution variables.
+        radial_shell_response_model : Any, optional
+            Explicit response model for the canonical non-legacy shell-gap
+            full-induction runtime. If omitted, the built-in PFAC/RM nonlocal
+            response model is used.
         """
         self.basis = basis
         self.solution_space = solution_space if solution_space is not None else basis
         self._init_settings(settings)
+        self.radial_shell_response_model = radial_shell_response_model
+        if self.radial_shell_response_model is None and self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
+            self.radial_shell_response_model = PFACNonlocalRadialShellResponseModel()
 
         # Toroidal magnetic scalar (inductive), analogous to m_imp but time-evolved.
         self.psi: Optional[np.ndarray] = None
@@ -180,6 +198,17 @@ class State:
         # Initialize Toroidal System Matrices if in full_induction mode
         self.toroidal_matrices: Optional[ToroidalSystemMatrices] = None
         if self.dynamics_mode == DynamicsMode.FULL_INDUCTION:
+            logger.info(
+                "Using canonical full_induction shell-gap runtime with response model %s.",
+                getattr(self.radial_shell_response_model, "description", None)
+                or self.radial_shell_response_model.__class__.__name__,
+            )
+            logger.info(
+                "Using the built-in canonical forcing law for full_induction. "
+                "This applies the explicit current-first shell law "
+                "'delta K_S -> delta j_r^+' through the live shell constitutive "
+                "adapter 'delta E_S -> delta K_S'."
+            )
             closure_basis = self.geometry.pfac_closure_basis
             toroidal_preconditioner = self.get_effective_least_squares_preconditioner(
                 "full_induction_toroidal"
@@ -190,6 +219,8 @@ class State:
                 b_field=self.geometry.b_field,
                 RI=self.RI,
                 RM=self.RM,
+                closure_mode=_CANONICAL_FULL_INDUCTION_CLOSURE,
+                radial_shell_response_model=self.radial_shell_response_model,
                 closure_derivative_basis=closure_basis,
                 rhs_derivative_basis=closure_basis,
                 radial_derivative_basis=closure_basis,
@@ -214,6 +245,10 @@ class State:
                     "Using SH auxiliary closure basis for toroidal operator assembly "
                     "in cs_dominant/full_induction."
                 )
+            if self.radial_shell_response_model is not None and hasattr(
+                self.radial_shell_response_model, "bind_state"
+            ):
+                self.radial_shell_response_model.bind_state(self)
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -291,10 +326,13 @@ class State:
         self.toroidal_regularization_lambda = normalized_settings.toroidal_regularization_lambda
         self.dense_full_operators = bool(normalized_settings.dense_full_operators)
         self.exponential_solver = normalized_settings.exponential_solver
+        self.exponential_step_form = normalized_settings.exponential_step_form
         self.connect_hemispheres = bool(normalized_settings.connect_hemispheres)
         self.dynamics_mode = normalized_settings.dynamics_mode
         self.toroidal_weighting = normalized_settings.toroidal_weighting
         self.poloidal_weighting = normalized_settings.poloidal_weighting
+        self.toroidal_closure_mode = _CANONICAL_FULL_INDUCTION_CLOSURE
+        self.radial_shell_forcing_mode = _CANONICAL_FULL_INDUCTION_FORCING
 
         # Mode Handling
         self.mode = normalized_settings.simulation_mode
@@ -359,6 +397,10 @@ class State:
         if normalized not in self._AUTO_STEADY_STATE_REGULARIZATION_CONTEXTS:
             return 0.0
         return float(self.steady_state_regularization_lambda)
+
+    def get_effective_exponential_step_form(self) -> ExponentialStepForm:
+        """Return the active exponential-step form for the current dynamics mode."""
+        return self.exponential_step_form
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients.
@@ -504,9 +546,53 @@ class State:
         """Return LL-compatibility diagnostics for live toroidal forcing channels."""
         return self.diagnostics.get_toroidal_driver_balance_report()
 
+    def get_toroidal_projected_closure_report(self) -> Dict[str, Any]:
+        """Return diagnostics for the projected vs full tangential shell closure."""
+        return self.diagnostics.get_toroidal_projected_closure_report()
+
+    def get_dynamic_toroidal_pi_report(self) -> Dict[str, Any]:
+        """Return the explicit runtime realization of the dynamic ``Pi`` operator."""
+        return self.diagnostics.get_dynamic_toroidal_pi_report()
+
+    def get_dynamic_toroidal_pi_radius_report(self, radius: float) -> Dict[str, Any]:
+        """Return the arbitrary-radius dynamic ``Pi`` split and magnetic images."""
+        return self.diagnostics.get_dynamic_toroidal_pi_radius_report(radius)
+
+    def get_dynamic_toroidal_operator_chain_report(self) -> Dict[str, Any]:
+        """Return the explicit dynamic ``psi -> J_S -> E -> rhs -> dpsi/dt`` chain."""
+        return self.diagnostics.get_dynamic_toroidal_operator_chain_report()
+
+    def get_reduced_shell_closure_report(self) -> Dict[str, Any]:
+        """Return reduced-shell tangential and radial-return operators on ``q``."""
+        return self.diagnostics.get_reduced_shell_closure_report()
+
+    def get_radial_shell_feedback_comparison_report(self) -> Dict[str, Any]:
+        """Return diagnostics comparing shell-electric and connector radial feedback."""
+        return self.diagnostics.get_radial_shell_feedback_comparison_report()
+
+    def get_radial_shell_forcing_comparison_report(self) -> Dict[str, Any]:
+        """Return diagnostics comparing condensed and explicit radial-shell forcing."""
+        return self.diagnostics.get_radial_shell_forcing_comparison_report()
+
     def get_magnetospheric_boundary_report(self) -> Dict[str, Any]:
         """Return induced boundary diagnostics at ``R_M``."""
         return self.diagnostics.get_magnetospheric_boundary_report()
+
+    def get_pragmatic_homogeneous_rm_connector_report(
+        self, *, outer_boundary_mode: str = "shielded"
+    ) -> Dict[str, Any]:
+        """Return the pragmatic shell-state report for ``chi`` and its connector preimage."""
+        return self.diagnostics.get_pragmatic_homogeneous_rm_connector_report(
+            outer_boundary_mode=outer_boundary_mode
+        )
+
+    def get_pragmatic_homogeneous_rm_chi_report(
+        self, *, outer_boundary_mode: str = "shielded"
+    ) -> Dict[str, Any]:
+        """Return the pragmatic shell-state-to-``chi`` diagnostic report."""
+        return self.diagnostics.get_pragmatic_homogeneous_rm_chi_report(
+            outer_boundary_mode=outer_boundary_mode
+        )
 
     def get_effective_ll_constraint_mode(self) -> LLConstraintMode:
         """Resolve the configured LL compatibility policy for the active dynamics mode."""
@@ -555,6 +641,68 @@ class State:
     def poloidal_rm_boundary_operators(self):
         """Induced poloidal boundary operators just above ``R_M``."""
         return self.poloidal_matrices.poloidal_rm_boundary_operators
+
+    @cached_property
+    def magnetic_rm_boundary_operators(self) -> MagneticRMBoundaryOperators:
+        """Finite-``R_M`` magnetic boundary pair in solution coefficient space.
+
+        This bundles the preferred explicit outer magnetic data:
+
+        - toroidal ``psi^+(R_M)``
+        - poloidal magnetic scalar reconstructed from ``B_r(R_M)``
+
+        together with the underlying ``B_r(R_M)`` operators used for that
+        reconstruction.
+        """
+        n_sol = int(self.solution_space.index_length)
+        zeros = np.zeros((n_sol, n_sol), dtype=float)
+        if self.RM in (None, 0):
+            return MagneticRMBoundaryOperators(
+                alpha_to_boundary_psi_rm=zeros,
+                magnetic_potential_rm_to_br_rm=zeros,
+                br_rm_to_magnetic_potential_rm=zeros,
+                m_ind_to_br_rm_open=zeros,
+                m_ind_to_br_rm_effective=zeros,
+                m_ind_to_br_rm_shielding=zeros,
+                m_ind_to_magnetic_potential_rm_open=zeros,
+                m_ind_to_magnetic_potential_rm_effective=zeros,
+                m_ind_to_magnetic_potential_rm_shielding=zeros,
+            )
+
+        tor_ops = self.toroidal_rm_boundary_operators
+        pol_ops = self.poloidal_rm_boundary_operators
+        magnetic_potential_rm_to_br_rm = np.asarray(
+            -(float(self.RM) ** 2)
+            * np.asarray(to_dense(self.solution_space.get_laplacian_operator(float(self.RM)))),
+            dtype=float,
+        )
+        rcond = max(float(np.finfo(float).eps * max(magnetic_potential_rm_to_br_rm.shape)), 1e-15)
+        br_rm_to_magnetic_potential_rm = np.asarray(
+            np.linalg.pinv(magnetic_potential_rm_to_br_rm, rcond=rcond), dtype=float
+        )
+
+        return MagneticRMBoundaryOperators(
+            alpha_to_boundary_psi_rm=np.asarray(tor_ops.alpha_to_boundary_psi_rm, dtype=float),
+            magnetic_potential_rm_to_br_rm=magnetic_potential_rm_to_br_rm,
+            br_rm_to_magnetic_potential_rm=br_rm_to_magnetic_potential_rm,
+            m_ind_to_br_rm_open=np.asarray(pol_ops.m_ind_to_br_rm_open, dtype=float),
+            m_ind_to_br_rm_effective=np.asarray(pol_ops.m_ind_to_br_rm_effective, dtype=float),
+            m_ind_to_br_rm_shielding=np.asarray(pol_ops.m_ind_to_br_rm_shielding, dtype=float),
+            m_ind_to_magnetic_potential_rm_open=np.asarray(
+                br_rm_to_magnetic_potential_rm @ np.asarray(pol_ops.m_ind_to_br_rm_open, dtype=float),
+                dtype=float,
+            ),
+            m_ind_to_magnetic_potential_rm_effective=np.asarray(
+                br_rm_to_magnetic_potential_rm
+                @ np.asarray(pol_ops.m_ind_to_br_rm_effective, dtype=float),
+                dtype=float,
+            ),
+            m_ind_to_magnetic_potential_rm_shielding=np.asarray(
+                br_rm_to_magnetic_potential_rm
+                @ np.asarray(pol_ops.m_ind_to_br_rm_shielding, dtype=float),
+                dtype=float,
+            ),
+        )
 
     def _get_dt_alpha_driver_coeffs(self) -> Optional[np.ndarray]:
         """Return ``dt_alpha`` driver from the imposed toroidal-source derivative."""
@@ -658,6 +806,32 @@ class State:
             codomain_space="E_coeffs",
         )
 
+    def _create_JS_coeffs_operator(self, potential_type: str) -> Optional[LinearMap]:
+        """Pre-resistivity operator mapping magnetic-scalar coefficients to ``J_S``."""
+        op = self.geometry.get_potential_to_JS_operator(potential_type, mode=self.mode)
+        if op is None:
+            return None
+        return as_linear_map(op).with_spaces(
+            domain_space=f"{potential_type}_coeffs",
+            codomain_space="JS_coeffs",
+        )
+
+    @cached_property
+    def JS_to_E_coeffs(self) -> LinearMap:
+        """Explicit post-resistivity shell operator mapping ``J_S`` to ``E`` coefficients."""
+        etaP_field = getattr(self, "etaP", None)
+        etaH_field = getattr(self, "etaH", None)
+        op = self.geometry.get_JS_to_E_coeffs_operator(
+            mode=self.mode,
+            eta_grid=self.M_total_on_grid,
+            etaP=etaP_field,
+            etaH=etaH_field,
+        )
+        return as_linear_map(op).with_spaces(
+            domain_space="JS_coeffs",
+            codomain_space="E_coeffs",
+        )
+
     @cached_property
     def m_ind_to_E_coeffs(self) -> Optional[LinearMap]:
         """Operator mapping m_ind coefficients to E coefficients."""
@@ -674,6 +848,14 @@ class State:
         op = self._create_E_coeffs_operator("psi")
         if op is None:
             return self.m_imp_to_E_coeffs
+        return op
+
+    @cached_property
+    def toroidal_to_JS_coeffs(self) -> Optional[LinearMap]:
+        """Explicit pre-resistivity operator mapping dynamic ``psi`` to ``J_S``."""
+        op = self._create_JS_coeffs_operator("psi")
+        if op is None:
+            return None
         return op
 
     @cached_property

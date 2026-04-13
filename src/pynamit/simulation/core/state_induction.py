@@ -14,7 +14,12 @@ from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_ma
 from pynamit.primitives.basis import is_cs_like_basis, is_sh_basis
 from pynamit.simulation.induction.poloidal_solver import MImpFeedbackSystem
 from pynamit.simulation.core.coupled_solver import CoupledSteadyStateSolver
-from pynamit.simulation.settings import DynamicsMode, ExponentialSolverKind, LLConstraintMode
+from pynamit.simulation.settings import (
+    DynamicsMode,
+    ExponentialSolverKind,
+    ExponentialStepForm,
+    LLConstraintMode,
+)
 from pynamit.utils import asarray, to_numpy, xp
 
 TimedSolveFn = Callable[..., np.ndarray]
@@ -157,8 +162,10 @@ class StateInduction:
         dt_alpha_driver_coeffs = st._get_dt_alpha_driver_coeffs()
         rhs_physics = st.toroidal_matrices.compute_toroidal_rhs_from_E(asarray(E_known))
         if dt_alpha_driver_coeffs is not None:
-            L_alpha = np.asarray(to_numpy(st.toroidal_matrices.dtalpha_operator), dtype=float)
-            rhs_physics = np.asarray(rhs_physics).reshape(-1) - L_alpha @ np.asarray(
+            L_phys = np.asarray(
+                to_numpy(st.toroidal_matrices.physics_residual_coeff_operator), dtype=float
+            )
+            rhs_physics = np.asarray(rhs_physics).reshape(-1) - L_phys @ np.asarray(
                 dt_alpha_driver_coeffs
             ).reshape(-1)
 
@@ -640,6 +647,7 @@ class StateInduction:
             y = xp.stack([asarray(psi), asarray(m_ind)])
             K = self.build_coupled_forcing(E_coeffs_noind)
             if isinstance(st.poloidal_integrator, ExponentialIntegrator):
+                step_form = st.get_effective_exponential_step_form()
                 N = st.solution_space.index_length
                 exp_kwargs: Dict[str, Any] = {"max_step_scale": 10.0, "max_substeps": 32768}
                 if st.exponential_solver == ExponentialSolverKind.EXPM:
@@ -675,11 +683,24 @@ class StateInduction:
                 y_reduced = reduced_system.reduce_vector(y)
                 K_reduced = reduced_system.reduce_vector(K)
                 st.run_coupled_null_diagnostics(reduced_system.reduced_operator, K_reduced)
+                steady_state_reduced = None
+                forcing_reduced = K_reduced
+                if step_form == ExponentialStepForm.CENTERED:
+                    if steady_state_psi is None or steady_state_m_ind is None:
+                        steady_state_psi, steady_state_m_ind = self.solve_steady_state_model_variables(
+                            E_coeffs_noind, update_state=False
+                        )
+                    steady_state_full = xp.stack(
+                        [asarray(steady_state_psi), asarray(steady_state_m_ind)]
+                    )
+                    steady_state_reduced = reduced_system.reduce_vector(steady_state_full)
+                    forcing_reduced = None
                 y_new_reduced = self.evolve_linear_state(
                     y=y_reduced,
                     dt=float(dt),
                     linear_operator=reduced_system.reduced_operator,
-                    forcing=K_reduced,
+                    forcing=forcing_reduced,
+                    steady_state=steady_state_reduced,
                     exponential_kwargs=exp_kwargs,
                 )
                 y_new = reduced_system.expand_vector(y_new_reduced).reshape(2, N)
@@ -704,7 +725,10 @@ class StateInduction:
             return psi_new, m_ind_new
 
         use_exponential_integrator = isinstance(st.poloidal_integrator, ExponentialIntegrator)
-        use_frozen_steady_state = use_exponential_integrator and steady_state_m_ind is not None
+        step_form = st.get_effective_exponential_step_form()
+        use_frozen_steady_state = (
+            use_exponential_integrator and step_form == ExponentialStepForm.CENTERED
+        )
         use_dense_rate_operator = bool(st.dense_full_operators or use_exponential_integrator)
 
         if use_dense_rate_operator:
@@ -719,11 +743,13 @@ class StateInduction:
             if not use_frozen_steady_state:
                 forcing_reduced = reduced_system.reduce_vector(full_forcing)
 
-            steady_state_reduced = (
-                reduced_system.reduce_vector(steady_state_m_ind)
-                if steady_state_m_ind is not None
-                else None
-            )
+            steady_state_reduced = None
+            if use_frozen_steady_state:
+                if steady_state_m_ind is None:
+                    _, steady_state_m_ind = self.solve_steady_state_model_variables(
+                        E_coeffs_noind, update_state=False
+                    )
+                steady_state_reduced = reduced_system.reduce_vector(steady_state_m_ind)
             m_ind_new_reduced = self.evolve_linear_state(
                 y=reduced_system.reduce_vector(asarray(m_ind)),
                 dt=dt,

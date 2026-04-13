@@ -66,7 +66,9 @@ def run_pynamit(
     induction_null_warn_ratio: float = 0.5,
     enable_fast_input_path: bool = False,
     exponential_solver: str = "expm",
+    exponential_step_form: str = "affine",
     benchmark_mode: bool = False,
+    radial_shell_response_model: Any = None,
 ) -> Any:
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -190,12 +192,17 @@ def run_pynamit(
         induction_null_warn_ratio=induction_null_warn_ratio,
         enable_fast_input_path=enable_fast_input_path,
         exponential_solver=exponential_solver,
+        exponential_step_form=exponential_step_form,
     )
     if simulation_mode is not None:
         settings_kwargs["simulation_mode"] = SimulationMode(simulation_mode)
 
     settings = DynamicsSettings(**settings_kwargs)
-    dynamics = Dynamics(settings, benchmark_mode=benchmark_mode)
+    dynamics = Dynamics(
+        settings,
+        benchmark_mode=benchmark_mode,
+        radial_shell_response_model=radial_shell_response_model,
+    )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
     time = np.linspace(0, final_time, 4) if multi_data else None

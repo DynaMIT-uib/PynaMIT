@@ -148,6 +148,299 @@ class PoloidalSystemMatrices:
         return self._poloidal_closure_projector.lift_scalar_output_operator_to_solution(operator)
 
     @cached_property
+    def _closure_scalar_degrees(self) -> np.ndarray:
+        """Closure-basis spherical-harmonic degrees used for PFAC/radial operators."""
+        closure_basis = self._poloidal_closure_projector.closure_basis
+        scalar_degrees = getattr(closure_basis, "scalar_degrees", None)
+        if callable(scalar_degrees):
+            try:
+                return np.asarray(scalar_degrees(mean_free=getattr(closure_basis, "mean_free", None)), dtype=float).reshape(-1)
+            except TypeError:
+                return np.asarray(scalar_degrees(), dtype=float).reshape(-1)
+        degrees = getattr(closure_basis, "n", None)
+        if degrees is None:
+            raise RuntimeError("Closure basis does not expose scalar harmonic degrees.")
+        return np.asarray(degrees, dtype=float).reshape(-1)
+
+    def _project_closure_scalar_diagonal_operator(self, factors: np.ndarray) -> np.ndarray:
+        """Project a closure-basis diagonal scalar operator into solution coefficients."""
+        return np.asarray(
+            self._poloidal_closure_projector.project_scalar_operator_to_solution(
+                np.diag(np.asarray(factors, dtype=float).reshape(-1))
+            ),
+            dtype=float,
+        )
+
+    def _build_br_radial_derivative_operator(self, *, radius: float, kind: str) -> np.ndarray:
+        """Return the harmonic ``B_r -> d_r B_r`` operator in solution coefficients."""
+        degrees = np.asarray(self._closure_scalar_degrees, dtype=float)
+        mode = str(kind).lower()
+        if mode == "external":
+            factors = (degrees - 1.0) / float(radius)
+        elif mode == "internal":
+            factors = -(degrees + 2.0) / float(radius)
+        else:
+            raise ValueError(f"Unsupported Br radial derivative kind {kind!r}.")
+        return self._project_closure_scalar_diagonal_operator(factors)
+
+    def _build_harmonic_shell_pi_from_br_operator(self, pi_to_br_operator: np.ndarray) -> np.ndarray:
+        """Return the harmonic shell baseline scalar matching the given ``B_r(R_I)`` trace."""
+        return np.asarray(self.m_ind_to_Br_pinv @ np.asarray(pi_to_br_operator, dtype=float), dtype=float)
+
+    def _build_harmonic_shell_pi_to_dbr_from_br_operator(
+        self, pi_to_br_operator: np.ndarray
+    ) -> np.ndarray:
+        """Return the harmonic upward ``d_r B_r(R_I^+)`` baseline from a shell ``B_r`` trace."""
+        dbr_external = self._build_br_radial_derivative_operator(radius=float(self.RI), kind="external")
+        return np.asarray(dbr_external @ np.asarray(pi_to_br_operator, dtype=float), dtype=float)
+
+    def _build_dynamic_toroidal_pi_boundary_radius_report(
+        self, radius: float
+    ) -> dict[str, np.ndarray] | None:
+        """Return exact boundary specializations for the arbitrary-radius ``Pi`` report."""
+        rm = getattr(self._pfac, "RM", None)
+        max_radius = float(rm) if rm is not None else float(radius)
+        tol = max(1e-12 * max(abs(float(self.RI)), abs(float(radius)), abs(max_radius), 1.0), 1e-9)
+
+        if abs(float(radius) - float(self.RI)) <= tol:
+            zeros = np.zeros_like(np.asarray(self.dynamic_toroidal_pi_open_operator, dtype=float))
+            dbr_external_op = self._build_br_radial_derivative_operator(
+                radius=float(self.RI), kind="external"
+            )
+            dbr_internal_op = self._build_br_radial_derivative_operator(
+                radius=float(self.RI), kind="internal"
+            )
+
+            pi_open_total = np.asarray(self.dynamic_toroidal_pi_open_operator, dtype=float)
+            pi_effective_total = np.asarray(self.dynamic_toroidal_pi_effective_operator, dtype=float)
+            pi_shielding_total = np.asarray(self.dynamic_toroidal_pi_shielding_operator, dtype=float)
+
+            pi_to_br_open_total = np.asarray(self.dynamic_toroidal_pi_to_br_open_operator, dtype=float)
+            pi_to_br_effective_total = np.asarray(
+                self.dynamic_toroidal_pi_to_br_effective_operator, dtype=float
+            )
+            pi_to_br_shielding_total = np.asarray(
+                self.dynamic_toroidal_pi_to_br_shielding_operator, dtype=float
+            )
+            pi_to_dbr_open_total = np.asarray(dbr_external_op @ pi_to_br_open_total, dtype=float)
+            pi_to_dbr_shielding_total = np.asarray(
+                dbr_internal_op @ pi_to_br_shielding_total, dtype=float
+            )
+            pi_to_dbr_effective_total = np.asarray(
+                pi_to_dbr_open_total + pi_to_dbr_shielding_total, dtype=float
+            )
+
+            return {
+                "pi_open_internal": np.asarray(zeros, dtype=float),
+                "pi_open_external": pi_open_total,
+                "pi_open_total": pi_open_total,
+                "pi_effective_internal": pi_shielding_total,
+                "pi_effective_external": pi_open_total,
+                "pi_effective_total": pi_effective_total,
+                "pi_shielding_internal": pi_shielding_total,
+                "pi_shielding_external": np.asarray(zeros, dtype=float),
+                "pi_shielding_total": pi_shielding_total,
+                "pi_to_br_open_internal": np.asarray(zeros, dtype=float),
+                "pi_to_br_open_external": pi_to_br_open_total,
+                "pi_to_br_open_total": pi_to_br_open_total,
+                "pi_to_br_effective_internal": pi_to_br_shielding_total,
+                "pi_to_br_effective_external": pi_to_br_open_total,
+                "pi_to_br_effective_total": pi_to_br_effective_total,
+                "pi_to_br_shielding_internal": pi_to_br_shielding_total,
+                "pi_to_br_shielding_external": np.asarray(zeros, dtype=float),
+                "pi_to_br_shielding_total": pi_to_br_shielding_total,
+                "pi_to_dbr_open_internal": np.asarray(zeros, dtype=float),
+                "pi_to_dbr_open_external": pi_to_dbr_open_total,
+                "pi_to_dbr_open_total": pi_to_dbr_open_total,
+                "pi_to_dbr_effective_internal": pi_to_dbr_shielding_total,
+                "pi_to_dbr_effective_external": pi_to_dbr_open_total,
+                "pi_to_dbr_effective_total": pi_to_dbr_effective_total,
+                "pi_to_dbr_shielding_internal": pi_to_dbr_shielding_total,
+                "pi_to_dbr_shielding_external": np.asarray(zeros, dtype=float),
+                "pi_to_dbr_shielding_total": pi_to_dbr_shielding_total,
+            }
+
+        if rm is not None and abs(float(radius) - float(rm)) <= tol:
+            zeros = np.zeros_like(np.asarray(self.dynamic_toroidal_pi_rm_boundary_open_operator, dtype=float))
+            dbr_internal_op = self._build_br_radial_derivative_operator(
+                radius=float(rm), kind="internal"
+            )
+
+            pi_open_total = np.asarray(self.dynamic_toroidal_pi_rm_boundary_open_operator, dtype=float)
+            pi_effective_total = np.asarray(
+                self.dynamic_toroidal_pi_rm_boundary_effective_operator, dtype=float
+            )
+            pi_shielding_total = np.asarray(
+                self.dynamic_toroidal_pi_rm_boundary_shielding_operator, dtype=float
+            )
+
+            pi_to_br_open_total = np.asarray(self.dynamic_toroidal_pi_to_br_rm_open_operator, dtype=float)
+            pi_to_br_effective_total = np.asarray(
+                self.dynamic_toroidal_pi_to_br_rm_effective_operator, dtype=float
+            )
+            pi_to_br_shielding_total = np.asarray(
+                self.dynamic_toroidal_pi_to_br_rm_shielding_operator, dtype=float
+            )
+            pi_to_dbr_open_total = np.asarray(dbr_internal_op @ pi_to_br_open_total, dtype=float)
+            pi_to_dbr_effective_total = np.asarray(
+                dbr_internal_op @ pi_to_br_effective_total, dtype=float
+            )
+            pi_to_dbr_shielding_total = np.asarray(
+                dbr_internal_op @ pi_to_br_shielding_total, dtype=float
+            )
+
+            return {
+                "pi_open_internal": pi_open_total,
+                "pi_open_external": np.asarray(zeros, dtype=float),
+                "pi_open_total": pi_open_total,
+                "pi_effective_internal": pi_effective_total,
+                "pi_effective_external": np.asarray(zeros, dtype=float),
+                "pi_effective_total": pi_effective_total,
+                "pi_shielding_internal": pi_shielding_total,
+                "pi_shielding_external": np.asarray(zeros, dtype=float),
+                "pi_shielding_total": pi_shielding_total,
+                "pi_to_br_open_internal": pi_to_br_open_total,
+                "pi_to_br_open_external": np.asarray(zeros, dtype=float),
+                "pi_to_br_open_total": pi_to_br_open_total,
+                "pi_to_br_effective_internal": pi_to_br_effective_total,
+                "pi_to_br_effective_external": np.asarray(zeros, dtype=float),
+                "pi_to_br_effective_total": pi_to_br_effective_total,
+                "pi_to_br_shielding_internal": pi_to_br_shielding_total,
+                "pi_to_br_shielding_external": np.asarray(zeros, dtype=float),
+                "pi_to_br_shielding_total": pi_to_br_shielding_total,
+                "pi_to_dbr_open_internal": pi_to_dbr_open_total,
+                "pi_to_dbr_open_external": np.asarray(zeros, dtype=float),
+                "pi_to_dbr_open_total": pi_to_dbr_open_total,
+                "pi_to_dbr_effective_internal": pi_to_dbr_effective_total,
+                "pi_to_dbr_effective_external": np.asarray(zeros, dtype=float),
+                "pi_to_dbr_effective_total": pi_to_dbr_effective_total,
+                "pi_to_dbr_shielding_internal": pi_to_dbr_shielding_total,
+                "pi_to_dbr_shielding_external": np.asarray(zeros, dtype=float),
+                "pi_to_dbr_shielding_total": pi_to_dbr_shielding_total,
+            }
+
+        return None
+
+    def get_dynamic_toroidal_pi_radius_report(self, radius: float) -> dict[str, np.ndarray]:
+        """Return the dynamic ``Pi`` split and its magnetic images at ``radius``.
+
+        The split is defined relative to the evaluation radius:
+
+        - ``*_internal`` contains source contributions below ``radius``;
+        - ``*_external`` contains source contributions above ``radius`` and any
+          reflected/shielding field returning from ``R_M``.
+        """
+        boundary_report = self._build_dynamic_toroidal_pi_boundary_radius_report(float(radius))
+        if boundary_report is not None:
+            return boundary_report
+
+        split = self._pfac.compute_T_to_Ve_radius_split(float(radius), self.G_Ve_to_JS_closure, self.grid)
+        br_from_ve = np.asarray(
+            -(float(radius) ** 2)
+            * np.asarray(to_dense(self.solution_space.get_laplacian_operator(float(radius))), dtype=float),
+            dtype=float,
+        )
+        dbr_from_br_internal = self._build_br_radial_derivative_operator(
+            radius=float(radius), kind="internal"
+        )
+        dbr_from_br_external = self._build_br_radial_derivative_operator(
+            radius=float(radius), kind="external"
+        )
+
+        pi_open_internal = np.asarray(split.open_internal, dtype=float)
+        pi_open_external = np.asarray(split.open_external, dtype=float)
+        pi_effective_internal = np.asarray(split.effective_internal, dtype=float)
+        pi_effective_external = np.asarray(split.effective_external, dtype=float)
+        pi_shielding_internal = np.asarray(
+            pi_effective_internal - pi_open_internal,
+            dtype=float,
+        )
+        pi_shielding_external = np.asarray(
+            pi_effective_external - pi_open_external,
+            dtype=float,
+        )
+
+        pi_to_br_open_internal = np.asarray(br_from_ve @ pi_open_internal, dtype=float)
+        pi_to_br_open_external = np.asarray(br_from_ve @ pi_open_external, dtype=float)
+        pi_to_br_effective_internal = np.asarray(br_from_ve @ pi_effective_internal, dtype=float)
+        pi_to_br_effective_external = np.asarray(br_from_ve @ pi_effective_external, dtype=float)
+        pi_to_br_shielding_internal = np.asarray(
+            pi_to_br_effective_internal - pi_to_br_open_internal,
+            dtype=float,
+        )
+        pi_to_br_shielding_external = np.asarray(
+            pi_to_br_effective_external - pi_to_br_open_external,
+            dtype=float,
+        )
+
+        pi_to_dbr_open_internal = np.asarray(
+            dbr_from_br_internal @ pi_to_br_open_internal, dtype=float
+        )
+        pi_to_dbr_open_external = np.asarray(
+            dbr_from_br_external @ pi_to_br_open_external, dtype=float
+        )
+        pi_to_dbr_effective_internal = np.asarray(
+            dbr_from_br_internal @ pi_to_br_effective_internal, dtype=float
+        )
+        pi_to_dbr_effective_external = np.asarray(
+            dbr_from_br_external @ pi_to_br_effective_external, dtype=float
+        )
+        pi_to_dbr_shielding_internal = np.asarray(
+            pi_to_dbr_effective_internal - pi_to_dbr_open_internal,
+            dtype=float,
+        )
+        pi_to_dbr_shielding_external = np.asarray(
+            pi_to_dbr_effective_external - pi_to_dbr_open_external,
+            dtype=float,
+        )
+
+        return {
+            "pi_open_internal": pi_open_internal,
+            "pi_open_external": pi_open_external,
+            "pi_open_total": np.asarray(pi_open_internal + pi_open_external, dtype=float),
+            "pi_effective_internal": pi_effective_internal,
+            "pi_effective_external": pi_effective_external,
+            "pi_effective_total": np.asarray(
+                pi_effective_internal + pi_effective_external, dtype=float
+            ),
+            "pi_shielding_internal": pi_shielding_internal,
+            "pi_shielding_external": pi_shielding_external,
+            "pi_shielding_total": np.asarray(
+                pi_shielding_internal + pi_shielding_external, dtype=float
+            ),
+            "pi_to_br_open_internal": pi_to_br_open_internal,
+            "pi_to_br_open_external": pi_to_br_open_external,
+            "pi_to_br_open_total": np.asarray(
+                pi_to_br_open_internal + pi_to_br_open_external, dtype=float
+            ),
+            "pi_to_br_effective_internal": pi_to_br_effective_internal,
+            "pi_to_br_effective_external": pi_to_br_effective_external,
+            "pi_to_br_effective_total": np.asarray(
+                pi_to_br_effective_internal + pi_to_br_effective_external, dtype=float
+            ),
+            "pi_to_br_shielding_internal": pi_to_br_shielding_internal,
+            "pi_to_br_shielding_external": pi_to_br_shielding_external,
+            "pi_to_br_shielding_total": np.asarray(
+                pi_to_br_shielding_internal + pi_to_br_shielding_external, dtype=float
+            ),
+            "pi_to_dbr_open_internal": pi_to_dbr_open_internal,
+            "pi_to_dbr_open_external": pi_to_dbr_open_external,
+            "pi_to_dbr_open_total": np.asarray(
+                pi_to_dbr_open_internal + pi_to_dbr_open_external, dtype=float
+            ),
+            "pi_to_dbr_effective_internal": pi_to_dbr_effective_internal,
+            "pi_to_dbr_effective_external": pi_to_dbr_effective_external,
+            "pi_to_dbr_effective_total": np.asarray(
+                pi_to_dbr_effective_internal + pi_to_dbr_effective_external, dtype=float
+            ),
+            "pi_to_dbr_shielding_internal": pi_to_dbr_shielding_internal,
+            "pi_to_dbr_shielding_external": pi_to_dbr_shielding_external,
+            "pi_to_dbr_shielding_total": np.asarray(
+                pi_to_dbr_shielding_internal + pi_to_dbr_shielding_external, dtype=float
+            ),
+        }
+
+    @cached_property
     def solver(self) -> "PoloidalSolver":
         """Helper exposing solve/orchestration routines built on poloidal operators."""
         from pynamit.simulation.induction.poloidal_solver import PoloidalSolver
@@ -366,6 +659,29 @@ class PoloidalSystemMatrices:
         return np.asarray(self.dynamic_toroidal_pfac_open_operator)
 
     @cached_property
+    def dynamic_toroidal_pfac_operator(self) -> np.ndarray:
+        """Return the runtime-selected PFAC operator for the dynamic ``psi`` channel.
+
+        This is the raw toroidal-to-poloidal magnetic return block used by the
+        live dynamic toroidal branch before shell electrodynamics is applied.
+        """
+        return np.asarray(self._get_dynamic_toroidal_pfac_operator(), dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_operator(self) -> np.ndarray:
+        """Return the document-style dynamic ``Pi`` operator for the live ``psi`` branch.
+
+        In the current runtime this is exactly the raw PFAC toroidal-to-poloidal
+        magnetic return block selected by the open/closed ``R_M`` policy.
+        """
+        return np.asarray(self.dynamic_toroidal_pfac_operator, dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_effective_operator(self) -> np.ndarray:
+        """Return the effective dynamic ``Pi`` operator used at ``R_I`` runtime."""
+        return np.asarray(self.dynamic_toroidal_pi_operator, dtype=float)
+
+    @cached_property
     def dynamic_toroidal_pfac_open_operator(self) -> np.ndarray:
         """Open-boundary PFAC operator for the dynamic ``psi`` channel."""
         return np.asarray(self.T_to_Ve_open)
@@ -382,9 +698,313 @@ class PoloidalSystemMatrices:
         )
 
     @cached_property
+    def dynamic_toroidal_pi_reaction_operator(self) -> np.ndarray:
+        """Return the RM reaction on the dynamic ``Pi`` operator."""
+        return np.asarray(self.dynamic_toroidal_pfac_reaction_operator, dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_shielding_operator(self) -> np.ndarray:
+        """Return the shielding/reflected branch of the dynamic ``Pi`` operator.
+
+        This is the correction added to the open operator to obtain the
+        effective runtime operator when ``R_M`` shielding is enabled:
+
+            ``Pi_effective = Pi_open + Pi_shielding``.
+        """
+        return np.asarray(self.dynamic_toroidal_pi_reaction_operator, dtype=float)
+
+    @cached_property
     def dynamic_toroidal_pfac_closed_operator(self) -> np.ndarray:
         """RM-closed PFAC operator for the dynamic ``psi`` channel."""
         return np.asarray(self.T_to_Ve)
+
+    @cached_property
+    def dynamic_toroidal_pi_open_operator(self) -> np.ndarray:
+        """Open-boundary document-style ``Pi`` operator for the dynamic ``psi`` channel."""
+        return np.asarray(self.dynamic_toroidal_pfac_open_operator, dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_closed_operator(self) -> np.ndarray:
+        """RM-closed document-style ``Pi`` operator for the dynamic ``psi`` channel."""
+        return np.asarray(self.dynamic_toroidal_pfac_closed_operator, dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_rm_boundary_open_operator(self) -> np.ndarray:
+        """Return the open dynamic ``Pi`` magnetic return evaluated at ``R_M``."""
+        return np.asarray(self.poloidal_rm_boundary_operators.dynamic_psi_to_ve_rm_open, dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_rm_boundary_effective_operator(self) -> np.ndarray:
+        """Return the effective dynamic ``Pi`` magnetic return evaluated at ``R_M``."""
+        return np.asarray(
+            self.poloidal_rm_boundary_operators.dynamic_psi_to_ve_rm_effective, dtype=float
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_rm_boundary_shielding_operator(self) -> np.ndarray:
+        """Return the ``R_M`` shielding branch of the dynamic ``Pi`` boundary return."""
+        return np.asarray(
+            self.poloidal_rm_boundary_operators.dynamic_psi_to_ve_rm_shielding, dtype=float
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_open_operator(self) -> np.ndarray:
+        """Return the open dynamic ``Pi -> B_r(R_I)`` operator."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_pi_open_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_closed_operator(self) -> np.ndarray:
+        """Return the RM-closed dynamic ``Pi -> B_r(R_I)`` operator."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_pi_closed_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_effective_operator(self) -> np.ndarray:
+        """Return the effective runtime ``Pi -> B_r(R_I)`` operator."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_pi_effective_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_shielding_operator(self) -> np.ndarray:
+        """Return the shielding branch of the dynamic ``Pi -> B_r(R_I)`` operator."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_pi_shielding_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_rm_open_operator(self) -> np.ndarray:
+        """Return the open dynamic ``Pi -> B_r(R_M)`` boundary operator."""
+        return np.asarray(
+            np.asarray(self.poloidal_rm_boundary_operators.m_ind_to_br_rm_open, dtype=float)
+            @ np.asarray(self.dynamic_toroidal_pi_open_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_rm_effective_operator(self) -> np.ndarray:
+        """Return the effective dynamic ``Pi -> B_r(R_M)`` boundary operator."""
+        return np.asarray(
+            np.asarray(self.poloidal_rm_boundary_operators.m_ind_to_br_rm_effective, dtype=float)
+            @ np.asarray(self.dynamic_toroidal_pi_effective_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_br_rm_shielding_operator(self) -> np.ndarray:
+        """Return the shielding branch of the dynamic ``Pi -> B_r(R_M)`` operator."""
+        return np.asarray(
+            np.asarray(self.dynamic_toroidal_pi_to_br_rm_effective_operator, dtype=float)
+            - np.asarray(self.dynamic_toroidal_pi_to_br_rm_open_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_open_operator(self) -> np.ndarray:
+        """Return the open dynamic ``Pi -> d_r B_r(R_I^+)`` operator.
+
+        At ``R_I^+`` the open PFAC return is the external branch relative to the
+        evaluation radius, so the harmonic derivative factor is ``(n-1)/R_I``.
+        """
+        return np.asarray(
+            self.get_dynamic_toroidal_pi_radius_report(float(self.RI))["pi_to_dbr_open_total"],
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_shielding_operator(self) -> np.ndarray:
+        """Return the shielding dynamic ``Pi -> d_r B_r(R_I^+)`` operator.
+
+        This is the difference between the effective and open derivatives at
+        ``R_I^+`` under the arbitrary-radius PFAC split.
+        """
+        return np.asarray(
+            self.get_dynamic_toroidal_pi_radius_report(float(self.RI))[
+                "pi_to_dbr_shielding_total"
+            ],
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_effective_operator(self) -> np.ndarray:
+        """Return the effective runtime ``Pi -> d_r B_r(R_I^+)`` operator."""
+        return np.asarray(
+            self.get_dynamic_toroidal_pi_radius_report(float(self.RI))["pi_to_dbr_effective_total"],
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_closed_operator(self) -> np.ndarray:
+        """Return the RM-closed ``Pi -> d_r B_r(R_I^+)`` operator."""
+        return np.asarray(self.dynamic_toroidal_pi_to_dbr_effective_operator, dtype=float)
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_rm_open_operator(self) -> np.ndarray:
+        """Return the open dynamic ``Pi -> d_r B_r(R_M^-)`` operator.
+
+        At ``R_M`` the open PFAC return is internal relative to the evaluation
+        radius because the gap sources lie below the boundary.
+        """
+        return np.asarray(
+            self.get_dynamic_toroidal_pi_radius_report(float(self._pfac.RM))[
+                "pi_to_dbr_open_total"
+            ],
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_rm_shielding_operator(self) -> np.ndarray:
+        """Return the shielding dynamic ``Pi -> d_r B_r(R_M^-)`` operator."""
+        return np.asarray(
+            self.get_dynamic_toroidal_pi_radius_report(float(self._pfac.RM))[
+                "pi_to_dbr_shielding_total"
+            ],
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_pi_to_dbr_rm_effective_operator(self) -> np.ndarray:
+        """Return the effective dynamic ``Pi -> d_r B_r(R_M^-)`` operator."""
+        return np.asarray(
+            self.get_dynamic_toroidal_pi_radius_report(float(self._pfac.RM))[
+                "pi_to_dbr_effective_total"
+            ],
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_harmonic_open_operator(self) -> np.ndarray:
+        """Return the harmonic shell baseline matching the open ``Pi -> B_r(R_I)`` trace."""
+        return self._build_harmonic_shell_pi_from_br_operator(self.dynamic_toroidal_pi_to_br_open_operator)
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_harmonic_effective_operator(self) -> np.ndarray:
+        """Return the harmonic shell baseline matching the effective ``Pi -> B_r(R_I)`` trace."""
+        return self._build_harmonic_shell_pi_from_br_operator(
+            self.dynamic_toroidal_pi_to_br_effective_operator
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_harmonic_shielding_operator(self) -> np.ndarray:
+        """Return the harmonic shell baseline matching the shielding ``Pi -> B_r(R_I)`` trace."""
+        return np.asarray(
+            self.dynamic_toroidal_shell_pi_harmonic_effective_operator
+            - self.dynamic_toroidal_shell_pi_harmonic_open_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_open_operator(self) -> np.ndarray:
+        """Return the document-style open shell ``Pi`` correction with zero ``B_r(R_I)``."""
+        return np.asarray(
+            self.dynamic_toroidal_pi_open_operator - self.dynamic_toroidal_shell_pi_harmonic_open_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_effective_operator(self) -> np.ndarray:
+        """Return the document-style effective shell ``Pi`` correction with zero ``B_r(R_I)``."""
+        return np.asarray(
+            self.dynamic_toroidal_pi_effective_operator
+            - self.dynamic_toroidal_shell_pi_harmonic_effective_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_shielding_operator(self) -> np.ndarray:
+        """Return the document-style shielding shell ``Pi`` correction with zero ``B_r(R_I)``."""
+        return np.asarray(
+            self.dynamic_toroidal_shell_pi_effective_operator - self.dynamic_toroidal_shell_pi_open_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_to_br_open_operator(self) -> np.ndarray:
+        """Return the shell-radial trace of the open document-style shell ``Pi`` correction."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_shell_pi_open_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_to_br_effective_operator(self) -> np.ndarray:
+        """Return the shell-radial trace of the effective document-style shell ``Pi`` correction."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_shell_pi_effective_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_to_br_shielding_operator(self) -> np.ndarray:
+        """Return the shell-radial trace of the shielding document-style shell ``Pi`` correction."""
+        return np.asarray(
+            np.asarray(to_dense(self.m_ind_to_Br), dtype=float)
+            @ np.asarray(self.dynamic_toroidal_shell_pi_shielding_operator, dtype=float),
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_harmonic_to_dbr_open_operator(self) -> np.ndarray:
+        """Return the harmonic upward derivative baseline for the open shell ``Pi`` branch."""
+        return self._build_harmonic_shell_pi_to_dbr_from_br_operator(
+            self.dynamic_toroidal_pi_to_br_open_operator
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_harmonic_to_dbr_effective_operator(self) -> np.ndarray:
+        """Return the harmonic upward derivative baseline for the effective shell ``Pi`` branch."""
+        return self._build_harmonic_shell_pi_to_dbr_from_br_operator(
+            self.dynamic_toroidal_pi_to_br_effective_operator
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_harmonic_to_dbr_shielding_operator(self) -> np.ndarray:
+        """Return the harmonic upward derivative baseline for the shielding shell ``Pi`` branch."""
+        return np.asarray(
+            self.dynamic_toroidal_shell_pi_harmonic_to_dbr_effective_operator
+            - self.dynamic_toroidal_shell_pi_harmonic_to_dbr_open_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_to_dbr_open_operator(self) -> np.ndarray:
+        """Return the open document-style shell ``Pi -> d_r B_r(R_I^+)`` operator."""
+        return np.asarray(
+            self.dynamic_toroidal_pi_to_dbr_open_operator
+            - self.dynamic_toroidal_shell_pi_harmonic_to_dbr_open_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_to_dbr_effective_operator(self) -> np.ndarray:
+        """Return the effective document-style shell ``Pi -> d_r B_r(R_I^+)`` operator."""
+        return np.asarray(
+            self.dynamic_toroidal_pi_to_dbr_effective_operator
+            - self.dynamic_toroidal_shell_pi_harmonic_to_dbr_effective_operator,
+            dtype=float,
+        )
+
+    @cached_property
+    def dynamic_toroidal_shell_pi_to_dbr_shielding_operator(self) -> np.ndarray:
+        """Return the shielding document-style shell ``Pi -> d_r B_r(R_I^+)`` operator."""
+        return np.asarray(
+            self.dynamic_toroidal_shell_pi_to_dbr_effective_operator
+            - self.dynamic_toroidal_shell_pi_to_dbr_open_operator,
+            dtype=float,
+        )
 
     @cached_property
     def poloidal_rm_boundary_operators(self) -> PoloidalRMBoundaryOperators:

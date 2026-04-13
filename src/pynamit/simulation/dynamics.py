@@ -59,6 +59,7 @@ class Dynamics:
         settings: Optional[Any] = None,
         *,
         benchmark_mode: bool = False,
+        radial_shell_response_model: Optional[Any] = None,
         **settings_overrides: Any,
     ):
         """Initialize the Dynamics class."""
@@ -96,6 +97,9 @@ class Dynamics:
             self.settings = DynamicsSettings.coerce(settings, **settings_overrides)
         self.backend = set_backend(self.settings.backend)
         self.benchmark_mode = bool(benchmark_mode)
+        self._validate_supported_full_induction_runtime_model(
+            radial_shell_response_model=radial_shell_response_model
+        )
 
         self._uses_temporary_run_directory = False
         if (not self.benchmark_mode) and self.settings.run_directory is None:
@@ -151,6 +155,7 @@ class Dynamics:
             settings=self.settings,
             PFAC_matrix=self.data.pfac_matrix,
             solution_space=solution_spec,
+            radial_shell_response_model=radial_shell_response_model,
         )
 
         if self.data.has_dataset("state"):
@@ -178,6 +183,27 @@ class Dynamics:
 
         if (not self.benchmark_mode) and not self.data.pfac_from_file:
             self.data.save_pfac_matrix(self.state.geometry.T_to_Ve, print_info=True)
+
+    def _validate_supported_full_induction_runtime_model(
+        self, *, radial_shell_response_model: Optional[Any]
+    ) -> None:
+        """Restrict operational full-induction runs to the canonical shell-gap model.
+
+        Older tangential closures and non-canonical radial-shell forcing variants
+        are kept only for benchmark/diagnostic use. This preserves internal
+        operator-verification paths while keeping one supported runtime model.
+        """
+        if self.settings.dynamics_mode != DynamicsMode.FULL_INDUCTION:
+            return
+        if self.benchmark_mode:
+            return
+
+        if radial_shell_response_model is not None:
+            raise ValueError(
+                "Operational full_induction uses the built-in canonical "
+                "shell-gap response model. Explicit radial_shell_response_model "
+                "overrides are available only with benchmark_mode=True."
+            )
 
     @classmethod
     def from_directory(cls, run_directory: str | Path, **settings_overrides: Any) -> "Dynamics":
@@ -294,7 +320,10 @@ class Dynamics:
             if self.settings.dynamics_mode == DynamicsMode.FULL_INDUCTION:
                 current_m_ind = inductive_m_ind
                 current_psi = psi
-                need_steady_state_for_step = self.settings.integrator == IntegratorKind.EXPONENTIAL
+                need_steady_state_for_step = (
+                    self.settings.integrator == IntegratorKind.EXPONENTIAL
+                    and self.state.get_effective_exponential_step_form() == "centered"
+                )
                 need_steady_state_for_output = (
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
                 )
@@ -312,7 +341,11 @@ class Dynamics:
             else:
                 current_m_ind = inductive_m_ind
                 current_psi = None
-                if self.settings.integrator == IntegratorKind.EXPONENTIAL or (
+                need_steady_state_for_step = (
+                    self.settings.integrator == IntegratorKind.EXPONENTIAL
+                    and self.state.get_effective_exponential_step_form() == "centered"
+                )
+                if need_steady_state_for_step or (
                     bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
                 ):
                     steady_state_psi, steady_state_m_ind = (

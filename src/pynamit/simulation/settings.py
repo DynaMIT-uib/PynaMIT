@@ -95,6 +95,14 @@ class LLConstraintMode(StringChoiceEnum):
     HARD = "hard"
 
 
+class ToroidalClosureMode(StringChoiceEnum):
+    RADIAL_SHELL = "radial_shell"
+
+
+class RadialShellForcingMode(StringChoiceEnum):
+    FROZEN_CONDUCTANCE_INCREMENTAL = "frozen_conductance_incremental"
+
+
 class ConductanceInterpolationMode(StringChoiceEnum):
     LEGACY_ETA_LINEAR = "legacy_eta_linear"
     SIGMA_LINEAR = "sigma_linear"
@@ -105,6 +113,11 @@ class ExponentialSolverKind(StringChoiceEnum):
     EXPM = "expm"
     EXPM_MULTIPLY = "expm_multiply"
     DENSE_EXPM = "dense_expm"
+
+
+class ExponentialStepForm(StringChoiceEnum):
+    AFFINE = "affine"
+    CENTERED = "centered"
 
 
 class SolutionBasisKind(StringChoiceEnum):
@@ -149,11 +162,10 @@ _VALID_WEIGHTINGS = _enum_values(WeightingMode)
 _VALID_PRECONDITIONERS = {"jacobi", "pinv"}
 _VALID_CONDUCTANCE_INTERPOLATION_MODES = _enum_values(ConductanceInterpolationMode)
 _VALID_EXPONENTIAL_SOLVERS = _enum_values(ExponentialSolverKind)
+_VALID_EXPONENTIAL_STEP_FORMS = _enum_values(ExponentialStepForm)
 _VALID_SOLUTION_BASES = _enum_values(SolutionBasisKind)
 _VALID_ARTIFACT_STORAGES = _enum_values(ArtifactStorageKind)
 _VALID_STABILIZATION_POLICIES = _enum_values(StabilizationPolicy)
-
-
 def _normalize_choice(name: str, value: Any, *, valid: set[str], allow_none: bool = False) -> Any:
     """Return normalized string choice or raise with a clear message."""
     if allow_none and value is None:
@@ -409,6 +421,9 @@ class DynamicsSettings:
     simulation_mode: SimulationMode = SimulationMode.SPECTRAL_TRANSFORM_CS
     least_squares_solver: str = "lsmr"
     stabilization_policy: StabilizationPolicy = StabilizationPolicy.AUTO
+    # Tikhonov regularization for the legacy ``m_imp`` feedback solve. This
+    # regularizes the live feedback operator used in runtime evolution, not
+    # just the auxiliary steady-state solve.
     m_imp_regularization_lambda: float = 0.0
     # Weighting strategies for handling equatorial singularity (Br -> 0)
     toroidal_weighting: WeightingMode = WeightingMode.NONE
@@ -447,6 +462,13 @@ class DynamicsSettings:
     # "expm_multiply" uses expm_multiply. Combined with ``dense_full_operators``,
     # this yields either dense-action or matrix-free-action stepping.
     exponential_solver: ExponentialSolverKind = ExponentialSolverKind.EXPM
+    # Exponential linear-step form:
+    # - affine: evolve with explicit forcing ``dy/dt = L y + K``
+    # - centered: evolve around a frozen steady state ``y_ss`` satisfying
+    #   ``L y_ss + K = 0`` for the current step forcing
+    # Legacy saved settings may still contain ``"auto"``, which is normalized
+    # to ``"affine"`` for backward compatibility.
+    exponential_step_form: ExponentialStepForm = ExponentialStepForm.AFFINE
 
     # Computed fields
     solution_basis_kind: SolutionBasisKind = SolutionBasisKind.SH
@@ -506,6 +528,16 @@ class DynamicsSettings:
         self.exponential_solver = _coerce_enum_choice(
             ExponentialSolverKind, "exponential_solver", self.exponential_solver, case="lower"
         )
+        if isinstance(self.exponential_step_form, str):
+            normalized_step_form = self.exponential_step_form.strip().lower()
+            if normalized_step_form == "auto":
+                self.exponential_step_form = ExponentialStepForm.AFFINE
+        self.exponential_step_form = _coerce_enum_choice(
+            ExponentialStepForm,
+            "exponential_step_form",
+            self.exponential_step_form,
+            case="lower",
+        )
         self.solution_basis_kind = _coerce_enum_choice(
             SolutionBasisKind, "solution_basis_kind", self.solution_basis_kind, case="upper"
         )
@@ -547,6 +579,16 @@ class DynamicsSettings:
             and self.m_imp_regularization_lambda == 0.0
         ):
             self.m_imp_regularization_lambda = 1e-4
+
+        # Connected legacy runs build their live induction operator through the
+        # m_imp feedback solve, so give that solve the same kind of mild
+        # stability default that full_induction gets on the toroidal side.
+        if (
+            self.dynamics_mode == DynamicsMode.LEGACY
+            and self.connect_hemispheres
+            and self.m_imp_regularization_lambda == 0.0
+        ):
+            self.m_imp_regularization_lambda = 1e-10
 
         # Full-induction defaults are stability defaults, not user-facing
         # behavior changes. Keep explicit user choices, only fill "none"/0 cases.
@@ -648,6 +690,7 @@ class DynamicsSettings:
         attrs["induction_null_warn_ratio"] = self.induction_null_warn_ratio
         attrs["enable_fast_input_path"] = int(self.enable_fast_input_path)
         attrs["exponential_solver"] = self.exponential_solver
+        attrs["exponential_step_form"] = self.exponential_step_form
 
         # Serialize Simulation Mode
         attrs["simulation_mode"] = self.simulation_mode.value
@@ -693,7 +736,9 @@ class DynamicsSettings:
         exp_solver = get("exponential_solver", defaults.exponential_solver)
         if exp_solver == "dense_expm":
             exp_solver = "expm"
-
+        exp_step_form = get("exponential_step_form", defaults.exponential_step_form)
+        if isinstance(exp_step_form, str) and exp_step_form.strip().lower() == "auto":
+            exp_step_form = ExponentialStepForm.AFFINE
         return DynamicsSettings(
             simulation_mode=sim_mode,
             least_squares_solver=get("least_squares_solver", defaults.least_squares_solver),
@@ -774,4 +819,5 @@ class DynamicsSettings:
                 get("enable_fast_input_path", defaults.enable_fast_input_path)
             ),
             exponential_solver=exp_solver,
+            exponential_step_form=exp_step_form,
         )

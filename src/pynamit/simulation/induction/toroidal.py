@@ -1,6 +1,6 @@
 """Toroidal system assembly for the dt_alpha evolution equation.
 
-The assembled operator has the form:
+The current live assembled operator has the form:
     L_dtalpha * dt_alpha = rhs_toroidal
 
 The field-line feedback part is assembled in the dt_alpha-native psi rewrite:
@@ -37,6 +37,15 @@ Design note for CS-dominant full induction:
 This keeps eliminated radial-structure identities and coupled toroidal
 blocks in one consistent closure basis while preserving CS-centric
 state representation.
+
+Important closure note:
+    The canonical full-induction shell closure is now ``radial_shell`` with
+    an injected shell-gap response model. Older tangential closures remain
+    only as internal benchmark/shadow implementations for diagnostics and
+    equivalent-response construction. A distinct explicit bulk
+    radial-shell BVP based directly on ``Q_I - Delta_Omega E_r,I`` is not
+    assembled in this module yet; instead the runtime uses condensed response
+    operators supplied through ``RadialShellResponseModel``.
 """
 
 from __future__ import annotations
@@ -52,6 +61,10 @@ from pynamit.utils import to_numpy, asarray, tensor_pinv
 from pynamit.simulation.spatial.geometry_utils import to_dense
 from pynamit.math.constants import mu0
 from pynamit.spherical_harmonics.gaunt import GauntEngine
+from pynamit.simulation.induction.operator_utils import coerce_dense_operator_matrix
+from pynamit.simulation.induction.radial_shell_response import (
+    RadialShellResponseModel,
+)
 from pynamit.simulation.induction.toroidal_closure import ToroidalClosureProjector
 
 logger = logging.getLogger(__name__)
@@ -88,6 +101,8 @@ class ToroidalSystemMatrices:
         b_field: Any,
         RI: float,
         RM: Optional[float] = None,
+        closure_mode: str = "radial_shell",
+        radial_shell_response_model: Optional[RadialShellResponseModel] = None,
         closure_derivative_basis: Optional[Any] = None,
         rhs_derivative_basis: Optional[Any] = None,
         radial_derivative_basis: Optional[Any] = None,
@@ -100,6 +115,8 @@ class ToroidalSystemMatrices:
         self.b_field = b_field
         self.RI = RI
         self.RM = RM
+        self.closure_mode = str(closure_mode)
+        self.radial_shell_response_model = radial_shell_response_model
         # Derivative operators:
         # - closure_derivative_basis/rhs_derivative_basis: primary derivative
         #   basis for toroidal closure assembly.
@@ -148,6 +165,8 @@ class ToroidalSystemMatrices:
             b_field=self.b_field,
             RI=self.RI,
             RM=self.RM,
+            closure_mode=self.closure_mode,
+            radial_shell_response_model=self.radial_shell_response_model,
             closure_derivative_basis=closure_basis,
             rhs_derivative_basis=closure_basis,
             radial_derivative_basis=closure_basis,
@@ -155,6 +174,51 @@ class ToroidalSystemMatrices:
             toroidal_preconditioner=self.toroidal_preconditioner,
             toroidal_tolerance=self.toroidal_tolerance,
         )
+
+    @staticmethod
+    def full_radial_shell_response_requirements() -> dict[str, Any]:
+        """Return the missing ingredients for a true radial-shell closure.
+
+        The current runtime toroidal forcing state is stored only as tangential
+        shell electric coefficients ``E_coeffs`` with shape ``(2, N)``.
+        A first-principles radial-shell closure cannot be reconstructed from
+        those coefficients alone: it also needs either the shell traces
+
+            ``E_r|_{R_I^+}`` and ``Q_I = d_r(r div_Omega(E_S))|_{R_I^+}``
+
+        or an equivalent response operator that maps the live forcing state to
+
+            ``-(Q_I - Delta_Omega E_r,I) / R_I^2``.
+        """
+        return {
+            "available": False,
+            "known_runtime_forcing": "tangential_shell_E_coeffs_only",
+            "known_runtime_forcing_shape": "(2, N)",
+            "required_shell_traces": [
+                "E_r at r = R_I^+",
+                "Q_I = d_r(r div_Omega(E_S)) at r = R_I^+",
+            ],
+            "required_equivalent_operator": (
+                "A response operator for -(Q_I - Delta_Omega E_r,I) / R_I^2 from the "
+                "live toroidal forcing state."
+            ),
+            "reason": (
+                "A true radial-shell closure is not uniquely determined by the current "
+                "runtime data, because the runtime carries only tangential shell electric "
+                "coefficients."
+            ),
+        }
+
+    def _require_radial_shell_response_model(self) -> RadialShellResponseModel:
+        """Return the configured full radial-shell response model or raise."""
+        if self.radial_shell_response_model is None:
+            requirements = self.full_radial_shell_response_requirements()
+            raise NotImplementedError(
+                "toroidal_closure_mode='radial_shell' requires a concrete "
+                "RadialShellResponseModel. "
+                f"Requirements: {requirements!r}"
+            )
+        return self.radial_shell_response_model
 
     @cached_property
     def _toroidal_closure_projector(self) -> ToroidalClosureProjector:
@@ -416,6 +480,12 @@ class ToroidalSystemMatrices:
             # Grid-native residual rows.
             return np.sqrt(q_weights) * w_base
 
+        if n_rows == 2 * w_base.size:
+            # Stacked tangential full rows: apply the same grid-native weight to
+            # both tangential scalar components.
+            row_weight = np.sqrt(q_weights) * w_base
+            return np.concatenate([row_weight, row_weight])
+
         # Spectral residual rows: build effective metric in coefficient space,
         # then provide its matrix square-root to LeastSquaresProblem.
         G_scalar = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)))
@@ -530,12 +600,13 @@ class ToroidalSystemMatrices:
 
     @cached_property
     def mass_dtalpha(self) -> np.ndarray:
-        """Construct alpha-space inertia matrix.
+        """Construct tangentially projected alpha-space inertia matrix.
 
         For unknown ``dt_alpha`` (with ``dt_jr = B0r * dt_alpha``), the inertia
         block is:
             ``C_alpha = mu0 * <Y, |B0s|^2 Y>``.
-        This avoids explicit ``1/B0r`` factors in the solved physics operator.
+        This belongs to the current tangentially projected toroidal closure and
+        should not be read as a generic first-principles radial-shell mass term.
         """
         logger.info("Building Toroidal Alpha-Space Inertia Matrix...")
 
@@ -645,13 +716,30 @@ class ToroidalSystemMatrices:
         -------
         np.ndarray
             Matrix of shape ``(N, 2*N)`` mapping flattened ``E_coeffs`` to RHS coefficients.
+
+        Notes
+        -----
+        This is the current Er-free tangential RHS operator used by the live
+        projected-shell toroidal closure. It is not an explicit implementation
+        of the radial-shell response operator ``Q_I - Delta_Omega E_r,I``.
         """
         if self._use_auxiliary_closure_basis:
             aux = self._auxiliary_closure_matrices
-            F_aux = np.asarray(aux.toroidal_rhs_from_E_operator)
+            if self.closure_mode == "radial_shell":
+                F_aux = np.asarray(aux.full_radial_shell_rhs_from_E_operator)
+            elif self.closure_mode == "tangential_full":
+                F_aux = np.asarray(aux.tangential_full_rhs_from_E_operator)
+            else:
+                F_aux = np.asarray(aux.toroidal_rhs_from_E_operator)
             return asarray(
                 self._toroidal_closure_projector.project_vector_rhs_operator_to_state(F_aux)
             )
+
+        if self.closure_mode == "radial_shell":
+            return asarray(self.full_radial_shell_rhs_from_E_operator)
+
+        if self.closure_mode == "tangential_full":
+            return asarray(self.tangential_full_rhs_from_E_operator)
 
         if self.is_cs:
             return asarray(self._build_cs_toroidal_rhs_from_E_operator())
@@ -761,7 +849,42 @@ class ToroidalSystemMatrices:
     def _assemble_toroidal_rhs_from_tangential_maps(
         self, *, V_th: np.ndarray, V_ph: np.ndarray, D_th: np.ndarray, D_ph: np.ndarray
     ) -> np.ndarray:
-        """Assemble the Er-free toroidal RHS map from tangential E component maps."""
+        """Assemble the current inductive tangential toroidal RHS map.
+
+        This is the forcing block used by the live tangential toroidal closure.
+        Define the surface-curl scalar
+
+            ``c = curl_Omega(E_S)``
+                ``= d_theta(E_phi) + cot(theta) E_phi - d_phi^*(E_theta)``.
+
+        The current forcing object is then
+
+            ``f_ind(E_S)``
+                ``= (1/R_I^2) * [ B0theta * d_phi^*(c) - B0phi * d_theta(c) ]``.
+
+        Equivalently, if ``omega_E = hat(r)·curl(E) = c / R_I``, then this is
+
+            ``f_ind(E_S) = B0S · curl(omega_E * hat(r))``.
+
+        So the live toroidal forcing depends only on the inductive
+        ``curl_Omega(E_S)`` content of the shell tangential electric field. In
+        particular, pure curl-free shell electric fields do not drive this
+        forcing block. This is why the operator is a plausible forcing-side
+        object for the tangential projected closure, and why it should not be
+        conflated with shell-current continuity formulas built from the
+        instantaneous current ``K_S = Sigma E_S``.
+
+        Relative to the exact projected Maxwell driver
+
+            ``B0S · [ -curl(curl(E)) ]_S``,
+
+        this block keeps only the contribution from the radial curl scalar
+        ``hat(r)·curl(E)``. The complementary contribution from the tangential
+        part of ``curl(E)`` is omitted in this reduced forcing operator.
+
+        It should still be treated as a tangential closure block, not as a
+        direct implementation of the radial-shell response operator.
+        """
         P = np.asarray(to_dense(self.projection_matrix), dtype=float)
         _, cot_th, n_grid = self._grid_metric_terms
         _, B0th, B0ph, _ = self._background_field_grid_components
@@ -777,6 +900,41 @@ class ToroidalSystemMatrices:
         inv_Rb2 = 1.0 / (float(self.RI) ** 2)
         S_op = inv_Rb2 * ((B0th[:, None] * dph_curlE_op) - (B0ph[:, None] * dth_curlE_op))
         return asarray(P @ S_op)
+
+    def _assemble_tangential_full_rhs_from_tangential_maps(
+        self, *, V_th: np.ndarray, V_ph: np.ndarray, D_th: np.ndarray, D_ph: np.ndarray
+    ) -> np.ndarray:
+        """Assemble stacked projected/perpendicular tangential forcing operators.
+
+        This keeps both scalar contractions of the same Er-free tangential
+        driver field that underlies the current projected RHS construction:
+
+            ``B0S · F_t(E)``
+            ``B0S_perp · F_t(E)``.
+        """
+        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
+        _, cot_th, n_grid = self._grid_metric_terms
+        _, B0th, B0ph, _ = self._background_field_grid_components
+        if V_th.shape[0] != n_grid or V_ph.shape[0] != n_grid:
+            raise ValueError(
+                "Tangential component map height mismatch in full tangential RHS assembly: "
+                f"V_th={V_th.shape}, V_ph={V_ph.shape}, n_grid={n_grid}."
+            )
+
+        curlE_op = (D_th @ V_ph) + (cot_th[:, None] * V_ph) - (D_ph @ V_th)
+        dth_curlE_op = D_th @ curlE_op
+        dph_curlE_op = D_ph @ curlE_op
+        inv_Rb2 = 1.0 / (float(self.RI) ** 2)
+        force_theta_op = inv_Rb2 * dph_curlE_op
+        force_phi_op = -inv_Rb2 * dth_curlE_op
+
+        projected_grid_op = (B0th[:, None] * force_theta_op) + (B0ph[:, None] * force_phi_op)
+        perpendicular_grid_op = (-B0ph[:, None] * force_theta_op) + (
+            B0th[:, None] * force_phi_op
+        )
+        projected_coeff_op = P @ projected_grid_op
+        perpendicular_coeff_op = P @ perpendicular_grid_op
+        return asarray(np.vstack([projected_coeff_op, perpendicular_coeff_op]))
 
     def _build_sh_toroidal_rhs_from_E_operator(self) -> np.ndarray:
         """Build SH toroidal RHS map ``E_coeffs -> rhs``.
@@ -808,13 +966,246 @@ class ToroidalSystemMatrices:
             V_th=V_th, V_ph=V_ph, D_th=D_th, D_ph=D_ph
         )
 
+    @cached_property
+    def full_radial_shell_rhs_from_E_operator(self) -> np.ndarray:
+        """Build the explicit full radial-shell RHS map ``E_coeffs -> rhs``.
+
+        This path is only available when a concrete ``RadialShellResponseModel``
+        is injected. The model is expected to represent the shell scalar
+        response
+
+            ``-(Q_I - Delta_Omega E_r,I) / R_I^2``
+
+        in the live toroidal coefficient space.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_rhs_operator(self)
+        if op is None:
+            n = int(self.basis.index_length)
+            e_to_rhs = np.zeros((n, 2 * n), dtype=float)
+            for i in range(2 * n):
+                e_i = np.zeros(2 * n, dtype=float)
+                e_i[i] = 1.0
+                rhs_i = model.compute_rhs(self, e_i.reshape(2, n))
+                e_to_rhs[:, i] = np.asarray(rhs_i, dtype=float).reshape(-1)
+            return asarray(e_to_rhs)
+
+        n = int(self.basis.index_length)
+        dense = np.asarray(
+            coerce_dense_operator_matrix(op, n_cols=2 * n),
+            dtype=float,
+        )
+        if dense.shape != (n, 2 * n):
+            raise ValueError(
+                "Full radial-shell response operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {2 * n})."
+            )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_known_source_from_E_operator(self) -> np.ndarray:
+        """Return the known upper-side shell-current source map ``E_coeffs -> dt_jr^+``.
+
+        The exact radial-shell scalar balance can be written as
+
+            ``mu0 * dt_jr^+ = -(Q_I - Delta_Omega E_r,I) / R_I^2``.
+
+        The existing full radial-shell RHS operator is the coefficient-space
+        representation of the left-hand side ``mu0 * dt_jr^+``. This property
+        exposes the underlying shell-current source map directly:
+
+            ``dt_jr^+ = (1 / mu0) * rhs``.
+
+        This is the natural ``g_surf``-level operator for the known forcing
+        branch of the radial-shell closure.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_known_source_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, 2 * n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=2 * n), dtype=float)
+        if dense.shape != (n, 2 * n):
+            raise ValueError(
+                "Full radial-shell known-source operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {2 * n})."
+        )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_gamma_known_operator(self) -> np.ndarray:
+        """Alias for the forcing-side condensed source operator ``Gamma_known``."""
+        return asarray(np.asarray(self.full_radial_shell_known_source_from_E_operator, dtype=float))
+
+    @cached_property
+    def full_radial_shell_known_source_from_JS_operator(self) -> np.ndarray:
+        """Return the current-first shell source map ``J_S,coeffs -> dt_jr^+``.
+
+        Some explicit radial-shell forcing models are most naturally written in
+        terms of the shell-current increment first,
+
+            ``dtK_S,known -> dt_jr,known^+``,
+
+        with any shell-electric interpretation supplied only as a constitutive
+        adapter on top. This property exposes that primitive shell-current
+        source operator when the configured response model provides it.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_known_source_from_js_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, 2 * n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=2 * n), dtype=float)
+        if dense.shape != (n, 2 * n):
+            raise ValueError(
+                "Full radial-shell known-source-from-JS operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {2 * n})."
+            )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_gamma_known_from_JS_operator(self) -> np.ndarray:
+        """Alias for the current-first condensed source operator ``Gamma_known^(J)``."""
+        return asarray(np.asarray(self.full_radial_shell_known_source_from_JS_operator, dtype=float))
+
+    @cached_property
+    def full_radial_shell_q_trace_from_JS_operator(self) -> np.ndarray:
+        """Return the current-first shell trace map ``J_S,coeffs -> q``.
+
+        When a forcing model exposes a primitive shell-current source law, the
+        exact shell inversion also determines the corresponding
+
+            ``q = d_r U|_{R_I^+} - E_{r,I}``
+
+        trace in the mean-zero shell gauge.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_q_trace_from_js_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, 2 * n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=2 * n), dtype=float)
+        if dense.shape != (n, 2 * n):
+            raise ValueError(
+                "Full radial-shell q-trace-from-JS operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {2 * n})."
+            )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_d_q_from_JS_operator(self) -> np.ndarray:
+        """Alias for the current-first trace operator ``D_q^(J)``."""
+        return asarray(np.asarray(self.full_radial_shell_q_trace_from_JS_operator, dtype=float))
+
+    @cached_property
+    def full_radial_shell_q_trace_from_E_operator(self) -> np.ndarray:
+        """Return the exact forcing-side shell trace map ``E_coeffs -> q``.
+
+        With ideality adopted, the exact forcing-side radial-shell trace is
+
+            ``q = d_r U|_{R_I^+} - E_{r,I}``
+
+        and satisfies the one-curl shell identity
+
+            ``R_I * dt_psi^+ = Pi0(q)``
+            ``dt_jr^+ = -(1/mu0) * Delta_S(q)``.
+
+        This property exposes the corresponding shell operator directly. By
+        default, configured radial-shell response models may either assemble
+        ``q`` explicitly or allow it to be recovered exactly from the known
+        source operator via the shell inversion
+
+            ``q = R_I * jr_to_psi * dt_jr^+``.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_q_trace_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, 2 * n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=2 * n), dtype=float)
+        if dense.shape != (n, 2 * n):
+            raise ValueError(
+                "Full radial-shell q-trace operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {2 * n})."
+        )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_d_q_operator(self) -> np.ndarray:
+        """Alias for the forcing-side trace operator ``D_q``."""
+        return asarray(np.asarray(self.full_radial_shell_q_trace_from_E_operator, dtype=float))
+
+    @cached_property
+    def full_radial_shell_lambda_gap_operator(self) -> np.ndarray:
+        """Return the shell operator ``Lambda_gap`` acting on ``chi = dt_psi^+``.
+
+        In the unified shell-source view,
+
+            ``Lambda_gap(chi) = dt_jr^+``
+
+        with the exact shell relation
+
+            ``Lambda_gap = -(R_I / mu0) * Delta_S``.
+
+        Concrete radial-shell response models may expose this through the
+        common gap/co-energy interface even when their forcing-side source is
+        still built by a reduced or current-first runtime model.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_lambda_gap_operator(self)
+        n = int(self.basis.index_length)
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=n), dtype=float)
+        if dense.shape != (n, n):
+            raise ValueError(
+                "Full radial-shell Lambda_gap operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {n})."
+        )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_condensed_operators(self) -> Any:
+        """Return the unified shell-level operator bundle for the active branch."""
+        model = self._require_radial_shell_response_model()
+        return model.build_condensed_operators(self)
+
+    @cached_property
+    def tangential_full_rhs_from_E_operator(self) -> np.ndarray:
+        """Build stacked projected/perpendicular tangential RHS coefficients."""
+        V_th, V_ph, _ = self._vector_basis_component_maps
+        D_th, D_ph = self._rhs_scalar_derivative_operators
+        return self._assemble_tangential_full_rhs_from_tangential_maps(
+            V_th=V_th, V_ph=V_ph, D_th=D_th, D_ph=D_ph
+        )
+
     def compute_toroidal_rhs_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
         """Compute toroidal RHS coefficients from known E-field coefficients.
 
         Computes:
             rhs_lm = Projection(S_known)
-        where ``S_known`` is derived from Faraday and Gauss identities after
-        eliminating radial derivatives of ``E``.
+        where ``S_known`` is the live inductive forcing scalar built from the
+        shell tangential electric field only. In the SH/CS implementations,
+        this is the projected scalar
+
+            ``c = curl_Omega(E_S)``
+            ``S_known = (1/R_I^2) * [ B0theta * d_phi^*(c) - B0phi * d_theta(c) ]``.
+
+        Equivalently, with ``omega_E = hat(r)·curl(E) = c / R_I``,
+
+            ``S_known = B0S · curl(omega_E * hat(r))``.
+
+        So the forcing uses only the curl/Faraday content of ``E_S`` after the
+        adopted elimination of radial electric derivatives. It is the forcing
+        object of the current tangential closure, not the radial-shell scalar
+        ``-(Q_I - Delta_Omega E_r,I)/R^2``.
+
+        In the exact projected Maxwell driver, there is an additional
+        contribution from the tangential part of ``curl(E)``. This routine
+        intentionally omits that complementary term and therefore implements
+        the reduced tangential forcing block, not the full projected driver.
 
         Parameters
         ----------
@@ -826,12 +1217,31 @@ class ToroidalSystemMatrices:
         The sign convention is inherited from the basis projection operator.
         In this code path we apply the basis projection directly:
             ``K = P @ S_known``.
+
+        This routine belongs to the current tangentially projected toroidal
+        closure path. It does not provide a direct implementation of the
+        radial-shell scalar response ``-(Q_I - Delta_Omega E_r,I)/R^2``.
         """
+        if self.closure_mode == "radial_shell":
+            return self.compute_full_radial_shell_rhs_from_E(E_coeffs)
+
+        if self.closure_mode == "tangential_full":
+            op = np.asarray(self.tangential_full_rhs_from_E_operator, dtype=float)
+            return np.asarray(op @ np.asarray(E_coeffs).reshape(-1)).reshape(-1)
+
         if self.is_cs or is_sh_basis(self.basis):
             rhs_e = self._apply_direct_toroidal_rhs_operator(E_coeffs)
         else:
             rhs_e = self._compute_generic_toroidal_rhs_from_E(E_coeffs)
         return asarray(rhs_e)
+
+    def compute_full_radial_shell_rhs_from_E(self, E_coeffs: np.ndarray) -> np.ndarray:
+        """Compute the full radial-shell RHS using an injected response model."""
+        model = self._require_radial_shell_response_model()
+        if model.build_rhs_operator(self) is not None:
+            op = np.asarray(self.full_radial_shell_rhs_from_E_operator, dtype=float)
+            return np.asarray(op @ np.asarray(E_coeffs).reshape(-1)).reshape(-1)
+        return np.asarray(model.compute_rhs(self, E_coeffs), dtype=float).reshape(-1)
 
     @cached_property
     def fieldline_advection_operator_raw(self) -> np.ndarray:
@@ -874,12 +1284,20 @@ class ToroidalSystemMatrices:
 
     @cached_property
     def dtalpha_operator(self) -> np.ndarray:
-        """Assemble the alpha-space physics operator ``L_alpha``.
+        """Assemble the current alpha-space physics operator ``L_alpha``.
 
         Unknown is ``dt_alpha``. The assembled operator is the dt_alpha-native
         psi rewrite:
             ``(mass_dtalpha + A_raw @ ((1/R) * T_alpha_to_psi + D_r_dt_psi_from_dtalpha)) @ dt_alpha = K``.
+
+        This is the live tangentially projected toroidal closure operator.
         """
+        if self.closure_mode == "radial_shell":
+            return asarray(self.full_radial_shell_dtalpha_operator)
+
+        if self.closure_mode == "tangential_full":
+            return asarray(self.first_principles_projected_dtalpha_operator)
+
         mass_dtalpha = np.asarray(to_numpy(self.mass_dtalpha))
         toroidal_feedback_dtalpha = np.asarray(
             to_numpy(self.toroidal_potential_feedback_dtalpha_operator)
@@ -887,13 +1305,224 @@ class ToroidalSystemMatrices:
         return asarray(mass_dtalpha + toroidal_feedback_dtalpha)
 
     @cached_property
-    def _dtalpha_grid_residual_maps(self) -> tuple[np.ndarray, np.ndarray]:
-        """Return ``(R_grid, A_grid)`` for residuals ``A_grid x - R_grid b``.
+    def radial_shell_mass_dtalpha_operator(self) -> np.ndarray:
+        """Return the shell-current mass block ``mu0 * T_alpha_to_jr``.
 
-        Unknown ``x`` is ``dt_alpha`` in coefficient space, with
-        ``A_grid = R_grid @ L_alpha``.
+        This is the universal left-hand mass term in the reduced shell source
+        law,
+
+            ``mu0 * B0r * dt_alpha = dt_jr,known^+ + dt_jr,induced^+``,
+
+        expressed in coefficient space through the weak-form map
+
+            ``mu0 * T_alpha_to_jr``.
+
+        It is shared by all explicit radial-shell closures and is not itself a
+        closure approximation.
         """
-        L_alpha = np.asarray(to_numpy(self.dtalpha_operator))
+        return asarray(mu0 * np.asarray(to_numpy(self.alpha_to_jr_coeff_operator)))
+
+    @cached_property
+    def full_radial_shell_feedback_dtalpha_operator(self) -> np.ndarray:
+        """Return induced dt_alpha feedback for the explicit radial-shell closure.
+
+        A concrete radial-shell response model may provide a dense feedback map
+
+            ``dt_alpha -> feedback(dt_alpha)``
+
+        representing the induced shell scalar contribution in
+
+            ``mu0 * B0r * dt_alpha = rhs_driver + feedback(dt_alpha)``.
+
+        The scalar radial-shell closure therefore enters the left-hand side as
+
+            ``mu0 * B0r * dt_alpha - feedback(dt_alpha)``.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_feedback_dtalpha_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=n), dtype=float)
+        if dense.shape != (n, n):
+            raise ValueError(
+                "Full radial-shell dt_alpha feedback operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {n})."
+            )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_induced_source_dtalpha_operator(self) -> np.ndarray:
+        """Return the induced upper-side shell-current source ``dt_alpha -> dt_jr^+``.
+
+        In the exact radial-shell connector equation,
+
+            ``mu0 * dt_jr^+ = feedback(dt_alpha)``,
+
+        where the configured :class:`RadialShellResponseModel` supplies the
+        coefficient-space feedback block. This property exposes the
+        corresponding source-level operator directly:
+
+            ``dt_jr^+ = (1 / mu0) * feedback(dt_alpha)``.
+
+        Together with ``full_radial_shell_known_source_from_E_operator``, this
+        gives the radial-shell closure in the source form
+
+            ``-(R_I / mu0) * Delta_S(dt_psi^+) = dt_jr,known^+ + dt_jr,induced^+``.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_induced_source_dtalpha_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=n), dtype=float)
+        if dense.shape != (n, n):
+            raise ValueError(
+                "Full radial-shell induced-source operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {n})."
+            )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_induced_q_trace_dtalpha_operator(self) -> np.ndarray:
+        """Return the induced shell trace map ``dt_alpha -> q = d_r U - E_r``.
+
+        This mirrors the forcing-side ``q`` exposure, but for the induced
+        branch. Once the induced upper-side shell-current source is known, the
+        exact shell inversion determines the mean-zero induced trace through
+
+            ``q_induced = R_I * jr_to_psi * dt_jr,induced^+``.
+        """
+        model = self._require_radial_shell_response_model()
+        op = model.build_induced_q_trace_from_dtalpha_operator(self)
+        n = int(self.basis.index_length)
+        if op is None:
+            return asarray(np.zeros((n, n), dtype=float))
+
+        dense = np.asarray(coerce_dense_operator_matrix(op, n_cols=n), dtype=float)
+        if dense.shape != (n, n):
+            raise ValueError(
+                "Full radial-shell induced q-trace operator has wrong shape: "
+                f"{dense.shape}, expected ({n}, {n})."
+            )
+        return asarray(dense)
+
+    @cached_property
+    def full_radial_shell_dtalpha_operator(self) -> np.ndarray:
+        """Return the explicit radial-shell dt_alpha closure operator.
+
+        This assembles the scalar radial-shell left-hand side
+
+            ``mu0 * B0r * dt_alpha - feedback(dt_alpha)``.
+
+        Any nonlocal induced feedback is delegated to the configured
+        :class:`RadialShellResponseModel`.
+        """
+        mass_dtalpha = np.asarray(self.radial_shell_mass_dtalpha_operator, dtype=float)
+        feedback_dtalpha = np.asarray(self.full_radial_shell_feedback_dtalpha_operator, dtype=float)
+        return asarray(mass_dtalpha - feedback_dtalpha)
+
+    @cached_property
+    def full_tangential_balance_residual_grid_operators(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return grid residual maps for the exact tangential vector shell balance.
+
+        For
+
+            ``X = dt_psi + R_I * d_r(dt_psi)``
+
+        the exact tangential vector identity is
+
+            ``mu0 * dt_alpha * B0S = grad_S(X)``.
+
+        This property returns the grid-space residual operators for the theta
+        and phi-star components of
+
+            ``mu0 * dt_alpha * B0S - grad_S(X)``.
+        """
+        G = np.asarray(to_dense(self.basis.get_evaluation_matrix(self.grid)), dtype=float)
+        G_th = np.asarray(
+            to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="theta")),
+            dtype=float,
+        )
+        G_ph = np.asarray(
+            to_dense(self.basis.get_evaluation_matrix(self.grid, derivative="phi")),
+            dtype=float,
+        )
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
+        x_from_dtalpha = np.asarray(to_numpy(self.alpha_to_psi_coeff_operator), dtype=float) + (
+            float(self.RI) * np.asarray(to_numpy(self.radial_closure_dt_psi_from_dtalpha), dtype=float)
+        )
+        inv_Rb = 1.0 / float(self.RI)
+
+        residual_theta = (mu0 * B0th[:, None] * G) - (inv_Rb * (G_th @ x_from_dtalpha))
+        residual_phi = (mu0 * B0ph[:, None] * G) - (inv_Rb * (G_ph @ x_from_dtalpha))
+        return asarray(residual_theta), asarray(residual_phi)
+
+    @cached_property
+    def first_principles_projected_dtalpha_operator_grid(self) -> np.ndarray:
+        """Return grid map for the exact projected tangential shell closure.
+
+        This is the scalar operator obtained by contracting the full
+        tangential-vector residual with ``B0S``:
+
+            ``B0S · (mu0 * dt_alpha * B0S - grad_S(X))``.
+        """
+        residual_theta, residual_phi = self.full_tangential_balance_residual_grid_operators
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
+        return asarray((B0th[:, None] * residual_theta) + (B0ph[:, None] * residual_phi))
+
+    @cached_property
+    def first_principles_projected_dtalpha_operator(self) -> np.ndarray:
+        """Return coefficient-space projected tangential operator from first principles."""
+        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
+        return asarray(P @ np.asarray(self.first_principles_projected_dtalpha_operator_grid, dtype=float))
+
+    @cached_property
+    def first_principles_perpendicular_dtalpha_operator_grid(self) -> np.ndarray:
+        """Return grid map for the tangential component dropped by projection.
+
+        This contracts the exact tangential-vector residual with the in-shell
+        vector perpendicular to ``B0S``,
+
+            ``B0S_perp = (-B0phi, B0theta)``.
+
+        If this operator is active on the solved ``dt_alpha``, the projected
+        scalar closure is discarding nontrivial tangential-balance content.
+        """
+        residual_theta, residual_phi = self.full_tangential_balance_residual_grid_operators
+        B0th = np.asarray(to_numpy(self.b_field.vec.theta)).reshape(-1)
+        B0ph = np.asarray(to_numpy(self.b_field.vec.phi)).reshape(-1)
+        return asarray((-B0ph[:, None] * residual_theta) + (B0th[:, None] * residual_phi))
+
+    @cached_property
+    def first_principles_perpendicular_dtalpha_operator(self) -> np.ndarray:
+        """Return coefficient-space operator for the dropped perpendicular component."""
+        P = np.asarray(to_dense(self.projection_matrix), dtype=float)
+        return asarray(
+            P @ np.asarray(self.first_principles_perpendicular_dtalpha_operator_grid, dtype=float)
+        )
+
+    @cached_property
+    def physics_residual_coeff_operator(self) -> np.ndarray:
+        """Return coefficient-space physics residual operator for the active closure."""
+        if self.closure_mode == "tangential_full":
+            return asarray(
+                np.vstack(
+                    [
+                        np.asarray(self.first_principles_projected_dtalpha_operator, dtype=float),
+                        np.asarray(self.first_principles_perpendicular_dtalpha_operator, dtype=float),
+                    ]
+                )
+            )
+        return asarray(np.asarray(to_numpy(self.dtalpha_operator), dtype=float))
+
+    @cached_property
+    def physics_rhs_lift_operator(self) -> np.ndarray:
+        """Return dense map from physics RHS coefficients to least-squares row RHS."""
         R_grid = to_dense(self.basis.get_evaluation_matrix(self.grid))
         if scipy.sparse.issparse(R_grid):
             R_grid = R_grid.toarray()
@@ -901,14 +1530,34 @@ class ToroidalSystemMatrices:
 
         if R_grid.ndim != 2:
             R_grid = R_grid.reshape(R_grid.shape[0], -1)
-        if R_grid.shape[1] != L_alpha.shape[0]:
-            raise ValueError(
-                "Grid residual map shape mismatch: "
-                f"R_grid={R_grid.shape}, L_alpha={L_alpha.shape}."
-            )
+        rhs_cols = int(np.asarray(self.toroidal_rhs_from_E_operator, dtype=float).shape[0])
+        if self.closure_mode == "tangential_full":
+            if (2 * R_grid.shape[1]) != rhs_cols:
+                raise ValueError(
+                    "Tangential-full RHS lift mismatch: "
+                    f"R_grid={R_grid.shape}, rhs_cols={rhs_cols}."
+                )
+            zeros = np.zeros_like(R_grid)
+            return asarray(np.block([[R_grid, zeros], [zeros, R_grid]]))
 
-        A_grid = R_grid @ L_alpha
-        return R_grid, A_grid
+        if R_grid.shape[1] != rhs_cols:
+            raise ValueError(
+                "Physics RHS lift mismatch: "
+                f"R_grid={R_grid.shape}, rhs_cols={rhs_cols}."
+            )
+        return asarray(R_grid)
+
+    @cached_property
+    def physics_residual_row_operator(self) -> np.ndarray:
+        """Return least-squares row operator for the active toroidal physics block."""
+        row_lift = np.asarray(self.physics_rhs_lift_operator, dtype=float)
+        residual_coeff = np.asarray(self.physics_residual_coeff_operator, dtype=float)
+        if row_lift.shape[1] != residual_coeff.shape[0]:
+            raise ValueError(
+                "Physics row operator shape mismatch: "
+                f"row_lift={row_lift.shape}, residual_coeff={residual_coeff.shape}."
+            )
+        return asarray(row_lift @ residual_coeff)
 
     @cached_property
     def projection_matrix(self) -> np.ndarray:

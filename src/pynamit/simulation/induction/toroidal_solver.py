@@ -37,7 +37,7 @@ class DtAlphaSolveSystem:
     """Bundle the structured ``dt_alpha`` least-squares solve definition."""
 
     solve_system: ConstrainedStructuredLeastSquaresSubproblem
-    r_grid: np.ndarray
+    physics_rhs_lift: np.ndarray
     penalty_term_index: Optional[int] = None
 
     @property
@@ -58,16 +58,16 @@ class DtAlphaSolveSystem:
     @property
     def grid_rows(self) -> int:
         """Return the number of grid residual rows in the physics term."""
-        return int(np.asarray(self.r_grid, dtype=float).shape[0])
+        return int(np.asarray(self.physics_rhs_lift, dtype=float).shape[0])
 
     def physics_rhs_to_grid_rhs(self, rhs_coeffs: np.ndarray) -> np.ndarray:
         """Map coefficient-space RHS columns to grid-space RHS columns."""
-        r_grid = np.asarray(self.r_grid, dtype=float)
+        rhs_lift = np.asarray(self.physics_rhs_lift, dtype=float)
         rhs_arr = np.asarray(to_numpy(rhs_coeffs))
         if rhs_arr.ndim == 1:
-            return r_grid @ rhs_arr.reshape(-1, 1)
+            return rhs_lift @ rhs_arr.reshape(-1, 1)
         rhs_2d = rhs_arr.reshape(rhs_arr.shape[0], -1)
-        return r_grid @ rhs_2d
+        return rhs_lift @ rhs_2d
 
     def build_rhs_terms(
         self,
@@ -142,9 +142,14 @@ class ToroidalSolver:
 
         from pynamit.math.linear_map import as_linear_map, diagonal_linear_map
 
-        dtalpha_operator = np.asarray(to_numpy(mats.dtalpha_operator))
-        n_coeff = dtalpha_operator.shape[0]
-        r_grid, a_grid = mats._dtalpha_grid_residual_maps
+        residual_coeff_operator = np.asarray(to_numpy(mats.physics_residual_coeff_operator))
+        if residual_coeff_operator.ndim != 2:
+            residual_coeff_operator = residual_coeff_operator.reshape(
+                residual_coeff_operator.shape[0], -1
+            )
+        n_coeff = int(residual_coeff_operator.shape[1])
+        a_grid = np.asarray(to_numpy(mats.physics_residual_row_operator), dtype=float)
+        physics_rhs_lift = np.asarray(to_numpy(mats.physics_rhs_lift_operator), dtype=float)
         op_a_grid = as_linear_map(a_grid)
         physics_weight = mats._build_physics_sqrt_weight(op_a_grid.shape[0], weighting)
 
@@ -180,7 +185,7 @@ class ToroidalSolver:
         solve_system = subproblem.with_equality()
         solve_bundle = DtAlphaSolveSystem(
             solve_system=solve_system,
-            r_grid=np.asarray(r_grid, dtype=float),
+            physics_rhs_lift=physics_rhs_lift,
             penalty_term_index=penalty_term_index,
         )
         mats._toroidal_problem_cache[cache_key] = solve_bundle
@@ -284,7 +289,8 @@ class ToroidalSolver:
         cached = mats._dtalpha_unconstrained_map_cache.get(key)
         if cached is not None:
             return cached
-        rhs_physics_basis = np.eye(n_coeff, dtype=float)
+        rhs_dim = int(np.asarray(self._mats.toroidal_rhs_from_E_operator, dtype=float).shape[0])
+        rhs_physics_basis = np.eye(rhs_dim, dtype=float)
         alpha_map = np.asarray(
             self._solve_dtalpha_problem(
                 rhs_physics_coeffs=rhs_physics_basis,
@@ -294,7 +300,7 @@ class ToroidalSolver:
                 penalty_scaling=penalty_scaling,
                 hinv_rtol=hinv_rtol,
             )
-        ).reshape(n_coeff, n_coeff)
+        ).reshape(n_coeff, rhs_dim)
         mats._dtalpha_unconstrained_map_cache[key] = alpha_map
         return alpha_map
 
@@ -315,6 +321,7 @@ class ToroidalSolver:
             c_dtalpha = c_dtalpha.reshape(c_dtalpha.shape[0], -1)
         n_coeff = int(c_dtalpha.shape[1])
         m_constraints = int(c_dtalpha.shape[0])
+        rhs_dim = int(np.asarray(mats.toroidal_rhs_from_E_operator, dtype=float).shape[0])
         rcond = self._resolve_rcond(n_coeff=n_coeff, hinv_rtol=hinv_rtol)
         key = (
             id(alpha_map_operator),
@@ -331,7 +338,7 @@ class ToroidalSolver:
 
         m_phys_dtalpha = np.asarray(
             self._solve_dtalpha_problem(
-                rhs_physics_coeffs=np.eye(n_coeff, dtype=float),
+                rhs_physics_coeffs=np.eye(rhs_dim, dtype=float),
                 weighting=weighting,
                 regularization_lambda=regularization_lambda,
                 penalty_operator=penalty_operator,
@@ -340,12 +347,12 @@ class ToroidalSolver:
                 equality_operator=c_dtalpha,
                 equality_rhs=np.zeros(m_constraints, dtype=float),
             )
-        ).reshape(n_coeff, n_coeff)
+        ).reshape(n_coeff, rhs_dim)
 
         if m_constraints > 0:
             m_corr_dtalpha = np.asarray(
                 self._solve_dtalpha_problem(
-                    rhs_physics_coeffs=np.zeros((n_coeff, m_constraints), dtype=float),
+                    rhs_physics_coeffs=np.zeros((rhs_dim, m_constraints), dtype=float),
                     weighting=weighting,
                     regularization_lambda=regularization_lambda,
                     penalty_operator=penalty_operator,

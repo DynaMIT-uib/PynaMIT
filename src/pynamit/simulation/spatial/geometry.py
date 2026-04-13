@@ -407,6 +407,24 @@ class Geometry:
         else:
             return self._get_conductivity_operator_grid(potential_type, eta_grid)
 
+    def get_JS_to_E_coeffs_operator(
+        self,
+        mode: Any,
+        eta_grid: np.ndarray,
+        etaP: Optional[Any] = None,
+        etaH: Optional[Any] = None,
+    ) -> "LinearMap":
+        """Construct the explicit post-resistivity operator ``J_S -> E_coeffs``.
+
+        This is the purely shell-electrodynamic part of the chain. Combined
+        with ``get_potential_to_JS_operator(...)`` it gives the factorization
+
+            ``potential -> J_S -> E_coeffs``.
+        """
+        if mode == SimulationMode.PURE_SPECTRAL:
+            return self._get_JS_to_E_coeffs_operator_spectral(eta_grid, etaP, etaH)
+        return self._get_JS_to_E_coeffs_operator_grid(eta_grid)
+
     def get_potential_to_E_coeffs_operator(
         self,
         mode: Any,
@@ -428,15 +446,15 @@ class Geometry:
         etaH: Optional[Any] = None,
     ) -> "LinearMap":
         """Build spectral (Galerkin) conductivity operator."""
-        from pynamit.utils import to_numpy
-
         # Get potential-to-JS operator in VSH representation
         op_JS = self.get_potential_to_JS_operator(potential_type, mode=None)
 
-        # Build resistivity interaction matrix in VSH space
-        M_vsh = self._build_resistivity_interaction_matrix(eta_grid, etaP, etaH)
-
-        return as_linear_map(M_vsh) @ op_JS
+        return self.get_JS_to_E_coeffs_operator(
+            mode=SimulationMode.PURE_SPECTRAL,
+            eta_grid=eta_grid,
+            etaP=etaP,
+            etaH=etaH,
+        ) @ op_JS
 
     def _get_conductivity_operator_grid(
         self, potential_type: str, eta_grid: np.ndarray
@@ -447,13 +465,26 @@ class Geometry:
         if op_JS is None:
             return None
 
-        # Apply resistivity tensor and project back to coefficients
+        return self.get_JS_to_E_coeffs_operator(
+            mode=SimulationMode.CS_DOMINANT,
+            eta_grid=eta_grid,
+        ) @ op_JS
+
+    def _get_JS_to_E_coeffs_operator_spectral(
+        self,
+        eta_grid: np.ndarray,
+        etaP: Optional[Any] = None,
+        etaH: Optional[Any] = None,
+    ) -> "LinearMap":
+        """Build spectral (Galerkin) post-resistivity operator ``J_S -> E_coeffs``."""
+        M_vsh = self._build_resistivity_interaction_matrix(eta_grid, etaP, etaH)
+        return as_linear_map(M_vsh)
+
+    def _get_JS_to_E_coeffs_operator_grid(self, eta_grid: np.ndarray) -> "LinearMap":
+        """Build grid-based post-resistivity operator ``J_S(grid) -> E_coeffs``."""
         op_eta = ResistivityTensorOperator(eta_grid).to_linear_map()
         op_P = as_linear_map(self.projection_matrix)
-
-        # DEBUG: Isolate backend divergence
-
-        return op_P @ op_eta @ op_JS
+        return op_P @ op_eta
 
     def _build_resistivity_interaction_matrix(
         self, eta_grid: np.ndarray, etaP: Optional[Any] = None, etaH: Optional[Any] = None

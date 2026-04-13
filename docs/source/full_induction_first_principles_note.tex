@@ -1,0 +1,1228 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{amsmath,amssymb,mathtools,bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{First-Principles Toroidal Shell Identities\\
+and Radial/Projected Closures for Full Induction}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Purpose}
+
+This note rewrites the toroidal shell identities underlying the full-induction
+\texttt{dt\_alpha} path from first principles and then compares them to the
+current implementation.
+
+The point of the note is to keep three things separate:
+\begin{enumerate}
+\item exact identities that follow from the stated assumptions;
+\item additional model choices used to obtain a closed shell problem;
+\item numerical choices used by the implementation.
+\end{enumerate}
+
+If a block in the code is not derivable from the assumptions stated here, it
+should not be described as ``first-principles'' without an additional derivation.
+
+\paragraph{Scope.}
+This is a note about the \emph{local toroidal/FAC shell backbone}. It is not, by
+itself, a complete note for the full self-consistent induction problem. A full
+closure note must also specify how the upper-region induced response enters
+through the driving/response operator.
+
+\section{Assumptions}
+
+We assume only:
+\begin{enumerate}
+\item linearized quasi-static Maxwell equations;
+\item a prescribed static background field $\mathbf B_0$;
+\item the strong field-aligned current ansatz
+\[
+\mathbf j = \alpha \mathbf B_0;
+\]
+\item current continuity
+\[
+\nabla\cdot \mathbf j = 0;
+\]
+\item a thin ionospheric shell at $r=R_I$;
+\item a toroidal magnetic shell scalar $\psi$ for the induction update.
+\end{enumerate}
+
+No particular upper-region model is assumed yet. Any such model enters only
+through the driving electric field or a separate response operator.
+
+\section{Geometry and conventions}
+
+Let $S_I=\{r=R_I\}$ be the ionospheric shell. For a scalar $f$,
+\[
+\nabla_S f = \frac{1}{r}\nabla_\Omega f,
+\qquad
+\Delta_S f = \frac{1}{r^2}\Delta_\Omega f.
+\]
+
+For a tangential vector $\mathbf a=(a_\theta,a_\phi)$,
+\[
+\hat r\cdot (\nabla\times \mathbf a)
+=
+\frac{1}{r}
+\left(
+\partial_\theta a_\phi + \cot\theta\,a_\phi - \partial_\phi^\ast a_\theta
+\right),
+\qquad
+\partial_\phi^\ast := \frac{1}{\sin\theta}\partial_\phi.
+\]
+
+The toroidal magnetic scalar uses the convention
+\begin{equation}
+\mathbf b_T = \nabla\times (r\psi\,\hat r)
+=
+-\,\hat r\times \nabla_S(r\psi).
+\label{eq:b_tor}
+\end{equation}
+
+This is the same sign convention used by the code for the imposed toroidal
+scalar and for the toroidal magnetic induction update.
+
+\section{Strong FAC consequences}
+
+Define
+\[
+\eta := \partial_t \alpha.
+\]
+Since $\nabla\cdot \mathbf B_0=0$ and $\nabla\cdot(\alpha \mathbf B_0)=0$,
+\[
+\mathbf B_0\cdot \nabla \alpha = 0,
+\qquad
+\mathbf B_0\cdot \nabla \eta = 0.
+\]
+Thus both $\alpha$ and $\eta$ are field-line invariants.
+
+Writing
+\[
+\mathbf B_0 = B_{0r}\hat r + \mathbf B_{0S},
+\qquad
+\mathbf B_{0S}=(B_{0\theta},B_{0\phi}),
+\]
+the shell current is
+\begin{equation}
+j_r = \alpha B_{0r},
+\qquad
+\mathbf j_S = \alpha \mathbf B_{0S},
+\label{eq:jr_js_alpha}
+\end{equation}
+and therefore
+\begin{equation}
+\partial_t j_r = B_{0r}\eta,
+\qquad
+\partial_t \mathbf j_S = \eta \mathbf B_{0S}.
+\label{eq:dtjr_dtjs_alpha}
+\end{equation}
+
+\section{Exact toroidal shell identities}
+
+\subsection*{Radial current}
+
+From \eqref{eq:b_tor} and Amp\`ere's law,
+\begin{equation}
+j_r = -\,\frac{1}{\mu_0 R_I}\,\Delta_\Omega \psi.
+\label{eq:jr_psi}
+\end{equation}
+Hence
+\begin{equation}
+\partial_t j_r
+=
+-\,\frac{1}{\mu_0 R_I}\,\Delta_\Omega \partial_t \psi.
+\label{eq:dtjr_dtpsi}
+\end{equation}
+Combining \eqref{eq:dtjr_dtjs_alpha} and \eqref{eq:dtjr_dtpsi} gives
+\begin{equation}
+\Delta_\Omega \partial_t \psi
+=
+-\,\mu_0 R_I\, B_{0r}\eta.
+\label{eq:dtpsi_from_eta_core}
+\end{equation}
+
+On the mean-zero subspace this can be written
+\begin{equation}
+\partial_t \psi
+=
+-\,\mu_0 R_I\, \Delta_\Omega^{-1}\Pi_0(B_{0r}\eta).
+\label{eq:dtpsi_from_eta}
+\end{equation}
+
+This is exact. It shows that $\partial_t \psi$ is not an independent unknown
+once $\eta$ is known.
+
+\subsection*{Tangential current}
+
+The tangential part of $\nabla\times \mathbf b_T$ gives
+\begin{equation}
+\mathbf j_S
+=
++\,\frac{1}{\mu_0}\,\nabla_S\!\bigl(\partial_r(r\psi)\bigr).
+\label{eq:js_psi}
+\end{equation}
+Therefore
+\begin{equation}
+\mu_0\,\partial_t \mathbf j_S
+=
++\,\nabla_S\!\bigl(\partial_r(r\,\partial_t\psi)\bigr)
+=
++\,\nabla_S\!\bigl(\partial_t\psi + R_I \partial_r\partial_t\psi\bigr).
+\label{eq:dtjs_dtpsi}
+\end{equation}
+
+Combining \eqref{eq:dtjr_dtjs_alpha} and \eqref{eq:dtjs_dtpsi},
+\begin{equation}
+\mu_0\,\eta\,\mathbf B_{0S}
+=
++\,\nabla_S\!\bigl(\partial_t\psi + R_I \partial_r\partial_t\psi\bigr).
+\label{eq:tangential_vector_balance}
+\end{equation}
+
+Projecting \eqref{eq:tangential_vector_balance} onto $\mathbf B_{0S}$ gives
+\begin{equation}
+\mu_0 |\mathbf B_{0S}|^2 \eta
+=
+\mathbf B_{0S}\cdot \nabla_S\!\bigl(\partial_t\psi + R_I \partial_r\partial_t\psi\bigr).
+\label{eq:tangential_projected_balance_no_driver}
+\end{equation}
+
+\paragraph{Important point.}
+Equation \eqref{eq:tangential_projected_balance_no_driver} is also an exact
+first-principles shell identity. It is \emph{not} the same equation as the
+radial shell balance, but it is not arbitrary either. It comes from the
+tangential part of the same Maxwell system together with the same strong FAC
+ansatz.
+
+\paragraph{But it is weaker than the full tangential equation.}
+The vector equation \eqref{eq:tangential_vector_balance} contains two
+independent tangential components. Its projection
+\eqref{eq:tangential_projected_balance_no_driver} keeps only the component
+parallel to $\mathbf B_{0S}$. So the projected scalar equation is an exact
+consequence of the full tangential equation, but not conversely.
+
+Therefore using $|\mathbf B_{0S}|^2$ in a toroidal shell equation is not
+``replacing $B_{0r}$ by $|\mathbf B_{0S}|$''. Rather:
+\begin{itemize}
+\item $B_{0r}$ enters the exact $j_r \leftrightarrow \psi$ relation
+\eqref{eq:dtpsi_from_eta_core};
+\item $|\mathbf B_{0S}|^2$ enters the exact tangentially projected shell
+balance \eqref{eq:tangential_projected_balance_no_driver}.
+\end{itemize}
+
+These equations become weak in complementary regions:
+\begin{itemize}
+\item the radial equation is weak where $B_{0r}$ is small;
+\item the tangential projected equation is weak where $\mathbf B_{0S}$ is small.
+\end{itemize}
+Neither one is globally superior by principle alone.
+
+\section{Exact radial closure identities}
+
+The code uses the one-sided radial derivative of $\partial_t j_r$ and
+$\partial_t\psi$. These are derivable from the same assumptions.
+
+From field-line invariance,
+\[
+B_{0r}\partial_r \eta + \mathbf B_{0S}\cdot \nabla_S \eta = 0.
+\]
+Hence
+\begin{equation}
+\partial_r(\partial_t j_r)
+=
+\partial_r(B_{0r}\eta)
+=
+(\partial_r B_{0r})\eta - \mathbf B_{0S}\cdot \nabla_S \eta.
+\label{eq:dr_dtjr}
+\end{equation}
+Equivalently, in unit-sphere angular derivatives,
+\begin{equation}
+\partial_r(\partial_t j_r)
+=
+(\partial_r B_{0r})\eta
+-\frac{1}{R_I}\,\mathbf B_{0S}\cdot \nabla_\Omega \eta.
+\label{eq:dr_dtjr_unit_sphere}
+\end{equation}
+
+Now use the shell relation
+\[
+\partial_t \psi = -\mu_0 r\,\Delta_\Omega^{-1}(\partial_t j_r)
+\]
+at general shell radius $r$. Differentiating in $r$ and evaluating at $r=R_I$
+gives
+\begin{equation}
+\partial_r\partial_t \psi
+=
+\frac{1}{R_I}\,\partial_t\psi
++
+T_{j_r\to\psi}\,\partial_r(\partial_t j_r),
+\label{eq:dr_dtpsi}
+\end{equation}
+where
+\begin{equation}
+T_{j_r\to\psi}
+:=
+-\,\mu_0 R_I\,\Delta_\Omega^{-1}
+\label{eq:T_jr_to_psi}
+\end{equation}
+on the mean-zero subspace.
+
+Equations \eqref{eq:dtpsi_from_eta}, \eqref{eq:dr_dtjr_unit_sphere}, and
+\eqref{eq:dr_dtpsi} are exactly the identities used by the code in the
+``dt_alpha -> dt_psi`` rewrite.
+
+\section{Driver/response split}
+
+Let the shell electric field be split into a known driving part and the
+response associated with the unknown toroidal update:
+\[
+\mathbf E = \mathbf E^{\rm drv} + \mathbf E^{\rm ind}[\partial_t\psi].
+\]
+
+There are then two exact shell closures one may write.
+
+\subsection*{Exact radial shell closure}
+
+From the radial component of
+\[
+\mu_0 \partial_t \mathbf j = -\nabla\times\nabla\times \mathbf E,
+\]
+one gets the exact shell equation
+\begin{equation}
+\mu_0 B_{0r}\eta
+=
+-\frac{1}{R_I^2}\Bigl[Q_I - \Delta_\Omega E_{r,I}\Bigr],
+\label{eq:radial_shell_balance}
+\end{equation}
+with
+\[
+Q_I := \partial_r\!\bigl(r\,\mathrm{div}_\Omega \mathbf E_S\bigr)\Big|_{R_I^+}.
+\]
+This is the closure used in the earlier note.
+
+\subsection*{Exact tangentially projected shell closure}
+
+From the tangential part of the same Maxwell equation,
+\[
+\mu_0 \eta \mathbf B_{0S} = \bigl[-\nabla\times\nabla\times \mathbf E\bigr]_S.
+\]
+Projecting onto $\mathbf B_{0S}$ gives
+\begin{equation}
+\mu_0 |\mathbf B_{0S}|^2 \eta
+=
+\mathbf B_{0S}\cdot \bigl[-\nabla\times\nabla\times \mathbf E\bigr]_S.
+\label{eq:tangential_projected_driver}
+\end{equation}
+If the induced part is rewritten through \eqref{eq:tangential_projected_balance_no_driver},
+the closed driven equation becomes
+\begin{equation}
+\mu_0 |\mathbf B_{0S}|^2 \eta
+=
+f_t^{\rm drv}
++
+\mathbf B_{0S}\cdot \nabla_S\!\bigl(\partial_t\psi + R_I \partial_r\partial_t\psi\bigr),
+\label{eq:tangential_projected_balance}
+\end{equation}
+where
+\begin{equation}
+f_t^{\rm drv}
+:=
+\mathbf B_{0S}\cdot \bigl[-\nabla\times\nabla\times \mathbf E^{\rm drv}\bigr]_S.
+\label{eq:f_t_drv}
+\end{equation}
+
+Equation \eqref{eq:tangential_projected_balance} is the exact continuous
+projected shell equation that is structurally closest to the present
+\texttt{dt\_alpha} formulation. But it is still only a projected scalar closure,
+not the full tangential vector balance.
+
+\section{The first-principles projected operator}
+
+Using \eqref{eq:dtpsi_from_eta}, \eqref{eq:dr_dtjr_unit_sphere},
+\eqref{eq:dr_dtpsi}, and writing
+\[
+A_\Omega := \mathbf B_{0S}\cdot \nabla_\Omega = R_I\,\mathbf B_{0S}\cdot \nabla_S,
+\]
+equation \eqref{eq:tangential_projected_balance} becomes
+\begin{equation}
+\mu_0 |\mathbf B_{0S}|^2 \eta
+=
+f_t^{\rm drv}
++
+A_\Omega\!\left[
+\frac{1}{R_I}\,\partial_t\psi + \partial_r\partial_t\psi
+\right].
+\label{eq:code_matching_continuous}
+\end{equation}
+
+Introduce the exact continuous maps
+\[
+T_{\alpha\to j_r}\eta = B_{0r}\eta,
+\qquad
+T_{j_r\to\psi} = -\mu_0 R_I \Delta_\Omega^{-1},
+\qquad
+T_{\alpha\to\psi} = T_{j_r\to\psi} T_{\alpha\to j_r}.
+\]
+Also define
+\[
+D_r^{j_r\leftarrow\alpha}\eta
+:=
+(\partial_r B_{0r})\eta - \frac{1}{R_I}A_\Omega \eta,
+\]
+and
+\[
+D_r^{\psi\leftarrow\alpha}
+:=
+\frac{1}{R_I}T_{\alpha\to\psi}
++
+T_{j_r\to\psi} D_r^{j_r\leftarrow\alpha}.
+\]
+Then the exact tangential shell operator can be written
+\begin{equation}
+L_\alpha \eta
+:=
+\mu_0 |\mathbf B_{0S}|^2 \eta
+-\,
+A_\Omega\!\left[
+\frac{1}{R_I} T_{\alpha\to\psi}
++
+D_r^{\psi\leftarrow\alpha}
+\right]\eta.
+\label{eq:L_alpha_continuous}
+\end{equation}
+
+The exact projected shell closure is therefore
+\begin{equation}
+L_\alpha \eta = f_t^{\rm drv}.
+\label{eq:code_matching_closure}
+\end{equation}
+
+\paragraph{The dropped perpendicular component.}
+Let
+\[
+\mathbf B_{0S}^{\perp} := (-B_{0\phi},\,B_{0\theta})
+\]
+denote the in-shell vector perpendicular to $\mathbf B_{0S}$. Then the part of
+the full tangential balance discarded by the scalar projection is
+\begin{equation}
+R_\perp(\eta)
+:=
+\mathbf B_{0S}^{\perp}\cdot
+\left[
+\mu_0 \eta \mathbf B_{0S}
+-
+\nabla_S\!\bigl(\partial_t\psi + R_I \partial_r\partial_t\psi\bigr)
+\right].
+\label{eq:R_perp}
+\end{equation}
+The projected closure keeps only
+\[
+\mathbf B_{0S}\cdot[\cdots],
+\]
+while $R_\perp$ is unconstrained. This is the precise first-principles quantity
+that should be monitored if one wants to assess how much tangential Maxwell/FAC
+content is being discarded by the projected scalar route.
+
+\paragraph{Equivalent feedback form.}
+Since
+\[
+D_r^{\psi\leftarrow\alpha}
+=
+\frac{1}{R_I}T_{\alpha\to\psi}
++
+T_{j_r\to\psi} D_r^{j_r\leftarrow\alpha},
+\]
+the feedback block may also be written
+\[
+A_\Omega\!\left[
+\frac{2}{R_I}T_{\alpha\to\psi}
++
+T_{j_r\to\psi} D_r^{j_r\leftarrow\alpha}
+\right]
+\]
+with an overall minus sign in \eqref{eq:L_alpha_continuous}. Equivalently,
+\[
+L_\alpha
+=
+\mu_0 |\mathbf B_{0S}|^2 I
+-\,
+A_\Omega\!\left[
+\frac{2}{R_I}T_{\alpha\to\psi}
++
+T_{j_r\to\psi} D_r^{j_r\leftarrow\alpha}
+\right].
+\]
+
+\section{Comparison to the current code operator}
+
+The current implementation in \texttt{toroidal.py} assembles the operator
+\[
+L_\alpha^{\rm code}
+=
+\mu_0 |\mathbf B_{0S}|^2 I
++
+A_\Omega\!\left[
+\frac{2}{R_I}T_{\alpha\to\psi}
++
+T_{j_r\to\psi} D_r^{j_r\leftarrow\alpha}
+\right],
+\]
+that is, with the \emph{opposite sign} on the feedback block from the
+first-principles projected shell operator \eqref{eq:L_alpha_continuous}.
+
+So the present note does \emph{not} prove that the current assembled sign is
+correct. What it proves is narrower:
+\begin{itemize}
+\item the chain
+$\eta \to \partial_t j_r \to \partial_t\psi \to \partial_r\partial_t\psi$ is
+first-principles;
+\item the appearance of $|\mathbf B_{0S}|^2$ belongs naturally to a projected
+tangential shell equation;
+\item but the sign of the assembled feedback block in the current code remains
+an unresolved issue and requires its own audit.
+\end{itemize}
+
+\section{What is exact in the current implementation}
+
+The following \emph{building blocks} of the current toroidal full-induction path
+are derivable from the assumptions above:
+\begin{enumerate}
+\item $T_{\alpha\to j_r}$ from $j_r = B_{0r}\alpha$;
+\item $T_{j_r\to\psi}$ from
+$j_r = -(\mu_0 R_I)^{-1}\Delta_\Omega \psi$;
+\item $T_{\alpha\to\psi} = T_{j_r\to\psi} T_{\alpha\to j_r}$;
+\item $D_r^{j_r\leftarrow\alpha}$ from field-line invariance and
+$\nabla\cdot \mathbf B_0 = 0$;
+\item $D_r^{\psi\leftarrow\alpha}$ from differentiating the shell relation for
+$\psi$;
+\item $A_\Omega = \mathbf B_{0S}\cdot \nabla_\Omega$;
+\item the use of $|\mathbf B_{0S}|^2$ in the tangentially projected shell
+balance.
+\end{enumerate}
+
+So the present \texttt{dt\_alpha} path contains several exact structural
+ingredients. But the \emph{assembled sign} of the feedback block is not shown
+correct by this note; at present it appears opposite to the sign obtained from
+the projected tangential shell balance.
+
+\section{What still requires explicit justification}
+
+The following parts of the current implementation are not pure consequences of
+the basic assumptions and should be documented as additional closures or
+numerical choices:
+
+\begin{enumerate}
+\item \textbf{The explicit forcing operator
+$\mathbf E^{\rm drv} \mapsto f_t^{\rm drv}$.}
+
+The code uses an Er-free shell operator built from the tangential field:
+\[
+c = \mathrm{curl}_\Omega(\mathbf E_S),
+\qquad
+f_t^{\rm drv}
+\sim
+\frac{1}{R_I^2}
+\left(
+B_{0\theta}\partial_\phi^\ast c - B_{0\phi}\partial_\theta c
+\right).
+\]
+But the sign is not fixed by the present derivation. Under the natural
+shell-local extension
+\[
+E_r = 0,
+\qquad
+\partial_r \mathbf E_S = 0
+\quad\text{at } r=R_I^+,
+\]
+the direct tangential shell trace gives
+\[
+\mathbf B_{0S}\cdot[-\nabla\times\nabla\times \mathbf E]_S
+=
+-\,\frac{1}{R_I^2}
+\left(
+B_{0\theta}\partial_\phi^\ast c - B_{0\phi}\partial_\theta c
+\right),
+\]
+that is, the \emph{opposite sign} from the currently assembled code operator.
+
+So the present Er-free forcing block should not yet be described as
+first-principles. A complete derivation must show exactly how the eliminated
+radial-electric terms change this shell-local sign, or else the implementation
+sign should be treated as suspect.
+
+\item \textbf{The projection from the full tangential vector equation to a
+scalar closure.}
+
+The projected equation keeps only the component parallel to $\mathbf B_{0S}$.
+That is an exact reduction, but it is still a weaker equation than the full
+tangential Maxwell/FAC balance.
+
+\item \textbf{The inverse map $j_r \mapsto \alpha$.}
+
+The code uses a regularized weak-form minimum-norm branch selector near small
+$|B_{0r}|$. This is a numerical regularization, not an exact identity.
+
+\item \textbf{Hard and soft least-squares constraints.}
+
+The weighted least-squares solve, soft penalties, and Tikhonov regularization
+are numerical choices. They are reasonable, but they are not implied by the
+continuous shell equations.
+
+\item \textbf{Hemisphere coupling.}
+
+The current \texttt{connect\_hemispheres=True} implementation uses compressed
+low-latitude apex mismatch constraints. That is not the same as an exact
+conjugate-footpoint equality constraint
+\[
+\eta(\Omega)=\eta(\mathcal C(\Omega)).
+\]
+It should therefore be presented as a model surrogate, not as the exact closed
+field-line topology condition.
+
+\item \textbf{Auxiliary closure basis choices.}
+
+Using an auxiliary SH closure basis for CS-dominant full induction is an
+implementation architecture choice. It may be good numerically, but it is not a
+first-principles statement.
+
+\item \textbf{The full upper-region induced response.}
+
+This note derives only the local toroidal/FAC shell backbone. A complete
+full-induction closure note still needs the nonlocal upper-region response
+operator that maps the shell update to the full induced electric and magnetic
+response above the shell.
+\end{enumerate}
+
+\section{Radial-shell closure and the missing scalar}
+
+The exact radial shell closure is
+\begin{equation}
+\mu_0 B_{0r}\eta
+=
+-\frac{1}{R_I^2}\Bigl[Q_I - \Delta_\Omega E_{r,I}\Bigr].
+\label{eq:radial_shell_balance_repeat}
+\end{equation}
+The unresolved upper-side quantity can be written in several exactly
+equivalent ways. From the shell toroidal relation,
+\begin{equation}
+\mu_0\,\partial_t j_r
+=
+-\,\frac{1}{R_I}\Delta_\Omega \partial_t\psi^+,
+\label{eq:dtjr_dtpsi_upper}
+\end{equation}
+while the radial Maxwell balance gives
+\begin{equation}
+\mu_0\,\partial_t j_r
+=
+-\,\frac{1}{R_I^2}\Bigl[Q_I - \Delta_\Omega E_{r,I}\Bigr].
+\label{eq:dtjr_electric_upper}
+\end{equation}
+Therefore
+\begin{equation}
+-\,\frac{1}{R_I^2}\Bigl[Q_I - \Delta_\Omega E_{r,I}\Bigr]
+\quad\Longleftrightarrow\quad
+\mu_0\,\partial_t j_r
+\quad\Longleftrightarrow\quad
+-\,R_I \Delta_S(\partial_t\psi^+).
+\label{eq:missing_scalar_equivalence}
+\end{equation}
+
+\paragraph{Meaning.}
+The radial-shell closure is not missing ``the whole off-shell electric field''.
+It is missing one scalar upper-side update quantity. One may obtain it through:
+\begin{itemize}
+\item an electric-trace route
+\[
+\partial_t\psi \mapsto \bigl(E_{r,I},\,Q_I\bigr),
+\]
+or
+\item a toroidal-update route
+\[
+\partial_t\psi \mapsto \partial_t\psi^+
+\quad\text{or}\quad
+\partial_t j_r.
+\]
+\end{itemize}
+Either closes the same exact scalar equation through
+\eqref{eq:missing_scalar_equivalence}.
+
+\section{A first-principles radial-shell response operator}
+
+To turn \eqref{eq:radial_shell_balance_repeat} into a closed equation in
+$\eta$, one needs the shell scalar response produced by a trial toroidal shell
+update
+\[
+\partial_t\psi = -\,\mu_0 R_I\,\Delta_\Omega^{-1}\Pi_0(B_{0r}\eta).
+\]
+
+The strongest first-principles upper-region model compatible with the present
+code assumptions is:
+\begin{enumerate}
+\item quasi-static Maxwell equations in the gap;
+\item strong field-aligned current in the gap
+\[
+\partial_t \mathbf j = \eta\,\mathbf B_0;
+\]
+\item current continuity, hence
+\[
+\mathbf B_0\cdot\nabla\eta=0;
+\]
+\item exact closed-line equality of $\eta$ on closed field lines;
+\item an explicit open-line / outer-boundary condition at $R_M$ or infinity;
+\item an explicit electrodynamic closure in the gap, such as
+\[
+\mathbf E\cdot\mathbf B_0 = 0,
+\]
+or some alternative constitutive relation.
+\end{enumerate}
+
+With those assumptions, a trial $\eta$ defines a trial $\partial_t\psi$ on the
+shell and therefore a trial toroidal magnetic update in the gap. The exact
+nonlocal radial-shell response operator is then
+\begin{equation}
+\mathcal R_r[\partial_t\psi]
+:=
+-\frac{1}{R_I^2}
+\left[
+Q_I^{\rm ind}[\partial_t\psi]
+- \Delta_\Omega E_{r,I}^{\rm ind}[\partial_t\psi]
+\right],
+\label{eq:radial_response_operator}
+\end{equation}
+or, equivalently, the upper-side toroidal update operator
+\[
+\partial_t\psi \mapsto \partial_t\psi^+
+\quad\text{or}\quad
+\partial_t\psi \mapsto \partial_t j_r.
+\]
+
+If
+\[
+f_r^{\rm drv}
+:=
+-\frac{1}{R_I^2}
+\left[
+Q_I^{\rm drv} - \Delta_\Omega E_{r,I}^{\rm drv}
+\right],
+\]
+then the exact closed radial-shell problem is
+\begin{equation}
+\mu_0 B_{0r}\eta
+=
+f_r^{\rm drv}
++
+\mathcal R_r[\mathcal A\eta],
+\qquad
+\mathcal A\eta
+:=
+-\,\mu_0 R_I\,\Delta_\Omega^{-1}\Pi_0(B_{0r}\eta).
+\label{eq:closed_radial_shell_response_problem}
+\end{equation}
+
+\paragraph{This remains the canonical scalar closure.}
+Equation \eqref{eq:closed_radial_shell_response_problem} is the cleanest
+scalar first-principles statement of the toroidal induction closure. No
+projection of a tangential vector equation is required.
+
+\section{The current built-in PFAC/RM radial-shell model}
+
+The current code now contains an explicit built-in
+\texttt{radial\_shell} runtime path. It is not a future placeholder anymore.
+Its structure is:
+\begin{equation}
+\eta
+\;\to\;
+\partial_t\psi
+\;\to\;
+[\Phi, W]
+\;\to\;
+\text{radial-shell scalar response},
+\label{eq:runtime_radial_chain}
+\end{equation}
+with two distinct submodels.
+
+\subsection*{1. Optional shell-electric trace model}
+
+The runtime stores shell tangential electric coefficients in the active
+Helmholtz basis,
+\[
+[\Phi, W].
+\]
+One explicit route to the forcing-side radial-shell scalar is the trace model
+\[
+[\Phi, W]
+\mapsto
+\left(
+\partial_r U|_{R_I^+},
+E_{r,I}
+\right)
+\mapsto
+-\frac{1}{R_I^2}\Bigl[Q_I - \Delta_\Omega E_{r,I}\Bigr].
+\]
+This optional trace route makes the following explicit assumptions:
+\begin{enumerate}
+\item the physical curl-free shell electric scalar is
+\[
+U = \mathrm{cf\_sign}\,\Phi;
+\]
+\item only that poloidal electric scalar is radially continued to
+$\partial_r U|_{R_I^+}$;
+\item the toroidal electric shell scalar $W$ does \emph{not} enter the
+$\partial_r U$ continuation;
+\item the shell-normal electric trace is recovered from the full shell
+tangential field by the ideal-gap relation
+\[
+E_r = -\,\frac{\mathbf B_{0S}\cdot \mathbf E_S}{B_{0r}}.
+\]
+\end{enumerate}
+
+\paragraph{Relation to PFAC.}
+The shell electric coefficients themselves are not local objects. They are
+already obtained from the live conductivity/PFAC pathway, including the dynamic
+\texttt{psi -> Ve} response and the chosen $R_M$ open/closed shielding
+semantics. So the trace model is applied to the full shell electric response
+already produced by the code, not to a shell-local proxy field.
+
+\paragraph{Incremental ideality view.}
+There is a useful equivalent way to think about this trace route. Since the
+background field is static, ideality implies
+\[
+\partial_t(\mathbf E\cdot \mathbf B_0)=0
+\quad\Longrightarrow\quad
+(\partial_t\mathbf E)\cdot \mathbf B_0 = 0,
+\]
+and therefore, where $B_{0r}\neq 0$,
+\[
+\partial_t E_r
+=
+-\,\frac{\mathbf B_{0S}\cdot \partial_t\mathbf E_S}{B_{0r}}.
+\]
+Combining this with the toroidal part of Faraday's law gives the increment form
+\[
+R_I\,\delta\psi^+ = \Pi_0(\partial_r \delta U - \delta E_r),
+\]
+so once a consistent trial pair
+\[
+\bigl(\delta \mathbf E_S,\ \delta\psi^+\bigr)
+\]
+is known, one may recover the increment in the missing radial-shell scalar
+without introducing a separate raw continuation field:
+\[
+\delta Q_I
+=
+R_I\,\Delta_\Omega \delta\psi^+ + \Delta_\Omega \delta E_r.
+\]
+This is a useful \emph{correction/increment} viewpoint on the same linear
+closure. It does not provide a new standalone closure law by itself; it still
+depends on having a consistent upper-side connector response for the same trial
+update.
+
+\paragraph{Connector correction from the same increment relation.}
+If an explicit raw connector model already provides a trial upper-side toroidal
+update
+\[
+\delta\psi^+_{\rm raw},
+\]
+then the same incremental identity defines the missing correction term
+\[
+\delta\psi^+_{\rm corr}
+:=
+\frac{1}{R_I}\Pi_0(\partial_r\delta U - \delta E_r)
+- \delta\psi^+_{\rm raw}.
+\]
+The corrected connector update is then
+\[
+\delta\psi^+_{\rm tot}
+=
+\delta\psi^+_{\rm raw} + \delta\psi^+_{\rm corr}
+=
+\frac{1}{R_I}\Pi_0(\partial_r\delta U - \delta E_r).
+\]
+So the incremental-ideality viewpoint is not only diagnostic; it also gives an
+explicit connector correction operator under the same shell-trace assumptions.
+
+\subsection*{2. Built-in condensed forcing-side model}
+
+The current built-in \texttt{radial\_shell} runtime does \emph{not} use the
+trace route above by default. Instead, it uses the already assembled nonlocal
+PFAC/tangential full-induction response and condenses it into radial-shell
+scalar form:
+\[
+\mathbf E_{\rm known}
+\mapsto
+\mu_0 B_{0r}\,\partial_t\alpha_{\rm tangential}.
+\]
+This gives a forcing-side scalar radial-shell operator without making harmonic
+continuation of \(U\) part of the default runtime assumptions.
+
+\subsection*{3. Feedback-side upper toroidal update model}
+
+For the induced feedback, the runtime now uses the sharper missing-scalar
+formulation rather than only an equivalent condensed tangential adapter. The
+feedback model supplies the explicit upper-side toroidal update
+\[
+\partial_t\alpha \mapsto \partial_t\psi^+
+\quad\text{and equivalently}\quad
+\partial_t\alpha \mapsto \partial_t j_r^+.
+\]
+It is built from:
+\begin{enumerate}
+\item the exact shell relation
+\[
+\partial_t\alpha \to \partial_t j_r \to \partial_t\psi;
+\]
+\item the explicit toroidal $R_M$ closure already assembled by the code,
+including the open-shell branch and, when enabled, the internally continued
+boundary toroidal contribution from $R_M$ back to $R_I$.
+\item a correction chosen so that the connector-side
+\(\partial_t\psi^+\) reproduces the same scalar response as the forcing-side
+radial-shell operator under the adopted PFAC/RM model.
+\end{enumerate}
+
+So the feedback side now closes the radial-shell equation through the exact
+scalar identity
+\[
+\mu_0\,\partial_t j_r^+
+=
+-\,R_I \Delta_S(\partial_t\psi^+),
+\]
+instead of routing the whole feedback through the equivalent tangential solve.
+
+\subsection*{4. Automatic PFAC/RM mode selection}
+
+The built-in \texttt{radial\_shell} runtime chooses the explicit open/closed
+response branch from the same runtime assumptions used elsewhere:
+\begin{itemize}
+\item when $R_M$ is absent, the shell trace and upper toroidal update both use
+the open branch;
+\item when $R_M$ is present and magnetospheric shielding is enabled, the shell
+trace uses the shielded harmonic continuation and the toroidal update uses the
+closed $R_M$ branch.
+\end{itemize}
+So the default runtime \texttt{radial\_shell} mode is now an explicit PFAC/RM
+radial-shell model, not a generic placeholder.
+
+\subsection*{5. Candidate explicit RM/PFAC connector system}
+
+The existing code already contains most of a candidate explicit connector
+system. Written as a chain in coefficient space, the physically unambiguous
+parts are:
+\begin{align}
+\eta
+&\mapsto
+\partial_t j_r(R_I)
+=
+B_{0r}(R_I)\,\eta,
+\\
+\eta
+&\mapsto
+\partial_t\psi(R_I)
+=
+T_{\alpha\to\psi}\,\eta,
+\\
+\eta
+&\mapsto
+j_n(R_M)
+=
+T_{\alpha\to j_n^{RM}}\,\eta,
+\\
+\Delta_S \chi(R_M)
+&=
+j_n(R_M),
+\\
+\partial_t\psi_b(R_M)
+&=
+\frac{\mu_0}{R_M}\,\chi(R_M),
+\\
+\partial_t\psi_{\rm raw}^+(R_I)
+&=
+T_{\alpha\to\psi}(R_I)\,\eta
+\;+\;
+S_{RM\to RI}^{\rm int}\,\partial_t\psi_b(R_M),
+\\
+\partial_t V_e(R_I)
+&=
+T_{\psi\to V_e}^{\rm PFAC}\,\partial_t\psi(R_I).
+\end{align}
+
+All of these operators already exist explicitly in the runtime:
+\begin{itemize}
+\item \(T_{\alpha\to j_n^{RM}}\), \(\chi(R_M)\), and
+\(\partial_t\psi_b(R_M)\) are the toroidal \(R_M\) closure operators;
+\item \(S_{RM\to RI}^{\rm int}\) is the internal radial continuation from
+\(R_M\) back to \(R_I\);
+\item \(T_{\psi\to V_e}^{\rm PFAC}\) is the dynamic PFAC operator mapping the
+toroidal channel to the nonlocal poloidal magnetic response.
+\end{itemize}
+
+\paragraph{What this explicit chain does give.}
+It gives a genuine nonlocal magnetic connector picture:
+\begin{enumerate}
+\item a toroidal/FAC branch through the incoming normal current and its closure
+current at \(R_M\);
+\item a raw upper-side toroidal update \(\partial_t\psi_{\rm raw}^+\);
+\item a coupled PFAC/poloidal magnetic response \(\partial_t V_e\).
+\end{enumerate}
+So the code already contains substantially more than a mere conjugacy
+constraint.
+
+\paragraph{What it still does not give by itself.}
+This explicit RM/PFAC chain is still not a closed independent derivation of the
+radial-shell scalar response, because it does not yet supply a unique law that
+turns that magnetic response into the one missing scalar
+\[
+\partial_t\psi^+
+\;\Longleftrightarrow\;
+\partial_t j_r^+
+\;\Longleftrightarrow\;
+Q_I-\Delta_\Omega E_{r,I}.
+\]
+Equivalently: the explicit chain supplies
+\[
+\bigl(\partial_t\psi_{\rm raw}^+,\ \partial_t V_e\bigr),
+\]
+but not yet the constitutive rule that uniquely determines the corrected
+upper-side toroidal update from those quantities alone.
+
+\paragraph{The remaining missing law.}
+To turn the explicit RM/PFAC chain into a fully independent connector
+derivation, one still needs one more upper-region electrodynamic law, for
+example:
+\begin{itemize}
+\item an explicit ideal-gap transport law for the shell electric scalars;
+\item an explicit surface electrodynamics or impedance law at \(R_M\);
+\item or a first-order transport system for the relevant electric Helmholtz
+scalars along the connector region.
+\end{itemize}
+Without one such law, the explicit RM/PFAC chain remains one equation short of
+an independent first-principles closure.
+
+\paragraph{Do we really need to transport electric scalars?}
+Not necessarily. Transporting the electric Helmholtz scalars \(U\) and \(V\)
+through the connector is one possible closure strategy, but it is not the
+minimal one.
+
+The more economical alternative is to use the upper-region magnetic connector
+response together with the local shell jump/constitutive law:
+\begin{enumerate}
+\item the explicit RM connector supplies the raw upper toroidal update
+\(\partial_t\psi_{\rm raw}^+\);
+\item the PFAC operator supplies the coupled upper poloidal magnetic response
+\(\partial_t V_e\);
+\item the upper magnetic response determines the tangential magnetic jump and
+therefore the shell current increment
+\[
+\partial_t \mathbf K_S
+=
+\frac{1}{\mu_0}\,\hat r\times
+\bigl(
+\partial_t\mathbf B_t^+ - \partial_t\mathbf B_t^-
+\bigr);
+\]
+\item with frozen conductance/resistivity tensor, the shell constitutive law
+gives
+\[
+\partial_t \mathbf E_S
+=
+\Sigma^{-1}\,\partial_t \mathbf K_S;
+\]
+\item ideality then gives \(\partial_t E_r\), and the toroidal part of
+Faraday's law determines the scalar correction to \(\partial_t\psi^+\).
+\end{enumerate}
+
+So the preferred reduced connector picture is not
+\[
+\text{transport } (U,V) \text{ separately},
+\]
+but rather
+\[
+\bigl(\partial_t\psi_{\rm raw}^+,\ \partial_t V_e\bigr)
+\;\to\;
+\partial_t \mathbf K_S
+\;\to\;
+\partial_t \mathbf E_S
+\;\to\;
+\partial_t\psi^+.
+\]
+In other words, the shell electric scalars need not be transported as
+independent connector state variables if the magnetic jump current and the
+frozen shell electrodynamics are taken as the connector completion law.
+
+\paragraph{No double counting.}
+The split between forcing and feedback is intentional. In the runtime
+\texttt{radial\_shell} assembly:
+\begin{itemize}
+\item the forcing-side scalar response comes only from the condensed nonlocal
+PFAC response route;
+\item the induced \texttt{dt\_alpha} feedback comes only from the corrected
+upper-side toroidal update route.
+\end{itemize}
+So the runtime is not summing two overlapping approximations of the same
+radial-shell scalar. It is composing two distinct pieces of the same linear
+response to a trial toroidal update.
+
+\paragraph{Raw connector versus corrected connector.}
+The raw explicit $R_M$ connector by itself is \emph{not} yet identical to the
+forcing-side scalar response. Direct operator comparison on representative
+full-induction spectral states shows a material mismatch between
+\[
+\partial_t\alpha \to \text{forcing-side scalar response}
+\]
+and
+\[
+\partial_t\alpha \to \partial_t\psi^+_{\rm raw}
+\to -R_I\Delta_S(\partial_t\psi^+_{\rm raw}).
+\]
+This is exactly why the runtime now adds the correction
+\[
+\partial_t\psi^+_{\rm corr}
+\;:=\;
+\partial_t\psi^+_{\rm matched}
+- \partial_t\psi^+_{\rm raw},
+\]
+where \(\partial_t\psi^+_{\rm matched}\) is the upper-side toroidal scalar
+equivalent of the same forcing-side radial-shell response. With that
+correction, the connector-side feedback and forcing-side radial-shell response
+agree by construction under the same adopted PFAC/RM model.
+So the present \texttt{radial\_shell} runtime is no longer merely a split
+feedback model; it is a unified connector representation of the same adopted
+linear response.
+
+\section{What part of this is exact, and what part is modeled}
+
+\subsection*{Exact in the current radial-shell runtime}
+
+The following parts are exact consequences of the shell identities:
+\begin{enumerate}
+\item $T_{\alpha\to j_r}$ from $j_r = B_{0r}\alpha$;
+\item $T_{j_r\to\psi}$ from
+$j_r = -(\mu_0 R_I)^{-1}\Delta_\Omega \psi$;
+\item the exact scalar equivalence
+\eqref{eq:missing_scalar_equivalence};
+\item the use of the explicit $R_M$ toroidal boundary closure to construct
+$\partial_t\psi^+$ or $\partial_t j_r^+$ once the upper-side update model is
+specified;
+\item the PFAC-based condensed scalar response used to build the forcing-side
+radial-shell operator in the built-in default path.
+\end{enumerate}
+
+\subsection*{Still modeled rather than implied by Maxwell alone}
+
+The present built-in radial-shell runtime is stronger than the earlier
+equivalent tangential adapter, but it is still an explicit model, not the full
+gap-region PDE solve. The remaining model assumptions are:
+\begin{enumerate}
+\item identifying the physical shell poloidal electric scalar through
+$U = \mathrm{cf\_sign}\,\Phi$;
+\item harmonic radial continuation of $U$ above the shell;
+\item the ideal-gap recovery of $E_r$ from the shell tangential field;
+\item the chosen open/closed $R_M$ policy for the shell trace and toroidal
+update models.
+\item the use of a matching correction to convert the raw $R_M$ connector into
+the corrected upper-side toroidal update actually used for feedback.
+\end{enumerate}
+
+The first three items belong only to the optional explicit trace-based route;
+they are not part of the built-in default \texttt{radial\_shell} path anymore.
+So the runtime now has an \emph{explicit} PFAC/RM radial-shell response model
+without harmonic \(U\) in the default path, but it is still not the same thing
+as solving the full upper-region boundary value problem in the gap directly.
+
+\paragraph{What ``full'' means here.}
+Relative to the adopted model assumptions already used elsewhere in the code
+(PFAC/radial current closure, chosen open/closed $R_M$ semantics, and the
+corrected connector matching the condensed scalar response), the runtime now
+has the full linear radial-shell response operator in practice for that adopted
+model. An optional trace-based variant with harmonic continuation of the
+poloidal electric scalar and ideal-gap recovery of $E_r$ also exists, but it
+is no longer the default built-in interpretation.
+What it does \emph{not} claim
+is an assumption-free direct solve of the gap-region Maxwell problem with no
+additional constitutive choices.
+
+\section{Comparison with the tangential closures}
+
+The code base now has three distinct toroidal closures:
+\begin{enumerate}
+\item \textbf{\texttt{radial\_shell}:} explicit PFAC/RM radial-shell closure in
+scalar shell variables;
+\item \textbf{\texttt{tangential\_projected}:} projected tangential scalar
+closure;
+\item \textbf{\texttt{tangential\_full}:} overdetermined tangential closure
+that keeps both the projected and perpendicular tangential residuals in the
+least-squares physics block.
+\end{enumerate}
+
+So the correct interpretation is no longer that the code only has the
+projected tangential route. It now has an explicit radial-shell route too.
+
+The projected tangential analysis above remains useful because:
+\begin{itemize}
+\item it still explains where the $|\mathbf B_{0S}|^2$ operator comes from;
+\item it still shows that the projected scalar tangential closure is weaker
+than the full tangential vector equation;
+\item and it still leaves the sign of the assembled projected feedback block as
+an open issue for the tangential path.
+\end{itemize}
+
+\section{Recommended interpretation for the code base}
+
+The formal documentation should now say:
+\begin{enumerate}
+\item The canonical scalar first-principles closure remains the radial-shell
+equation \eqref{eq:closed_radial_shell_response_problem}.
+
+\item The runtime \texttt{radial\_shell} mode is now an explicit PFAC/RM-based
+radial-shell response model. It should be documented as such.
+
+\item The maps
+$\eta \to \partial_t j_r \to \partial_t \psi \to \partial_t\psi^+$
+are tied to exact shell identities plus the explicit upper-side toroidal
+boundary model.
+
+\item The built-in forcing-side condensed PFAC scalar response should be
+documented as the default \texttt{radial\_shell} forcing model.
+
+\item The optional forcing-side shell electric trace route should be documented
+as an explicit upper-region model:
+\[
+[\Phi, W] \mapsto \bigl(\partial_r U|_{R_I^+}, E_{r,I}\bigr),
+\]
+with its assumptions stated directly.
+
+\item The tangential projected and tangential full modes remain alternative
+closures. They should not be conflated with the radial-shell formulation.
+
+\item The sign of the assembled projected tangential feedback block remains a
+separate issue for the tangential path; the present note does not resolve it.
+
+\item The least-squares solve, low-latitude coupling constraints, and
+regularized $j_r\to\alpha$ inversion remain numerical/model layers on top of
+the exact shell identities.
+\end{enumerate}
+
+\section*{Conclusion}
+
+The current code now has an explicit PFAC/RM radial-shell response path, not
+just the older projected tangential route. The cleanest way to view the
+toroidal full-induction problem is therefore:
+\begin{itemize}
+\item the exact scalar shell closure is the radial-shell equation;
+\item the unresolved quantity is one upper-side scalar update, expressible as
+$\partial_t\psi^+$, $\partial_t j_r^+$, or the equivalent electric shell
+scalar;
+\item the runtime \texttt{radial\_shell} mode supplies that quantity through an
+explicit PFAC/RM response model;
+\item the default forcing-side path is the condensed PFAC scalar response, while
+the trace route remains explicit but model-based through harmonic continuation
+of $U$ and ideal-gap recovery of $E_r$;
+\item the tangential projected and tangential full paths remain useful
+alternative closures and diagnostics, but they are no longer the only
+full-induction interpretation available in the code.
+\end{itemize}
+
+\end{document}
