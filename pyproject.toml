@@ -8,6 +8,7 @@ dynamic = ["version"]
 dependencies = [
     "numpy",
     "pandas",
+    "scipy",
 ]
 
 [tool.setuptools.packages.find]
