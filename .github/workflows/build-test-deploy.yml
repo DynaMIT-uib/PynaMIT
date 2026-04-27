@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     # Needed if your GHCR images are private
     permissions:
+      contents: read
       packages: read
     strategy:
       fail-fast: false
@@ -21,6 +22,9 @@ jobs:
     # Use one container per matrix run
     container:
       image: ghcr.io/dynamit-uib/pynamit:x86_64-${{ matrix.variant }}-${{ matrix.date }}
+    env:
+      HOME: /tmp
+      GIT_CONFIG_GLOBAL: /tmp/.gitconfig
     defaults:
       run:
         shell: bash -leo pipefail {0}
@@ -28,6 +32,11 @@ jobs:
     steps:
       - name: Check out PynaMIT repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark checkout as safe for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install PynaMIT
         run: pip install .
