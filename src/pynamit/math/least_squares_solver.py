@@ -16,7 +16,7 @@ ITERATION_SAFETY_FACTOR: Final = 10
 class LeastSquaresSolver:
     """A collection of algorithms for solving least-squares problems."""
 
-    VALID_SOLVERS: Final[List[str]] = ["normal", "lsmr", "cg", "svd"]
+    VALID_SOLVERS: Final[List[str]] = ["normal_solve", "normal_pinv", "lsmr", "cg", "svd"]
     VALID_PRECONDITIONERS: Final[List[str]] = ["jacobi", "pinv"]
 
     def __init__(
@@ -33,7 +33,8 @@ class LeastSquaresSolver:
 
         self._solve_methods: Dict[str, Callable] = {
             "svd": self._solve_svd,
-            "normal": self._solve_normal,
+            "normal_solve": self._solve_normal_solve,
+            "normal_pinv": self._solve_normal_pinv,
             "lsmr": self._solve_lsmr,
             "cg": self._solve_cg,
         }
@@ -43,6 +44,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs: Union[np.ndarray, List[np.ndarray]],
         preconditioner: Optional[LinearOperator] = None,
+        solver: Optional[str] = None,
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
@@ -52,7 +54,10 @@ class LeastSquaresSolver:
             return np.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
         self._validate_preconditioner_shape(problem, preconditioner, num_scenarios)
-        solver_func = self._solve_methods[self.solver]
+        solver_name = self.solver if solver is None else solver
+        if solver_name not in self._solve_methods:
+            raise ValueError(f"Solver must be one of {self.VALID_SOLVERS}")
+        solver_func = self._solve_methods[solver_name]
         solution_block = solver_func(problem, rhs_block, num_scenarios, preconditioner, **kwargs)
         return solution_block.reshape(problem.solution_shape + scenario_shape)
 
@@ -70,7 +75,7 @@ class LeastSquaresSolver:
             return None
         if p_type not in self.VALID_PRECONDITIONERS:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
-        if self.solver in ["cg", "normal"]:
+        if self.solver in ["cg", "normal_solve"]:
             return self._build_normal_eq_preconditioner(problem, p_type, num_scenarios)
         if self.solver == "lsmr":
             return self._build_lsmr_preconditioner(problem, p_type, num_scenarios)
@@ -85,12 +90,22 @@ class LeastSquaresSolver:
         s_inv[s > cutoff] = 1.0 / s[s > cutoff]
         return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ rhs_block))
 
-    def _solve_normal(
+    def _solve_normal_solve(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
+        """Solve the normal equations with a direct dense solve."""
         G = problem.dense_system_matrix
         G_H = G.T.conj()
         return np.linalg.solve(G_H @ G, G_H @ rhs_block)
+
+    def _solve_normal_pinv(
+        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
+    ) -> np.ndarray:
+        """Solve through the pseudo-inverse of the normal equations."""
+        G = problem.dense_system_matrix
+        G_H = G.T.conj()
+        normal_pinv = np.linalg.pinv(G_H @ G, rcond=self.tolerance, hermitian=True)
+        return normal_pinv @ (G_H @ rhs_block)
 
     def _solve_lsmr(
         self,

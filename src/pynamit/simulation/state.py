@@ -73,7 +73,7 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
+        self.solver_type = getattr(settings, "least_squares_solver", "normal_pinv")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.static_preconditioner = getattr(settings, "static_preconditioner", False)
         self.integrator = settings.integrator
@@ -267,25 +267,29 @@ class State:
         logger.info("Building dense m_imp response matrices.")
         n = self.basis.index_length
         problem = self.m_imp_problem
-        system_matrix = problem.dense_system_matrix
-        system_matrix_H = system_matrix.T.conj()
-        normal_pinv = np.linalg.pinv(
-            system_matrix_H @ system_matrix, rcond=self.m_imp_solver.tolerance, hermitian=True
-        )
 
-        row = 0
-        n_jr_rows = problem.A[0].num_rows
-        A_jr_H = system_matrix_H[:, row : row + n_jr_rows]
-        jr_to_m_imp = normal_pinv @ (A_jr_H @ self.geometry.jr_coeffs_to_j_apex)
-        row += n_jr_rows
+        jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
+            problem.A[0].output_shape + (-1,)
+        )
+        rhs_entries = [None] * problem.num_data_terms
+        rhs_entries[0] = jr_rhs
+        jr_to_m_imp = self.m_imp_solver.solve(
+            problem=problem,
+            rhs=rhs_entries,
+        )
 
         E_direct_to_m_imp = None
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            n_E_rows = problem.A[1].num_rows
-            E_rhs = -self.geometry.E_coeffs_to_E_apex_ll_diff.reshape((n_E_rows, 2 * n))
+            E_rhs = -self.geometry.E_coeffs_to_E_apex_ll_diff.reshape(
+                problem.A[1].output_shape + (2 * n,)
+            )
             E_rhs *= self.ih_constraint_scaling
-            A_E_H = system_matrix_H[:, row : row + n_E_rows]
-            E_direct_to_m_imp = normal_pinv @ (A_E_H @ E_rhs)
+            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries[1] = E_rhs
+            E_direct_to_m_imp = self.m_imp_solver.solve(
+                problem=problem,
+                rhs=rhs_entries,
+            )
             E_direct_to_m_imp = E_direct_to_m_imp.reshape((n, 2, n))
 
         self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
