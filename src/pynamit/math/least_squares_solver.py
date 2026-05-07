@@ -44,7 +44,6 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs: Union[np.ndarray, List[np.ndarray]],
         preconditioner: Optional[LinearOperator] = None,
-        solver: Optional[str] = None,
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
@@ -54,10 +53,7 @@ class LeastSquaresSolver:
             return np.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
 
         self._validate_preconditioner_shape(problem, preconditioner, num_scenarios)
-        solver_name = self.solver if solver is None else solver
-        if solver_name not in self._solve_methods:
-            raise ValueError(f"Solver must be one of {self.VALID_SOLVERS}")
-        solver_func = self._solve_methods[solver_name]
+        solver_func = self._solve_methods[self.solver]
         solution_block = solver_func(problem, rhs_block, num_scenarios, preconditioner, **kwargs)
         return solution_block.reshape(problem.solution_shape + scenario_shape)
 
