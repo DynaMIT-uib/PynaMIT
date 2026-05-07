@@ -21,8 +21,8 @@ pytestmark = [
 
 
 @pytest.mark.skipif(
-    os.environ.get("PYNAMIT_RUN_PERFORMANCE_TESTS") != "1",
-    reason="Set PYNAMIT_RUN_PERFORMANCE_TESTS=1 to run this performance regression test.",
+    os.environ.get("PYNAMIT_SKIP_PERFORMANCE_TESTS") == "1",
+    reason="Set PYNAMIT_SKIP_PERFORMANCE_TESTS=1 to skip this performance regression test.",
 )
 def test_dynamit_simulation_first_step_runtime(tmp_path):
     """The first 2-second DynaMIT update/evolve step should stay fast."""
