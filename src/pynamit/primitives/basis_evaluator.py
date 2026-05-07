@@ -170,7 +170,7 @@ class BasisEvaluator(object):
             )
         return self._least_squares_problem_helmholtz
 
-    def least_squares_solution(self, grid_values, solver_type="svd"):
+    def least_squares_solution(self, grid_values, solver_type="normal_pinv"):
         """Least squares decomposition of a scalar field."""
         if solver_type not in self._scalar_solvers:
             # Create a stateless solver with the desired configuration
@@ -181,7 +181,7 @@ class BasisEvaluator(object):
         # Pass the problem definition and RHS to the stateless solver
         return solver.solve(problem=self.least_squares_problem, rhs=grid_values)
 
-    def least_squares_solution_helmholtz(self, grid_values, solver_type="svd"):
+    def least_squares_solution_helmholtz(self, grid_values, solver_type="normal_pinv"):
         """Least squares decomposition of a horizontal vector field."""
         if solver_type not in self._helmholtz_solvers:
             # Create a stateless solver with the desired configuration

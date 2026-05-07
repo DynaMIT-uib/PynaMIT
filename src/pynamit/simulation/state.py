@@ -7,7 +7,8 @@ for simulating ionospheric electrodynamics.
 
 from __future__ import annotations
 import logging
-from typing import Optional, Tuple, Any
+import math
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -73,7 +74,7 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(settings, "least_squares_solver", "lsmr")
+        self.solver_type = getattr(settings, "least_squares_solver", "normal_pinv")
         self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
         self.static_preconditioner = getattr(settings, "static_preconditioner", False)
         self.integrator = settings.integrator
@@ -97,10 +98,16 @@ class State:
         self._m_ind_to_E_coeffs: Optional[TensorChain] = None
         self._m_imp_to_E_coeffs: Optional[TensorChain] = None
         self._Br_to_E_coeffs: Optional[TensorChain] = None
+        self._m_ind_to_E_coeffs_dense: Optional[np.ndarray] = None
+        self._m_imp_to_E_coeffs_dense: Optional[np.ndarray] = None
+        self._Br_to_E_coeffs_dense: Optional[np.ndarray] = None
         self._E_map_constraint_operator: Optional[TensorChain] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
+        self._E_noind_to_m_ind_steady_matrix: Optional[np.ndarray] = None
+        self._jr_to_m_imp_matrix: Optional[np.ndarray] = None
+        self._E_direct_to_m_imp_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
-        self._m_imp_preconditioner: Optional[LinearOperator] = None
+        self._m_imp_preconditioners: Dict[int, Optional[LinearOperator]] = {}
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -164,6 +171,34 @@ class State:
             )
         return self._Br_to_E_coeffs
 
+    def _dense_E_coeffs_operator(self, op: Optional[TensorChain]) -> Optional[np.ndarray]:
+        """Return a dense E-coefficient operator."""
+        if op is None:
+            return None
+        dense_op = op.to_dense().reshape(op.output_shape + op.input_shape)
+        return to_jax(dense_op) if use_jax() else dense_op
+
+    @property
+    def m_ind_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
+        """Dense operator mapping m_ind to E coefficients."""
+        if self._m_ind_to_E_coeffs_dense is None:
+            self._m_ind_to_E_coeffs_dense = self._dense_E_coeffs_operator(self.m_ind_to_E_coeffs)
+        return self._m_ind_to_E_coeffs_dense
+
+    @property
+    def m_imp_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
+        """Dense operator mapping m_imp to E coefficients."""
+        if self._m_imp_to_E_coeffs_dense is None:
+            self._m_imp_to_E_coeffs_dense = self._dense_E_coeffs_operator(self.m_imp_to_E_coeffs)
+        return self._m_imp_to_E_coeffs_dense
+
+    @property
+    def Br_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
+        """Dense operator mapping Br coefficients to E coefficients."""
+        if self._Br_to_E_coeffs_dense is None:
+            self._Br_to_E_coeffs_dense = self._dense_E_coeffs_operator(self.Br_to_E_coeffs)
+        return self._Br_to_E_coeffs_dense
+
     @property
     def E_map_constraint_operator(self) -> Optional[TensorChain]:
         """Operator enforcing E-field mapping at low latitudes."""
@@ -214,45 +249,116 @@ class State:
                 data_shapes=data_shapes,
                 regularization_matrices=reg_ops,
                 regularization_weights=reg_weights,
+                matrix_free=False,
             )
         return self._m_imp_problem
 
     @property
     def m_imp_preconditioner(self) -> Optional[LinearOperator]:
         """Preconditioner for the m_imp least-squares problem."""
-        if self._m_imp_preconditioner is None:
+        return self._get_m_imp_preconditioner(num_scenarios=1)
+
+    def _get_m_imp_preconditioner(self, num_scenarios: int) -> Optional[LinearOperator]:
+        """Return a cached m_imp preconditioner matching the RHS scenario count."""
+        if self.m_imp_solver.solver not in ("lsmr", "cg"):
+            return None
+        if num_scenarios not in self._m_imp_preconditioners:
             logger.info("Building new preconditioner for m_imp solver.")
-            self._m_imp_preconditioner = self.m_imp_solver.build_preconditioner(
-                problem=self.m_imp_problem, num_scenarios=1
+            self._m_imp_preconditioners[num_scenarios] = self.m_imp_solver.build_preconditioner(
+                problem=self.m_imp_problem, num_scenarios=num_scenarios
             )
-        return self._m_imp_preconditioner
+        return self._m_imp_preconditioners[num_scenarios]
+
+    def _solve_m_imp_response(
+        self,
+        problem: LeastSquaresProblem,
+        rhs_entries: List[Optional[np.ndarray]],
+        num_scenarios: int,
+    ) -> np.ndarray:
+        """Solve one m_imp response block with a scenario-compatible preconditioner."""
+        preconditioner = None
+        if self.m_imp_solver.solver in ("lsmr", "cg"):
+            preconditioner = self._get_m_imp_preconditioner(num_scenarios)
+        return self.m_imp_solver.solve(
+            problem=problem,
+            rhs=rhs_entries,
+            preconditioner=preconditioner,
+        )
+
+    def _build_m_imp_response_matrices(self) -> None:
+        """Construct dense response matrices for the m_imp solve."""
+        logger.info("Building dense m_imp response matrices.")
+        n = self.basis.index_length
+        problem = self.m_imp_problem
+        normal_pinv_solve = None
+
+        if self.m_imp_solver.solver == "normal_pinv":
+            system_matrix = problem.dense_system_matrix
+            system_matrix_H = system_matrix.T.conj()
+            normal_pinv = np.linalg.pinv(
+                system_matrix_H @ system_matrix, rcond=self.m_imp_solver.tolerance, hermitian=True
+            )
+
+            def normal_pinv_solve(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
+                rhs_block, scenario_shape, _ = problem.assemble_rhs_block(rhs_entries)
+                solution_block = normal_pinv @ (system_matrix_H @ rhs_block)
+                return solution_block.reshape(problem.solution_shape + scenario_shape)
+
+        jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
+            problem.A[0].output_shape + (-1,)
+        )
+        rhs_entries = [None] * problem.num_data_terms
+        rhs_entries[0] = jr_rhs
+        jr_scenario_shape = jr_rhs.shape[len(problem.A[0].output_shape) :]
+        jr_num_scenarios = math.prod(jr_scenario_shape) if jr_scenario_shape else 1
+        if normal_pinv_solve is not None:
+            jr_to_m_imp = normal_pinv_solve(rhs_entries)
+        else:
+            jr_to_m_imp = self._solve_m_imp_response(problem, rhs_entries, jr_num_scenarios)
+
+        E_direct_to_m_imp = None
+        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+            E_rhs = -self.geometry.E_coeffs_to_E_apex_ll_diff.reshape(
+                problem.A[1].output_shape + (2 * n,)
+            )
+            E_rhs *= self.ih_constraint_scaling
+            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries[1] = E_rhs
+            if normal_pinv_solve is not None:
+                E_direct_to_m_imp = normal_pinv_solve(rhs_entries)
+            else:
+                E_direct_to_m_imp = self._solve_m_imp_response(problem, rhs_entries, 2 * n)
+            E_direct_to_m_imp = E_direct_to_m_imp.reshape((n, 2, n))
+
+        self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
+        if E_direct_to_m_imp is not None:
+            self._E_direct_to_m_imp_matrix = (
+                to_jax(E_direct_to_m_imp) if use_jax() else E_direct_to_m_imp
+            )
+        else:
+            self._E_direct_to_m_imp_matrix = None
+
+    def _ensure_m_imp_response_matrices(self) -> None:
+        """Build m_imp response matrices when needed."""
+        if self._jr_to_m_imp_matrix is None:
+            self._build_m_imp_response_matrices()
 
     def _solve_for_m_imp(
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
     ) -> np.ndarray:
-        """Solves for the imposed potential coefficients `m_imp`."""
-        problem = self.m_imp_problem
-        preconditioner = self.m_imp_preconditioner
+        """Solve for the imposed potential coefficients `m_imp`."""
+        self._ensure_m_imp_response_matrices()
+        solution = xp.zeros(self.basis.index_length)
 
-        rhs_list = []
-        b_jr = (
-            np.dot(self.geometry.jr_coeffs_to_j_apex, to_numpy(jr_coeffs))
-            if jr_coeffs is not None
-            else None
-        )
-        rhs_list.append(b_jr)
+        if jr_coeffs is not None:
+            solution += self._jr_to_m_imp_matrix @ xp.asarray(jr_coeffs)
 
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            E_map_op = self.geometry.E_coeffs_to_E_apex_ll_diff
-            b_E = -np.einsum("cikl,kl->ci", E_map_op, to_numpy(E_direct_coeffs)).flatten()
-            rhs_list.append(b_E * self.ih_constraint_scaling)
+        if self._E_direct_to_m_imp_matrix is not None:
+            solution += xp.tensordot(
+                self._E_direct_to_m_imp_matrix, xp.asarray(E_direct_coeffs), axes=([1, 2], [0, 1])
+            )
 
-        solution = self.m_imp_solver.solve(
-            problem=problem, rhs=rhs_list, preconditioner=preconditioner
-        )
-        if solution is None:
-            solution = np.zeros(self.basis.index_length)
-        return to_jax(solution) if use_jax() else solution
+        return solution
 
     # ----- State Update -----
 
@@ -280,13 +386,13 @@ class State:
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
-            preconditioner_to_keep = (
-                self._m_imp_preconditioner if self.static_preconditioner else None
+            preconditioners_to_keep = (
+                self._m_imp_preconditioners if self.static_preconditioner else {}
             )
             self._invalidate_caches()
-            if preconditioner_to_keep is not None:
+            if preconditioners_to_keep:
                 logger.info("...retaining static preconditioner due to setting.")
-                self._m_imp_preconditioner = preconditioner_to_keep
+                self._m_imp_preconditioners = preconditioners_to_keep
 
     # ----- State Calculation -----
 
@@ -315,7 +421,7 @@ class State:
     ) -> Tuple[np.ndarray, np.ndarray]:
         E_shape = (2, self.basis.index_length)
         m_imp = self._solve_for_m_imp(jr_coeffs, E_direct_coeffs)
-        E_imp = self._apply_operator(self.m_imp_to_E_coeffs, m_imp, E_shape)
+        E_imp = self._apply_operator(self.m_imp_to_E_coeffs_dense, m_imp, E_shape)
         return E_direct_coeffs + E_imp, m_imp
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -325,7 +431,7 @@ class State:
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(
-                self.Br_to_E_coeffs, xp.asarray(self.Br.coeffs), E_shape
+                self.Br_to_E_coeffs_dense, xp.asarray(self.Br.coeffs), E_shape
             )
 
         jr_coeffs = None if self.jr is None else xp.asarray(self.jr.coeffs)
@@ -334,7 +440,9 @@ class State:
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate total E-field coefficients."""
         E_shape = (2, self.basis.index_length)
-        E_direct_ind = self._apply_operator(self.m_ind_to_E_coeffs, xp.asarray(m_ind), E_shape)
+        E_direct_ind = self._apply_operator(
+            self.m_ind_to_E_coeffs_dense, xp.asarray(m_ind), E_shape
+        )
         return self._calculate_total_E_field(E_direct_ind, None)
 
     # ----- Time Evolution -----
@@ -346,20 +454,30 @@ class State:
             self._build_m_ind_to_E_df_matrix()
         return self._m_ind_to_E_df_matrix
 
+    @property
+    def E_noind_to_m_ind_steady_matrix(self) -> np.ndarray:
+        """Dense matrix mapping no-induction E-field to steady m_ind."""
+        if self._E_noind_to_m_ind_steady_matrix is None:
+            matrix = -np.linalg.pinv(to_numpy(self.m_ind_to_E_df_matrix))
+            self._E_noind_to_m_ind_steady_matrix = to_jax(matrix) if use_jax() else matrix
+        return self._E_noind_to_m_ind_steady_matrix
+
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
         n = self.basis.index_length
-        identity = np.eye(n)
 
-        # Apply forward operator to each column of identity matrix
-        columns = []
-        for vec in identity:
-            backend_vec = to_jax(vec) if use_jax() else vec
-            E_ind_coeffs, _ = self.calculate_ind_coeffs(backend_vec)
-            columns.append(E_ind_coeffs[1])
+        E_direct_matrix = to_numpy(self.m_ind_to_E_coeffs_dense).reshape((2, n, n))
+        E_df_matrix = E_direct_matrix[1].copy()
 
-        self._m_ind_to_E_df_matrix = xp.stack(columns, axis=1)
+        self._ensure_m_imp_response_matrices()
+        if self._E_direct_to_m_imp_matrix is not None:
+            E_direct_to_m_imp = to_numpy(self._E_direct_to_m_imp_matrix)
+            m_imp_matrix = np.tensordot(E_direct_to_m_imp, E_direct_matrix, axes=([1, 2], [0, 1]))
+            E_imp_matrix = to_numpy(self.m_imp_to_E_coeffs_dense).reshape((2, n, n))
+            E_df_matrix += E_imp_matrix[1] @ m_imp_matrix
+
+        self._m_ind_to_E_df_matrix = to_jax(E_df_matrix) if use_jax() else E_df_matrix
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
@@ -369,14 +487,9 @@ class State:
         The non-induced E-field is treated as a constant parameter for
         the ODE.
         """
-        # Calculate the E-field contribution from the current induced
-        # potential.
-        E_ind_coeffs, _ = self.calculate_ind_coeffs(m_ind)
-        E_df_ind = E_ind_coeffs[1]
-
         # Total divergence-free E-field is the sum of induced and
         # non-induced parts.
-        E_df_total = E_df_ind + E_coeffs_noind[1]
+        E_df_total = self.m_ind_to_E_df_matrix @ m_ind + E_coeffs_noind[1]
 
         # Calculate the time derivative using the geometry operator.
         d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
@@ -456,8 +569,4 @@ class State:
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the steady-state induced potential."""
-        # This operation requires solving a linear system, which is most
-        # robustly done with the dense matrix form of the operator.
-        op_A = xp.asarray(self.m_ind_to_E_df_matrix)
-        vec_b = -xp.asarray(E_coeffs_noind[1])
-        return xp.linalg.solve(op_A, vec_b)
+        return self.E_noind_to_m_ind_steady_matrix @ xp.asarray(E_coeffs_noind[1])

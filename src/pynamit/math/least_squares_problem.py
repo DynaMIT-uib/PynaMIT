@@ -1,10 +1,10 @@
 """Least-squares problem definition."""
 
 from __future__ import annotations
-import functools
+from functools import cached_property
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Tuple, Union, TypeAlias
+from typing import Any, List, Optional, Tuple, Union, TypeAlias
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
@@ -14,11 +14,6 @@ from pynamit.math.tensor_chain import TensorChain
 OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain]
 OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]
 NumericInputList: TypeAlias = Union[float, List[float]]
-
-
-def cached_property(func: Callable):
-    """Cache a propertu."""
-    return property(functools.lru_cache(maxsize=None)(func))
 
 
 @dataclass
