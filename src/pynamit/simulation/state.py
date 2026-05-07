@@ -7,7 +7,8 @@ for simulating ionospheric electrodynamics.
 
 from __future__ import annotations
 import logging
-from typing import Optional, Tuple, Any
+import math
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -106,7 +107,7 @@ class State:
         self._jr_to_m_imp_matrix: Optional[np.ndarray] = None
         self._E_direct_to_m_imp_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
-        self._m_imp_preconditioner: Optional[LinearOperator] = None
+        self._m_imp_preconditioners: Dict[int, Optional[LinearOperator]] = {}
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -255,28 +256,65 @@ class State:
     @property
     def m_imp_preconditioner(self) -> Optional[LinearOperator]:
         """Preconditioner for the m_imp least-squares problem."""
-        if self._m_imp_preconditioner is None:
+        return self._get_m_imp_preconditioner(num_scenarios=1)
+
+    def _get_m_imp_preconditioner(self, num_scenarios: int) -> Optional[LinearOperator]:
+        """Return a cached m_imp preconditioner matching the RHS scenario count."""
+        if self.m_imp_solver.solver not in ("lsmr", "cg"):
+            return None
+        if num_scenarios not in self._m_imp_preconditioners:
             logger.info("Building new preconditioner for m_imp solver.")
-            self._m_imp_preconditioner = self.m_imp_solver.build_preconditioner(
-                problem=self.m_imp_problem, num_scenarios=1
+            self._m_imp_preconditioners[num_scenarios] = self.m_imp_solver.build_preconditioner(
+                problem=self.m_imp_problem, num_scenarios=num_scenarios
             )
-        return self._m_imp_preconditioner
+        return self._m_imp_preconditioners[num_scenarios]
+
+    def _solve_m_imp_response(
+        self,
+        problem: LeastSquaresProblem,
+        rhs_entries: List[Optional[np.ndarray]],
+        num_scenarios: int,
+    ) -> np.ndarray:
+        """Solve one m_imp response block with a scenario-compatible preconditioner."""
+        preconditioner = None
+        if self.m_imp_solver.solver in ("lsmr", "cg"):
+            preconditioner = self._get_m_imp_preconditioner(num_scenarios)
+        return self.m_imp_solver.solve(
+            problem=problem,
+            rhs=rhs_entries,
+            preconditioner=preconditioner,
+        )
 
     def _build_m_imp_response_matrices(self) -> None:
         """Construct dense response matrices for the m_imp solve."""
         logger.info("Building dense m_imp response matrices.")
         n = self.basis.index_length
         problem = self.m_imp_problem
+        normal_pinv_solve = None
+
+        if self.m_imp_solver.solver == "normal_pinv":
+            system_matrix = problem.dense_system_matrix
+            system_matrix_H = system_matrix.T.conj()
+            normal_pinv = np.linalg.pinv(
+                system_matrix_H @ system_matrix, rcond=self.m_imp_solver.tolerance, hermitian=True
+            )
+
+            def normal_pinv_solve(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
+                rhs_block, scenario_shape, _ = problem.assemble_rhs_block(rhs_entries)
+                solution_block = normal_pinv @ (system_matrix_H @ rhs_block)
+                return solution_block.reshape(problem.solution_shape + scenario_shape)
 
         jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
             problem.A[0].output_shape + (-1,)
         )
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[0] = jr_rhs
-        jr_to_m_imp = self.m_imp_solver.solve(
-            problem=problem,
-            rhs=rhs_entries,
-        )
+        jr_scenario_shape = jr_rhs.shape[len(problem.A[0].output_shape) :]
+        jr_num_scenarios = math.prod(jr_scenario_shape) if jr_scenario_shape else 1
+        if normal_pinv_solve is not None:
+            jr_to_m_imp = normal_pinv_solve(rhs_entries)
+        else:
+            jr_to_m_imp = self._solve_m_imp_response(problem, rhs_entries, jr_num_scenarios)
 
         E_direct_to_m_imp = None
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
@@ -286,10 +324,10 @@ class State:
             E_rhs *= self.ih_constraint_scaling
             rhs_entries = [None] * problem.num_data_terms
             rhs_entries[1] = E_rhs
-            E_direct_to_m_imp = self.m_imp_solver.solve(
-                problem=problem,
-                rhs=rhs_entries,
-            )
+            if normal_pinv_solve is not None:
+                E_direct_to_m_imp = normal_pinv_solve(rhs_entries)
+            else:
+                E_direct_to_m_imp = self._solve_m_imp_response(problem, rhs_entries, 2 * n)
             E_direct_to_m_imp = E_direct_to_m_imp.reshape((n, 2, n))
 
         self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
@@ -348,13 +386,13 @@ class State:
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
-            preconditioner_to_keep = (
-                self._m_imp_preconditioner if self.static_preconditioner else None
+            preconditioners_to_keep = (
+                self._m_imp_preconditioners if self.static_preconditioner else {}
             )
             self._invalidate_caches()
-            if preconditioner_to_keep is not None:
+            if preconditioners_to_keep:
                 logger.info("...retaining static preconditioner due to setting.")
-                self._m_imp_preconditioner = preconditioner_to_keep
+                self._m_imp_preconditioners = preconditioners_to_keep
 
     # ----- State Calculation -----
 
