@@ -259,7 +259,7 @@ class State:
         return self._get_m_imp_preconditioner(num_scenarios=1)
 
     def _get_m_imp_preconditioner(self, num_scenarios: int) -> Optional[LinearOperator]:
-        """Return a cached m_imp preconditioner matching the RHS scenario count."""
+        """Return a cached preconditioner for the RHS scenario count."""
         if self.m_imp_solver.solver not in ("lsmr", "cg"):
             return None
         if num_scenarios not in self._m_imp_preconditioners:
@@ -275,14 +275,12 @@ class State:
         rhs_entries: List[Optional[np.ndarray]],
         num_scenarios: int,
     ) -> np.ndarray:
-        """Solve one m_imp response block with a scenario-compatible preconditioner."""
+        """Solve one response block with a matching preconditioner."""
         preconditioner = None
         if self.m_imp_solver.solver in ("lsmr", "cg"):
             preconditioner = self._get_m_imp_preconditioner(num_scenarios)
         return self.m_imp_solver.solve(
-            problem=problem,
-            rhs=rhs_entries,
-            preconditioner=preconditioner,
+            problem=problem, rhs=rhs_entries, preconditioner=preconditioner
         )
 
     def _build_m_imp_response_matrices(self) -> None:

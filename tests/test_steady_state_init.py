@@ -65,7 +65,7 @@ def test_steady_state_init():
 
 
 def test_impose_steady_state_at_current_time(tmp_path, monkeypatch):
-    """Imposed steady state should overwrite the live state at the current time."""
+    """Imposed steady state should overwrite the live state."""
     monkeypatch.chdir(tmp_path)
 
     dynamics = run_pynamit(
@@ -93,3 +93,45 @@ def test_impose_steady_state_at_current_time(tmp_path, monkeypatch):
 
     np.testing.assert_allclose(np.asarray(state_entry["m_ind"]), np.asarray(steady_state_m_ind))
     np.testing.assert_allclose(np.asarray(steady_entry["m_ind"]), np.asarray(steady_state_m_ind))
+
+
+def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monkeypatch):
+    """Explicit steady state should match initialized steady state."""
+    common_kwargs = dict(
+        final_time=0.0,
+        dt=1e-2,
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+        mainfield_kind="dipole",
+        ignore_PFAC=False,
+        connect_hemispheres=True,
+        latitude_boundary=50,
+        wind=True,
+        vector_jr=True,
+        vector_conductance=True,
+        vector_u=True,
+    )
+
+    init_dir = tmp_path / "initialized"
+    init_dir.mkdir()
+    monkeypatch.chdir(init_dir)
+    initialized = run_pynamit(
+        **common_kwargs, fig_directory=str(init_dir), steady_state_initialization=True
+    )
+
+    imposed_dir = tmp_path / "imposed"
+    imposed_dir.mkdir()
+    monkeypatch.chdir(imposed_dir)
+    imposed = run_pynamit(
+        **common_kwargs, fig_directory=str(imposed_dir), steady_state_initialization=False
+    )
+    imposed.impose_steady_state(quiet=True)
+
+    initialized_entry = initialized.output_timeseries.get_entry("state", initialized.current_time)
+    imposed_entry = imposed.output_timeseries.get_entry("state", imposed.current_time)
+
+    for key in ("m_ind", "m_imp", "Phi", "W"):
+        np.testing.assert_allclose(
+            np.asarray(imposed_entry[key]), np.asarray(initialized_entry[key])
+        )

@@ -107,7 +107,7 @@ if highest_apex_t is not None:
     req_highest_apex = 1 / np.sin(highest_apex_t) ** 2
     magnetosphere_radius = req_highest_apex * RE + 110
 
-    # Define an outer radius large enough to cover the corner of the plot
+    # Define an outer radius large enough to cover the plot corner.
     outer_radius = rh * np.sqrt(2)
 
     # Add light red background outside the magnetosphere boundary.
@@ -141,7 +141,9 @@ if highest_apex_t is not None:
 # ---------------------------------------------------------------------
 label_bbox = dict(facecolor="white", edgecolor="none", pad=0.15, alpha=0.65)
 
+
 def add_rotated_label(xp, yp, text, size=textsize):
+    """Add a rotated label to the geometry diagram."""
     ax.text(
         xp,
         yp,
@@ -154,6 +156,7 @@ def add_rotated_label(xp, yp, text, size=textsize):
         bbox=label_bbox,
         zorder=5,
     )
+
 
 def xy_from_rtheta(radius, angle):
     """Coordinates using x = r sin(theta), y = r cos(theta)."""
@@ -168,11 +171,7 @@ add_rotated_label(1.05 * RE, 1.05 * RE, "Gap region")
 add_rotated_label(1.65 * RE, 1.65 * RE, "Magnetosphere")
 
 # Ionosphere label
-add_rotated_label(
-    RI / np.sqrt(2),
-    RI / np.sqrt(2),
-    "Ionosphere",
-)
+add_rotated_label(RI / np.sqrt(2), RI / np.sqrt(2), "Ionosphere")
 
 
 # ---------------------------------------------------------------------
@@ -198,23 +197,9 @@ b_plus_xy = np.array(xy_from_rtheta(RI + B_OFFSET, theta_plus))
 b_minus_xy = np.array(xy_from_rtheta(RI - B_OFFSET, theta_minus))
 
 # B labels
-ax.text(
-    *b_plus_xy,
-    r"$\mathbf{B}^{+}$",
-    ha="center",
-    va="center",
-    size=textsize,
-    zorder=7,
-)
+ax.text(*b_plus_xy, r"$\mathbf{B}^{+}$", ha="center", va="center", size=textsize, zorder=7)
 
-ax.text(
-    *b_minus_xy,
-    r"$\mathbf{B}^{-}$",
-    ha="center",
-    va="center",
-    size=textsize,
-    zorder=7,
-)
+ax.text(*b_minus_xy, r"$\mathbf{B}^{-}$", ha="center", va="center", size=textsize, zorder=7)
 
 # Square-brace geometry:
 #
@@ -234,30 +219,12 @@ chain_start_x = brace_x + 0.055 * RE
 brace_lw = 1.4
 
 # Top and bottom horizontal parts: B+ -| and B- -|
-ax.plot(
-    [line_start_x, brace_x],
-    [b_plus_y, b_plus_y],
-    color="black",
-    lw=brace_lw,
-    zorder=6,
-)
+ax.plot([line_start_x, brace_x], [b_plus_y, b_plus_y], color="black", lw=brace_lw, zorder=6)
 
-ax.plot(
-    [line_start_x, brace_x],
-    [b_minus_y, b_minus_y],
-    color="black",
-    lw=brace_lw,
-    zorder=6,
-)
+ax.plot([line_start_x, brace_x], [b_minus_y, b_minus_y], color="black", lw=brace_lw, zorder=6)
 
 # Vertical square-brace part
-ax.plot(
-    [brace_x, brace_x],
-    [b_minus_y, b_plus_y],
-    color="black",
-    lw=brace_lw,
-    zorder=6,
-)
+ax.plot([brace_x, brace_x], [b_minus_y, b_plus_y], color="black", lw=brace_lw, zorder=6)
 
 # Middle connector: |-
 ax.plot(
@@ -288,12 +255,12 @@ ax.text(
 # Mirror the B-label angle around the ionosphere label angle (~45 deg),
 # then nudge the text a bit to the right.
 U_CHAIN_ANGLE = np.deg2rad(75)
-U_CHAIN_RADIUS = RI# - 0.05 * RE
+U_CHAIN_RADIUS = RI  # - 0.05 * RE
 
 u_chain_x, u_chain_y = xy_from_rtheta(U_CHAIN_RADIUS, U_CHAIN_ANGLE)
 
 # Small manual shift to the right.
-#u_chain_x += 0.06 * RE
+# u_chain_x += 0.06 * RE
 
 ax.text(
     u_chain_x,
