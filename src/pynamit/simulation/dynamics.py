@@ -336,14 +336,8 @@ class Dynamics(object):
 
             step += 1
 
-    def impose_steady_state(
-        self,
-        time=None,
-        interpolation=True,
-        save=True,
-        quiet=False,
-    ):
-        """Replace the current model state with the steady-state solution."""
+    def impose_steady_state(self, time=None, interpolation=True, save=True, quiet=False):
+        """Replace the current model state with the steady state."""
         if time is not None:
             self.current_time = np.float64(time)
 
@@ -352,9 +346,7 @@ class Dynamics(object):
         steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
 
         if save:
-            self.add_state_to_timeseries(
-                "state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
-            )
+            self.add_state_to_timeseries("state", steady_state_m_ind, E_coeffs_noind, m_imp_noind)
             if bool(self.settings.save_steady_states):
                 self.add_state_to_timeseries(
                     "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind

@@ -1,4 +1,4 @@
-"""Opt-in performance regression test for the DynaMIT example script."""
+"""Performance regression test for the DynaMIT example script."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ pytestmark = [
     reason="Set PYNAMIT_SKIP_PERFORMANCE_TESTS=1 to skip this performance regression test.",
 )
 def test_dynamit_simulation_first_step_runtime(tmp_path):
-    """The first 2-second DynaMIT update/evolve step should stay fast."""
+    """The first 2-second DynaMIT step should stay fast."""
     pytest.importorskip("apexpy")
     pytest.importorskip("dipole")
     pytest.importorskip("lompe")
@@ -70,7 +70,10 @@ src = src.replace(
     1,
 )
 
-exec(compile(src, str(path), "exec"), {"__name__": "__main__", "__file__": str(path), "time": time})
+exec(
+    compile(src, str(path), "exec"),
+    {"__name__": "__main__", "__file__": str(path), "time": time},
+)
 """
 
     env = os.environ.copy()

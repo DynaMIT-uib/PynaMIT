@@ -9,20 +9,8 @@ from pynamit.math.least_squares_solver import LeastSquaresSolver
 
 def test_normal_pinv_solves_multiscenario_rhs():
     """Normal-equation pseudo-inverse supports reusable RHS maps."""
-    A = np.array(
-        [
-            [1.0, 1.0],
-            [2.0, 2.0],
-            [0.0, 0.0],
-        ]
-    )
-    rhs = np.array(
-        [
-            [1.0, 2.0],
-            [3.0, 4.0],
-            [5.0, 6.0],
-        ]
-    )
+    A = np.array([[1.0, 1.0], [2.0, 2.0], [0.0, 0.0]])
+    rhs = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=3)
     solver = LeastSquaresSolver(solver="normal_pinv", tolerance=1e-13)
 
