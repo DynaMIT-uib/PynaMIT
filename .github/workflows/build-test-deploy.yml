@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         variant: [jax, data]
-        date: ['2025-10-20']
+        date: ['2026-05-12']
     # Use one container per matrix run
     container:
       image: ghcr.io/dynamit-uib/pynamit:x86_64-${{ matrix.variant }}-${{ matrix.date }}

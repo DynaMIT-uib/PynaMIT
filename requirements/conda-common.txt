@@ -3,6 +3,7 @@ c-compiler
 fortran-compiler
 git
 pip
+python
 
 # scientific stack
 h5py
