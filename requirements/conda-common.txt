@@ -3,6 +3,7 @@ c-compiler
 fortran-compiler
 git
 pip
+python
 
 # scientific stack
 h5py
@@ -10,6 +11,7 @@ numpy
 pandas
 ppigrf
 scipy
+tqdm
 xarray
 
 # plotting
