@@ -18,6 +18,7 @@ from scipy.sparse.linalg import LinearOperator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
@@ -107,7 +108,7 @@ class State:
         self._jr_to_m_imp_matrix: Optional[np.ndarray] = None
         self._E_direct_to_m_imp_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
-        self._m_imp_preconditioners: Dict[int, Optional[LinearOperator]] = {}
+        self._m_imp_preconditioners: Dict[int, Optional[LinearMap]] = {}
 
     # ----- Cached Physical Properties (dependent on conductance) -----
 
@@ -239,8 +240,7 @@ class State:
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
-                identity_op = LinearOperator((n, n), matvec=lambda x: x)
-                reg_ops.append(identity_op)
+                reg_ops.append(diagonal_linear_map(np.ones(n)))
                 reg_weights.append(self.m_imp_regularization_lambda)
 
             self._m_imp_problem = LeastSquaresProblem(
@@ -254,13 +254,13 @@ class State:
         return self._m_imp_problem
 
     @property
-    def m_imp_preconditioner(self) -> Optional[LinearOperator]:
+    def m_imp_preconditioner(self) -> Optional[LinearMap]:
         """Preconditioner for the m_imp least-squares problem."""
         return self._get_m_imp_preconditioner(num_scenarios=1)
 
-    def _get_m_imp_preconditioner(self, num_scenarios: int) -> Optional[LinearOperator]:
+    def _get_m_imp_preconditioner(self, num_scenarios: int) -> Optional[LinearMap]:
         """Return a cached preconditioner for the RHS scenario count."""
-        if self.m_imp_solver.solver not in ("lsmr", "cg"):
+        if self.m_imp_solver.solver not in ("lsmr", "cg", "cgls"):
             return None
         if num_scenarios not in self._m_imp_preconditioners:
             logger.info("Building new preconditioner for m_imp solver.")
@@ -277,7 +277,7 @@ class State:
     ) -> np.ndarray:
         """Solve one response block with a matching preconditioner."""
         preconditioner = None
-        if self.m_imp_solver.solver in ("lsmr", "cg"):
+        if self.m_imp_solver.solver in ("lsmr", "cg", "cgls"):
             preconditioner = self._get_m_imp_preconditioner(num_scenarios)
         return self.m_imp_solver.solve(
             problem=problem, rhs=rhs_entries, preconditioner=preconditioner
@@ -399,13 +399,8 @@ class State:
             return xp.zeros(output_shape)
 
         coeffs_np = to_numpy(coeffs)
-        if isinstance(op, TensorChain):
-            linop = op.as_linear_operator()
-            res_np = linop.matvec(coeffs_np.flatten()).reshape(output_shape)
-            return to_jax(res_np) if use_jax() else res_np
-
-        if isinstance(op, LinearOperator):
-            res_np = op.matvec(coeffs_np.flatten()).reshape(output_shape)
+        if isinstance(op, (TensorChain, LinearMap, LinearOperator)):
+            res_np = as_linear_map(op).matvec(coeffs_np.flatten()).reshape(output_shape)
             return to_jax(res_np) if use_jax() else res_np
 
         module = xp
