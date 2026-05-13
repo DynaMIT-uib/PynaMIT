@@ -8,6 +8,7 @@ import numpy as np
 import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
+from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
@@ -63,6 +64,8 @@ class Dynamics(object):
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
         integrator="euler",
+        least_squares_solver=None,
+        least_squares_preconditioner="pinv",
         backend="auto",
     ):
         """Initialize the Dynamics class.
@@ -110,6 +113,11 @@ class Dynamics(object):
             Whether to calculate and save steady states.
         integrator : {'euler', 'exponential'}, optional
             Integrator type for time evolution.
+        least_squares_solver : str, optional
+            Least-squares solver used by state feedback solves.
+        least_squares_preconditioner : {'jacobi', 'pinv', None},
+            optional
+            Preconditioner used by iterative least-squares state solves.
         backend : {'auto', 'numpy', 'jax', bool}, optional
             Array backend to use. ``"auto"`` respects the current global
             setting (environment variable or previous choice).
@@ -141,6 +149,8 @@ class Dynamics(object):
                 "t0": t0,
                 "save_steady_states": int(save_steady_states),
                 "integrator": integrator,
+                "least_squares_solver": least_squares_solver or get_default_least_squares_solver(),
+                "least_squares_preconditioner": least_squares_preconditioner,
             }
         )
 

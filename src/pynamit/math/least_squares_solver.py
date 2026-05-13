@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import warnings
 from typing import Callable, Dict, Final, List, Optional, Tuple, Union
 
@@ -12,13 +13,14 @@ from .least_squares_problem import LeastSquaresProblem
 from .linear_map import LinearMap, as_linear_map, diagonal_linear_map
 
 ITERATION_SAFETY_FACTOR: Final = 10
+LEAST_SQUARES_SOLVER_ENV: Final = "PYNAMIT_LEAST_SQUARES_SOLVER"
 PreconditionerInput = Optional[Union[LinearOperator, LinearMap]]
 
 
 class LeastSquaresSolver:
     """A collection of algorithms for solving least-squares problems."""
 
-    VALID_SOLVERS: Final[List[str]] = ["normal_solve", "normal_pinv", "lsmr", "cg", "cgls", "svd"]
+    VALID_SOLVERS: Final[List[str]] = ["normal_solve", "normal_pinv", "lsmr", "cgls", "svd"]
     VALID_PRECONDITIONERS: Final[List[str]] = ["jacobi", "pinv"]
 
     def __init__(
@@ -38,8 +40,7 @@ class LeastSquaresSolver:
             "normal_solve": self._solve_normal_solve,
             "normal_pinv": self._solve_normal_pinv,
             "lsmr": self._solve_lsmr,
-            "cg": self._solve_cg,
-            "cgls": self._solve_cg,
+            "cgls": self._solve_cgls,
         }
 
     def solve(
@@ -50,24 +51,19 @@ class LeastSquaresSolver:
         **kwargs,
     ) -> np.ndarray:
         """Solve least-squares problem for given right-hand side(s)."""
-        rhs_block, scenario_shape, num_scenarios = problem.assemble_rhs_block(rhs)
+        rhs_block, rhs_shape, num_rhs = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else np.float64
-            return np.zeros(problem.solution_shape + scenario_shape, dtype=dtype)
+            return np.zeros(problem.solution_shape + rhs_shape, dtype=dtype)
 
         preconditioner_map = as_linear_map(preconditioner) if preconditioner is not None else None
-        self._validate_preconditioner_shape(problem, preconditioner_map, num_scenarios)
+        self._validate_preconditioner_shape(problem, preconditioner_map)
         solver_func = self._solve_methods[self.solver]
-        solution_block = solver_func(
-            problem, rhs_block, num_scenarios, preconditioner_map, **kwargs
-        )
-        return np.asarray(solution_block).reshape(problem.solution_shape + scenario_shape)
+        solution_block = solver_func(problem, rhs_block, num_rhs, preconditioner_map, **kwargs)
+        return np.asarray(solution_block).reshape(problem.solution_shape + rhs_shape)
 
     def build_preconditioner(
-        self,
-        problem: LeastSquaresProblem,
-        preconditioner_type: Optional[str] = None,
-        num_scenarios: int = 1,
+        self, problem: LeastSquaresProblem, preconditioner_type: Optional[str] = None
     ) -> Optional[LinearMap]:
         """Build preconditioner for the specified solver and problem."""
         p_type = (
@@ -77,10 +73,10 @@ class LeastSquaresSolver:
             return None
         if p_type not in self.VALID_PRECONDITIONERS:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
-        if self.solver in ["cg", "cgls", "normal_solve"]:
-            return self._build_normal_eq_preconditioner(problem, p_type, num_scenarios)
+        if self.solver in ["cgls", "normal_solve"]:
+            return self._build_normal_eq_preconditioner(problem, p_type)
         if self.solver == "lsmr":
-            return self._build_lsmr_preconditioner(problem, p_type, num_scenarios)
+            return self._build_lsmr_preconditioner(problem, p_type)
         return None
 
     def _solve_svd(
@@ -113,23 +109,23 @@ class LeastSquaresSolver:
         self,
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
-        num_scenarios: int,
+        num_rhs: int,
         M: Optional[LinearMap],
         **kwargs,
     ) -> np.ndarray:
-        G = problem.get_system_linear_map(num_scenarios)
+        G = problem.get_system_linear_map()
         op_to_solve = G
 
-        def sol_transform(y_block):
-            return y_block
+        def sol_transform(y_vec):
+            return y_vec
 
         if M is not None:
             op_to_solve = G @ M
 
-            def sol_transform(y_block):
-                return M.matvec(y_block.ravel()).reshape(y_block.shape)
+            def sol_transform(y_vec):
+                return M.matvec(y_vec)
 
-        m, n = G.shape[0] // num_scenarios, problem.solution_size
+        m, n = G.shape
         max_iter = kwargs.pop(
             "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
         )
@@ -139,28 +135,33 @@ class LeastSquaresSolver:
             "maxiter": max_iter,
             **kwargs,
         }
-        sol_y_flat, istop, *_ = lsmr(
-            op_to_solve.as_linear_operator(), rhs_block.ravel(), **lsmr_kwargs
-        )
-        if istop not in [0, 1, 2]:
-            warnings.warn(f"LSMR may not have converged (istop={istop}).", RuntimeWarning)
-        return sol_transform(sol_y_flat.reshape(problem.solution_size, num_scenarios))
+        op = op_to_solve.as_linear_operator()
+        columns = []
+        for col in range(num_rhs):
+            sol_y, istop, *_ = lsmr(op, rhs_block[:, col], **lsmr_kwargs)
+            if istop not in [0, 1, 2]:
+                warnings.warn(
+                    f"LSMR may not have converged for RHS column {col} (istop={istop}).",
+                    RuntimeWarning,
+                )
+            columns.append(sol_transform(sol_y))
+        return np.column_stack(columns)
 
-    def _solve_cg(
+    def _solve_cgls(
         self,
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
-        num_scenarios: int,
+        num_rhs: int,
         M: Optional[LinearMap],
         **kwargs,
     ) -> np.ndarray:
-        G = problem.get_system_linear_map(num_scenarios)
+        G = problem.get_system_linear_map()
         normal_op = LinearOperator(
             (G.shape[1], G.shape[1]),
             matvec=lambda x: np.asarray(G.rmatvec(G.matvec(x))),
             dtype=G.dtype,
         )
-        cg_rhs = np.asarray(G.rmatvec(rhs_block.ravel()))
+        cg_rhs = np.asarray(G.rmatmat(rhs_block)).reshape(problem.solution_size, num_rhs)
 
         max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         cg_kwargs = {
@@ -169,58 +170,57 @@ class LeastSquaresSolver:
             "maxiter": max_iter,
             **kwargs,
         }
-        sol_flat, exit_code = cg(normal_op, cg_rhs, **cg_kwargs)
-        if exit_code != 0:
-            warnings.warn(f"CG solver did not converge (exit_code={exit_code}).", RuntimeWarning)
-        return sol_flat.reshape(problem.solution_size, num_scenarios)
+        columns = []
+        for col in range(num_rhs):
+            sol, exit_code = cg(normal_op, cg_rhs[:, col], **cg_kwargs)
+            if exit_code != 0:
+                warnings.warn(
+                    f"CGLS solver did not converge for RHS column {col} (exit_code={exit_code}).",
+                    RuntimeWarning,
+                )
+            columns.append(sol)
+        return np.column_stack(columns)
 
-    def _validate_preconditioner_shape(
-        self, problem: LeastSquaresProblem, M: Optional[LinearMap], num_scenarios: int
-    ):
+    def _validate_preconditioner_shape(self, problem: LeastSquaresProblem, M: Optional[LinearMap]):
         if M is None:
             return
-        expected_size = problem.solution_size * num_scenarios
-        expected_shape = (expected_size, expected_size)
+        expected_shape = (problem.solution_size, problem.solution_size)
         if M.shape != expected_shape:
             raise ValueError(f"Preconditioner shape {M.shape} != expected {expected_shape}")
 
     def _build_normal_eq_preconditioner(
-        self, problem: LeastSquaresProblem, p_type: str, num_scenarios: int
+        self, problem: LeastSquaresProblem, p_type: str
     ) -> LinearMap:
-        size = problem.solution_size * num_scenarios
+        size = problem.solution_size
         if p_type == "jacobi":
-            G = problem.get_system_linear_map(num_scenarios=1)
+            G = problem.get_system_linear_map()
             diag = G.normal_matrix_diag()
             inv_diag = np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0)
-            return diagonal_linear_map(np.tile(inv_diag, num_scenarios))
+            return diagonal_linear_map(inv_diag)
         if p_type == "pinv":
             vt, _, s_inv_sq = self._get_pinv_components(problem, self.tolerance)
 
             def matvec(x_flat):
-                x_block = np.asarray(x_flat).reshape(problem.solution_size, num_scenarios)
-                y_block = vt.T.conj() @ (s_inv_sq[:, None] * (vt @ x_block))
-                return y_block.ravel()
+                x = np.asarray(x_flat).reshape(problem.solution_size)
+                return vt.T.conj() @ (s_inv_sq * (vt @ x))
 
             shape = (size, size)
             return LinearMap(shape=shape, dtype=vt.dtype, _matvec=matvec, _rmatvec=matvec)
-        raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for CG solver.")
+        raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for CGLS solver.")
 
-    def _build_lsmr_preconditioner(
-        self, problem: LeastSquaresProblem, p_type: str, num_scenarios: int
-    ) -> LinearMap:
-        size = problem.solution_size * num_scenarios
+    def _build_lsmr_preconditioner(self, problem: LeastSquaresProblem, p_type: str) -> LinearMap:
+        size = problem.solution_size
         if p_type == "jacobi":
-            G = problem.get_system_linear_map(num_scenarios=1)
+            G = problem.get_system_linear_map()
             diag = G.normal_matrix_diag()
             sqrt_inv = np.sqrt(np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0))
-            return diagonal_linear_map(np.tile(sqrt_inv, num_scenarios))
+            return diagonal_linear_map(sqrt_inv)
         if p_type == "pinv":
             vt, s_pinv, _ = self._get_pinv_components(problem, self.tolerance)
 
             def matvec(y_flat):
-                y_block = np.asarray(y_flat).reshape(problem.solution_size, num_scenarios)
-                x_block = vt.T.conj() @ (s_pinv[:, None] * (vt @ y_block))
-                return x_block.ravel()
+                y = np.asarray(y_flat).reshape(problem.solution_size)
+                return vt.T.conj() @ (s_pinv * (vt @ y))
 
             shape = (size, size)
             return LinearMap(shape=shape, dtype=vt.dtype, _matvec=matvec, _rmatvec=matvec)
@@ -234,3 +234,11 @@ class LeastSquaresSolver:
         cutoff = tol * (s[0] if s.size > 0 else 0)
         s_pinv[s > cutoff] = 1.0 / s[s > cutoff]
         return vt, s_pinv, s_pinv**2
+
+
+def get_default_least_squares_solver(default: str = "normal_pinv") -> str:
+    """Return the configured default least-squares solver."""
+    solver = os.environ.get(LEAST_SQUARES_SOLVER_ENV, default)
+    if solver not in LeastSquaresSolver.VALID_SOLVERS:
+        raise ValueError(f"Solver must be one of {LeastSquaresSolver.VALID_SOLVERS}")
+    return solver

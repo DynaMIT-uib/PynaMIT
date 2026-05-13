@@ -76,16 +76,12 @@ class LeastSquaresProblem:
         sqrt_weights: Optional[Union[Any, List[Any]]] = None,
         regularization_weights: Optional[NumericInputList] = None,
         regularization_matrices: Optional[OperatorInputList] = None,
-        matrix_free: bool = True,
     ):
-        self.matrix_free = matrix_free
         self.solution_shape = (
             (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
         )
         self.solution_size = math.prod(self.solution_shape)
-        self._scenario_operator_cache: dict[Tuple[bool, int], LinearOperator] = {}
         self._system_linear_map_cache: dict[bool, LinearMap] = {}
-        self._scenario_linear_map_cache: dict[Tuple[bool, int], LinearMap] = {}
 
         self._process_data_terms(A, data_shapes, sqrt_weights)
         self._process_regularization_terms(regularization_matrices, regularization_weights)
@@ -199,7 +195,7 @@ class LeastSquaresProblem:
     def assemble_rhs_block(
         self, b: Union[Any, List[Any]]
     ) -> Tuple[Optional[np.ndarray], Tuple[int, ...], int]:
-        """Assemble right-hand side block for all scenarios."""
+        """Assemble one or more right-hand side columns."""
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
         processed = [
             self._process_b_vector(b_val, self.data_shapes[i]) for i, b_val in enumerate(b_list)
@@ -207,14 +203,14 @@ class LeastSquaresProblem:
         valid_b = [p for p in processed if p[0] is not None]
         if not valid_b:
             return None, (), 0
-        scenario_shape = valid_b[0][1]
-        if not all(p[1] == scenario_shape for p in valid_b):
-            raise ValueError("Inconsistent scenario shapes in b terms.")
+        rhs_shape = valid_b[0][1]
+        if not all(p[1] == rhs_shape for p in valid_b):
+            raise ValueError("Inconsistent RHS column shapes in b terms.")
 
-        num_scenarios = math.prod(scenario_shape) if scenario_shape else 1
+        num_rhs = math.prod(rhs_shape) if rhs_shape else 1
         op_rows = self.get_system_linear_map(include_regularization=True).shape[0]
         dtype = self.A[0].dtype if self.A else np.float64
-        d_block = np.zeros((op_rows, num_scenarios), dtype=dtype)
+        d_block = np.zeros((op_rows, num_rhs), dtype=dtype)
 
         row = 0
         for i, (b_col_block, _) in enumerate(processed):
@@ -225,33 +221,17 @@ class LeastSquaresProblem:
                     b_col_block = self._apply_weight(w_item, b_col_block)
                 d_block[row : row + num_a_rows, :] = np.asarray(b_col_block)
             row += num_a_rows
-        return d_block, scenario_shape, num_scenarios
+        return d_block, rhs_shape, num_rhs
 
-    def get_system_operator(
-        self, num_scenarios: int = 1, include_regularization: bool = True
-    ) -> LinearOperator:
-        """Get a SciPy system operator for the scenarios."""
-        cache_key = (include_regularization, num_scenarios)
-        if cache_key not in self._scenario_operator_cache:
-            linear_map = self.get_system_linear_map(
-                num_scenarios=num_scenarios, include_regularization=include_regularization
-            )
-            self._scenario_operator_cache[cache_key] = linear_map.as_linear_operator()
-        return self._scenario_operator_cache[cache_key]
+    def get_system_operator(self, include_regularization: bool = True) -> LinearOperator:
+        """Get a SciPy operator for the base least-squares system."""
+        return self.get_system_linear_map(
+            include_regularization=include_regularization
+        ).as_linear_operator()
 
-    def get_system_linear_map(
-        self, num_scenarios: int = 1, include_regularization: bool = True
-    ) -> LinearMap:
-        """Get a ``LinearMap`` system operator."""
-        if num_scenarios == 1:
-            return self._get_base_system_linear_map(include_regularization)
-        cache_key = (include_regularization, num_scenarios)
-        if cache_key not in self._scenario_linear_map_cache:
-            base_map = self._get_base_system_linear_map(include_regularization)
-            self._scenario_linear_map_cache[cache_key] = self._lift_linear_map_to_scenarios(
-                base_map, num_scenarios
-            )
-        return self._scenario_linear_map_cache[cache_key]
+    def get_system_linear_map(self, include_regularization: bool = True) -> LinearMap:
+        """Get the base ``LinearMap`` system operator."""
+        return self._get_base_system_linear_map(include_regularization)
 
     def _build_system_linear_map(self, include_regularization: bool) -> LinearMap:
         num_features = self.solution_size
@@ -281,6 +261,21 @@ class LeastSquaresProblem:
         def rmatvec(vec: Any) -> Any:
             return rmatmat(asarray(vec).reshape(op_rows, 1)).ravel()
 
+        def normal_matrix_diag() -> np.ndarray:
+            diag = np.zeros(num_features, dtype=np.result_type(dtype, np.float64))
+            for i, a_item in enumerate(self.A):
+                term_map = a_item.linear_map
+                w_item = self.sqrt_weights[i]
+                if w_item is not None:
+                    term_map = w_item.linear_map @ term_map
+                diag += term_map.normal_matrix_diag()
+
+            if include_regularization:
+                for i, L_item in enumerate(self.regularization_matrices):
+                    if i < len(active_lambdas) and L_item and active_lambdas[i] > 1e-12:
+                        diag += np.abs(active_lambdas[i]) ** 2 * L_item.normal_matrix_diag()
+            return diag
+
         return LinearMap(
             shape=(op_rows, num_features),
             dtype=dtype,
@@ -288,6 +283,7 @@ class LeastSquaresProblem:
             _rmatvec=rmatvec,
             _matmat=matmat,
             _rmatmat=rmatmat,
+            _normal_matrix_diag=normal_matrix_diag,
             source=None,
         )
 
@@ -297,45 +293,6 @@ class LeastSquaresProblem:
                 include_regularization
             )
         return self._system_linear_map_cache[include_regularization]
-
-    @staticmethod
-    def _lift_linear_map_to_scenarios(base_map: LinearMap, num_scenarios: int) -> LinearMap:
-        base_out, base_in = base_map.shape
-        shape = (base_out * num_scenarios, base_in * num_scenarios)
-
-        def matmat(block: Any) -> Any:
-            xp = get_array_module(block)
-            block_arr = xp.asarray(block).reshape(shape[1], -1)
-            outputs = []
-            for col in range(block_arr.shape[1]):
-                scenario_block = block_arr[:, col].reshape(base_in, num_scenarios)
-                outputs.append(base_map.matmat(scenario_block).reshape(-1))
-            return xp.stack(outputs, axis=1)
-
-        def rmatmat(block: Any) -> Any:
-            xp = get_array_module(block)
-            block_arr = xp.asarray(block).reshape(shape[0], -1)
-            outputs = []
-            for col in range(block_arr.shape[1]):
-                scenario_block = block_arr[:, col].reshape(base_out, num_scenarios)
-                outputs.append(base_map.rmatmat(scenario_block).reshape(-1))
-            return xp.stack(outputs, axis=1)
-
-        def matvec(vec: Any) -> Any:
-            return matmat(asarray(vec).reshape(shape[1], 1)).ravel()
-
-        def rmatvec(vec: Any) -> Any:
-            return rmatmat(asarray(vec).reshape(shape[0], 1)).ravel()
-
-        return LinearMap(
-            shape=shape,
-            dtype=base_map.dtype,
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _matmat=matmat,
-            _rmatmat=rmatmat,
-            source=base_map,
-        )
 
     def _apply_weight(self, item: Optional[ProcessedOperator], block: Any) -> Any:
         return block if item is None else item.apply(block)
@@ -425,7 +382,7 @@ class LeastSquaresProblem:
         input_shape: Tuple[int, ...] = None,
     ) -> ProcessedOperator:
         if isinstance(op, TensorChain):
-            linear_map = as_linear_map(op if self.matrix_free else op.to_dense())
+            linear_map = as_linear_map(op)
             return ProcessedOperator(
                 linear_map=linear_map, output_shape=op.output_shape, input_shape=op.input_shape
             )
@@ -448,18 +405,18 @@ class LeastSquaresProblem:
             return b.reshape(flat_data_size, 1), ()
 
         if b.ndim > num_data_dims and tuple(b.shape[:num_data_dims]) == data_shape:
-            scenario_shape = b.shape[num_data_dims:]
-            return b.reshape(flat_data_size, math.prod(scenario_shape)), scenario_shape
+            rhs_shape = b.shape[num_data_dims:]
+            return b.reshape(flat_data_size, math.prod(rhs_shape)), rhs_shape
 
         if b.ndim > num_data_dims and tuple(b.shape[-num_data_dims:]) == data_shape:
-            scenario_shape = b.shape[:-num_data_dims]
-            return b.reshape(math.prod(scenario_shape), flat_data_size).T, scenario_shape
+            rhs_shape = b.shape[:-num_data_dims]
+            return b.reshape(math.prod(rhs_shape), flat_data_size).T, rhs_shape
 
         if b.ndim == 1 and b.size == flat_data_size:
             return b.reshape(flat_data_size, 1), ()
 
         if b.size % flat_data_size != 0:
             raise ValueError(f"Shape {b.shape} incompatible with data_shape {data_shape}.")
-        num_scenarios = b.size // flat_data_size
-        scenario_shape = (num_scenarios,) if num_scenarios > 1 else ()
-        return b.reshape(flat_data_size, num_scenarios), scenario_shape
+        num_rhs = b.size // flat_data_size
+        rhs_shape = (num_rhs,) if num_rhs > 1 else ()
+        return b.reshape(flat_data_size, num_rhs), rhs_shape

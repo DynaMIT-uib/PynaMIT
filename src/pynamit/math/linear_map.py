@@ -9,7 +9,6 @@ from typing import Any, Callable, Optional, TypeAlias
 import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
-from scipy.sparse.linalg import aslinearoperator
 
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.utils import asarray, get_array_module, use_jax
@@ -31,8 +30,6 @@ class LinearMap:
     _to_dense: Optional[Callable[[], np.ndarray]] = None
     _normal_matrix_diag: Optional[Callable[[], np.ndarray]] = None
     source: Any = None
-    domain_space: Optional[str] = None
-    codomain_space: Optional[str] = None
 
     @property
     def ndim(self) -> int:
@@ -75,24 +72,6 @@ class LinearMap:
             raise ValueError("Dense representation not available for this LinearMap.")
         return np.asarray(self._to_dense())
 
-    def with_spaces(
-        self, *, domain_space: Optional[str] = None, codomain_space: Optional[str] = None
-    ) -> "LinearMap":
-        """Return a copy with explicit domain/codomain metadata."""
-        return LinearMap(
-            shape=self.shape,
-            dtype=self.dtype,
-            _matvec=self._matvec,
-            _rmatvec=self._rmatvec,
-            _matmat=self._matmat,
-            _rmatmat=self._rmatmat,
-            _to_dense=self._to_dense,
-            _normal_matrix_diag=self._normal_matrix_diag,
-            source=self.source,
-            domain_space=domain_space,
-            codomain_space=codomain_space,
-        )
-
     def normal_matrix_diag(self) -> np.ndarray:
         """Compute ``diag(A* A)`` for this map."""
         if self._normal_matrix_diag is not None:
@@ -101,19 +80,7 @@ class LinearMap:
             dense = self.to_dense()
             return np.sum(np.abs(dense) ** 2, axis=0)
         except ValueError:
-            n_cols = self.shape[1]
-            dtype = np.result_type(self.dtype, np.float64)
-            diag = np.zeros(n_cols, dtype=dtype)
-            block_size = min(32, max(1, n_cols))
-            block = np.zeros((n_cols, block_size), dtype=dtype)
-            for start in range(0, n_cols, block_size):
-                stop = min(n_cols, start + block_size)
-                cols = stop - start
-                block[:, :cols] = 0
-                block[start:stop, :cols] = np.eye(cols, dtype=dtype)
-                res = np.asarray(self.matmat(block[:, :cols]))
-                diag[start:stop] = np.sum(np.abs(res) ** 2, axis=0).real
-            return diag
+            return _normal_matrix_diag_from_matmat(self.shape, self.dtype, self.matmat)
 
     def __matmul__(self, other: Any) -> Any:
         """Apply to arrays or compose with another operator."""
@@ -128,16 +95,6 @@ class LinearMap:
         if self.shape[1] != other_map.shape[0]:
             raise ValueError(
                 f"Dimension mismatch for composition: {self.shape} @ {other_map.shape}"
-            )
-        if (
-            self.domain_space is not None
-            and other_map.codomain_space is not None
-            and self.domain_space != other_map.codomain_space
-        ):
-            raise ValueError(
-                "Space mismatch for composition: "
-                f"{self.codomain_space!r} <- {self.domain_space!r} @ "
-                f"{other_map.codomain_space!r} <- {other_map.domain_space!r}"
             )
 
         def matvec(x: Any) -> Any:
@@ -155,71 +112,24 @@ class LinearMap:
         def to_dense() -> np.ndarray:
             return self.matmat(other_map.to_dense())
 
+        dtype = np.promote_types(self.dtype, other_map.dtype)
+
+        def normal_matrix_diag() -> np.ndarray:
+            return _normal_matrix_diag_from_matmat(
+                (self.shape[0], other_map.shape[1]), dtype, matmat
+            )
+
         return LinearMap(
             shape=(self.shape[0], other_map.shape[1]),
-            dtype=np.promote_types(self.dtype, other_map.dtype),
+            dtype=dtype,
             _matvec=matvec,
             _rmatvec=rmatvec,
             _matmat=matmat,
             _rmatmat=rmatmat,
             _to_dense=to_dense if other_map._to_dense is not None else None,
+            _normal_matrix_diag=normal_matrix_diag,
             source=(self, other_map),
-            domain_space=other_map.domain_space,
-            codomain_space=self.codomain_space,
         )
-
-    def __add__(self, other: Any) -> "LinearMap":
-        """Add two linear maps."""
-        other_map = as_linear_map(other)
-        if self.shape != other_map.shape:
-            raise ValueError(f"Shape mismatch for addition: {self.shape} + {other_map.shape}")
-        if (
-            self.domain_space is not None
-            and other_map.domain_space is not None
-            and self.domain_space != other_map.domain_space
-        ) or (
-            self.codomain_space is not None
-            and other_map.codomain_space is not None
-            and self.codomain_space != other_map.codomain_space
-        ):
-            raise ValueError(
-                "Space mismatch for addition: "
-                f"{self.codomain_space!r} <- {self.domain_space!r} + "
-                f"{other_map.codomain_space!r} <- {other_map.domain_space!r}"
-            )
-
-        def matvec(x: Any) -> Any:
-            return self.matvec(x) + other_map.matvec(x)
-
-        def rmatvec(y: Any) -> Any:
-            return self.rmatvec(y) + other_map.rmatvec(y)
-
-        def matmat(x: Any) -> Any:
-            return self.matmat(x) + other_map.matmat(x)
-
-        def rmatmat(y: Any) -> Any:
-            return self.rmatmat(y) + other_map.rmatmat(y)
-
-        def to_dense() -> np.ndarray:
-            return self.to_dense() + other_map.to_dense()
-
-        has_dense = self._to_dense is not None and other_map._to_dense is not None
-        return LinearMap(
-            shape=self.shape,
-            dtype=np.promote_types(self.dtype, other_map.dtype),
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _matmat=matmat,
-            _rmatmat=rmatmat,
-            _to_dense=to_dense if has_dense else None,
-            source=(self, other_map),
-            domain_space=self.domain_space or other_map.domain_space,
-            codomain_space=self.codomain_space or other_map.codomain_space,
-        )
-
-    def __sub__(self, other: Any) -> "LinearMap":
-        """Subtract another linear map."""
-        return self + (-1.0 * as_linear_map(other))
 
     def __mul__(self, other: Any) -> "LinearMap":
         """Scale this linear map."""
@@ -242,6 +152,9 @@ class LinearMap:
         def to_dense() -> np.ndarray:
             return self.to_dense() * scalar
 
+        def normal_matrix_diag() -> np.ndarray:
+            return np.abs(scalar) ** 2 * self.normal_matrix_diag()
+
         return LinearMap(
             shape=self.shape,
             dtype=np.result_type(self.dtype, scalar),
@@ -250,9 +163,8 @@ class LinearMap:
             _matmat=matmat,
             _rmatmat=rmatmat,
             _to_dense=to_dense if self._to_dense is not None else None,
+            _normal_matrix_diag=normal_matrix_diag,
             source=(self, scalar),
-            domain_space=self.domain_space,
-            codomain_space=self.codomain_space,
         )
 
     def __rmul__(self, other: Any) -> "LinearMap":
@@ -294,6 +206,25 @@ def _looks_like_operator(value: Any) -> bool:
     return isinstance(value, (LinearMap, TensorChain, ScipyLinearOperator)) or hasattr(
         value, "matvec"
     )
+
+
+def _normal_matrix_diag_from_matmat(
+    shape: MatrixShape, dtype: Any, matmat: Callable[[Any], Any]
+) -> np.ndarray:
+    """Compute ``diag(A* A)`` from bounded identity blocks."""
+    n_cols = shape[1]
+    work_dtype = np.result_type(dtype, np.float64)
+    diag = np.zeros(n_cols, dtype=work_dtype)
+    block_size = min(32, max(1, n_cols))
+    block = np.zeros((n_cols, block_size), dtype=work_dtype)
+    for start in range(0, n_cols, block_size):
+        stop = min(n_cols, start + block_size)
+        cols = stop - start
+        block[:, :cols] = 0
+        block[start:stop, :cols] = np.eye(cols, dtype=work_dtype)
+        res = np.asarray(matmat(block[:, :cols]))
+        diag[start:stop] = np.sum(np.abs(res) ** 2, axis=0).real
+    return diag
 
 
 def _linear_map_from_dense(matrix: Any) -> LinearMap:
@@ -412,9 +343,40 @@ def _linear_map_from_linear_operator(op: ScipyLinearOperator) -> LinearMap:
     def rmatmat(block: Any) -> Any:
         return op.rmatmat(np.asarray(block).reshape(shape[0], -1))
 
+    return LinearMap(
+        shape=shape,
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        source=op,
+    )
+
+
+def _linear_map_from_scipy_sparse(op: scipy.sparse.spmatrix) -> LinearMap:
+    sparse = op.tocsr()
+    adjoint = sparse.conjugate().transpose().tocsr()
+    shape = tuple(int(dim) for dim in sparse.shape)
+    dtype = sparse.dtype
+
+    def matvec(vec: Any) -> np.ndarray:
+        return sparse @ np.asarray(vec).reshape(shape[1])
+
+    def rmatvec(vec: Any) -> np.ndarray:
+        return adjoint @ np.asarray(vec).reshape(shape[0])
+
+    def matmat(block: Any) -> np.ndarray:
+        return sparse @ np.asarray(block).reshape(shape[1], -1)
+
+    def rmatmat(block: Any) -> np.ndarray:
+        return adjoint @ np.asarray(block).reshape(shape[0], -1)
+
     def to_dense() -> np.ndarray:
-        eye = np.eye(shape[1], dtype=dtype)
-        return np.asarray(op.matmat(eye))
+        return sparse.toarray()
+
+    def normal_matrix_diag() -> np.ndarray:
+        return np.asarray(sparse.multiply(sparse.conjugate()).sum(axis=0)).ravel().real
 
     return LinearMap(
         shape=shape,
@@ -424,7 +386,8 @@ def _linear_map_from_linear_operator(op: ScipyLinearOperator) -> LinearMap:
         _matmat=matmat,
         _rmatmat=rmatmat,
         _to_dense=to_dense,
-        source=op,
+        _normal_matrix_diag=normal_matrix_diag,
+        source=sparse,
     )
 
 
@@ -491,7 +454,7 @@ def as_linear_map(
                 return _linear_map_from_jax_sparse(BCOO.from_scipy_sparse(op))
             except Exception:
                 pass
-        return _linear_map_from_linear_operator(aslinearoperator(op))
+        return _linear_map_from_scipy_sparse(op)
 
     try:
         arr = asarray(op)
@@ -531,99 +494,3 @@ def as_linear_map(
                 f"{output_shape} -> {inferred_input}."
             )
     return _linear_map_from_dense(arr.reshape(flat_out, flat_in))
-
-
-def block_linear_map(blocks: list[list[Any]]) -> LinearMap:
-    """Create a ``LinearMap`` from a block matrix of operators."""
-    lm_blocks = [[as_linear_map(block) for block in row] for row in blocks]
-    if not lm_blocks or not lm_blocks[0]:
-        raise ValueError("blocks must contain at least one row and one column.")
-
-    num_rows = len(lm_blocks)
-    num_cols = len(lm_blocks[0])
-    if any(len(row) != num_cols for row in lm_blocks):
-        raise ValueError("All block rows must have the same number of columns.")
-
-    row_heights = [row[0].shape[0] for row in lm_blocks]
-    col_widths = [lm_blocks[0][col].shape[1] for col in range(num_cols)]
-    for row, height in zip(lm_blocks, row_heights):
-        if any(block.shape[0] != height for block in row):
-            raise ValueError("All blocks in a block row must have the same row count.")
-    for col, width in enumerate(col_widths):
-        if any(row[col].shape[1] != width for row in lm_blocks):
-            raise ValueError("All blocks in a block column must have the same column count.")
-
-    total_height = sum(row_heights)
-    total_width = sum(col_widths)
-    dtype = lm_blocks[0][0].dtype
-    for row in lm_blocks:
-        for block in row:
-            dtype = np.promote_types(dtype, block.dtype)
-
-    def _split_columns(block: Any) -> list[Any]:
-        parts = []
-        start = 0
-        for width in col_widths:
-            parts.append(block[start : start + width, :])
-            start += width
-        return parts
-
-    def _split_rows(block: Any) -> list[Any]:
-        parts = []
-        start = 0
-        for height in row_heights:
-            parts.append(block[start : start + height, :])
-            start += height
-        return parts
-
-    def matmat(block: Any) -> Any:
-        xp = get_array_module(block)
-        block_arr = xp.asarray(block).reshape(total_width, -1)
-        x_parts = _split_columns(block_arr)
-
-        row_outputs = []
-        for row in lm_blocks:
-            row_sum = None
-            for block, x_part in zip(row, x_parts):
-                term = block.matmat(x_part)
-                row_sum = term if row_sum is None else row_sum + term
-            row_outputs.append(row_sum)
-        return xp.concatenate(row_outputs, axis=0)
-
-    def rmatmat(block: Any) -> Any:
-        xp = get_array_module(block)
-        block_arr = xp.asarray(block).reshape(total_height, -1)
-        y_parts = _split_rows(block_arr)
-
-        col_outputs = []
-        for col in range(num_cols):
-            col_sum = None
-            for row in range(num_rows):
-                term = lm_blocks[row][col].rmatmat(y_parts[row])
-                col_sum = term if col_sum is None else col_sum + term
-            col_outputs.append(col_sum)
-        return xp.concatenate(col_outputs, axis=0)
-
-    def matvec(x: Any) -> Any:
-        return matmat(x).reshape(total_height)
-
-    def rmatvec(y: Any) -> Any:
-        return rmatmat(y).reshape(total_width)
-
-    def to_dense() -> np.ndarray:
-        dense_rows = []
-        for row in lm_blocks:
-            dense_rows.append(np.concatenate([block.to_dense() for block in row], axis=1))
-        return np.concatenate(dense_rows, axis=0)
-
-    has_dense = all(block._to_dense is not None for row in lm_blocks for block in row)
-    return LinearMap(
-        shape=(total_height, total_width),
-        dtype=dtype,
-        _matvec=matvec,
-        _rmatvec=rmatvec,
-        _matmat=matmat,
-        _rmatmat=rmatmat,
-        _to_dense=to_dense if has_dense else None,
-        source=lm_blocks,
-    )
