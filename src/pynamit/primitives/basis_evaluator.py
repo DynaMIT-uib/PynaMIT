@@ -96,9 +96,7 @@ class BasisEvaluator(object):
         """Matrix evaluating r-hat x horizontal gradient pinv."""
         if not hasattr(self, "_G_rxgrad_pinv"):
             xp = get_array_module(self.G_rxgrad)
-            self._G_rxgrad_pinv = xp.linalg.pinv(
-                xp.asarray(self.G_rxgrad), rtol=self.pinv_rtol
-            )
+            self._G_rxgrad_pinv = xp.linalg.pinv(xp.asarray(self.G_rxgrad), rtol=self.pinv_rtol)
         return self._G_rxgrad_pinv
 
     @property

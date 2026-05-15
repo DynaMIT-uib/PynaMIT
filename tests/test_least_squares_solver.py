@@ -47,7 +47,7 @@ def test_normal_pinv_keeps_modes_above_normal_equation_cutoff():
 
 
 def test_normal_pinv_does_not_use_direct_solve(monkeypatch):
-    """Normal pseudo-inverse stays a pseudo-inverse even for full-rank systems."""
+    """Normal pseudo-inverse also used for full-rank systems."""
     A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])
     rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0]])
     problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=3)
@@ -95,7 +95,7 @@ def test_dense_solvers_use_jax_linalg_when_backend_enabled(
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_normal_pinv_matches_numpy_hermitian_reference_when_jax_enabled(monkeypatch):
-    """JAX normal pseudo-inverse uses backend pinv and matches the Hermitian reference."""
+    """JAX pinv uses backend pinv and matches reference."""
     A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
     rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
     problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
