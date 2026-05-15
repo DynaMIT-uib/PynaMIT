@@ -8,6 +8,7 @@ import numpy as np
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
+from pynamit.utils import get_array_module
 
 
 class BasisEvaluator(object):
@@ -94,7 +95,10 @@ class BasisEvaluator(object):
     def G_rxgrad_pinv(self):
         """Matrix evaluating r-hat x horizontal gradient pinv."""
         if not hasattr(self, "_G_rxgrad_pinv"):
-            self._G_rxgrad_pinv = np.linalg.pinv(self.G_rxgrad)
+            xp = get_array_module(self.G_rxgrad)
+            self._G_rxgrad_pinv = xp.linalg.pinv(
+                xp.asarray(self.G_rxgrad), rtol=self.pinv_rtol
+            )
         return self._G_rxgrad_pinv
 
     @property

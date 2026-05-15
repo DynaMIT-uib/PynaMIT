@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Callable, Dict, Final, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
 from .least_squares_problem import LeastSquaresProblem
 from .linear_map import LinearMap, as_linear_map, diagonal_linear_map
+from pynamit.utils import asarray, get_array_module
 
 ITERATION_SAFETY_FACTOR: Final = 10
 LEAST_SQUARES_SOLVER_ENV: Final = "PYNAMIT_LEAST_SQUARES_SOLVER"
@@ -82,28 +83,43 @@ class LeastSquaresSolver:
     def _solve_svd(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
-        u, s, vt = problem.svd
-        s_inv = np.zeros_like(s)
+        xp, G, rhs = self._dense_backend_arrays(problem, rhs_block)
+        u, s, vt = xp.linalg.svd(G, full_matrices=False)
         cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
-        s_inv[s > cutoff] = 1.0 / s[s > cutoff]
-        return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ rhs_block))
+        safe_s = xp.where(s > cutoff, s, 1.0)
+        s_inv = xp.where(s > cutoff, 1.0 / safe_s, xp.zeros_like(s))
+        return vt.T.conj() @ (s_inv[:, None] * (u.T.conj() @ rhs))
 
     def _solve_normal_solve(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
         """Solve the normal equations with a direct dense solve."""
-        G = problem.dense_system_matrix
-        G_H = G.T.conj()
-        return np.linalg.solve(G_H @ G, G_H @ rhs_block)
+        xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
+        return xp.linalg.solve(normal_matrix, normal_rhs)
 
     def _solve_normal_pinv(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
         """Solve through the pseudo-inverse of the normal equations."""
-        G = problem.dense_system_matrix
+        xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
+        normal_pinv = xp.linalg.pinv(normal_matrix, rtol=self.tolerance, hermitian=True)
+        return normal_pinv @ normal_rhs
+
+    def _dense_backend_arrays(
+        self, problem: LeastSquaresProblem, rhs_block: np.ndarray
+    ) -> Tuple[Any, Any, Any]:
+        """Return dense system and RHS on the active array backend."""
+        G = asarray(problem.dense_system_matrix)
+        rhs = asarray(rhs_block)
+        return get_array_module(G, rhs), G, rhs
+
+    def _dense_normal_equations(
+        self, problem: LeastSquaresProblem, rhs_block: np.ndarray
+    ) -> Tuple[Any, Any, Any]:
+        """Return dense normal-equation matrix and right-hand side."""
+        xp, G, rhs = self._dense_backend_arrays(problem, rhs_block)
         G_H = G.T.conj()
-        normal_pinv = np.linalg.pinv(G_H @ G, rcond=self.tolerance, hermitian=True)
-        return normal_pinv @ (G_H @ rhs_block)
+        return xp, G_H @ G, G_H @ rhs
 
     def _solve_lsmr(
         self,

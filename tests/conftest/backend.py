@@ -143,7 +143,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
     def _is_parametrized(arg: str) -> bool:
         for marker in metafunc.definition.iter_markers("parametrize"):
-            params = [name.strip() for name in marker.args[0].split(",")]
+            marker_arg = marker.args[0]
+            if isinstance(marker_arg, str):
+                params = [name.strip() for name in marker_arg.split(",")]
+            else:
+                params = list(marker_arg)
             if arg in params:
                 return True
         return False

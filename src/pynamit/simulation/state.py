@@ -21,7 +21,15 @@ from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_ma
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.utils import block_until_ready, to_numpy, to_jax, use_jax, xp
+from pynamit.utils import (
+    asarray,
+    block_until_ready,
+    get_array_module,
+    to_numpy,
+    to_jax,
+    use_jax,
+    xp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -294,29 +302,35 @@ class State:
         logger.info("Building dense m_imp response matrices.")
         n = self.basis.index_length
         problem = self.m_imp_problem
-        normal_pinv_solve = None
+
+        def solver_response(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
+            return self._solve_m_imp_response(problem, rhs_entries)
+
+        solve_response = solver_response
 
         if self.m_imp_solver.solver == "normal_pinv":
-            system_matrix = problem.dense_system_matrix
+            system_matrix = asarray(problem.dense_system_matrix)
+            array_module = get_array_module(system_matrix)
             system_matrix_H = system_matrix.T.conj()
-            normal_pinv = np.linalg.pinv(
-                system_matrix_H @ system_matrix, rcond=self.m_imp_solver.tolerance, hermitian=True
+            normal_matrix = system_matrix_H @ system_matrix
+            normal_pinv = array_module.linalg.pinv(
+                normal_matrix, rtol=self.m_imp_solver.tolerance, hermitian=True
             )
 
-            def normal_pinv_solve(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
+            def cached_pinv_response(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
                 rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs_entries)
+                rhs_block = asarray(rhs_block)
                 solution_block = normal_pinv @ (system_matrix_H @ rhs_block)
                 return solution_block.reshape(problem.solution_shape + rhs_shape)
+
+            solve_response = cached_pinv_response
 
         jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
             problem.A[0].output_shape + (-1,)
         )
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[0] = jr_rhs
-        if normal_pinv_solve is not None:
-            jr_to_m_imp = normal_pinv_solve(rhs_entries)
-        else:
-            jr_to_m_imp = self._solve_m_imp_response(problem, rhs_entries)
+        jr_to_m_imp = solve_response(rhs_entries)
 
         E_direct_to_m_imp = None
         if self.connect_hemispheres and self.E_map_constraint_operator is not None:
@@ -326,10 +340,7 @@ class State:
             E_rhs *= self.ih_constraint_scaling
             rhs_entries = [None] * problem.num_data_terms
             rhs_entries[1] = E_rhs
-            if normal_pinv_solve is not None:
-                E_direct_to_m_imp = normal_pinv_solve(rhs_entries)
-            else:
-                E_direct_to_m_imp = self._solve_m_imp_response(problem, rhs_entries)
+            E_direct_to_m_imp = solve_response(rhs_entries)
             E_direct_to_m_imp = E_direct_to_m_imp.reshape((n, 2, n))
 
         self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
@@ -455,8 +466,10 @@ class State:
     def E_noind_to_m_ind_steady_matrix(self) -> np.ndarray:
         """Dense matrix mapping no-induction E-field to steady m_ind."""
         if self._E_noind_to_m_ind_steady_matrix is None:
-            matrix = -np.linalg.pinv(to_numpy(self.m_ind_to_E_df_matrix))
-            self._E_noind_to_m_ind_steady_matrix = to_jax(matrix) if use_jax() else matrix
+            array_module = get_array_module(self.m_ind_to_E_df_matrix)
+            self._E_noind_to_m_ind_steady_matrix = -array_module.linalg.pinv(
+                self.m_ind_to_E_df_matrix, rtol=1e-15
+            )
         return self._E_noind_to_m_ind_steady_matrix
 
     def _build_m_ind_to_E_df_matrix(self) -> None:
