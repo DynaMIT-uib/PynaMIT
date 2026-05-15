@@ -21,8 +21,14 @@ PreconditionerInput = Optional[Union[LinearOperator, LinearMap]]
 class LeastSquaresSolver:
     """A collection of algorithms for solving least-squares problems."""
 
-    VALID_SOLVERS: Final[List[str]] = ["normal_solve", "normal_pinv", "lsmr", "cgls", "svd"]
-    VALID_PRECONDITIONERS: Final[List[str]] = ["jacobi", "pinv"]
+    VALID_SOLVERS: Final[Tuple[str, ...]] = (
+        "normal_solve",
+        "normal_pinv",
+        "lsmr",
+        "cgls",
+        "svd",
+    )
+    VALID_PRECONDITIONERS: Final[Tuple[str, ...]] = ("jacobi", "pinv")
 
     def __init__(
         self, solver: str = "lsmr", tolerance: float = 1e-13, preconditioner: Optional[str] = None
@@ -74,7 +80,7 @@ class LeastSquaresSolver:
             return None
         if p_type not in self.VALID_PRECONDITIONERS:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
-        if self.solver in ["cgls", "normal_solve"]:
+        if self.solver in ("cgls", "normal_solve"):
             return self._build_normal_eq_preconditioner(problem, p_type)
         if self.solver == "lsmr":
             return self._build_lsmr_preconditioner(problem, p_type)
