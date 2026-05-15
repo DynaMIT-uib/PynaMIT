@@ -3,14 +3,14 @@ Utility helpers for working with optional JAX acceleration.
 
 This module centralises the logic needed to switch between NumPy and JAX
 implementations at runtime. The behaviour is controlled through the
-``PYNAMIT_USE_JAX`` environment variable (accepted values: ``1``, ``true``,
-``yes``, ``on``) and can also be overridden programmatically via
-``use_jax(True/False)``.
+``PYNAMIT_USE_JAX`` environment variable (accepted values: ``1``,
+``true``, ``yes``, ``on``) and can also be overridden
+programmatically via ``use_jax(True/False)``.
 
 The helpers exposed here are intentionally lightweight wrappers that
-preserve backwards compatibility with the existing NumPy-based code while
-allowing simulation modules to opt in to JAX-backed array operations where
-appropriate.
+preserve backwards compatibility with the existing NumPy-based code
+while allowing simulation modules to opt in to JAX-backed array
+operations where appropriate.
 """
 
 from __future__ import annotations
@@ -53,7 +53,8 @@ try:  # pragma: no cover - we fall back gracefully when JAX is absent
 
     JAX_AVAILABLE = True
 
-    # Enable double precision if available; ignore errors on older versions.
+    # Enable double precision if available; ignore errors on older
+    # versions.
     try:  # pragma: no cover - configuration helper
         jax.config.update("jax_enable_x64", True)
     except Exception:
@@ -100,14 +101,15 @@ def set_backend(backend: Union[str, bool, None]) -> str:
     Parameters
     ----------
     backend
-        ``"numpy"``/``False`` selects NumPy, ``"jax"``/``True`` selects JAX,
-        and ``"auto"``/``None`` keeps the current choice. The function raises if
-        JAX is requested but not installed.
+        ``"numpy"``/``False`` selects NumPy, ``"jax"``/``True`` selects
+        JAX, and ``"auto"``/``None`` keeps the current choice. The
+        function raises if JAX is requested but not installed.
 
     Returns
     -------
     str
-        Name of the backend that ended up being active (``"numpy"`` or ``"jax"``).
+        Name of the backend that ended up being active (``"numpy"`` or
+        ``"jax"``).
     """
     if isinstance(backend, bool):
         target = backend
@@ -155,9 +157,18 @@ def to_jax(array: Any) -> Any:
     return array
 
 
+def block_until_ready(array: Any) -> Any:
+    """Synchronize a JAX array before handing work to NumPy/SciPy."""
+    block = getattr(array, "block_until_ready", None)
+    if block is not None:
+        block()
+    return array
+
+
 def to_numpy(array: Any) -> Any:
-    """Convert ``array`` to a NumPy ``ndarray`` irrespective of backend."""
+    """Convert ``array`` to a NumPy ``ndarray``."""
     if JAX_AVAILABLE and isinstance(array, _jax_array_type):
+        block_until_ready(array)
         return _np.asarray(array)
     return _np.asarray(array)
 
@@ -177,7 +188,7 @@ def _identity_decorator(func):
 
 
 def jit(func=None, *jit_args, **jit_kwargs):
-    """Wrapper around ``jax.jit`` that no-ops when JAX is disabled."""
+    """Wrap ``jax.jit`` and no-op when JAX is disabled."""
     if not JAX_AVAILABLE:
         if func is None:
             return _identity_decorator
@@ -194,7 +205,7 @@ def jit(func=None, *jit_args, **jit_kwargs):
 
 
 def vmap(func=None, *vmap_args, **vmap_kwargs):
-    """Wrapper around ``jax.vmap`` that requires the JAX backend."""
+    """Wrap ``jax.vmap`` and require the JAX backend."""
     if not (JAX_AVAILABLE and use_jax()):
         raise RuntimeError("JAX vmap requested but the JAX backend is not enabled.")
 
@@ -205,7 +216,7 @@ def vmap(func=None, *vmap_args, **vmap_kwargs):
 
 
 class _ArrayModuleProxy(types.SimpleNamespace):
-    """Proxy that forwards attribute access to the active array module."""
+    """Forward attribute access to the active array module."""
 
     def __getattr__(self, item: str) -> Any:  # pragma: no cover - thin delegation
         module = get_array_module()
@@ -228,6 +239,7 @@ __all__ = [
     "set_backend",
     "get_array_module",
     "to_jax",
+    "block_until_ready",
     "to_numpy",
     "asarray",
     "jit",

@@ -1,12 +1,14 @@
 """Tests for the LinearMap abstraction."""
 
 import numpy as np
+import pytest
 from scipy.sparse import csr_matrix
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.tensor_chain import TensorChain
+from pynamit.utils import JAX_AVAILABLE, set_backend, use_jax
 
 
 def test_dense_linear_map_matches_matrix_operations():
@@ -33,6 +35,24 @@ def test_diagonal_linear_map_matches_dense_diagonal():
 
     np.testing.assert_allclose(diag.matvec(x), expected @ x)
     np.testing.assert_allclose(diag.to_dense(), expected)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_dense_linear_map_keeps_numpy_source_with_jax_backend():
+    """Dense map storage stays NumPy when JAX is globally active."""
+    previous_backend = use_jax()
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
+    x = np.array([0.25, -2.0])
+
+    try:
+        set_backend("jax")
+        linear_map = as_linear_map(matrix)
+
+        assert isinstance(linear_map.source, np.ndarray)
+        np.testing.assert_allclose(linear_map.to_dense(), matrix)
+        np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
+    finally:
+        set_backend(previous_backend)
 
 
 def test_sparse_linear_map_uses_sparse_normal_diagonal():

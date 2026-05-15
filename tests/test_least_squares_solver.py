@@ -21,6 +21,30 @@ def test_normal_pinv_solves_block_rhs():
     np.testing.assert_allclose(solution, expected)
 
 
+def test_normal_pinv_uses_normal_equation_cutoff():
+    """Normal pseudo-inverse applies cutoff after forming A* A."""
+    A = np.diag([1.0, 1e-8])
+    rhs = np.array([1.0, 1e-8])
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=2)
+    solver = LeastSquaresSolver(solver="normal_pinv", tolerance=1e-13)
+
+    solution = solver.solve(problem, rhs)
+
+    np.testing.assert_allclose(solution, np.array([1.0, 0.0]))
+
+
+def test_normal_pinv_keeps_modes_above_normal_equation_cutoff():
+    """Normal pseudo-inverse keeps modes above the A* A cutoff."""
+    A = np.diag([1.0, 1e-6])
+    rhs = np.array([1.0, 1e-6])
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=2)
+    solver = LeastSquaresSolver(solver="normal_pinv", tolerance=1e-13)
+
+    solution = solver.solve(problem, rhs)
+
+    np.testing.assert_allclose(solution, np.array([1.0, 1.0]))
+
+
 @pytest.mark.parametrize("solver_name", ["lsmr", "cgls"])
 def test_iterative_solver_solves_block_rhs_with_base_preconditioner(solver_name):
     """Iterative block RHS solves reuse the base preconditioner."""

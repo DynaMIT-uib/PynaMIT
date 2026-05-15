@@ -292,6 +292,7 @@ def get_conductance_inputs(
     reg_lambda: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return Hall and Pedersen conductance on grid."""
+    source = get_input_source()
     conductance = OPTIONAL.load("conductance", "lompe")
     if conductance is not None:
         hall, pedersen = conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
@@ -299,7 +300,7 @@ def get_conductance_inputs(
         pedersen = _expand_time_series(pedersen, time)
         return hall, pedersen, lat, lon
 
-    if lat.size > 0 and lon.size > 0 and native_inputs_available():
+    if source != "fallback" and lat.size > 0 and lon.size > 0 and native_inputs_available():
         from lompe import conductance as native_conductance
 
         hall, pedersen = native_conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
@@ -322,6 +323,7 @@ def get_jr_inputs(
     jr_lambda: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return upward current density on the requested grid."""
+    source = get_input_source()
     dipole = OPTIONAL.load("dipole", "dipole")
     pyamps = OPTIONAL.load("pyamps", "pyamps")
 
@@ -339,7 +341,7 @@ def get_jr_inputs(
         jr = _expand_time_series(jr, time)
         return jr, lat, lon
 
-    if lat.size > 0 and lon.size > 0 and native_inputs_available():
+    if source != "fallback" and lat.size > 0 and lon.size > 0 and native_inputs_available():
         from dipole import Dipole
         import pyamps
 

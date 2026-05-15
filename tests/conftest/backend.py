@@ -34,7 +34,11 @@ def _available_backends(requested: List[str] | None) -> List[str]:
 
 def _available_sources(requested: List[str] | None) -> List[str]:
     selectable = ["fallback"]
-    if native_inputs_available():
+    if requested is None or "native" in requested:
+        native_available = native_inputs_available()
+    else:
+        native_available = False
+    if native_available:
         selectable.append("native")
     if not requested:
         return selectable

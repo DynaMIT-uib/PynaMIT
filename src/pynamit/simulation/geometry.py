@@ -75,13 +75,20 @@ class Geometry:
         Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
         self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
 
-        self.G_helmholtz_pinv = tensor_pinv(
-            self.basis_evaluator.G_helmholtz, n_leading_flattened=2
-        )
+        self._G_helmholtz_pinv = None
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
         return np.tensordot(self.G_helmholtz_pinv, vec, 2)
+
+    @property
+    def G_helmholtz_pinv(self) -> np.ndarray:
+        """Pseudo-inverse for horizontal vector field projections."""
+        if self._G_helmholtz_pinv is None:
+            self._G_helmholtz_pinv = tensor_pinv(
+                self.basis_evaluator.G_helmholtz, n_leading_flattened=2
+            )
+        return self._G_helmholtz_pinv
 
     def _init_evaluators(self, cs_basis: SHBasis) -> None:
         """Set up grid, basis evaluators, and field evaluators."""

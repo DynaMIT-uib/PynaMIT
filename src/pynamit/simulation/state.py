@@ -21,7 +21,7 @@ from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_ma
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.utils import to_numpy, to_jax, use_jax, xp
+from pynamit.utils import block_until_ready, to_numpy, to_jax, use_jax, xp
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class State:
 
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
-        self.u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
+        self._u_coeffs_to_E_coeffs: Optional[np.ndarray] = None
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -92,7 +92,14 @@ class State:
         G_helmholtz = xp.asarray(self.geometry.basis_evaluator.G_helmholtz)
         G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
         G_helmholtz_pinv = xp.asarray(self.geometry.G_helmholtz_pinv)
-        return xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2)
+        return block_until_ready(xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2))
+
+    @property
+    def u_coeffs_to_E_coeffs(self) -> np.ndarray:
+        """Operator mapping wind coefficients to E coefficients."""
+        if self._u_coeffs_to_E_coeffs is None:
+            self._u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
+        return self._u_coeffs_to_E_coeffs
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""

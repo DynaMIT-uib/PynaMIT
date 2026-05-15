@@ -208,6 +208,13 @@ def _looks_like_operator(value: Any) -> bool:
     )
 
 
+def _runtime_array_module(*values: Any) -> Any:
+    """Select JAX only when an operand is already a JAX array."""
+    if any("jax" in type(value).__module__ for value in values):
+        return get_array_module(*values)
+    return np
+
+
 def _normal_matrix_diag_from_matmat(
     shape: MatrixShape, dtype: Any, matmat: Callable[[Any], Any]
 ) -> np.ndarray:
@@ -228,42 +235,42 @@ def _normal_matrix_diag_from_matmat(
 
 
 def _linear_map_from_dense(matrix: Any) -> LinearMap:
-    mat_backend = asarray(matrix)
-    if mat_backend.ndim != 2:
+    mat_array = np.asarray(matrix)
+    if mat_array.ndim != 2:
         raise ValueError("Dense operators must be 2-D arrays.")
-    shape = tuple(int(dim) for dim in mat_backend.shape)
-    dtype = getattr(mat_backend, "dtype", np.asarray(mat_backend).dtype)
+    shape = tuple(int(dim) for dim in mat_array.shape)
+    dtype = mat_array.dtype
 
     def matvec(vec: Any) -> Any:
-        xp = get_array_module(mat_backend, vec)
-        mat_arr = xp.asarray(mat_backend)
+        xp = _runtime_array_module(vec)
+        mat_arr = xp.asarray(mat_array)
         vec_arr = xp.asarray(vec).reshape(shape[1])
         return xp.matmul(mat_arr, vec_arr)
 
     def rmatvec(vec: Any) -> Any:
-        xp = get_array_module(mat_backend, vec)
-        mat_arr = xp.asarray(mat_backend)
+        xp = _runtime_array_module(vec)
+        mat_arr = xp.asarray(mat_array)
         vec_arr = xp.asarray(vec).reshape(shape[0])
         return xp.matmul(xp.swapaxes(xp.conjugate(mat_arr), -2, -1), vec_arr)
 
     def matmat(block: Any) -> Any:
-        xp = get_array_module(mat_backend, block)
-        mat_arr = xp.asarray(mat_backend)
+        xp = _runtime_array_module(block)
+        mat_arr = xp.asarray(mat_array)
         block_arr = xp.asarray(block).reshape(shape[1], -1)
         return xp.matmul(mat_arr, block_arr)
 
     def rmatmat(block: Any) -> Any:
-        xp = get_array_module(mat_backend, block)
-        mat_arr = xp.asarray(mat_backend)
+        xp = _runtime_array_module(block)
+        mat_arr = xp.asarray(mat_array)
         block_arr = xp.asarray(block).reshape(shape[0], -1)
         adjoint = xp.swapaxes(xp.conjugate(mat_arr), -2, -1)
         return xp.matmul(adjoint, block_arr)
 
     def to_dense() -> np.ndarray:
-        return np.asarray(mat_backend)
+        return mat_array
 
     def normal_matrix_diag() -> np.ndarray:
-        return np.sum(np.abs(np.asarray(mat_backend)) ** 2, axis=0)
+        return np.sum(np.abs(mat_array) ** 2, axis=0)
 
     return LinearMap(
         shape=shape,
@@ -274,45 +281,45 @@ def _linear_map_from_dense(matrix: Any) -> LinearMap:
         _rmatmat=rmatmat,
         _to_dense=to_dense,
         _normal_matrix_diag=normal_matrix_diag,
-        source=mat_backend,
+        source=mat_array,
     )
 
 
 def diagonal_linear_map(diag_values: Any) -> LinearMap:
     """Return a map backed by a diagonal vector."""
-    diag_backend = asarray(diag_values).reshape(-1)
-    size = int(diag_backend.size)
-    dtype = getattr(diag_backend, "dtype", np.asarray(diag_backend).dtype)
+    diag_array = np.asarray(diag_values).reshape(-1)
+    size = int(diag_array.size)
+    dtype = diag_array.dtype
 
     def matvec(vec: Any) -> Any:
-        xp = get_array_module(diag_backend, vec)
-        diag_arr = xp.asarray(diag_backend)
+        xp = _runtime_array_module(vec)
+        diag_arr = xp.asarray(diag_array)
         vec_arr = xp.asarray(vec).reshape(size)
         return diag_arr * vec_arr
 
     def rmatvec(vec: Any) -> Any:
-        xp = get_array_module(diag_backend, vec)
-        diag_arr = xp.asarray(diag_backend)
+        xp = _runtime_array_module(vec)
+        diag_arr = xp.asarray(diag_array)
         vec_arr = xp.asarray(vec).reshape(size)
         return xp.conjugate(diag_arr) * vec_arr
 
     def matmat(block: Any) -> Any:
-        xp = get_array_module(diag_backend, block)
-        diag_arr = xp.asarray(diag_backend).reshape(size, 1)
+        xp = _runtime_array_module(block)
+        diag_arr = xp.asarray(diag_array).reshape(size, 1)
         block_arr = xp.asarray(block).reshape(size, -1)
         return diag_arr * block_arr
 
     def rmatmat(block: Any) -> Any:
-        xp = get_array_module(diag_backend, block)
-        diag_arr = xp.asarray(diag_backend).reshape(size, 1)
+        xp = _runtime_array_module(block)
+        diag_arr = xp.asarray(diag_array).reshape(size, 1)
         block_arr = xp.asarray(block).reshape(size, -1)
         return xp.conjugate(diag_arr) * block_arr
 
     def to_dense() -> np.ndarray:
-        return np.diag(np.asarray(diag_backend))
+        return np.diag(diag_array)
 
     def normal_matrix_diag() -> np.ndarray:
-        return np.abs(np.asarray(diag_backend).reshape(-1)) ** 2
+        return np.abs(diag_array) ** 2
 
     return LinearMap(
         shape=(size, size),
@@ -323,7 +330,7 @@ def diagonal_linear_map(diag_values: Any) -> LinearMap:
         _rmatmat=rmatmat,
         _to_dense=to_dense,
         _normal_matrix_diag=normal_matrix_diag,
-        source=diag_backend,
+        source=diag_array,
     )
 
 
@@ -457,7 +464,7 @@ def as_linear_map(
         return _linear_map_from_scipy_sparse(op)
 
     try:
-        arr = asarray(op)
+        arr = np.asarray(op)
     except Exception as exc:
         message = f"Unsupported operator type '{type(op)}' for LinearMap conversion."
         raise TypeError(message) from exc
