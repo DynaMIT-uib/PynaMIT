@@ -298,7 +298,6 @@ class LeastSquaresProblem:
             _matmat=matmat,
             _rmatmat=rmatmat,
             _normal_matrix_diag=normal_matrix_diag,
-            source=None,
         )
 
     def _get_base_system_linear_map(self, include_regularization: bool) -> LinearMap:

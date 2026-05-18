@@ -38,8 +38,8 @@ def test_diagonal_linear_map_matches_dense_diagonal():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_dense_linear_map_keeps_numpy_source_with_jax_backend():
-    """Dense map storage stays NumPy when JAX is globally active."""
+def test_dense_linear_map_accepts_numpy_inputs_with_jax_backend():
+    """Dense maps stay NumPy-facing until called with JAX inputs."""
     previous_backend = use_jax()
     matrix = np.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
     x = np.array([0.25, -2.0])
@@ -48,7 +48,6 @@ def test_dense_linear_map_keeps_numpy_source_with_jax_backend():
         set_backend("jax")
         linear_map = as_linear_map(matrix)
 
-        assert isinstance(linear_map.source, np.ndarray)
         np.testing.assert_allclose(linear_map.to_dense(), matrix)
         np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
     finally:

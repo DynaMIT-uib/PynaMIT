@@ -29,7 +29,6 @@ class LinearMap:
     _rmatmat: Optional[VectorizedMapFunc] = None
     _to_dense: Optional[Callable[[], np.ndarray]] = None
     _normal_matrix_diag: Optional[Callable[[], np.ndarray]] = None
-    source: Any = None
 
     @property
     def ndim(self) -> int:
@@ -140,7 +139,6 @@ class LinearMap:
             _rmatmat=rmatmat,
             _to_dense=to_dense if other_map._to_dense is not None else None,
             _normal_matrix_diag=normal_matrix_diag,
-            source=(self, other_map),
         )
 
     def __mul__(self, other: Any) -> "LinearMap":
@@ -176,7 +174,6 @@ class LinearMap:
             _rmatmat=rmatmat,
             _to_dense=to_dense if self._to_dense is not None else None,
             _normal_matrix_diag=normal_matrix_diag,
-            source=(self, scalar),
         )
 
     def __rmul__(self, other: Any) -> "LinearMap":
@@ -189,8 +186,6 @@ class LinearMap:
 
     def as_linear_operator(self) -> ScipyLinearOperator:
         """Return a SciPy ``LinearOperator`` view of this map."""
-        if isinstance(self.source, ScipyLinearOperator) and self.source.shape == self.shape:
-            return self.source
 
         def matvec(vec: np.ndarray) -> np.ndarray:
             return np.asarray(self.matvec(vec))
@@ -293,7 +288,6 @@ def _linear_map_from_dense(matrix: Any) -> LinearMap:
         _rmatmat=rmatmat,
         _to_dense=to_dense,
         _normal_matrix_diag=normal_matrix_diag,
-        source=mat_array,
     )
 
 
@@ -342,7 +336,6 @@ def diagonal_linear_map(diag_values: Any) -> LinearMap:
         _rmatmat=rmatmat,
         _to_dense=to_dense,
         _normal_matrix_diag=normal_matrix_diag,
-        source=diag_array,
     )
 
 
@@ -369,7 +362,6 @@ def _linear_map_from_linear_operator(op: ScipyLinearOperator) -> LinearMap:
         _rmatvec=rmatvec,
         _matmat=matmat,
         _rmatmat=rmatmat,
-        source=op,
     )
 
 
@@ -406,7 +398,6 @@ def _linear_map_from_scipy_sparse(op: scipy.sparse.spmatrix) -> LinearMap:
         _rmatmat=rmatmat,
         _to_dense=to_dense,
         _normal_matrix_diag=normal_matrix_diag,
-        source=sparse,
     )
 
 
@@ -437,7 +428,6 @@ def _linear_map_from_jax_sparse(op: Any) -> LinearMap:
         _matmat=matmat,
         _rmatmat=rmatmat,
         _to_dense=to_dense,
-        source=op,
     )
 
 

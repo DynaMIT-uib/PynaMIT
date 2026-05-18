@@ -109,7 +109,6 @@ class TensorChain:
             _rmatmat=lambda block: self.rmatmat(block),
             _to_dense=self.to_dense,
             _normal_matrix_diag=self.normal_matrix_diag,
-            source=self,
         )
 
     def to_dense(self) -> np.ndarray:
