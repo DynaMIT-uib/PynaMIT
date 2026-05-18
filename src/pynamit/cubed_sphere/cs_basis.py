@@ -12,11 +12,13 @@ from scipy.special import binom
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 
+from pynamit.primitives.basis import Basis
+
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
-class CSBasis:
+class CSBasis(Basis):
     """Class for representing cubed sphere bases.
 
     This module provides an implementation of the cubed sphere grid
@@ -86,6 +88,13 @@ class CSBasis:
         DOI: 10.1093/gji/ggx125
     """
 
+    kind = "GRID"
+    index_names = None
+    index_length = None
+    index_arrays = None
+    minimum_phi_sampling = 1
+    caching = False
+
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 
@@ -138,6 +147,7 @@ class CSBasis:
 
             self.minimum_phi_sampling = 1
             self.caching = False
+            self.validate_metadata()
 
     def get_gridpoints(self, N, flat=False):
         """Generate grid point indices for given resolution.

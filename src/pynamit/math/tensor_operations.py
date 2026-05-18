@@ -33,27 +33,8 @@ def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
     flat_last = math.prod(last_dims)
 
     A_flat = A_arr.reshape((flat_first, flat_last))
-    pinv_kwargs = {"hermitian": hermitian, "rtol": rtol}
-    A_pinv = xp.linalg.pinv(A_flat, **pinv_kwargs)
+    A_pinv = xp.linalg.pinv(A_flat, rtol=rtol, hermitian=hermitian)
     return A_pinv.reshape(last_dims + first_dims)
-
-
-def tensor_pinv_positive_semidefinite(
-    A, n_leading_flattened=2, rtol=1e-15, condition_number=False
-):
-    """Moore-Penrose pseudoinverse of a positive semidefinite tensor."""
-    xp = get_array_module(A)
-    A_arr = xp.asarray(A)
-
-    first_dims = A_arr.shape[:n_leading_flattened]
-    last_dims = A_arr.shape[n_leading_flattened:]
-
-    flat_first = math.prod(first_dims)
-    flat_last = math.prod(last_dims)
-
-    A_flat = A_arr.reshape((flat_first, flat_last))
-    pinv = pinv_positive_semidefinite(A_flat, rtol=rtol, condition_number=condition_number)
-    return pinv.reshape(last_dims + first_dims)
 
 
 def tensor_transpose(A, n_leading_flattened=2):
@@ -161,34 +142,3 @@ def tensor_svd(
     filtered_VT = VT[:, :first_zero].reshape((first_zero,) + last_dims)
 
     return filtered_U, filtered_S, filtered_VT
-
-
-def pinv_positive_semidefinite(A, rtol=1e-15, condition_number=False):
-    """Pseudoinverse of a positive semidefinite matrix."""
-    xp = get_array_module(A)
-    A_arr = xp.asarray(A)
-
-    eigenvalues, eigenvectors = xp.linalg.eigh(A_arr)
-
-    first_nonzero = eigenvalues.shape[0]
-    if rtol:
-        mask_np = to_numpy(eigenvalues > rtol * eigenvalues[-1])
-        if mask_np.any():
-            first_nonzero = int(mask_np.argmax())
-
-    filtered_eigenvalues = eigenvalues[first_nonzero:]
-    filtered_eigenvectors = eigenvectors[:, first_nonzero:]
-
-    if condition_number and filtered_eigenvalues.size:
-        eig_np = to_numpy(filtered_eigenvalues)
-        print(
-            "The condition number for the matrix is: {:.1f}".format(float(eig_np[-1] / eig_np[0]))
-        )
-
-    return xp.einsum(
-        "ij,j,jk->ik",
-        filtered_eigenvectors,
-        1 / filtered_eigenvalues,
-        xp.conjugate(filtered_eigenvectors.T),
-        optimize=True,
-    )

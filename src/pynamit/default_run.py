@@ -30,6 +30,8 @@ def run_pynamit(
     conductance_lambda=None,
     u_lambda=None,
     multi_data=False,
+    least_squares_solver=None,
+    least_squares_preconditioner="pinv",
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -77,6 +79,10 @@ def run_pynamit(
         Regularization parameter for the conductance.
     u_lambda : float, optional
         Regularization parameter for the wind.
+    least_squares_solver : str, optional
+        Least-squares solver used by state feedback solves.
+    least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
+        Preconditioner used by iterative least-squares state solves.
 
     Returns
     -------
@@ -109,6 +115,8 @@ def run_pynamit(
         vector_conductance=vector_conductance,
         vector_u=vector_u,
         integrator=integrator,
+        least_squares_solver=least_squares_solver,
+        least_squares_preconditioner=least_squares_preconditioner,
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
