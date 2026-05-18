@@ -27,7 +27,7 @@ class Dynamics(object):
     Manages the temporal evolution of the state of the ionosphere in
     response to field-aligned currents and neutral winds, giving rise to
     dynamic magnetosphere-ionosphere-thermosphere (MIT) coupling. Saves
-    and loads simulation data to and from NetCDF files.
+    and loads simulation data to and from persisted xarray artifacts.
 
     Attributes
     ----------
@@ -66,6 +66,7 @@ class Dynamics(object):
         integrator="euler",
         least_squares_solver=None,
         least_squares_preconditioner="pinv",
+        artifact_storage="auto",
         backend="auto",
     ):
         """Initialize the Dynamics class.
@@ -118,6 +119,9 @@ class Dynamics(object):
         least_squares_preconditioner : {'jacobi', 'pinv', None},
             optional
             Preconditioner used by iterative least-squares state solves.
+        artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
+            Preferred backend for new saved xarray artifacts. Existing
+            artifacts keep their format on restart.
         backend : {'auto', 'numpy', 'jax', bool}, optional
             Array backend to use. ``"auto"`` respects the current global
             setting (environment variable or previous choice).
@@ -154,7 +158,7 @@ class Dynamics(object):
             }
         )
 
-        self.io = IO(filename_prefix)
+        self.io = IO(filename_prefix, preferred_dataset_storage=artifact_storage)
 
         # Check if settings are consistent with previously saved runs.
         settings_on_file = self.io.load_dataset("settings", print_info=True)

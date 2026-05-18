@@ -32,6 +32,8 @@ def run_pynamit(
     multi_data=False,
     least_squares_solver=None,
     least_squares_preconditioner="pinv",
+    filename_prefix=None,
+    artifact_storage="auto",
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -83,6 +85,11 @@ def run_pynamit(
         Least-squares solver used by state feedback solves.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
         Preconditioner used by iterative least-squares state solves.
+    filename_prefix : str, optional
+        Prefix for saved simulation artifacts. If omitted, Dynamics uses
+        its default deferred ``"simulation"`` prefix.
+    artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
+        Preferred storage backend for new saved xarray artifacts.
 
     Returns
     -------
@@ -100,7 +107,7 @@ def run_pynamit(
     # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
     dynamics = Dynamics(
-        filename_prefix=None,
+        filename_prefix=filename_prefix,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
@@ -117,6 +124,7 @@ def run_pynamit(
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,
+        artifact_storage=artifact_storage,
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)

@@ -13,6 +13,7 @@ ppigrf
 scipy
 tqdm
 xarray
+zarr
 
 # plotting
 cartopy

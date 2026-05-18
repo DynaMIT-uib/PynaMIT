@@ -45,6 +45,9 @@ class Timeseries:
 
         self.datasets = {}
         self.previous_data = {}
+        self._pending_start: dict[str, int] = {}
+        self._full_save_required: dict[str, bool] = {}
+        self._storage_kinds: dict[str, str] = {}
 
         cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
@@ -72,18 +75,19 @@ class Timeseries:
                 )
 
     def load_all(self, io):
-        """Load all timeseries from NetCDF files."""
+        """Load all persisted timeseries datasets."""
         for key in self.vars.keys():
             self.load(key, io)
 
     def load(self, key, io):
-        """Load a timeseries from NetCDF file.
+        """Load a persisted timeseries dataset.
 
         Parameters
         ----------
         key : str
             The key identifying which timeseries to load.
         """
+        storage_kind = io.get_dataset_storage_kind(key)
         dataset = io.load_dataset(key)
 
         if dataset is not None:
@@ -100,6 +104,10 @@ class Timeseries:
             self.datasets[key] = dataset.drop_vars(
                 self.storage_bases[key].index_names
             ).assign_coords(coords)
+            self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
+            self._full_save_required[key] = False
+            if storage_kind is not None:
+                self._storage_kinds[key] = storage_kind
 
     def add_entry(self, key, data, time):
         """Add entry to the timeseries.
@@ -130,13 +138,34 @@ class Timeseries:
             ).merge({"time": [time]}),
         )
 
-        if key not in self.datasets.keys():
+        if key not in self.datasets:
             self.datasets[key] = dataset.sortby("time")
+            self._pending_start[key] = 0
+            self._full_save_required[key] = False
         else:
+            existing = self.datasets[key]
+            time_value = float(time)
+            time_coords = np.asarray(existing.time.values, dtype=float)
+
+            if time_coords.size == 0:
+                self.datasets[key] = dataset.sortby("time")
+                self._pending_start[key] = 0
+                self._full_save_required[key] = False
+                return
+
+            if time_value > float(time_coords[-1]) + FLOAT_ERROR_MARGIN:
+                previous_size = int(existing.sizes.get("time", 0))
+                self.datasets[key] = xr.concat([existing, dataset], dim="time")
+                pending_start = self._pending_start.get(key, previous_size)
+                self._pending_start[key] = min(pending_start, previous_size)
+                self._full_save_required[key] = bool(self._full_save_required.get(key, False))
+                return
+
             self.datasets[key] = xr.concat(
-                [self.datasets[key].drop_sel(time=dataset.time, errors="ignore"), dataset],
-                dim="time",
+                [existing.drop_sel(time=dataset.time, errors="ignore"), dataset], dim="time"
             ).sortby("time")
+            self._pending_start[key] = 0
+            self._full_save_required[key] = True
 
     def interpolate_and_add_entry(
         self,
@@ -357,12 +386,69 @@ class Timeseries:
             # No data available for the specified time.
             return None
 
-    def save(self, key, io):
-        """Save a timeseries to NetCDF file.
+    def save(self, key, io, *, print_info: bool = False):
+        """Persist one stored series to disk.
 
         Parameters
         ----------
         key : str
             The key identifying which timeseries to save.
         """
-        io.save_dataset(self.datasets[key].reset_index("i"), key)
+        dataset = self.datasets[key].reset_index("i")
+        time_size = int(dataset.sizes.get("time", 0))
+        pending_start = int(self._pending_start.get(key, 0))
+        full_save_required = bool(self._full_save_required.get(key, False))
+        existing_storage_kind = io.get_dataset_storage_kind(key)
+        target_storage_kind = self._storage_kinds.get(key)
+
+        if target_storage_kind is None:
+            target_storage_kind = (
+                existing_storage_kind
+                if existing_storage_kind is not None
+                else io.default_dataset_storage_kind(key)
+            )
+
+        if (
+            existing_storage_kind is not None
+            and not full_save_required
+            and pending_start >= time_size
+        ):
+            self._storage_kinds[key] = existing_storage_kind
+            return
+
+        if (
+            target_storage_kind == "zarr"
+            and existing_storage_kind == "zarr"
+            and not full_save_required
+            and 0 < pending_start < time_size
+        ):
+            dataset_to_save = dataset.isel(time=slice(pending_start, None))
+            io.save_dataset(
+                dataset_to_save, key, print_info=print_info, storage="zarr", append_dim="time"
+            )
+        else:
+            io.save_dataset(dataset, key, print_info=print_info, storage=target_storage_kind)
+
+        self._pending_start[key] = time_size
+        self._full_save_required[key] = False
+        actual_storage_kind = io.get_dataset_storage_kind(key)
+        self._storage_kinds[key] = (
+            target_storage_kind if actual_storage_kind is None else actual_storage_kind
+        )
+
+    def trim_in_memory(self, key: str, *, keep_last: int) -> None:
+        """Drop older samples while preserving append bookkeeping."""
+        if keep_last < 0:
+            raise ValueError(f"keep_last must be non-negative, got {keep_last!r}.")
+        if key not in self.datasets:
+            return
+
+        dataset = self.datasets[key]
+        time_size = int(dataset.sizes.get("time", 0))
+        if time_size == 0 or keep_last >= time_size:
+            return
+
+        trimmed = dataset.isel(time=slice(time_size - keep_last, None))
+        self.datasets[key] = trimmed
+        trimmed_size = int(trimmed.sizes.get("time", 0))
+        self._pending_start[key] = min(int(self._pending_start.get(key, 0)), trimmed_size)
