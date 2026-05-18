@@ -72,6 +72,18 @@ class LinearMap:
             raise ValueError("Dense representation not available for this LinearMap.")
         return np.asarray(self._to_dense())
 
+    def materialize_dense(self, xp: Any = None) -> Any:
+        """Materialize this map as a dense array on ``xp``."""
+        xp = get_array_module() if xp is None else xp
+
+        if self._to_dense is not None:
+            return xp.asarray(self._to_dense())
+
+        eye_dtype = np.result_type(self.dtype, np.float64)
+        eye = xp.eye(self.shape[1], dtype=eye_dtype)
+        dense = self.matmat(eye)
+        return np.asarray(dense) if xp is np else xp.asarray(dense)
+
     def normal_matrix_diag(self) -> np.ndarray:
         """Compute ``diag(A* A)`` for this map."""
         if self._normal_matrix_diag is not None:

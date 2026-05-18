@@ -8,7 +8,7 @@ import numpy as np
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
-from pynamit.utils import get_array_module
+from pynamit.primitives.basis import EvaluableBasis
 
 
 class BasisEvaluator(object):
@@ -21,6 +21,9 @@ class BasisEvaluator(object):
 
     def __init__(self, basis, grid, sqrt_weights=None, reg_lambda=None, pinv_rtol=1e-15):
         """Initialize the BasisEvaluator object."""
+        if not isinstance(basis, EvaluableBasis):
+            raise TypeError("BasisEvaluator requires a basis implementing EvaluableBasis.")
+        basis.validate_metadata()
         self.basis = basis
         self.grid = grid
         self.sqrt_weights = sqrt_weights
@@ -90,17 +93,6 @@ class BasisEvaluator(object):
         if not hasattr(self, "_G_rxgrad"):
             self._G_rxgrad = np.array([-self.G_ph, self.G_th])
         return self._G_rxgrad
-
-    @property
-    def G_rxgrad_pinv(self):
-        """Matrix evaluating r-hat x horizontal gradient pinv."""
-        if not hasattr(self, "_G_rxgrad_pinv"):
-            G_rxgrad = self.G_rxgrad
-            xp = get_array_module(G_rxgrad)
-            self._G_rxgrad_pinv = xp.linalg.pinv(
-                xp.asarray(G_rxgrad), rtol=self.pinv_rtol
-            )
-        return self._G_rxgrad_pinv
 
     @property
     def G_helmholtz(self):

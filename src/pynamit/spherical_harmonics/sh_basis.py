@@ -6,6 +6,7 @@ import warnings
 from packaging import version
 import scipy
 
+from pynamit.primitives.basis import EvaluableBasis
 from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
 
 # Conditional Import for SciPy Version Compatibility
@@ -39,7 +40,7 @@ def _double_factorial(n):
     return result
 
 
-class SHBasis(object):
+class SHBasis(EvaluableBasis):
     """
     Class for representing spherical harmonic bases.
 
@@ -55,6 +56,13 @@ class SHBasis(object):
         'internal' backend. It automatically selects the best available
         scipy function.
     """
+
+    kind = "SH"
+    index_names = None
+    index_length = None
+    index_arrays = None
+    minimum_phi_sampling = None
+    caching = True
 
     def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend="internal"):
         """
@@ -122,6 +130,7 @@ class SHBasis(object):
         self.index_arrays = [self.n, self.m]
         self.minimum_phi_sampling = 2 * Mmax + 1
         self.caching = True
+        self.validate_metadata()
 
     def _compute_scipy_scaling_factors(self):
         """Calculate the analytical scaling factor.

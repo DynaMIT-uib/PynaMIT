@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.basis import EvaluableBasis
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
 
@@ -179,12 +180,13 @@ class Timeseries:
             provided.
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        input_basis_is_evaluable = isinstance(interpolation_basis, EvaluableBasis)
 
-        if not hasattr(self, "input_basis_evaluators"):
+        if input_basis_is_evaluable and not hasattr(self, "input_basis_evaluators"):
             self.input_basis_evaluators = {}
 
-        if not (
-            key in self.input_basis_evaluators.keys()
+        if input_basis_is_evaluable and not (
+            key in self.input_basis_evaluators
             and input_grid.theta.shape == self.input_basis_evaluators[key].grid.theta.shape
             and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
             and np.allclose(
@@ -212,7 +214,7 @@ class Timeseries:
             interpolated_data = {}
 
             for var in self.vars[key]:
-                if interpolation_basis.kind == "SH":
+                if input_basis_is_evaluable:
                     grid_values = input_data[var][time_index]
                     basis_evaluator = self.input_basis_evaluators[key]
                 else:

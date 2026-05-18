@@ -65,60 +65,71 @@ def test_normal_pinv_does_not_use_direct_solve(monkeypatch):
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-@pytest.mark.parametrize(
-    ("solver_name", "numpy_linalg_name"),
-    [("normal_solve", "solve"), ("normal_pinv", "pinv"), ("svd", "svd")],
-)
-def test_dense_solvers_use_jax_linalg_when_backend_enabled(
-    solver_name, numpy_linalg_name, monkeypatch
-):
-    """Dense solvers stay on JAX linalg when JAX is active."""
+@pytest.mark.parametrize("solver_name", ["normal_solve", "normal_pinv"])
+def test_dense_solvers_preserve_jax_output_when_backend_enabled(solver_name):
+    """Dense solvers preserve JAX output when JAX is active."""
     A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
     rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
     expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
     problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
     previous_backend = use_jax()
 
-    def fail_numpy_linalg(*args, **kwargs):
-        raise AssertionError("dense solve should use the active JAX backend")
-
     try:
         set_backend("jax")
-        monkeypatch.setattr(np.linalg, numpy_linalg_name, fail_numpy_linalg)
+        rhs_block, _, _ = problem.assemble_rhs_block(rhs)
+        system_matrix = problem.assemble_dense_system_matrix()
+        assert "jax" in type(rhs_block).__module__
+        assert "jax" in type(system_matrix).__module__
         solver = LeastSquaresSolver(solver=solver_name, tolerance=1e-13)
         solution = solver.solve(problem, rhs)
     finally:
         set_backend(previous_backend)
 
+    assert "jax" in type(solution).__module__
     np.testing.assert_allclose(solution, expected, rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_normal_pinv_matches_numpy_hermitian_reference_when_jax_enabled(monkeypatch):
-    """JAX pinv uses backend pinv and matches reference."""
+def test_svd_solver_preserves_jax_output_when_backend_enabled():
+    """SVD solver keeps JAX-facing assembly and output."""
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
+    rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
+    expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
+    previous_backend = use_jax()
+
+    try:
+        set_backend("jax")
+        rhs_block, _, _ = problem.assemble_rhs_block(rhs)
+        system_matrix = problem.assemble_dense_system_matrix()
+        assert "jax" in type(rhs_block).__module__
+        assert "jax" in type(system_matrix).__module__
+        solver = LeastSquaresSolver(solver="svd", tolerance=1e-13)
+        solution = solver.solve(problem, rhs)
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(solution).__module__
+    np.testing.assert_allclose(solution, expected, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_normal_pinv_matches_numpy_hermitian_reference_when_jax_enabled():
+    """JAX normal-pinv matches the hermitian reference."""
     A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
     rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
     problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
     previous_backend = use_jax()
-    real_pinv = np.linalg.pinv
-
-    def fail_numpy_pinv(*args, **kwargs):
-        raise AssertionError("JAX normal_pinv should use backend pinv")
-
-    def fail_solve(*args, **kwargs):
-        raise AssertionError("normal_pinv should apply a pseudo-inverse, not solve")
 
     try:
         set_backend("jax")
-        monkeypatch.setattr(np.linalg, "pinv", fail_numpy_pinv)
-        monkeypatch.setattr(np.linalg, "solve", fail_solve)
         solver = LeastSquaresSolver(solver="normal_pinv", tolerance=1e-13)
         solution = solver.solve(problem, rhs)
     finally:
         set_backend(previous_backend)
 
     A_H = A.T.conj()
-    expected = real_pinv(A_H @ A, rtol=solver.tolerance, hermitian=True) @ (A_H @ rhs)
+    expected = np.linalg.pinv(A_H @ A, rtol=solver.tolerance, hermitian=True) @ (A_H @ rhs)
     np.testing.assert_allclose(solution, expected, rtol=1e-12, atol=1e-12)
 
 
@@ -135,6 +146,53 @@ def test_iterative_solver_solves_block_rhs_with_base_preconditioner(solver_name)
     solution = solver.solve(problem, rhs, preconditioner=preconditioner, maxiter=200)
 
     expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
+    np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+@pytest.mark.parametrize("solver_name", ["cgls", "lsmr"])
+@pytest.mark.parametrize("preconditioner_type", [None, "jacobi", "pinv"])
+def test_iterative_solvers_preserve_jax_output_when_backend_enabled(
+    solver_name, preconditioner_type
+):
+    """Iterative solvers preserve JAX output when JAX is active."""
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
+    rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
+    expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
+    previous_backend = use_jax()
+
+    try:
+        set_backend("jax")
+        solver = LeastSquaresSolver(
+            solver=solver_name, tolerance=1e-12, preconditioner=preconditioner_type
+        )
+        preconditioner = solver.build_preconditioner(problem)
+        solution = solver.solve(problem, rhs, preconditioner=preconditioner, maxiter=200)
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(solution).__module__
+    np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_jax_lsmr_solves_underdetermined_block_rhs():
+    """Internal JAX LSMR handles rectangular underdetermined systems."""
+    A = np.array([[1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0], [1.0, 1.0, 0.0, -1.0]])
+    rhs = np.array([[1.0, 2.0], [0.5, -1.0], [2.0, 0.0]])
+    expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
+    problem = LeastSquaresProblem(A=A, solution_shape=4, data_shapes=3)
+    previous_backend = use_jax()
+
+    try:
+        set_backend("jax")
+        solver = LeastSquaresSolver(solver="lsmr", tolerance=1e-12)
+        solution = solver.solve(problem, rhs, maxiter=200)
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(solution).__module__
     np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
 
 

@@ -1,38 +1,24 @@
-"""Basis Function Utilities.
-
-This module contains the abstract Basis class for basis representations
-of fields.
-"""
+"""Basis interface utilities."""
 
 from abc import ABC, abstractmethod
 
 
 class Basis(ABC):
-    """Abstract class for basis representations of fields.
+    """Abstract metadata interface for basis representations.
 
-    Defines the interface for different basis representations of fields,
-    including functions for evaluating basis functions and their
-    derivatives on grids.
-
-    Attributes
-    ----------
-    kind : str
-        Short identifier for the basis.
-    index_names : list of str
-        Names of the indices used in the basis representation.
-    index_length : int
-        Total number of basis functions.
-    index_arrays : list of array-like
-        Arrays containing the indices used in the basis.
-    minimum_phi_sampling : float
-        Minimum required sampling points in phi direction.
-    caching : bool
-        Whether basis evaluations can be cached.
-
-    Notes
-    -----
-    Subclasses must implement all abstract methods and properties.
+    Concrete basis classes may expose these fields as regular instance
+    attributes. Class-level placeholders satisfy the abstract contract,
+    while ``validate_metadata`` checks initialized instances.
     """
+
+    required_attributes = (
+        "kind",
+        "index_names",
+        "index_length",
+        "index_arrays",
+        "minimum_phi_sampling",
+        "caching",
+    )
 
     @property
     @abstractmethod
@@ -68,4 +54,20 @@ class Basis(ABC):
     @abstractmethod
     def caching(self):
         """Whether basis evaluations can be cached."""
+        pass
+
+    def validate_metadata(self) -> None:
+        """Validate that required basis metadata is initialized."""
+        missing = [name for name in self.required_attributes if getattr(self, name, None) is None]
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(f"{type(self).__name__} is missing basis metadata: {joined}.")
+
+
+class EvaluableBasis(Basis):
+    """Basis whose functions can be evaluated on a grid."""
+
+    @abstractmethod
+    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
+        """Evaluate basis functions or derivatives on ``grid``."""
         pass

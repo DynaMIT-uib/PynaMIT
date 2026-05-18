@@ -55,6 +55,31 @@ def test_dense_linear_map_keeps_numpy_source_with_jax_backend():
         set_backend(previous_backend)
 
 
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_linear_map_materialize_dense_uses_active_backend():
+    """Dense materialization can stay on the active backend."""
+    previous_backend = use_jax()
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
+    base = as_linear_map(matrix)
+    matrix_free = LinearMap(
+        shape=base.shape,
+        dtype=base.dtype,
+        _matvec=base.matvec,
+        _rmatvec=base.rmatvec,
+        _matmat=base.matmat,
+        _rmatmat=base.rmatmat,
+    )
+
+    try:
+        set_backend("jax")
+        dense = matrix_free.materialize_dense()
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(dense).__module__
+    np.testing.assert_allclose(dense, matrix)
+
+
 def test_sparse_linear_map_uses_sparse_normal_diagonal():
     """Sparse maps avoid generic densifying for normal diagonals."""
     matrix = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])

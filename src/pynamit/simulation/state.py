@@ -21,15 +21,7 @@ from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_ma
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.geometry import Geometry
 from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.utils import (
-    asarray,
-    block_until_ready,
-    get_array_module,
-    to_numpy,
-    to_jax,
-    use_jax,
-    xp,
-)
+from pynamit.utils import block_until_ready, get_array_module, to_numpy, to_jax, use_jax, xp
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +301,7 @@ class State:
         solve_response = solver_response
 
         if self.m_imp_solver.solver == "normal_pinv":
-            system_matrix = asarray(problem.dense_system_matrix)
+            system_matrix = problem.assemble_dense_system_matrix()
             array_module = get_array_module(system_matrix)
             system_matrix_H = system_matrix.T.conj()
             normal_matrix = system_matrix_H @ system_matrix
@@ -319,7 +311,6 @@ class State:
 
             def cached_pinv_response(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
                 rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs_entries)
-                rhs_block = asarray(rhs_block)
                 solution_block = normal_pinv @ (system_matrix_H @ rhs_block)
                 return solution_block.reshape(problem.solution_shape + rhs_shape)
 
