@@ -9,7 +9,7 @@ import dipole
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 DT = 480  # An offset to apply to all the ts
-filename_prefix = "fac"  # "wind"
+figure_name_prefix = "fac"  # "wind"
 shape = (5, 4)  # Layout of the figure (rows x columns)
 assert len(ts) == np.prod(shape)
 path = (
@@ -62,14 +62,14 @@ if GLOBAL_TIMESERIES:
     for fig in [fig_E, fig_B, fig_Q]:
         fig.tight_layout()
 
-    fig_E.savefig("figures/global_ts_" + filename_prefix + "_efield.png", dpi=200)
-    fig_E.savefig("figures/global_ts_" + filename_prefix + "_efield.pdf")
+    fig_E.savefig("figures/global_ts_" + figure_name_prefix + "_efield.png", dpi=200)
+    fig_E.savefig("figures/global_ts_" + figure_name_prefix + "_efield.pdf")
 
-    fig_B.savefig("figures/global_ts_" + filename_prefix + "_bfield.png", dpi=200)
-    fig_B.savefig("figures/global_ts_" + filename_prefix + "_bfield.pdf")
+    fig_B.savefig("figures/global_ts_" + figure_name_prefix + "_bfield.png", dpi=200)
+    fig_B.savefig("figures/global_ts_" + figure_name_prefix + "_bfield.pdf")
 
-    fig_Q.savefig("figures/global_ts_" + filename_prefix + "_joule.png", dpi=200)
-    fig_Q.savefig("figures/global_ts_" + filename_prefix + "_joule.pdf")
+    fig_Q.savefig("figures/global_ts_" + figure_name_prefix + "_joule.png", dpi=200)
+    fig_Q.savefig("figures/global_ts_" + figure_name_prefix + "_joule.pdf")
 
     plt.show()
 
@@ -217,12 +217,12 @@ if POLAR_TIMESERIES:
                 pos.x1 += 0.019  # Adjust width to maintain size
             ax.set_position(pos)  # Set the new position
 
-    fig_E.savefig("figures/polar_ts_" + filename_prefix + "_ef.png", dpi=250)
-    fig_E.savefig("figures/polar_ts_" + filename_prefix + "_ef.pdf")
-    fig_B.savefig("figures/polar_ts_" + filename_prefix + "_mag.png", dpi=250)
-    fig_B.savefig("figures/polar_ts_" + filename_prefix + "_mag.pdf")
-    fig_Q.savefig("figures/polar_ts_" + filename_prefix + "_joule.png", dpi=250)
-    fig_Q.savefig("figures/polar_ts_" + filename_prefix + "_joule.pdf")
+    fig_E.savefig("figures/polar_ts_" + figure_name_prefix + "_ef.png", dpi=250)
+    fig_E.savefig("figures/polar_ts_" + figure_name_prefix + "_ef.pdf")
+    fig_B.savefig("figures/polar_ts_" + figure_name_prefix + "_mag.png", dpi=250)
+    fig_B.savefig("figures/polar_ts_" + figure_name_prefix + "_mag.pdf")
+    fig_Q.savefig("figures/polar_ts_" + figure_name_prefix + "_joule.png", dpi=250)
+    fig_Q.savefig("figures/polar_ts_" + figure_name_prefix + "_joule.pdf")
 
     plt.show()
 

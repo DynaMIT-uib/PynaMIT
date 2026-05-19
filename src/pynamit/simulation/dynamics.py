@@ -43,7 +43,7 @@ class Dynamics(object):
 
     def __init__(
         self,
-        filename_prefix="simulation",
+        run_directory=None,
         Nmax=20,
         Mmax=20,
         Ncs=30,
@@ -73,8 +73,10 @@ class Dynamics(object):
 
         Parameters
         ----------
-        filename_prefix : str, optional
-            Prefix for saving dataset files.
+        run_directory : str, optional
+            Preferred directory for this persisted run. Artifacts are
+            written as fixed names like ``settings.zarr`` inside this
+            directory.
         Nmax : int, optional
             Maximum spherical harmonic degree.
         Mmax : int, optional
@@ -158,7 +160,15 @@ class Dynamics(object):
             }
         )
 
-        self.io = IO(filename_prefix, preferred_dataset_storage=artifact_storage)
+        self.uses_temporary_run_directory = run_directory is None
+        if self.uses_temporary_run_directory:
+            run_directory = IO.build_temporary_run_directory()
+
+        self.io = IO(
+            run_directory=run_directory,
+            preferred_dataset_storage=artifact_storage,
+        )
+        self.run_directory = self.io.run_directory
 
         # Check if settings are consistent with previously saved runs.
         settings_on_file = self.io.load_dataset("settings", print_info=True)
@@ -238,14 +248,16 @@ class Dynamics(object):
             self.current_time = np.float64(0)
 
         # Store settings and PFAC matrix on file.
-        if filename_prefix is None:
-            self.io.update_filename_prefix("simulation")
-
         if settings_on_file is None:
             self.io.save_dataset(self.settings, "settings", print_info=True)
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
+
+    @classmethod
+    def from_directory(cls, run_directory, **kwargs):
+        """Construct a simulation from one run directory."""
+        return cls(run_directory=IO.discover_run_directory(run_directory), **kwargs)
 
     def evolve_to_time(
         self,

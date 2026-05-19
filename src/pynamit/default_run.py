@@ -32,7 +32,7 @@ def run_pynamit(
     multi_data=False,
     least_squares_solver=None,
     least_squares_preconditioner="pinv",
-    filename_prefix=None,
+    run_directory=None,
     artifact_storage="auto",
 ):
     """Run a default PynaMIT simulation with the given parameters.
@@ -85,9 +85,9 @@ def run_pynamit(
         Least-squares solver used by state feedback solves.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
         Preconditioner used by iterative least-squares state solves.
-    filename_prefix : str, optional
-        Prefix for saved simulation artifacts. If omitted, Dynamics uses
-        its default deferred ``"simulation"`` prefix.
+    run_directory : str, optional
+        Directory for one persisted run. If omitted, a unique
+        timestamped run directory is created under ``simulation/``.
     artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
         Preferred storage backend for new saved xarray artifacts.
 
@@ -101,13 +101,19 @@ def run_pynamit(
     import numpy as np
 
     from pynamit.math.constants import RE
+    from pynamit.primitives.io import IO
     from pynamit.simulation.dynamics import Dynamics
     from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
+
+    if run_directory is None:
+        run_directory = IO.build_temporary_run_directory_in_directory("simulation")
+    else:
+        run_directory = IO.build_run_directory(run_directory)
 
     # Initialize the 2D ionosphere object at 110 km altitude.
     RI = RE + 110.0e3
     dynamics = Dynamics(
-        filename_prefix=filename_prefix,
+        run_directory=run_directory,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,

@@ -2,13 +2,12 @@
 
 import os
 import tempfile
-import pytest
 
 from pynamit.default_run import run_pynamit
 import numpy as np
 
 
-def test_2d_dipole_pfac_exp():
+def test_2d_dipole_pfac_exp(pynamit_approx):
     """Test 2D simulation with dipole, PFAC and exponential."""
     # Arrange.
     expected_coeff_norm = 1.1342052545869683e-08
@@ -52,7 +51,7 @@ def test_2d_dipole_pfac_exp():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-10)
+    assert actual_coeff_norm == pynamit_approx(expected_coeff_norm)
+    assert actual_coeff_max == pynamit_approx(expected_coeff_max)
+    assert actual_coeff_min == pynamit_approx(expected_coeff_min)
+    assert actual_n_coeffs == pynamit_approx(expected_n_coeffs)

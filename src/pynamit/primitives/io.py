@@ -1,20 +1,20 @@
-"""Persistence helper for simulation artifacts.
+"""Persistence helper for one simulation run directory.
 
-The IO layer owns filename construction plus read/write behavior for the
-``<prefix>_<artifact>`` files used by the current simulation API. New
-artifacts can use NetCDF or Zarr, while existing artifacts keep their
-established on-disk format unless an explicit storage kind is requested.
+The storage API is a run directory with fixed artifact names like
+``settings.zarr`` and ``state.zarr``.
 """
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+from datetime import datetime
+import importlib
 import importlib.util
 import os
 from pathlib import Path
 import shutil
 import tempfile
 from typing import Callable
-import warnings
 
 import numpy as np
 import xarray as xr
@@ -27,35 +27,84 @@ RUN_ARTIFACTS = frozenset(
     {"settings", "PFAC_matrix", "jr", "Br", "conductance", "u", "state", "steady_state"}
 )
 ZARR_AVAILABLE = importlib.util.find_spec("zarr") is not None
+ZARR_WRITE_KWARGS = {"write_empty_chunks": True}
+ZARR_READ_CONFIG = {"array.read_missing_chunks": False}
 
 
 class IO:
-    """Handle persisted artifacts for one simulation file prefix."""
+    """Handle persisted artifacts for one simulation run directory."""
 
-    def __init__(self, filename_prefix, *, preferred_dataset_storage: str = "auto"):
+    def __init__(
+        self,
+        run_directory: str | os.PathLike[str] | None = None,
+        *,
+        preferred_dataset_storage: str = "auto",
+    ):
         """Initialize the IO helper.
 
         Parameters
         ----------
-        filename_prefix : str, optional
-            Prefix for persisted artifacts. A ``state`` dataset is
-            written to ``<filename_prefix>_state.ncdf`` or Zarr.
-            If ``None``, loads return ``None`` and saves are
-            disabled until a prefix is configured.
+        run_directory : str or Path, optional
+            Directory holding fixed artifact names.
         preferred_dataset_storage : {"auto", "netcdf", "zarr"}, optional
             Default storage format for new artifacts.
         """
-        self.filename_prefix = None if filename_prefix is None else str(filename_prefix)
-        self.preferred_dataset_storage = self._normalize_storage_kind(preferred_dataset_storage)
+        self.run_directory: str | None = None
+        self.preferred_dataset_storage = self._normalize_storage_kind(
+            preferred_dataset_storage
+        )
+        self.update_run_directory(run_directory)
 
-    def update_filename_prefix(self, filename_prefix):
-        """Update the prefix for persisted artifacts."""
-        self.filename_prefix = None if filename_prefix is None else str(filename_prefix)
+    def update_run_directory(self, run_directory: str | os.PathLike[str] | None) -> None:
+        """Update the directory for persisted artifacts."""
+        self.run_directory = None if run_directory is None else str(Path(run_directory).resolve())
+
+    @staticmethod
+    def _timestamped_tempdir(*, root: Path | None = None, prefix: str) -> Path:
+        """Create a unique timestamped temporary directory."""
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        if root is None:
+            return Path(tempfile.mkdtemp(prefix=f"{prefix}{stamp}-"))
+        root.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix=f"{prefix}{stamp}-", dir=root))
+
+    @staticmethod
+    def build_temporary_run_directory() -> str:
+        """Return a writable temporary run directory for one run."""
+        return str(IO._timestamped_tempdir(prefix="pynamit-run-"))
+
+    @staticmethod
+    def build_run_directory(directory: str | os.PathLike[str]) -> str:
+        """Return one explicit run directory path."""
+        return str(Path(directory).resolve())
+
+    @staticmethod
+    def build_temporary_run_directory_in_directory(directory: str | os.PathLike[str]) -> str:
+        """Return a unique writable run directory under a directory."""
+        root = Path(directory).resolve()
+        return str(IO._timestamped_tempdir(root=root, prefix="run-"))
+
+    @staticmethod
+    def discover_run_directory(run_directory: str | os.PathLike[str]) -> str:
+        """Return one run directory after verifying settings exist."""
+        root = Path(run_directory).resolve()
+        settings_paths = [root / f"settings{ZARR_SUFFIX}", root / f"settings{NETCDF_SUFFIX}"]
+        if not any(path.exists() for path in settings_paths):
+            raise ValueError(f"No settings dataset found in run directory {str(root)!r}.")
+        return str(root)
 
     @staticmethod
     def zarr_available() -> bool:
         """Return whether optional ``zarr`` is available."""
         return bool(ZARR_AVAILABLE)
+
+    @staticmethod
+    def _zarr_config_context():
+        """Return a context that fails on missing zarr chunks."""
+        if not IO.zarr_available():
+            return nullcontext()
+        zarr = importlib.import_module("zarr")
+        return zarr.config.set(ZARR_READ_CONFIG)
 
     @staticmethod
     def _normalize_storage_kind(storage: str) -> str:
@@ -74,8 +123,9 @@ class IO:
 
     def _path_for(self, name: str, *, storage: str) -> Path:
         """Return the persisted path for one named artifact."""
-        if self.filename_prefix is None:
-            raise ValueError("filename_prefix is None. Cannot build file path.")
+        if self.run_directory is None:
+            raise ValueError("No run directory configured. Cannot build file path.")
+
         if storage == "netcdf":
             suffix = NETCDF_SUFFIX
         elif storage == "zarr":
@@ -85,7 +135,7 @@ class IO:
                 f"Unsupported dataset storage kind {storage!r}. "
                 f"Expected one of {sorted(DATASET_STORAGE_KINDS - {'auto'})}."
             )
-        return Path(f"{self.filename_prefix}_{name}{suffix}")
+        return Path(self.run_directory) / f"{name}{suffix}"
 
     @staticmethod
     def _requires_materialization(data) -> bool:
@@ -165,7 +215,7 @@ class IO:
 
     def get_dataset_storage_kinds(self, name: str) -> tuple[str, ...]:
         """Return all on-disk storage kinds present for one artifact."""
-        if self.filename_prefix is None:
+        if self.run_directory is None:
             return ()
 
         storages: list[str] = []
@@ -185,7 +235,7 @@ class IO:
         return None
 
     def scan_run_artifacts(self) -> dict[str, tuple[str, ...]]:
-        """Return known artifacts present for this file prefix."""
+        """Return known artifacts present for this run."""
         return {
             name: storages
             for name in RUN_ARTIFACTS
@@ -213,7 +263,7 @@ class IO:
 
     def _resolve_existing_dataset_storage_kind(self, name: str, storage: str | None) -> str | None:
         """Return existing storage for one dataset load."""
-        if self.filename_prefix is None:
+        if self.run_directory is None:
             return None
 
         normalized = "auto" if storage is None else str(storage)
@@ -243,43 +293,22 @@ class IO:
         append_dim: str | None = None,
     ):
         """Persist one Dataset using the configured storage backend."""
-        if self.filename_prefix is None:
-            raise ValueError("filename_prefix is None. Cannot save Dataset.")
+        if self.run_directory is None:
+            raise ValueError("No run directory configured. Cannot save Dataset.")
 
-        requested_storage = "auto" if storage is None else str(storage)
-        requested_storage_kind = self._normalize_storage_kind(requested_storage)
-        existing_storage_kind = self.get_dataset_storage_kind(name)
         storage_kind = self._resolve_dataset_storage_kind(name, storage)
         filename = self._path_for(name, storage=storage_kind)
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
             dataset = self._prepare_dataset_for_zarr_write(dataset)
-            try:
-                if append_dim is None:
-                    self._write_zarr_atomically(
-                        filename, lambda temp_store: dataset.to_zarr(temp_store, mode="w")
-                    )
-                else:
-                    dataset.to_zarr(filename, append_dim=append_dim)
-            except PermissionError:
-                can_fallback = (
-                    requested_storage_kind == "auto"
-                    and existing_storage_kind is None
-                    and append_dim is None
+            if append_dim is None:
+                self._write_zarr_atomically(
+                    filename,
+                    lambda temp_store: dataset.to_zarr(temp_store, mode="w", **ZARR_WRITE_KWARGS),
                 )
-                if not can_fallback:
-                    raise
-                warnings.warn(
-                    f"Falling back to NetCDF for {name!r} after Zarr permission error at "
-                    f"{str(filename)!r}.",
-                    RuntimeWarning,
-                )
-                storage_kind = "netcdf"
-                filename = self._path_for(name, storage=storage_kind)
-                self._write_netcdf_atomically(
-                    filename, lambda temp_file: dataset.to_netcdf(temp_file)
-                )
+            else:
+                dataset.to_zarr(filename, append_dim=append_dim, **ZARR_WRITE_KWARGS)
         else:
             self._write_netcdf_atomically(filename, lambda temp_file: dataset.to_netcdf(temp_file))
 
@@ -298,7 +327,8 @@ class IO:
             print(f"Loading Dataset from {filename}", flush=True)
 
         if storage_kind == "zarr":
-            return xr.open_zarr(filename)
+            with self._zarr_config_context():
+                return xr.open_zarr(filename)
         if filename.exists():
             return xr.load_dataset(filename)
         return None
@@ -314,7 +344,8 @@ class IO:
             print(f"Loading DataArray from {filename}", flush=True)
 
         if storage_kind == "zarr":
-            dataset = xr.open_zarr(filename)
+            with self._zarr_config_context():
+                dataset = xr.open_zarr(filename)
             data_var_names = list(dataset.data_vars)
             if len(data_var_names) != 1:
                 raise ValueError(
@@ -328,36 +359,19 @@ class IO:
 
     def save_dataarray(self, dataarray, name, print_info=False, *, storage: str | None = None):
         """Save a DataArray using the configured storage backend."""
-        if self.filename_prefix is None:
-            raise ValueError("filename_prefix is None. Cannot save DataArray.")
+        if self.run_directory is None:
+            raise ValueError("No run directory configured. Cannot save DataArray.")
 
-        requested_storage = "auto" if storage is None else str(storage)
-        requested_storage_kind = self._normalize_storage_kind(requested_storage)
-        existing_storage_kind = self.get_dataset_storage_kind(name)
         storage_kind = self._resolve_dataset_storage_kind(name, storage=storage)
         filename = self._path_for(name, storage=storage_kind)
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
             dataarray = self._prepare_dataarray_for_zarr_write(dataarray)
-            try:
-                self._write_zarr_atomically(
-                    filename, lambda temp_store: dataarray.to_zarr(temp_store, mode="w")
-                )
-            except PermissionError:
-                can_fallback = requested_storage_kind == "auto" and existing_storage_kind is None
-                if not can_fallback:
-                    raise
-                warnings.warn(
-                    f"Falling back to NetCDF for {name!r} after Zarr permission error at "
-                    f"{str(filename)!r}.",
-                    RuntimeWarning,
-                )
-                storage_kind = "netcdf"
-                filename = self._path_for(name, storage=storage_kind)
-                self._write_netcdf_atomically(
-                    filename, lambda temp_file: dataarray.to_netcdf(temp_file)
-                )
+            self._write_zarr_atomically(
+                filename,
+                lambda temp_store: dataarray.to_zarr(temp_store, mode="w", **ZARR_WRITE_KWARGS),
+            )
         else:
             self._write_netcdf_atomically(
                 filename, lambda temp_file: dataarray.to_netcdf(temp_file)

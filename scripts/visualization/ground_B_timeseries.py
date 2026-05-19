@@ -1,24 +1,32 @@
 """Ground magnetic field time series visualization."""
 
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import xarray as xr
 import pynamit
 from pynamit.math.constants import RE
 from pynamit.math.constants import mu0
+from pynamit.primitives.io import IO
 import dipole
 import datetime
 import apexpy
 
 periods = [50, 25, 10, 5, 1]
-state_data_list = [
-    xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_state.ncdf")
-    for p in periods
-]
-settings_list = [
-    xr.load_dataset("../simulation/oscillations/" + str(p).zfill(2) + "s_settings.ncdf")
-    for p in periods
-]
+DATA_DIRECTORY = Path("../simulation/oscillations")
+
+
+def _load_period_dataset(period, name):
+    run_directory = DATA_DIRECTORY / f"{period:02d}s"
+    dataset = IO(run_directory).load_dataset(name)
+    if dataset is None:
+        raise FileNotFoundError(
+            f"No {name!r} artifact found in run directory {run_directory}."
+        )
+    return dataset
+
+
+state_data_list = [_load_period_dataset(p, "state") for p in periods]
+settings_list = [_load_period_dataset(p, "settings") for p in periods]
 
 RI = settings_list[0].RI
 sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
