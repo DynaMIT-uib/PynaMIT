@@ -21,6 +21,8 @@ def run_pynamit(
     latitude_boundary=50,
     wind=False,
     steady_state_initialization=True,
+    run_inductive=True,
+    run_steady_state=True,
     vector_jr=True,
     vector_Br=True,
     vector_conductance=True,
@@ -63,8 +65,13 @@ def run_pynamit(
         The latitude boundary for the simulation.
     wind : bool, optional
         Whether to include wind in the simulation.
-    steady_state : bool, optional
-        Whether to impose a steady state.
+    steady_state_initialization : bool, optional
+        Whether to initialize a new inductive run from steady state.
+    run_inductive : bool, optional
+        Whether to run and save the inductive time-dependent state.
+    run_steady_state : bool, optional
+        Whether to calculate and save the algebraic steady-state
+        solution.
     vector_jr : bool, optional
         Whether to use vector representation for radial current.
     vector_Br : bool, optional
@@ -127,6 +134,7 @@ def run_pynamit(
         vector_Br=vector_Br,
         vector_conductance=vector_conductance,
         vector_u=vector_u,
+        save_steady_states=run_steady_state,
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,
@@ -180,6 +188,8 @@ def run_pynamit(
         sampling_step_interval=1,
         saving_sample_interval=plotsteps,
         steady_state_initialization=steady_state_initialization,
+        run_inductive=run_inductive,
+        run_steady_state=run_steady_state,
     )
 
     return dynamics

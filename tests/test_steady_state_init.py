@@ -135,3 +135,61 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
         np.testing.assert_allclose(
             np.asarray(imposed_entry[key]), np.asarray(initialized_entry[key])
         )
+
+
+def test_evolve_to_time_can_run_steady_state_without_inductive_state(tmp_path):
+    """Steady-state output can run without inductive evolution."""
+    dynamics = run_pynamit(
+        final_time=0.1,
+        dt=0.05,
+        plotsteps=1,
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+        mainfield_kind="dipole",
+        ignore_PFAC=True,
+        wind=False,
+        steady_state_initialization=False,
+        run_inductive=False,
+        run_steady_state=True,
+        run_directory=str(tmp_path / "steady-only"),
+        artifact_storage="netcdf",
+    )
+
+    assert "state" not in dynamics.output_timeseries.datasets
+    assert "steady_state" in dynamics.output_timeseries.datasets
+    np.testing.assert_allclose(
+        dynamics.output_timeseries.datasets["steady_state"].time.values,
+        [0.0, 0.05, 0.1],
+    )
+    assert not (tmp_path / "steady-only" / "state.ncdf").exists()
+    assert (tmp_path / "steady-only" / "steady_state.ncdf").is_file()
+
+
+def test_evolve_to_time_can_run_inductive_state_without_steady_state(tmp_path):
+    """Inductive output can run without steady-state output."""
+    dynamics = run_pynamit(
+        final_time=0.1,
+        dt=0.05,
+        plotsteps=1,
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+        mainfield_kind="dipole",
+        ignore_PFAC=True,
+        wind=False,
+        steady_state_initialization=False,
+        run_inductive=True,
+        run_steady_state=False,
+        run_directory=str(tmp_path / "inductive-only"),
+        artifact_storage="netcdf",
+    )
+
+    assert "state" in dynamics.output_timeseries.datasets
+    assert "steady_state" not in dynamics.output_timeseries.datasets
+    np.testing.assert_allclose(
+        dynamics.output_timeseries.datasets["state"].time.values,
+        [0.0, 0.05, 0.1],
+    )
+    assert (tmp_path / "inductive-only" / "state.ncdf").is_file()
+    assert not (tmp_path / "inductive-only" / "steady_state.ncdf").exists()
