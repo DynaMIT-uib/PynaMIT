@@ -193,3 +193,65 @@ def test_evolve_to_time_can_run_inductive_state_without_steady_state(tmp_path):
     )
     assert (tmp_path / "inductive-only" / "state.ncdf").is_file()
     assert not (tmp_path / "inductive-only" / "steady_state.ncdf").exists()
+
+
+def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path, rel_tol):
+    """Separate inductive and steady-state runs match a combined run."""
+    common_kwargs = dict(
+        final_time=0.1,
+        dt=0.05,
+        plotsteps=1,
+        Nmax=4,
+        Mmax=3,
+        Ncs=8,
+        mainfield_kind="dipole",
+        ignore_PFAC=True,
+        wind=False,
+        steady_state_initialization=False,
+        multi_data=True,
+        artifact_storage="netcdf",
+    )
+
+    combined = run_pynamit(
+        **common_kwargs,
+        run_inductive=True,
+        run_steady_state=True,
+        run_directory=str(tmp_path / "combined"),
+    )
+    inductive = run_pynamit(
+        **common_kwargs,
+        run_inductive=True,
+        run_steady_state=False,
+        run_directory=str(tmp_path / "inductive"),
+    )
+    steady = run_pynamit(
+        **common_kwargs,
+        run_inductive=False,
+        run_steady_state=True,
+        run_directory=str(tmp_path / "steady"),
+    )
+
+    state_combined = combined.output_timeseries.datasets["state"]
+    state_inductive = inductive.output_timeseries.datasets["state"]
+    steady_combined = combined.output_timeseries.datasets["steady_state"]
+    steady_split = steady.output_timeseries.datasets["steady_state"]
+
+    np.testing.assert_allclose(state_inductive.time.values, state_combined.time.values)
+    np.testing.assert_allclose(steady_split.time.values, steady_combined.time.values)
+
+    for variable in ("SH_m_ind", "SH_m_imp", "SH_Phi", "SH_W"):
+        np.testing.assert_allclose(
+            state_inductive[variable].values,
+            state_combined[variable].values,
+            rtol=rel_tol,
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            steady_split[variable].values,
+            steady_combined[variable].values,
+            rtol=rel_tol,
+            atol=0.0,
+        )
+
+    assert np.linalg.norm(state_combined["SH_m_ind"].values[-1]) > 0.0
+    assert np.linalg.norm(steady_combined["SH_m_ind"].values[-1]) > 0.0
