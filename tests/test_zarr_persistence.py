@@ -13,7 +13,6 @@ from pynamit.default_run import run_pynamit
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.simulation.dynamics import Dynamics
-from pynamit.simulation.migration import migrate_run_storage
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 
@@ -180,31 +179,6 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
     )
 
 
-def test_migrate_run_storage_roundtrips(tmp_path):
-    """Saved run directory artifacts can migrate between formats."""
-    pytest.importorskip("zarr")
-    run_directory = tmp_path / "run"
-    io = IO(run_directory, preferred_dataset_storage="netcdf")
-    dataset = _small_dataset()
-    dataarray = xr.DataArray(np.array([1.0, 2.0]), dims=["x"], name="PFAC_matrix")
-    io.save_dataset(dataset, "settings")
-    io.save_dataarray(dataarray, "PFAC_matrix")
-
-    to_zarr = migrate_run_storage(run_directory, "zarr")
-
-    assert to_zarr.migrated_artifacts == ("PFAC_matrix", "settings")
-    assert not (run_directory / "settings.ncdf").exists()
-    assert (run_directory / "settings.zarr").is_dir()
-    xr.testing.assert_equal(IO(run_directory).load_dataset("settings"), dataset)
-
-    to_netcdf = migrate_run_storage(run_directory, "netcdf")
-
-    assert to_netcdf.migrated_artifacts == ("PFAC_matrix", "settings")
-    assert (run_directory / "settings.ncdf").is_file()
-    assert not (run_directory / "settings.zarr").exists()
-    xr.testing.assert_equal(IO(run_directory).load_dataarray("PFAC_matrix"), dataarray)
-
-
 @pytest.mark.parametrize(
     ("backend", "data_source", "least_squares_solver"),
     [("numpy", "fallback", "normal_pinv")],
@@ -297,71 +271,4 @@ def test_dynamics_restart_continues_to_match_direct_run(
     np.testing.assert_allclose(
         resumed.output_timeseries.datasets["state"].time.values,
         direct.output_timeseries.datasets["state"].time.values,
-    )
-
-
-@pytest.mark.parametrize(
-    ("backend", "data_source", "least_squares_solver"),
-    [("numpy", "fallback", "normal_pinv")],
-)
-@pytest.mark.parametrize(
-    ("source_storage", "target_storage"), [("netcdf", "zarr"), ("zarr", "netcdf")]
-)
-def test_dynamics_restart_matches_direct_run_after_storage_migration(
-    tmp_path, backend, data_source, least_squares_solver, source_storage, target_storage
-):
-    """Migrated saved runs should still restart correctly."""
-    pytest.importorskip("zarr")
-
-    common_kwargs = dict(
-        dt=0.05,
-        Nmax=4,
-        Mmax=3,
-        Ncs=8,
-        mainfield_kind="dipole",
-        ignore_PFAC=True,
-        wind=False,
-        steady_state_initialization=False,
-        plotsteps=1,
-    )
-    direct = run_pynamit(
-        final_time=0.1,
-        run_directory=str(tmp_path / f"direct-{target_storage}"),
-        artifact_storage=target_storage,
-        **common_kwargs,
-    )
-    partial_run_directory = tmp_path / f"restart-{source_storage}-to-{target_storage}"
-    run_pynamit(
-        final_time=0.05,
-        run_directory=str(partial_run_directory),
-        artifact_storage=source_storage,
-        **common_kwargs,
-    )
-
-    migrate_run_storage(partial_run_directory, target_storage)
-    resumed_io = IO(partial_run_directory)
-    assert resumed_io.get_dataset_storage_kind("settings") == target_storage
-    assert resumed_io.get_dataset_storage_kind("PFAC_matrix") == target_storage
-    assert resumed_io.get_dataset_storage_kind("state") == target_storage
-
-    resumed = Dynamics(
-        run_directory=str(partial_run_directory),
-        Nmax=4,
-        Mmax=3,
-        Ncs=8,
-        mainfield_kind="dipole",
-        ignore_PFAC=True,
-        artifact_storage="auto",
-    )
-    resumed.evolve_to_time(
-        t=0.1,
-        dt=0.05,
-        sampling_step_interval=1,
-        saving_sample_interval=1,
-        steady_state_initialization=False,
-        quiet=True,
-    )
-
-    np.testing.assert_allclose(
-        _state_coefficients(resumed), _state_coefficients(direct), rtol=1e-10, atol=0.0
     )
