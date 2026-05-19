@@ -66,7 +66,7 @@ def plot_scalar_map_on_ax(
 
 def plot_input_vs_interpolated(
     h5_filepath,
-    interpolated_filename_prefix,
+    interpolated_run_directory,
     timesteps_to_plot,
     input_dt,
     data_types_to_plot,
@@ -105,7 +105,7 @@ def plot_input_vs_interpolated(
         h5file.close()
         raise ValueError("strictly_positive_scale_type must be 'linear' or 'log'.")
 
-    io = IO(interpolated_filename_prefix)
+    io = IO(interpolated_run_directory)
     settings = io.load_dataset("settings", print_info=False)
     if settings is None:
         h5file.close()

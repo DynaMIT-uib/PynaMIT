@@ -28,7 +28,6 @@ _jax_array_type: tuple[type, ...] = ()
 _jax_device_put = None
 _jax_jit = None
 _jax_vmap = None
-_jax_to_numpy = None
 
 try:  # pragma: no cover - we fall back gracefully when JAX is absent
     import jax
@@ -39,17 +38,10 @@ try:  # pragma: no cover - we fall back gracefully when JAX is absent
 
     _jax_namespace = _jnp
     _jax_device_put = jax.device_put
-    _jax_to_numpy = jax.numpy.asarray
 
-    try:
-        # Newer versions expose the Array type publicly
-        from jax import Array as _JaxArray  # type: ignore[attr-defined]
+    from jax import Array as _JaxArray  # type: ignore[attr-defined]
 
-        _jax_array_type = (_JaxArray,)
-    except Exception:  # pragma: no cover - fallback for older JAX versions
-        from jax.interpreters.xla import DeviceArray as _DeviceArray  # type: ignore
-
-        _jax_array_type = (_DeviceArray,)
+    _jax_array_type = (_JaxArray,)
 
     JAX_AVAILABLE = True
 

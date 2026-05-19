@@ -11,6 +11,11 @@ dependencies = [
     "scipy",
 ]
 
+[project.optional-dependencies]
+jax = [
+    "jax>=0.4.1",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

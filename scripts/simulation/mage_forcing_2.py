@@ -44,7 +44,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
     return rk, angles
 
 
-filename_prefix = "results_mage_2011"
+run_directory = "results_mage_2011"
 Nmax, Mmax, Ncs = 80, 60, 60
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
@@ -73,7 +73,7 @@ magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 print("Setting up simulation object")
 # Set up simulation object.
 dynamics = pynamit.Dynamics(
-    filename_prefix=filename_prefix,
+    run_directory=run_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -221,7 +221,7 @@ if PLOT:
 
     pynamit.plot_input_vs_interpolated(
         h5_filepath="mage_2011/data_H_int.h5",
-        interpolated_filename_prefix="results_mage_2011",
+        interpolated_run_directory="results_mage_2011",
         timesteps_to_plot=timesteps_for_figure,
         data_types_to_plot=data_types_for_figure,
         input_dt=10,

@@ -57,7 +57,7 @@ class CSEquations(object):
             direction (0 for xi, 1 for eta).
         """
         if not hasattr(self, "_D"):
-            self._D = self.cs_basis.get_Diff(self.cs_basis.Ncs, coordinate="both")
+            self._D = self.cs_basis.get_Diff(self.cs_basis.N, coordinate="both")
         return self._D
 
     @property
@@ -91,6 +91,17 @@ class CSEquations(object):
         if not hasattr(self, "_Qi"):
             self._Qi = self.cs_basis.get_Q(90 - self.cs_basis.arr_theta, self.RI, inverse=True)
         return self._Qi
+
+    def _as_grid_vector(self, values, name):
+        """Return values as a flat array after validating grid size."""
+        array = np.asarray(values)
+        expected_size = self.cs_basis.arr_theta.size
+        if array.size != expected_size:
+            raise ValueError(
+                f"{name} must contain one value per cubed sphere grid point "
+                f"({expected_size}), got shape {array.shape}."
+            )
+        return array.reshape(expected_size)
 
     def curlr(self, u1, u2):
         """Calculate radial curl of vector field.
@@ -143,11 +154,9 @@ class CSEquations(object):
         u1, u2, u3 : arrays
             Contravariant cubed sphere components of the vector field.
         """
-        east = Aphi
-        north = -Atheta
-        up = Ar
-
-        # print('TODO: Add checks that input matches grid etc.')
+        east = self._as_grid_vector(Aphi, "Aphi")
+        north = -self._as_grid_vector(Atheta, "Atheta")
+        up = self._as_grid_vector(Ar, "Ar")
 
         v = np.vstack((east, north, up))
         v_components = np.einsum("nij, jn -> in", self.Qi, v)
