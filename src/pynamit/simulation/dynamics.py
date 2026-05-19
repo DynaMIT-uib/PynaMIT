@@ -113,7 +113,8 @@ class Dynamics(object):
         t0 : str, optional
             Start time in UTC format.
         save_steady_states : bool, optional
-            Whether to calculate and save steady states.
+            Default for whether ``evolve_to_time`` calculates and saves
+            steady states.
         integrator : {'euler', 'exponential'}, optional
             Integrator type for time evolution.
         least_squares_solver : str, optional
@@ -267,6 +268,8 @@ class Dynamics(object):
         saving_sample_interval=10,
         quiet=False,
         steady_state_initialization=True,
+        run_inductive=True,
+        run_steady_state=None,
     ):
         """Evolve the system state to a specified time.
 
@@ -282,16 +285,40 @@ class Dynamics(object):
             Number of samples between saves.
         quiet : bool, optional
             Whether to suppress progress output.
+        steady_state_initialization : bool, optional
+            Whether to initialize a new inductive run from steady state.
+        run_inductive : bool, optional
+            Whether to run and save the inductive time-dependent state.
+        run_steady_state : bool, optional
+            Whether to calculate and save the algebraic steady-state
+            solution. Defaults to ``self.settings.save_steady_states``.
         """
+        run_inductive = bool(run_inductive)
+        if run_steady_state is None:
+            run_steady_state = bool(self.settings.save_steady_states)
+        else:
+            run_steady_state = bool(run_steady_state)
+
+        if not run_inductive and not run_steady_state:
+            raise ValueError("At least one of run_inductive or run_steady_state must be True.")
+
+        sampling_step_interval = int(sampling_step_interval)
+        saving_sample_interval = int(saving_sample_interval)
+        if sampling_step_interval < 1:
+            raise ValueError("sampling_step_interval must be >= 1.")
+        if saving_sample_interval < 1:
+            raise ValueError("saving_sample_interval must be >= 1.")
+
         step = 0
 
-        if "state" in self.output_timeseries.datasets.keys():
+        inductive_m_ind = None
+        if run_inductive and "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
             inductive_m_ind = self.output_timeseries.get_entry(
                 "state", self.current_time, interpolation=False
             )["m_ind"]
             inductive_m_ind = to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
-        else:
+        elif run_inductive:
             if steady_state_initialization:
                 self.state.update(self.input_timeseries, self.current_time)
                 E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
@@ -300,67 +327,76 @@ class Dynamics(object):
                 self.current_time = np.float64(0)
                 zeros = np.zeros(self.output_storage_bases["state"].index_length)
                 inductive_m_ind = to_jax(zeros) if use_jax() else zeros
+        elif "steady_state" in self.output_timeseries.datasets.keys():
+            self.current_time = np.max(self.output_timeseries.datasets["steady_state"].time.values)
+        else:
+            self.current_time = np.float64(0)
+
+        step_increment = 1 if run_inductive else sampling_step_interval
 
         while True:
             self.state.update(self.input_timeseries, self.current_time)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
-            if self.settings.integrator == "exponential" or (
-                bool(self.settings.save_steady_states) and step % sampling_step_interval == 0
-            ):
+            is_sample_step = step % sampling_step_interval == 0
+            should_save_sample = is_sample_step and step % (
+                sampling_step_interval * saving_sample_interval
+            ) == 0
+            needs_steady_state = (run_inductive and self.settings.integrator == "exponential") or (
+                run_steady_state and is_sample_step
+            )
+
+            if needs_steady_state:
                 steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
                 steady_state_m_ind = None
 
-            if step % sampling_step_interval == 0:
-                self.add_state_to_timeseries("state", inductive_m_ind, E_coeffs_noind, m_imp_noind)
+            if is_sample_step:
+                if run_inductive:
+                    self.add_state_to_timeseries(
+                        "state", inductive_m_ind, E_coeffs_noind, m_imp_noind
+                    )
 
-                if bool(self.settings.save_steady_states):
+                if run_steady_state:
                     self.add_state_to_timeseries(
                         "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
                     )
 
                 # Save state and steady state time series.
-                if step % (sampling_step_interval * saving_sample_interval) == 0:
-                    self.output_timeseries.save("state", self.io)
-
-                    if quiet:
-                        pass
-                    else:
-                        print(
-                            "Saved state at t = {:.2f} s".format(self.current_time),
-                            end="\n" if bool(self.settings.save_steady_states) else "\r",
-                            flush=True,
-                        )
-
-                    if bool(self.settings.save_steady_states):
-                        self.output_timeseries.save("steady_state", self.io)
-
-                        if quiet:
-                            pass
-                        else:
+                if should_save_sample:
+                    if run_inductive:
+                        self.output_timeseries.save("state", self.io)
+                        if not quiet:
                             print(
-                                "Saved steady state at t = {:.2f} s".format(self.current_time),
-                                end="\x1b[F",
+                                "Saved state at t = {:.2f} s".format(self.current_time),
+                                end="\n" if run_steady_state else "\r",
                                 flush=True,
                             )
 
-            next_time = self.current_time + dt
+                    if run_steady_state:
+                        self.output_timeseries.save("steady_state", self.io)
+                        if not quiet:
+                            print(
+                                "Saved steady state at t = {:.2f} s".format(self.current_time),
+                                end="\x1b[F" if run_inductive else "\r",
+                                flush=True,
+                            )
+
+            next_time = self.current_time + dt * step_increment
 
             if next_time > t + FLOAT_ERROR_MARGIN:
-                if quiet:
-                    pass
-                else:
+                if not quiet:
                     print("\n\n")
                 break
 
-            inductive_m_ind = self.state.evolve_m_ind(
-                inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
-            )
+            if run_inductive:
+                inductive_m_ind = self.state.evolve_m_ind(
+                    inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
+                )
             self.current_time = next_time
 
-            step += 1
+            step += step_increment
 
     def impose_steady_state(self, time=None, interpolation=True, save=True, quiet=False):
         """Replace the current model state with the steady state."""
