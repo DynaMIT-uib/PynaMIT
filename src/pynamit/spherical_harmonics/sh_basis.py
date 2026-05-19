@@ -57,14 +57,15 @@ class SHBasis(EvaluableBasis):
         scipy function.
     """
 
-    kind = "SH"
-    index_names = None
-    index_length = None
-    index_arrays = None
-    minimum_phi_sampling = None
-    caching = True
-
-    def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend="internal"):
+    def __init__(
+        self,
+        Nmax,
+        Mmax,
+        Nmin=None,
+        mean_free=None,
+        quasi_normalized=True,
+        backend="internal",
+    ):
         """
         Initialize the SHBasis instance.
 
@@ -75,7 +76,10 @@ class SHBasis(EvaluableBasis):
         Mmax : int
             Maximum order.
         Nmin : int, optional
-            Minimum degree, by default 1.
+            Minimum degree. Kept for backwards compatibility.
+        mean_free : bool, optional
+            Whether scalar spaces omit the monopole term. If provided,
+            it must be consistent with ``Nmin``.
         quasi_normalized : bool, optional
             If True, applies Schmidt quasi-normalization factors. By
             default True.
@@ -86,15 +90,28 @@ class SHBasis(EvaluableBasis):
         if backend not in ["internal", "scipy"]:
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
-        self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
+        if mean_free is None:
+            effective_nmin = 1 if Nmin is None else int(Nmin)
+        else:
+            effective_nmin = 1 if bool(mean_free) else 0
+            if Nmin is not None and int(Nmin) != effective_nmin:
+                raise ValueError(
+                    "SHBasis received inconsistent scalar-space options: "
+                    f"Nmin={Nmin} and mean_free={mean_free}."
+                )
+
+        self.Nmax, self.Mmax, self.Nmin, self.backend = Nmax, Mmax, effective_nmin, backend
+        self.mean_free = self.Nmin >= 1
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
 
         self.cnm = SHIndices(Nmax, Mmax)
-        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin])
+        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= self.Nmin])
         self.cnm.make_arrays()
         self.snm = SHIndices(Nmax, Mmax)
-        self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1])
+        self.snm.index_pairs = tuple(
+            [p for p in self.index_pairs if p[0] >= self.Nmin and p[1] >= 1]
+        )
         self.snm.make_arrays()
 
         self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
@@ -131,6 +148,117 @@ class SHBasis(EvaluableBasis):
         self.minimum_phi_sampling = 2 * Mmax + 1
         self.caching = True
         self.validate_metadata()
+
+    @property
+    def kind(self):
+        """Short identifier for the basis."""
+        return self._kind
+
+    @kind.setter
+    def kind(self, value):
+        self._kind = value
+
+    @property
+    def index_names(self):
+        """Names of indices used in the basis."""
+        return self._index_names
+
+    @index_names.setter
+    def index_names(self, value):
+        self._index_names = value
+
+    @property
+    def index_length(self):
+        """Total number of basis functions."""
+        return self._index_length
+
+    @index_length.setter
+    def index_length(self, value):
+        self._index_length = value
+
+    @property
+    def index_arrays(self):
+        """Arrays of indices used in the basis."""
+        return self._index_arrays
+
+    @index_arrays.setter
+    def index_arrays(self, value):
+        self._index_arrays = value
+
+    @property
+    def minimum_phi_sampling(self):
+        """Minimum required sampling in phi direction."""
+        return self._minimum_phi_sampling
+
+    @minimum_phi_sampling.setter
+    def minimum_phi_sampling(self, value):
+        self._minimum_phi_sampling = value
+
+    @property
+    def caching(self):
+        """Whether basis evaluations can be cached."""
+        return self._caching
+
+    @caching.setter
+    def caching(self, value):
+        self._caching = bool(value)
+
+    def scalar_fields_are_mean_free_by_construction(self):
+        """Return whether scalar coefficients omit the monopole."""
+        return self.mean_free
+
+    def scalar_index_length(self, mean_free=None):
+        """Return scalar coefficient count."""
+        return int(self.scalar_degrees(mean_free=mean_free).size)
+
+    def scalar_degrees(self, mean_free=None):
+        """Return harmonic degrees for the requested scalar space."""
+        target_mean_free = self.mean_free if mean_free is None else bool(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.n
+        if target_mean_free:
+            return self.n[1:]
+        return np.concatenate([np.array([0], dtype=self.n.dtype), self.n])
+
+    def scalar_orders(self, mean_free=None):
+        """Return harmonic orders for the requested scalar space."""
+        target_mean_free = self.mean_free if mean_free is None else bool(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.m
+        if target_mean_free:
+            return self.m[1:]
+        return np.concatenate([np.array([0], dtype=self.m.dtype), self.m])
+
+    def scalar_index_arrays(self, mean_free=None):
+        """Return ``(n, m)`` arrays for the requested scalar space."""
+        return self.scalar_degrees(mean_free=mean_free), self.scalar_orders(mean_free=mean_free)
+
+    def get_extended_basis(self):
+        """Return a sibling basis that includes the monopole term."""
+        if not self.mean_free:
+            return self
+        return SHBasis(
+            self.Nmax,
+            self.Mmax,
+            mean_free=False,
+            quasi_normalized=self.is_normalized,
+            backend=self.backend,
+        )
+
+    def get_evaluation_matrix(self, grid, derivative=None, mean_free=None):
+        """Evaluate this basis."""
+        target_mean_free = self.mean_free if mean_free is None else bool(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.get_G(grid, derivative=derivative)
+
+        basis = SHBasis(
+            self.Nmax,
+            self.Mmax,
+            mean_free=target_mean_free,
+            quasi_normalized=self.is_normalized,
+            backend=self.backend,
+        )
+        return basis.get_G(grid, derivative=derivative)
 
     def _compute_scipy_scaling_factors(self):
         """Calculate the analytical scaling factor.

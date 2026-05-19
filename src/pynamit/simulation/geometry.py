@@ -17,6 +17,7 @@ from pynamit.primitives.grid import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import tensor_pinv
+from pynamit.primitives.basis import is_grid_basis
 from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class Geometry:
     ) -> None:
         """Initialize the geometric context."""
         self.basis = basis
+        self.settings = settings
         self.mainfield = mainfield
 
         # Store relevant settings
@@ -73,7 +75,14 @@ class Geometry:
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
         self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
         Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
-        self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+        if np.ndim(Ve_to_J_df_coeffs) == 1:
+            self.G_Ve_to_JS = (
+                (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+            )
+        else:
+            self.G_Ve_to_JS = (1.0 / self.RI) * np.tensordot(
+                self.basis_evaluator.G_rxgrad, Ve_to_J_df_coeffs, axes=([2], [0])
+            )
 
         self._G_helmholtz_pinv = None
 
@@ -95,7 +104,7 @@ class Geometry:
         self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
         self.basis_evaluator_zero_added = BasisEvaluator(
-            SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin=0), self.grid
+            SHBasis(self.settings.Nmax, self.settings.Mmax, Nmin=0), self.grid
         )
         self.b_evaluator = FieldEvaluator(self.mainfield, self.grid, self.RI)
 
@@ -190,6 +199,10 @@ class Geometry:
         self._T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
             return
+        if is_grid_basis(self.basis):
+            raise NotImplementedError(
+                "PFAC integration with CS calculation basis is not implemented in this branch."
+            )
 
         rk_steps = np.asarray(self.FAC_integration_steps)
         Delta_k = np.diff(rk_steps)
@@ -263,6 +276,10 @@ class Geometry:
         if self._G_m_ind_to_JS is None:
             G = self.G_Ve_to_JS.copy()
             if self.RM is not None:
+                if is_grid_basis(self.basis):
+                    raise NotImplementedError(
+                        "RM boundary coupling with CS calculation basis is not implemented."
+                    )
                 br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
                 vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
                 den = 1.0 - br_shift * vi_shift

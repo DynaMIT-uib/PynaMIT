@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.basis import EvaluableBasis
+from pynamit.primitives.basis import EvaluableBasis, is_grid_basis
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
 
@@ -209,7 +209,9 @@ class Timeseries:
             provided.
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        input_basis_is_evaluable = isinstance(interpolation_basis, EvaluableBasis)
+        input_basis_is_evaluable = isinstance(interpolation_basis, EvaluableBasis) and not (
+            is_grid_basis(interpolation_basis)
+        )
 
         if input_basis_is_evaluable and not hasattr(self, "input_basis_evaluators"):
             self.input_basis_evaluators = {}

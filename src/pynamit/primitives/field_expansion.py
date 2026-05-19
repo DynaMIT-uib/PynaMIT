@@ -4,6 +4,8 @@ This module contains the FieldExpansion class for representing fields as
 basis expansions.
 """
 
+from pynamit.primitives.basis import is_grid_basis
+
 
 class FieldExpansion(object):
     """Class for representing fields as basis expansions.
@@ -86,10 +88,10 @@ class FieldExpansion(object):
         - scalar: Direct inversion
         - tangential: Helmholtz decomposition based inversion
         """
-        if self.basis.kind == "GRID":
+        if is_grid_basis(self.basis):
             # If the basis is a grid, return the grid values as
             # coefficients.
-            return self.coeffs
+            return grid_values
         else:
             if self.field_type == "scalar":
                 return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
@@ -115,7 +117,7 @@ class FieldExpansion(object):
         Helmholtz decomposition terms evaluated on the grid. For scalar
         fields, directly evaluates basis functions on the grid.
         """
-        if self.basis.kind == "GRID":
+        if is_grid_basis(self.basis):
             # If the basis is a grid, return the grid values as
             # coefficients.
             return self.coeffs
@@ -144,7 +146,7 @@ class FieldExpansion(object):
         - scalar: Single penalty on scalar field
         - tangential: Separate penalties on Helmholtz components
         """
-        if self.basis.kind == "GRID":
+        if is_grid_basis(self.basis):
             # If the basis is a grid, return the grid values as
             # coefficients.
             return None

@@ -12,13 +12,13 @@ from scipy.special import binom
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 
-from pynamit.primitives.basis import Basis
+from pynamit.primitives.basis import EvaluableBasis, GridBasis
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
-class CSBasis(Basis):
+class CSBasis(GridBasis, EvaluableBasis):
     """Class for representing cubed sphere bases.
 
     This module provides an implementation of the cubed sphere grid
@@ -88,13 +88,6 @@ class CSBasis(Basis):
         DOI: 10.1093/gji/ggx125
     """
 
-    kind = "GRID"
-    index_names = None
-    index_length = None
-    index_arrays = None
-    minimum_phi_sampling = 1
-    caching = False
-
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 
@@ -115,6 +108,11 @@ class CSBasis(Basis):
         ValueError
             If N is provided but is not an even number.
         """
+        super().__init__()
+        self.kind = "CS"
+        self._derivative_bundle = None
+        self._laplacian_cache = {}
+
         if N is not None:
             if not isinstance(N, (int, np.integer)):
                 raise TypeError("N must be an integer")
@@ -140,14 +138,140 @@ class CSBasis(Basis):
             self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
             self.unit_area = step**2 * self.sqrt_detg
 
-            self.kind = "GRID"
             self.index_names = ["theta", "phi"]
-            self.index_length = self.arr_theta.size + self.arr_phi.size
+            self.index_length = self.arr_theta.size
             self.index_arrays = [self.arr_theta, self.arr_phi]
 
             self.minimum_phi_sampling = 1
             self.caching = False
             self.validate_metadata()
+
+    def _is_native_grid(self, grid):
+        """Return whether ``grid`` matches this basis' native points."""
+        if grid is self:
+            return True
+        if not hasattr(grid, "theta") or not hasattr(grid, "phi"):
+            return False
+        return (
+            np.asarray(grid.theta).shape == self.arr_theta.shape
+            and np.asarray(grid.phi).shape == self.arr_phi.shape
+            and np.allclose(grid.theta, self.arr_theta, rtol=0.0, atol=1e-9)
+            and np.allclose(grid.phi, self.arr_phi, rtol=0.0, atol=1e-9)
+        )
+
+    @staticmethod
+    def _safe_sin_theta(theta_deg):
+        """Return sin(theta) with a pole-safe floor."""
+        sin_theta = np.sin(np.deg2rad(np.asarray(theta_deg).flatten()))
+        return np.where(np.abs(sin_theta) < 1e-10, 1e-10, sin_theta)
+
+    def _coordinate_derivatives(self):
+        """Return derivatives of xi/eta with respect to theta/phi."""
+        xi, eta, r, block = np.broadcast_arrays(self.arr_xi, self.arr_eta, 1.0, self.arr_block)
+        xi, eta, r, block = map(np.ravel, [xi, eta, r, block])
+
+        pc = self.get_Pc(xi, eta, r=r, block=block)
+        _, theta, phi = self.cube2spherical(xi, eta, r=r, block=block)
+
+        sin_theta, cos_theta = np.sin(theta), np.cos(theta)
+        sin_phi, cos_phi = np.sin(phi), np.cos(phi)
+
+        dx_dtheta = r * cos_theta * cos_phi
+        dy_dtheta = r * cos_theta * sin_phi
+        dz_dtheta = -r * sin_theta
+        dx_dphi = -r * sin_theta * sin_phi
+        dy_dphi = r * sin_theta * cos_phi
+        dz_dphi = np.zeros_like(r)
+
+        dxi_dtheta = (
+            pc[:, 0, 0] * dx_dtheta + pc[:, 0, 1] * dy_dtheta + pc[:, 0, 2] * dz_dtheta
+        )
+        dxi_dphi = pc[:, 0, 0] * dx_dphi + pc[:, 0, 1] * dy_dphi + pc[:, 0, 2] * dz_dphi
+        deta_dtheta = (
+            pc[:, 1, 0] * dx_dtheta + pc[:, 1, 1] * dy_dtheta + pc[:, 1, 2] * dz_dtheta
+        )
+        deta_dphi = pc[:, 1, 0] * dx_dphi + pc[:, 1, 1] * dy_dphi + pc[:, 1, 2] * dz_dphi
+
+        return dxi_dtheta, dxi_dphi, deta_dtheta, deta_dphi
+
+    def _get_derivative_bundle(self):
+        """Build native-grid angular derivative operators."""
+        if self._derivative_bundle is None:
+            import scipy.sparse as sp
+
+            dxi, deta = self.get_Diff(self.N, coordinate="both", Ns=1, Ni=4, order=1)
+            dxi_dtheta, dxi_dphi, deta_dtheta, deta_dphi = self._coordinate_derivatives()
+
+            dtheta = sp.diags(dxi_dtheta) @ dxi + sp.diags(deta_dtheta) @ deta
+            dphi_unscaled = sp.diags(dxi_dphi) @ dxi + sp.diags(deta_dphi) @ deta
+            sin_theta = self._safe_sin_theta(self.arr_theta)
+
+            self._derivative_bundle = {
+                "theta": dtheta.tocsr(),
+                "phi_unscaled": dphi_unscaled.tocsr(),
+                "phi": (sp.diags(1.0 / sin_theta) @ dphi_unscaled).tocsr(),
+                "sin_theta": sp.diags(sin_theta).tocsr(),
+                "inv_sin_theta": sp.diags(1.0 / sin_theta).tocsr(),
+                "inv_sin2_theta": sp.diags(1.0 / (sin_theta**2)).tocsr(),
+            }
+        return self._derivative_bundle
+
+    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
+        """Evaluate CS nodal basis or derivatives."""
+        del cache_in
+        import scipy.sparse as sp
+
+        if not self._is_native_grid(grid):
+            raise NotImplementedError(
+                "CSBasis evaluation is currently implemented only on the "
+                "native cubed-sphere grid."
+            )
+        if derivative is None:
+            matrix = sp.eye(self.index_length, format="csr").toarray()
+        elif derivative in {"theta", "phi"}:
+            matrix = self._get_derivative_bundle()[derivative].toarray()
+        else:
+            raise ValueError(f'Invalid derivative "{derivative}".')
+
+        if cache_out:
+            return matrix, None
+        return matrix
+
+    def _grid_to_cs_indices(self, grid):
+        """Return CS face and cell-center indices."""
+        xi, eta, block = self.geo2cube(grid.phi, 90 - grid.theta)
+        h = self.xi(1, self.N) - self.xi(0, self.N)
+        i = xi / h + (self.N - 1) / 2
+        j = eta / h + (self.N - 1) / 2
+        return block.flatten(), i.flatten(), j.flatten()
+
+    def laplacian(self, r=1.0):
+        """Return the discrete scalar Laplacian matrix."""
+        key = float(r)
+        if key not in self._laplacian_cache:
+            bundle = self._get_derivative_bundle()
+            term_theta = (
+                bundle["inv_sin_theta"]
+                @ bundle["theta"]
+                @ bundle["sin_theta"]
+                @ bundle["theta"]
+            )
+            term_phi = bundle["inv_sin2_theta"] @ bundle["phi_unscaled"] @ bundle["phi_unscaled"]
+            self._laplacian_cache[key] = ((term_theta + term_phi) / (r**2)).toarray()
+        return self._laplacian_cache[key]
+
+    def radial_shift_Ve(self, start, end):
+        """Approximate external-potential radial shift in CS space."""
+        return np.ones(self.index_length) * (start / end)
+
+    def radial_shift_Vi(self, start, end):
+        """Approximate internal-potential radial shift in CS space."""
+        return np.ones(self.index_length) * (start / end) ** 2
+
+    @property
+    def coeffs_to_delta_V(self):
+        """Return CS potential scaling."""
+        return np.eye(self.index_length)
 
     def get_gridpoints(self, N, flat=False):
         """Generate grid point indices for given resolution.
@@ -948,7 +1072,8 @@ class CSBasis(Basis):
         cols = np.full(k.size, -1, dtype=np.int64)
 
         # Find new indices inside block dimensions (possibly floats).
-        xi, eta = self.xi(i, N), self.eta(j, N)
+        # The native CS values are cell-centered at i+0.5, j+0.5.
+        xi, eta = self.xi(i + 0.5, N), self.eta(j + 0.5, N)
         r, theta, phi = self.cube2spherical(xi, eta, k, r=1.0, deg=True)
         new_xi, new_eta, new_k = self.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
@@ -985,10 +1110,10 @@ class CSBasis(Basis):
         # Define the (integer) points which will be used to interpolate.
         interpolation_points = np.arange(Ni).reshape((1, -1))
         j_interpolation_points = arrayutils.constrain_values(
-            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
+            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2, 0, N - 1, axis=1
         )
         i_interpolation_points = arrayutils.constrain_values(
-            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2 - 1, 0, N - 1, axis=1
+            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2, 0, N - 1, axis=1
         )
 
         # Calculate barycentric weights wj (Berrut & Trefethen, 2004).

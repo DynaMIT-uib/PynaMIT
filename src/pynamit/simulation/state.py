@@ -132,7 +132,13 @@ class State:
             eta_stacked = xp.stack(
                 [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
             )
-            G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
+            if (
+                self.etaP.basis.kind == self.basis.kind
+                and self.etaP.basis.index_length == self.basis.index_length
+            ):
+                G_eta = xp.asarray(self.geometry.basis_evaluator.G)
+            else:
+                G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
@@ -235,7 +241,11 @@ class State:
             operators, data_shapes = [], []
 
             # Radial current (jr) must match imposed field.
-            op_jr = self.geometry.jr_coeffs_to_j_apex * self.geometry.m_imp_to_jr.reshape((1, -1))
+            m_imp_to_jr = np.asarray(self.geometry.m_imp_to_jr)
+            if m_imp_to_jr.ndim == 1:
+                op_jr = self.geometry.jr_coeffs_to_j_apex * m_imp_to_jr.reshape((1, -1))
+            else:
+                op_jr = np.asarray(self.geometry.jr_coeffs_to_j_apex) @ m_imp_to_jr
             operators.append(op_jr)
             data_shapes.append(op_jr.shape[:-1])
 

@@ -9,6 +9,7 @@ import xarray as xr
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
+from pynamit.primitives.basis import normalize_solution_basis_kind
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.io import IO
@@ -68,6 +69,8 @@ class Dynamics(object):
         least_squares_preconditioner="pinv",
         artifact_storage="auto",
         backend="auto",
+        solution_basis_kind="SH",
+        calculation_basis_kind=None,
     ):
         """Initialize the Dynamics class.
 
@@ -130,8 +133,38 @@ class Dynamics(object):
             setting (environment variable or previous choice).
             ``"numpy"``/``False`` enforce NumPy arrays, while
             ``"jax"``/``True`` enables JAX.
+        solution_basis_kind : {'SH', 'CS'}, optional
+            Basis requested for the solved state. ``'SH'`` is the
+            default. ``'CS'`` uses cubed-sphere nodal coefficients and
+            finite-difference derivatives for the supported no-PFAC,
+            no-RM, disconnected-hemisphere calculation path.
+        calculation_basis_kind : {'SH', 'CS'}, optional
+            Backwards-compatible alias for ``solution_basis_kind``.
         """
         self.backend = set_backend(backend)
+        if calculation_basis_kind is not None:
+            calculation_basis_kind = normalize_solution_basis_kind(calculation_basis_kind)
+            if solution_basis_kind != "SH":
+                solution_basis_kind = normalize_solution_basis_kind(solution_basis_kind)
+                if calculation_basis_kind != solution_basis_kind:
+                    raise ValueError(
+                        "calculation_basis_kind and solution_basis_kind must match when both "
+                        "are provided."
+                    )
+            solution_basis_kind = calculation_basis_kind
+
+        solution_basis_kind = normalize_solution_basis_kind(solution_basis_kind)
+        if solution_basis_kind == "CS":
+            if not ignore_PFAC:
+                raise NotImplementedError(
+                    "CS calculation basis currently requires ignore_PFAC=True."
+                )
+            if RM is not None:
+                raise NotImplementedError("CS calculation basis does not support RM yet.")
+            if connect_hemispheres:
+                raise NotImplementedError(
+                    "CS calculation basis does not support connected hemispheres yet."
+                )
 
         # Store setting arguments in xarray dataset.
         self.settings = xr.Dataset(
@@ -153,6 +186,7 @@ class Dynamics(object):
                 "vector_Br": int(vector_Br),
                 "vector_conductance": int(vector_conductance),
                 "vector_u": int(vector_u),
+                "solution_basis_kind": solution_basis_kind,
                 "t0": t0,
                 "save_steady_states": int(save_steady_states),
                 "integrator": integrator,
@@ -175,6 +209,8 @@ class Dynamics(object):
         settings_on_file = self.io.load_dataset("settings", print_info=True)
 
         if settings_on_file is not None:
+            if "solution_basis_kind" not in settings_on_file.attrs:
+                settings_on_file = settings_on_file.assign_attrs(solution_basis_kind="SH")
             if not self.settings.identical(settings_on_file):
                 raise ValueError(
                     "Mismatch between Dynamics object arguments and settings on file."
@@ -186,6 +222,7 @@ class Dynamics(object):
         sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
 
         cs_basis = CSBasis(self.settings.Ncs)
+        state_basis = cs_basis if solution_basis_kind == "CS" else sh_basis_zero_removed
 
         # Specify input format and load input data.
         self.input_vars = {
@@ -195,12 +232,20 @@ class Dynamics(object):
             "u": {"u": "tangential"},
         }
 
-        self.input_storage_bases = {
-            "jr": sh_basis_zero_removed,
-            "Br": sh_basis_zero_removed,
-            "conductance": sh_basis,
-            "u": sh_basis_zero_removed,
-        }
+        if solution_basis_kind == "CS":
+            self.input_storage_bases = {
+                "jr": cs_basis,
+                "Br": cs_basis,
+                "conductance": cs_basis,
+                "u": cs_basis,
+            }
+        else:
+            self.input_storage_bases = {
+                "jr": sh_basis_zero_removed,
+                "Br": sh_basis_zero_removed,
+                "conductance": sh_basis,
+                "u": sh_basis_zero_removed,
+            }
 
         self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
         self.input_timeseries.load_all(self.io)
@@ -212,19 +257,27 @@ class Dynamics(object):
         }
 
         self.output_storage_bases = {
-            "state": sh_basis_zero_removed,
-            "steady_state": sh_basis_zero_removed,
+            "state": state_basis,
+            "steady_state": state_basis,
         }
 
         self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
         self.output_timeseries.load_all(self.io)
 
-        self.interpolation_bases = {
-            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
-            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
-            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
-            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
-        }
+        if solution_basis_kind == "CS":
+            self.interpolation_bases = {
+                "jr": cs_basis,
+                "Br": cs_basis,
+                "conductance": cs_basis,
+                "u": cs_basis,
+            }
+        else:
+            self.interpolation_bases = {
+                "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
+                "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
+                "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
+                "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
+            }
 
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
@@ -236,7 +289,7 @@ class Dynamics(object):
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            sh_basis_zero_removed,
+            state_basis,
             self.mainfield,
             cs_basis,
             self.settings,
