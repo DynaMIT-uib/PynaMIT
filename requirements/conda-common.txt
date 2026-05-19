@@ -7,12 +7,14 @@ python
 
 # scientific stack
 h5py
+jax>=0.4.1
 numpy
 pandas
 ppigrf
 scipy
 tqdm
 xarray
+zarr
 
 # plotting
 cartopy

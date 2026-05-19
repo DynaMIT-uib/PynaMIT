@@ -7,7 +7,6 @@ results.
 import os
 import warnings
 import numpy as np
-import xarray as xr
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import apexpy
@@ -16,6 +15,7 @@ from polplot import Polarplot
 import datetime
 from pynamit.primitives.grid import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.primitives.io import IO
 from pynamit.cubed_sphere.cs_basis import CSBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.simulation.mainfield import Mainfield
@@ -45,15 +45,21 @@ class PynamEye(object):
     """
 
     def __init__(
-        self, filename_prefix, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
+        self,
+        run_directory,
+        t=0,
+        Nlat=60,
+        Nlon=100,
+        NCS_plot=10,
+        mlatlim=50,
+        steady_state=True,
     ):
         """Initialize the PynamEye object.
 
         Parameters
         ----------
-        filename_prefix : str
-            Filename prefix for the simulation save files that will be
-            visualized.
+        run_directory : str
+            Directory for the simulation save files to visualize.
         t : int, optional
             Simulation time in seconds.
         Nlat : int, optional
@@ -70,27 +76,27 @@ class PynamEye(object):
             Whether to use steady state data.
         """
         keys = ["settings", "conductance", "state", "u"]
-        filename_suffix = dict(zip(keys, ["_settings", "_conductance", "_state", "_u"]))
+        io = IO(run_directory)
 
         # Load all datasets specified in keys.
         self.datasets = {}
         for key in keys:
-            fn = filename_prefix + filename_suffix[key] + ".ncdf"
-
-            if os.path.isfile(fn):
-                self.datasets[key] = xr.load_dataset(fn)
-            else:
-                raise ValueError("{} does not exist".format(fn))
+            dataset = io.load_dataset(key)
+            if dataset is None:
+                raise ValueError(f"No saved {key!r} dataset exists at {run_directory!r}")
+            self.datasets[key] = dataset
 
         if steady_state:
-            try:
-                self.datasets["steady_state"] = xr.load_dataset(
-                    filename_prefix + "_steady_state.ncdf"
-                )
-            except FileNotFoundError:
-                print("Could not find {}.".format(filename_prefix + "_steady_state.ncdf"))
+            steady_state_dataset = io.load_dataset("steady_state")
+            if steady_state_dataset is not None:
+                self.datasets["steady_state"] = steady_state_dataset
+            else:
+                print(f"Could not find steady_state dataset at {run_directory!r}.")
 
-        self.T_to_Ve = xr.load_dataarray(filename_prefix + "_PFAC_matrix.ncdf").values
+        pfac_matrix = io.load_dataarray("PFAC_matrix")
+        if pfac_matrix is None:
+            raise ValueError(f"No saved 'PFAC_matrix' data array exists at {run_directory!r}")
+        self.T_to_Ve = pfac_matrix.values
 
         self.mlatlim = mlatlim
         settings = self.datasets["settings"]

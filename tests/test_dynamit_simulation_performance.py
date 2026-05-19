@@ -49,8 +49,8 @@ out.mkdir(parents=True, exist_ok=True)
 resolution = int(os.environ["PYNAMIT_DYNAMIT_BENCH_RESOLUTION"])
 
 src = src.replace(
-    'filename_prefix = "aurora2"',
-    "filename_prefix = " + repr(str(out / "aurora2")),
+    'run_directory = "aurora2"',
+    "run_directory = " + repr(str(out / "aurora2")),
     1,
 )
 src = src.replace(

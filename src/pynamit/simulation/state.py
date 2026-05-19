@@ -525,14 +525,8 @@ class State:
                 steady_state_m_ind = self.steady_state_m_ind(backend_E_noind)
             diff = backend_m_ind - xp.asarray(steady_state_m_ind)
 
-            if use_jax():
-                from jax.scipy.linalg import expm as jax_expm
-
-                evolved = jax_expm(dt * op_A) @ diff + xp.asarray(steady_state_m_ind)
-                return evolved
-
-            evolved = expm(dt * to_numpy(op_A)) @ diff + xp.asarray(steady_state_m_ind)
-            return evolved
+            evolved = expm(dt * to_numpy(op_A)) @ to_numpy(diff) + to_numpy(steady_state_m_ind)
+            return to_jax(evolved) if use_jax() else evolved
 
         else:
             # Fallback to scipy.solve_ivp for other integrators
