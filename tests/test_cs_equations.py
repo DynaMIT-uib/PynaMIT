@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.sphere import CSBasis
 from pynamit.math.cs_equations import CSEquations
 
 

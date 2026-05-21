@@ -10,9 +10,9 @@ from typing import List, Tuple
 import pytest
 
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
+from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
 from pynamit.math.least_squares_solver import LEAST_SQUARES_SOLVER_ENV, LeastSquaresSolver
 from pynamit.primitives.io import IO
-from pynamit.utils import JAX_AVAILABLE, set_backend, use_jax
 
 BACKEND_OPTION_NAME = "--backend"
 DATA_OPTION_NAME = "--data-source"

@@ -4,7 +4,7 @@ This module contains the FieldExpansion class for representing fields as
 basis expansions.
 """
 
-from pynamit.primitives.basis import is_grid_basis
+from pynamit.sphere.core import is_grid_basis
 
 
 class FieldExpansion(object):

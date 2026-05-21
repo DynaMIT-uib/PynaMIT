@@ -11,7 +11,7 @@ import cartopy.crs as ccrs
 import polplot
 from scipy.interpolate import griddata
 from polplot import Polarplot
-from pynamit.primitives.grid import Grid
+from pynamit.sphere import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 
@@ -221,7 +221,7 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     )
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
-    jr_mod = dynamics.state_basis_evaluator.G.dot(
+    jr_mod = dynamics.horizontal_basis_evaluator.G.dot(
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
     )
 
@@ -434,10 +434,10 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
 
-    m_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlat, lon=lon))
+    m_state_evaluator = BasisEvaluator(dynamics.horizontal_basis, Grid(lat=mlat, lon=lon))
     jr = dynamics.get_jr(m_state_evaluator) * 1e6
 
-    mv_state_evaluator = BasisEvaluator(dynamics.state_basis, Grid(lat=mlatv, lon=lonv))
+    mv_state_evaluator = BasisEvaluator(dynamics.horizontal_basis, Grid(lat=mlatv, lon=lonv))
     js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
     jn = -js
 
@@ -465,7 +465,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     plt.close()
 
     plt_grid = Grid(lat=lat, lon=lon)
-    plt_state_evaluator = BasisEvaluator(dynamics.state_basis, plt_grid)
+    plt_state_evaluator = BasisEvaluator(dynamics.horizontal_basis, plt_grid)
     jr = dynamics.get_jr(plt_state_evaluator)
 
     globalplot(
@@ -557,7 +557,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
         save="pede.png",
     )
 
-    plt_state_evaluator = BasisEvaluator(dynamics.state_basis, plt_grid)
+    plt_state_evaluator = BasisEvaluator(dynamics.horizontal_basis, plt_grid)
     jr = dynamics.state.get_jr(plt_state_evaluator)
     globalplot(
         plt_grid.lon.reshape(pltshape),

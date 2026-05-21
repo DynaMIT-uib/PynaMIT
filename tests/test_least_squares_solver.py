@@ -5,7 +5,7 @@ import pytest
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.utils import JAX_AVAILABLE, set_backend, use_jax
+from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
 
 
 def test_normal_pinv_solves_block_rhs():

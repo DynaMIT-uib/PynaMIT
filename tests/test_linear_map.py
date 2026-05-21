@@ -8,7 +8,7 @@ from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.utils import JAX_AVAILABLE, set_backend, use_jax
+from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
 
 
 def test_dense_linear_map_matches_matrix_operations():

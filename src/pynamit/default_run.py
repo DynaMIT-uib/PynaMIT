@@ -36,8 +36,8 @@ def run_pynamit(
     least_squares_preconditioner="pinv",
     run_directory=None,
     artifact_storage="auto",
-    solution_basis_kind="SH",
-    calculation_basis_kind=None,
+    horizontal_basis_kind="SH",
+    area_weighted_least_squares=False,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -99,13 +99,15 @@ def run_pynamit(
         timestamped run directory is created under ``simulation/``.
     artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
         Preferred storage backend for new saved xarray artifacts.
-    solution_basis_kind : {'SH', 'CS'}, optional
-        Basis requested for the solved state. ``'SH'`` is the default;
-        ``'CS'`` uses cubed-sphere nodal coefficients and finite
-        differences on the supported no-PFAC, no-RM,
-        disconnected-hemisphere calculation path.
-    calculation_basis_kind : {'SH', 'CS'}, optional
-        Alias for ``solution_basis_kind``.
+    horizontal_basis_kind : {'SH', 'CS'}, optional
+        Basis requested for horizontal state coefficients and surface
+        operators. ``'SH'`` is the default; ``'CS'`` uses cubed-sphere
+        nodal coefficients and finite differences for horizontal
+        surface operators. Radial Laplace-continuation terms use the SH
+        radial-continuation basis.
+    area_weighted_least_squares : bool, optional
+        Use surface-area weights for least-squares projections when no
+        explicit ``sqrt_weights`` are supplied.
 
     Returns
     -------
@@ -143,8 +145,8 @@ def run_pynamit(
         vector_Br=vector_Br,
         vector_conductance=vector_conductance,
         vector_u=vector_u,
-        solution_basis_kind=solution_basis_kind,
-        calculation_basis_kind=calculation_basis_kind,
+        horizontal_basis_kind=horizontal_basis_kind,
+        area_weighted_least_squares=area_weighted_least_squares,
         save_steady_states=run_steady_state,
         integrator=integrator,
         least_squares_solver=least_squares_solver,

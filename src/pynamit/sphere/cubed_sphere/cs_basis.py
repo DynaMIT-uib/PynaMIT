@@ -5,20 +5,21 @@ basis.
 """
 
 import numpy as np
-from pynamit.cubed_sphere import diffutils
-from pynamit.cubed_sphere import arrayutils
+from pynamit.sphere.cubed_sphere import diffutils
+from pynamit.sphere.cubed_sphere import arrayutils
 import os
 from scipy.special import binom
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 
-from pynamit.primitives.basis import EvaluableBasis, GridBasis
+from pynamit.math.backend import get_array_module, to_numpy
+from pynamit.sphere.core import GridBasis, SurfaceOperators
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
-class CSBasis(GridBasis, EvaluableBasis):
+class CSBasis(GridBasis, SurfaceOperators):
     """Class for representing cubed sphere bases.
 
     This module provides an implementation of the cubed sphere grid
@@ -31,29 +32,33 @@ class CSBasis(GridBasis, EvaluableBasis):
     interpolation and manipulation, numerical differentiation, and
     visualization utilities.
 
+    Native CS coefficients are stored at cell centers. Cell areas are
+    computed from the surrounding mapped cell corners, while
+    differential operators act on cell-centered values and return
+    cell-centered derivatives.
+
     Attributes
     ----------
     N : int
         Number of grid cells per cube edge (only set if N provided in
         constructor).
     arr_xi : ndarray
-        Xi coordinates of grid points, in radians.
+        Xi coordinates of native cell centers, in radians.
     arr_eta : ndarray
-        Eta coordinates of grid points, in radians.
+        Eta coordinates of native cell centers, in radians.
     arr_theta : ndarray
-        Colatitude coordinates of grid points, in degrees.
+        Colatitude coordinates of native cell centers, in degrees.
     arr_phi : ndarray
-        Longitude coordinates of grid points, in degrees.
+        Longitude coordinates of native cell centers, in degrees.
     arr_block : ndarray
-        Block indices (0-5) of grid points.
-    arr_area : ndarray
-        Grid cell areas normalized to unit sphere.
+        Block indices (0-5) of native cell centers.
     g : ndarray
         Metric tensor
     sqrt_detg : ndarray
         Square root of determinant of the metric tensor.
     unit_area : ndarray
-        Area of each grid cell.
+        Spherical quadrilateral area of each unit-sphere grid cell,
+        computed from mapped cell corners.
 
     Notes
     -----
@@ -88,12 +93,15 @@ class CSBasis(GridBasis, EvaluableBasis):
         DOI: 10.1093/gji/ggx125
     """
 
+    supports_surface_potential_operators = True
+    supports_radial_potential_operators = False
+
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 
         If N is provided, initializes arrays for a grid with N×N cells
-        on each cube face. The total number of grid points will be 6×N×N
-        after removing duplicates at block boundaries.
+        on each cube face. The native coefficients live at the 6×N×N
+        cell centers.
 
         Parameters
         ----------
@@ -122,7 +130,7 @@ class CSBasis(GridBasis, EvaluableBasis):
             self.N = N
             k, i, j = self.get_gridpoints(N)
 
-            # Initialize grid points, skipping duplicates at boundaries.
+            # Initialize native cell centers.
             self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
             self.arr_block = k[:, :-1, :-1].flatten()
@@ -132,11 +140,12 @@ class CSBasis(GridBasis, EvaluableBasis):
                 self.arr_xi, self.arr_eta, self.arr_block, deg=True
             )
 
-            # Calculate grid cell areas.
-            step = np.diff(self.xi(np.array([0, 1]), N))[0]
+            # Calculate metric factors at cell centers.
             self.g = self.get_metric_tensor(self.arr_xi, self.arr_eta)
             self.sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(self.g))
-            self.unit_area = step**2 * self.sqrt_detg
+
+            # Calculate exact spherical quadrilateral cell areas.
+            self.unit_area = self._cell_areas(N)
 
             self.index_names = ["theta", "phi"]
             self.index_length = self.arr_theta.size
@@ -146,17 +155,101 @@ class CSBasis(GridBasis, EvaluableBasis):
             self.caching = False
             self.validate_metadata()
 
+    @property
+    def coefficient_space_signature(self):
+        """Return a signature for CS coefficient compatibility."""
+        return ("CS", int(self.N))
+
+    @staticmethod
+    def _spherical_triangle_area(a, b, c):
+        """Return oriented unit-sphere triangle area magnitude."""
+        numerator = np.einsum("ij,ij->i", a, np.cross(b, c))
+        denominator = (
+            1.0
+            + np.einsum("ij,ij->i", a, b)
+            + np.einsum("ij,ij->i", b, c)
+            + np.einsum("ij,ij->i", c, a)
+        )
+        return np.abs(2.0 * np.arctan2(numerator, denominator))
+
+    def _cell_areas(self, N):
+        """Return exact spherical quadrilateral areas for all cells."""
+        k, i, j = self.get_gridpoints(N)
+        block = k[:, :-1, :-1].flatten()
+        i0, i1 = i[:, :-1, :-1].flatten(), i[:, 1:, :-1].flatten()
+        j0, j1 = j[:, :-1, :-1].flatten(), j[:, :-1, 1:].flatten()
+
+        corners = [
+            (self.xi(i0, N), self.eta(j0, N)),
+            (self.xi(i1, N), self.eta(j0, N)),
+            (self.xi(i1, N), self.eta(j1, N)),
+            (self.xi(i0, N), self.eta(j1, N)),
+        ]
+        vectors = []
+        for xi, eta in corners:
+            x, y, z = self.cube2cartesian(xi, eta, np.ones_like(xi), block)
+            vector = np.stack([x, y, z], axis=1)
+            vectors.append(vector / np.linalg.norm(vector, axis=1).reshape((-1, 1)))
+
+        return self._spherical_triangle_area(
+            vectors[0], vectors[1], vectors[2]
+        ) + self._spherical_triangle_area(vectors[0], vectors[2], vectors[3])
+
+    @property
+    def scalar_mean_weights(self):
+        """Return area-normalized weights for scalar surface means."""
+        if not hasattr(self, "unit_area"):
+            raise ValueError("CSBasis scalar mean weights require an initialized grid.")
+        weights = np.asarray(self.unit_area, dtype=float)
+        total_area = float(np.sum(weights))
+        if total_area <= 0.0:
+            raise ValueError("CSBasis unit_area must have positive total area.")
+        return weights / total_area
+
+    def scalar_mean(self, coeffs):
+        """Return the area-weighted mean of scalar CS coefficients."""
+        xp = get_array_module(coeffs)
+        values = xp.asarray(coeffs)
+        if values.shape[-1] != self.index_length:
+            raise ValueError(
+                "CS scalar coefficients must have the basis index_length on the last axis."
+            )
+        return xp.tensordot(values, xp.asarray(self.scalar_mean_weights), axes=([-1], [0]))
+
+    def project_scalar_mean_free(self, coeffs):
+        """Project scalar CS coefficients to area-weighted zero mean."""
+        xp = get_array_module(coeffs)
+        values = xp.asarray(coeffs)
+        mean = self.scalar_mean(values)
+        return values - xp.expand_dims(mean, axis=-1)
+
+    def project_helmholtz_mean_free(self, coeffs):
+        """Project both CS Helmholtz potentials to zero mean."""
+        xp = get_array_module(coeffs)
+        values = xp.asarray(coeffs)
+        if values.shape[-1] == self.index_length:
+            return self.project_scalar_mean_free(values)
+        if values.shape[-1] == 2 * self.index_length:
+            original_shape = values.shape
+            reshaped = values.reshape(original_shape[:-1] + (2, self.index_length))
+            return self.project_scalar_mean_free(reshaped).reshape(original_shape)
+        raise ValueError(
+            "CS Helmholtz coefficients must end with index_length or 2*index_length."
+        )
+
     def _is_native_grid(self, grid):
         """Return whether ``grid`` matches this basis' native points."""
         if grid is self:
             return True
         if not hasattr(grid, "theta") or not hasattr(grid, "phi"):
             return False
+        theta = to_numpy(grid.theta)
+        phi = to_numpy(grid.phi)
         return (
-            np.asarray(grid.theta).shape == self.arr_theta.shape
-            and np.asarray(grid.phi).shape == self.arr_phi.shape
-            and np.allclose(grid.theta, self.arr_theta, rtol=0.0, atol=1e-9)
-            and np.allclose(grid.phi, self.arr_phi, rtol=0.0, atol=1e-9)
+            theta.shape == self.arr_theta.shape
+            and phi.shape == self.arr_phi.shape
+            and np.allclose(theta, self.arr_theta, rtol=0.0, atol=1e-9)
+            and np.allclose(phi, self.arr_phi, rtol=0.0, atol=1e-9)
         )
 
     @staticmethod
@@ -206,6 +299,8 @@ class CSBasis(GridBasis, EvaluableBasis):
             dphi_unscaled = sp.diags(dxi_dphi) @ dxi + sp.diags(deta_dphi) @ deta
             sin_theta = self._safe_sin_theta(self.arr_theta)
 
+            # ``phi_unscaled`` is d/dphi. ``phi`` is the azimuthal
+            # surface component sin(theta)^-1 d/dphi used by gradients.
             self._derivative_bundle = {
                 "theta": dtheta.tocsr(),
                 "phi_unscaled": dphi_unscaled.tocsr(),
@@ -216,23 +311,32 @@ class CSBasis(GridBasis, EvaluableBasis):
             }
         return self._derivative_bundle
 
-    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
         """Evaluate CS nodal basis or derivatives."""
         del cache_in
         import scipy.sparse as sp
 
-        if not self._is_native_grid(grid):
+        xp = get_array_module(getattr(grid, "theta", None), getattr(grid, "phi", None))
+        native_grid = self._is_native_grid(grid)
+        if not native_grid and derivative is not None:
             raise NotImplementedError(
-                "CSBasis evaluation is currently implemented only on the "
-                "native cubed-sphere grid."
+                "CSBasis derivative evaluation is currently implemented only "
+                "on the native cubed-sphere grid."
             )
         if derivative is None:
-            matrix = sp.eye(self.index_length, format="csr").toarray()
+            matrix = (
+                sp.eye(self.index_length, format="csr")
+                if native_grid
+                else self._scalar_interpolation_matrix(grid)
+            )
+            if hasattr(matrix, "toarray"):
+                matrix = matrix.toarray()
         elif derivative in {"theta", "phi"}:
             matrix = self._get_derivative_bundle()[derivative].toarray()
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 
+        matrix = xp.asarray(matrix)
         if cache_out:
             return matrix, None
         return matrix
@@ -244,6 +348,59 @@ class CSBasis(GridBasis, EvaluableBasis):
         i = xi / h + (self.N - 1) / 2
         j = eta / h + (self.N - 1) / 2
         return block.flatten(), i.flatten(), j.flatten()
+
+    def _scalar_interpolation_matrix(self, grid):
+        """Return the built-in scalar interpolation as a matrix."""
+        return self.interpolate_scalar(
+            np.eye(self.index_length),
+            self.arr_theta,
+            self.arr_phi,
+            grid.theta,
+            grid.phi,
+        )
+
+    def _interpolate_tangential_operator(self, operator, grid):
+        """Interpolate native-grid tangential operators to ``grid``."""
+        operator = np.asarray(operator)
+        east, north, _ = self.interpolate_vector_components(
+            operator[1],
+            -operator[0],
+            np.zeros_like(operator[0]),
+            self.arr_theta,
+            self.arr_phi,
+            grid.theta,
+            grid.phi,
+        )
+        return np.stack([-north, east], axis=0)
+
+    def get_surface_gradient_matrix(self, grid):
+        """Return the CS surface-gradient matrix on ``grid``."""
+        if self._is_native_grid(grid):
+            return SurfaceOperators.get_surface_gradient_matrix(self, grid)
+        native_gradient = SurfaceOperators.get_surface_gradient_matrix(self, self)
+        matrix = self._interpolate_tangential_operator(native_gradient, grid)
+        return get_array_module(getattr(grid, "theta", None), matrix).asarray(matrix)
+
+    def get_rhat_cross_gradient_matrix(self, grid):
+        """Return the CS rhat-cross-gradient matrix on ``grid``."""
+        if self._is_native_grid(grid):
+            return SurfaceOperators.get_rhat_cross_gradient_matrix(self, grid)
+        native_rxgrad = SurfaceOperators.get_rhat_cross_gradient_matrix(self, self)
+        matrix = self._interpolate_tangential_operator(native_rxgrad, grid)
+        return get_array_module(getattr(grid, "theta", None), matrix).asarray(matrix)
+
+    def get_helmholtz_synthesis_matrix(self, grid):
+        """Return the CS Helmholtz synthesis tensor on ``grid``."""
+        if self._is_native_grid(grid):
+            return SurfaceOperators.get_helmholtz_synthesis_matrix(self, grid)
+        xp = get_array_module(getattr(grid, "theta", None), getattr(grid, "phi", None))
+        return xp.stack(
+            [
+                -xp.asarray(self.get_surface_gradient_matrix(grid)),
+                xp.asarray(self.get_rhat_cross_gradient_matrix(grid)),
+            ],
+            axis=2,
+        )
 
     def laplacian(self, r=1.0):
         """Return the discrete scalar Laplacian matrix."""
@@ -258,28 +415,15 @@ class CSBasis(GridBasis, EvaluableBasis):
             )
             term_phi = bundle["inv_sin2_theta"] @ bundle["phi_unscaled"] @ bundle["phi_unscaled"]
             self._laplacian_cache[key] = ((term_theta + term_phi) / (r**2)).toarray()
-        return self._laplacian_cache[key]
-
-    def radial_shift_Ve(self, start, end):
-        """Approximate external-potential radial shift in CS space."""
-        return np.ones(self.index_length) * (start / end)
-
-    def radial_shift_Vi(self, start, end):
-        """Approximate internal-potential radial shift in CS space."""
-        return np.ones(self.index_length) * (start / end) ** 2
-
-    @property
-    def coeffs_to_delta_V(self):
-        """Return CS potential scaling."""
-        return np.eye(self.index_length)
+        return get_array_module().asarray(self._laplacian_cache[key])
 
     def get_gridpoints(self, N, flat=False):
-        """Generate grid point indices for given resolution.
+        """Generate grid-line indices for a given resolution.
 
         Parameters
         ----------
         N : int
-            Number of grid cells per edge (N+1 points).
+            Number of grid cells per edge.
         flat : bool, optional
             Whether to return flattened arrays.
 
@@ -296,6 +440,8 @@ class CSBasis(GridBasis, EvaluableBasis):
         -----
         Arrays have shape (6,N+1,N+1) if `flat` is ``False``, or
         (6*(N+1)*(N+1),) if `flat` is ``True``.
+        Native CSBasis coefficients are cell-centered at
+        ``i + 0.5, j + 0.5`` for ``i, j = 0, ..., N-1``.
         """
         k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing="ij")
         if flat:
@@ -1310,7 +1456,9 @@ class CSBasis(GridBasis, EvaluableBasis):
         """Interpolate vector components.
 
         Interpolates vector components defined on (theta, phi) to given
-        spherical coordinates.
+        spherical coordinates. Extra trailing dimensions on the
+        component arrays are treated as independent vector fields and
+        interpolated in one call.
 
         Broadcasting rules apply for input and output separately.
 
@@ -1340,18 +1488,38 @@ class CSBasis(GridBasis, EvaluableBasis):
         interpolated_vector : array
             3 x N vector of interpolated components (east, north, up).
         """
+        theta_target, phi_target = np.broadcast_arrays(theta_target, phi_target)
+        target_shape = theta_target.shape
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
-        u_east, u_north, u_r, theta, phi = np.broadcast_arrays(u_east, u_north, u_r, theta, phi)
-        u_east, u_north, u_r, theta, phi = (
-            u_east.flatten(),
-            u_north.flatten(),
-            u_r.flatten(),
-            theta.flatten(),
-            phi.flatten(),
-        )
+        theta, phi = np.broadcast_arrays(theta, phi)
+        source_shape = theta.shape
+        theta, phi = theta.flatten(), phi.flatten()
+
+        u_east = np.asarray(u_east)
+        u_north = np.asarray(u_north)
+        u_r = np.asarray(u_r)
+        if u_east.shape[: len(source_shape)] == source_shape:
+            value_shape = u_east.shape[len(source_shape) :]
+            u_east_values = u_east.reshape((theta.size,) + value_shape)
+            u_north_values = u_north.reshape((theta.size,) + value_shape)
+            u_r_values = u_r.reshape((theta.size,) + value_shape)
+        else:
+            u_east_values, u_north_values, u_r_values, theta_b, phi_b = np.broadcast_arrays(
+                u_east,
+                u_north,
+                u_r,
+                theta.reshape(source_shape),
+                phi.reshape(source_shape),
+            )
+            value_shape = ()
+            u_east_values = u_east_values.flatten()
+            u_north_values = u_north_values.flatten()
+            u_r_values = u_r_values.flatten()
+            theta = theta_b.flatten()
+            phi = phi_b.flatten()
 
         # Define vectors that point to all the original points.
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
@@ -1362,18 +1530,18 @@ class CSBasis(GridBasis, EvaluableBasis):
         Ps = self.get_Ps(u_xi, u_eta, r=1, block=u_block)
         Q = self.get_Q(90 - theta, r=1, inverse=True)
         Ps_normalized = np.einsum("nij, njk -> nik", Ps, Q)
-        u_vec_sph = np.vstack((u_east, u_north, u_r))
-        u_vec = np.einsum("nij, nj -> ni", Ps_normalized, u_vec_sph.T).T
+        u_vec_sph = np.stack([u_east_values, u_north_values, u_r_values], axis=1)
+        u_vec = np.einsum("nij,nj...->ni...", Ps_normalized, u_vec_sph)
 
-        interpolated_u1 = np.empty_like(block, dtype=np.float64)
-        interpolated_u2 = np.empty_like(block, dtype=np.float64)
-        interpolated_u3 = np.empty_like(block, dtype=np.float64)
+        interpolated_u1 = np.empty((block.size,) + value_shape, dtype=np.float64)
+        interpolated_u2 = np.empty((block.size,) + value_shape, dtype=np.float64)
+        interpolated_u3 = np.empty((block.size,) + value_shape, dtype=np.float64)
 
         # Loop over blocks and interpolate on each block.
         for i in range(6):
             # Express vector components with respect to block i.
             Qij = self.get_Qij(u_xi, u_eta, u_block, i)
-            u_vec_i = np.einsum("nij, nj -> ni", Qij, u_vec.T).T
+            u_vec_i = np.einsum("nij,nj...->ni...", Qij, u_vec)
 
             # Filter points whose position vectors have component
             # anti-parallel to center of the block.
@@ -1387,30 +1555,33 @@ class CSBasis(GridBasis, EvaluableBasis):
 
             interpolated_u1[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[0][mask],
+                u_vec_i[mask, 0],
                 np.vstack((xi[block == i], eta[block == i])).T,
                 **kwargs,
             )
             interpolated_u2[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[1][mask],
+                u_vec_i[mask, 1],
                 np.vstack((xi[block == i], eta[block == i])).T,
                 **kwargs,
             )
             interpolated_u3[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[2][mask],
+                u_vec_i[mask, 2],
                 np.vstack((xi[block == i], eta[block == i])).T,
                 **kwargs,
             )
 
         # Convert back to spherical.
         _, theta_out, _ = self.cube2spherical(xi, eta, block, deg=True)
-        u = np.vstack((interpolated_u1, interpolated_u2, interpolated_u3))
+        u = np.stack([interpolated_u1, interpolated_u2, interpolated_u3], axis=1)
         Q = self.get_Q(90 - theta_out, r=1, inverse=False)
         Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
         Ps_normalized_inv = np.einsum("nij, njk -> nik", Q, Ps_inv)
-        u_east_int, u_north_int, u_r_int = np.einsum("nij, nj -> ni", Ps_normalized_inv, u.T).T
+        interpolated = np.einsum("nij,nj...->ni...", Ps_normalized_inv, u)
+        u_east_int = interpolated[:, 0].reshape(target_shape + value_shape)
+        u_north_int = interpolated[:, 1].reshape(target_shape + value_shape)
+        u_r_int = interpolated[:, 2].reshape(target_shape + value_shape)
 
         return u_east_int, u_north_int, u_r_int
 
@@ -1418,7 +1589,9 @@ class CSBasis(GridBasis, EvaluableBasis):
         """Interpolate scalar values.
 
         Interpolate scalar values defined on (`theta`, `phi`) to given
-        spherical coordinates.
+        spherical coordinates.  Extra trailing dimensions on ``scalar``
+        are treated as independent scalar fields and interpolated in
+        one call.
 
         Broadcasting rules apply for input and output separately.
 
@@ -1444,18 +1617,34 @@ class CSBasis(GridBasis, EvaluableBasis):
         interpolated_scalar : array
             Array of interpolated components (east, north, up).
         """
+        theta_target, phi_target = np.broadcast_arrays(theta_target, phi_target)
+        target_shape = theta_target.shape
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
         xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
 
-        scalar, theta, phi = np.broadcast_arrays(scalar, theta, phi)
-        scalar, theta, phi = scalar.flatten(), theta.flatten(), phi.flatten()
+        theta, phi = np.broadcast_arrays(theta, phi)
+        source_shape = theta.shape
+        theta, phi = theta.flatten(), phi.flatten()
+
+        scalar = np.asarray(scalar)
+        if scalar.shape[: len(source_shape)] == source_shape:
+            value_shape = scalar.shape[len(source_shape) :]
+            scalar_values = scalar.reshape((theta.size,) + value_shape)
+        else:
+            scalar_values, theta_broadcast, phi_broadcast = np.broadcast_arrays(
+                scalar, theta.reshape(source_shape), phi.reshape(source_shape)
+            )
+            value_shape = ()
+            scalar_values = scalar_values.flatten()
+            theta = theta_broadcast.flatten()
+            phi = phi_broadcast.flatten()
 
         # Define vectors that point to all the original points.
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
         r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
 
-        interpolated_scalar = np.empty_like(block, dtype=np.float64)
+        interpolated_scalar = np.empty((block.size,) + value_shape, dtype=np.float64)
 
         # Loop over blocks and interpolate on each block.
         for i in range(6):
@@ -1471,9 +1660,9 @@ class CSBasis(GridBasis, EvaluableBasis):
 
             interpolated_scalar[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
-                scalar[mask],
+                scalar_values[mask],
                 np.vstack((xi[block == i], eta[block == i])).T,
                 **kwargs,
             )
 
-        return interpolated_scalar
+        return interpolated_scalar.reshape(target_shape + value_shape)
