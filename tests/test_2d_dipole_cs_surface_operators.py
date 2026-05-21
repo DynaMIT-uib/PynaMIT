@@ -48,7 +48,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     np.testing.assert_allclose(basis_evaluator.G_helmholtz, expected_helmholtz)
     np.testing.assert_allclose(
         dynamics.state.geometry.surface_laplacian_operator.to_dense(),
-        dynamics.horizontal_basis.laplacian(dynamics.state.geometry.RI),
+        dynamics.horizontal_basis.get_surface_laplacian_matrix(
+            dynamics.state.geometry.RI
+        ),
     )
     expected_sheet_current_potential = (
         np.diag(dynamics.radial_continuation_basis.boundary_potential_discontinuity)

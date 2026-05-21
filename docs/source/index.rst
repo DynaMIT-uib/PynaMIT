@@ -11,6 +11,7 @@ Welcome to PynaMIT's documentation!
    :caption: Contents:
 
    readme
+   sphere_operators
    modules
 
 Indices and tables

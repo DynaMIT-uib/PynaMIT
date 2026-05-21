@@ -139,7 +139,21 @@ class Geometry:
                 f"{type(self.basis).__name__} does not provide surface-potential operators."
             )
 
-        self.surface_laplacian_operator = as_linear_map(self.basis.laplacian(self.RI))
+        self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(
+            self.RI
+        )
+        self.helmholtz_curl_free_potential = (
+            self.basis.get_helmholtz_curl_free_potential_matrix()
+        )
+        self.helmholtz_curl_free_potential_operator = (
+            self.basis.get_helmholtz_curl_free_potential_operator()
+        )
+        self.helmholtz_divergence_free_potential = (
+            self.basis.get_helmholtz_divergence_free_potential_matrix()
+        )
+        self.helmholtz_divergence_free_potential_operator = (
+            self.basis.get_helmholtz_divergence_free_potential_operator()
+        )
         self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
         self.m_ind_to_Br_operator = -(self.RI**2) * self.surface_laplacian_operator
         self.m_imp_to_jr = _compact_operator_array(self.m_imp_to_jr_operator)
@@ -479,7 +493,7 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_imp_to_JS is None:
-            G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
+            G_T_to_JS = -self.basis_evaluator.G_grad / mu0
             self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
                 self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
             )
@@ -503,7 +517,10 @@ class Geometry:
                 )
                 den = 1.0 - br_shift * vi_shift
                 radial_m_ind_to_Br = _diagonal_operator_values(
-                    -(self.RI**2) * self.radial_continuation_basis.laplacian(self.RI)
+                    -(self.RI**2)
+                    * self.radial_continuation_basis.get_surface_laplacian_operator(
+                        self.RI
+                    )
                 )
                 br_to_radial_potential = (
                     (-br_shift / den / radial_m_ind_to_Br).reshape((-1, 1))

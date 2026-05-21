@@ -504,8 +504,16 @@ class Dynamics(object):
         state_data = {
             "m_ind": to_numpy(m_ind),
             "m_imp": to_numpy(m_imp),
-            "Phi": to_numpy(E_coeffs[0]),
-            "W": to_numpy(E_coeffs[1]),
+            "Phi": to_numpy(
+                self.state.geometry.helmholtz_curl_free_potential_operator.matvec(
+                    E_coeffs
+                )
+            ),
+            "W": to_numpy(
+                self.state.geometry.helmholtz_divergence_free_potential_operator.matvec(
+                    E_coeffs
+                )
+            ),
         }
 
         self.output_timeseries.add_entry(key, state_data, time=self.current_time)

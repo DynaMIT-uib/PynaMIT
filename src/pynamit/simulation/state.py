@@ -279,7 +279,7 @@ class State:
                 operators.append(op_E)
                 data_shapes.append(op_E.output_shape)
 
-            # Add Tikhonov regularizationif lambda is set.
+            # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
@@ -505,17 +505,32 @@ class State:
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        n = self.basis.index_length
 
-        E_direct_matrix = to_numpy(self.m_ind_to_E_coeffs_dense).reshape((2, n, n))
-        E_df_matrix = E_direct_matrix[1].copy()
+        divergence_free_potential = to_numpy(
+            self.geometry.helmholtz_divergence_free_potential
+        )
+        E_direct_matrix = to_numpy(self.m_ind_to_E_coeffs_dense)
+        E_df_matrix = np.tensordot(
+            divergence_free_potential,
+            E_direct_matrix,
+            axes=([1, 2], [0, 1]),
+        )
 
         self._ensure_m_imp_response_matrices()
         if self._E_direct_to_m_imp_matrix is not None:
             E_direct_to_m_imp = to_numpy(self._E_direct_to_m_imp_matrix)
-            m_imp_matrix = np.tensordot(E_direct_to_m_imp, E_direct_matrix, axes=([1, 2], [0, 1]))
-            E_imp_matrix = to_numpy(self.m_imp_to_E_coeffs_dense).reshape((2, n, n))
-            E_df_matrix += E_imp_matrix[1] @ m_imp_matrix
+            m_imp_matrix = np.tensordot(
+                E_direct_to_m_imp,
+                E_direct_matrix,
+                axes=([1, 2], [0, 1]),
+            )
+            E_imp_matrix = to_numpy(self.m_imp_to_E_coeffs_dense)
+            E_imp_to_df = np.tensordot(
+                divergence_free_potential,
+                E_imp_matrix,
+                axes=([1, 2], [0, 1]),
+            )
+            E_df_matrix += E_imp_to_df @ m_imp_matrix
 
         self._m_ind_to_E_df_matrix = to_jax(E_df_matrix) if use_jax() else E_df_matrix
         logger.info("Dense induction operator built.")
@@ -529,7 +544,10 @@ class State:
         """
         # Total divergence-free E-field is the sum of induced and
         # non-induced parts.
-        E_df_total = self.m_ind_to_E_df_matrix @ m_ind + E_coeffs_noind[1]
+        E_df_total = self.m_ind_to_E_df_matrix @ m_ind
+        E_df_total += self.geometry.helmholtz_divergence_free_potential_operator.matvec(
+            E_coeffs_noind
+        )
 
         # Calculate the time derivative using the geometry operator.
         d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
@@ -603,5 +621,8 @@ class State:
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the steady-state induced potential."""
-        steady = self.E_noind_to_m_ind_steady_matrix @ xp.asarray(E_coeffs_noind[1])
+        E_noind_df = self.geometry.helmholtz_divergence_free_potential_operator.matvec(
+            E_coeffs_noind
+        )
+        steady = self.E_noind_to_m_ind_steady_matrix @ E_noind_df
         return self.project_scalar_mean_free(steady)

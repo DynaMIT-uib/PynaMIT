@@ -106,13 +106,76 @@ def test_surface_operator_builders_match_component_matrices():
     rotated = cs_basis.get_rhat_cross_gradient_matrix(grid)
     helmholtz = cs_basis.get_helmholtz_synthesis_matrix(grid)
     laplacian = cs_basis.laplacian()
+    laplacian_matrix = cs_basis.get_surface_laplacian_matrix()
 
     np.testing.assert_allclose(G, cs_basis.evaluate_on_grid(grid))
     np.testing.assert_allclose(gradient, np.array([G_theta, G_phi]))
     np.testing.assert_allclose(rotated, np.array([-G_phi, G_theta]))
     np.testing.assert_allclose(helmholtz[:, :, 0, :], -gradient)
     np.testing.assert_allclose(helmholtz[:, :, 1, :], rotated)
+    np.testing.assert_allclose(laplacian_matrix, laplacian)
     np.testing.assert_allclose(laplacian, cs_basis.laplacian())
+
+    evaluator = BasisEvaluator(cs_basis, grid)
+    np.testing.assert_allclose(evaluator.G_th, G_theta)
+    np.testing.assert_allclose(evaluator.G_ph, G_phi)
+
+
+@pytest.mark.parametrize("basis_kind", ["CS", "SH"])
+def test_helmholtz_divergence_and_radial_curl_are_laplacian_maps(basis_kind):
+    """Helmholtz div/curl maps expose shared potential identities."""
+    basis = CSBasis(8) if basis_kind == "CS" else SHBasis(3, 2)
+    laplacian = to_numpy(basis.get_surface_laplacian_matrix())
+    curl_free_potential = to_numpy(basis.get_helmholtz_curl_free_potential_matrix())
+    divergence_free_potential = to_numpy(
+        basis.get_helmholtz_divergence_free_potential_matrix()
+    )
+    divergence = to_numpy(basis.get_helmholtz_surface_divergence_matrix())
+    radial_curl = to_numpy(basis.get_helmholtz_radial_curl_matrix())
+    identity = np.eye(basis.index_length)
+    zeros = np.zeros_like(laplacian)
+
+    assert laplacian.shape == (basis.index_length, basis.index_length)
+    assert curl_free_potential.shape == (basis.index_length, 2, basis.index_length)
+    assert divergence_free_potential.shape == (basis.index_length, 2, basis.index_length)
+    assert divergence.shape == (basis.index_length, 2, basis.index_length)
+    assert radial_curl.shape == (basis.index_length, 2, basis.index_length)
+    np.testing.assert_allclose(
+        curl_free_potential,
+        np.stack([identity, zeros], axis=1),
+    )
+    np.testing.assert_allclose(
+        divergence_free_potential,
+        np.stack([zeros, identity], axis=1),
+    )
+    np.testing.assert_allclose(divergence, np.stack([-laplacian, zeros], axis=1))
+    np.testing.assert_allclose(radial_curl, np.stack([zeros, laplacian], axis=1))
+
+    rng = np.random.default_rng(20260521)
+    coeffs = rng.standard_normal((2, basis.index_length))
+    expected_curl_free = coeffs[0]
+    expected_divergence_free = coeffs[1]
+    expected_divergence = np.tensordot(divergence, coeffs, axes=([1, 2], [0, 1]))
+    expected_radial_curl = np.tensordot(radial_curl, coeffs, axes=([1, 2], [0, 1]))
+
+    actual_curl_free = basis.get_helmholtz_curl_free_potential_operator().matvec(
+        coeffs.reshape(-1)
+    )
+    actual_divergence_free = (
+        basis.get_helmholtz_divergence_free_potential_operator().matvec(
+            coeffs.reshape(-1)
+        )
+    )
+    actual_divergence = basis.get_helmholtz_surface_divergence_operator().matvec(
+        coeffs.reshape(-1)
+    )
+    actual_radial_curl = basis.get_helmholtz_radial_curl_operator().matvec(
+        coeffs.reshape(-1)
+    )
+    np.testing.assert_allclose(to_numpy(actual_curl_free), expected_curl_free)
+    np.testing.assert_allclose(to_numpy(actual_divergence_free), expected_divergence_free)
+    np.testing.assert_allclose(to_numpy(actual_divergence), expected_divergence)
+    np.testing.assert_allclose(to_numpy(actual_radial_curl), expected_radial_curl)
 
 
 def test_radial_laplace_continuation_matches_sh_formulas():
@@ -170,6 +233,41 @@ def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
     assert np.all(np.isfinite(cs_basis.arr_phi))
     assert np.all(np.abs(np.sin(np.deg2rad(cs_basis.arr_theta))) > 1e-12)
     assert np.max(np.abs(cs_basis.unit_area - midpoint_area) / cs_basis.unit_area) < 1e-3
+
+
+def test_csbasis_local_metric_factors_match_gnomonic_mapping():
+    """CS local metric factors are consistent with the gnomonic map."""
+    cs_basis = CSBasis(16)
+    xi, eta = cs_basis.arr_xi, cs_basis.arr_eta
+    delta = cs_basis.get_delta(xi, eta)
+    expected_sqrt_detg = 1.0 / (
+        np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**1.5
+    )
+    g_covariant = cs_basis.get_metric_tensor(xi, eta)
+    g_contravariant = cs_basis.get_metric_tensor(xi, eta, covariant=False)
+    identity = np.einsum("nij,njk->nik", g_covariant, g_contravariant)
+    expected_identity = np.broadcast_to(np.eye(3), identity.shape)
+
+    np.testing.assert_allclose(cs_basis.sqrt_detg, expected_sqrt_detg)
+    np.testing.assert_allclose(identity, expected_identity, atol=1e-12)
+
+
+def test_csbasis_vector_coordinate_transforms_round_trip():
+    """CS vector transform matrices are mutually consistent."""
+    cs_basis = CSBasis(16)
+    xi, eta, block = cs_basis.arr_xi, cs_basis.arr_eta, cs_basis.arr_block
+    identity = np.broadcast_to(np.eye(3), (cs_basis.index_length, 3, 3))
+
+    pc = cs_basis.get_Pc(xi, eta, block=block)
+    pc_inv = cs_basis.get_Pc(xi, eta, block=block, inverse=True)
+    ps = cs_basis.get_Ps(xi, eta, block=block)
+    ps_inv = cs_basis.get_Ps(xi, eta, block=block, inverse=True)
+    q = cs_basis.get_Q(90 - cs_basis.arr_theta, r=1.0)
+    q_inv = cs_basis.get_Q(90 - cs_basis.arr_theta, r=1.0, inverse=True)
+
+    np.testing.assert_allclose(np.einsum("nij,njk->nik", pc, pc_inv), identity, atol=1e-12)
+    np.testing.assert_allclose(np.einsum("nij,njk->nik", ps, ps_inv), identity, atol=1e-12)
+    np.testing.assert_allclose(np.einsum("nij,njk->nik", q, q_inv), identity, atol=1e-12)
 
 
 def test_csbasis_non_native_scalar_evaluation_uses_interpolation():
@@ -304,6 +402,21 @@ def test_basis_evaluator_contract_g_matches_explicit_products():
     np.testing.assert_allclose(evaluator.contract_G(matrix), evaluator.G @ matrix)
     with pytest.raises(ValueError, match="vector or matrix"):
         evaluator.contract_G(np.zeros((1, 1, 1)))
+
+
+def test_grid_basis_regularization_requires_degree_metadata():
+    """Degree-weighted regularization declares basis support."""
+    cs_basis = CSBasis(8)
+    evaluator = BasisEvaluator(
+        cs_basis,
+        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
+        reg_lambda=1.0,
+    )
+
+    with pytest.raises(NotImplementedError, match="requires basis.n"):
+        _ = evaluator.L
+    with pytest.raises(NotImplementedError, match="requires basis.n"):
+        _ = evaluator.L_helmholtz
 
 
 def test_area_weight_defaults_use_grid_areas_or_sin_theta():

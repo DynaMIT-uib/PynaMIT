@@ -394,10 +394,12 @@ class CSBasis(GridBasis, SurfaceOperators):
         if self._is_native_grid(grid):
             return SurfaceOperators.get_helmholtz_synthesis_matrix(self, grid)
         xp = get_array_module(getattr(grid, "theta", None), getattr(grid, "phi", None))
+        native_gradient = SurfaceOperators.get_surface_gradient_matrix(self, self)
+        native_rxgrad = np.stack([-native_gradient[1], native_gradient[0]], axis=0)
         return xp.stack(
             [
-                -xp.asarray(self.get_surface_gradient_matrix(grid)),
-                xp.asarray(self.get_rhat_cross_gradient_matrix(grid)),
+                -xp.asarray(self._interpolate_tangential_operator(native_gradient, grid)),
+                xp.asarray(self._interpolate_tangential_operator(native_rxgrad, grid)),
             ],
             axis=2,
         )

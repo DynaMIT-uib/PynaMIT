@@ -184,8 +184,9 @@ class PynamEye(object):
         self.B_parameters_calculated = False
 
         # Prepare conversion factors for electromagnetic quantities.
-        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
-        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        surface_laplacian = np.asarray(self.basis.get_surface_laplacian_matrix(self.RI))
+        self.m_ind_to_Br = -(self.RI**2) * surface_laplacian
+        self.m_imp_to_jr = self.RI / mu0 * surface_laplacian
         self.W_to_dBr_dt = 1 / self.RI
         self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.boundary_potential_discontinuity
 
@@ -287,11 +288,19 @@ class PynamEye(object):
         Eth -= uxB_theta
         Eph -= uxB_phi
 
-        self.m_Phi, self.m_W = np.split(
-            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True), 2
+        E_coeffs = self.evaluator["num"].grid_to_basis(
+            np.array([Eth, Eph]), helmholtz=True
         )
-        self.m_Phi = self.m_Phi * self.RI
-        self.m_W = self.m_W * self.RI
+        self.m_Phi = (
+            self.basis.get_helmholtz_curl_free_potential_operator().matvec(E_coeffs)
+            * self.RI
+        )
+        self.m_W = (
+            self.basis.get_helmholtz_divergence_free_potential_operator().matvec(
+                E_coeffs
+            )
+            * self.RI
+        )
 
     def _define_defaults(self):
         """Define default settings for various plots."""
@@ -635,7 +644,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
-        Br = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Br)
+        Br = self.evaluator[region].basis_to_grid(self.m_ind_to_Br @ self.m_ind)
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -679,7 +688,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.jr_defaults[key]
 
-        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
+        jr = self.evaluator[region].basis_to_grid(self.m_imp_to_jr @ self.m_imp)
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 

@@ -21,6 +21,21 @@ def _backend_stack(values, axis=0):
     return xp.stack([xp.asarray(value) for value in values], axis=axis)
 
 
+def _coefficient_matrix(value, size, name):
+    """Return a square coefficient-space matrix."""
+    xp = get_array_module(value)
+    array = xp.asarray(value)
+    if array.ndim == 1:
+        if array.size != size:
+            raise ValueError(f"{name} has length {array.size}, expected {size}.")
+        return xp.diag(array)
+    if array.ndim == 2:
+        if array.shape != (size, size):
+            raise ValueError(f"{name} has shape {array.shape}, expected {(size, size)}.")
+        return array
+    raise ValueError(f"{name} must be a 1-D diagonal or 2-D square operator.")
+
+
 def basis_kind(basis):
     """Return the normalized kind tag for a basis-like object."""
     kind = getattr(basis, "kind", None)
@@ -220,7 +235,14 @@ class GridBasis(Basis):
 
 
 class SurfaceOperators(Basis):
-    """Basis with scalar and vector operators on a spherical surface."""
+    """Basis with scalar and vector operators on a spherical surface.
+
+    The shared tangential Helmholtz convention is
+    ``F = -grad(phi) + rhat x grad(psi)``, where ``phi`` is the
+    curl-free potential and ``psi`` is the divergence-free potential.
+    With this convention, ``div_s(F) = -laplacian(phi)`` and the radial
+    component of ``curl(F)`` is ``laplacian(psi)``.
+    """
 
     supports_surface_potential_operators = True
 
@@ -283,15 +305,12 @@ class SurfaceOperators(Basis):
         """Return the canonical tangential Helmholtz synthesis tensor.
 
         Coefficients are ordered as curl-free then divergence-free
-        potentials. Components are ordered as theta then phi.
+        potentials. Components are ordered as theta then phi. The field
+        convention is ``-grad(phi) + rhat x grad(psi)``.
         """
-        return _backend_stack(
-            [
-                -self.get_surface_gradient_matrix(grid),
-                self.get_rhat_cross_gradient_matrix(grid),
-            ],
-            axis=2,
-        )
+        gradient = self.get_surface_gradient_matrix(grid)
+        rhat_cross_gradient = _backend_stack([-gradient[1], gradient[0]])
+        return _backend_stack([-gradient, rhat_cross_gradient], axis=2)
 
     def get_helmholtz_synthesis_operator(self, grid):
         """Return the Helmholtz-potential-to-vector operator."""
@@ -302,9 +321,81 @@ class SurfaceOperators(Basis):
             output_shape=matrix.shape[:2],
         )
 
+    def get_helmholtz_curl_free_potential_matrix(self):
+        """Return the Helmholtz-to-curl-free-potential matrix."""
+        xp = get_array_module()
+        identity = xp.eye(self.index_length)
+        return xp.stack([identity, xp.zeros_like(identity)], axis=1)
+
+    def get_helmholtz_curl_free_potential_operator(self):
+        """Return the Helmholtz-to-curl-free-potential operator."""
+        return as_linear_map(
+            self.get_helmholtz_curl_free_potential_matrix(),
+            input_shape=(2, self.index_length),
+            output_shape=(self.index_length,),
+        )
+
+    def get_helmholtz_divergence_free_potential_matrix(self):
+        """Return the Helmholtz-to-divergence-free-potential matrix."""
+        xp = get_array_module()
+        identity = xp.eye(self.index_length)
+        return xp.stack([xp.zeros_like(identity), identity], axis=1)
+
+    def get_helmholtz_divergence_free_potential_operator(self):
+        """Return the Helmholtz-to-div-free-potential operator."""
+        return as_linear_map(
+            self.get_helmholtz_divergence_free_potential_matrix(),
+            input_shape=(2, self.index_length),
+            output_shape=(self.index_length,),
+        )
+
+    def get_surface_laplacian_matrix(self, r=1.0):
+        """Return the scalar surface-Laplacian coefficient matrix."""
+        return _coefficient_matrix(self.laplacian(r), self.index_length, "laplacian")
+
     def get_surface_laplacian_operator(self, r=1.0):
         """Return the surface scalar Laplacian operator."""
         return as_linear_map(self.laplacian(r))
+
+    def get_helmholtz_surface_divergence_matrix(self, r=1.0):
+        """Return the Helmholtz-to-surface-divergence matrix.
+
+        Helmholtz coefficients are ordered as curl-free then
+        divergence-free potentials. With the synthesis convention
+        ``-grad(phi) + rhat x grad(psi)``, surface divergence is
+        ``-laplacian(phi)``.
+        """
+        laplacian = self.get_surface_laplacian_matrix(r)
+        xp = get_array_module(laplacian)
+        return xp.stack([-laplacian, xp.zeros_like(laplacian)], axis=1)
+
+    def get_helmholtz_surface_divergence_operator(self, r=1.0):
+        """Return the Helmholtz-to-surface-divergence operator."""
+        return as_linear_map(
+            self.get_helmholtz_surface_divergence_matrix(r),
+            input_shape=(2, self.index_length),
+            output_shape=(self.index_length,),
+        )
+
+    def get_helmholtz_radial_curl_matrix(self, r=1.0):
+        """Return the Helmholtz-coefficient to radial-curl matrix.
+
+        Helmholtz coefficients are ordered as curl-free then
+        divergence-free potentials. With the synthesis convention
+        ``-grad(phi) + rhat x grad(psi)``, radial curl is
+        ``laplacian(psi)``.
+        """
+        laplacian = self.get_surface_laplacian_matrix(r)
+        xp = get_array_module(laplacian)
+        return xp.stack([xp.zeros_like(laplacian), laplacian], axis=1)
+
+    def get_helmholtz_radial_curl_operator(self, r=1.0):
+        """Return the Helmholtz-coefficient to radial-curl operator."""
+        return as_linear_map(
+            self.get_helmholtz_radial_curl_matrix(r),
+            input_shape=(2, self.index_length),
+            output_shape=(self.index_length,),
+        )
 
 
 class RadialLaplaceContinuation(ABC):

@@ -97,34 +97,44 @@ class BasisEvaluator(object):
     def G_th(self):
         """Matrix evaluating the theta derivative."""
         if not hasattr(self, "_G_th"):
-            if self.basis.caching:
+            if hasattr(self, "_G_grad"):
+                self._G_th = self._G_grad[0]
+            elif self.basis.caching:
                 if not hasattr(self, "_cache"):
                     self._G_th, self._cache = self.basis.evaluate_on_grid(
                         self.grid, derivative="theta", cache_out=True
                     )
                 else:
-                    self._G_th = self.basis.evaluate_on_grid(
-                        self.grid, derivative="theta", cache_in=self._cache
+                    self._G_th, self._cache = self.basis.evaluate_on_grid(
+                        self.grid,
+                        derivative="theta",
+                        cache_in=self._cache,
+                        cache_out=True,
                     )
             else:
-                self._G_th = self.basis.get_surface_gradient_matrix(self.grid)[0]
+                self._G_th = self.G_grad[0]
         return self._G_th
 
     @property
     def G_ph(self):
         """Matrix evaluating the phi derivative."""
         if not hasattr(self, "_G_ph"):
-            if self.basis.caching:
+            if hasattr(self, "_G_grad"):
+                self._G_ph = self._G_grad[1]
+            elif self.basis.caching:
                 if not hasattr(self, "_cache"):
                     self._G_ph, self._cache = self.basis.evaluate_on_grid(
                         self.grid, derivative="phi", cache_out=True
                     )
                 else:
-                    self._G_ph = self.basis.evaluate_on_grid(
-                        self.grid, derivative="phi", cache_in=self._cache
+                    self._G_ph, self._cache = self.basis.evaluate_on_grid(
+                        self.grid,
+                        derivative="phi",
+                        cache_in=self._cache,
+                        cache_out=True,
                     )
             else:
-                self._G_ph = self.basis.get_surface_gradient_matrix(self.grid)[1]
+                self._G_ph = self.G_grad[1]
         return self._G_ph
 
     @property
@@ -145,41 +155,64 @@ class BasisEvaluator(object):
     def G_helmholtz(self):
         """Matrix evaluating horizontal vector field expansions."""
         if not hasattr(self, "_G_helmholtz"):
-            self._G_helmholtz = self.basis.get_helmholtz_synthesis_matrix(self.grid)
+            if hasattr(self, "_G_grad") or hasattr(self, "_G_rxgrad"):
+                xp = get_array_module(self.G_grad, self.G_rxgrad)
+                self._G_helmholtz = xp.stack(
+                    [-xp.asarray(self.G_grad), xp.asarray(self.G_rxgrad)],
+                    axis=2,
+                )
+            else:
+                self._G_helmholtz = self.basis.get_helmholtz_synthesis_matrix(self.grid)
         return self._G_helmholtz
 
     @property
     def L(self):
-        """Regularization matrix for scalar fields."""
+        """Degree-weighted regularization matrix for scalar fields."""
         if not hasattr(self, "_L"):
             if self.reg_lambda is None:
                 self._L = None
             else:
+                if not hasattr(self.basis, "n"):
+                    raise NotImplementedError(
+                        "Degree-weighted scalar regularization requires basis.n."
+                    )
                 self._L = np.diag(self.basis.n)
         return self._L
 
     @property
     def L_helmholtz(self):
-        """Regularization matrix for horizontal vector fields."""
+        """Degree-weighted regularization for Helmholtz fields."""
         if not hasattr(self, "_L_helmholtz"):
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
-                L_cf = np.stack(
-                    [
-                        np.diag(self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)),
-                        np.zeros((self.basis.index_length, self.basis.index_length)),
-                    ],
-                    axis=1,
+                if not hasattr(self.basis, "n"):
+                    raise NotImplementedError(
+                        "Degree-weighted Helmholtz regularization requires basis.n."
+                    )
+                curl_free_selector = np.asarray(
+                    self.basis.get_helmholtz_curl_free_potential_matrix()
                 )
-                L_df = np.stack(
-                    [
-                        np.zeros((self.basis.index_length, self.basis.index_length)),
-                        np.diag((self.basis.n + 1) / 2),
-                    ],
-                    axis=1,
+                divergence_free_selector = np.asarray(
+                    self.basis.get_helmholtz_divergence_free_potential_matrix()
                 )
-                self._L_helmholtz = np.array([L_cf, L_df])
+                # The weights are the existing SH spectral penalties.
+                # The selector matrices keep the Helmholtz component
+                # semantics explicit without moving this policy onto
+                # the basis implementation.
+                curl_free_weight = np.diag(
+                    self.basis.n * (self.basis.n + 1) / (2 * self.basis.n + 1)
+                )
+                divergence_free_weight = np.diag((self.basis.n + 1) / 2)
+                L_cf = np.tensordot(
+                    curl_free_weight, curl_free_selector, axes=([1], [0])
+                )
+                L_df = np.tensordot(
+                    divergence_free_weight,
+                    divergence_free_selector,
+                    axes=([1], [0]),
+                )
+                self._L_helmholtz = np.stack([L_cf, L_df], axis=0)
         return self._L_helmholtz
 
     @property

@@ -366,20 +366,38 @@ class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
 
     def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
         """Evaluate scalar basis or surface derivatives on ``grid``."""
-        del cache_in
         xp = get_array_module(grid.phi, grid.theta)
         phi = np.deg2rad(to_numpy(grid.phi))
         theta = np.deg2rad(to_numpy(grid.theta))
+        cached_P, cached_dP = (
+            cache_in if isinstance(cache_in, tuple) else (cache_in, None)
+        )
+        sin_theta_values = np.sin(theta)
+        needs_legendre_derivative = derivative == "theta" or (
+            derivative == "phi" and np.any(np.abs(sin_theta_values) <= 1e-12)
+        )
 
         if self.backend == "internal":
-            P_unnormalized = self.legendre(theta)
-            dP_unnormalized = (
-                self.legendre_derivative(theta, P=P_unnormalized) if derivative else None
+            P_unnormalized = (
+                cached_P if cached_P is not None else self.legendre(theta)
             )
+            if needs_legendre_derivative:
+                dP_unnormalized = (
+                    cached_dP
+                    if cached_dP is not None
+                    else self.legendre_derivative(theta, P=P_unnormalized)
+                )
+            else:
+                dP_unnormalized = cached_dP
         else:  # backend == 'scipy'
-            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
-                theta, compute_derivative=bool(derivative)
-            )
+            if cached_P is not None and (
+                not needs_legendre_derivative or cached_dP is not None
+            ):
+                P_unnormalized, dP_unnormalized = cached_P, cached_dP
+            else:
+                P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
+                    theta, compute_derivative=needs_legendre_derivative
+                )
 
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
@@ -391,7 +409,7 @@ class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
             Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         elif derivative == "phi":
-            sin_theta = np.sin(theta).reshape(-1, 1)
+            sin_theta = sin_theta_values.reshape(-1, 1)
             phi_col = phi.reshape(-1, 1)
             is_pole = np.abs(sin_theta) <= 1e-12
             m_c, m_s = self.cnm.m, self.snm.m
@@ -414,7 +432,12 @@ class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
 
         matrix = xp.asarray(np.hstack((Gc, Gs)))
         if cache_out:
-            return matrix, P_unnormalized
+            cache = (
+                (P_unnormalized, dP_unnormalized)
+                if dP_unnormalized is not None
+                else P_unnormalized
+            )
+            return matrix, cache
         return matrix
 
     def legendre(self, theta):
