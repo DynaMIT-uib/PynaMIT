@@ -10,10 +10,7 @@ the simulation.
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.sphere.core import SurfaceOperators, is_grid_basis
-from pynamit.sphere import Grid
-from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.primitives.field_space import FieldSpace
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
@@ -27,66 +24,81 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, cs_basis, storage_bases, vars, area_weighted_least_squares=False):
+    def __init__(
+        self,
+        field_spaces_or_cs_basis,
+        storage_bases_or_vars,
+        vars=None,
+        area_weighted_least_squares=False,
+    ):
         """Initialize the Timeseries class.
 
         Parameters
         ----------
-        cs_basis : CSBasis
-            Cubed-sphere basis defining the simulation grid.
-        storage_bases : dict
-            Basis used to store each time-series group.
+        field_spaces_or_cs_basis : dict or CSBasis
+            Mapping from time-series group to ``FieldSpace``. The legacy
+            constructor form passes the cubed-sphere basis here.
+        storage_bases_or_vars : dict
+            Variable schema in the new form, or storage bases in the
+            legacy constructor form.
         vars : dict
-            Variable names and field types for each group.
+            Variable names and field types for each group when using the
+            legacy constructor form.
         area_weighted_least_squares : bool, optional
-            Use default area weights when no explicit weights are
-            supplied for least-squares interpolation.
+            Preserved for callers that also construct projectors; the
+            time-series object itself stores coefficients only.
         """
-        self.cs_basis = cs_basis
-        self.storage_bases = storage_bases
+        if vars is None:
+            self.cs_basis = None
+            self.vars = storage_bases_or_vars
+            self.field_spaces = {
+                key: self._normalize_field_space(key, field_space)
+                for key, field_space in field_spaces_or_cs_basis.items()
+            }
+        else:
+            self.cs_basis = field_spaces_or_cs_basis
+            self.vars = vars
+            self.field_spaces = {
+                key: FieldSpace.from_basis(
+                    basis,
+                    field_type=self._common_field_type(key),
+                    mean_free=getattr(basis, "mean_free", False),
+                )
+                for key, basis in storage_bases_or_vars.items()
+            }
+
+        self.storage_bases = {
+            key: field_space.basis for key, field_space in self.field_spaces.items()
+        }
         self.area_weighted_least_squares = bool(area_weighted_least_squares)
 
         # Initialize variables and timeseries storage
-        self.vars = vars
-
         self.datasets = {}
         self.previous_data = {}
         self._pending_start: dict[str, int] = {}
         self._full_save_required: dict[str, bool] = {}
         self._storage_kinds: dict[str, str] = {}
 
-        cs_grid = Grid(
-            theta=cs_basis.arr_theta,
-            phi=cs_basis.arr_phi,
-            area_weights=cs_basis.unit_area,
-        )
-
-        self.storage_basis_evaluators = {}
-        for key in self.storage_bases.keys():
-            self.storage_basis_evaluators[key] = BasisEvaluator(
-                self.storage_bases[key],
-                cs_grid,
-                area_weighted=self.area_weighted_least_squares,
-            )
-
         self.basis_multiindices = {}
         for key in self.vars.keys():
-            if all(self.vars[key][var] == "scalar" for var in self.vars[key]):
-                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    self.storage_bases[key].index_arrays, names=self.storage_bases[key].index_names
-                )
-            elif all(self.vars[key][var] == "tangential" for var in self.vars[key]):
-                self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
-                    [
-                        np.tile(self.storage_bases[key].index_arrays[i], 2)
-                        for i in range(len(self.storage_bases[key].index_arrays))
-                    ],
-                    names=self.storage_bases[key].index_names,
-                )
-            else:
-                raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or invalid input type"
-                )
+            self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
+                self.field_spaces[key].multiindex_arrays(),
+                names=self.field_spaces[key].index_names,
+            )
+
+    def _common_field_type(self, key):
+        """Return the shared field type for one time-series group."""
+        field_types = {self.vars[key][var] for var in self.vars[key]}
+        if len(field_types) != 1:
+            raise ValueError(
+                "Mixed scalar and tangential input (unsupported), or invalid input type"
+            )
+        return field_types.pop()
+
+    def _normalize_field_space(self, key, field_space):
+        """Validate or construct one field-space descriptor."""
+        common_field_type = self._common_field_type(key)
+        return FieldSpace.from_basis(field_space, field_type=common_field_type)
 
     def load_all(self, io):
         """Load all persisted timeseries datasets."""
@@ -140,9 +152,12 @@ class Timeseries:
         """
         data_vars = {}
         for var in data:
+            values = self.field_spaces[key].validate_coefficients(
+                data[var], name=f"{key}.{var}"
+            )
             data_vars[self.storage_bases[key].kind + "_" + var] = (
                 ["time", "i"],
-                data[var].reshape((1, -1)),
+                values.reshape((1, -1)),
             )
 
         dataset = xr.Dataset(
@@ -180,137 +195,6 @@ class Timeseries:
             ).sortby("time")
             self._pending_start[key] = 0
             self._full_save_required[key] = True
-
-    def interpolate_and_add_entry(
-        self,
-        key,
-        input_data,
-        time,
-        interpolation_basis,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Interpolate data and add it to the timeseries.
-
-        Parameters
-        ----------
-        key : str
-            The type of data ('jr', 'conductance', or 'u').
-        input_data : dict
-            Dictionary containing the input data arrays.
-        lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
-        theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
-        time : array-like, optional
-            Time points for the input data.
-        sqrt_weights : array-like, optional
-            sqrt_weights for the input data points.
-        reg_lambda : float, optional
-            Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for pseudo-inverse.
-
-        Raises
-        ------
-        ValueError
-            If neither (lat, lon) nor (theta, phi) coordinates are
-            provided.
-        """
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        input_basis_has_surface_operators = isinstance(
-            interpolation_basis, SurfaceOperators
-        ) and not (
-            is_grid_basis(interpolation_basis)
-        )
-
-        if input_basis_has_surface_operators and not hasattr(self, "input_basis_evaluators"):
-            self.input_basis_evaluators = {}
-
-        if input_basis_has_surface_operators and not (
-            key in self.input_basis_evaluators
-            and input_grid.theta.shape == self.input_basis_evaluators[key].grid.theta.shape
-            and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
-            and sqrt_weights is None
-            and not self.input_basis_evaluators[key].explicit_sqrt_weights
-            and self.input_basis_evaluators[key].reg_lambda == reg_lambda
-            and self.input_basis_evaluators[key].pinv_rtol == pinv_rtol
-            and (
-                self.input_basis_evaluators[key].area_weighted
-                == self.area_weighted_least_squares
-            )
-            and np.allclose(
-                input_grid.theta,
-                self.input_basis_evaluators[key].grid.theta,
-                rtol=0.0,
-                atol=FLOAT_ERROR_MARGIN,
-            )
-            and np.allclose(
-                input_grid.phi,
-                self.input_basis_evaluators[key].grid.phi,
-                rtol=0.0,
-                atol=FLOAT_ERROR_MARGIN,
-            )
-        ):
-            self.input_basis_evaluators[key] = BasisEvaluator(
-                interpolation_basis,
-                input_grid,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol,
-                area_weighted=self.area_weighted_least_squares,
-            )
-
-        for time_index in range(time.size):
-            interpolated_data = {}
-
-            for var in self.vars[key]:
-                if input_basis_has_surface_operators:
-                    grid_values = input_data[var][time_index]
-                    basis_evaluator = self.input_basis_evaluators[key]
-                else:
-                    # Interpolate to state_grid
-                    if self.vars[key][var] == "scalar":
-                        grid_values = self.cs_basis.interpolate_scalar(
-                            input_data[var][time_index],
-                            input_grid.theta,
-                            input_grid.phi,
-                            self.cs_basis.arr_theta,
-                            self.cs_basis.arr_phi,
-                        )
-                    elif self.vars[key][var] == "tangential":
-                        interpolated_east, interpolated_north, _ = (
-                            self.cs_basis.interpolate_vector_components(
-                                input_data[var][time_index, 1],
-                                -input_data[var][time_index, 0],
-                                np.zeros_like(input_data[var][time_index, 0]),
-                                input_grid.theta,
-                                input_grid.phi,
-                                self.cs_basis.arr_theta,
-                                self.cs_basis.arr_phi,
-                            )
-                        )
-                        grid_values = np.hstack(
-                            (-interpolated_north, interpolated_east)
-                        )  # convert to theta, phi
-
-                    basis_evaluator = self.storage_basis_evaluators[key]
-
-                vector = FieldExpansion(
-                    basis_evaluator.basis,
-                    basis_evaluator=basis_evaluator,
-                    grid_values=grid_values,
-                    field_type=self.vars[key][var],
-                )
-
-                interpolated_data[var] = vector.coeffs
-
-            self.add_entry(key, interpolated_data, time[time_index])
 
     def get_entry_if_changed(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.

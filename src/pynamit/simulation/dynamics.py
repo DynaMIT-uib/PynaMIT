@@ -10,6 +10,8 @@ from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field_projector import FieldProjector
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
@@ -233,9 +235,12 @@ class Dynamics(object):
                 "u": sh_basis_mean_free,
             }
 
+        self.input_field_spaces = self._field_spaces_from_bases(
+            self.input_storage_bases, self.input_vars
+        )
+
         self.input_timeseries = Timeseries(
-            cs_basis,
-            self.input_storage_bases,
+            self.input_field_spaces,
             self.input_vars,
             area_weighted_least_squares=bool(
                 self.settings.area_weighted_least_squares
@@ -254,9 +259,12 @@ class Dynamics(object):
             "steady_state": horizontal_basis,
         }
 
+        self.output_field_spaces = self._field_spaces_from_bases(
+            self.output_storage_bases, self.output_vars
+        )
+
         self.output_timeseries = Timeseries(
-            cs_basis,
-            self.output_storage_bases,
+            self.output_field_spaces,
             self.output_vars,
             area_weighted_least_squares=bool(
                 self.settings.area_weighted_least_squares
@@ -278,6 +286,17 @@ class Dynamics(object):
                 "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
                 "u": sh_basis_mean_free if bool(self.settings.vector_u) else cs_basis,
             }
+
+        self.input_projectors = {
+            key: FieldProjector(
+                self.input_field_spaces[key],
+                target_grid_basis=cs_basis,
+                area_weighted_least_squares=bool(
+                    self.settings.area_weighted_least_squares
+                ),
+            )
+            for key in self.input_vars
+        }
 
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
@@ -309,6 +328,23 @@ class Dynamics(object):
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
+
+    @staticmethod
+    def _field_spaces_from_bases(storage_bases, variables):
+        """Return field-space descriptors for time-series schemas."""
+        field_spaces = {}
+        for key, basis in storage_bases.items():
+            field_types = {variables[key][var] for var in variables[key]}
+            if len(field_types) != 1:
+                raise ValueError(
+                    "Mixed scalar and tangential input (unsupported), or invalid input type"
+                )
+            field_spaces[key] = FieldSpace.from_basis(
+                basis,
+                field_type=field_types.pop(),
+                mean_free=getattr(basis, "mean_free", False),
+            )
+        return field_spaces
 
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
@@ -580,13 +616,16 @@ class Dynamics(object):
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
+        *,
+        coefficients=False,
     ):
         """Set radial current density input.
 
         Parameters
         ----------
         jr : array-like
-            Radial current density in A/m².
+            Radial current density in A/m², or storage-basis
+            coefficients if ``coefficients=True``.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -599,24 +638,28 @@ class Dynamics(object):
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
+        coefficients : bool, optional
+            If True, ``jr`` is already in the input storage basis and is
+            stored directly without interpolation or projection.
         """
         input_data = {"jr": np.atleast_2d(jr)}
 
-        self.input_timeseries.interpolate_and_add_entry(
+        if coefficients:
+            self._add_input_coefficients("jr", input_data, time)
+            return
+
+        self._project_and_add_input(
             "jr",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["jr"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        self.input_timeseries.save("jr", self.io)
 
     def set_Br(
         self,
@@ -629,13 +672,16 @@ class Dynamics(object):
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
+        *,
+        coefficients=False,
     ):
         """Set radial component of magnetic field input.
 
         Parameters
         ----------
         Br : array-like
-            Radial component of magnetic field.
+            Radial component of magnetic field, or storage-basis
+            coefficients if ``coefficients=True``.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -648,27 +694,92 @@ class Dynamics(object):
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
+        coefficients : bool, optional
+            If True, ``Br`` is already in the input storage basis and is
+            stored directly without interpolation or projection.
         """
         if self.settings.RM == 0:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
         input_data = {"Br": np.atleast_2d(Br)}
 
-        self.input_timeseries.interpolate_and_add_entry(
+        if coefficients:
+            self._add_input_coefficients("Br", input_data, time)
+            return
+
+        self._project_and_add_input(
             "Br",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["Br"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
 
-        self.input_timeseries.save("Br", self.io)
+    def set_resistance(
+        self,
+        Pedersen,
+        Hall,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        coefficients=False,
+    ):
+        """Set Pedersen and Hall resistance inputs.
+
+        Parameters
+        ----------
+        Pedersen : array-like
+            Pedersen resistance values, or storage-basis coefficients if
+            ``coefficients=True``.
+        Hall : array-like
+            Hall resistance values, or storage-basis coefficients if
+            ``coefficients=True``.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the resistance data.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the resistance data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        coefficients : bool, optional
+            If True, ``Pedersen`` and ``Hall`` are already in the input
+            storage basis and are stored directly without interpolation
+            or projection.
+        """
+        input_data = {"etaP": np.atleast_2d(Pedersen), "etaH": np.atleast_2d(Hall)}
+
+        if coefficients:
+            self._add_input_coefficients("conductance", input_data, time)
+            return
+
+        self._project_and_add_input(
+            "conductance",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
 
     def set_conductance(
         self,
@@ -707,30 +818,90 @@ class Dynamics(object):
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
 
-        input_data = {"etaP": np.empty_like(Pedersen), "etaH": np.empty_like(Hall)}
+        etaP = np.empty_like(Pedersen)
+        etaH = np.empty_like(Hall)
 
         # Convert conductances to resistances for all time points.
-        for i in range(max(input_data["etaP"].shape[0], 1)):
-            input_data["etaP"][i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+        for i in range(max(etaP.shape[0], 1)):
+            etaP[i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        for i in range(max(input_data["etaH"].shape[0], 1)):
-            input_data["etaH"][i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+        for i in range(max(etaH.shape[0], 1)):
+            etaH[i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
 
-        self.input_timeseries.interpolate_and_add_entry(
-            "conductance",
-            input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["conductance"],
+        self.set_resistance(
+            etaP,
+            etaH,
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
 
-        self.input_timeseries.save("conductance", self.io)
+    def set_wind(
+        self,
+        u_theta,
+        u_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        coefficients=False,
+    ):
+        """Set neutral wind velocities.
+
+        Parameters
+        ----------
+        u_theta : array-like
+            Meridional (south) wind velocity in m/s, or curl-free
+            storage-basis coefficients if ``coefficients=True``.
+        u_phi : array-like
+            Zonal (east) wind velocity in m/s, or divergence-free
+            storage-basis coefficients if ``coefficients=True``.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the wind data.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the wind data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        coefficients : bool, optional
+            If True, ``u_theta`` and ``u_phi`` are interpreted as the
+            curl-free and divergence-free Helmholtz coefficients,
+            respectively, and stored directly without interpolation or
+            projection.
+        """
+        input_data = self._wind_input_data(u_theta, u_phi)
+
+        if coefficients:
+            self._add_input_coefficients("u", input_data, time)
+            return
+
+        self._project_and_add_input(
+            "u",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
 
     def set_u(
         self,
@@ -744,46 +915,90 @@ class Dynamics(object):
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
+        *,
+        coefficients=False,
     ):
         """Set neutral wind velocities.
 
-        Parameters
-        ----------
-        u_theta : array-like
-            Meridional (south) wind velocity in m/s.
-        u_phi : array-like
-            Zonal (east) wind velocity in m/s.
-        lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
-        theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
-        time : array-like, optional
-            Time points for the wind data.
-        sqrt_weights : array-like, optional
-            sqrt_weights for the wind data points.
-        reg_lambda : float, optional
-            Regularization parameter.
+        This is an alias for :meth:`set_wind`.
         """
-        # If u_theta and u_phi, are 1D arrays, convert to 2D.
-        input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}
-        # Reorder time to first dimension and component to second.
-        input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
-
-        self.input_timeseries.interpolate_and_add_entry(
-            "u",
-            input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["u"],
+        self.set_wind(
+            u_theta,
+            u_phi,
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
+            coefficients=coefficients,
         )
 
-        self.input_timeseries.save("u", self.io)
+    def _wind_input_data(self, u_theta, u_phi):
+        """Return wind input data with time before component."""
+        input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}
+        input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
+        return input_data
+
+    def _project_and_add_input(
+        self,
+        key,
+        input_data,
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project gridded input data and store coefficient entries."""
+        input_time = self.adapt_input_time(time, input_data)
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        projector = self.input_projectors[key]
+
+        projected_data = {}
+        for var, values in input_data.items():
+            projected_values = projector.project(
+                values,
+                input_grid=input_grid,
+                projection_basis=self.interpolation_bases[key],
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            if projected_values.shape[0] != input_time.size:
+                raise ValueError(
+                    f"{key}.{var} has {projected_values.shape[0]} projected time "
+                    f"slices, but {input_time.size} time values were supplied."
+                )
+            projected_data[var] = projected_values
+
+        for time_index in range(input_time.size):
+            self.input_timeseries.add_entry(
+                key,
+                {var: projected_data[var][time_index] for var in projected_data},
+                input_time[time_index],
+            )
+
+        self.input_timeseries.save(key, self.io)
+
+    def _add_input_coefficients(self, key, input_data, time):
+        """Store input-basis coefficients directly in a time series."""
+        input_time = self.adapt_input_time(time, input_data)
+
+        for time_index in range(input_time.size):
+            self.input_timeseries.add_entry(
+                key,
+                {var: input_data[var][time_index] for var in input_data},
+                input_time[time_index],
+            )
+
+        self.input_timeseries.save(key, self.io)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.
