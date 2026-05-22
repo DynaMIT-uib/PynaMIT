@@ -10,6 +10,8 @@ from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.primitives.field_projector import FieldProjector
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
@@ -233,9 +235,12 @@ class Dynamics(object):
                 "u": sh_basis_mean_free,
             }
 
+        self.input_field_spaces = self._field_spaces_from_bases(
+            self.input_storage_bases, self.input_vars
+        )
+
         self.input_timeseries = Timeseries(
-            cs_basis,
-            self.input_storage_bases,
+            self.input_field_spaces,
             self.input_vars,
             area_weighted_least_squares=bool(
                 self.settings.area_weighted_least_squares
@@ -254,9 +259,12 @@ class Dynamics(object):
             "steady_state": horizontal_basis,
         }
 
+        self.output_field_spaces = self._field_spaces_from_bases(
+            self.output_storage_bases, self.output_vars
+        )
+
         self.output_timeseries = Timeseries(
-            cs_basis,
-            self.output_storage_bases,
+            self.output_field_spaces,
             self.output_vars,
             area_weighted_least_squares=bool(
                 self.settings.area_weighted_least_squares
@@ -278,6 +286,17 @@ class Dynamics(object):
                 "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
                 "u": sh_basis_mean_free if bool(self.settings.vector_u) else cs_basis,
             }
+
+        self.input_projectors = {
+            key: FieldProjector(
+                self.input_field_spaces[key],
+                target_grid_basis=cs_basis,
+                area_weighted_least_squares=bool(
+                    self.settings.area_weighted_least_squares
+                ),
+            )
+            for key in self.input_vars
+        }
 
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
@@ -309,6 +328,23 @@ class Dynamics(object):
 
         if PFAC_matrix_on_file is None:
             self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
+
+    @staticmethod
+    def _field_spaces_from_bases(storage_bases, variables):
+        """Return field-space descriptors for time-series schemas."""
+        field_spaces = {}
+        for key, basis in storage_bases.items():
+            field_types = {variables[key][var] for var in variables[key]}
+            if len(field_types) != 1:
+                raise ValueError(
+                    "Mixed scalar and tangential input (unsupported), or invalid input type"
+                )
+            field_spaces[key] = FieldSpace.from_basis(
+                basis,
+                field_type=field_types.pop(),
+                mean_free=getattr(basis, "mean_free", False),
+            )
+        return field_spaces
 
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
@@ -612,21 +648,18 @@ class Dynamics(object):
             self._add_input_coefficients("jr", input_data, time)
             return
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self._project_and_add_input(
             "jr",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["jr"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        self.input_timeseries.save("jr", self.io)
 
     def set_Br(
         self,
@@ -674,21 +707,18 @@ class Dynamics(object):
             self._add_input_coefficients("Br", input_data, time)
             return
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self._project_and_add_input(
             "Br",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["Br"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        self.input_timeseries.save("Br", self.io)
 
     def set_resistance(
         self,
@@ -738,21 +768,18 @@ class Dynamics(object):
             self._add_input_coefficients("conductance", input_data, time)
             return
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self._project_and_add_input(
             "conductance",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["conductance"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        self.input_timeseries.save("conductance", self.io)
 
     def set_conductance(
         self,
@@ -863,21 +890,18 @@ class Dynamics(object):
             self._add_input_coefficients("u", input_data, time)
             return
 
-        self.input_timeseries.interpolate_and_add_entry(
+        self._project_and_add_input(
             "u",
             input_data,
-            self.adapt_input_time(time, input_data),
-            self.interpolation_bases["u"],
             lat=lat,
             lon=lon,
             theta=theta,
             phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-        self.input_timeseries.save("u", self.io)
 
     def set_u(
         self,
@@ -917,6 +941,51 @@ class Dynamics(object):
         input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}
         input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
         return input_data
+
+    def _project_and_add_input(
+        self,
+        key,
+        input_data,
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project gridded input data and store coefficient entries."""
+        input_time = self.adapt_input_time(time, input_data)
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        projector = self.input_projectors[key]
+
+        projected_data = {}
+        for var, values in input_data.items():
+            projected_values = projector.project(
+                values,
+                input_grid=input_grid,
+                projection_basis=self.interpolation_bases[key],
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            if projected_values.shape[0] != input_time.size:
+                raise ValueError(
+                    f"{key}.{var} has {projected_values.shape[0]} projected time "
+                    f"slices, but {input_time.size} time values were supplied."
+                )
+            projected_data[var] = projected_values
+
+        for time_index in range(input_time.size):
+            self.input_timeseries.add_entry(
+                key,
+                {var: projected_data[var][time_index] for var in projected_data},
+                input_time[time_index],
+            )
+
+        self.input_timeseries.save(key, self.io)
 
     def _add_input_coefficients(self, key, input_data, time):
         """Store input-basis coefficients directly in a time series."""
