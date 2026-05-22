@@ -30,32 +30,56 @@ globalplot : function
     Function for global plotting.
 """
 
-from .cubed_sphere.cs_basis import CSBasis
+from .sphere import (
+    Basis,
+    BasisView,
+    CSBasis,
+    Grid,
+    GridBasis,
+    RadialLaplaceContinuation,
+    SHBasis,
+    SurfaceOperators,
+    basis_kind,
+    is_basis_kind,
+    is_cs_basis,
+    is_grid_basis,
+    is_sh_basis,
+    normalize_horizontal_basis_kind,
+)
 from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_expansion import FieldExpansion
-from .primitives.grid import Grid
 from .simulation.dynamics import Dynamics
 from .simulation.input_vs_interpolated import plot_input_vs_interpolated
 from .simulation.mainfield import Mainfield
 from .simulation.pynameye import PynamEye
 from .simulation.visualization import debugplot, globalplot
-from .spherical_harmonics.sh_basis import SHBasis
-from .utils import set_backend, use_jax
+from .math import set_backend, use_jax
 from .external_inputs import set_input_source, get_input_source
 
 __all__ = [
+    "Basis",
+    "BasisView",
     "BasisEvaluator",
     "CSBasis",
     "Dynamics",
     "FieldEvaluator",
     "FieldExpansion",
     "Grid",
+    "GridBasis",
+    "RadialLaplaceContinuation",
     "Mainfield",
     "PynamEye",
     "SHBasis",
+    "SurfaceOperators",
+    "basis_kind",
     "debugplot",
     "globalplot",
+    "is_basis_kind",
+    "is_cs_basis",
+    "is_grid_basis",
+    "is_sh_basis",
+    "normalize_horizontal_basis_kind",
     "plot_input_vs_interpolated",
     "set_backend",
     "use_jax",

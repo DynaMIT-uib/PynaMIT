@@ -1,16 +1,10 @@
-"""
-Utility helpers for working with optional JAX acceleration.
+"""Array backend helpers for PynaMIT math code.
 
-This module centralises the logic needed to switch between NumPy and JAX
-implementations at runtime. The behaviour is controlled through the
-``PYNAMIT_USE_JAX`` environment variable (accepted values: ``1``,
-``true``, ``yes``, ``on``) and can also be overridden
-programmatically via ``use_jax(True/False)``.
-
-The helpers exposed here are intentionally lightweight wrappers that
-preserve backwards compatibility with the existing NumPy-based code
-while allowing simulation modules to opt in to JAX-backed array
-operations where appropriate.
+This module centralizes the optional JAX acceleration policy used by
+linear maps, tensor operations, least-squares solvers, and simulation
+code. The active backend is controlled through ``PYNAMIT_USE_JAX`` and
+can also be changed programmatically with ``set_backend`` or
+``use_jax``.
 """
 
 from __future__ import annotations
@@ -45,8 +39,6 @@ try:  # pragma: no cover - we fall back gracefully when JAX is absent
 
     JAX_AVAILABLE = True
 
-    # Enable double precision if available; ignore errors on older
-    # versions.
     try:  # pragma: no cover - configuration helper
         jax.config.update("jax_enable_x64", True)
     except Exception:
@@ -65,19 +57,7 @@ _USE_JAX = JAX_AVAILABLE and _env_flag(os.environ.get("PYNAMIT_USE_JAX"))
 
 
 def use_jax(flag: Optional[bool] = None) -> bool:
-    """
-    Query or set whether JAX should be used.
-
-    Parameters
-    ----------
-    flag
-        Optional boolean to force enabling/disabling JAX at runtime.
-
-    Returns
-    -------
-    bool
-        ``True`` if JAX is available and enabled, ``False`` otherwise.
-    """
+    """Query or set whether JAX should be used."""
     global _USE_JAX
     if flag is not None:
         if flag and not JAX_AVAILABLE:
@@ -87,22 +67,7 @@ def use_jax(flag: Optional[bool] = None) -> bool:
 
 
 def set_backend(backend: Union[str, bool, None]) -> str:
-    """
-    Set the active array backend.
-
-    Parameters
-    ----------
-    backend
-        ``"numpy"``/``False`` selects NumPy, ``"jax"``/``True`` selects
-        JAX, and ``"auto"``/``None`` keeps the current choice. The
-        function raises if JAX is requested but not installed.
-
-    Returns
-    -------
-    str
-        Name of the backend that ended up being active (``"numpy"`` or
-        ``"jax"``).
-    """
+    """Set the active array backend."""
     if isinstance(backend, bool):
         target = backend
     elif backend is None:
@@ -126,12 +91,9 @@ def set_backend(backend: Union[str, bool, None]) -> str:
 
 
 def get_array_module(*arrays: Any) -> types.ModuleType:
-    """
-    Return the active array module (NumPy or JAX NumPy).
+    """Return the active array module.
 
-    If explicit ``arrays`` are provided, the module is inferred from the
-    first JAX array. This allows mixed inputs to favour the JAX backend
-    when any argument is already a JAX Array.
+    Explicit JAX inputs take precedence over the global backend setting.
     """
     if arrays and JAX_AVAILABLE:
         for array in arrays:

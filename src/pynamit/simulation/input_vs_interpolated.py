@@ -7,14 +7,13 @@ import matplotlib.colors as mcolors
 import h5py as h5
 import cartopy.crs as ccrs
 
-from pynamit.primitives.grid import Grid
+from pynamit.sphere import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
-from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.sphere import CSBasis, SHBasis
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
@@ -120,8 +119,8 @@ def plot_input_vs_interpolated(
     )
 
     cs_basis = CSBasis(int(settings.Ncs))
-    sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), Nmin=0)
-    sh_basis_zero_removed = SHBasis(int(settings.Nmax), int(settings.Mmax))
+    sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), mean_free=False)
+    sh_basis_mean_free = sh_basis.with_mean_free(True)
 
     input_vars_pynamit = {
         "jr": {"jr": "scalar"},
@@ -130,10 +129,10 @@ def plot_input_vs_interpolated(
         "u": {"u": "tangential"},
     }
     input_storage_bases = {
-        "jr": sh_basis_zero_removed,
-        "Br": sh_basis_zero_removed,
+        "jr": sh_basis_mean_free,
+        "Br": sh_basis_mean_free,
         "conductance": sh_basis,
-        "u": sh_basis_zero_removed,
+        "u": sh_basis_mean_free,
     }
     pynamit_timeseries_key_map = {
         "Br": "Br",

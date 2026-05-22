@@ -20,6 +20,8 @@ class Grid(object):
         Flattened array of colatitude values in degrees.
     phi : ndarray
         Flattened array of longitude values in degrees (same as lon).
+    area_weights : ndarray, optional
+        Flattened cell-area weights associated with the grid points.
     size : int
         Total number of grid points.
 
@@ -29,7 +31,7 @@ class Grid(object):
     and flattened for internal storage.
     """
 
-    def __init__(self, lat=None, lon=None, theta=None, phi=None):
+    def __init__(self, lat=None, lon=None, theta=None, phi=None, area_weights=None):
         """Initialize the grid object from coordinate inputs.
 
         Parameters
@@ -42,6 +44,9 @@ class Grid(object):
             Spherical colatitude coordinates in degrees.
         phi : array-like, optional
             Spherical longitude coordinates in degrees.
+        area_weights : array-like, optional
+            Cell-area weights for weighted surface fits. If provided,
+            the flattened shape must match the grid size.
 
         Raises
         ------
@@ -81,3 +86,8 @@ class Grid(object):
         self.phi = self.phi.flatten()
 
         self.size = self.lon.size
+
+        if area_weights is not None:
+            self.area_weights = np.asarray(area_weights, dtype=float).flatten()
+            if self.area_weights.shape != (self.size,):
+                raise ValueError("area_weights must match the flattened grid size.")

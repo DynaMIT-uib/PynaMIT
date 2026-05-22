@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.basis import EvaluableBasis
-from pynamit.primitives.grid import Grid
+from pynamit.sphere.core import SurfaceOperators, is_grid_basis
+from pynamit.sphere import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -27,18 +27,24 @@ class Timeseries:
     selecting data for the simulation.
     """
 
-    def __init__(self, cs_basis, storage_bases, vars):
+    def __init__(self, cs_basis, storage_bases, vars, area_weighted_least_squares=False):
         """Initialize the Timeseries class.
 
         Parameters
         ----------
-        state_grid : Grid
-            Grid object representing the state grid.
-        cs_basis : object
-            Object representing the coordinate system basis.
+        cs_basis : CSBasis
+            Cubed-sphere basis defining the simulation grid.
+        storage_bases : dict
+            Basis used to store each time-series group.
+        vars : dict
+            Variable names and field types for each group.
+        area_weighted_least_squares : bool, optional
+            Use default area weights when no explicit weights are
+            supplied for least-squares interpolation.
         """
         self.cs_basis = cs_basis
         self.storage_bases = storage_bases
+        self.area_weighted_least_squares = bool(area_weighted_least_squares)
 
         # Initialize variables and timeseries storage
         self.vars = vars
@@ -49,11 +55,19 @@ class Timeseries:
         self._full_save_required: dict[str, bool] = {}
         self._storage_kinds: dict[str, str] = {}
 
-        cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+        cs_grid = Grid(
+            theta=cs_basis.arr_theta,
+            phi=cs_basis.arr_phi,
+            area_weights=cs_basis.unit_area,
+        )
 
         self.storage_basis_evaluators = {}
         for key in self.storage_bases.keys():
-            self.storage_basis_evaluators[key] = BasisEvaluator(self.storage_bases[key], cs_grid)
+            self.storage_basis_evaluators[key] = BasisEvaluator(
+                self.storage_bases[key],
+                cs_grid,
+                area_weighted=self.area_weighted_least_squares,
+            )
 
         self.basis_multiindices = {}
         for key in self.vars.keys():
@@ -209,15 +223,27 @@ class Timeseries:
             provided.
         """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        input_basis_is_evaluable = isinstance(interpolation_basis, EvaluableBasis)
+        input_basis_has_surface_operators = isinstance(
+            interpolation_basis, SurfaceOperators
+        ) and not (
+            is_grid_basis(interpolation_basis)
+        )
 
-        if input_basis_is_evaluable and not hasattr(self, "input_basis_evaluators"):
+        if input_basis_has_surface_operators and not hasattr(self, "input_basis_evaluators"):
             self.input_basis_evaluators = {}
 
-        if input_basis_is_evaluable and not (
+        if input_basis_has_surface_operators and not (
             key in self.input_basis_evaluators
             and input_grid.theta.shape == self.input_basis_evaluators[key].grid.theta.shape
             and input_grid.phi.shape == self.input_basis_evaluators[key].grid.phi.shape
+            and sqrt_weights is None
+            and not self.input_basis_evaluators[key].explicit_sqrt_weights
+            and self.input_basis_evaluators[key].reg_lambda == reg_lambda
+            and self.input_basis_evaluators[key].pinv_rtol == pinv_rtol
+            and (
+                self.input_basis_evaluators[key].area_weighted
+                == self.area_weighted_least_squares
+            )
             and np.allclose(
                 input_grid.theta,
                 self.input_basis_evaluators[key].grid.theta,
@@ -237,13 +263,14 @@ class Timeseries:
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
+                area_weighted=self.area_weighted_least_squares,
             )
 
         for time_index in range(time.size):
             interpolated_data = {}
 
             for var in self.vars[key]:
-                if input_basis_is_evaluable:
+                if input_basis_has_surface_operators:
                     grid_values = input_data[var][time_index]
                     basis_evaluator = self.input_basis_evaluators[key]
                 else:

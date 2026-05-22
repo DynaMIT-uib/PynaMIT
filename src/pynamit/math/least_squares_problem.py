@@ -11,9 +11,9 @@ import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator
 
+from pynamit.math.backend import asarray, get_array_module
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.utils import asarray, get_array_module
 
 OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain, LinearMap]
 OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]

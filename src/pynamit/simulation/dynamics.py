@@ -6,17 +6,16 @@ coupling.
 
 import numpy as np
 import xarray as xr
-from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.grid import Grid
+from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.timeseries import Timeseries
-from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.utils import set_backend, to_jax, to_numpy, use_jax
+from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
@@ -68,6 +67,8 @@ class Dynamics(object):
         least_squares_preconditioner="pinv",
         artifact_storage="auto",
         backend="auto",
+        horizontal_basis_kind="SH",
+        area_weighted_least_squares=False,
     ):
         """Initialize the Dynamics class.
 
@@ -130,8 +131,21 @@ class Dynamics(object):
             setting (environment variable or previous choice).
             ``"numpy"``/``False`` enforce NumPy arrays, while
             ``"jax"``/``True`` enables JAX.
+        horizontal_basis_kind : {'SH', 'CS'}, optional
+            Basis requested for horizontal state coefficients and
+            surface operators. ``'SH'`` is the default. ``'CS'`` uses
+            cubed-sphere nodal coefficients and finite-difference
+            derivatives for horizontal surface operators. Radial
+            Laplace-continuation terms use the SH radial-continuation
+            basis.
+        area_weighted_least_squares : bool, optional
+            Use surface-area weights for least-squares projections when
+            no explicit ``sqrt_weights`` are supplied. Cubed-sphere
+            grids use their native cell areas; ordinary spherical grids
+            use ``sin(theta)``.
         """
         self.backend = set_backend(backend)
+        horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
 
         # Store setting arguments in xarray dataset.
         self.settings = xr.Dataset(
@@ -153,6 +167,8 @@ class Dynamics(object):
                 "vector_Br": int(vector_Br),
                 "vector_conductance": int(vector_conductance),
                 "vector_u": int(vector_u),
+                "horizontal_basis_kind": horizontal_basis_kind,
+                "area_weighted_least_squares": int(area_weighted_least_squares),
                 "t0": t0,
                 "save_steady_states": int(save_steady_states),
                 "integrator": integrator,
@@ -182,10 +198,17 @@ class Dynamics(object):
 
         PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
-        sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, Nmin=0)
-        sh_basis_zero_removed = SHBasis(self.settings.Nmax, self.settings.Mmax)
+        sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, mean_free=False)
+        sh_basis_mean_free = sh_basis.with_mean_free(True)
 
         cs_basis = CSBasis(self.settings.Ncs)
+        horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else sh_basis_mean_free
+        self.horizontal_basis = horizontal_basis
+        self.radial_continuation_basis = (
+            horizontal_basis
+            if horizontal_basis.supports_radial_potential_operators
+            else sh_basis_mean_free
+        )
 
         # Specify input format and load input data.
         self.input_vars = {
@@ -195,14 +218,29 @@ class Dynamics(object):
             "u": {"u": "tangential"},
         }
 
-        self.input_storage_bases = {
-            "jr": sh_basis_zero_removed,
-            "Br": sh_basis_zero_removed,
-            "conductance": sh_basis,
-            "u": sh_basis_zero_removed,
-        }
+        if horizontal_basis_kind == "CS":
+            self.input_storage_bases = {
+                "jr": cs_basis,
+                "Br": cs_basis,
+                "conductance": cs_basis,
+                "u": cs_basis,
+            }
+        else:
+            self.input_storage_bases = {
+                "jr": sh_basis_mean_free,
+                "Br": sh_basis_mean_free,
+                "conductance": sh_basis,
+                "u": sh_basis_mean_free,
+            }
 
-        self.input_timeseries = Timeseries(cs_basis, self.input_storage_bases, self.input_vars)
+        self.input_timeseries = Timeseries(
+            cs_basis,
+            self.input_storage_bases,
+            self.input_vars,
+            area_weighted_least_squares=bool(
+                self.settings.area_weighted_least_squares
+            ),
+        )
         self.input_timeseries.load_all(self.io)
 
         # Specify output format and load output data.
@@ -212,19 +250,34 @@ class Dynamics(object):
         }
 
         self.output_storage_bases = {
-            "state": sh_basis_zero_removed,
-            "steady_state": sh_basis_zero_removed,
+            "state": horizontal_basis,
+            "steady_state": horizontal_basis,
         }
 
-        self.output_timeseries = Timeseries(cs_basis, self.output_storage_bases, self.output_vars)
+        self.output_timeseries = Timeseries(
+            cs_basis,
+            self.output_storage_bases,
+            self.output_vars,
+            area_weighted_least_squares=bool(
+                self.settings.area_weighted_least_squares
+            ),
+        )
         self.output_timeseries.load_all(self.io)
 
-        self.interpolation_bases = {
-            "jr": sh_basis_zero_removed if bool(self.settings.vector_jr) else cs_basis,
-            "Br": sh_basis_zero_removed if bool(self.settings.vector_Br) else cs_basis,
-            "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
-            "u": sh_basis_zero_removed if bool(self.settings.vector_u) else cs_basis,
-        }
+        if horizontal_basis_kind == "CS":
+            self.interpolation_bases = {
+                "jr": cs_basis,
+                "Br": cs_basis,
+                "conductance": cs_basis,
+                "u": cs_basis,
+            }
+        else:
+            self.interpolation_bases = {
+                "jr": sh_basis_mean_free if bool(self.settings.vector_jr) else cs_basis,
+                "Br": sh_basis_mean_free if bool(self.settings.vector_Br) else cs_basis,
+                "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
+                "u": sh_basis_mean_free if bool(self.settings.vector_u) else cs_basis,
+            }
 
         self.mainfield = Mainfield(
             kind=self.settings.mainfield_kind,
@@ -236,12 +289,14 @@ class Dynamics(object):
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            sh_basis_zero_removed,
+            horizontal_basis,
             self.mainfield,
             cs_basis,
             self.settings,
             PFAC_matrix=PFAC_matrix_on_file,
+            radial_continuation_basis=self.radial_continuation_basis,
         )
+        self.horizontal_basis_evaluator = self.state.geometry.basis_evaluator
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
@@ -318,6 +373,7 @@ class Dynamics(object):
                 "state", self.current_time, interpolation=False
             )["m_ind"]
             inductive_m_ind = to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
+            inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
         elif run_inductive:
             if steady_state_initialization:
                 self.state.update(self.input_timeseries, self.current_time)
@@ -327,6 +383,7 @@ class Dynamics(object):
                 self.current_time = np.float64(0)
                 zeros = np.zeros(self.output_storage_bases["state"].index_length)
                 inductive_m_ind = to_jax(zeros) if use_jax() else zeros
+                inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
         elif "steady_state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["steady_state"].time.values)
         else:
@@ -437,17 +494,26 @@ class Dynamics(object):
         m_imp_noind : array-like
             Imposed magnetic field coefficients without induced effects.
         """
+        m_ind = self.state.project_scalar_mean_free(m_ind)
         E_coeffs_ind, m_imp_ind = self.state.calculate_ind_coeffs(m_ind)
 
-        E_coeffs = E_coeffs_noind + E_coeffs_ind
-        m_imp = m_imp_noind + m_imp_ind
+        E_coeffs = self.state.project_helmholtz_mean_free(E_coeffs_noind + E_coeffs_ind)
+        m_imp = self.state.project_scalar_mean_free(m_imp_noind + m_imp_ind)
 
         # Append current state to time series.
         state_data = {
             "m_ind": to_numpy(m_ind),
             "m_imp": to_numpy(m_imp),
-            "Phi": to_numpy(E_coeffs[0]),
-            "W": to_numpy(E_coeffs[1]),
+            "Phi": to_numpy(
+                self.state.geometry.helmholtz_curl_free_potential_operator.matvec(
+                    E_coeffs
+                )
+            ),
+            "W": to_numpy(
+                self.state.geometry.helmholtz_divergence_free_potential_operator.matvec(
+                    E_coeffs
+                )
+            ),
         }
 
         self.output_timeseries.add_entry(key, state_data, time=self.current_time)

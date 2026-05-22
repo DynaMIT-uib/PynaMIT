@@ -10,8 +10,8 @@ import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
 
+from pynamit.math.backend import asarray, get_array_module, use_jax
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.utils import asarray, get_array_module, use_jax
 
 MatrixShape: TypeAlias = tuple[int, int]
 VectorizedMapFunc: TypeAlias = Callable[[Any], Any]

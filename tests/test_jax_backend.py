@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from pynamit.math.tensor_operations import tensor_product
-from pynamit.utils import to_jax, to_numpy, use_jax
+from pynamit.math import to_jax, to_numpy, use_jax
 
 
 @pytest.mark.requires_jax

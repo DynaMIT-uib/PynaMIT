@@ -19,9 +19,9 @@ from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.tensor_chain import TensorChain
+from pynamit.math.backend import block_until_ready, get_array_module, to_numpy, to_jax, use_jax, xp
+from pynamit.sphere import Basis, CSBasis
 from pynamit.simulation.geometry import Geometry
-from pynamit.spherical_harmonics.sh_basis import SHBasis
-from pynamit.utils import block_until_ready, get_array_module, to_numpy, to_jax, use_jax, xp
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +38,26 @@ class State:
 
     def __init__(
         self,
-        basis: SHBasis,
+        basis: Basis,
         mainfield: Any,
-        cs_basis: SHBasis,
+        cs_basis: CSBasis,
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
+        radial_continuation_basis: Optional[Basis] = None,
     ) -> None:
         """Initialize the State object."""
         self.basis = basis
         self._init_settings(settings)
 
         # Encapsulate all geometry, mappings, and evaluators
-        self.geometry = Geometry(basis, cs_basis, mainfield, settings, PFAC_matrix)
+        self.geometry = Geometry(
+            basis,
+            cs_basis,
+            mainfield,
+            settings,
+            PFAC_matrix,
+            radial_continuation_basis=radial_continuation_basis,
+        )
 
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
@@ -85,6 +93,26 @@ class State:
         self.RM = None if settings.RM == 0 else settings.RM
         self.ih_constraint_scaling = settings.ih_constraint_scaling
         self.connect_hemispheres = bool(settings.connect_hemispheres)
+
+    @staticmethod
+    def _project_scalar_with_basis(basis: Any, coeffs: Any) -> Any:
+        """Apply a scalar gauge projection when available."""
+        projector = getattr(basis, "project_scalar_mean_free", None)
+        if not callable(projector):
+            return coeffs
+        return projector(coeffs)
+
+    def project_scalar_mean_free(self, coeffs: Any) -> Any:
+        """Project scalar-potential coefficients to a fixed gauge."""
+        projected = self._project_scalar_with_basis(self.basis, coeffs)
+        return projected
+
+    def project_helmholtz_mean_free(self, coeffs: Any) -> Any:
+        """Project Helmholtz-potential coefficients to a fixed gauge."""
+        projector = getattr(self.basis, "project_helmholtz_mean_free", None)
+        if not callable(projector):
+            return coeffs
+        return projector(coeffs)
 
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients."""
@@ -132,7 +160,10 @@ class State:
             eta_stacked = xp.stack(
                 [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
             )
-            G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
+            if self.etaP.basis.coefficients_are_compatible_with(self.basis):
+                G_eta = xp.asarray(self.geometry.basis_evaluator.G)
+            else:
+                G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
@@ -235,9 +266,12 @@ class State:
             operators, data_shapes = [], []
 
             # Radial current (jr) must match imposed field.
-            op_jr = self.geometry.jr_coeffs_to_j_apex * self.geometry.m_imp_to_jr.reshape((1, -1))
+            op_jr = (
+                as_linear_map(self.geometry.jr_coeffs_to_j_apex)
+                @ self.geometry.m_imp_to_jr_operator
+            )
             operators.append(op_jr)
-            data_shapes.append(op_jr.shape[:-1])
+            data_shapes.append(self.geometry.jr_coeffs_to_j_apex.shape[:-1])
 
             # E-field must map at low latitudes.
             if self.connect_hemispheres and self.E_map_constraint_operator is not None:
@@ -245,7 +279,7 @@ class State:
                 operators.append(op_E)
                 data_shapes.append(op_E.output_shape)
 
-            # Add Tikhonov regularizationif lambda is set.
+            # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
@@ -362,7 +396,7 @@ class State:
                 self._E_direct_to_m_imp_matrix, xp.asarray(E_direct_coeffs), axes=([1, 2], [0, 1])
             )
 
-        return solution
+        return self.project_scalar_mean_free(solution)
 
     # ----- State Update -----
 
@@ -380,11 +414,13 @@ class State:
                 self.etaP = FieldExpansion(storage_base, coeffs=updated_input["etaP"])
                 self.etaH = FieldExpansion(storage_base, coeffs=updated_input["etaH"])
             elif key == "jr":
-                self.jr = FieldExpansion(storage_base, coeffs=updated_input["jr"])
+                jr_coeffs = self._project_scalar_with_basis(storage_base, updated_input["jr"])
+                self.jr = FieldExpansion(storage_base, coeffs=jr_coeffs)
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                self.Br = FieldExpansion(storage_base, coeffs=updated_input["Br"])
+                br_coeffs = self._project_scalar_with_basis(storage_base, updated_input["Br"])
+                self.Br = FieldExpansion(storage_base, coeffs=br_coeffs)
             elif key == "u":
                 self.u = FieldExpansion(storage_base, coeffs=updated_input["u"].reshape((2, -1)))
 
@@ -419,9 +455,10 @@ class State:
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
     ) -> Tuple[np.ndarray, np.ndarray]:
         E_shape = (2, self.basis.index_length)
+        E_direct_coeffs = self.project_helmholtz_mean_free(E_direct_coeffs)
         m_imp = self._solve_for_m_imp(jr_coeffs, E_direct_coeffs)
         E_imp = self._apply_operator(self.m_imp_to_E_coeffs_dense, m_imp, E_shape)
-        return E_direct_coeffs + E_imp, m_imp
+        return self.project_helmholtz_mean_free(E_direct_coeffs + E_imp), m_imp
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
@@ -440,7 +477,9 @@ class State:
         """Calculate total E-field coefficients."""
         E_shape = (2, self.basis.index_length)
         E_direct_ind = self._apply_operator(
-            self.m_ind_to_E_coeffs_dense, xp.asarray(m_ind), E_shape
+            self.m_ind_to_E_coeffs_dense,
+            xp.asarray(self.project_scalar_mean_free(m_ind)),
+            E_shape,
         )
         return self._calculate_total_E_field(E_direct_ind, None)
 
@@ -466,17 +505,32 @@ class State:
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        n = self.basis.index_length
 
-        E_direct_matrix = to_numpy(self.m_ind_to_E_coeffs_dense).reshape((2, n, n))
-        E_df_matrix = E_direct_matrix[1].copy()
+        divergence_free_potential = to_numpy(
+            self.geometry.helmholtz_divergence_free_potential
+        )
+        E_direct_matrix = to_numpy(self.m_ind_to_E_coeffs_dense)
+        E_df_matrix = np.tensordot(
+            divergence_free_potential,
+            E_direct_matrix,
+            axes=([1, 2], [0, 1]),
+        )
 
         self._ensure_m_imp_response_matrices()
         if self._E_direct_to_m_imp_matrix is not None:
             E_direct_to_m_imp = to_numpy(self._E_direct_to_m_imp_matrix)
-            m_imp_matrix = np.tensordot(E_direct_to_m_imp, E_direct_matrix, axes=([1, 2], [0, 1]))
-            E_imp_matrix = to_numpy(self.m_imp_to_E_coeffs_dense).reshape((2, n, n))
-            E_df_matrix += E_imp_matrix[1] @ m_imp_matrix
+            m_imp_matrix = np.tensordot(
+                E_direct_to_m_imp,
+                E_direct_matrix,
+                axes=([1, 2], [0, 1]),
+            )
+            E_imp_matrix = to_numpy(self.m_imp_to_E_coeffs_dense)
+            E_imp_to_df = np.tensordot(
+                divergence_free_potential,
+                E_imp_matrix,
+                axes=([1, 2], [0, 1]),
+            )
+            E_df_matrix += E_imp_to_df @ m_imp_matrix
 
         self._m_ind_to_E_df_matrix = to_jax(E_df_matrix) if use_jax() else E_df_matrix
         logger.info("Dense induction operator built.")
@@ -490,7 +544,10 @@ class State:
         """
         # Total divergence-free E-field is the sum of induced and
         # non-induced parts.
-        E_df_total = self.m_ind_to_E_df_matrix @ m_ind + E_coeffs_noind[1]
+        E_df_total = self.m_ind_to_E_df_matrix @ m_ind
+        E_df_total += self.geometry.helmholtz_divergence_free_potential_operator.matvec(
+            E_coeffs_noind
+        )
 
         # Calculate the time derivative using the geometry operator.
         d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
@@ -514,7 +571,7 @@ class State:
 
         if self.integrator == "euler":
             d_m_ind_dt = self._calculate_d_m_ind_dt(backend_m_ind, backend_E_noind)
-            return backend_m_ind + dt * d_m_ind_dt
+            return self.project_scalar_mean_free(backend_m_ind + dt * d_m_ind_dt)
 
         elif self.integrator == "exponential":
             # The exponential integrator requires the dense operator
@@ -526,7 +583,7 @@ class State:
             diff = backend_m_ind - xp.asarray(steady_state_m_ind)
 
             evolved = expm(dt * to_numpy(op_A)) @ to_numpy(diff) + to_numpy(steady_state_m_ind)
-            return to_jax(evolved) if use_jax() else evolved
+            return self.project_scalar_mean_free(evolved)
 
         else:
             # Fallback to scipy.solve_ivp for other integrators
@@ -560,8 +617,12 @@ class State:
             # The result shape is (n_vars, n_times),
             # so we take the last time point.
             result = sol.y[:, -1]
-            return to_jax(result) if use_jax() else result
+            return self.project_scalar_mean_free(result)
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the steady-state induced potential."""
-        return self.E_noind_to_m_ind_steady_matrix @ xp.asarray(E_coeffs_noind[1])
+        E_noind_df = self.geometry.helmholtz_divergence_free_potential_operator.matvec(
+            E_coeffs_noind
+        )
+        steady = self.E_noind_to_m_ind_steady_matrix @ E_noind_df
+        return self.project_scalar_mean_free(steady)

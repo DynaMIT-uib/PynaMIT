@@ -13,14 +13,13 @@ import apexpy
 from dipole import Dipole
 from polplot import Polarplot
 import datetime
-from pynamit.primitives.grid import Grid
+from pynamit.sphere import Grid
 from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.io import IO
-from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.sphere import CSBasis, SHBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.spherical_harmonics.sh_basis import SHBasis
 from pynamit.math.constants import RE, mu0
 
 
@@ -124,11 +123,12 @@ class PynamEye(object):
         self.t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
         self.dp = Dipole(self.t0.year)
 
-        self.basis = SHBasis(settings.Nmax, settings.Mmax)
+        full_basis = SHBasis(settings.Nmax, settings.Mmax, mean_free=False)
+        self.basis = full_basis.with_mean_free(True)
 
         cNmax = int(self.datasets["conductance"].n.max())
         cMmax = int(self.datasets["conductance"].m.max())
-        self.conductance_basis = SHBasis(cNmax, cMmax, Nmin=0)
+        self.conductance_basis = SHBasis(cNmax, cMmax, mean_free=False)
 
         # Set up basis evaluator for wind.
         self.u_basis_evaluator = BasisEvaluator(self.basis, self.global_vector_grid)
@@ -184,10 +184,11 @@ class PynamEye(object):
         self.B_parameters_calculated = False
 
         # Prepare conversion factors for electromagnetic quantities.
-        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
-        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        surface_laplacian = np.asarray(self.basis.get_surface_laplacian_matrix(self.RI))
+        self.m_ind_to_Br = -(self.RI**2) * surface_laplacian
+        self.m_imp_to_jr = self.RI / mu0 * surface_laplacian
         self.W_to_dBr_dt = 1 / self.RI
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.coeffs_to_delta_V
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.boundary_potential_discontinuity
 
         # Calculate matrices to calculate current.
         self.G_B_pol_to_JS = {}
@@ -196,7 +197,9 @@ class PynamEye(object):
         self.G_m_imp_to_JS = {}
         for region in ["global", "north", "south"]:
             self.G_B_pol_to_JS[region] = (
-                -self.evaluator[region].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
+                -self.evaluator[region].G_rxgrad
+                * self.basis.boundary_potential_discontinuity
+                / mu0
             )
             self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
             self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
@@ -240,7 +243,9 @@ class PynamEye(object):
             self.bH_10 = -self.b_evaluator.br
 
             self.G_B_pol_to_JS = (
-                -self.evaluator["num"].G_rxgrad * self.basis.coeffs_to_delta_V / mu0
+                -self.evaluator["num"].G_rxgrad
+                * self.basis.boundary_potential_discontinuity
+                / mu0
             )
             self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
             self.G_m_ind_to_JS = self.G_B_pol_to_JS
@@ -283,11 +288,19 @@ class PynamEye(object):
         Eth -= uxB_theta
         Eph -= uxB_phi
 
-        self.m_Phi, self.m_W = np.split(
-            self.evaluator["num"].grid_to_basis(np.array([Eth, Eph]), helmholtz=True), 2
+        E_coeffs = self.evaluator["num"].grid_to_basis(
+            np.array([Eth, Eph]), helmholtz=True
         )
-        self.m_Phi = self.m_Phi * self.RI
-        self.m_W = self.m_W * self.RI
+        self.m_Phi = (
+            self.basis.get_helmholtz_curl_free_potential_operator().matvec(E_coeffs)
+            * self.RI
+        )
+        self.m_W = (
+            self.basis.get_helmholtz_divergence_free_potential_operator().matvec(
+                E_coeffs
+            )
+            * self.RI
+        )
 
     def _define_defaults(self):
         """Define default settings for various plots."""
@@ -631,7 +644,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.Br_defaults[key]
 
-        Br = self.evaluator[region].basis_to_grid(self.m_ind * self.m_ind_to_Br)
+        Br = self.evaluator[region].basis_to_grid(self.m_ind_to_Br @ self.m_ind)
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -675,7 +688,7 @@ class PynamEye(object):
             if key not in kwargs.keys():
                 kwargs[key] = self.jr_defaults[key]
 
-        jr = self.evaluator[region].basis_to_grid(self.m_imp * self.m_imp_to_jr)
+        jr = self.evaluator[region].basis_to_grid(self.m_imp_to_jr @ self.m_imp)
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 

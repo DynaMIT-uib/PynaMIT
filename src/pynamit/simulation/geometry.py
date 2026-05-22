@@ -13,13 +13,68 @@ import numpy as np
 import xarray as xr
 
 from pynamit.math.constants import mu0
-from pynamit.primitives.grid import Grid
-from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.math import as_linear_map
+from pynamit.sphere import Grid
+from pynamit.primitives.basis_evaluator import BasisEvaluator, resolve_sqrt_weights
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.math.tensor_operations import tensor_pinv
-from pynamit.spherical_harmonics.sh_basis import SHBasis
+from pynamit.math.tensor_operations import weighted_tensor_pinv
+from pynamit.sphere import Basis, CSBasis, is_sh_basis
 
 logger = logging.getLogger(__name__)
+
+
+def _compact_operator_array(operator):
+    """Return diagonal vector when possible, else dense matrix."""
+    to_dense = getattr(operator, "to_dense", None)
+    if callable(to_dense):
+        dense = np.asarray(to_dense())
+    elif hasattr(operator, "toarray"):
+        dense = np.asarray(operator.toarray())
+    else:
+        dense = np.asarray(operator)
+
+    if dense.ndim == 1:
+        return dense.copy()
+    if dense.ndim == 2 and dense.shape[0] == dense.shape[1]:
+        diagonal = np.diag(dense)
+        if np.allclose(dense, np.diag(diagonal), rtol=0.0, atol=0.0):
+            return diagonal
+    return dense
+
+
+def _diagonal_operator_values(operator):
+    """Return diagonal values from a diagonal operator."""
+    dense = _compact_operator_array(operator)
+    if dense.ndim == 1:
+        return dense.copy()
+    if dense.ndim != 2 or dense.shape[0] != dense.shape[1]:
+        raise ValueError("Expected a square diagonal operator.")
+    diagonal = np.diag(dense)
+    if not np.allclose(dense, np.diag(diagonal), rtol=0.0, atol=0.0):
+        raise ValueError("Expected a diagonal operator.")
+    return diagonal.copy()
+
+
+def _extended_scalar_basis_for_potential(basis, settings):
+    """Return the scalar potential basis including the monopole."""
+    del settings
+    if is_sh_basis(basis):
+        return basis.get_extended_basis()
+    return basis
+
+
+def _dense_operator_array(operator, input_length, output_length):
+    """Return an explicit dense operator array."""
+    values = np.asarray(operator)
+    if values.ndim == 1:
+        if values.size != output_length or input_length != output_length:
+            raise ValueError("Diagonal operator length does not match requested shape.")
+        return np.diag(values)
+    if values.shape != (output_length, input_length):
+        raise ValueError(
+            f"Operator has shape {values.shape}, expected {(output_length, input_length)}."
+        )
+    return values
 
 
 class Geometry:
@@ -33,15 +88,21 @@ class Geometry:
 
     def __init__(
         self,
-        basis: SHBasis,
-        cs_basis: SHBasis,
+        basis: Basis,
+        cs_basis: CSBasis,
         mainfield: Any,
         settings: Any,
         PFAC_matrix: Optional[xr.DataArray] = None,
+        radial_continuation_basis: Optional[Basis] = None,
     ) -> None:
         """Initialize the geometric context."""
         self.basis = basis
+        self.radial_continuation_basis = radial_continuation_basis or (
+            basis if basis.supports_radial_potential_operators else None
+        )
+        self.settings = settings
         self.mainfield = mainfield
+        self.cs_basis = cs_basis
 
         # Store relevant settings
         self.RI = settings.RI
@@ -50,6 +111,9 @@ class Geometry:
         self.latitude_boundary = settings.latitude_boundary
         self.ignore_PFAC = bool(settings.ignore_PFAC)
         self.FAC_integration_steps = settings.FAC_integration_steps
+        self.area_weighted_least_squares = bool(
+            getattr(settings, "area_weighted_least_squares", False)
+        )
 
         # Initialize core geometric objects
         self._init_evaluators(cs_basis)
@@ -68,35 +132,109 @@ class Geometry:
 
         self._G_m_ind_to_JS = None
         self._G_m_imp_to_JS = None
+        self._G_Br_to_JS = None
 
-        self.m_imp_to_jr = self.RI / mu0 * self.basis.laplacian(self.RI)
+        if not self.basis.supports_surface_potential_operators:
+            raise NotImplementedError(
+                f"{type(self.basis).__name__} does not provide surface-potential operators."
+            )
+
+        self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(
+            self.RI
+        )
+        self.helmholtz_curl_free_potential = (
+            self.basis.get_helmholtz_curl_free_potential_matrix()
+        )
+        self.helmholtz_curl_free_potential_operator = (
+            self.basis.get_helmholtz_curl_free_potential_operator()
+        )
+        self.helmholtz_divergence_free_potential = (
+            self.basis.get_helmholtz_divergence_free_potential_matrix()
+        )
+        self.helmholtz_divergence_free_potential_operator = (
+            self.basis.get_helmholtz_divergence_free_potential_operator()
+        )
+        self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
+        self.m_ind_to_Br_operator = -(self.RI**2) * self.surface_laplacian_operator
+        self.m_imp_to_jr = _compact_operator_array(self.m_imp_to_jr_operator)
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
-        self.m_ind_to_Br = -(self.RI**2) * self.basis.laplacian(self.RI)
-        Ve_to_J_df_coeffs = -self.RI / mu0 * self.basis.coeffs_to_delta_V
-        self.G_Ve_to_JS = (1.0 / self.RI) * self.basis_evaluator.G_rxgrad * Ve_to_J_df_coeffs
+        self.m_ind_to_Br = _compact_operator_array(self.m_ind_to_Br_operator)
+        if self.radial_continuation_basis is None:
+            raise NotImplementedError(
+                f"{type(self.basis).__name__} requires a radial Laplace continuation "
+                "for sheet-current coupling."
+            )
+
+        self.horizontal_to_radial_continuation = (
+            self._build_horizontal_to_radial_continuation()
+        )
+        self.radial_continuation_to_horizontal = (
+            self._build_radial_continuation_to_horizontal()
+        )
+        self.radial_boundary_potential_discontinuity = _dense_operator_array(
+            self.radial_continuation_basis.boundary_potential_discontinuity,
+            self.radial_continuation_basis.index_length,
+            self.radial_continuation_basis.index_length,
+        )
+        self.radial_Ve_to_JS = self._build_radial_potential_to_sheet_current()
+        self.sheet_current_potential = self._build_sheet_current_potential()
+        self.sheet_current_potential_operator = as_linear_map(
+            self.sheet_current_potential,
+            input_shape=(self.basis.index_length,),
+            output_shape=(self.radial_continuation_basis.index_length,),
+        )
+        self.G_Ve_to_JS = np.tensordot(
+            self.radial_Ve_to_JS,
+            self.horizontal_to_radial_continuation,
+            axes=([2], [0]),
+        )
 
         self._G_helmholtz_pinv = None
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
-        return np.tensordot(self.G_helmholtz_pinv, vec, 2)
+        coeffs = np.tensordot(self.G_helmholtz_pinv, vec, 2)
+        projector = getattr(self.basis, "project_helmholtz_mean_free", None)
+        return projector(coeffs) if callable(projector) else coeffs
 
     @property
     def G_helmholtz_pinv(self) -> np.ndarray:
         """Pseudo-inverse for horizontal vector field projections."""
         if self._G_helmholtz_pinv is None:
-            self._G_helmholtz_pinv = tensor_pinv(
-                self.basis_evaluator.G_helmholtz, n_leading_flattened=2
+            self._G_helmholtz_pinv = weighted_tensor_pinv(
+                self.basis_evaluator.G_helmholtz,
+                sqrt_weights=self.grid_sqrt_weights(vector=True),
+                n_leading_flattened=2,
             )
         return self._G_helmholtz_pinv
 
-    def _init_evaluators(self, cs_basis: SHBasis) -> None:
+    def _init_evaluators(self, cs_basis: CSBasis) -> None:
         """Set up grid, basis evaluators, and field evaluators."""
-        self.grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
-        self.basis_evaluator = BasisEvaluator(self.basis, self.grid)
-        self.basis_evaluator_zero_added = BasisEvaluator(
-            SHBasis(self.basis.Nmax, self.basis.Mmax, Nmin=0), self.grid
+        self.grid = Grid(
+            theta=cs_basis.arr_theta,
+            phi=cs_basis.arr_phi,
+            area_weights=cs_basis.unit_area,
         )
+        self.basis_evaluator = BasisEvaluator(
+            self.basis,
+            self.grid,
+            area_weighted=self.area_weighted_least_squares,
+        )
+        self.basis_evaluator_zero_added = BasisEvaluator(
+            _extended_scalar_basis_for_potential(self.basis, self.settings),
+            self.grid,
+            area_weighted=self.area_weighted_least_squares,
+        )
+        if self.radial_continuation_basis is None:
+            self.radial_continuation_evaluator = None
+        elif self.radial_continuation_basis is self.basis:
+            self.radial_continuation_evaluator = self.basis_evaluator
+        else:
+            self.radial_continuation_evaluator = BasisEvaluator(
+                self.radial_continuation_basis,
+                self.grid,
+                area_weighted=self.area_weighted_least_squares,
+            )
         self.b_evaluator = FieldEvaluator(self.mainfield, self.grid, self.RI)
 
         # Optional evaluators for the conjugate hemisphere
@@ -106,8 +244,69 @@ class Geometry:
                 self.RI, self.grid.theta, self.grid.phi
             )
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
-            self.cp_basis_evaluator = BasisEvaluator(self.basis, self.cp_grid)
+            self.cp_basis_evaluator = BasisEvaluator(
+                self.basis,
+                self.cp_grid,
+                area_weighted=self.area_weighted_least_squares,
+            )
             self.cp_b_evaluator = FieldEvaluator(self.mainfield, self.cp_grid, self.RI)
+
+    def grid_sqrt_weights(self, *, vector=False):
+        """Return grid sqrt weights when area weighting is enabled."""
+        return resolve_sqrt_weights(
+            self.grid,
+            area_weighted=self.area_weighted_least_squares,
+            vector=vector,
+        )
+
+    def _build_horizontal_to_radial_continuation(self) -> np.ndarray:
+        """Project horizontal scalar coefficients into radial space.
+
+        The horizontal basis owns surface operators.  The radial
+        continuation basis owns the regular/irregular Laplace solution
+        used for boundary sheet-current coupling.  For the CS horizontal
+        path this is a grid least-squares projection from CS nodal
+        values to the SH continuation coefficients; for the SH path it
+        is the identity.
+        """
+        if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
+            return np.eye(self.basis.index_length)
+        radial_to_grid = self.radial_continuation_evaluator.G
+        horizontal_to_grid = self.basis_evaluator.G
+        grid_to_radial = weighted_tensor_pinv(
+            radial_to_grid,
+            sqrt_weights=self.grid_sqrt_weights(),
+            n_leading_flattened=1,
+        )
+        return np.asarray(grid_to_radial @ horizontal_to_grid)
+
+    def _build_radial_continuation_to_horizontal(self) -> np.ndarray:
+        """Project radial coefficients to horizontal space."""
+        if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
+            return np.eye(self.basis.index_length)
+        horizontal_to_grid = self.basis_evaluator.G
+        radial_to_grid = self.radial_continuation_evaluator.G
+        grid_to_horizontal = weighted_tensor_pinv(
+            horizontal_to_grid,
+            sqrt_weights=self.grid_sqrt_weights(),
+            n_leading_flattened=1,
+        )
+        return np.asarray(grid_to_horizontal @ radial_to_grid)
+
+    def _build_radial_potential_to_sheet_current(self) -> np.ndarray:
+        """Return radial potential to sheet current on grid."""
+        return (1.0 / self.RI) * np.tensordot(
+            self.radial_continuation_evaluator.G_rxgrad,
+            (-self.RI / mu0) * self.radial_boundary_potential_discontinuity,
+            axes=([2], [0]),
+        )
+
+    def _build_sheet_current_potential(self) -> np.ndarray:
+        """Return horizontal scalar to radial boundary discontinuity."""
+        return (
+            self.radial_boundary_potential_discontinuity
+            @ self.horizontal_to_radial_continuation
+        )
 
     def _init_constraint_mappings(self) -> None:
         """Initialize geometric operators related to constraints."""
@@ -122,29 +321,33 @@ class Geometry:
         else:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
-        self.jr_coeffs_to_j_apex = (
-            self.b_evaluator.radial_to_apex.reshape((-1, 1)) * self.basis_evaluator.G
+        self.jr_coeffs_to_j_apex = np.asarray(
+            self.b_evaluator.radial_to_apex.reshape((-1, 1))
+            * self.basis_evaluator.G
         ).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
 
         if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
-            jr_coeffs_to_j_apex_cp = (
-                self.cp_b_evaluator.radial_to_apex.reshape((-1, 1)) * self.cp_basis_evaluator.G
+            jr_coeffs_to_j_apex_cp = np.asarray(
+                self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
+                * self.cp_basis_evaluator.G
             )
-            self.jr_coeffs_to_j_apex[self.ll_mask] -= jr_coeffs_to_j_apex_cp[self.ll_mask]
+            self.jr_coeffs_to_j_apex = self.jr_coeffs_to_j_apex - (
+                self.ll_mask.reshape((-1, 1)) * jr_coeffs_to_j_apex_cp
+            )
 
             # Create E-field mapping difference operator for constraint
             E_coeffs_to_E_apex = np.einsum(
                 "ijk,jklm->iklm",
                 self.b_evaluator.horizontal_to_apex,
-                self.basis_evaluator.G_helmholtz,
+                np.asarray(self.basis_evaluator.G_helmholtz),
                 optimize=True,
             )
             E_coeffs_to_E_apex_cp = np.einsum(
                 "ijk,jklm->iklm",
                 self.cp_b_evaluator.horizontal_to_apex,
-                self.cp_basis_evaluator.G_helmholtz,
+                np.asarray(self.cp_basis_evaluator.G_helmholtz),
                 optimize=True,
             )
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
@@ -190,6 +393,11 @@ class Geometry:
         self._T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
             return
+        if not self.radial_continuation_basis.supports_radial_potential_operators:
+            raise NotImplementedError(
+                "PFAC integration requires a radial-continuation basis with "
+                "radial potential operators."
+            )
 
         rk_steps = np.asarray(self.FAC_integration_steps)
         Delta_k = np.diff(rk_steps)
@@ -204,8 +412,13 @@ class Geometry:
                 "All FAC integration steps must be inside the magnetospheric boundary (RM)."
             )
 
-        JS_rk_to_Ve_rk = tensor_pinv(self.G_Ve_to_JS, n_leading_flattened=2, rtol=0)
-        m_imp_to_jr_coeffs = self.RI / mu0 * self.basis.laplacian(self.RI)
+        JS_rk_to_radial_Ve_rk = weighted_tensor_pinv(
+            self.radial_Ve_to_JS,
+            sqrt_weights=self.grid_sqrt_weights(vector=True),
+            n_leading_flattened=2,
+            rtol=0,
+        )
+        m_imp_to_jr_coeffs = self.m_imp_to_jr
 
         for i, rk in enumerate(rks):
             logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
@@ -217,7 +430,7 @@ class Geometry:
             mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
             mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
 
-            m_imp_to_jr_grid = mapped_basis_evaluator.scaled_G(m_imp_to_jr_coeffs)
+            m_imp_to_jr_grid = mapped_basis_evaluator.contract_G(m_imp_to_jr_coeffs)
             jr_to_JS_rk = np.array(
                 [
                     rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
@@ -226,23 +439,52 @@ class Geometry:
             )
             m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
 
-            Ve_rk_to_Ve = self.basis.radial_shift_Ve(rk, self.RI).reshape((-1, 1, 1))
+            radial_Ve_rk_to_Ve = _diagonal_operator_values(
+                self.radial_continuation_basis.external_potential_continuation(
+                    rk, self.RI
+                )
+            ).reshape((-1, 1, 1))
             if self.RM is not None:
-                Ve_rk_to_Ve -= (
-                    self.basis.radial_shift_Ve(self.RM, self.RI)
-                    * self.basis.radial_shift_Vi(rk, self.RM)
+                radial_Ve_rk_to_Ve -= (
+                    _diagonal_operator_values(
+                        self.radial_continuation_basis.external_potential_continuation(
+                            self.RM, self.RI
+                        )
+                    )
+                    * _diagonal_operator_values(
+                        self.radial_continuation_basis.internal_potential_continuation(
+                            rk, self.RM
+                        )
+                    )
                 ).reshape((-1, 1, 1))
                 factor = -1.0 / (
                     1.0
-                    - self.basis.radial_shift_Ve(self.RM, self.RI)
-                    * self.basis.radial_shift_Vi(self.RI, self.RM)
+                    - _diagonal_operator_values(
+                        self.radial_continuation_basis.external_potential_continuation(
+                            self.RM, self.RI
+                        )
+                    )
+                    * _diagonal_operator_values(
+                        self.radial_continuation_basis.internal_potential_continuation(
+                            self.RI, self.RM
+                        )
+                    )
                 )
             else:
                 factor = -1.0
 
-            JS_rk_to_Ve = JS_rk_to_Ve_rk * Ve_rk_to_Ve
-            self._T_to_Ve += (
-                Delta_k[i] * factor * np.tensordot(JS_rk_to_Ve, m_imp_to_JS_rk, axes=2)
+            JS_rk_to_radial_Ve = JS_rk_to_radial_Ve_rk * radial_Ve_rk_to_Ve
+            if np.ndim(factor) == 0:
+                JS_rk_to_radial_Ve *= factor
+            else:
+                JS_rk_to_radial_Ve *= np.asarray(factor).reshape((-1, 1, 1))
+            JS_rk_to_Ve = np.tensordot(
+                self.radial_continuation_to_horizontal,
+                JS_rk_to_radial_Ve,
+                axes=([1], [0]),
+            )
+            self._T_to_Ve += Delta_k[i] * np.tensordot(
+                JS_rk_to_Ve, m_imp_to_JS_rk, axes=2
             )
 
     # ----- G operators mapping to sheet current (JS) -----
@@ -251,7 +493,7 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_imp_to_JS is None:
-            G_T_to_JS = -1.0 / self.RI * self.basis_evaluator.G_grad * (self.RI / mu0)
+            G_T_to_JS = -self.basis_evaluator.G_grad / mu0
             self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
                 self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
             )
@@ -259,14 +501,53 @@ class Geometry:
 
     @property
     def G_m_ind_to_JS(self) -> np.ndarray:
-        """Operator mapping m_imp to sheet current on grid."""
+        """Operator mapping m_ind to sheet current on grid."""
         if self._G_m_ind_to_JS is None:
             G = self.G_Ve_to_JS.copy()
             if self.RM is not None:
-                br_shift = self.basis.radial_shift_Ve(self.RM, self.RI)
-                vi_shift = self.basis.radial_shift_Vi(self.RI, self.RM)
+                br_shift = _diagonal_operator_values(
+                    self.radial_continuation_basis.external_potential_continuation(
+                        self.RM, self.RI
+                    )
+                )
+                vi_shift = _diagonal_operator_values(
+                    self.radial_continuation_basis.internal_potential_continuation(
+                        self.RI, self.RM
+                    )
+                )
                 den = 1.0 - br_shift * vi_shift
-                self.G_Br_to_JS = self.G_Ve_to_JS * (-br_shift / den / self.m_ind_to_Br)
-                G *= 1.0 + (br_shift * vi_shift / den)
+                radial_m_ind_to_Br = _diagonal_operator_values(
+                    -(self.RI**2)
+                    * self.radial_continuation_basis.get_surface_laplacian_operator(
+                        self.RI
+                    )
+                )
+                br_to_radial_potential = (
+                    (-br_shift / den / radial_m_ind_to_Br).reshape((-1, 1))
+                    * self.horizontal_to_radial_continuation
+                )
+                self._G_Br_to_JS = np.tensordot(
+                    self.radial_Ve_to_JS,
+                    br_to_radial_potential,
+                    axes=([2], [0]),
+                )
+                m_ind_to_radial_potential = (
+                    (1.0 + (br_shift * vi_shift / den)).reshape((-1, 1))
+                    * self.horizontal_to_radial_continuation
+                )
+                G = np.tensordot(
+                    self.radial_Ve_to_JS,
+                    m_ind_to_radial_potential,
+                    axes=([2], [0]),
+                )
             self._G_m_ind_to_JS = G
         return self._G_m_ind_to_JS
+
+    @property
+    def G_Br_to_JS(self) -> Optional[np.ndarray]:
+        """Map boundary Br coefficients to sheet current."""
+        if self.RM is None:
+            return None
+        if self._G_Br_to_JS is None:
+            _ = self.G_m_ind_to_JS
+        return self._G_Br_to_JS

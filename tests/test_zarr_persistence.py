@@ -8,12 +8,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.cubed_sphere.cs_basis import CSBasis
+from pynamit.sphere import CSBasis, SHBasis
 from pynamit.default_run import run_pynamit
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.simulation.dynamics import Dynamics
-from pynamit.spherical_harmonics.sh_basis import SHBasis
 
 
 def _small_dataset(values: np.ndarray | None = None) -> xr.Dataset:

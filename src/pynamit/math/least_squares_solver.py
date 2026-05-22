@@ -9,9 +9,9 @@ from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
+from pynamit.math.backend import block_until_ready, get_array_module, to_numpy
 from .least_squares_problem import LeastSquaresProblem
 from .linear_map import LinearMap, as_linear_map, diagonal_linear_map
-from pynamit.utils import block_until_ready, get_array_module, to_numpy
 
 ITERATION_SAFETY_FACTOR: Final = 10
 LEAST_SQUARES_SOLVER_ENV: Final = "PYNAMIT_LEAST_SQUARES_SOLVER"

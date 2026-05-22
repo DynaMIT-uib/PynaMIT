@@ -6,8 +6,12 @@ import warnings
 from packaging import version
 import scipy
 
-from pynamit.primitives.basis import EvaluableBasis
-from pynamit.spherical_harmonics.helpers import SHIndices, schmidt_quasi_normalization_factors
+from pynamit.math.backend import get_array_module, to_numpy
+from pynamit.sphere.core import BasisView, RadialLaplaceContinuation, SurfaceOperators
+from pynamit.sphere.spherical_harmonics.helpers import (
+    SHIndices,
+    schmidt_quasi_normalization_factors,
+)
 
 # Conditional Import for SciPy Version Compatibility
 # Check the SciPy version to import the correct, available function.
@@ -40,7 +44,7 @@ def _double_factorial(n):
     return result
 
 
-class SHBasis(EvaluableBasis):
+class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
     """
     Class for representing spherical harmonic bases.
 
@@ -57,14 +61,18 @@ class SHBasis(EvaluableBasis):
         scipy function.
     """
 
-    kind = "SH"
-    index_names = None
-    index_length = None
-    index_arrays = None
-    minimum_phi_sampling = None
-    caching = True
+    supports_surface_potential_operators = True
+    supports_radial_potential_operators = True
 
-    def __init__(self, Nmax, Mmax, Nmin=1, quasi_normalized=True, backend="internal"):
+    def __init__(
+        self,
+        Nmax,
+        Mmax,
+        Nmin=None,
+        mean_free=None,
+        quasi_normalized=True,
+        backend="internal",
+    ):
         """
         Initialize the SHBasis instance.
 
@@ -75,7 +83,10 @@ class SHBasis(EvaluableBasis):
         Mmax : int
             Maximum order.
         Nmin : int, optional
-            Minimum degree, by default 1.
+            Minimum degree. Defaults to the mean-free scalar space.
+        mean_free : bool, optional
+            Whether scalar spaces omit the monopole term. If provided,
+            it must be consistent with ``Nmin``.
         quasi_normalized : bool, optional
             If True, applies Schmidt quasi-normalization factors. By
             default True.
@@ -86,15 +97,29 @@ class SHBasis(EvaluableBasis):
         if backend not in ["internal", "scipy"]:
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
 
-        self.Nmax, self.Mmax, self.backend = Nmax, Mmax, backend
+        if mean_free is None:
+            effective_nmin = 1 if Nmin is None else int(Nmin)
+        else:
+            effective_nmin = 1 if bool(mean_free) else 0
+            if Nmin is not None and int(Nmin) != effective_nmin:
+                raise ValueError(
+                    "SHBasis received inconsistent scalar-space options: "
+                    f"Nmin={Nmin} and mean_free={mean_free}."
+                )
+
+        self.Nmax, self.Mmax, self.Nmin, self.backend = Nmax, Mmax, effective_nmin, backend
+        self.mean_free = self.Nmin >= 1
+        self._related_basis_cache = {}
         all_indices = SHIndices(Nmax, Mmax)
         self.index_pairs = list(all_indices.index_pairs)
 
         self.cnm = SHIndices(Nmax, Mmax)
-        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin])
+        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= self.Nmin])
         self.cnm.make_arrays()
         self.snm = SHIndices(Nmax, Mmax)
-        self.snm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= Nmin and p[1] >= 1])
+        self.snm.index_pairs = tuple(
+            [p for p in self.index_pairs if p[0] >= self.Nmin and p[1] >= 1]
+        )
         self.snm.make_arrays()
 
         self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
@@ -131,6 +156,147 @@ class SHBasis(EvaluableBasis):
         self.minimum_phi_sampling = 2 * Mmax + 1
         self.caching = True
         self.validate_metadata()
+
+    @property
+    def coefficient_space_signature(self):
+        """Return a signature for SH coefficient compatibility."""
+        return (
+            "SH",
+            int(self.Nmax),
+            int(self.Mmax),
+            int(self.Nmin),
+            bool(self.is_normalized),
+        )
+
+    @property
+    def kind(self):
+        """Short identifier for the basis."""
+        return self._kind
+
+    @kind.setter
+    def kind(self, value):
+        self._kind = value
+
+    @property
+    def index_names(self):
+        """Names of indices used in the basis."""
+        return self._index_names
+
+    @index_names.setter
+    def index_names(self, value):
+        self._index_names = value
+
+    @property
+    def index_length(self):
+        """Total number of basis functions."""
+        return self._index_length
+
+    @index_length.setter
+    def index_length(self, value):
+        self._index_length = value
+
+    @property
+    def index_arrays(self):
+        """Arrays of indices used in the basis."""
+        return self._index_arrays
+
+    @index_arrays.setter
+    def index_arrays(self, value):
+        self._index_arrays = value
+
+    @property
+    def minimum_phi_sampling(self):
+        """Minimum required sampling in phi direction."""
+        return self._minimum_phi_sampling
+
+    @minimum_phi_sampling.setter
+    def minimum_phi_sampling(self, value):
+        self._minimum_phi_sampling = value
+
+    @property
+    def caching(self):
+        """Whether basis evaluations can be cached."""
+        return self._caching
+
+    @caching.setter
+    def caching(self, value):
+        self._caching = bool(value)
+
+    def scalar_fields_are_mean_free_by_construction(self):
+        """Return whether scalar coefficients omit the monopole."""
+        return self.mean_free
+
+    def scalar_index_length(self, mean_free=None):
+        """Return scalar coefficient count."""
+        return int(self.scalar_degrees(mean_free=mean_free).size)
+
+    def scalar_degrees(self, mean_free=None):
+        """Return harmonic degrees for the requested scalar space."""
+        target_mean_free = self.mean_free if mean_free is None else bool(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.n
+        if target_mean_free:
+            return self.n[1:]
+        return np.concatenate([np.array([0], dtype=self.n.dtype), self.n])
+
+    def scalar_orders(self, mean_free=None):
+        """Return harmonic orders for the requested scalar space."""
+        target_mean_free = self.mean_free if mean_free is None else bool(mean_free)
+        if target_mean_free == self.mean_free:
+            return self.m
+        if target_mean_free:
+            return self.m[1:]
+        return np.concatenate([np.array([0], dtype=self.m.dtype), self.m])
+
+    def scalar_index_arrays(self, mean_free=None):
+        """Return ``(n, m)`` arrays for the requested scalar space."""
+        return self.scalar_degrees(mean_free=mean_free), self.scalar_orders(mean_free=mean_free)
+
+    def get_extended_basis(self):
+        """Return a sibling basis that includes the monopole term."""
+        return self.with_mean_free(False)
+
+    def with_mean_free(self, mean_free):
+        """Return a cached SH scalar-space basis or view."""
+        target_mean_free = bool(mean_free)
+        if target_mean_free == self.mean_free:
+            return self
+        if target_mean_free in self._related_basis_cache:
+            return self._related_basis_cache[target_mean_free]
+
+        if not self.mean_free and target_mean_free:
+            coefficient_indices = np.flatnonzero(self.n >= 1)
+            sibling = BasisView(
+                self,
+                coefficient_indices,
+                metadata={
+                    "Nmax": self.Nmax,
+                    "Mmax": self.Mmax,
+                    "Nmin": 1,
+                    "mean_free": True,
+                    "backend": self.backend,
+                    "is_normalized": self.is_normalized,
+                },
+                coefficient_space_signature=(
+                    "SH",
+                    int(self.Nmax),
+                    int(self.Mmax),
+                    1,
+                    bool(self.is_normalized),
+                ),
+                view_name="mean_free",
+            )
+        else:
+            sibling = SHBasis(
+                self.Nmax,
+                self.Mmax,
+                mean_free=target_mean_free,
+                quasi_normalized=self.is_normalized,
+                backend=self.backend,
+            )
+        self._related_basis_cache[target_mean_free] = sibling
+        sibling._related_basis_cache[bool(self.mean_free)] = self
+        return sibling
 
     def _compute_scipy_scaling_factors(self):
         """Calculate the analytical scaling factor.
@@ -198,19 +364,40 @@ class SHBasis(EvaluableBasis):
         dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
         return P_scaled, dP_scaled
 
-    def get_G(self, grid, derivative=None, cache_in=None, cache_out=False):
-        """Compute basis functions G on the provided grid."""
-        phi, theta = np.deg2rad(grid.phi), np.deg2rad(grid.theta)
+    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+        """Evaluate scalar basis or surface derivatives on ``grid``."""
+        xp = get_array_module(grid.phi, grid.theta)
+        phi = np.deg2rad(to_numpy(grid.phi))
+        theta = np.deg2rad(to_numpy(grid.theta))
+        cached_P, cached_dP = (
+            cache_in if isinstance(cache_in, tuple) else (cache_in, None)
+        )
+        sin_theta_values = np.sin(theta)
+        needs_legendre_derivative = derivative == "theta" or (
+            derivative == "phi" and np.any(np.abs(sin_theta_values) <= 1e-12)
+        )
 
         if self.backend == "internal":
-            P_unnormalized = self.legendre(theta)
-            dP_unnormalized = (
-                self.legendre_derivative(theta, P=P_unnormalized) if derivative else None
+            P_unnormalized = (
+                cached_P if cached_P is not None else self.legendre(theta)
             )
+            if needs_legendre_derivative:
+                dP_unnormalized = (
+                    cached_dP
+                    if cached_dP is not None
+                    else self.legendre_derivative(theta, P=P_unnormalized)
+                )
+            else:
+                dP_unnormalized = cached_dP
         else:  # backend == 'scipy'
-            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
-                theta, compute_derivative=bool(derivative)
-            )
+            if cached_P is not None and (
+                not needs_legendre_derivative or cached_dP is not None
+            ):
+                P_unnormalized, dP_unnormalized = cached_P, cached_dP
+            else:
+                P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
+                    theta, compute_derivative=needs_legendre_derivative
+                )
 
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
@@ -222,7 +409,7 @@ class SHBasis(EvaluableBasis):
             Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         elif derivative == "phi":
-            sin_theta = np.sin(theta).reshape(-1, 1)
+            sin_theta = sin_theta_values.reshape(-1, 1)
             phi_col = phi.reshape(-1, 1)
             is_pole = np.abs(sin_theta) <= 1e-12
             m_c, m_s = self.cnm.m, self.snm.m
@@ -243,9 +430,15 @@ class SHBasis(EvaluableBasis):
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 
+        matrix = xp.asarray(np.hstack((Gc, Gs)))
         if cache_out:
-            return np.hstack((Gc, Gs)), P_unnormalized
-        return np.hstack((Gc, Gs))
+            cache = (
+                (P_unnormalized, dP_unnormalized)
+                if dP_unnormalized is not None
+                else P_unnormalized
+            )
+            return matrix, cache
+        return matrix
 
     def legendre(self, theta):
         """Compute un-normalized Legendre functions."""
@@ -288,22 +481,21 @@ class SHBasis(EvaluableBasis):
                     dP[:, nm] -= Knm * dP[:, prev2_idx]
         return dP
 
-    # --- Other methods are unchanged ---
     def laplacian(self, r=1.0):
         """Factor to apply the spherical harmonic Laplacian operator."""
-        return -self.n * (self.n + 1) / r**2
+        return get_array_module().asarray(-self.n * (self.n + 1) / r**2)
 
-    def radial_shift_Ve(self, start, end):
-        """Factor to radially shift external potential coefficients."""
-        return (start / end) ** (1 - self.n)
+    def external_potential_continuation(self, start, end):
+        """Continue external-potential coefficients."""
+        return get_array_module().asarray((start / end) ** (1 - self.n))
 
-    def radial_shift_Vi(self, start, end):
-        """Factor to radially shift internal potential coefficients."""
-        return (start / end) ** (self.n + 2)
+    def internal_potential_continuation(self, start, end):
+        """Continue internal-potential coefficients."""
+        return get_array_module().asarray((start / end) ** (self.n + 2))
 
     @property
-    def coeffs_to_delta_V(self):
-        """Factor to convert coefficients to delta V at unit radius."""
-        if not hasattr(self, "_coeffs_to_delta_V"):
-            self._coeffs_to_delta_V = 2 * self.n + 1
-        return self._coeffs_to_delta_V
+    def boundary_potential_discontinuity(self):
+        """Scale coefficients to the boundary discontinuity."""
+        if not hasattr(self, "_boundary_potential_discontinuity"):
+            self._boundary_potential_discontinuity = 2 * self.n + 1
+        return get_array_module().asarray(self._boundary_potential_discontinuity)

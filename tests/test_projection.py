@@ -9,12 +9,9 @@ vector fields on cubed sphere blocks
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pynamit.cubed_sphere import cs_basis
-from pynamit.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
-from importlib import reload
+from pynamit.sphere.cubed_sphere import cs_basis
+from pynamit.sphere.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
 import cartopy.crs as ccrs
-
-reload(cs_basis)
 
 p = cs_basis.CSBasis()
 

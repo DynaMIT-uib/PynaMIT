@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 from scipy.sparse.linalg import LinearOperator
 
-from pynamit.utils import asarray, get_array_module, to_numpy
+from pynamit.math.backend import asarray, get_array_module, to_numpy
 
 _EINSUM_BATCH_LABELS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
