@@ -4,6 +4,7 @@ This module contains the FieldExpansion class for representing fields as
 basis expansions.
 """
 
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere.core import is_grid_basis
 
 
@@ -25,7 +26,7 @@ class FieldExpansion(object):
     """
 
     def __init__(
-        self, basis, coeffs=None, basis_evaluator=None, grid_values=None, field_type="scalar"
+        self, basis, coeffs=None, basis_evaluator=None, grid_values=None, field_type=None
     ):
         """Initialize the field expansion.
 
@@ -53,16 +54,31 @@ class FieldExpansion(object):
             If `field_type` is invalid or if insufficient initialization
             parameters are provided.
         """
+        if isinstance(basis, FieldSpace):
+            field_type = basis.field_type if field_type is None else field_type
+        elif field_type is None:
+            field_type = "scalar"
+
         if field_type not in ["scalar", "tangential"]:
             raise ValueError("field type must be either 'scalar' or 'tangential'.")
 
-        self.basis = basis
-        self.field_type = field_type
+        self.field_space = FieldSpace.from_basis(basis, field_type=field_type)
+        self.basis = self.field_space.basis
+        self.field_type = self.field_space.field_type
+        self.mean_free = self.field_space.mean_free
 
         if coeffs is not None:
-            self.coeffs = coeffs
+            self.coeffs = self.field_space.validate_coefficients(
+                self.field_space.project_mean_free(coeffs),
+                name="FieldExpansion.coeffs",
+            )
         elif (basis_evaluator is not None) and (grid_values is not None):
-            self.coeffs = self.coeffs_from_grid(basis_evaluator, grid_values)
+            self.coeffs = self.field_space.validate_coefficients(
+                self.field_space.project_mean_free(
+                    self.coeffs_from_grid(basis_evaluator, grid_values)
+                ),
+                name="FieldExpansion.coeffs",
+            )
         else:
             raise ValueError("Either coeffs or basis evaluator and grid values must be provided.")
 

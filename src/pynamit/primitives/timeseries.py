@@ -66,6 +66,7 @@ class Timeseries:
                 )
                 for key, basis in storage_bases_or_vars.items()
             }
+        self.variables = self.vars
 
         self.storage_bases = {
             key: field_space.basis for key, field_space in self.field_spaces.items()
@@ -99,6 +100,14 @@ class Timeseries:
         """Validate or construct one field-space descriptor."""
         common_field_type = self._common_field_type(key)
         return FieldSpace.from_basis(field_space, field_type=common_field_type)
+
+    def get_storage_spec(self, key):
+        """Return the field-space descriptor for one stored series."""
+        return self.field_spaces[key]
+
+    def get_data_var_name(self, key, var):
+        """Return the stored xarray variable name for one series variable."""
+        return f"{self.get_storage_spec(key).kind}_{var}"
 
     def load_all(self, io):
         """Load all persisted timeseries datasets."""
@@ -153,9 +162,10 @@ class Timeseries:
         data_vars = {}
         for var in data:
             values = self.field_spaces[key].validate_coefficients(
-                data[var], name=f"{key}.{var}"
+                self.field_spaces[key].project_mean_free(data[var]),
+                name=f"{key}.{var}",
             )
-            data_vars[self.storage_bases[key].kind + "_" + var] = (
+            data_vars[self.get_data_var_name(key, var)] = (
                 ["time", "i"],
                 values.reshape((1, -1)),
             )
@@ -268,7 +278,7 @@ class Timeseries:
 
             for var in self.vars[key]:
                 current_data[var] = dataset_before[
-                    self.storage_bases[key].kind + "_" + var
+                    self.get_data_var_name(key, var)
                 ].values.flatten()
 
             # If requested, add linear interpolation correction.
@@ -284,10 +294,10 @@ class Timeseries:
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
                             dataset_after[
-                                self.storage_bases[key].kind + "_" + var
+                                self.get_data_var_name(key, var)
                             ].values.flatten()
                             - dataset_before[
-                                self.storage_bases[key].kind + "_" + var
+                                self.get_data_var_name(key, var)
                             ].values.flatten()
                         )
                     )

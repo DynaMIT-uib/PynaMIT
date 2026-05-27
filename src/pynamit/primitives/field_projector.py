@@ -270,9 +270,8 @@ class FieldProjector:
     def _grid_to_coefficients(self, basis_evaluator, grid_values):
         """Fit one grid-value slice to the target field space."""
         expansion = FieldExpansion(
-            basis_evaluator.basis,
+            self.field_space,
             basis_evaluator=basis_evaluator,
             grid_values=grid_values,
-            field_type=self.field_space.field_type,
         )
         return expansion.coeffs

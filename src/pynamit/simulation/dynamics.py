@@ -227,6 +227,12 @@ class Dynamics(object):
                 "conductance": cs_basis,
                 "u": cs_basis,
             }
+            input_mean_free = {
+                "jr": True,
+                "Br": True,
+                "conductance": False,
+                "u": True,
+            }
         else:
             self.input_storage_bases = {
                 "jr": sh_basis_mean_free,
@@ -234,9 +240,12 @@ class Dynamics(object):
                 "conductance": sh_basis,
                 "u": sh_basis_mean_free,
             }
+            input_mean_free = None
 
         self.input_field_spaces = self._field_spaces_from_bases(
-            self.input_storage_bases, self.input_vars
+            self.input_storage_bases,
+            self.input_vars,
+            mean_free_by_key=input_mean_free,
         )
 
         self.input_timeseries = Timeseries(
@@ -260,7 +269,9 @@ class Dynamics(object):
         }
 
         self.output_field_spaces = self._field_spaces_from_bases(
-            self.output_storage_bases, self.output_vars
+            self.output_storage_bases,
+            self.output_vars,
+            mean_free_by_key={"state": True, "steady_state": True},
         )
 
         self.output_timeseries = Timeseries(
@@ -330,7 +341,7 @@ class Dynamics(object):
             self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
 
     @staticmethod
-    def _field_spaces_from_bases(storage_bases, variables):
+    def _field_spaces_from_bases(storage_bases, variables, mean_free_by_key=None):
         """Return field-space descriptors for time-series schemas."""
         field_spaces = {}
         for key, basis in storage_bases.items():
@@ -342,7 +353,11 @@ class Dynamics(object):
             field_spaces[key] = FieldSpace.from_basis(
                 basis,
                 field_type=field_types.pop(),
-                mean_free=getattr(basis, "mean_free", False),
+                mean_free=(
+                    getattr(basis, "mean_free", False)
+                    if mean_free_by_key is None
+                    else mean_free_by_key.get(key, getattr(basis, "mean_free", False))
+                ),
             )
         return field_spaces
 

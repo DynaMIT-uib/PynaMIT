@@ -38,6 +38,11 @@ class FieldSpace:
                     f"FieldSpace already has field_type={basis.field_type!r}, "
                     f"not {field_type!r}."
                 )
+            if mean_free is not None and basis.mean_free != bool(mean_free):
+                raise ValueError(
+                    f"FieldSpace already has mean_free={basis.mean_free!r}, "
+                    f"not {bool(mean_free)!r}."
+                )
             return basis
         if mean_free is None:
             mean_free = bool(getattr(basis, "mean_free", False))
@@ -88,6 +93,19 @@ class FieldSpace:
         return [
             np.tile(values, self.component_count) for values in self.index_arrays
         ]
+
+    def project_mean_free(self, coeffs):
+        """Apply the basis gauge projector when this field space requests it."""
+        array = np.asarray(coeffs)
+        if not self.mean_free:
+            return array
+
+        if self.field_type == "scalar":
+            projector = getattr(self.basis, "project_scalar_mean_free", None)
+        else:
+            projector = getattr(self.basis, "project_helmholtz_mean_free", None)
+
+        return projector(array) if callable(projector) else array
 
     def validate_coefficients(self, coeffs, *, name="coefficients"):
         """Return coefficients as an array after length validation."""

@@ -80,6 +80,23 @@ def test_io_explicit_zarr_requires_dependency(tmp_path, monkeypatch):
         io.save_dataset(_small_dataset(), "state")
 
 
+def test_io_auto_zarr_permission_error_is_not_silent(tmp_path, monkeypatch):
+    """Permission failures should stop instead of silently changing format."""
+    monkeypatch.setattr(IO, "zarr_available", staticmethod(lambda: True))
+
+    def raising_to_zarr(self, store, *args, **kwargs):
+        raise PermissionError("simulated zarr permission failure")
+
+    monkeypatch.setattr(xr.Dataset, "to_zarr", raising_to_zarr)
+    io = IO(tmp_path / "run")
+
+    with pytest.raises(PermissionError, match="simulated zarr permission failure"):
+        io.save_dataset(_small_dataset(), "state")
+
+    assert not (tmp_path / "run" / "state.ncdf").exists()
+    assert not (tmp_path / "run" / "state.zarr").exists()
+
+
 def test_io_roundtrips_real_zarr_when_available(tmp_path):
     """Datasets and data arrays can be persisted as real zarr stores."""
     pytest.importorskip("zarr")

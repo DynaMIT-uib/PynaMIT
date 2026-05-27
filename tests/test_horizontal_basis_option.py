@@ -40,6 +40,11 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
     assert dynamics.horizontal_basis is dynamics.state.basis
     assert dynamics.radial_continuation_basis is not dynamics.horizontal_basis
     assert dynamics.radial_continuation_basis.supports_radial_potential_operators
+    assert dynamics.input_field_spaces["jr"].mean_free
+    assert dynamics.input_field_spaces["Br"].mean_free
+    assert dynamics.input_field_spaces["u"].mean_free
+    assert not dynamics.input_field_spaces["conductance"].mean_free
+    assert dynamics.output_field_spaces["state"].mean_free
 
 
 def test_area_weighted_least_squares_option_is_persisted(tmp_path):
