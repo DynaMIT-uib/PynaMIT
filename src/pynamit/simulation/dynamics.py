@@ -6,14 +6,14 @@ coupling.
 
 import numpy as np
 import xarray as xr
-from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
+from pynamit.sphere import normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_projector import FieldProjector
-from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
+from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.primitives.timeseries import Timeseries
@@ -200,53 +200,16 @@ class Dynamics(object):
 
         PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
 
-        sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, mean_free=False)
-        sh_basis_mean_free = sh_basis.with_mean_free(True)
+        self.schema = build_simulation_schema(self.settings, horizontal_basis_kind)
+        self.cs_basis = self.schema.cs_basis
+        self.sh_basis = self.schema.sh_basis
+        self.sh_basis_mean_free = self.schema.sh_basis_mean_free
+        self.horizontal_basis = self.schema.horizontal_basis
+        self.radial_continuation_basis = self.schema.radial_continuation_basis
 
-        cs_basis = CSBasis(self.settings.Ncs)
-        horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else sh_basis_mean_free
-        self.horizontal_basis = horizontal_basis
-        self.radial_continuation_basis = (
-            horizontal_basis
-            if horizontal_basis.supports_radial_potential_operators
-            else sh_basis_mean_free
-        )
-
-        # Specify input format and load input data.
-        self.input_vars = {
-            "jr": {"jr": "scalar"},
-            "Br": {"Br": "scalar"},
-            "conductance": {"etaP": "scalar", "etaH": "scalar"},
-            "u": {"u": "tangential"},
-        }
-
-        if horizontal_basis_kind == "CS":
-            self.input_storage_bases = {
-                "jr": cs_basis,
-                "Br": cs_basis,
-                "conductance": cs_basis,
-                "u": cs_basis,
-            }
-            input_mean_free = {
-                "jr": True,
-                "Br": True,
-                "conductance": False,
-                "u": True,
-            }
-        else:
-            self.input_storage_bases = {
-                "jr": sh_basis_mean_free,
-                "Br": sh_basis_mean_free,
-                "conductance": sh_basis,
-                "u": sh_basis_mean_free,
-            }
-            input_mean_free = None
-
-        self.input_field_spaces = self._field_spaces_from_bases(
-            self.input_storage_bases,
-            self.input_vars,
-            mean_free_by_key=input_mean_free,
-        )
+        self.input_vars = self.schema.input_vars
+        self.input_storage_bases = self.schema.input_storage_bases
+        self.input_field_spaces = self.schema.input_field_spaces
 
         self.input_timeseries = Timeseries(
             self.input_field_spaces,
@@ -257,22 +220,9 @@ class Dynamics(object):
         )
         self.input_timeseries.load_all(self.io)
 
-        # Specify output format and load output data.
-        self.output_vars = {
-            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-        }
-
-        self.output_storage_bases = {
-            "state": horizontal_basis,
-            "steady_state": horizontal_basis,
-        }
-
-        self.output_field_spaces = self._field_spaces_from_bases(
-            self.output_storage_bases,
-            self.output_vars,
-            mean_free_by_key={"state": True, "steady_state": True},
-        )
+        self.output_vars = self.schema.output_vars
+        self.output_storage_bases = self.schema.output_storage_bases
+        self.output_field_spaces = self.schema.output_field_spaces
 
         self.output_timeseries = Timeseries(
             self.output_field_spaces,
@@ -283,25 +233,12 @@ class Dynamics(object):
         )
         self.output_timeseries.load_all(self.io)
 
-        if horizontal_basis_kind == "CS":
-            self.interpolation_bases = {
-                "jr": cs_basis,
-                "Br": cs_basis,
-                "conductance": cs_basis,
-                "u": cs_basis,
-            }
-        else:
-            self.interpolation_bases = {
-                "jr": sh_basis_mean_free if bool(self.settings.vector_jr) else cs_basis,
-                "Br": sh_basis_mean_free if bool(self.settings.vector_Br) else cs_basis,
-                "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
-                "u": sh_basis_mean_free if bool(self.settings.vector_u) else cs_basis,
-            }
+        self.interpolation_bases = self.schema.interpolation_bases
 
         self.input_projectors = {
             key: FieldProjector(
                 self.input_field_spaces[key],
-                target_grid_basis=cs_basis,
+                target_grid_basis=self.cs_basis,
                 area_weighted_least_squares=bool(
                     self.settings.area_weighted_least_squares
                 ),
@@ -319,9 +256,9 @@ class Dynamics(object):
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            horizontal_basis,
+            self.horizontal_basis,
             self.mainfield,
-            cs_basis,
+            self.cs_basis,
             self.settings,
             PFAC_matrix=PFAC_matrix_on_file,
             radial_continuation_basis=self.radial_continuation_basis,
@@ -343,23 +280,7 @@ class Dynamics(object):
     @staticmethod
     def _field_spaces_from_bases(storage_bases, variables, mean_free_by_key=None):
         """Return field-space descriptors for time-series schemas."""
-        field_spaces = {}
-        for key, basis in storage_bases.items():
-            field_types = {variables[key][var] for var in variables[key]}
-            if len(field_types) != 1:
-                raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or invalid input type"
-                )
-            field_spaces[key] = FieldSpace.from_basis(
-                basis,
-                field_type=field_types.pop(),
-                mean_free=(
-                    getattr(basis, "mean_free", False)
-                    if mean_free_by_key is None
-                    else mean_free_by_key.get(key, getattr(basis, "mean_free", False))
-                ),
-            )
-        return field_spaces
+        return field_spaces_from_bases(storage_bases, variables, mean_free_by_key)
 
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
