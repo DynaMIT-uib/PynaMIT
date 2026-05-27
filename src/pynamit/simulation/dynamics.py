@@ -13,10 +13,10 @@ from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_projector import FieldProjector
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
-from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
+from pynamit.simulation.data import SimulationData
+from pynamit.simulation.schema import field_spaces_from_bases
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
-from pynamit.primitives.timeseries import Timeseries
 from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -179,28 +179,19 @@ class Dynamics(object):
             }
         )
 
-        self.uses_temporary_run_directory = run_directory is None
-        if self.uses_temporary_run_directory:
-            run_directory = IO.build_temporary_run_directory()
-
-        self.io = IO(
+        self.data = SimulationData.create(
+            self.settings,
             run_directory=run_directory,
-            preferred_dataset_storage=artifact_storage,
+            artifact_storage=artifact_storage,
+            horizontal_basis_kind=horizontal_basis_kind,
+            area_weighted_least_squares=self.settings.area_weighted_least_squares,
+            print_info=True,
         )
-        self.run_directory = self.io.run_directory
+        self.uses_temporary_run_directory = self.data.uses_temporary_run_directory
+        self.io = self.data.io
+        self.run_directory = self.data.run_directory
 
-        # Check if settings are consistent with previously saved runs.
-        settings_on_file = self.io.load_dataset("settings", print_info=True)
-
-        if settings_on_file is not None:
-            if not self.settings.identical(settings_on_file):
-                raise ValueError(
-                    "Mismatch between Dynamics object arguments and settings on file."
-                )
-
-        PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
-
-        self.schema = build_simulation_schema(self.settings, horizontal_basis_kind)
+        self.schema = self.data.schema
         self.cs_basis = self.schema.cs_basis
         self.sh_basis = self.schema.sh_basis
         self.sh_basis_mean_free = self.schema.sh_basis_mean_free
@@ -210,28 +201,12 @@ class Dynamics(object):
         self.input_vars = self.schema.input_vars
         self.input_storage_bases = self.schema.input_storage_bases
         self.input_field_spaces = self.schema.input_field_spaces
-
-        self.input_timeseries = Timeseries(
-            self.input_field_spaces,
-            self.input_vars,
-            area_weighted_least_squares=bool(
-                self.settings.area_weighted_least_squares
-            ),
-        )
-        self.input_timeseries.load_all(self.io)
+        self.input_timeseries = self.data.input_timeseries
 
         self.output_vars = self.schema.output_vars
         self.output_storage_bases = self.schema.output_storage_bases
         self.output_field_spaces = self.schema.output_field_spaces
-
-        self.output_timeseries = Timeseries(
-            self.output_field_spaces,
-            self.output_vars,
-            area_weighted_least_squares=bool(
-                self.settings.area_weighted_least_squares
-            ),
-        )
-        self.output_timeseries.load_all(self.io)
+        self.output_timeseries = self.data.output_timeseries
 
         self.interpolation_bases = self.schema.interpolation_bases
 
@@ -260,7 +235,7 @@ class Dynamics(object):
             self.mainfield,
             self.cs_basis,
             self.settings,
-            PFAC_matrix=PFAC_matrix_on_file,
+            PFAC_matrix=self.data.pfac_matrix,
             radial_continuation_basis=self.radial_continuation_basis,
         )
         self.horizontal_basis_evaluator = self.state.geometry.basis_evaluator
@@ -270,12 +245,8 @@ class Dynamics(object):
         else:
             self.current_time = np.float64(0)
 
-        # Store settings and PFAC matrix on file.
-        if settings_on_file is None:
-            self.io.save_dataset(self.settings, "settings", print_info=True)
-
-        if PFAC_matrix_on_file is None:
-            self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
+        self.data.save_settings_if_missing(print_info=True)
+        self.data.save_pfac_matrix_if_missing(self.state.geometry.T_to_Ve, print_info=True)
 
     @staticmethod
     def _field_spaces_from_bases(storage_bases, variables, mean_free_by_key=None):
@@ -395,7 +366,7 @@ class Dynamics(object):
                 # Save state and steady state time series.
                 if should_save_sample:
                     if run_inductive:
-                        self.output_timeseries.save("state", self.io)
+                        self.data.save_output_dataset("state")
                         if not quiet:
                             print(
                                 "Saved state at t = {:.2f} s".format(self.current_time),
@@ -404,7 +375,7 @@ class Dynamics(object):
                             )
 
                     if run_steady_state:
-                        self.output_timeseries.save("steady_state", self.io)
+                        self.data.save_output_dataset("steady_state")
                         if not quiet:
                             print(
                                 "Saved steady state at t = {:.2f} s".format(self.current_time),
@@ -443,9 +414,9 @@ class Dynamics(object):
                     "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
                 )
 
-            self.output_timeseries.save("state", self.io)
+            self.data.save_output_dataset("state")
             if bool(self.settings.save_steady_states):
-                self.output_timeseries.save("steady_state", self.io)
+                self.data.save_output_dataset("steady_state")
 
             if not quiet:
                 print(f"Imposed steady state at t = {float(self.current_time):.2f} s")
@@ -488,7 +459,7 @@ class Dynamics(object):
             ),
         }
 
-        self.output_timeseries.add_entry(key, state_data, time=self.current_time)
+        self.data.add_output_entry(key, state_data, time=self.current_time)
 
     def set_FAC(
         self,
@@ -921,7 +892,7 @@ class Dynamics(object):
                 input_time[time_index],
             )
 
-        self.input_timeseries.save(key, self.io)
+        self.data.save_input_dataset(key)
 
     def _add_input_coefficients(self, key, input_data, time):
         """Store input-basis coefficients directly in a time series."""
@@ -934,7 +905,7 @@ class Dynamics(object):
                 input_time[time_index],
             )
 
-        self.input_timeseries.save(key, self.io)
+        self.data.save_input_dataset(key)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.
