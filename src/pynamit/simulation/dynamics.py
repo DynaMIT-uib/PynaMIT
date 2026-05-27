@@ -199,12 +199,10 @@ class Dynamics(object):
         self.radial_continuation_basis = self.schema.radial_continuation_basis
 
         self.input_vars = self.schema.input_vars
-        self.input_storage_bases = self.schema.input_storage_bases
         self.input_field_spaces = self.schema.input_field_spaces
         self.input_timeseries = self.data.input_timeseries
 
         self.output_vars = self.schema.output_vars
-        self.output_storage_bases = self.schema.output_storage_bases
         self.output_field_spaces = self.schema.output_field_spaces
         self.output_timeseries = self.data.output_timeseries
 
@@ -252,6 +250,16 @@ class Dynamics(object):
     def _field_spaces_from_bases(storage_bases, variables, mean_free_by_key=None):
         """Return field-space descriptors for time-series schemas."""
         return field_spaces_from_bases(storage_bases, variables, mean_free_by_key)
+
+    @property
+    def input_storage_bases(self):
+        """Return input storage bases derived from the schema field spaces."""
+        return self.schema.input_storage_bases
+
+    @property
+    def output_storage_bases(self):
+        """Return output storage bases derived from the schema field spaces."""
+        return self.schema.output_storage_bases
 
     @classmethod
     def from_directory(cls, run_directory, **kwargs):

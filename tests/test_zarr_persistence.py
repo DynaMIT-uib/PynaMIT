@@ -47,6 +47,7 @@ def _build_state_timeseries() -> Timeseries:
 
 def _add_state(ts: Timeseries, time: float, scale: float) -> None:
     n_coeffs = ts.storage_bases["state"].index_length
+    assert ts.storage_bases["state"] is ts.get_storage_spec("state").basis
     values = np.arange(n_coeffs, dtype=float) + scale
     ts.add_entry(
         "state",

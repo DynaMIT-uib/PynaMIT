@@ -32,6 +32,8 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     assert schema.input_storage_bases["u"] is schema.sh_basis_mean_free
     assert schema.input_storage_bases["conductance"] is schema.sh_basis
     assert schema.output_storage_bases["state"] is schema.horizontal_basis
+    assert schema.input_storage_bases["jr"] is schema.input_field_spaces["jr"].basis
+    assert schema.output_storage_bases["state"] is schema.output_field_spaces["state"].basis
 
     assert schema.input_field_spaces["jr"].mean_free
     assert schema.input_field_spaces["Br"].mean_free

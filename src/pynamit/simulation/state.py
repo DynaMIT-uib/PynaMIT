@@ -14,7 +14,7 @@ from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 from scipy.sparse.linalg import LinearOperator
 
-from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
@@ -69,11 +69,11 @@ class State:
         )
 
         # Initialize state variables
-        self.u: Optional[FieldExpansion] = None
-        self.Br: Optional[FieldExpansion] = None
-        self.jr: Optional[FieldExpansion] = None
-        self.etaP: Optional[FieldExpansion] = None
-        self.etaH: Optional[FieldExpansion] = None
+        self.u: Optional[CoefficientField] = None
+        self.Br: Optional[CoefficientField] = None
+        self.jr: Optional[CoefficientField] = None
+        self.etaP: Optional[CoefficientField] = None
+        self.etaH: Optional[CoefficientField] = None
 
         # Invalidate all caches
         self._invalidate_caches()
@@ -408,21 +408,19 @@ class State:
             if updated_input is None:
                 continue
 
-            storage_base = input_timeseries.storage_bases.get(key)
+            field_space = input_timeseries.get_storage_spec(key)
             if key == "conductance":
                 conductance_updated = True
-                self.etaP = FieldExpansion(storage_base, coeffs=updated_input["etaP"])
-                self.etaH = FieldExpansion(storage_base, coeffs=updated_input["etaH"])
+                self.etaP = CoefficientField(field_space, coeffs=updated_input["etaP"])
+                self.etaH = CoefficientField(field_space, coeffs=updated_input["etaH"])
             elif key == "jr":
-                jr_coeffs = self._project_scalar_with_basis(storage_base, updated_input["jr"])
-                self.jr = FieldExpansion(storage_base, coeffs=jr_coeffs)
+                self.jr = CoefficientField(field_space, coeffs=updated_input["jr"])
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                br_coeffs = self._project_scalar_with_basis(storage_base, updated_input["Br"])
-                self.Br = FieldExpansion(storage_base, coeffs=br_coeffs)
+                self.Br = CoefficientField(field_space, coeffs=updated_input["Br"])
             elif key == "u":
-                self.u = FieldExpansion(storage_base, coeffs=updated_input["u"].reshape((2, -1)))
+                self.u = CoefficientField(field_space, coeffs=updated_input["u"].reshape((2, -1)))
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")

@@ -26,7 +26,11 @@ OUTPUT_VARIABLES = {
 
 @dataclass(frozen=True)
 class SimulationSchema:
-    """Basis and field-space schema for one simulation configuration."""
+    """Field-space schema for one simulation configuration.
+
+    Input/output storage bases are derived from the corresponding
+    ``FieldSpace`` mappings to keep coefficient-space metadata canonical.
+    """
 
     cs_basis: Any
     sh_basis: Any
@@ -35,11 +39,19 @@ class SimulationSchema:
     radial_continuation_basis: Any
     input_vars: dict[str, dict[str, str]]
     output_vars: dict[str, dict[str, str]]
-    input_storage_bases: dict[str, Any]
-    output_storage_bases: dict[str, Any]
     input_field_spaces: dict[str, FieldSpace]
     output_field_spaces: dict[str, FieldSpace]
     interpolation_bases: dict[str, Any]
+
+    @property
+    def input_storage_bases(self) -> dict[str, Any]:
+        """Return input storage bases derived from input field spaces."""
+        return storage_bases_from_field_spaces(self.input_field_spaces)
+
+    @property
+    def output_storage_bases(self) -> dict[str, Any]:
+        """Return output storage bases derived from output field spaces."""
+        return storage_bases_from_field_spaces(self.output_field_spaces)
 
 
 def _setting(settings: Any, name: str) -> Any:
@@ -53,6 +65,11 @@ def _setting(settings: Any, name: str) -> Any:
 def _copy_variable_schema(schema: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
     """Return a shallow copy of nested variable schema dictionaries."""
     return {key: dict(variables) for key, variables in schema.items()}
+
+
+def storage_bases_from_field_spaces(field_spaces: dict[str, FieldSpace]) -> dict[str, Any]:
+    """Return storage bases derived from field-space descriptors."""
+    return {key: field_space.basis for key, field_space in field_spaces.items()}
 
 
 def field_spaces_from_bases(
@@ -98,7 +115,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
     output_vars = _copy_variable_schema(OUTPUT_VARIABLES)
 
     if horizontal_basis_kind == "CS":
-        input_storage_bases = {
+        input_bases = {
             "jr": cs_basis,
             "Br": cs_basis,
             "conductance": cs_basis,
@@ -110,9 +127,9 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
             "conductance": False,
             "u": True,
         }
-        interpolation_bases = dict(input_storage_bases)
+        interpolation_bases = dict(input_bases)
     else:
-        input_storage_bases = {
+        input_bases = {
             "jr": sh_basis_mean_free,
             "Br": sh_basis_mean_free,
             "conductance": sh_basis,
@@ -126,10 +143,19 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
             "u": sh_basis_mean_free if bool(_setting(settings, "vector_u")) else cs_basis,
         }
 
-    output_storage_bases = {
+    output_bases = {
         "state": horizontal_basis,
         "steady_state": horizontal_basis,
     }
+
+    input_field_spaces = field_spaces_from_bases(
+        input_bases, input_vars, mean_free_by_key=input_mean_free
+    )
+    output_field_spaces = field_spaces_from_bases(
+        output_bases,
+        output_vars,
+        mean_free_by_key={"state": True, "steady_state": True},
+    )
 
     return SimulationSchema(
         cs_basis=cs_basis,
@@ -139,15 +165,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
         radial_continuation_basis=radial_continuation_basis,
         input_vars=input_vars,
         output_vars=output_vars,
-        input_storage_bases=input_storage_bases,
-        output_storage_bases=output_storage_bases,
-        input_field_spaces=field_spaces_from_bases(
-            input_storage_bases, input_vars, mean_free_by_key=input_mean_free
-        ),
-        output_field_spaces=field_spaces_from_bases(
-            output_storage_bases,
-            output_vars,
-            mean_free_by_key={"state": True, "steady_state": True},
-        ),
+        input_field_spaces=input_field_spaces,
+        output_field_spaces=output_field_spaces,
         interpolation_bases=interpolation_bases,
     )

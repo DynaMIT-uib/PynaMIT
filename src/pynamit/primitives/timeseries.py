@@ -10,6 +10,7 @@ the simulation.
 import numpy as np
 import pandas as pd
 import xarray as xr
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_space import FieldSpace
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -68,9 +69,6 @@ class Timeseries:
             }
         self.variables = self.vars
 
-        self.storage_bases = {
-            key: field_space.basis for key, field_space in self.field_spaces.items()
-        }
         self.area_weighted_least_squares = bool(area_weighted_least_squares)
 
         # Initialize variables and timeseries storage
@@ -86,6 +84,15 @@ class Timeseries:
                 self.field_spaces[key].multiindex_arrays(),
                 names=self.field_spaces[key].index_names,
             )
+
+    @property
+    def storage_bases(self):
+        """Return storage bases derived from the canonical field spaces."""
+        return {key: field_space.basis for key, field_space in self.field_spaces.items()}
+
+    def get_storage_basis(self, key):
+        """Return the storage basis for one stored series."""
+        return self.field_spaces[key].basis
 
     def _common_field_type(self, key):
         """Return the shared field type for one time-series group."""
@@ -126,18 +133,19 @@ class Timeseries:
         dataset = io.load_dataset(key)
 
         if dataset is not None:
+            storage_basis = self.get_storage_basis(key)
             basis_multiindex = pd.MultiIndex.from_arrays(
                 [
-                    dataset[self.storage_bases[key].index_names[i]].values
-                    for i in range(len(self.storage_bases[key].index_names))
+                    dataset[storage_basis.index_names[i]].values
+                    for i in range(len(storage_basis.index_names))
                 ],
-                names=self.storage_bases[key].index_names,
+                names=storage_basis.index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
             self.datasets[key] = dataset.drop_vars(
-                self.storage_bases[key].index_names
+                storage_basis.index_names
             ).assign_coords(coords)
             self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
             self._full_save_required[key] = False
@@ -161,10 +169,11 @@ class Timeseries:
         """
         data_vars = {}
         for var in data:
-            values = self.field_spaces[key].validate_coefficients(
-                self.field_spaces[key].project_mean_free(data[var]),
+            values = CoefficientField(
+                self.field_spaces[key],
+                data[var],
                 name=f"{key}.{var}",
-            )
+            ).coeffs
             data_vars[self.get_data_var_name(key, var)] = (
                 ["time", "i"],
                 values.reshape((1, -1)),

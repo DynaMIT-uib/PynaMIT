@@ -1,19 +1,21 @@
 """Field expansion module.
 
-This module contains the FieldExpansion class for representing fields as
-basis expansions.
+This module contains the FieldExpansion compatibility class for coefficient
+fields that can also be projected to and evaluated on grids.
 """
 
-from pynamit.primitives.field_space import FieldSpace
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.sphere.core import is_grid_basis
 
 
-class FieldExpansion(object):
-    """Class for representing fields as basis expansions.
+class FieldExpansion(CoefficientField):
+    """Compatibility convenience for grid-aware coefficient fields.
 
-    This class stores and manages expansion coefficients for scalar and
-    horizontal vector fields in a given basis and provides methods for
-    conversion between coefficient and grid representations.
+    ``CoefficientField`` owns the coefficient validation and mean-free
+    projection semantics. ``FieldExpansion`` adds conversion between
+    coefficient and grid representations for older call sites and user code.
+    New internal code should generally combine ``CoefficientField`` with
+    ``FieldProjector`` or ``BasisEvaluator`` directly.
 
     Attributes
     ----------
@@ -54,33 +56,27 @@ class FieldExpansion(object):
             If `field_type` is invalid or if insufficient initialization
             parameters are provided.
         """
-        if isinstance(basis, FieldSpace):
-            field_type = basis.field_type if field_type is None else field_type
-        elif field_type is None:
-            field_type = "scalar"
+        field_space = self._normalize_field_space(basis, field_type)
+        if coeffs is None:
+            if (basis_evaluator is None) or (grid_values is None):
+                raise ValueError(
+                    "Either coeffs or basis evaluator and grid values must be provided."
+                )
+            coeffs = self._coeffs_from_grid(field_space, basis_evaluator, grid_values)
 
-        if field_type not in ["scalar", "tangential"]:
-            raise ValueError("field type must be either 'scalar' or 'tangential'.")
+        super().__init__(field_space, coeffs=coeffs)
 
-        self.field_space = FieldSpace.from_basis(basis, field_type=field_type)
-        self.basis = self.field_space.basis
-        self.field_type = self.field_space.field_type
-        self.mean_free = self.field_space.mean_free
-
-        if coeffs is not None:
-            self.coeffs = self.field_space.validate_coefficients(
-                self.field_space.project_mean_free(coeffs),
-                name="FieldExpansion.coeffs",
-            )
-        elif (basis_evaluator is not None) and (grid_values is not None):
-            self.coeffs = self.field_space.validate_coefficients(
-                self.field_space.project_mean_free(
-                    self.coeffs_from_grid(basis_evaluator, grid_values)
-                ),
-                name="FieldExpansion.coeffs",
-            )
+    @staticmethod
+    def _coeffs_from_grid(field_space, basis_evaluator, grid_values):
+        """Compute basis coefficients from grid values for one field space."""
+        if is_grid_basis(field_space.basis):
+            return grid_values
+        if field_space.field_type == "scalar":
+            return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
+        if field_space.field_type == "tangential":
+            return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
         else:
-            raise ValueError("Either coeffs or basis evaluator and grid values must be provided.")
+            raise ValueError("field type must be either 'scalar' or 'tangential'.")
 
     def coeffs_from_grid(self, basis_evaluator, grid_values):
         """Compute basis coefficients from grid values.
@@ -104,15 +100,7 @@ class FieldExpansion(object):
         - scalar: Direct inversion
         - tangential: Helmholtz decomposition based inversion
         """
-        if is_grid_basis(self.basis):
-            # If the basis is a grid, return the grid values as
-            # coefficients.
-            return grid_values
-        else:
-            if self.field_type == "scalar":
-                return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
-            elif self.field_type == "tangential":
-                return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
+        return self._coeffs_from_grid(self.field_space, basis_evaluator, grid_values)
 
     def to_grid(self, basis_evaluator):
         """Evaluate field on grid points.

@@ -3,7 +3,7 @@
 import numpy as np
 
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere import Grid
 from pynamit.sphere.core import SurfaceOperators, is_grid_basis
@@ -87,7 +87,7 @@ class FieldProjector:
 
         return np.asarray(
             [
-                self.field_space.validate_coefficients(row).reshape(-1)
+                CoefficientField(self.field_space, row).coeffs.reshape(-1)
                 for row in coeff_rows
             ]
         )
@@ -269,9 +269,10 @@ class FieldProjector:
 
     def _grid_to_coefficients(self, basis_evaluator, grid_values):
         """Fit one grid-value slice to the target field space."""
-        expansion = FieldExpansion(
-            self.field_space,
-            basis_evaluator=basis_evaluator,
-            grid_values=grid_values,
-        )
-        return expansion.coeffs
+        if is_grid_basis(self.field_space.basis):
+            return grid_values
+        if self.field_space.field_type == "scalar":
+            return basis_evaluator.grid_to_basis(grid_values, helmholtz=False)
+        if self.field_space.field_type == "tangential":
+            return basis_evaluator.grid_to_basis(grid_values, helmholtz=True)
+        raise ValueError("field type must be either 'scalar' or 'tangential'.")

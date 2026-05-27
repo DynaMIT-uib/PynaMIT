@@ -9,11 +9,12 @@ import cartopy.crs as ccrs
 
 from pynamit.sphere import Grid
 from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.sphere import CSBasis, SHBasis
+from pynamit.sphere.core import is_grid_basis
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
@@ -22,8 +23,10 @@ def _evaluate_scalar_coeffs_to_grid(coeffs, storage_basis, plot_evaluator, targe
     """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
         return np.full(target_shape, np.nan)
-    field_exp = FieldExpansion(storage_basis, coeffs=coeffs, field_type="scalar")
-    return field_exp.to_grid(plot_evaluator).reshape(target_shape)
+    field = CoefficientField(storage_basis, coeffs=coeffs, field_type="scalar")
+    if is_grid_basis(field.basis):
+        return field.coeffs.reshape(target_shape)
+    return plot_evaluator.basis_to_grid(field.coeffs, helmholtz=False).reshape(target_shape)
 
 
 def _evaluate_tangential_coeffs_to_grid_components(
@@ -32,10 +35,13 @@ def _evaluate_tangential_coeffs_to_grid_components(
     """Evaluate tangential coefficients to grid components."""
     if coeffs is None:
         return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
-    field_exp = FieldExpansion(
+    field = CoefficientField(
         storage_basis, coeffs=coeffs.reshape((2, -1)), field_type="tangential"
     )
-    field_grid_components = field_exp.to_grid(plot_evaluator)
+    if is_grid_basis(field.basis):
+        field_grid_components = field.coeffs
+    else:
+        field_grid_components = plot_evaluator.basis_to_grid(field.coeffs, helmholtz=True)
     field_t_2d = field_grid_components[0].reshape(target_shape)
     field_p_2d = field_grid_components[1].reshape(target_shape)
     return field_t_2d, field_p_2d
@@ -246,7 +252,7 @@ def plot_input_vs_interpolated(
                 pynamit_ts_key, time_val, interpolation=False
             )
             if timeseries_entry:
-                storage_basis = input_timeseries.storage_bases[pynamit_ts_key]
+                storage_basis = input_timeseries.get_storage_basis(pynamit_ts_key)
                 if pynamit_ts_key not in plot_evaluators:
                     plot_evaluators[pynamit_ts_key] = BasisEvaluator(
                         storage_basis,

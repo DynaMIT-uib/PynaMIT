@@ -12,6 +12,8 @@ CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
     Class for simulating ionospheric dynamics.
+CoefficientField : class
+    Class for storing validated field coefficients.
 FieldEvaluator : class
     Class for evaluating fields.
 Grid : class
@@ -23,7 +25,7 @@ PynamEye : class
 SHBasis : class
     Class for spherical harmonics basis functions.
 FieldExpansion : class
-    Class for storing vector data and defining vector operations.
+    Compatibility class for grid-aware coefficient fields.
 FieldProjector : class
     Class for projecting gridded fields to coefficient spaces.
 FieldSpace : class
@@ -51,6 +53,7 @@ from .sphere import (
     normalize_horizontal_basis_kind,
 )
 from .primitives.basis_evaluator import BasisEvaluator
+from .primitives.coefficient_field import CoefficientField
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_expansion import FieldExpansion
 from .primitives.field_projector import FieldProjector
@@ -68,6 +71,7 @@ __all__ = [
     "BasisView",
     "BasisEvaluator",
     "CSBasis",
+    "CoefficientField",
     "Dynamics",
     "FieldEvaluator",
     "FieldExpansion",

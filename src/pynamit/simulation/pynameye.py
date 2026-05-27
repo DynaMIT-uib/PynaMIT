@@ -14,7 +14,7 @@ from dipole import Dipole
 from polplot import Polarplot
 import datetime
 from pynamit.sphere import Grid
-from pynamit.primitives.field_expansion import FieldExpansion
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.io import IO
 from pynamit.sphere import CSBasis, SHBasis
 from pynamit.primitives.basis_evaluator import BasisEvaluator
@@ -272,14 +272,13 @@ class PynamEye(object):
         )
 
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
-        self.u = FieldExpansion(
+        self.u = CoefficientField(
             self.basis,
-            basis_evaluator=self.evaluator["num"],
             coeffs=self.u_coeffs,
             field_type="tangential",
         )
         self.u_theta_on_grid, self.u_phi_on_grid = np.split(
-            self.u.to_grid(basis_evaluator=self.evaluator["num"]), 2
+            self.evaluator["num"].basis_to_grid(self.u.coeffs, helmholtz=True), 2
         )
 
         uxB_theta = self.u_phi_on_grid * self.b_evaluator.Br
@@ -552,10 +551,10 @@ class PynamEye(object):
                 kwargs[key] = self.joule_defaults[key]
 
         # Calculate electric field.
-        e_coeffs = FieldExpansion(
+        e_coeffs = CoefficientField(
             self.basis, coeffs=np.array([self.m_Phi, self.m_W]), field_type="tangential"
         )
-        E = e_coeffs.to_grid(self.evaluator[region]) / self.RI
+        E = self.evaluator[region].basis_to_grid(e_coeffs.coeffs, helmholtz=True) / self.RI
         print("todo: is the scaling as expected?")
 
         # Calculate current.
