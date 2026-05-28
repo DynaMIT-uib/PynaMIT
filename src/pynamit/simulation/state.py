@@ -587,13 +587,17 @@ class State:
             # Fallback to scipy.solve_ivp for other integrators
             logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
 
-            # Define the right-hand side of the ODE for the solver.
-            # The non-induced part is constant, so it's captured from
-            # the outer scope.
+            m_ind_to_E_df_matrix = to_numpy(self.m_ind_to_E_df_matrix)
+            E_noind_df = to_numpy(
+                self.geometry.helmholtz_divergence_free_potential_operator.matvec(
+                    backend_E_noind
+                )
+            )
+            rhs_scale = float(self.geometry.E_df_to_d_m_ind_dt)
+
             def rhs(t, y):
-                y_backend = to_jax(y) if use_jax() else y
-                dy = self._calculate_d_m_ind_dt(y_backend, backend_E_noind)
-                return to_numpy(dy)
+                del t
+                return rhs_scale * (m_ind_to_E_df_matrix @ y + E_noind_df)
 
             # Integrate from t=0 to t=dt. The ODE is autonomous
             # (not t-dependent).
@@ -615,7 +619,8 @@ class State:
             # The result shape is (n_vars, n_times),
             # so we take the last time point.
             result = sol.y[:, -1]
-            return self.project_scalar_mean_free(result)
+            result = self.project_scalar_mean_free(result)
+            return to_jax(result) if use_jax() else result
 
     def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
         """Calculate the steady-state induced potential."""

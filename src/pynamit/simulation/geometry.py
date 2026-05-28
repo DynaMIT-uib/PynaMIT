@@ -14,6 +14,7 @@ import xarray as xr
 
 from pynamit.math.constants import mu0
 from pynamit.math import as_linear_map
+from pynamit.math.backend import to_numpy
 from pynamit.sphere import Grid
 from pynamit.primitives.field_transform import FieldTransform, resolve_sqrt_weights
 from pynamit.primitives.field_space import FieldSpace
@@ -502,10 +503,11 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_imp_to_JS is None:
-            G_T_to_JS = -self.field_transform.G_grad / mu0
-            self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
-                self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
-            )
+            G_T_to_JS = -to_numpy(self.field_transform.G_grad) / mu0
+            G_Ve_to_JS = to_numpy(self.G_Ve_to_JS)
+            T_to_Ve = to_numpy(self.T_to_Ve.values)
+            PFAC_to_JS = np.einsum("ijk,kl->ijl", G_Ve_to_JS, T_to_Ve, optimize=False)
+            self._G_m_imp_to_JS = G_T_to_JS + PFAC_to_JS
         return self._G_m_imp_to_JS
 
     @property
